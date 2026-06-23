@@ -4628,8 +4628,9 @@ export function SectionEditorPanel({
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 {items.map((leaf, idx) => {
-                                  const currentValue =
-                                    (leaf.item[itemField] as string) || "";
+                                  const currentValue = String(
+                                    getValueAtFieldPath(leaf.item, itemField) ?? "",
+                                  );
                                   const leafLabel =
                                     leaf.parentLabel
                                       .split(" > ")
@@ -4692,8 +4693,9 @@ export function SectionEditorPanel({
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 {items.map((leaf, idx) => {
-                                  const currentValue =
-                                    (leaf.item[itemField] as string) || "";
+                                  const currentValue = String(
+                                    getValueAtFieldPath(leaf.item, itemField) ?? "",
+                                  );
                                   const altValue =
                                     (leaf.item.alt as string) || "";
                                   const displaySrc =
@@ -4749,7 +4751,7 @@ export function SectionEditorPanel({
                       leaf: { parentPath: string[]; parentIndices: number[]; parentLabel: string; item: Record<string, unknown> },
                       idx: number,
                     ) => {
-                      const currentValue = (leaf.item[itemField] as string) || "";
+                      const currentValue = String(getValueAtFieldPath(leaf.item, itemField) ?? "");
                       const leafLabel = leaf.parentLabel || `Item ${idx + 1}`;
                       const handleNestedChange = (val: string | number | boolean) => updateNestedField(leaf, val);
 
@@ -4800,7 +4802,8 @@ export function SectionEditorPanel({
                             </div>
                           );
                         case "boolean-toggle": {
-                          const boolValue = leaf.item[itemField] === true || leaf.item[itemField] === "true";
+                          const nestedFieldValue = getValueAtFieldPath(leaf.item, itemField);
+                          const boolValue = nestedFieldValue === true || nestedFieldValue === "true";
                           return (
                             <div key={idx} className="flex items-center gap-3">
                               <Label className="text-sm text-muted-foreground">{leafLabel}</Label>
@@ -5410,8 +5413,7 @@ export function SectionEditorPanel({
                       </Label>
                       <div className="flex flex-wrap gap-2">
                         {safeArrayData.map((item, index) => {
-                          const currentValue =
-                            (item[itemField] as string) || "";
+                          const currentValue = String(getValueAtFieldPath(item, itemField) ?? "");
                           const itemLabel =
                             (item.tab_label as string) ||
                             (item.title as string) ||
@@ -5466,8 +5468,7 @@ export function SectionEditorPanel({
                         </div>
                         <div className="space-y-2">
                           {safeArrayData.map((item, index) => {
-                            const currentValue =
-                              (item[itemField] as string) || "";
+                            const currentValue = String(getValueAtFieldPath(item, itemField) ?? "");
                             const altValue = (item.alt as string) || "";
                             const logoHeight =
                               (item.logoHeight as string) || "";
@@ -5631,8 +5632,7 @@ export function SectionEditorPanel({
                       </Label>
                       <div className="flex flex-wrap gap-2">
                         {safeArrayData.map((item, index) => {
-                          const currentValue =
-                            (item[itemField] as string) || "";
+                          const currentValue = String(getValueAtFieldPath(item, itemField) ?? "");
                           const altValue = (item.alt as string) || "";
                           // For ID fields, look up the actual src from registry
                           const displaySrc =
@@ -5784,7 +5784,7 @@ export function SectionEditorPanel({
 
                       <div className="space-y-2">
                         {safeArrayData.map((item, index) => {
-                          const currentSrc = (item[itemField] as string) || "";
+                          const currentSrc = String(getValueAtFieldPath(item, itemField) ?? "");
                           const currentAlt = (item.alt as string) || "";
                           const displaySrc =
                             imageRegistry?.images?.[currentSrc]?.src ||
@@ -6397,7 +6397,7 @@ export function SectionEditorPanel({
                     item: Record<string, unknown>,
                     index: number,
                   ) => {
-                    const currentValue = (item[itemField] as string) || "";
+                    const currentValue = String(getValueAtFieldPath(item, itemField) ?? "");
                     const itemLabel = getItemLabel(item, index);
                     const handleChange = (val: string | number | boolean) =>
                       updateArrayItemField(arrayPath, index, itemField, val);
@@ -6464,7 +6464,8 @@ export function SectionEditorPanel({
                           </div>
                         );
                       case "boolean-toggle": {
-                        const boolValue = item[itemField] === true || item[itemField] === "true";
+                        const fieldValue = getValueAtFieldPath(item, itemField);
+                        const boolValue = fieldValue === true || fieldValue === "true";
                         return (
                           <div key={index} className="flex items-center gap-3">
                             <Label className="text-sm text-muted-foreground">{itemLabel}</Label>

@@ -70,6 +70,8 @@ sections:
     section_id: hero-yt9c4j
     video:
       url: https://www.youtube.com/watch?v=a6aYSobiuBc
+    form:
+      conversion_name: request_more_info
   - type: modal
     version: "1.0"
     heading: Get the Program Details
@@ -309,7 +311,34 @@ sections:
           - text: Ask for help, feedback, or an explanation whenever you need it
           - text: Your always-on tutor for all self-paced modules
           - text: Adapts to your skill level and what you are working on
-    section_id: human_and_ai_duo-hz7p4j
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_asian-133x500.webp
+        alt: Asian student learning to code
+        object_fit: cover
+        object_position: 40%20%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latin_male-133x500.webp
+        alt: Latino student working on a project
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_african-133x500.webp
+        alt: African student collaborating with team
+        object_fit: cover
+        object_position: 50%15%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latina_female-133x500.webp
+        alt: Latina student celebrating success
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group_6685_(1)_1765300162049.png
+    image_alt: Woman working on laptop in cafe
+    background: bg-background
+    paddingY:
+      mobile: sm none
+      desktop: md none
+    section_id: human_and_ai_duo-99s71d
   - type: pricing
     version: "1.0"
     variant: product
@@ -332,8 +361,8 @@ sections:
       - icon: IconCheck
         text: One 1:1 mentorship session included. Add more at any time for $25 each.
     cta:
-      text: Get more info
-      url: "#modal-aifluency"
+      text: Enroll Now
+      url: https://4geeks.com/es/checkout?plan=ai-fluency&cohort=1706
       variant: primary
     section_id: pricing-aifluency
     marginY:
@@ -368,8 +397,8 @@ sections:
       - icon: IconCheck
         text: We work with trusted partners to offer flexible and affordable financing, so you can focus on your future, not your fees.
     cta:
-      text: Get more information
-      url: /es/apply
+      text: Enroll Now
+      url: https://4geeks.com/es/checkout?plan=ai-fluency&cohort=1706
       variant: primary
     section_id: pricing-qhcsa1
     marginY:

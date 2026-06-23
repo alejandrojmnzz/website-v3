@@ -54,12 +54,11 @@ function isExcluded(plan: PricingPlanCardsPlan, feature: PricingPlanCardsFeature
 function PricingCard({
   plan,
   features,
-  onCtaClick,
 }: {
   plan: PricingPlanCardsPlan;
   features: PricingPlanCardsFeature[];
-  onCtaClick: (url: string) => void;
 }) {
+  const handleLinkClick = useInternalNav();
   const isFeatured = plan.featured;
 
   return (
@@ -145,17 +144,18 @@ function PricingCard({
       )}
 
       {/* CTA */}
-      <button
-        onClick={() => onCtaClick(plan.cta.url)}
+      <a
+        href={plan.cta.url}
+        onClick={handleLinkClick}
         data-testid={`button-cta-plan-${plan.name.toLowerCase().replace(/\s+/g, "-")}`}
-        className={`mt-auto w-full py-3 rounded-xl text-[15px] font-extrabold cursor-pointer transition-opacity duration-150 ${
+        className={`mt-auto w-full py-3 rounded-xl text-[15px] font-extrabold cursor-pointer transition-opacity duration-150 flex items-center justify-center ${
           isFeatured
             ? "bg-green-500 hover:bg-green-600 text-white border-0 shadow-[0_3px_12px_rgba(34,197,94,0.35)]"
             : "bg-primary text-primary-foreground"
         }`}
       >
         {plan.cta.label}
-      </button>
+      </a>
     </div>
   );
 }
@@ -164,11 +164,10 @@ function PricingCard({
 
 function MiniPricingCard({
   plan,
-  onCtaClick,
 }: {
   plan: PricingPlanCardsPlan;
-  onCtaClick: (url: string) => void;
 }) {
+  const handleLinkClick = useInternalNav();
   const isFeatured = plan.featured;
   return (
     <div className="relative flex flex-col">
@@ -228,17 +227,18 @@ function MiniPricingCard({
           </div>
         )}
 
-        <button
-          onClick={() => onCtaClick(plan.cta.url)}
+        <a
+          href={plan.cta.url}
+          onClick={handleLinkClick}
           data-testid={`button-cta-mini-plan-${plan.name.toLowerCase().replace(/\s+/g, "-")}`}
-          className={`mt-auto w-full py-2.5 rounded-xl text-[13px] font-extrabold cursor-pointer transition-opacity duration-150 ${
+          className={`mt-auto w-full py-2.5 rounded-xl text-[13px] font-extrabold cursor-pointer transition-opacity duration-150 flex items-center justify-center ${
             isFeatured
               ? "bg-green-500 hover:bg-green-600 text-white border-0 shadow-[0_2px_8px_rgba(34,197,94,0.35)]"
               : "bg-primary text-primary-foreground"
           }`}
         >
           {plan.cta.label}
-        </button>
+        </a>
       </div>
     </div>
   );
@@ -247,8 +247,6 @@ function MiniPricingCard({
 // ─── Main section component ───────────────────────────────────────────────────
 
 export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) {
-  const nav = useInternalNav();
-
   return (
     <section className="bg-background py-8 sm:py-14 px-4 sm:px-5 font-inter" data-testid="section-pricing-plan-cards">
       <div className="max-w-5xl mx-auto">
@@ -314,7 +312,7 @@ export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) 
           {/* Mini cards — stacked vertically */}
           <div className="flex flex-col gap-3 mt-5">
             {data.plans.map((plan) => (
-              <MiniPricingCard key={plan.name} plan={plan} onCtaClick={nav} />
+              <MiniPricingCard key={plan.name} plan={plan} />
             ))}
           </div>
         </div>
@@ -329,7 +327,7 @@ export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) 
                 !plan.featured ? "bg-card rounded-[20px]" : ""
               }`}
             >
-              <PricingCard plan={plan} features={data.features} onCtaClick={nav} />
+              <PricingCard plan={plan} features={data.features} />
             </div>
           ))}
         </div>
