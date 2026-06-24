@@ -16,7 +16,10 @@ overlays:
         for Independent Education in Florida. Our job guarantee bundle is not
         offered in Florida where our only physical location is in Miami.
       buttons:
-        - label: I do not live in Florida
+        - label: I do not live in Florida, USA
           variant: default
-          href: /home-florida
+          href: /
+        - label: I live in Florida, USA
+          variant: secondary
+          href: /en/location/miami-usa
       image_id: ''

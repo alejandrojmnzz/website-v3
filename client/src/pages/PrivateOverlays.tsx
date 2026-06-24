@@ -13,6 +13,8 @@ import {
   IconAdjustments,
   IconChevronDown,
   IconPhoto,
+  IconArrowUp,
+  IconArrowDown,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -637,19 +639,49 @@ export default function PrivateOverlays() {
                           const updated = (sheetDraft.content.buttons ?? []).filter((_, idx) => idx !== i);
                           patchContent({ buttons: updated });
                         };
+                        const moveBtn = (dir: -1 | 1) => {
+                          const arr = [...(sheetDraft.content.buttons ?? [])];
+                          const j = i + dir;
+                          if (j < 0 || j >= arr.length) return;
+                          [arr[i], arr[j]] = [arr[j], arr[i]];
+                          patchContent({ buttons: arr });
+                        };
+                        const total = (sheetDraft.content.buttons ?? []).length;
                         return (
                           <div key={i} className="rounded-md border p-3 space-y-2.5 bg-muted/30">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-xs font-medium text-muted-foreground">Button {i + 1}</span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={removeBtn}
-                                data-testid={`button-remove-overlay-button-${i}`}
-                              >
-                                <IconTrash size={14} />
-                              </Button>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => moveBtn(-1)}
+                                  disabled={i === 0}
+                                  data-testid={`button-move-up-overlay-button-${i}`}
+                                >
+                                  <IconArrowUp size={14} />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => moveBtn(1)}
+                                  disabled={i === total - 1}
+                                  data-testid={`button-move-down-overlay-button-${i}`}
+                                >
+                                  <IconArrowDown size={14} />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={removeBtn}
+                                  data-testid={`button-remove-overlay-button-${i}`}
+                                >
+                                  <IconTrash size={14} />
+                                </Button>
+                              </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
