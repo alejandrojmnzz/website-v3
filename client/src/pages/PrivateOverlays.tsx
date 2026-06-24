@@ -8,6 +8,7 @@ import {
   IconLayersIntersect,
   IconLoader2,
   IconEye,
+  IconPencil,
   IconFileText,
   IconAdjustments,
 } from "@tabler/icons-react";
@@ -406,7 +407,7 @@ export default function PrivateOverlays() {
                     title="Edit overlay"
                     data-testid={`button-edit-overlay-${overlay.id}`}
                   >
-                    <IconCode size={16} />
+                    <IconPencil size={16} />
                   </Button>
                   <Button
                     size="icon"
