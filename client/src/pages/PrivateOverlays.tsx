@@ -501,7 +501,7 @@ export default function PrivateOverlays() {
       {/* 3-tab overlay editor sheet */}
       <Sheet open={!!sheetDraft} onOpenChange={(open) => { if (!open) closeSheet(); }}>
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
-          <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+          <SheetHeader className="px-6 pt-6 pb-4 shrink-0">
             <SheetTitle className="flex items-center gap-2">
               <IconLayersIntersect size={18} />
               {isNewOverlay ? "New overlay" : sheetDraft?.id}
@@ -518,16 +518,16 @@ export default function PrivateOverlays() {
             onValueChange={handleTabChange}
             className="flex-1 flex flex-col overflow-hidden"
           >
-            <TabsList className="mx-6 mt-4 shrink-0 self-start">
-              <TabsTrigger value="content" className="flex items-center gap-1.5" data-testid="tab-content">
+            <TabsList className="w-full shrink-0 rounded-none border-b bg-transparent p-0 h-auto justify-start gap-0">
+              <TabsTrigger value="content" className="flex items-center gap-1.5 rounded-none px-5 py-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px" data-testid="tab-content">
                 <IconFileText size={14} />
                 Content
               </TabsTrigger>
-              <TabsTrigger value="conditions" className="flex items-center gap-1.5" data-testid="tab-conditions">
+              <TabsTrigger value="conditions" className="flex items-center gap-1.5 rounded-none px-5 py-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px" data-testid="tab-conditions">
                 <IconAdjustments size={14} />
                 Conditions
               </TabsTrigger>
-              <TabsTrigger value="yaml" className="flex items-center gap-1.5" data-testid="tab-yaml">
+              <TabsTrigger value="yaml" className="flex items-center gap-1.5 rounded-none px-5 py-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px" data-testid="tab-yaml">
                 <IconCode size={14} />
                 YAML
               </TabsTrigger>
