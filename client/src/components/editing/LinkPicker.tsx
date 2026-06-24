@@ -250,7 +250,7 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
   const sectionsLoading = !!contextPath && remoteSectionsLoading;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverTrigger asChild>
         <button
           type="button"
