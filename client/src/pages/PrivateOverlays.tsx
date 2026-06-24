@@ -213,14 +213,16 @@ export default function PrivateOverlays() {
 
   const overlays: Overlay[] = data?.overlays ?? [];
 
-  async function saveAll(updated: Overlay[]) {
+  async function saveAll(updated: Overlay[]): Promise<boolean> {
     setSaving(true);
     try {
       await apiRequest("PUT", "/api/overlays", { overlays: updated });
       await queryClient.invalidateQueries({ queryKey: ["/api/overlays"] });
       toast({ title: "Overlays saved" });
+      return true;
     } catch {
       toast({ title: "Failed to save overlays", variant: "destructive" });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -248,17 +250,12 @@ export default function PrivateOverlays() {
 
   function handleTabChange(tab: string) {
     if (tab === "yaml" && sheetDraft) {
+      // Entering YAML tab: serialize current draft so it reflects any form edits
       setSheetYamlText(yaml.dump(sheetDraft, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
       setSheetYamlError(null);
-    } else if (sheetTab === "yaml") {
-      try {
-        const parsed = yaml.load(sheetYamlText) as Overlay;
-        if (parsed && typeof parsed === "object" && parsed.id) {
-          setSheetDraft(parsed);
-        }
-      } catch { /* keep existing draft */ }
-      setSheetYamlError(null);
     }
+    // Leaving YAML tab: live parsing already keeps sheetDraft in sync.
+    // Leave any existing sheetYamlError visible so the user knows their YAML is invalid.
     setSheetTab(tab as SheetTab);
   }
 
@@ -290,20 +287,9 @@ export default function PrivateOverlays() {
 
   async function saveSheet() {
     if (!sheetDraft) return;
-    let toSave = sheetDraft;
-    if (sheetTab === "yaml") {
-      try {
-        const parsed = yaml.load(sheetYamlText) as Overlay;
-        if (!parsed || typeof parsed !== "object" || !parsed.id) {
-          setSheetYamlError("Invalid YAML: missing required field 'id'.");
-          return;
-        }
-        toSave = parsed;
-      } catch (e: unknown) {
-        setSheetYamlError(`YAML parse error: ${e instanceof Error ? e.message : String(e)}`);
-        return;
-      }
-    }
+    // If YAML tab has an active parse error, block save
+    if (sheetTab === "yaml" && sheetYamlError) return;
+    const toSave = sheetDraft;
     if (!toSave.id?.trim()) {
       toast({ title: "Overlay ID is required", variant: "destructive" });
       return;
@@ -314,8 +300,8 @@ export default function PrivateOverlays() {
       const updated = isNew
         ? [...overlays, toSave]
         : overlays.map((o) => (o.id === sheetDraft.id ? toSave : o));
-      await saveAll(updated);
-      closeSheet();
+      const ok = await saveAll(updated);
+      if (ok) closeSheet();
     } finally {
       setSheetSaving(false);
     }
@@ -799,7 +785,19 @@ export default function PrivateOverlays() {
                     value={sheetYamlText}
                     onChange={(val) => {
                       setSheetYamlText(val);
-                      setSheetYamlError(null);
+                      try {
+                        const parsed = yaml.load(val) as Overlay;
+                        if (!parsed || typeof parsed !== "object" || !parsed.id) {
+                          setSheetYamlError("Invalid YAML: missing required field 'id'.");
+                        } else {
+                          setSheetDraft(parsed);
+                          setSheetYamlError(null);
+                        }
+                      } catch (e: unknown) {
+                        setSheetYamlError(
+                          `YAML parse error: ${e instanceof Error ? e.message : String(e)}`
+                        );
+                      }
                     }}
                     className="text-sm"
                   />
