@@ -131,14 +131,33 @@ function newOverlay(): Overlay {
   };
 }
 
+function PreviewButtons({ buttons }: { buttons?: OverlayButton[] }) {
+  if (!buttons || buttons.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {buttons.map((btn, i) => (
+        <span
+          key={i}
+          className={
+            btn.variant === "outline"
+              ? "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium border border-border cursor-default select-none"
+              : btn.variant === "secondary"
+              ? "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-secondary text-secondary-foreground cursor-default select-none"
+              : btn.variant === "ghost"
+              ? "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium cursor-default select-none"
+              : "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground cursor-default select-none"
+          }
+        >
+          {btn.label || "Button"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
   const { content } = overlay;
-
-  const ctaButton = content.cta?.label ? (
-    <span className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground cursor-default select-none">
-      {content.cta.label}
-    </span>
-  ) : null;
+  const buttons = content.buttons ?? [];
 
   if (overlay.component === "top_banner") {
     return (
@@ -147,7 +166,11 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
           <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
             {content.title && <span className="font-semibold text-sm">{content.title}</span>}
             {content.body && <span className="text-sm opacity-90">{content.body}</span>}
-            {ctaButton}
+            {buttons.length > 0 && (
+              <span className="inline-flex items-center rounded-md bg-primary-foreground/20 border border-primary-foreground/30 px-2.5 py-1 text-xs font-medium cursor-default select-none">
+                {buttons[0].label || "Button"}
+              </span>
+            )}
           </div>
           <span className="shrink-0 opacity-60 cursor-default">
             <IconX size={14} />
@@ -169,7 +192,7 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
             <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
           </div>
           {content.body && <p className="text-xs text-muted-foreground mb-2">{content.body}</p>}
-          {ctaButton}
+          {buttons.length > 0 && <PreviewButtons buttons={buttons} />}
         </div>
         <div className="h-10 flex items-start pl-3 pt-3">
           <span className="text-xs text-muted-foreground">Page content</span>
@@ -187,12 +210,11 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
             <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
           </div>
           {content.body && <p className="text-xs text-muted-foreground mb-4">{content.body}</p>}
-          <div className="flex justify-end gap-2">
-            <span className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium border border-border cursor-default">
-              Dismiss
-            </span>
-            {ctaButton}
-          </div>
+          {buttons.length > 0 ? (
+            <div className="flex justify-end gap-2">
+              <PreviewButtons buttons={buttons} />
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="h-10 flex items-start pl-3 pt-3">
