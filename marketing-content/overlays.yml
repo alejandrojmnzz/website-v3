@@ -1,24 +1,27 @@
 overlays:
   - id: florida-scholarship-modal
-    enabled: true
+    enabled: false
     trigger:
       event: page_load
       delay: 2000
     targeting:
       pages: all
       geo:
-        countries: ["US"]
-        regions: ["Florida"]
+        countries:
+          - US
+        regions:
+          - Florida
     frequency: once
     component: modal
     content:
-      title: "Florida residents: special scholarship available"
-      body: "You may qualify for state-funded tuition assistance through our Florida campus. Limited spots — apply today."
+      title: 'Florida residents: special scholarship available'
+      body: >-
+        You may qualify for state-funded tuition assistance through our Florida
+        campus. Limited spots — apply today.
       cta:
         label: Apply now
         href: /en/apply
-      image_id: ""
-
+      image_id: ''
   - id: ai-bootcamp-banner
     enabled: true
     trigger:
@@ -30,13 +33,12 @@ overlays:
     frequency: session
     component: top_banner
     content:
-      title: "New AI Engineering cohort starting soon"
-      body: "Seats are filling fast — reserve yours before the deadline."
+      title: New AI Engineering cohort starting soon
+      body: Seats are filling fast — reserve yours before the deadline.
       cta:
         label: See dates
         href: /en/upcoming-dates
-      image_id: ""
-
+      image_id: ''
   - id: geekforce-slide-in
     enabled: false
     trigger:
@@ -51,9 +53,11 @@ overlays:
     frequency: once
     component: slide_in
     content:
-      title: "Not sure which program is right for you?"
-      body: "Our career counselors are available for a free consultation. No commitment required."
+      title: Not sure which program is right for you?
+      body: >-
+        Our career counselors are available for a free consultation. No
+        commitment required.
       cta:
         label: Talk to an advisor
         href: /en/apply
-      image_id: ""
+      image_id: ''
