@@ -43,9 +43,6 @@ export function OverlayModal({ overlay, onDismiss }: OverlayModalProps) {
           )}
         </DialogHeader>
         <div className="flex flex-wrap justify-end gap-2 pt-2">
-          <Button variant="ghost" size="sm" onClick={handleDismiss}>
-            Dismiss
-          </Button>
           {(content.buttons ?? []).filter((b) => b.href && b.label).map((btn, i) => (
             <Button key={i} variant={btn.variant ?? "default"} size="sm" asChild onClick={handleDismiss}>
               <Link href={btn.href}>{btn.label}</Link>
