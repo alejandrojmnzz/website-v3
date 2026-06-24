@@ -185,8 +185,11 @@ export {
   pricingPlanSchema,
   pricingSectionSchema,
   pricingPlanCardsSchema,
+  pricingPlanCardsNewSchema,
   pricingPlanCardsPlanSchema,
+  pricingPlanCardsNewPlanSchema,
   pricingPlanCardsFeatureSchema,
+  pricingPlanCardsPlanFeatureSchema,
   pricingPlanCardsAddonSchema,
   type PricingFeature,
   type PricingPlan,
@@ -194,6 +197,9 @@ export {
   type PricingPlanCardsPlan,
   type PricingPlanCardsFeature,
   type PricingPlanCardsSection,
+  type PricingPlanCardsPlanFeature,
+  type PricingPlanCardsNewPlan,
+  type PricingPlanCardsNewSection,
 } from "../marketing-content/component-registry/pricing/v1.0/schema";
 
 // ============================================

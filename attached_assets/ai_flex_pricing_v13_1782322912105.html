@@ -1,0 +1,195 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+#px { background: #f5f5f5; font-family: 'Inter', system-ui, -apple-system, sans-serif; padding: 3.5rem 1.25rem 4rem; }
+.px-inner { max-width: 680px; margin: 0 auto; }
+
+.px-badge { display: inline-flex; align-items: center; gap: 6px; background: #0d6efd; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 5px 13px; border-radius: 20px; margin-bottom: 1.25rem; }
+.px-title { font-size: 30px; font-weight: 800; color: #0d0d0d; letter-spacing: -0.025em; line-height: 1.1; margin-bottom: 0.4rem; }
+.px-sub { font-size: 14px; color: #aaa; margin-bottom: 2.5rem; line-height: 1.6; }
+
+.px-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+
+.px-card {
+  background: #fff; border: 1.5px solid #e8e8e8; border-radius: 18px;
+  padding: 1.5rem 1.4rem 1.4rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.05);
+  transition: transform .2s, box-shadow .2s; position: relative;
+}
+.px-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.09), 0 14px 32px rgba(0,0,0,0.07); }
+
+.px-card.featured {
+  background: #0d6efd; border-color: #0d6efd;
+  box-shadow: 0 6px 24px rgba(13,110,253,0.3), 0 16px 48px rgba(13,110,253,0.18);
+}
+.px-card.featured:hover { box-shadow: 0 8px 28px rgba(13,110,253,0.36), 0 20px 56px rgba(13,110,253,0.22); transform: translateY(-3px); }
+
+.px-top-badge {
+  position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+  background: #22c55e; color: #fff;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 5px 16px; border-radius: 20px; white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(34,197,94,0.4);
+}
+
+.px-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.3rem; }
+.px-plan-name { font-size: 20px; font-weight: 800; color: #0d0d0d; letter-spacing: -0.015em; }
+.px-card.featured .px-plan-name { color: #fff; }
+.px-plan-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; padding: 4px 10px; border-radius: 7px; background: #f0f0f0; color: #888; }
+.px-card.featured .px-plan-tag { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.8); }
+
+.px-plan-for { font-size: 13px; color: #aaa; margin-bottom: 1.25rem; }
+.px-card.featured .px-plan-for { color: rgba(255,255,255,0.65); }
+
+.px-price-row { display: flex; align-items: flex-end; gap: 1px; margin-bottom: 0.2rem; }
+.px-price-currency { font-size: 22px; font-weight: 800; color: #0d0d0d; margin-bottom: 8px; }
+.px-price-amount { font-size: 50px; font-weight: 800; color: #0d0d0d; letter-spacing: -0.03em; line-height: 1; }
+.px-price-cents { font-size: 28px; font-weight: 800; color: #0d0d0d; margin-bottom: 5px; }
+.px-price-period { font-size: 14px; color: #aaa; margin-bottom: 5px; font-weight: 500; margin-left: 4px; }
+.px-card.featured .px-price-currency,
+.px-card.featured .px-price-amount,
+.px-card.featured .px-price-cents { color: #fff; }
+.px-card.featured .px-price-period { color: rgba(255,255,255,0.55); }
+
+.px-billing-note { font-size: 12px; color: #bbb; margin-bottom: 1.25rem; }
+.px-card.featured .px-billing-note { color: rgba(255,255,255,0.45); }
+
+.px-divider { height: 1px; background: #f2f2f2; margin-bottom: 1.1rem; }
+.px-card.featured .px-divider { background: rgba(255,255,255,0.2); }
+
+.px-features { display: flex; flex-direction: column; gap: 0; margin-bottom: 1.25rem; }
+.px-feature { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; }
+.px-card.featured .px-feature { border-bottom: 1px solid rgba(255,255,255,0.1); }
+.px-card.featured .px-feature:last-child { border-bottom: none; }
+
+.px-feature-check { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center; }
+.px-feature-check.blue { background: #0d6efd; }
+.px-feature-check.off { background: #f0f0f0; }
+.px-feature-check.green { background: #22c55e; }
+.px-feature-check svg { width: 9px; height: 9px; }
+
+.px-feature-text { font-size: 13px; color: #444; line-height: 1.45; font-weight: 500; }
+.px-feature-text.dim { color: #ccc; text-decoration: line-through; text-decoration-color: #ddd; }
+
+/* Pro — all white, bold for the 3 highlights */
+.px-card.featured .px-feature-text { color: #fff; font-weight: 400; }
+.px-card.featured .px-feature-text.highlight { color: #fff; font-weight: 700; }
+
+.px-pay-logos { display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; flex-wrap: wrap; }
+.px-pay-label { font-size: 11px; color: rgba(255,255,255,0.5); font-weight: 500; }
+.px-pay-logo { border-radius: 6px; padding: 3px 10px; font-size: 11px; font-weight: 800; background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.25); }
+
+.px-btn { width: 100%; padding: 13px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: opacity .15s, background .15s, border-color .15s; }
+.px-btn.outline { background: #fff; border: 1.5px solid #d8d8d8; color: #555; }
+.px-btn.outline:hover { border-color: #0d6efd; color: #0d6efd; }
+.px-btn.green { background: #22c55e; color: #fff; border: none; font-weight: 800; font-size: 15px; box-shadow: 0 3px 12px rgba(34,197,94,0.35); }
+.px-btn.green:hover { background: #16a34a; }
+
+.px-sep { height: 1px; background: #e8e8e8; margin: 1.75rem 0; }
+
+.px-mentorship { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #fff; border: 1.5px solid #e8e8e8; border-radius: 16px; padding: 1.1rem 1.4rem; box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.05); }
+.px-ment-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #c0c0c0; margin-bottom: 0.25rem; }
+.px-ment-title { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 0.2rem; }
+.px-ment-sub { font-size: 12px; color: #aaa; line-height: 1.5; }
+.px-ment-price { font-size: 30px; font-weight: 800; color: #0d0d0d; letter-spacing: -0.02em; text-align: right; }
+.px-ment-price sup { font-size: 14px; vertical-align: super; }
+.px-ment-per { font-size: 11px; color: #bbb; text-align: right; }
+
+@media (max-width: 520px) {
+  .px-grid { grid-template-columns: 1fr; }
+  .px-title { font-size: 24px; }
+  .px-mentorship { flex-direction: column; align-items: flex-start; }
+  .px-ment-price, .px-ment-per { text-align: left; }
+}
+</style>
+
+<div id="px">
+  <div class="px-inner">
+
+    <div class="px-badge">Pricing</div>
+    <div class="px-title">An investment that pays for itself.</div>
+    <p class="px-sub">No contracts. Cancel anytime. All plans include the full course catalog.</p>
+
+    <div class="px-grid">
+
+      <!-- BASIC -->
+      <div class="px-card">
+        <div class="px-card-header">
+          <div class="px-plan-name">Basic Plan</div>
+          <div class="px-plan-tag">Monthly</div>
+        </div>
+        <div class="px-plan-for">For 1 student</div>
+        <div class="px-price-row">
+          <span class="px-price-currency">$</span>
+          <span class="px-price-amount">65</span>
+          <span class="px-price-period">/month</span>
+        </div>
+        <div class="px-billing-note">Recurring monthly charge</div>
+        <div class="px-divider"></div>
+        <div class="px-features">
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">1 mentorship session / month</span></div>
+          <div class="px-feature"><div class="px-feature-check off"></div><span class="px-feature-text dim">Access to exclusive events</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">300 AI compilations</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">300 premium Copilot requests</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">$5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">Codespaces ($10/mo included)</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">School account with GitHub Developer Program</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">VPS included</span></div>
+          <div class="px-feature"><div class="px-feature-check blue"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">Course certificates</span></div>
+        </div>
+        <button class="px-btn outline">Subscribe to Basic Plan</button>
+      </div>
+
+      <!-- PRO -->
+      <div class="px-card featured">
+        <div class="px-top-badge">Save 10 months</div>
+        <div class="px-card-header">
+          <div class="px-plan-name">Pro Plan</div>
+          <div class="px-plan-tag">Annual</div>
+        </div>
+        <div class="px-plan-for">For up to 2 students</div>
+        <div class="px-price-row">
+          <span class="px-price-currency">$</span>
+          <span class="px-price-amount">449</span>
+          <span class="px-price-cents">.99</span>
+          <span class="px-price-period">/year</span>
+        </div>
+        <div class="px-billing-note">Annual billing</div>
+        <div class="px-divider"></div>
+        <div class="px-features">
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text highlight">2 mentorship sessions / month + 4 bonus</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text highlight">Access to exclusive events</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text highlight">600 AI compilations</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">300 premium Copilot requests</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">$5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">Codespaces ($10/mo included)</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">School account with GitHub Developer Program</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">VPS included</span></div>
+          <div class="px-feature"><div class="px-feature-check green"><svg viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="px-feature-text">Course certificates</span></div>
+        </div>
+        <div class="px-pay-logos">
+          <span class="px-pay-label">Financing with</span>
+          <span class="px-pay-logo">Klarna</span>
+          <span class="px-pay-logo">Affirm</span>
+        </div>
+        <button class="px-btn green">Subscribe to Pro Plan</button>
+      </div>
+
+    </div>
+
+    <div class="px-sep"></div>
+
+    <div class="px-mentorship">
+      <div>
+        <div class="px-ment-label">Optional add-on</div>
+        <div class="px-ment-title">Extra mentorship sessions</div>
+        <div class="px-ment-sub">Book as many as you need.<br>Senior instructors, on demand.</div>
+      </div>
+      <div>
+        <div class="px-ment-price"><sup>$</sup>25</div>
+        <div class="px-ment-per">per session</div>
+      </div>
+    </div>
+
+  </div>
+</div>

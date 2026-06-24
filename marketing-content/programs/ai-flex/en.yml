@@ -166,8 +166,7 @@ sections:
     variant: stats-charts
     subtitle: The data is in.
     title: How AI Skills Can Boost Your Career
-    description: Across industries, professionals who build AI skills are working faster, earning more, and taking on more.
-    background: bg-slate-950
+    description: Across every industry, professionals with AI skills are working faster, earning more, and moving into higher-value roles. The data is clear — and so is the opportunity.
     card_bars_accent: hsl(var(--primary))
     card_gauge_accent: hsl(var(--destructive) / 0.5)
     card_trend_accent: hsl(var(--accent))
@@ -1128,6 +1127,17 @@ sections:
           label: Subscribe to Basic Plan
           url: https://academy.4geeks.com/plans/201
         featured: false
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+            not_included: true
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
       - name: Pro Plan
         tag: Annual
         for_label: For up to 2 students
@@ -1145,18 +1155,16 @@ sections:
         cta:
           label: Subscribe to Pro Plan
           url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
-    features:
-      - text: Mentorship sessions / month
-      - text: Access to exclusive events
-        exclude_from_plans:
-          - Basic Plan
-      - text: AI compilations
-      - text: 300 premium Copilot requests
-      - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
-      - text: Codespaces ($10/mo included)
-      - text: School account with GitHub Developer Program
-      - text: VPS included
-      - text: Course certificates
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
     addon:
       label: Optional add-on
       title: Extra mentorship sessions
@@ -1197,6 +1205,17 @@ sections:
           label: Subscribe to Basic Plan
           url: https://academy.4geeks.com/plans/201
         featured: false
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+            not_included: true
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
       - name: Pro Plan
         tag: Annual
         for_label: For up to 2 students
@@ -1214,18 +1233,16 @@ sections:
         cta:
           label: Subscribe to Pro Plan
           url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
-    features:
-      - text: Mentorship sessions / month
-      - text: Access to exclusive events
-        exclude_from_plans:
-          - Basic Plan
-      - text: AI compilations
-      - text: 300 premium Copilot requests
-      - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
-      - text: Codespaces ($10/mo included)
-      - text: School account with GitHub Developer Program
-      - text: VPS included
-      - text: Course certificates
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
     addon:
       label: Optional add-on
       title: Extra mentorship sessions
@@ -1266,6 +1283,17 @@ sections:
           label: Subscribe to Basic Plan
           url: https://academy.4geeks.com/plans/201
         featured: false
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+            not_included: true
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
       - name: Pro Plan
         tag: Annual
         for_label: For up to 2 students
@@ -1283,18 +1311,16 @@ sections:
         cta:
           label: Subscribe to Pro Plan
           url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
-    features:
-      - text: Mentorship sessions / month
-      - text: Access to exclusive events
-        exclude_from_plans:
-          - Basic Plan
-      - text: AI compilations
-      - text: 300 premium Copilot requests
-      - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
-      - text: Codespaces ($10/mo included)
-      - text: School account with GitHub Developer Program
-      - text: VPS included
-      - text: Course certificates
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
     addon:
       label: Optional add-on
       title: Extra mentorship sessions

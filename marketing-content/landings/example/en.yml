@@ -224,7 +224,7 @@ sections:
       desktop: xl
   - type: pricing
     version: "1.0"
-    variant: plan_cards
+    variant: plan_cards_comparison
     title: An investment that pays for itself.
     subtitle: No contracts. Cancel anytime. All plans include the full course catalog.
     plans:

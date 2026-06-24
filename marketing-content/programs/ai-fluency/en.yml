@@ -165,9 +165,8 @@ sections:
     version: "1.0"
     variant: stats-charts
     subtitle: The data is clear.
-    title: AI Fluency Is How Careers Accelerate
-    description: Professionals with AI skills earn more, advance faster, and are in higher demand across every industry, not just tech. The opportunity is real, and the numbers prove it.
-    background: bg-slate-950
+    title: The data is clear. Professionals with AI skills earn more and advance faster.
+    description: Employers across every industry are actively hiring for AI literacy — and paying a premium for it. The demand is real, the gap is widening, and the opportunity is yours to take ."
     card_bars_accent: hsl(var(--primary))
     card_gauge_accent: hsl(var(--destructive) / 0.5)
     card_trend_accent: hsl(var(--accent))

@@ -5,7 +5,7 @@ settings:
     eager_count: 3
 meta:
   page_title: AI fluency
-  description: "Ingeniero de IA: el trabajo de más rápido crecimiento en 2026. Prepárate para el mercado laboral en 24 semanas. 84% de contratación, salarios de $95K–$135K. Mentoría de por vida y apoyo profesional. 4Geeks."
+  description: Automatiza tu trabajo con IA en 4 semanas. Sin programación. Mentoría 1:1 y tutor de IA 24/7 incluidos. Certificado AI Fluency for Professionals. $900. 4Geeks, valorado con 4.9.
   robots: index, follow
   og_image: /images/programs/ai-engineering-og.jpg
   priority: 0.9
@@ -46,7 +46,7 @@ sections:
     description: La IA no es el futuro, es la base. Los profesionales que van adelante no están esperando. Con AI Fluency, desarrollarás las habilidades para dar el salto.
     signup_card:
       title: Recibe el resumen completo del programa
-      description: "Completa tus datos y el equipo de admisiones te enviará todo lo que necesitas: plan de estudios, detalles del programa y precios. Tarda 2 minutos."
+      description: "Completa tus datos y el equipo de admisiones te enviará todo lo que necesitas: plan de estudios, detalles del programa y precios. Solo tarda 2 minutos."
       cta_button:
         text: Envíame los detalles
         url: "#modal-y2myvq"
@@ -69,7 +69,9 @@ sections:
       desktop: none
     section_id: hero-yt9c4j
     video:
-      url: https://youtu.be/NkmjzrAZ4x8
+      url: https://www.youtube.com/watch?v=a6aYSobiuBc
+    form:
+      conversion_name: request_more_info
   - type: modal
     version: "1.0"
     heading: Recibe los detalles del programa
@@ -179,10 +181,9 @@ sections:
     card_gauge:
       title: La alfabetización en IA se convierte en requisito laboral
       description: Roles laborales globales · LinkedIn 2025
-      inner_stat_percentage: 30
       outer_stat_percentage: 70
       show_gauge: true
-      inner_stat_highlight: true
+      inner_stat_highlight: false
       gauge_label: requieren alfabetización en IA
       stat_label: de los roles laborales ya requieren alfabetización en IA a nivel global
       bar1_label: Roles que requieren alfabetización en IA
@@ -310,7 +311,34 @@ sections:
           - text: Pide ayuda, feedback o una explicación cuando lo necesites
           - text: Tu tutor siempre activo para todos los módulos a tu propio ritmo
           - text: Se adapta a tu nivel y a lo que estás trabajando
-    section_id: human_and_ai_duo-hz7p4j
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_asian-133x500.webp
+        alt: Estudiante asiática aprendiendo a programar
+        object_fit: cover
+        object_position: 40%20%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latin_male-133x500.webp
+        alt: Estudiante latino trabajando en un proyecto
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_african-133x500.webp
+        alt: Estudiante africana colaborando con su equipo
+        object_fit: cover
+        object_position: 50%15%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latina_female-133x500.webp
+        alt: Estudiante latina celebrando un logro
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group_6685_(1)_1765300162049.png
+    image_alt: Mujer trabajando con portátil en una cafetería
+    background: bg-background
+    paddingY:
+      mobile: sm none
+      desktop: md none
+    section_id: human_and_ai_duo-99s71d
   - type: pricing
     version: "1.0"
     variant: product
@@ -333,8 +361,8 @@ sections:
       - icon: IconCheck
         text: Una sesión de mentoría 1:1 incluida. Agrega más en cualquier momento por $25 cada una.
     cta:
-      text: Obtener más información
-      url: "#modal-aifluency"
+      text: Inscríbete ahora
+      url: https://4geeks.com/es/checkout?plan=ai-fluency&cohort=1706
       variant: primary
     section_id: pricing-aifluency
     marginY:
@@ -369,8 +397,8 @@ sections:
       - icon: IconCheck
         text: Trabajamos con socios de confianza para ofrecer financiamiento flexible y asequible, para que puedas enfocarte en tu futuro, no en tus tarifas.
     cta:
-      text: Obtener más información
-      url: /es/apply
+      text: Inscríbete ahora
+      url: https://4geeks.com/es/checkout?plan=ai-fluency&cohort=1706
       variant: primary
     section_id: pricing-qhcsa1
     marginY:
@@ -411,11 +439,17 @@ sections:
       database: frequently_asked_questions
       limit: 9
       permanent_filters:
-        - item_property_slug: related_features
-          value:
-            - ai-engineering
         - item_property_slug: locations
           value: all
+      ignored_entries:
+        - does-the-job-guarantee-refund-the-full-tuition-if-i-dont-get-hired
+        - do-i-get-a-job-after-completing-the-program
+        - do-i-need-prior-cybersecurity-experience
+        - geekforce-or-geekpal-which-one-to-choose
+        - how-does-the-4geeks-academy-job-guarantee-work
+        - do-i-need-expensive-hardware-for-ai-development
+        - do-i-need-to-have-previous-experience-in-programming-to-join-the-bootcamp
+        - do-i-need-to-have-work-authorization-to-qualify-for-the-job-guarantee
     marginY:
       desktop: none
     paddingY:
@@ -435,6 +469,21 @@ sections:
           - munich-germany
           - rome-italy
           - valencia-spain
+    hardcoded_entries:
+      - question: ¿Necesito saber programar para tomar AI Fluency?
+        answer: |2-
+
+           No. AI Fluency está diseñado para profesionales en activo sin experiencia en programación. Todas las herramientas del programa — desde prompt engineering hasta automatizaciones con n8n — funcionan sin escribir una sola línea de código. El foco está en aplicar la IA a tareas reales de trabajo, no en programar.
+      - question: ¿Cómo funciona el programa AI Fluency?
+        answer: AI Fluency dura 4 semanas. Cada semana tiene un módulo a tu ritmo que completas según tu horario, seguido de una clase en vivo donde aplicas lo aprendido con la guía del instructor y el feedback de tus compañeros. Si te pierdes una clase en vivo, la grabación está disponible para que puedas ponerte al día antes de la siguiente sesión.
+      - question: ¿Qué construyo durante el programa AI Fluency?
+        answer: |2-
+
+           Al terminar AI Fluency tendrás tres entregables concretos: una biblioteca personal de prompts que puedes usar de inmediato en tu trabajo, un asistente de IA configurado y conectado a las herramientas que ya usas a diario, y una automatización funcional en n8n que gestiona una tarea recurrente real en tu vida profesional. No son ejercicios — son herramientas que conservas y usas desde el primer día después del programa.
+      - question: ¿Cómo me inscribo en AI Fluency y cuándo puedo empezar?
+        answer: |2-
+
+           AI Fluency funciona con fechas fijas de inicio de cohorte y plazas limitadas por cohorte para mantener las sesiones en vivo pequeñas e interactivas. Las próximas fechas de inicio están listadas en la página del programa AI Fluency.
   - type: cta_banner
     version: "1.0"
     title: ¿Listo para desarrollar tu fluidez en IA?

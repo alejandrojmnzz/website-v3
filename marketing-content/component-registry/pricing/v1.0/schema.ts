@@ -52,7 +52,8 @@ export const pricingProductSchema = z.object({
   cta: ctaButtonSchema,
 });
 
-// ─── plan_cards variant ───────────────────────────────────────────────────────
+// ─── plan_cards_comparison variant ───────────────────────────────────────────
+// Shared feature list across all plans. Mobile shows a comparison table.
 
 export const pricingPlanCardsPlanSchema = z.object({
   name: z.string(),
@@ -90,7 +91,7 @@ export const pricingPlanCardsAddonSchema = z.object({
 export const pricingPlanCardsSchema = z.object({
   type: z.literal("pricing"),
   version: z.string().optional(),
-  variant: z.literal("plan_cards"),
+  variant: z.literal("plan_cards_comparison"),
   title: z.string(),
   subtitle: z.string().optional(),
   plans: z.array(pricingPlanCardsPlanSchema),
@@ -102,11 +103,38 @@ export type PricingPlanCardsPlan = z.infer<typeof pricingPlanCardsPlanSchema>;
 export type PricingPlanCardsFeature = z.infer<typeof pricingPlanCardsFeatureSchema>;
 export type PricingPlanCardsSection = z.infer<typeof pricingPlanCardsSchema>;
 
+// ─── plan_cards variant ───────────────────────────────────────────────────────
+// Independent per-plan feature lists. Mobile shows mini-cards with features inline.
+
+export const pricingPlanCardsPlanFeatureSchema = z.object({
+  text: z.string(),
+  not_included: z.boolean().optional(),
+});
+
+export const pricingPlanCardsNewPlanSchema = pricingPlanCardsPlanSchema.extend({
+  features: z.array(pricingPlanCardsPlanFeatureSchema).optional(),
+});
+
+export const pricingPlanCardsNewSchema = z.object({
+  type: z.literal("pricing"),
+  version: z.string().optional(),
+  variant: z.literal("plan_cards"),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  plans: z.array(pricingPlanCardsNewPlanSchema),
+  addon: pricingPlanCardsAddonSchema.optional(),
+});
+
+export type PricingPlanCardsPlanFeature = z.infer<typeof pricingPlanCardsPlanFeatureSchema>;
+export type PricingPlanCardsNewPlan = z.infer<typeof pricingPlanCardsNewPlanSchema>;
+export type PricingPlanCardsNewSection = z.infer<typeof pricingPlanCardsNewSchema>;
+
 // ─── Union of all pricing variants ───────────────────────────────────────────
 
 export const pricingSectionSchema = z.union([
   pricingDefaultSchema,
   pricingProductSchema,
+  pricingPlanCardsNewSchema,
   pricingPlanCardsSchema,
 ]);
 

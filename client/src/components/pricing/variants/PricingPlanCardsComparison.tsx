@@ -1,21 +1,21 @@
 /**
- * PricingPlanCards — variant: plan_cards
+ * PricingPlanCardsComparison — variant: plan_cards_comparison
  *
- * Desktop: side-by-side cards, each showing its own independent feature list with ✓/✗ per feature.
- * Mobile: mini-cards stacked vertically, each with their own features inline (no comparison table).
+ * Desktop: side-by-side cards, each showing all shared features with ✓/✗ per plan.
+ * Mobile: feature COMPARISON TABLE (rows = features, columns = plans) followed by mini-cards.
  *
- * Features are defined per-plan using `features: [{text, not_included?}]`.
- * Use `not_included: true` on a feature to render it with an ✗ icon and line-through text.
+ * Features are defined at the section level and use `exclude_from_plans` to mark
+ * which plans mark a feature as not_included.
  *
- * For a shared feature list with a mobile comparison table, use variant: plan_cards_comparison.
+ * For independent per-plan feature lists (no comparison table on mobile), use variant: plan_cards.
  */
 import { IconCheck, IconX } from "@tabler/icons-react";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { RichTextContent } from "@/components/ui/rich-text-content";
-import type { PricingPlanCardsNewSection, PricingPlanCardsNewPlan, PricingPlanCardsPlanFeature } from "@shared/schema";
+import type { PricingPlanCardsSection, PricingPlanCardsPlan, PricingPlanCardsFeature } from "@shared/schema";
 
-interface PricingPlanCardsSectionProps {
-  data: PricingPlanCardsNewSection;
+interface PricingPlanCardsComparisonSectionProps {
+  data: PricingPlanCardsSection;
 }
 
 function CheckIcon({ variant }: { variant: "primary" | "green" | "off" }) {
@@ -34,20 +34,35 @@ function CheckIcon({ variant }: { variant: "primary" | "green" | "off" }) {
   );
 }
 
+function CompareIcon({ variant }: { variant: "primary" | "green" | "off" }) {
+  if (variant === "off") {
+    return <IconX size={15} className="text-muted-foreground/40" stroke={2.5} />;
+  }
+  const cls = variant === "green" ? "text-green-500" : "text-primary";
+  return <IconCheck size={15} className={cls} stroke={2.5} />;
+}
+
 function getCheckVariant(
-  plan: PricingPlanCardsNewPlan,
-  feature: PricingPlanCardsPlanFeature
+  plan: PricingPlanCardsPlan,
+  feature: PricingPlanCardsFeature
 ): "primary" | "green" | "off" {
-  if (feature.not_included) return "off";
+  if (feature.exclude_from_plans?.includes(plan.name)) return "off";
   return plan.featured ? "green" : "primary";
 }
 
-// ─── Full desktop card ────────────────────────────────────────────────────────
+function isExcluded(plan: PricingPlanCardsPlan, feature: PricingPlanCardsFeature): boolean {
+  return feature.exclude_from_plans?.includes(plan.name) ?? false;
+}
 
-function PricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
+function PricingCard({
+  plan,
+  features,
+}: {
+  plan: PricingPlanCardsPlan;
+  features: PricingPlanCardsFeature[];
+}) {
   const handleLinkClick = useInternalNav();
   const isFeatured = plan.featured;
-  const features = plan.features ?? [];
 
   return (
     <div
@@ -94,24 +109,22 @@ function PricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
 
       <div className="h-px mb-3 bg-border" />
 
-      {features.length > 0 && (
-        <div className="flex flex-col mb-3">
-          {features.map((f, i) => (
-            <div key={i} className="flex items-center gap-2 py-1">
-              <CheckIcon variant={getCheckVariant(plan, f)} />
-              <span
-                className={`text-xs leading-snug font-medium ${
-                  f.not_included
-                    ? "text-muted-foreground/50 line-through decoration-muted-foreground/30"
-                    : "text-foreground/80"
-                }`}
-              >
-                {f.text}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col mb-3">
+        {features.map((f, i) => (
+          <div key={i} className="flex items-center gap-2 py-1">
+            <CheckIcon variant={getCheckVariant(plan, f)} />
+            <span
+              className={`text-xs leading-snug font-medium ${
+                isExcluded(plan, f)
+                  ? "text-muted-foreground/50 line-through decoration-muted-foreground/30"
+                  : "text-foreground/80"
+              }`}
+            >
+              {f.text}
+            </span>
+          </div>
+        ))}
+      </div>
 
       {plan.bottom_badges && plan.bottom_badges.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap mb-4">
@@ -145,13 +158,13 @@ function PricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
   );
 }
 
-// ─── Mobile mini card ─────────────────────────────────────────────────────────
-
-function MiniPricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
+function MiniPricingCard({
+  plan,
+}: {
+  plan: PricingPlanCardsPlan;
+}) {
   const handleLinkClick = useInternalNav();
   const isFeatured = plan.featured;
-  const features = plan.features ?? [];
-
   return (
     <div className="relative flex flex-col">
       {plan.top_badge && (
@@ -194,35 +207,6 @@ function MiniPricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
 
         <p className="text-[10px] text-muted-foreground mb-2">{plan.billing_note}</p>
 
-        {features.length > 0 && (
-          <div className="flex flex-col mb-3">
-            {features.map((f, i) => (
-              <div key={i} className="flex items-center gap-2 py-0.5">
-                <span
-                  className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center select-none ${
-                    f.not_included ? "bg-muted" : isFeatured ? "bg-green-500" : "bg-primary"
-                  }`}
-                >
-                  {f.not_included ? (
-                    <IconX size={10} className="text-muted-foreground/50" stroke={2.5} />
-                  ) : (
-                    <IconCheck size={9} className="text-white" stroke={2.5} />
-                  )}
-                </span>
-                <span
-                  className={`text-[10px] leading-snug font-medium ${
-                    f.not_included
-                      ? "text-muted-foreground/50 line-through decoration-muted-foreground/30"
-                      : "text-foreground/80"
-                  }`}
-                >
-                  {f.text}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
         {plan.bottom_badges && plan.bottom_badges.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap mb-3">
             <span className="text-[10px] text-muted-foreground font-medium">
@@ -245,8 +229,8 @@ function MiniPricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
           data-testid={`button-cta-mini-plan-${plan.name.toLowerCase().replace(/\s+/g, "-")}`}
           className={`mt-auto w-full py-2.5 rounded-xl text-[13px] font-extrabold cursor-pointer flex items-center justify-center ${
             isFeatured
-              ? "bg-green-500 hover:bg-green-600 text-white border-0 shadow-[0_2px_8px_rgba(34,197,94,0.35)] transition-colors duration-150"
-              : "bg-primary text-primary-foreground hover:shadow-[inset_0_0_0_9999px_rgba(0,0,0,0.12)] transition-[box-shadow] duration-150"
+              ? "bg-green-500 hover:bg-green-600 text-white border-0 shadow-[0_2px_8px_rgba(34,197,94,0.35)]"
+              : "bg-primary text-primary-foreground hover:shadow-[inset_0_0_0_9999px_rgba(0,0,0,0.12)]"
           }`}
         >
           {plan.cta.label}
@@ -256,9 +240,7 @@ function MiniPricingCard({ plan }: { plan: PricingPlanCardsNewPlan }) {
   );
 }
 
-// ─── Main section component ───────────────────────────────────────────────────
-
-export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) {
+export function PricingPlanCardsComparisonSection({ data }: PricingPlanCardsComparisonSectionProps) {
   return (
     <section className="bg-background py-8 sm:py-14 px-4 sm:px-5 font-inter" data-testid="section-pricing-plan-cards">
       <div className="max-w-5xl mx-auto">
@@ -279,15 +261,56 @@ export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) 
           </p>
         )}
 
-        {/* ── MOBILE LAYOUT — mini-cards with per-plan features, no comparison table ── */}
-        <div className="sm:hidden flex flex-col gap-5 pt-3.5">
-          {data.plans.map((plan) => (
-            <MiniPricingCard key={plan.name} plan={plan} />
-          ))}
+        {/* ── MOBILE LAYOUT ───────────────────────────────────── */}
+        <div className="sm:hidden">
+
+          {/* Feature comparison table */}
+          <div className="mb-6">
+            <div className="flex items-center mb-2">
+              <span className="flex-1 text-[10px] font-bold tracking-widest uppercase text-muted-foreground">
+                Benefits
+              </span>
+              {data.plans.map((plan) => (
+                <span
+                  key={plan.name}
+                  className={`w-10 text-center text-[10px] font-bold tracking-widest uppercase truncate ${
+                    plan.featured ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {plan.name.split(" ")[0]}
+                </span>
+              ))}
+            </div>
+            <div className="h-px bg-border mb-1" />
+
+            {data.features.map((f, i) => (
+              <div key={i} className="flex items-center gap-1.5 py-1.5 border-b border-border/40 last:border-0">
+                <span className="flex-1 text-[11px] text-foreground/80 leading-snug pr-1">
+                  {f.exclude_from_plans?.includes(data.plans[0]?.name) &&
+                  !f.exclude_from_plans?.includes(data.plans[data.plans.length - 1]?.name) ? (
+                    <span className="text-muted-foreground/50">{f.text}</span>
+                  ) : (
+                    f.text
+                  )}
+                </span>
+                {data.plans.map((plan) => (
+                  <span key={plan.name} className="w-10 flex justify-center">
+                    <CompareIcon variant={getCheckVariant(plan, f)} />
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Mini cards — stacked vertically */}
+          <div className="flex flex-col gap-5 mt-5">
+            {data.plans.map((plan) => (
+              <MiniPricingCard key={plan.name} plan={plan} />
+            ))}
+          </div>
         </div>
 
         {/* ── DESKTOP LAYOUT ──────────────────────────────────── */}
-        {/* pt-3.5 reserves space for the absolute top_badge so all cards align */}
         <div className="hidden sm:flex flex-wrap items-stretch justify-center gap-[30px] pt-3.5">
           {data.plans.map((plan) => (
             <div
@@ -296,7 +319,7 @@ export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) 
                 !plan.featured ? "bg-card rounded-[20px]" : ""
               }`}
             >
-              <PricingCard plan={plan} />
+              <PricingCard plan={plan} features={data.features} />
             </div>
           ))}
         </div>
@@ -339,4 +362,4 @@ export function PricingPlanCardsSection({ data }: PricingPlanCardsSectionProps) 
   );
 }
 
-export default PricingPlanCardsSection;
+export default PricingPlanCardsComparisonSection;

@@ -1,10 +1,10 @@
-name: "Plan Cards"
-description: "Side-by-side pricing plan cards with feature comparison table on mobile"
-variant: plan_cards
+name: "Plan Cards Comparison"
+description: "Side-by-side pricing plan cards with a shared feature list and a feature comparison table on mobile. For independent per-plan features, use variant: plan_cards."
+variant: plan_cards_comparison
 yaml: |
   - type: pricing
     version: "1.0"
-    variant: plan_cards
+    variant: plan_cards_comparison
     title: "An investment that pays for itself."
     subtitle: "No contracts. Cancel anytime. All plans include the full course catalog."
 

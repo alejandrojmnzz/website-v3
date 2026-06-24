@@ -149,7 +149,7 @@ sections:
     paddingY:
       desktop: none
     marginY:
-      desktop: md
+      desktop: md none
   - type: graduates_stats
     heading: Real Outcomes. Real Numbers.
     subheading: 6,000+ graduates. Strong outcomes across the board.
@@ -472,10 +472,9 @@ sections:
         video_url: https://youtu.be/-2ZvlgDnltc
     section_id: ai_learning-xiuj75
     marginY:
-      desktop: md xl
+      desktop: md sm
     paddingY:
       desktop: md sm
-    background: hsl(210 100% 50% / 0.05)
   - type: features_grid
     version: "1.0"
     variant: stats-cards
@@ -495,7 +494,7 @@ sections:
       desktop: none xl
     paddingY:
       desktop: md none
-    background: hsl(var(--card))
+    background: hsl(var(--secondary))
   - type: pricing
     version: "1.0"
     variant: product
@@ -503,7 +502,7 @@ sections:
     subtitle: Investing in a new career matters. We make it easier with multiple ways to fund your enrollment.
     discount_text: "Full Payment Discount: Save 10% with upfront payment."
     financing_text: "Credit-Based Financing: starting at"
-    financing_amount: {{ global.price_ai_engineering | $399 }}
+    financing_amount: $227
     tech_icons:
       - openai
       - python
@@ -516,7 +515,53 @@ sections:
     features_title: Choose the option that fits you best.
     features:
       - icon: IconCheck
-        text: {{ global.full_tuition_ai_engineering | Standard tuition is $14,999. }} Pay upfront and receive a 10% discount, or spread payments interest-free over 6 months.
+        text: Pay upfront and receive a 10% discount, or spread payments interest-free over 6 months.
+      - icon: IconCheck
+        text: Enroll with a Job Guarantee* for added confidence. Get hired within 9 months of graduation or your money back.&nbsp;<div>*Not available in all regions. <a href="https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf">Terms and conditions apply</a>.</div>
+      - icon: IconCheck
+        text: Finance your tuition in monthly installments, with term lengths of up to 48 months depending on your region.
+    cta:
+      text: Get more info
+      url: "#modal-ubwgcj"
+      variant: primary
+    section_id: pricing-oyjnax
+    marginY:
+      desktop: lg md
+    paddingY:
+      desktop: md
+    showOnLocations:
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Tuition & Financing Options
+    subtitle: Investing in a new career matters. We make it easier with multiple ways to fund your enrollment.
+    discount_text: "Full Payment Discount: Save 10% with upfront payment."
+    financing_text: "Credit-Based Financing: starting at"
+    financing_amount: $399
+    tech_icons:
+      - openai
+      - python
+      - react
+      - nodejs
+      - api
+      - brain
+      - robot
+      - settings
+    features_title: Choose the option that fits you best.
+    features:
+      - icon: IconCheck
+        text: Standard tuition is $14,999. Pay upfront and receive a 10% discount, or spread payments interest-free over 6 months.
       - icon: IconCheck
         text: Enroll with a Job Guarantee* for added confidence. Get hired within 9 months of graduation or your money back.&nbsp;<div>*Not available in all regions. <a href="https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf">Terms and conditions apply</a>.</div>
       - icon: IconCheck
@@ -539,21 +584,9 @@ sections:
       - houston-usa
       - losangeles-usa
       - newyork-usa
-      - tampa-usa
       - orlando-usa
+      - tampa-usa
       - toronto-canada
-      - bogota-colombia
-      - buenosaires-argentina
-      - caracas-venezuela
-      - costa-rica
-      - lapaz-bolivia
-      - lima-peru
-      - montevideo-uruguay
-      - panamacity-panama
-      - quito-ecuador
-      - santiago-chile
-      - mexicocity-mexico
-    background: hsl(var(--secondary))
   - type: pricing
     version: "1.0"
     variant: product
@@ -601,7 +634,6 @@ sections:
       - milan-italy
       - munich-germany
       - rome-italy
-    background: hsl(var(--secondary))
   - type: numbered_steps
     version: "1.0"
     title: Get Hired. Or Your Money Back.
@@ -609,7 +641,7 @@ sections:
     description_link:
       text: "*Not available in all regions. Terms and conditions apply."
       url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf
-    background: bg-muted/30
+    background: hsl(var(--secondary))
     steps:
       - icon: School
         text: Add the Job Guarantee to your payment plan.
@@ -638,7 +670,7 @@ sections:
       - montevideo-uruguay
       - panamacity-panama
     paddingY:
-      desktop: none md
+      desktop: md
     marginY:
       desktop: none md
   - type: testimonials

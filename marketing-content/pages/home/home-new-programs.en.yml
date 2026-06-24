@@ -22,8 +22,8 @@ sections:
   - type: hero
     version: "1.0"
     variant: credibility
-    title: "<span style=\"font-size: 4.9375rem; font-weight: 900; letter-spacing: -2px; line-height: 0.97;\">170 million<br>new jobs <span style=\"color: rgb(0, 132, 255);\"><span style=\"color: hsl(var(--foreground));\">by 2030.</span></span><br><span style=\"font-weight: 900;\"><i><span style=\"color: hsl(var(--primary));\">With AI skills.</span></i></span><br>Here's your path in.</span>"
-    description: "Three paths into AI: from an immersive career program designed to get you hired, to professional upskilling, or self-paced learning. Human mentorship and AI-powered learning included."
+    title: "<span style=\"font-size: 4.9375rem; letter-spacing: -2px; line-height: 0.97;\"><b>170 million jobs </b><span style=\"color: rgb(0, 132, 255);\"><span style=\"color: hsl(var(--foreground));\"><b>by 2030. </b><span style=\"color: hsl(var(--primary));\"><span style=\"color: hsl(var(--primary));\">AI is your path in</span><span style=\"font-style: italic; color: hsl(var(--foreground));\"></span></span></span></span></span><i><span style=\"font-size: 4.9375rem; letter-spacing: -2px; color: rgb(0, 7, 26);\"></span></i>"
+    description: Three AI programs, one platform. Become an AI Engineer, upskill professionally, or explore at your own pace. Human mentorship and AI-powered learning included.
     cta_buttons:
       - text: Start your application
         url: /en/apply
@@ -84,11 +84,11 @@ sections:
     section_id: hero-tcvppl
     background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
     paddingY:
-      desktop: none md
-    pills_url: "#list_press_mentions-w7r1sh"
-    marquee_static: true
-    marginY:
       desktop: none sm
+    pills_url: "#list_press_mentions-w7r1sh"
+    marquee_static: false
+    marginY:
+      desktop: none
   - type: graduates_stats
     heading: "6,000+ Graduates. One Standard: Student Success."
     subheading: "Across programs, backgrounds, and goals: the numbers backing the academy."
@@ -131,7 +131,7 @@ sections:
         object_position: 50% 45%
     section_id: graduates_stats-cnxqbb
     marginY:
-      desktop: sm md
+      desktop: sm none
     maxWidth:
       desktop: xl
     paddingY:
@@ -141,10 +141,10 @@ sections:
     variant: stats-charts
     subtitle: The numbers are in. AI skills are the new baseline.
     title: The gap between AI-skilled and everyone else is showing up in salaries, hiring, and career growth.
-    description: "Across every industry, employers are hiring for AI skills, paying more for them, and finding fewer people who have them. Whether you want to work smarter, advance faster, or build a new career entirely, the opportunity is the same: the gap between where the market is going and where most professionals are today is wide open."
+    description: Across every industry, employers are hiring for AI skills, paying more for them, and struggling to find the talent. For professionals who want to earn more and advance further, the direction is clear.
     card_bars_accent: hsl(var(--primary))
-    card_gauge_accent: hsl(var(--destructive) / 0.5)
-    card_trend_accent: hsl(var(--accent))
+    card_gauge_accent: hsl(var(--primary) / 0.4)
+    card_trend_accent: hsl(var(--primary))
     card_bars:
       badge: AI Skills Pay More. Everywhere.
       stat_value: 56%
@@ -173,9 +173,9 @@ sections:
       end_label: 1.3M · 2026
     section_id: features_grid-xo8z7q
     paddingY:
-      desktop: md lg
+      desktop: none lg
     marginY:
-      desktop: md lg
+      desktop: none lg
   - type: banner
     version: v1.0
     variant: marqueeBadges
@@ -204,11 +204,11 @@ sections:
       - React
       - Node.js
       - Prompt Engineering
-    marquee_speed: 30
+    marquee_speed: 70
     section_id: banner-qrp5dz
     paddingY:
       desktop: sm md
-    background: hsl(var(--muted))
+    background: hsl(var(--secondary))
     marginY:
       desktop: none sm
   - type: course_selector
@@ -217,11 +217,6 @@ sections:
     heading: Three AI Levels. Three Learning Formats.
     subheading: Whether you want to work with AI, work better with AI, or build AI systems professionally, there is a program for your goals.
     courses:
-      - name: AI at 4Geeks
-        icon: Bolt
-        title: Demand for AI Skills Has Grown 7x in Two Years.
-        description: AI is creating opportunity at every level, for professionals who want to work smarter, for teams that want to move faster, and for engineers who want to build what comes next. Across all three, 4Geeks teaches the real AI skills that matter at work, applied to real problems from day one.
-        course_background: accent
       - name: AI Engineering
         icon: Bolt
         duration: 24 weeks, or 15-week accelerated track
@@ -237,7 +232,7 @@ sections:
         description: Become an AI engineer and build complete AI-native systems, frontend to deployment. Our most intensive program, built around live instruction and a real company case. Optional Job Guarantee available (US and Canada only)
         cta_text: See program details
         cta_url: /en/career-programs/ai-engineering
-        course_background: hsl(var(--muted-foreground))
+        course_background: hsl(var(--accent))
       - name: AI Fluency
         icon: IconBolt
         duration: 4 weeks
@@ -253,7 +248,7 @@ sections:
         description: Integrate AI workflows into your work. Four weeks, one live session per week, walk away with working agents and automations.
         cta_text: See program details
         cta_url: /en/career-programs/ai-fluency
-        course_background: primary
+        course_background: hsl(var(--destructive) / 0.5)
       - name: AI Flex
         icon: IconBolt
         duration: Self-paced
@@ -269,7 +264,7 @@ sections:
         description: Access 8 AI courses. Follow a ready-made path like The AI-First Professional or The Builder, or design your own, at your own pace.
         cta_text: Explore AI Flex
         cta_url: /en/ai-flex
-        course_background: destructive
+        course_background: hsl(var(--primary))
     section_id: course_selector-4m5sh4
     maxWidth:
       desktop: 6xl
@@ -501,7 +496,7 @@ sections:
       variant: primary
     section_id: why_learn_ai-9pbrek
     marginY:
-      desktop: md lg
+      desktop: none lg
     paddingY:
       desktop: none
     background: hsl(210 100% 50% / 0.05)
