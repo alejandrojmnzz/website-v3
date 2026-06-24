@@ -8,6 +8,8 @@ import {
   IconX,
   IconLayersIntersect,
   IconLoader2,
+  IconEye,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -109,6 +111,85 @@ function newOverlay(): Overlay {
     component: "modal",
     content: { title: "", body: "", cta: { label: "", href: "" }, image_id: "" },
   };
+}
+
+function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
+  const { content } = overlay;
+
+  const ctaButton = content.cta?.label ? (
+    <span className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground cursor-default select-none">
+      {content.cta.label}
+    </span>
+  ) : null;
+
+  if (overlay.component === "top_banner") {
+    return (
+      <div className="rounded-md overflow-hidden border border-border">
+        <div className="bg-primary text-primary-foreground px-4 py-2 flex items-center gap-3">
+          <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+            {content.title && (
+              <span className="font-semibold text-sm">{content.title}</span>
+            )}
+            {content.body && (
+              <span className="text-sm opacity-90">{content.body}</span>
+            )}
+            {ctaButton}
+          </div>
+          <span className="shrink-0 opacity-60 cursor-default">
+            <IconX size={14} />
+          </span>
+        </div>
+        <div className="bg-muted/30 h-14 flex items-center justify-center">
+          <span className="text-xs text-muted-foreground">Page content below</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (overlay.component === "slide_in") {
+    return (
+      <div className="rounded-md overflow-hidden border border-border bg-muted/20 relative" style={{ minHeight: "10rem" }}>
+        <div className="absolute bottom-3 right-3 w-64 rounded-[0.8rem] border border-border bg-card shadow-md p-3">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <span className="text-sm font-semibold leading-snug">{content.title}</span>
+            <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
+          </div>
+          {content.body && (
+            <p className="text-xs text-muted-foreground mb-2">{content.body}</p>
+          )}
+          {ctaButton}
+        </div>
+        <div className="h-10 flex items-start pl-3 pt-3">
+          <span className="text-xs text-muted-foreground">Page content</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md overflow-hidden border border-border bg-muted/20 relative" style={{ minHeight: "12rem" }}>
+      <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] flex items-center justify-center p-4">
+        <div className="w-full max-w-sm rounded-[0.8rem] border border-border bg-card shadow-lg p-5">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <span className="text-sm font-semibold leading-snug">{content.title || "Untitled overlay"}</span>
+            <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
+          </div>
+          {content.body && (
+            <p className="text-xs text-muted-foreground mb-4">{content.body}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <span className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium border border-border cursor-default">
+              Dismiss
+            </span>
+            {ctaButton}
+          </div>
+        </div>
+      </div>
+      <div className="h-10 flex items-start pl-3 pt-3">
+        <span className="text-xs text-muted-foreground">Page content</span>
+      </div>
+    </div>
+  );
 }
 
 interface OverlayFormProps {
@@ -392,6 +473,7 @@ export default function PrivateOverlays() {
   const [editDraft, setEditDraft] = useState<Overlay | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [expandedPreviewId, setExpandedPreviewId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
     queryKey: ["/api/overlays"],
@@ -534,6 +616,20 @@ export default function PrivateOverlays() {
                   <Button
                     size="icon"
                     variant="ghost"
+                    onClick={() =>
+                      setExpandedPreviewId(
+                        expandedPreviewId === overlay.id ? null : overlay.id
+                      )
+                    }
+                    aria-label="Toggle preview"
+                    data-testid={`button-preview-overlay-${overlay.id}`}
+                    className={expandedPreviewId === overlay.id ? "toggle-elevate toggle-elevated" : "toggle-elevate"}
+                  >
+                    <IconEye size={16} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
                     onClick={() => openEdit(overlay)}
                     data-testid={`button-edit-overlay-${overlay.id}`}
                   >
@@ -557,6 +653,18 @@ export default function PrivateOverlays() {
                       {overlay.content.body}
                     </p>
                   )}
+                </CardContent>
+              )}
+              {expandedPreviewId === overlay.id && (
+                <CardContent className="pt-0 pb-4 border-t border-border mt-1">
+                  <div className="flex items-center gap-1.5 mb-3 text-xs text-muted-foreground">
+                    <IconEye size={12} />
+                    Preview
+                    <span className="ml-auto opacity-60">
+                      {COMPONENT_LABELS[overlay.component] ?? overlay.component}
+                    </span>
+                  </div>
+                  <OverlayInlinePreview overlay={overlay} />
                 </CardContent>
               )}
             </Card>
