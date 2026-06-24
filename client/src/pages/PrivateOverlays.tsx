@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import {
   IconArrowLeft,
   IconPlus,
   IconTrash,
-  IconEdit,
   IconCheck,
   IconX,
   IconLayersIntersect,
   IconLoader2,
   IconEye,
   IconChevronDown,
+  IconCode,
+  IconSettings2,
 } from "@tabler/icons-react";
+import yaml from "js-yaml";
 import { useQuery } from "@tanstack/react-query";
 import {
   Card,
@@ -39,10 +41,20 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Overlay, OverlayConfig } from "@/hooks/useOverlays";
+
+const LazyYamlEditor = lazy(() => import("@/components/editing/YamlEditor"));
 
 const COMPONENT_LABELS: Record<string, string> = {
   modal: "Modal",
@@ -200,8 +212,6 @@ interface OverlayFormProps {
 function OverlayForm({ overlay, onChange }: OverlayFormProps) {
   const set = (partial: Partial<Overlay>) =>
     onChange({ ...overlay, ...partial });
-  const setContent = (partial: Partial<Overlay["content"]>) =>
-    onChange({ ...overlay, content: { ...overlay.content, ...partial } });
   const setTrigger = (partial: Partial<Overlay["trigger"]>) =>
     onChange({ ...overlay, trigger: { ...overlay.trigger, ...partial } });
   const setGeo = (partial: Partial<NonNullable<Overlay["targeting"]["geo"]>>) =>
@@ -408,61 +418,6 @@ function OverlayForm({ overlay, onChange }: OverlayFormProps) {
         </div>
       </div>
 
-      <div className="border-t pt-4 space-y-3">
-        <p className="text-sm font-medium text-muted-foreground">Content</p>
-        <div className="space-y-1.5">
-          <Label>Title</Label>
-          <Input
-            value={overlay.content.title}
-            onChange={(e) => setContent({ title: e.target.value })}
-            placeholder="Enter a headline"
-            data-testid="input-overlay-title"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Body</Label>
-          <Textarea
-            value={overlay.content.body}
-            rows={3}
-            onChange={(e) => setContent({ body: e.target.value })}
-            placeholder="Supporting copy"
-            data-testid="input-overlay-body"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>CTA label</Label>
-            <Input
-              value={overlay.content.cta?.label ?? ""}
-              onChange={(e) =>
-                setContent({ cta: { ...(overlay.content.cta ?? {}), label: e.target.value, href: overlay.content.cta?.href ?? "" } })
-              }
-              placeholder="Apply now"
-              data-testid="input-overlay-cta-label"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>CTA URL</Label>
-            <Input
-              value={overlay.content.cta?.href ?? ""}
-              onChange={(e) =>
-                setContent({ cta: { ...(overlay.content.cta ?? {}), href: e.target.value, label: overlay.content.cta?.label ?? "" } })
-              }
-              placeholder="/en/apply"
-              data-testid="input-overlay-cta-href"
-            />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Image ID (from image registry, optional)</Label>
-          <Input
-            value={overlay.content.image_id ?? ""}
-            onChange={(e) => setContent({ image_id: e.target.value })}
-            placeholder="my-image-id"
-            data-testid="input-overlay-image-id"
-          />
-        </div>
-      </div>
     </div>
   );
 }
@@ -474,6 +429,10 @@ export default function PrivateOverlays() {
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [expandedPreviewId, setExpandedPreviewId] = useState<string | null>(null);
+  const [yamlSheetOverlay, setYamlSheetOverlay] = useState<Overlay | null>(null);
+  const [yamlDraft, setYamlDraft] = useState<string>("");
+  const [yamlError, setYamlError] = useState<string | null>(null);
+  const [yamlSaving, setYamlSaving] = useState(false);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
     queryKey: ["/api/overlays"],
@@ -528,6 +487,36 @@ export default function PrivateOverlays() {
     const updated = overlays.filter((o) => o.id !== id);
     await saveAll(updated);
     setConfirmDeleteId(null);
+  }
+
+  function openYamlEdit(overlay: Overlay) {
+    setYamlSheetOverlay(overlay);
+    setYamlDraft(yaml.dump(overlay, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
+    setYamlError(null);
+  }
+
+  async function saveYamlEdit() {
+    if (!yamlSheetOverlay) return;
+    let parsed: Overlay;
+    try {
+      parsed = yaml.load(yamlDraft) as Overlay;
+      if (!parsed || typeof parsed !== "object" || !parsed.id) {
+        setYamlError("Invalid YAML: missing required field 'id'.");
+        return;
+      }
+    } catch (e: unknown) {
+      setYamlError(`YAML parse error: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    setYamlError(null);
+    setYamlSaving(true);
+    try {
+      const updated = overlays.map((o) => (o.id === yamlSheetOverlay.id ? parsed : o));
+      await saveAll(updated);
+      setYamlSheetOverlay(null);
+    } finally {
+      setYamlSaving(false);
+    }
   }
 
   return (
@@ -630,10 +619,20 @@ export default function PrivateOverlays() {
                   <Button
                     size="icon"
                     variant="ghost"
+                    onClick={() => openYamlEdit(overlay)}
+                    title="Edit content (YAML)"
+                    data-testid={`button-edit-yaml-overlay-${overlay.id}`}
+                  >
+                    <IconCode size={16} />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
                     onClick={() => openEdit(overlay)}
+                    title="Edit conditions"
                     data-testid={`button-edit-overlay-${overlay.id}`}
                   >
-                    <IconEdit size={16} />
+                    <IconSettings2 size={16} />
                   </Button>
                   <Button
                     size="icon"
@@ -686,7 +685,7 @@ export default function PrivateOverlays() {
           <DialogHeader>
             <DialogTitle>
               {editDraft && overlays.find((o) => o.id === editDraft.id)
-                ? "Edit overlay"
+                ? "Edit conditions"
                 : "New overlay"}
             </DialogTitle>
           </DialogHeader>
@@ -754,6 +753,81 @@ export default function PrivateOverlays() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* YAML content editor sheet */}
+      <Sheet
+        open={!!yamlSheetOverlay}
+        onOpenChange={(open) => {
+          if (!open) {
+            setYamlSheetOverlay(null);
+            setYamlError(null);
+          }
+        }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
+          <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+            <SheetTitle className="flex items-center gap-2">
+              <IconCode size={18} />
+              Edit content — {yamlSheetOverlay?.id}
+            </SheetTitle>
+            <SheetDescription>
+              Edit the full overlay entry as YAML. Conditions (trigger, targeting, frequency) are also editable here.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-auto">
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-40 text-muted-foreground gap-2">
+                  <IconLoader2 size={18} className="animate-spin" />
+                  Loading editor…
+                </div>
+              }
+            >
+              <LazyYamlEditor
+                value={yamlDraft}
+                onChange={(val) => {
+                  setYamlDraft(val);
+                  setYamlError(null);
+                }}
+                className="h-full text-sm"
+              />
+            </Suspense>
+          </div>
+
+          {yamlError && (
+            <div className="mx-6 mb-2 rounded border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive shrink-0">
+              {yamlError}
+            </div>
+          )}
+
+          <div className="px-6 py-4 border-t flex justify-end gap-2 shrink-0">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setYamlSheetOverlay(null);
+                setYamlError(null);
+              }}
+              data-testid="button-cancel-yaml-edit"
+            >
+              <IconX size={16} />
+              Cancel
+            </Button>
+            <Button
+              onClick={saveYamlEdit}
+              disabled={yamlSaving}
+              data-testid="button-save-yaml-edit"
+            >
+              {yamlSaving ? (
+                <IconLoader2 size={16} className="animate-spin" />
+              ) : (
+                <IconCheck size={16} />
+              )}
+              Save
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
