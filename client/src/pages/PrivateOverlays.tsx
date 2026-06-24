@@ -796,9 +796,24 @@ export default function PrivateOverlays() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="modal">Modal</SelectItem>
-                          <SelectItem value="top_banner">Top Banner</SelectItem>
-                          <SelectItem value="slide_in">Slide-In</SelectItem>
+                          <SelectItem value="modal">
+                            <div>
+                              <div className="font-medium">Modal</div>
+                              <div className="text-xs text-muted-foreground">Centred dialog that dims the page</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="top_banner">
+                            <div>
+                              <div className="font-medium">Top Banner</div>
+                              <div className="text-xs text-muted-foreground">Full-width bar pinned to the top of the page</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="slide_in">
+                            <div>
+                              <div className="font-medium">Slide-In</div>
+                              <div className="text-xs text-muted-foreground">Small card that slides in from the corner</div>
+                            </div>
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -814,10 +829,30 @@ export default function PrivateOverlays() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="page_load">Page Load</SelectItem>
-                          <SelectItem value="time_delay">Time Delay</SelectItem>
-                          <SelectItem value="scroll_depth">Scroll Depth</SelectItem>
-                          <SelectItem value="exit_intent">Exit Intent</SelectItem>
+                          <SelectItem value="page_load">
+                            <div>
+                              <div className="font-medium">Page Load</div>
+                              <div className="text-xs text-muted-foreground">Fires as soon as the page finishes loading</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="time_delay">
+                            <div>
+                              <div className="font-medium">Time Delay</div>
+                              <div className="text-xs text-muted-foreground">Waits a set number of milliseconds before showing</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="scroll_depth">
+                            <div>
+                              <div className="font-medium">Scroll Depth</div>
+                              <div className="text-xs text-muted-foreground">Shows after the visitor scrolls past a % of the page</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="exit_intent">
+                            <div>
+                              <div className="font-medium">Exit Intent</div>
+                              <div className="text-xs text-muted-foreground">Triggers when the cursor moves toward closing the tab</div>
+                            </div>
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -852,9 +887,24 @@ export default function PrivateOverlays() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="once">Once (localStorage)</SelectItem>
-                          <SelectItem value="session">Per session</SelectItem>
-                          <SelectItem value="always">Always</SelectItem>
+                          <SelectItem value="once">
+                            <div>
+                              <div className="font-medium">Once per visitor</div>
+                              <div className="text-xs text-muted-foreground">Shown once, then hidden forever for that browser</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="session">
+                            <div>
+                              <div className="font-medium">Once per session</div>
+                              <div className="text-xs text-muted-foreground">Resets each time the visitor closes the browser tab</div>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="always">
+                            <div>
+                              <div className="font-medium">Every page visit</div>
+                              <div className="text-xs text-muted-foreground">Shown on every visit, no dismissal memory</div>
+                            </div>
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
