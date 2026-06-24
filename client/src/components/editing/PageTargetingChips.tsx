@@ -37,10 +37,13 @@ export function PageTargetingChips({ pages, onChange, portalContainer }: PageTar
     staleTime: 60_000,
   });
 
-  const allPaths = useMemo(
-    () => [...enUrls, ...esUrls].map((e) => e.loc),
-    [enUrls, esUrls]
-  );
+  const allPaths = useMemo(() => {
+    const toPath = (url: string) => {
+      try { return new URL(url).pathname; } catch { return url; }
+    };
+    const paths = [...enUrls, ...esUrls].map((e) => toPath(e.loc));
+    return Array.from(new Set(paths));
+  }, [enUrls, esUrls]);
 
   const matchCount = useMemo(() => {
     if (!regexValid || !regexInput.trim() || allPaths.length === 0) return null;

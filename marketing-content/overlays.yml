@@ -6,7 +6,11 @@ overlays:
       delay: 500
     targeting:
       pages: all
-      geo: {}
+      geo:
+        countries:
+          - US
+        regions:
+          - Florida
     frequency: session
     component: modal
     content:
