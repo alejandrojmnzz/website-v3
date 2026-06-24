@@ -12,6 +12,7 @@ import {
   IconFileText,
   IconAdjustments,
   IconChevronDown,
+  IconPhoto,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -64,6 +65,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Overlay, OverlayButton, OverlayConfig } from "@/hooks/useOverlays";
 import { LinkPicker } from "@/components/editing/LinkPicker";
+import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 
 const COMPONENT_LABELS: Record<string, string> = {
   modal: "Modal",
@@ -210,6 +212,7 @@ export default function PrivateOverlays() {
 
   const [sheetDraft, setSheetDraft] = useState<Overlay | null>(null);
   const [sheetTab, setSheetTab] = useState<SheetTab>("content");
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [sheetSaving, setSheetSaving] = useState(false);
   const [sheetContainer, setSheetContainer] = useState<HTMLDivElement | null>(null);
 
@@ -671,12 +674,53 @@ export default function PrivateOverlays() {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Image ID <span className="text-muted-foreground font-normal">(from image registry, optional)</span></Label>
-                    <Input
-                      value={sheetDraft.content.image_id ?? ""}
-                      onChange={(e) => patchContent({ image_id: e.target.value })}
-                      placeholder="my-image-id"
-                      data-testid="input-overlay-image-id"
+                    <Label>Image <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <div className="flex items-center gap-3">
+                      <div className="w-14 h-14 rounded-md border bg-muted/50 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        {sheetDraft.content.image_id ? (
+                          <img
+                            src={sheetDraft.content.image_id}
+                            alt="Overlay image"
+                            className="w-full h-full object-cover"
+                            data-testid="img-overlay-image-preview"
+                          />
+                        ) : (
+                          <IconPhoto size={20} className="text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setImagePickerOpen(true)}
+                          data-testid="button-overlay-choose-image"
+                        >
+                          Choose image
+                        </Button>
+                        {sheetDraft.content.image_id && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => patchContent({ image_id: undefined })}
+                            data-testid="button-overlay-remove-image"
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <ImagePickerDialog
+                      open={imagePickerOpen}
+                      onOpenChange={setImagePickerOpen}
+                      title="Select overlay image"
+                      initialSrc={sheetDraft.content.image_id ?? ""}
+                      onSave={(src) => {
+                        patchContent({ image_id: src || undefined });
+                        setImagePickerOpen(false);
+                      }}
+                      onRemove={() => patchContent({ image_id: undefined })}
                     />
                   </div>
                 </div>
