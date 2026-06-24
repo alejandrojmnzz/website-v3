@@ -128,6 +128,7 @@ export function SearchableMultiSelect({
           >
             <PopoverTrigger asChild>
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 data-testid={`button-edit-${testIdPrefix}`}
