@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from "react";
+import { useState } from "react";
 import {
   IconArrowLeft,
   IconPlus,
@@ -8,11 +8,9 @@ import {
   IconLayersIntersect,
   IconLoader2,
   IconEye,
-  IconCode,
   IconFileText,
   IconAdjustments,
 } from "@tabler/icons-react";
-import yaml from "js-yaml";
 import { useQuery } from "@tanstack/react-query";
 import {
   Card,
@@ -54,8 +52,6 @@ import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Overlay, OverlayConfig } from "@/hooks/useOverlays";
-
-const LazyYamlEditor = lazy(() => import("@/components/editing/YamlEditor"));
 
 const COMPONENT_LABELS: Record<string, string> = {
   modal: "Modal",
@@ -192,7 +188,7 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
   );
 }
 
-type SheetTab = "content" | "conditions" | "yaml";
+type SheetTab = "content" | "conditions";
 
 export default function PrivateOverlays() {
   const { toast } = useToast();
@@ -202,8 +198,6 @@ export default function PrivateOverlays() {
 
   const [sheetDraft, setSheetDraft] = useState<Overlay | null>(null);
   const [sheetTab, setSheetTab] = useState<SheetTab>("content");
-  const [sheetYamlText, setSheetYamlText] = useState<string>("");
-  const [sheetYamlError, setSheetYamlError] = useState<string | null>(null);
   const [sheetSaving, setSheetSaving] = useState(false);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
@@ -239,23 +233,13 @@ export default function PrivateOverlays() {
     const draft = overlay ? structuredClone(overlay) : newOverlay();
     setSheetDraft(draft);
     setSheetTab("content");
-    setSheetYamlText(yaml.dump(draft, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
-    setSheetYamlError(null);
   }
 
   function closeSheet() {
     setSheetDraft(null);
-    setSheetYamlError(null);
   }
 
   function handleTabChange(tab: string) {
-    if (tab === "yaml" && sheetDraft) {
-      // Entering YAML tab: serialize current draft so it reflects any form edits
-      setSheetYamlText(yaml.dump(sheetDraft, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
-      setSheetYamlError(null);
-    }
-    // Leaving YAML tab: live parsing already keeps sheetDraft in sync.
-    // Leave any existing sheetYamlError visible so the user knows their YAML is invalid.
     setSheetTab(tab as SheetTab);
   }
 
@@ -287,8 +271,6 @@ export default function PrivateOverlays() {
 
   async function saveSheet() {
     if (!sheetDraft) return;
-    // If YAML tab has an active parse error, block save
-    if (sheetTab === "yaml" && sheetYamlError) return;
     const toSave = sheetDraft;
     if (!toSave.id?.trim()) {
       toast({ title: "Overlay ID is required", variant: "destructive" });
@@ -526,10 +508,6 @@ export default function PrivateOverlays() {
               <TabsTrigger value="conditions" className="flex items-center gap-1.5 rounded-none px-5 py-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px" data-testid="tab-conditions">
                 <IconAdjustments size={14} />
                 Conditions
-              </TabsTrigger>
-              <TabsTrigger value="yaml" className="flex items-center gap-1.5 rounded-none px-5 py-3 data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px" data-testid="tab-yaml">
-                <IconCode size={14} />
-                YAML
               </TabsTrigger>
             </TabsList>
 
@@ -770,45 +748,6 @@ export default function PrivateOverlays() {
               )}
             </TabsContent>
 
-            {/* YAML tab */}
-            <TabsContent value="yaml" style={{ height: "calc(100vh - 242px)" }} className="flex flex-col overflow-hidden mt-0">
-              <div className="flex-1 overflow-auto">
-                <Suspense
-                  fallback={
-                    <div className="flex items-center justify-center h-40 text-muted-foreground gap-2">
-                      <IconLoader2 size={18} className="animate-spin" />
-                      Loading editor…
-                    </div>
-                  }
-                >
-                  <LazyYamlEditor
-                    value={sheetYamlText}
-                    onChange={(val) => {
-                      setSheetYamlText(val);
-                      try {
-                        const parsed = yaml.load(val) as Overlay;
-                        if (!parsed || typeof parsed !== "object" || !parsed.id) {
-                          setSheetYamlError("Invalid YAML: missing required field 'id'.");
-                        } else {
-                          setSheetDraft(parsed);
-                          setSheetYamlError(null);
-                        }
-                      } catch (e: unknown) {
-                        setSheetYamlError(
-                          `YAML parse error: ${e instanceof Error ? e.message : String(e)}`
-                        );
-                      }
-                    }}
-                    className="text-sm"
-                  />
-                </Suspense>
-              </div>
-              {sheetYamlError && (
-                <div className="mx-6 mb-2 mt-2 rounded border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive shrink-0">
-                  {sheetYamlError}
-                </div>
-              )}
-            </TabsContent>
           </Tabs>
 
           <div className="px-6 py-4 border-t flex justify-end gap-2 shrink-0">
