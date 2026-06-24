@@ -10,9 +10,12 @@ overlays:
     frequency: session
     component: modal
     content:
-      title: New AI Engineering cohort starting soon
-      body: Seats are filling fast — reserve yours before the deadline.
+      title: Are You A Florida Resident?
+      body: >-
+        Only our full-stack development program is authorized by the Commission
+        for Independent Education in Florida. Our job guarantee bundle is not
+        offered in Florida where our only physical location is in Miami.
       cta:
-        label: See dates
-        href: /en/upcoming-dates
+        label: I do not live in Florida
+        href: /home-florida
       image_id: ''
