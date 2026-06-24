@@ -48,6 +48,8 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { COUNTRY_OPTIONS, REGION_OPTIONS } from "@/lib/geoData";
 
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -692,58 +694,36 @@ export default function PrivateOverlays() {
                     </div>
                   )}
 
-                  <div className="border-t pt-4 space-y-3">
+                  <div className="border-t pt-4 space-y-4">
                     <p className="text-sm font-medium text-muted-foreground">Geo targeting <span className="font-normal">(all optional)</span></p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label>Countries <span className="text-muted-foreground font-normal">(ISO codes, comma-separated)</span></Label>
-                        <Input
-                          value={(geo.countries ?? []).join(", ")}
-                          onChange={(e) =>
-                            patchGeo({
-                              countries: e.target.value
-                                .split(",")
-                                .map((s) => s.trim().toUpperCase())
-                                .filter(Boolean),
-                            })
-                          }
-                          placeholder="US, CA"
-                          data-testid="input-overlay-countries"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Regions / states <span className="text-muted-foreground font-normal">(comma-separated)</span></Label>
-                        <Input
-                          value={(geo.regions ?? []).join(", ")}
-                          onChange={(e) =>
-                            patchGeo({
-                              regions: e.target.value
-                                .split(",")
-                                .map((s) => s.trim())
-                                .filter(Boolean),
-                            })
-                          }
-                          placeholder="Florida, Texas"
-                          data-testid="input-overlay-regions"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Exclude countries <span className="text-muted-foreground font-normal">(ISO codes, comma-separated)</span></Label>
-                      <Input
-                        value={(geo.exclude_countries ?? []).join(", ")}
-                        onChange={(e) =>
-                          patchGeo({
-                            exclude_countries: e.target.value
-                              .split(",")
-                              .map((s) => s.trim().toUpperCase())
-                              .filter(Boolean),
-                          })
-                        }
-                        placeholder="GB, AU"
-                        data-testid="input-overlay-exclude-countries"
-                      />
-                    </div>
+                    <SearchableMultiSelect
+                      label="Countries"
+                      options={COUNTRY_OPTIONS}
+                      value={geo.countries ?? []}
+                      onChange={(v) => patchGeo({ countries: v })}
+                      searchPlaceholder="Search countries..."
+                      testIdPrefix="overlay-countries"
+                      emptyMessage="No countries found"
+                    />
+                    <SearchableMultiSelect
+                      label="Exclude countries"
+                      options={COUNTRY_OPTIONS}
+                      value={geo.exclude_countries ?? []}
+                      onChange={(v) => patchGeo({ exclude_countries: v })}
+                      searchPlaceholder="Search countries..."
+                      testIdPrefix="overlay-exclude-countries"
+                      emptyMessage="No countries found"
+                    />
+                    <SearchableMultiSelect
+                      label="Regions / states"
+                      options={REGION_OPTIONS}
+                      value={geo.regions ?? []}
+                      onChange={(v) => patchGeo({ regions: v })}
+                      searchPlaceholder="Search regions..."
+                      testIdPrefix="overlay-regions"
+                      emptyMessage="No regions found"
+                      allowFreeText
+                    />
                   </div>
                 </div>
               )}
