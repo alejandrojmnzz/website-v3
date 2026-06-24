@@ -38,6 +38,7 @@ interface SearchableMultiSelectProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   allowFreeText?: boolean;
+  portalContainer?: HTMLElement | null;
 }
 
 export function SearchableMultiSelect({
@@ -53,6 +54,7 @@ export function SearchableMultiSelect({
   open: openProp,
   onOpenChange: onOpenChangeProp,
   allowFreeText = false,
+  portalContainer,
 }: SearchableMultiSelectProps) {
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -143,7 +145,7 @@ export function SearchableMultiSelect({
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-72 p-0 z-[10000]" align="end">
+            <PopoverContent className="w-72 p-0 z-[10000]" align="end" container={portalContainer}>
               <div className="p-2 border-b">
                 <div className="relative">
                   <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />

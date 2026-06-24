@@ -965,6 +965,7 @@ export default function PrivateOverlays() {
                       searchPlaceholder="Search countries..."
                       testIdPrefix="overlay-countries"
                       emptyMessage="No countries found"
+                      portalContainer={sheetContainer}
                     />
                     <SearchableMultiSelect
                       label="Exclude countries"
@@ -974,6 +975,7 @@ export default function PrivateOverlays() {
                       searchPlaceholder="Search countries..."
                       testIdPrefix="overlay-exclude-countries"
                       emptyMessage="No countries found"
+                      portalContainer={sheetContainer}
                     />
                     <SearchableMultiSelect
                       label="Regions / states"
@@ -984,6 +986,7 @@ export default function PrivateOverlays() {
                       testIdPrefix="overlay-regions"
                       emptyMessage="No regions found"
                       allowFreeText
+                      portalContainer={sheetContainer}
                     />
                   </div>
                 </div>
