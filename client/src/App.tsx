@@ -88,6 +88,9 @@ const ChatWidget = lazyWithRetry(() =>
 const VariableModalHost = lazyWithRetry(() =>
   import("@/components/editing/VariableHighlight").then((m) => ({ default: m.VariableModalHost })),
 );
+const OverlayRuntime = lazyWithRetry(() =>
+  import("@/components/overlays/OverlayRuntime").then((m) => ({ default: m.OverlayRuntime })),
+);
 
 // DebugBubbleGate: gate the lazy import behind a synchronous debug-mode check.
 // isDebugModeActive() reads URL params + sessionStorage + import.meta.env.DEV —
@@ -344,6 +347,7 @@ function App({ ssrQueryClient }: AppProps = {}) {
               <Suspense fallback={null}><ChatWidget /></Suspense>
               <DebugBubbleGate />
               <Suspense fallback={null}><VariableModalHost /></Suspense>
+              <Suspense fallback={null}><OverlayRuntime /></Suspense>
             </ClientOnly>
             </ImagePickerProvider>
           </EditModeWrapper>

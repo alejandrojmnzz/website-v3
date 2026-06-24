@@ -28,6 +28,7 @@ const StorePlansPage = lazy(() => import("@/pages/StorePlansPage"));
 const ConversionsPage = lazy(() => import("@/pages/ConversionsPage"));
 const McpServerPage = lazy(() => import("@/pages/McpServerPage"));
 const ErrorLogPage = lazy(() => import("@/pages/ErrorLogPage"));
+const PrivateOverlays = lazy(() => import("@/pages/PrivateOverlays"));
 
 function LoadingFallback() {
   return (
@@ -80,6 +81,7 @@ export default function PrivateRouter() {
         <Route path="/private/security" component={SecurityPage} />
         <Route path="/private/mcp-server" component={McpServerPage} />
         <Route path="/private/error-log" component={ErrorLogPage} />
+        <Route path="/private/overlays" component={PrivateOverlays} />
       </Switch>
     </Suspense>
   );

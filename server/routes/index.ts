@@ -250,6 +250,7 @@ import { registerAiRoutes } from "./ai";
 import { registerValidationRoutes } from "./validation";
 import { registerEcommerceRoutes } from "./ecommerce";
 import { registerWebhooksRoutes } from "./webhooks";
+import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
 
 const routesLogger = loggerChild({ module: "routes" });
@@ -316,6 +317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerValidationRoutes(app);
   registerEcommerceRoutes(app);
   registerWebhooksRoutes(app);
+  registerOverlaysRoutes(app);
 
   const httpServer = createServer(app);
 
