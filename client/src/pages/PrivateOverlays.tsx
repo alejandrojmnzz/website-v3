@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { RichTextArea } from "@/components/editing/RichTextArea";
 import {
   Select,
   SelectContent,
@@ -566,11 +567,11 @@ export default function PrivateOverlays() {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Body</Label>
-                    <Textarea
+                    <RichTextArea
                       value={sheetDraft.content.body}
-                      rows={3}
-                      onChange={(e) => patchContent({ body: e.target.value })}
+                      onChange={(html) => patchContent({ body: html })}
                       placeholder="Supporting copy"
+                      minHeight="80px"
                       data-testid="input-overlay-body"
                     />
                   </div>
