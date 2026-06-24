@@ -371,10 +371,11 @@ export default function PrivateOverlays() {
                     </Badge>
                     <DropdownMenu>
                       <DropdownMenuTrigger
-                        className="whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover-elevate [border-color:var(--badge-outline)] shadow-xs cursor-pointer"
+                        className="whitespace-nowrap inline-flex items-center gap-1 rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover-elevate [border-color:var(--badge-outline)] shadow-xs cursor-pointer"
                         data-testid={`badge-component-${overlay.id}`}
                       >
                         {COMPONENT_LABELS[overlay.component] ?? overlay.component}
+                        <IconChevronDown size={11} className="opacity-60" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start">
                         {(["modal", "top_banner", "slide_in"] as const).map((type) => (
