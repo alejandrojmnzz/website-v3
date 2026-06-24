@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   IconArrowLeft,
   IconPlus,
@@ -210,6 +210,7 @@ export default function PrivateOverlays() {
   const [sheetDraft, setSheetDraft] = useState<Overlay | null>(null);
   const [sheetTab, setSheetTab] = useState<SheetTab>("content");
   const [sheetSaving, setSheetSaving] = useState(false);
+  const [sheetContainer, setSheetContainer] = useState<HTMLDivElement | null>(null);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
     queryKey: ["/api/overlays"],
@@ -521,7 +522,7 @@ export default function PrivateOverlays() {
 
       {/* 3-tab overlay editor sheet */}
       <Sheet open={!!sheetDraft} onOpenChange={(open) => { if (!open) closeSheet(); }}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
+        <SheetContent ref={setSheetContainer as React.Ref<HTMLDivElement>} side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
           <SheetHeader className="px-6 pt-6 pb-4 shrink-0">
             <SheetTitle className="flex items-center gap-2">
               <IconLayersIntersect size={18} />
@@ -659,6 +660,7 @@ export default function PrivateOverlays() {
                                 value={btn.href}
                                 onChange={(v) => updateBtn({ href: v })}
                                 allowedTypes={["internal", "external"]}
+                                portalContainer={sheetContainer}
                                 testId={`link-picker-overlay-button-${i}`}
                               />
                             </div>
