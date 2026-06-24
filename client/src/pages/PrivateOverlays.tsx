@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { PageTargetingChips } from "@/components/editing/PageTargetingChips";
 import { RichTextArea } from "@/components/editing/RichTextArea";
 import {
   Select,
@@ -345,8 +345,8 @@ export default function PrivateOverlays() {
   const geo = sheetDraft?.targeting.geo ?? {};
   const pagesIsAll = sheetDraft?.targeting.pages === "all";
   const pagesArray = Array.isArray(sheetDraft?.targeting.pages)
-    ? sheetDraft!.targeting.pages.join("\n")
-    : "";
+    ? sheetDraft!.targeting.pages
+    : [];
   const isNewOverlay = sheetDraft ? !overlays.find((o) => o.id === sheetDraft.id) : false;
 
   return (
@@ -934,23 +934,18 @@ export default function PrivateOverlays() {
 
                   {!pagesIsAll && (
                     <div className="space-y-1.5">
-                      <Label>Page paths <span className="text-muted-foreground font-normal">(one per line)</span></Label>
-                      <Textarea
-                        value={pagesArray}
-                        rows={3}
-                        onChange={(e) =>
+                      <Label>Page paths</Label>
+                      <PageTargetingChips
+                        pages={pagesArray}
+                        onChange={(pages) =>
                           patchOverlay({
                             targeting: {
                               ...sheetDraft.targeting,
-                              pages: e.target.value
-                                .split("\n")
-                                .map((s) => s.trim())
-                                .filter(Boolean),
+                              pages,
                             },
                           })
                         }
-                        placeholder="/en/career-programs&#10;/es/programas-de-carrera"
-                        data-testid="input-overlay-pages"
+                        portalContainer={sheetContainer}
                       />
                     </div>
                   )}

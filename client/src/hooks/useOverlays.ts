@@ -82,12 +82,23 @@ async function fetchGeo(): Promise<GeoData | null> {
   }
 }
 
+function isRegexPattern(p: string): boolean {
+  return p.startsWith("^") || p.includes(".*") || p.includes("(") || p.includes("[");
+}
+
 function matchesPage(targeting: OverlayTargeting, pathname: string): boolean {
   if (targeting.pages === "all") return true;
   if (!Array.isArray(targeting.pages)) return true;
-  return targeting.pages.some(
-    (p) => pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p)
-  );
+  return targeting.pages.some((p) => {
+    if (isRegexPattern(p)) {
+      try {
+        return new RegExp(p).test(pathname);
+      } catch {
+        return false;
+      }
+    }
+    return pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p);
+  });
 }
 
 function matchesGeo(targeting: OverlayTargeting, geo: GeoData | null): boolean {
