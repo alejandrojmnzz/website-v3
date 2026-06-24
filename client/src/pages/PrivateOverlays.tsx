@@ -512,6 +512,21 @@ export default function PrivateOverlays() {
                 <IconAdjustments size={14} />
                 Conditions
               </TabsTrigger>
+              <div className="ml-auto flex items-center px-4 pb-px">
+                <Select
+                  value={sheetDraft?.component ?? "modal"}
+                  onValueChange={(v) => patchOverlay({ component: v as Overlay["component"] })}
+                >
+                  <SelectTrigger className="w-36 text-xs" data-testid="select-overlay-component">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="modal">Modal</SelectItem>
+                    <SelectItem value="top_banner">Top Banner</SelectItem>
+                    <SelectItem value="slide_in">Slide-In</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </TabsList>
 
             {/* Content tab */}
