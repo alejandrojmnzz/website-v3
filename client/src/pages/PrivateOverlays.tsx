@@ -8,9 +8,9 @@ import {
   IconLayersIntersect,
   IconLoader2,
   IconEye,
-  IconChevronDown,
   IconCode,
-  IconSettings2,
+  IconFileText,
+  IconAdjustments,
 } from "@tabler/icons-react";
 import yaml from "js-yaml";
 import { useQuery } from "@tanstack/react-query";
@@ -48,6 +48,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -101,15 +102,10 @@ function geoTargetingLabel(overlay: Overlay): string {
   const geo = overlay.targeting.geo;
   if (!geo) return "All countries";
   const parts: string[] = [];
-  if (geo.countries && geo.countries.length > 0) {
-    parts.push(geo.countries.join(", "));
-  }
-  if (geo.regions && geo.regions.length > 0) {
-    parts.push(geo.regions.join(", "));
-  }
-  if (geo.exclude_countries && geo.exclude_countries.length > 0) {
+  if (geo.countries && geo.countries.length > 0) parts.push(geo.countries.join(", "));
+  if (geo.regions && geo.regions.length > 0) parts.push(geo.regions.join(", "));
+  if (geo.exclude_countries && geo.exclude_countries.length > 0)
     parts.push(`Excl. ${geo.exclude_countries.join(", ")}`);
-  }
   return parts.length > 0 ? parts.join(" · ") : "All countries";
 }
 
@@ -139,12 +135,8 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
       <div className="rounded-md overflow-hidden border border-border">
         <div className="bg-primary text-primary-foreground px-4 py-2 flex items-center gap-3">
           <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
-            {content.title && (
-              <span className="font-semibold text-sm">{content.title}</span>
-            )}
-            {content.body && (
-              <span className="text-sm opacity-90">{content.body}</span>
-            )}
+            {content.title && <span className="font-semibold text-sm">{content.title}</span>}
+            {content.body && <span className="text-sm opacity-90">{content.body}</span>}
             {ctaButton}
           </div>
           <span className="shrink-0 opacity-60 cursor-default">
@@ -166,9 +158,7 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
             <span className="text-sm font-semibold leading-snug">{content.title}</span>
             <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
           </div>
-          {content.body && (
-            <p className="text-xs text-muted-foreground mb-2">{content.body}</p>
-          )}
+          {content.body && <p className="text-xs text-muted-foreground mb-2">{content.body}</p>}
           {ctaButton}
         </div>
         <div className="h-10 flex items-start pl-3 pt-3">
@@ -186,9 +176,7 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
             <span className="text-sm font-semibold leading-snug">{content.title || "Untitled overlay"}</span>
             <span className="opacity-40 cursor-default shrink-0"><IconX size={14} /></span>
           </div>
-          {content.body && (
-            <p className="text-xs text-muted-foreground mb-4">{content.body}</p>
-          )}
+          {content.body && <p className="text-xs text-muted-foreground mb-4">{content.body}</p>}
           <div className="flex justify-end gap-2">
             <span className="inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium border border-border cursor-default">
               Dismiss
@@ -204,235 +192,19 @@ function OverlayInlinePreview({ overlay }: { overlay: Overlay }) {
   );
 }
 
-interface OverlayFormProps {
-  overlay: Overlay;
-  onChange: (o: Overlay) => void;
-}
-
-function OverlayForm({ overlay, onChange }: OverlayFormProps) {
-  const set = (partial: Partial<Overlay>) =>
-    onChange({ ...overlay, ...partial });
-  const setTrigger = (partial: Partial<Overlay["trigger"]>) =>
-    onChange({ ...overlay, trigger: { ...overlay.trigger, ...partial } });
-  const setGeo = (partial: Partial<NonNullable<Overlay["targeting"]["geo"]>>) =>
-    onChange({
-      ...overlay,
-      targeting: {
-        ...overlay.targeting,
-        geo: { ...(overlay.targeting.geo ?? {}), ...partial },
-      },
-    });
-
-  const geo = overlay.targeting.geo ?? {};
-  const pagesIsAll = overlay.targeting.pages === "all";
-  const pagesArray = Array.isArray(overlay.targeting.pages)
-    ? overlay.targeting.pages.join("\n")
-    : "";
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label>ID</Label>
-          <Input
-            value={overlay.id}
-            onChange={(e) => set({ id: e.target.value })}
-            data-testid="input-overlay-id"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Component type</Label>
-          <Select
-            value={overlay.component}
-            onValueChange={(v) => set({ component: v as Overlay["component"] })}
-          >
-            <SelectTrigger data-testid="select-overlay-component">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="modal">Modal</SelectItem>
-              <SelectItem value="top_banner">Top Banner</SelectItem>
-              <SelectItem value="slide_in">Slide-In</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label>Trigger event</Label>
-          <Select
-            value={overlay.trigger.event}
-            onValueChange={(v) =>
-              setTrigger({ event: v as Overlay["trigger"]["event"] })
-            }
-          >
-            <SelectTrigger data-testid="select-overlay-trigger">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="page_load">Page Load</SelectItem>
-              <SelectItem value="time_delay">Time Delay</SelectItem>
-              <SelectItem value="scroll_depth">Scroll Depth</SelectItem>
-              <SelectItem value="exit_intent">Exit Intent</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>
-            {overlay.trigger.event === "scroll_depth"
-              ? "Scroll threshold (%)"
-              : "Delay (ms)"}
-          </Label>
-          <Input
-            type="number"
-            value={overlay.trigger.delay ?? ""}
-            onChange={(e) =>
-              setTrigger({
-                delay: e.target.value === "" ? undefined : Number(e.target.value),
-              })
-            }
-            placeholder={overlay.trigger.event === "scroll_depth" ? "50" : "2000"}
-            data-testid="input-overlay-delay"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label>Frequency</Label>
-          <Select
-            value={overlay.frequency}
-            onValueChange={(v) => set({ frequency: v as Overlay["frequency"] })}
-          >
-            <SelectTrigger data-testid="select-overlay-frequency">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="once">Once (localStorage)</SelectItem>
-              <SelectItem value="session">Per session</SelectItem>
-              <SelectItem value="always">Always</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Page targeting</Label>
-          <Select
-            value={pagesIsAll ? "all" : "specific"}
-            onValueChange={(v) =>
-              onChange({
-                ...overlay,
-                targeting: {
-                  ...overlay.targeting,
-                  pages: v === "all" ? "all" : [],
-                },
-              })
-            }
-          >
-            <SelectTrigger data-testid="select-overlay-pages">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All pages</SelectItem>
-              <SelectItem value="specific">Specific pages</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {!pagesIsAll && (
-        <div className="space-y-1.5">
-          <Label>Page paths (one per line)</Label>
-          <Textarea
-            value={pagesArray}
-            rows={3}
-            onChange={(e) =>
-              onChange({
-                ...overlay,
-                targeting: {
-                  ...overlay.targeting,
-                  pages: e.target.value
-                    .split("\n")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                },
-              })
-            }
-            placeholder="/en/career-programs&#10;/es/programas-de-carrera"
-            data-testid="input-overlay-pages"
-          />
-        </div>
-      )}
-
-      <div className="border-t pt-4 space-y-3">
-        <p className="text-sm font-medium text-muted-foreground">Geo targeting (all optional)</p>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Countries (ISO codes, comma-separated)</Label>
-            <Input
-              value={(geo.countries ?? []).join(", ")}
-              onChange={(e) =>
-                setGeo({
-                  countries: e.target.value
-                    .split(",")
-                    .map((s) => s.trim().toUpperCase())
-                    .filter(Boolean),
-                })
-              }
-              placeholder="US, CA"
-              data-testid="input-overlay-countries"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Regions / states (comma-separated)</Label>
-            <Input
-              value={(geo.regions ?? []).join(", ")}
-              onChange={(e) =>
-                setGeo({
-                  regions: e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                })
-              }
-              placeholder="Florida, Texas"
-              data-testid="input-overlay-regions"
-            />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Exclude countries (ISO codes, comma-separated)</Label>
-          <Input
-            value={(geo.exclude_countries ?? []).join(", ")}
-            onChange={(e) =>
-              setGeo({
-                exclude_countries: e.target.value
-                  .split(",")
-                  .map((s) => s.trim().toUpperCase())
-                  .filter(Boolean),
-              })
-            }
-            placeholder="GB, AU"
-            data-testid="input-overlay-exclude-countries"
-          />
-        </div>
-      </div>
-
-    </div>
-  );
-}
+type SheetTab = "content" | "conditions" | "yaml";
 
 export default function PrivateOverlays() {
   const { toast } = useToast();
-  const [editingOverlay, setEditingOverlay] = useState<Overlay | null>(null);
-  const [editDraft, setEditDraft] = useState<Overlay | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [expandedPreviewId, setExpandedPreviewId] = useState<string | null>(null);
-  const [yamlSheetOverlay, setYamlSheetOverlay] = useState<Overlay | null>(null);
-  const [yamlDraft, setYamlDraft] = useState<string>("");
-  const [yamlError, setYamlError] = useState<string | null>(null);
-  const [yamlSaving, setYamlSaving] = useState(false);
+
+  const [sheetDraft, setSheetDraft] = useState<Overlay | null>(null);
+  const [sheetTab, setSheetTab] = useState<SheetTab>("content");
+  const [sheetYamlText, setSheetYamlText] = useState<string>("");
+  const [sheetYamlError, setSheetYamlError] = useState<string | null>(null);
+  const [sheetSaving, setSheetSaving] = useState(false);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
     queryKey: ["/api/overlays"],
@@ -461,26 +233,92 @@ export default function PrivateOverlays() {
     await saveAll(updated);
   }
 
-  function openCreate() {
-    const o = newOverlay();
-    setEditingOverlay(o);
-    setEditDraft(o);
+  function openSheet(overlay: Overlay | null) {
+    const draft = overlay ? structuredClone(overlay) : newOverlay();
+    setSheetDraft(draft);
+    setSheetTab("content");
+    setSheetYamlText(yaml.dump(draft, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
+    setSheetYamlError(null);
   }
 
-  function openEdit(overlay: Overlay) {
-    setEditingOverlay(overlay);
-    setEditDraft(structuredClone(overlay));
+  function closeSheet() {
+    setSheetDraft(null);
+    setSheetYamlError(null);
   }
 
-  async function saveEdit() {
-    if (!editDraft) return;
-    const isNew = !overlays.find((o) => o.id === editDraft.id);
-    const updated = isNew
-      ? [...overlays, editDraft]
-      : overlays.map((o) => (o.id === editDraft.id ? editDraft : o));
-    await saveAll(updated);
-    setEditingOverlay(null);
-    setEditDraft(null);
+  function handleTabChange(tab: string) {
+    if (tab === "yaml" && sheetDraft) {
+      setSheetYamlText(yaml.dump(sheetDraft, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
+      setSheetYamlError(null);
+    } else if (sheetTab === "yaml") {
+      try {
+        const parsed = yaml.load(sheetYamlText) as Overlay;
+        if (parsed && typeof parsed === "object" && parsed.id) {
+          setSheetDraft(parsed);
+        }
+      } catch { /* keep existing draft */ }
+      setSheetYamlError(null);
+    }
+    setSheetTab(tab as SheetTab);
+  }
+
+  function patchContent(partial: Partial<Overlay["content"]>) {
+    if (!sheetDraft) return;
+    setSheetDraft({ ...sheetDraft, content: { ...sheetDraft.content, ...partial } });
+  }
+
+  function patchOverlay(partial: Partial<Overlay>) {
+    if (!sheetDraft) return;
+    setSheetDraft({ ...sheetDraft, ...partial });
+  }
+
+  function patchTrigger(partial: Partial<Overlay["trigger"]>) {
+    if (!sheetDraft) return;
+    setSheetDraft({ ...sheetDraft, trigger: { ...sheetDraft.trigger, ...partial } });
+  }
+
+  function patchGeo(partial: Partial<NonNullable<Overlay["targeting"]["geo"]>>) {
+    if (!sheetDraft) return;
+    setSheetDraft({
+      ...sheetDraft,
+      targeting: {
+        ...sheetDraft.targeting,
+        geo: { ...(sheetDraft.targeting.geo ?? {}), ...partial },
+      },
+    });
+  }
+
+  async function saveSheet() {
+    if (!sheetDraft) return;
+    let toSave = sheetDraft;
+    if (sheetTab === "yaml") {
+      try {
+        const parsed = yaml.load(sheetYamlText) as Overlay;
+        if (!parsed || typeof parsed !== "object" || !parsed.id) {
+          setSheetYamlError("Invalid YAML: missing required field 'id'.");
+          return;
+        }
+        toSave = parsed;
+      } catch (e: unknown) {
+        setSheetYamlError(`YAML parse error: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
+    if (!toSave.id?.trim()) {
+      toast({ title: "Overlay ID is required", variant: "destructive" });
+      return;
+    }
+    setSheetSaving(true);
+    try {
+      const isNew = !overlays.find((o) => o.id === sheetDraft.id);
+      const updated = isNew
+        ? [...overlays, toSave]
+        : overlays.map((o) => (o.id === sheetDraft.id ? toSave : o));
+      await saveAll(updated);
+      closeSheet();
+    } finally {
+      setSheetSaving(false);
+    }
   }
 
   async function deleteOverlay(id: string) {
@@ -489,35 +327,12 @@ export default function PrivateOverlays() {
     setConfirmDeleteId(null);
   }
 
-  function openYamlEdit(overlay: Overlay) {
-    setYamlSheetOverlay(overlay);
-    setYamlDraft(yaml.dump(overlay, { lineWidth: -1, quotingType: '"', forceQuotes: false }));
-    setYamlError(null);
-  }
-
-  async function saveYamlEdit() {
-    if (!yamlSheetOverlay) return;
-    let parsed: Overlay;
-    try {
-      parsed = yaml.load(yamlDraft) as Overlay;
-      if (!parsed || typeof parsed !== "object" || !parsed.id) {
-        setYamlError("Invalid YAML: missing required field 'id'.");
-        return;
-      }
-    } catch (e: unknown) {
-      setYamlError(`YAML parse error: ${e instanceof Error ? e.message : String(e)}`);
-      return;
-    }
-    setYamlError(null);
-    setYamlSaving(true);
-    try {
-      const updated = overlays.map((o) => (o.id === yamlSheetOverlay.id ? parsed : o));
-      await saveAll(updated);
-      setYamlSheetOverlay(null);
-    } finally {
-      setYamlSaving(false);
-    }
-  }
+  const geo = sheetDraft?.targeting.geo ?? {};
+  const pagesIsAll = sheetDraft?.targeting.pages === "all";
+  const pagesArray = Array.isArray(sheetDraft?.targeting.pages)
+    ? sheetDraft!.targeting.pages.join("\n")
+    : "";
+  const isNewOverlay = sheetDraft ? !overlays.find((o) => o.id === sheetDraft.id) : false;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
@@ -538,7 +353,7 @@ export default function PrivateOverlays() {
             </p>
           </div>
         </div>
-        <Button onClick={openCreate} data-testid="button-create-overlay">
+        <Button onClick={() => openSheet(null)} data-testid="button-create-overlay">
           <IconPlus size={16} />
           New overlay
         </Button>
@@ -619,20 +434,11 @@ export default function PrivateOverlays() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    onClick={() => openYamlEdit(overlay)}
-                    title="Edit content (YAML)"
-                    data-testid={`button-edit-yaml-overlay-${overlay.id}`}
-                  >
-                    <IconCode size={16} />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => openEdit(overlay)}
-                    title="Edit conditions"
+                    onClick={() => openSheet(overlay)}
+                    title="Edit overlay"
                     data-testid={`button-edit-overlay-${overlay.id}`}
                   >
-                    <IconSettings2 size={16} />
+                    <IconCode size={16} />
                   </Button>
                   <Button
                     size="icon"
@@ -671,54 +477,6 @@ export default function PrivateOverlays() {
         </div>
       )}
 
-      {/* Edit / Create dialog */}
-      <Dialog
-        open={!!editingOverlay}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingOverlay(null);
-            setEditDraft(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editDraft && overlays.find((o) => o.id === editDraft.id)
-                ? "Edit conditions"
-                : "New overlay"}
-            </DialogTitle>
-          </DialogHeader>
-          {editDraft && (
-            <OverlayForm overlay={editDraft} onChange={setEditDraft} />
-          )}
-          <DialogFooter className="gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setEditingOverlay(null);
-                setEditDraft(null);
-              }}
-              data-testid="button-cancel-overlay-edit"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={saveEdit}
-              disabled={saving}
-              data-testid="button-save-overlay"
-            >
-              {saving ? (
-                <IconLoader2 size={16} className="animate-spin" />
-              ) : (
-                <IconCheck size={16} />
-              )}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Delete confirmation */}
       <Dialog
         open={!!confirmDeleteId}
@@ -754,71 +512,322 @@ export default function PrivateOverlays() {
         </DialogContent>
       </Dialog>
 
-      {/* YAML content editor sheet */}
-      <Sheet
-        open={!!yamlSheetOverlay}
-        onOpenChange={(open) => {
-          if (!open) {
-            setYamlSheetOverlay(null);
-            setYamlError(null);
-          }
-        }}
-      >
+      {/* 3-tab overlay editor sheet */}
+      <Sheet open={!!sheetDraft} onOpenChange={(open) => { if (!open) closeSheet(); }}>
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
           <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <SheetTitle className="flex items-center gap-2">
-              <IconCode size={18} />
-              Edit content — {yamlSheetOverlay?.id}
+              <IconLayersIntersect size={18} />
+              {isNewOverlay ? "New overlay" : sheetDraft?.id}
             </SheetTitle>
             <SheetDescription>
-              Edit the full overlay entry as YAML. Conditions (trigger, targeting, frequency) are also editable here.
+              {isNewOverlay
+                ? "Configure content, conditions, and trigger settings for the new overlay."
+                : "Edit content, conditions, or raw YAML for this overlay."}
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex-1 overflow-auto">
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center h-40 text-muted-foreground gap-2">
-                  <IconLoader2 size={18} className="animate-spin" />
-                  Loading editor…
-                </div>
-              }
-            >
-              <LazyYamlEditor
-                value={yamlDraft}
-                onChange={(val) => {
-                  setYamlDraft(val);
-                  setYamlError(null);
-                }}
-                className="h-full text-sm"
-              />
-            </Suspense>
-          </div>
+          <Tabs
+            value={sheetTab}
+            onValueChange={handleTabChange}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <TabsList className="mx-6 mt-4 shrink-0 self-start">
+              <TabsTrigger value="content" className="flex items-center gap-1.5" data-testid="tab-content">
+                <IconFileText size={14} />
+                Content
+              </TabsTrigger>
+              <TabsTrigger value="conditions" className="flex items-center gap-1.5" data-testid="tab-conditions">
+                <IconAdjustments size={14} />
+                Conditions
+              </TabsTrigger>
+              <TabsTrigger value="yaml" className="flex items-center gap-1.5" data-testid="tab-yaml">
+                <IconCode size={14} />
+                YAML
+              </TabsTrigger>
+            </TabsList>
 
-          {yamlError && (
-            <div className="mx-6 mb-2 rounded border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive shrink-0">
-              {yamlError}
-            </div>
-          )}
+            {/* Content tab */}
+            <TabsContent value="content" className="flex-1 overflow-auto px-6 py-4 mt-0">
+              {sheetDraft && (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>Title</Label>
+                    <Input
+                      value={sheetDraft.content.title}
+                      onChange={(e) => patchContent({ title: e.target.value })}
+                      placeholder="Enter a headline"
+                      data-testid="input-overlay-title"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Body</Label>
+                    <Textarea
+                      value={sheetDraft.content.body}
+                      rows={3}
+                      onChange={(e) => patchContent({ body: e.target.value })}
+                      placeholder="Supporting copy"
+                      data-testid="input-overlay-body"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>CTA label</Label>
+                      <Input
+                        value={sheetDraft.content.cta?.label ?? ""}
+                        onChange={(e) =>
+                          patchContent({
+                            cta: {
+                              ...(sheetDraft.content.cta ?? {}),
+                              label: e.target.value,
+                              href: sheetDraft.content.cta?.href ?? "",
+                            },
+                          })
+                        }
+                        placeholder="Apply now"
+                        data-testid="input-overlay-cta-label"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>CTA URL</Label>
+                      <Input
+                        value={sheetDraft.content.cta?.href ?? ""}
+                        onChange={(e) =>
+                          patchContent({
+                            cta: {
+                              ...(sheetDraft.content.cta ?? {}),
+                              href: e.target.value,
+                              label: sheetDraft.content.cta?.label ?? "",
+                            },
+                          })
+                        }
+                        placeholder="/en/apply"
+                        data-testid="input-overlay-cta-href"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Image ID <span className="text-muted-foreground font-normal">(from image registry, optional)</span></Label>
+                    <Input
+                      value={sheetDraft.content.image_id ?? ""}
+                      onChange={(e) => patchContent({ image_id: e.target.value })}
+                      placeholder="my-image-id"
+                      data-testid="input-overlay-image-id"
+                    />
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Conditions tab */}
+            <TabsContent value="conditions" className="flex-1 overflow-auto px-6 py-4 mt-0">
+              {sheetDraft && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Trigger event</Label>
+                      <Select
+                        value={sheetDraft.trigger.event}
+                        onValueChange={(v) =>
+                          patchTrigger({ event: v as Overlay["trigger"]["event"] })
+                        }
+                      >
+                        <SelectTrigger data-testid="select-overlay-trigger">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="page_load">Page Load</SelectItem>
+                          <SelectItem value="time_delay">Time Delay</SelectItem>
+                          <SelectItem value="scroll_depth">Scroll Depth</SelectItem>
+                          <SelectItem value="exit_intent">Exit Intent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>
+                        {sheetDraft.trigger.event === "scroll_depth"
+                          ? "Scroll threshold (%)"
+                          : "Delay (ms)"}
+                      </Label>
+                      <Input
+                        type="number"
+                        value={sheetDraft.trigger.delay ?? ""}
+                        onChange={(e) =>
+                          patchTrigger({
+                            delay: e.target.value === "" ? undefined : Number(e.target.value),
+                          })
+                        }
+                        placeholder={sheetDraft.trigger.event === "scroll_depth" ? "50" : "2000"}
+                        data-testid="input-overlay-delay"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Frequency</Label>
+                      <Select
+                        value={sheetDraft.frequency}
+                        onValueChange={(v) => patchOverlay({ frequency: v as Overlay["frequency"] })}
+                      >
+                        <SelectTrigger data-testid="select-overlay-frequency">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="once">Once (localStorage)</SelectItem>
+                          <SelectItem value="session">Per session</SelectItem>
+                          <SelectItem value="always">Always</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Page targeting</Label>
+                      <Select
+                        value={pagesIsAll ? "all" : "specific"}
+                        onValueChange={(v) =>
+                          patchOverlay({
+                            targeting: {
+                              ...sheetDraft.targeting,
+                              pages: v === "all" ? "all" : [],
+                            },
+                          })
+                        }
+                      >
+                        <SelectTrigger data-testid="select-overlay-pages">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All pages</SelectItem>
+                          <SelectItem value="specific">Specific pages</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {!pagesIsAll && (
+                    <div className="space-y-1.5">
+                      <Label>Page paths <span className="text-muted-foreground font-normal">(one per line)</span></Label>
+                      <Textarea
+                        value={pagesArray}
+                        rows={3}
+                        onChange={(e) =>
+                          patchOverlay({
+                            targeting: {
+                              ...sheetDraft.targeting,
+                              pages: e.target.value
+                                .split("\n")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            },
+                          })
+                        }
+                        placeholder="/en/career-programs&#10;/es/programas-de-carrera"
+                        data-testid="input-overlay-pages"
+                      />
+                    </div>
+                  )}
+
+                  <div className="border-t pt-4 space-y-3">
+                    <p className="text-sm font-medium text-muted-foreground">Geo targeting <span className="font-normal">(all optional)</span></p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label>Countries <span className="text-muted-foreground font-normal">(ISO codes, comma-separated)</span></Label>
+                        <Input
+                          value={(geo.countries ?? []).join(", ")}
+                          onChange={(e) =>
+                            patchGeo({
+                              countries: e.target.value
+                                .split(",")
+                                .map((s) => s.trim().toUpperCase())
+                                .filter(Boolean),
+                            })
+                          }
+                          placeholder="US, CA"
+                          data-testid="input-overlay-countries"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Regions / states <span className="text-muted-foreground font-normal">(comma-separated)</span></Label>
+                        <Input
+                          value={(geo.regions ?? []).join(", ")}
+                          onChange={(e) =>
+                            patchGeo({
+                              regions: e.target.value
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          placeholder="Florida, Texas"
+                          data-testid="input-overlay-regions"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Exclude countries <span className="text-muted-foreground font-normal">(ISO codes, comma-separated)</span></Label>
+                      <Input
+                        value={(geo.exclude_countries ?? []).join(", ")}
+                        onChange={(e) =>
+                          patchGeo({
+                            exclude_countries: e.target.value
+                              .split(",")
+                              .map((s) => s.trim().toUpperCase())
+                              .filter(Boolean),
+                          })
+                        }
+                        placeholder="GB, AU"
+                        data-testid="input-overlay-exclude-countries"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* YAML tab */}
+            <TabsContent value="yaml" className="flex-1 flex flex-col overflow-hidden mt-0">
+              <div className="flex-1 overflow-auto">
+                <Suspense
+                  fallback={
+                    <div className="flex items-center justify-center h-40 text-muted-foreground gap-2">
+                      <IconLoader2 size={18} className="animate-spin" />
+                      Loading editor…
+                    </div>
+                  }
+                >
+                  <LazyYamlEditor
+                    value={sheetYamlText}
+                    onChange={(val) => {
+                      setSheetYamlText(val);
+                      setSheetYamlError(null);
+                    }}
+                    className="text-sm"
+                  />
+                </Suspense>
+              </div>
+              {sheetYamlError && (
+                <div className="mx-6 mb-2 mt-2 rounded border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive shrink-0">
+                  {sheetYamlError}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <div className="px-6 py-4 border-t flex justify-end gap-2 shrink-0">
             <Button
               variant="ghost"
-              onClick={() => {
-                setYamlSheetOverlay(null);
-                setYamlError(null);
-              }}
-              data-testid="button-cancel-yaml-edit"
+              onClick={closeSheet}
+              data-testid="button-cancel-sheet"
             >
               <IconX size={16} />
               Cancel
             </Button>
             <Button
-              onClick={saveYamlEdit}
-              disabled={yamlSaving}
-              data-testid="button-save-yaml-edit"
+              onClick={saveSheet}
+              disabled={sheetSaving}
+              data-testid="button-save-sheet"
             >
-              {yamlSaving ? (
+              {sheetSaving ? (
                 <IconLoader2 size={16} className="animate-spin" />
               ) : (
                 <IconCheck size={16} />
