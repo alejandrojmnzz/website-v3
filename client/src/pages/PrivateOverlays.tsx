@@ -534,7 +534,7 @@ export default function PrivateOverlays() {
             </TabsList>
 
             {/* Content tab */}
-            <TabsContent value="content" style={{ height: "calc(100vh - 210px)" }} className="overflow-y-auto overflow-x-hidden px-6 py-4 mt-0">
+            <TabsContent value="content" style={{ height: "calc(100vh - 242px)" }} className="overflow-y-auto overflow-x-hidden px-6 py-4 mt-0">
               {sheetDraft && (
                 <div className="space-y-4">
                   <div className="space-y-1.5">
@@ -606,7 +606,7 @@ export default function PrivateOverlays() {
             </TabsContent>
 
             {/* Conditions tab */}
-            <TabsContent value="conditions" style={{ height: "calc(100vh - 210px)" }} className="overflow-y-auto overflow-x-hidden px-6 py-4 mt-0">
+            <TabsContent value="conditions" style={{ height: "calc(100vh - 242px)" }} className="overflow-y-auto overflow-x-hidden px-6 py-4 mt-0">
               {sheetDraft && (
                 <div className="space-y-5">
                   <div className="grid grid-cols-2 gap-4">
@@ -771,7 +771,7 @@ export default function PrivateOverlays() {
             </TabsContent>
 
             {/* YAML tab */}
-            <TabsContent value="yaml" style={{ height: "calc(100vh - 210px)" }} className="flex flex-col overflow-hidden mt-0">
+            <TabsContent value="yaml" style={{ height: "calc(100vh - 242px)" }} className="flex flex-col overflow-hidden mt-0">
               <div className="flex-1 overflow-auto">
                 <Suspense
                   fallback={
