@@ -41,6 +41,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -232,6 +238,13 @@ export default function PrivateOverlays() {
     await saveAll(updated);
   }
 
+  async function changeComponent(overlay: Overlay, component: Overlay["component"]) {
+    const updated = overlays.map((o) =>
+      o.id === overlay.id ? { ...o, component } : o
+    );
+    await saveAll(updated);
+  }
+
   function openSheet(overlay: Overlay | null) {
     const draft = overlay ? structuredClone(overlay) : newOverlay();
     setSheetDraft(draft);
@@ -356,9 +369,29 @@ export default function PrivateOverlays() {
                     <Badge variant={overlay.enabled ? "default" : "secondary"}>
                       {overlay.enabled ? "Enabled" : "Disabled"}
                     </Badge>
-                    <Badge variant="outline">
-                      {COMPONENT_LABELS[overlay.component] ?? overlay.component}
-                    </Badge>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        className="whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover-elevate [border-color:var(--badge-outline)] shadow-xs cursor-pointer"
+                        data-testid={`badge-component-${overlay.id}`}
+                      >
+                        {COMPONENT_LABELS[overlay.component] ?? overlay.component}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {(["modal", "top_banner", "slide_in"] as const).map((type) => (
+                          <DropdownMenuItem
+                            key={type}
+                            onClick={() => changeComponent(overlay, type)}
+                            className="flex items-center gap-2"
+                            data-testid={`menu-component-${type}`}
+                          >
+                            {overlay.component === type && <IconCheck size={13} />}
+                            <span className={overlay.component === type ? "" : "pl-[21px]"}>
+                              {COMPONENT_LABELS[type]}
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </CardTitle>
                   <CardDescription className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
                     <span>
@@ -512,21 +545,6 @@ export default function PrivateOverlays() {
                 <IconAdjustments size={14} />
                 Conditions
               </TabsTrigger>
-              <div className="ml-auto flex items-center px-4 pb-px">
-                <Select
-                  value={sheetDraft?.component ?? "modal"}
-                  onValueChange={(v) => patchOverlay({ component: v as Overlay["component"] })}
-                >
-                  <SelectTrigger className="w-36 text-xs" data-testid="select-overlay-component">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="modal">Modal</SelectItem>
-                    <SelectItem value="top_banner">Top Banner</SelectItem>
-                    <SelectItem value="slide_in">Slide-In</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </TabsList>
 
             {/* Content tab */}
@@ -606,6 +624,22 @@ export default function PrivateOverlays() {
               {sheetDraft && (
                 <div className="space-y-5">
                   <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Component type</Label>
+                      <Select
+                        value={sheetDraft.component}
+                        onValueChange={(v) => patchOverlay({ component: v as Overlay["component"] })}
+                      >
+                        <SelectTrigger data-testid="select-overlay-component">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="modal">Modal</SelectItem>
+                          <SelectItem value="top_banner">Top Banner</SelectItem>
+                          <SelectItem value="slide_in">Slide-In</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="space-y-1.5">
                       <Label>Trigger event</Label>
                       <Select
