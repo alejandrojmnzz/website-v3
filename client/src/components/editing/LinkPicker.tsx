@@ -253,6 +253,7 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
+          type="button"
           className={cn(
             "group inline-flex items-center gap-1.5 text-xs rounded-md transition-colors hover-elevate",
             compact ? "p-1" : "px-2 py-1 max-w-full",
