@@ -61,7 +61,8 @@ import { COUNTRY_OPTIONS, REGION_OPTIONS } from "@/lib/geoData";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Overlay, OverlayConfig } from "@/hooks/useOverlays";
+import type { Overlay, OverlayButton, OverlayConfig } from "@/hooks/useOverlays";
+import { LinkPicker } from "@/components/editing/LinkPicker";
 
 const COMPONENT_LABELS: Record<string, string> = {
   modal: "Modal",
@@ -123,7 +124,7 @@ function newOverlay(): Overlay {
     targeting: { pages: "all", geo: {} },
     frequency: "once",
     component: "modal",
-    content: { title: "", body: "", cta: { label: "", href: "" }, image_id: "" },
+    content: { title: "", body: "", buttons: [], image_id: "" },
   };
 }
 
@@ -572,40 +573,98 @@ export default function PrivateOverlays() {
                       data-testid="input-overlay-body"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label>CTA label</Label>
-                      <Input
-                        value={sheetDraft.content.cta?.label ?? ""}
-                        onChange={(e) =>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label>Buttons</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
                           patchContent({
-                            cta: {
-                              ...(sheetDraft.content.cta ?? {}),
-                              label: e.target.value,
-                              href: sheetDraft.content.cta?.href ?? "",
-                            },
+                            buttons: [
+                              ...(sheetDraft.content.buttons ?? []),
+                              { label: "", variant: "default", href: "" } as OverlayButton,
+                            ],
                           })
                         }
-                        placeholder="Apply now"
-                        data-testid="input-overlay-cta-label"
-                      />
+                        data-testid="button-add-overlay-button"
+                      >
+                        <IconPlus size={13} />
+                        Add button
+                      </Button>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label>CTA URL</Label>
-                      <Input
-                        value={sheetDraft.content.cta?.href ?? ""}
-                        onChange={(e) =>
-                          patchContent({
-                            cta: {
-                              ...(sheetDraft.content.cta ?? {}),
-                              href: e.target.value,
-                              label: sheetDraft.content.cta?.label ?? "",
-                            },
-                          })
-                        }
-                        placeholder="/en/apply"
-                        data-testid="input-overlay-cta-href"
-                      />
+
+                    {(sheetDraft.content.buttons ?? []).length === 0 && (
+                      <p className="text-xs text-muted-foreground py-1">No buttons yet — click "Add button" to add one.</p>
+                    )}
+
+                    <div className="space-y-3">
+                      {(sheetDraft.content.buttons ?? []).map((btn, i) => {
+                        const updateBtn = (patch: Partial<OverlayButton>) => {
+                          const updated = [...(sheetDraft.content.buttons ?? [])];
+                          updated[i] = { ...updated[i], ...patch };
+                          patchContent({ buttons: updated });
+                        };
+                        const removeBtn = () => {
+                          const updated = (sheetDraft.content.buttons ?? []).filter((_, idx) => idx !== i);
+                          patchContent({ buttons: updated });
+                        };
+                        return (
+                          <div key={i} className="rounded-md border p-3 space-y-2.5 bg-muted/30">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium text-muted-foreground">Button {i + 1}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={removeBtn}
+                                data-testid={`button-remove-overlay-button-${i}`}
+                              >
+                                <IconTrash size={14} />
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Label</Label>
+                                <Input
+                                  value={btn.label}
+                                  onChange={(e) => updateBtn({ label: e.target.value })}
+                                  placeholder="Apply now"
+                                  data-testid={`input-overlay-button-label-${i}`}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Style</Label>
+                                <Select
+                                  value={btn.variant}
+                                  onValueChange={(v) => updateBtn({ variant: v as OverlayButton["variant"] })}
+                                >
+                                  <SelectTrigger data-testid={`select-overlay-button-variant-${i}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="default">Primary</SelectItem>
+                                    <SelectItem value="secondary">Secondary</SelectItem>
+                                    <SelectItem value="outline">Outline</SelectItem>
+                                    <SelectItem value="ghost">Ghost</SelectItem>
+                                    <SelectItem value="destructive">Destructive</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Destination</Label>
+                              <LinkPicker
+                                value={btn.href}
+                                onChange={(v) => updateBtn({ href: v })}
+                                allowedTypes={["internal", "external"]}
+                                testId={`link-picker-overlay-button-${i}`}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                   <div className="space-y-1.5">

@@ -42,11 +42,13 @@ export function OverlaySlideIn({ overlay, onDismiss }: OverlaySlideInProps) {
             <p className="text-sm text-muted-foreground">{content.body}</p>
           </CardContent>
         )}
-        {content.cta?.href && content.cta?.label && (
-          <CardContent className="pt-0 pb-4 flex gap-2">
-            <Button asChild className="w-full" onClick={handleDismiss}>
-              <Link href={content.cta.href}>{content.cta.label}</Link>
-            </Button>
+        {(content.buttons ?? []).filter((b) => b.href && b.label).length > 0 && (
+          <CardContent className="pt-0 pb-4 flex flex-wrap gap-2">
+            {(content.buttons ?? []).filter((b) => b.href && b.label).map((btn, i) => (
+              <Button key={i} variant={btn.variant ?? "default"} asChild className="flex-1" onClick={handleDismiss}>
+                <Link href={btn.href}>{btn.label}</Link>
+              </Button>
+            ))}
           </CardContent>
         )}
       </Card>

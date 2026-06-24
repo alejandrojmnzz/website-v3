@@ -30,17 +30,18 @@ export function OverlayTopBanner({ overlay, onDismiss }: OverlayTopBannerProps) 
         {content.body && (
           <span className="text-sm opacity-90">{content.body}</span>
         )}
-        {content.cta?.href && content.cta?.label && (
+        {(content.buttons ?? []).filter((b) => b.href && b.label).map((btn, i) => (
           <Button
+            key={i}
             asChild
             size="sm"
-            variant="secondary"
+            variant={btn.variant ?? "secondary"}
             className="shrink-0"
             onClick={handleDismiss}
           >
-            <Link href={content.cta.href}>{content.cta.label}</Link>
+            <Link href={btn.href}>{btn.label}</Link>
           </Button>
-        )}
+        ))}
       </div>
       <Button
         size="icon"

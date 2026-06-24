@@ -15,7 +15,8 @@ overlays:
         Only our full-stack development program is authorized by the Commission
         for Independent Education in Florida. Our job guarantee bundle is not
         offered in Florida where our only physical location is in Miami.
-      cta:
-        label: I do not live in Florida
-        href: /home-florida
+      buttons:
+        - label: I do not live in Florida
+          variant: default
+          href: /home-florida
       image_id: ''

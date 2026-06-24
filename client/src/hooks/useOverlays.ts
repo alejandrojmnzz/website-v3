@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
+export interface OverlayButton {
+  label: string;
+  variant: "default" | "secondary" | "outline" | "ghost" | "destructive";
+  href: string;
+}
+
 export interface OverlayContent {
   title: string;
   body: string;
-  cta?: { label: string; href: string };
+  buttons?: OverlayButton[];
   image_id?: string;
 }
 
