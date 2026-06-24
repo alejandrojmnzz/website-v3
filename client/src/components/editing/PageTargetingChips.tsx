@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { IconX, IconPlus, IconCheck, IconAlertCircle } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LinkPicker } from "@/components/editing/LinkPicker";
+
+interface SitemapEntry { loc: string; label: string; }
 
 interface PageTargetingChipsProps {
   pages: string[];
@@ -14,6 +17,40 @@ export function PageTargetingChips({ pages, onChange, portalContainer }: PageTar
   const [regexInput, setRegexInput] = useState("");
   const [regexError, setRegexError] = useState<string | null>(null);
   const [regexValid, setRegexValid] = useState(false);
+
+  const { data: enUrls = [] } = useQuery<SitemapEntry[]>({
+    queryKey: ["/api/sitemap-urls", "en"],
+    queryFn: async () => {
+      const r = await fetch("/api/sitemap-urls?locale=en");
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const { data: esUrls = [] } = useQuery<SitemapEntry[]>({
+    queryKey: ["/api/sitemap-urls", "es"],
+    queryFn: async () => {
+      const r = await fetch("/api/sitemap-urls?locale=es");
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const allPaths = useMemo(
+    () => [...enUrls, ...esUrls].map((e) => e.loc),
+    [enUrls, esUrls]
+  );
+
+  const matchCount = useMemo(() => {
+    if (!regexValid || !regexInput.trim() || allPaths.length === 0) return null;
+    try {
+      const re = new RegExp(regexInput.trim());
+      return allPaths.filter((p) => re.test(p)).length;
+    } catch {
+      return null;
+    }
+  }, [regexValid, regexInput, allPaths]);
 
   const handleRemove = (entry: string) => {
     onChange(pages.filter((p) => p !== entry));
@@ -117,7 +154,17 @@ export function PageTargetingChips({ pages, onChange, portalContainer }: PageTar
           </Button>
         </div>
         {regexError && (
-          <p className="text-xs text-destructive">{regexError}</p>
+          <p className="text-xs text-destructive" data-testid="text-regex-error">{regexError}</p>
+        )}
+        {matchCount !== null && (
+          <p
+            className={`text-xs ${matchCount > 0 ? "text-muted-foreground" : "text-muted-foreground/60"}`}
+            data-testid="text-regex-match-count"
+          >
+            {matchCount > 0
+              ? `Matches ${matchCount} page${matchCount === 1 ? "" : "s"}`
+              : "No pages match"}
+          </p>
         )}
       </div>
     </div>
