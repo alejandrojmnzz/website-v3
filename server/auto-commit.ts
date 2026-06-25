@@ -24,6 +24,7 @@ import {
   shouldTrackFile,
 } from './sync-state';
 import { getAllFolders } from './content-types';
+import { getSiteConfigs } from './site-config';
 import { child } from "./logger";
 const log = child({ module: "auto-commit" });
 
@@ -75,15 +76,53 @@ let nextSyncAt: number | null = null;
 let retryBackoffMs = 0;
 const BACKOFF_STEPS = [5000, 10000, 30000, 60000];
 
-function getGitHubConfig(): GitHubConfig | null {
+function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+  const match = url.replace(/\.git$/, '').match(/github\.com\/([^\/]+)\/([^\/]+)/);
+  return match ? { owner: match[1], repo: match[2] } : null;
+}
+
+function buildConfig(repoUrl: string): GitHubConfig | null {
   const token = process.env.GITHUB_TOKEN || '';
-  const repoUrl = process.env.GITHUB_REPO_URL || '';
   const branch = process.env.GITHUB_BRANCH || 'main';
+  const parsed = parseGitHubUrl(repoUrl);
+  if (!token || !parsed) return null;
+  return { token, owner: parsed.owner, repo: parsed.repo, branch };
+}
 
-  const match = repoUrl.replace(/\.git$/, '').match(/github\.com\/([^\/]+)\/([^\/]+)/);
-  if (!token || !match) return null;
+/**
+ * Resolve the GitHub config for a specific file path.
+ * In multi-site mode, matches the file's content-folder prefix against
+ * site configs and uses each site's own githubRepoUrl.
+ * Falls back to the global GITHUB_REPO_URL env var for single-site mode
+ * or any file that doesn't match a site with its own repo configured.
+ */
+function getGitHubConfigForFile(filePath: string): { config: GitHubConfig; repoUrl: string } | null {
+  const token = process.env.GITHUB_TOKEN || '';
+  if (!token) return null;
 
-  return { token, owner: match[1], repo: match[2], branch };
+  const sites = getSiteConfigs();
+  for (const site of sites) {
+    const prefix = site.contentFolder.replace(/\/$/, '');
+    if ((filePath.startsWith(prefix + '/') || filePath === prefix) && site.githubRepoUrl) {
+      const config = buildConfig(site.githubRepoUrl);
+      if (config) return { config, repoUrl: site.githubRepoUrl };
+    }
+  }
+
+  const globalRepoUrl = process.env.GITHUB_REPO_URL || '';
+  const config = buildConfig(globalRepoUrl);
+  return config ? { config, repoUrl: globalRepoUrl } : null;
+}
+
+function isAnyGitHubConfigured(): boolean {
+  const token = process.env.GITHUB_TOKEN || '';
+  if (!token) return false;
+  const sites = getSiteConfigs();
+  for (const site of sites) {
+    if (site.githubRepoUrl && parseGitHubUrl(site.githubRepoUrl)) return true;
+  }
+  const globalRepoUrl = process.env.GITHUB_REPO_URL || '';
+  return !!parseGitHubUrl(globalRepoUrl);
 }
 
 export function isAutoCommitEnabled(): boolean {
@@ -181,21 +220,32 @@ async function processQueue(): Promise<void> {
   pendingChanges.clear();
 
   try {
-    const config = getGitHubConfig();
-    if (!config) {
-      lastError = 'GitHub not configured';
-      hadFailure = true;
-      for (const [key, val] of Array.from(snapshotChanges.entries())) {
-        if (!pendingChanges.has(key)) pendingChanges.set(key, val);
+    // Group changes by per-site repo URL so that multi-site files are committed
+    // to their own repository rather than always going to the global GITHUB_REPO_URL.
+    type RepoGroup = { config: GitHubConfig; changes: Map<string, PendingFileChange> };
+    const byRepo = new Map<string, RepoGroup>();
+
+    for (const [filePath, change] of Array.from(snapshotChanges.entries())) {
+      const resolved = getGitHubConfigForFile(filePath);
+      if (!resolved) {
+        lastError = 'GitHub not configured';
+        hadFailure = true;
+        if (!pendingChanges.has(filePath)) pendingChanges.set(filePath, change);
+        continue;
       }
-      return;
+      const key = resolved.repoUrl;
+      if (!byRepo.has(key)) {
+        byRepo.set(key, { config: resolved.config, changes: new Map() });
+      }
+      byRepo.get(key)!.changes.set(filePath, change);
     }
 
-    const authorGroups = groupByAuthor(snapshotChanges);
     const errorBefore = lastError;
-
-    for (const [author, files] of Array.from(authorGroups.entries())) {
-      await commitBatch(config, author, files);
+    for (const { config, changes } of Array.from(byRepo.values())) {
+      const authorGroups = groupByAuthor(changes);
+      for (const [author, files] of Array.from(authorGroups.entries())) {
+        await commitBatch(config, author, files);
+      }
     }
 
     if (lastError && lastError !== errorBefore) {
@@ -538,7 +588,7 @@ export function getAutoCommitStatus(): AutoCommitStatus {
     commitIntervalSeconds: config.commitIntervalSeconds,
     nextSyncAt,
     isCommitting,
-    githubConfigured: getGitHubConfig() !== null,
+    githubConfigured: isAnyGitHubConfigured(),
     autoCommitEligibleFiles,
   };
 }
