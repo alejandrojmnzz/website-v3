@@ -50,3 +50,4 @@ reports/lighthouse/**/*.json
 # Qdrant vector store — binary and storage data (local only)
 .local/bin/qdrant
 .cache/qdrant-storage/
+4geeks-com/.sync-log-state.txt
