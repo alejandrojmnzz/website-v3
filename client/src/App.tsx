@@ -91,6 +91,9 @@ const VariableModalHost = lazyWithRetry(() =>
 const OverlayRuntime = lazyWithRetry(() =>
   import("@/components/overlays/OverlayRuntime").then((m) => ({ default: m.OverlayRuntime })),
 );
+const BootstrapModal = lazyWithRetry(() =>
+  import("@/components/BootstrapModal").then((m) => ({ default: m.BootstrapModal })),
+);
 
 // DebugBubbleGate: gate the lazy import behind a synchronous debug-mode check.
 // isDebugModeActive() reads URL params + sessionStorage + import.meta.env.DEV —
@@ -348,6 +351,7 @@ function App({ ssrQueryClient }: AppProps = {}) {
               <DebugBubbleGate />
               <Suspense fallback={null}><VariableModalHost /></Suspense>
               <Suspense fallback={null}><OverlayRuntime /></Suspense>
+              <Suspense fallback={null}><BootstrapModal /></Suspense>
             </ClientOnly>
             </ImagePickerProvider>
           </EditModeWrapper>

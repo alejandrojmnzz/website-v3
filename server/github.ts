@@ -1828,6 +1828,36 @@ export async function getRemoteFileStatus(filePath: string): Promise<{
 }
 
 /**
+ * Live progress state for bootstrapContentFromRemote().
+ * Updated in-place as the bootstrap runs so the status API can stream progress.
+ */
+export interface BootstrapState {
+  running: boolean;
+  total: number;
+  pulled: number;
+  errors: string[];
+  startedAt: number | null;
+  doneAt: number | null;
+  success: boolean | null;
+  commitSha: string | null;
+}
+
+const _bootstrapState: BootstrapState = {
+  running: false,
+  total: 0,
+  pulled: 0,
+  errors: [],
+  startedAt: null,
+  doneAt: null,
+  success: null,
+  commitSha: null,
+};
+
+export function getBootstrapState(): Readonly<BootstrapState> {
+  return { ..._bootstrapState };
+}
+
+/**
  * Bootstrap all marketing-content files from the configured remote GitHub repo.
  *
  * Designed for the first-start case where marketing-content/ is empty and no
@@ -1853,17 +1883,37 @@ export async function bootstrapContentFromRemote(): Promise<{
   const { logSync } = await import('./sync-log');
   logSync('AUTO-PULL', 'Bootstrap: starting full content pull from remote...');
 
+  // Reset and mark as running
+  _bootstrapState.running = true;
+  _bootstrapState.total = 0;
+  _bootstrapState.pulled = 0;
+  _bootstrapState.errors = [];
+  _bootstrapState.startedAt = Date.now();
+  _bootstrapState.doneAt = null;
+  _bootstrapState.success = null;
+  _bootstrapState.commitSha = null;
+
   const headSha = await getBranchHeadSha(config);
   if (!headSha) {
-    return { success: false, pulled: 0, errors: ['Could not get remote branch HEAD SHA'], commitSha: null };
+    _bootstrapState.running = false;
+    _bootstrapState.doneAt = Date.now();
+    _bootstrapState.success = false;
+    _bootstrapState.errors = ['Could not get remote branch HEAD SHA'];
+    return { success: false, pulled: 0, errors: _bootstrapState.errors, commitSha: null };
   }
+
+  _bootstrapState.commitSha = headSha;
 
   const files = await fetchFilesFromTree(config, headSha);
   if (files.length === 0) {
     logSync('AUTO-PULL', 'Bootstrap: no marketing-content files found on remote');
+    _bootstrapState.running = false;
+    _bootstrapState.doneAt = Date.now();
+    _bootstrapState.success = true;
     return { success: true, pulled: 0, errors: [], commitSha: headSha };
   }
 
+  _bootstrapState.total = files.length;
   logSync('AUTO-PULL', `Bootstrap: found ${files.length} files on remote, downloading...`);
 
   let pulled = 0;
@@ -1874,11 +1924,16 @@ export async function bootstrapContentFromRemote(): Promise<{
       const result = await pullSingleFile(filePath);
       if (result.success) {
         pulled++;
+        _bootstrapState.pulled = pulled;
       } else {
-        errors.push(`${filePath}: ${result.error || 'unknown error'}`);
+        const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
+        errors.push(errMsg);
+        _bootstrapState.errors = [...errors];
       }
     } catch (e) {
-      errors.push(`${filePath}: ${e instanceof Error ? e.message : String(e)}`);
+      const errMsg = `${filePath}: ${e instanceof Error ? e.message : String(e)}`;
+      errors.push(errMsg);
+      _bootstrapState.errors = [...errors];
     }
   }
 
@@ -1894,6 +1949,11 @@ export async function bootstrapContentFromRemote(): Promise<{
   }
 
   log.info(`Bootstrap complete: pulled=${pulled}, errors=${errors.length}, sha=${headSha}`);
+
+  _bootstrapState.running = false;
+  _bootstrapState.pulled = pulled;
+  _bootstrapState.doneAt = Date.now();
+  _bootstrapState.success = errors.length === 0;
 
   return { success: errors.length === 0, pulled, errors, commitSha: headSha };
 }

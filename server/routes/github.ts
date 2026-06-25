@@ -1027,6 +1027,12 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
+  // Get live bootstrap progress state (no auth required — state is read-only)
+  app.get("/api/github/bootstrap-status", async (_req, res) => {
+    const { getBootstrapState } = await import("../github");
+    res.json(getBootstrapState());
+  });
+
   // Trigger a full bootstrap pull from the content repo (re-downloads all files)
   app.post("/api/github/content/bootstrap", async (_req, res) => {
     try {
