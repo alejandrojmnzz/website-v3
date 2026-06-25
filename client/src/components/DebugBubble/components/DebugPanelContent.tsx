@@ -962,11 +962,15 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
 
           <div className="border-t p-2 space-y-1">
             <div className="flex items-center justify-between px-3 py-1.5">
-              <div className="flex items-center gap-2">
-                <IconServer className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Site</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <IconServer className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide shrink-0">Site:</span>
+                <span className="text-xs font-mono text-foreground truncate">{props.siteInfo?.domain ?? "—"}</span>
+                {props.siteInfo?.isDevOverride && (
+                  <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium shrink-0">dev override</span>
+                )}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 {props.siteInfo?.isMultiSite && (
                   <button
                     className="p-1 rounded hover-elevate"
@@ -987,18 +991,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 </button>
               </div>
             </div>
-            {props.siteInfo && (
-              <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground">
-                <span className="font-mono">{props.siteInfo.contentFolder}</span>
-                {props.siteInfo.isMultiSite && (
-                  <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">multi-site</span>
-                )}
-                {props.siteInfo.isDevOverride && (
-                  <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium">dev override</span>
-                )}
-                <span className="ml-auto text-muted-foreground/60 truncate max-w-[140px]">{props.siteInfo.domain}</span>
-              </div>
-            )}
           </div>
         </>
       ) : props.menuView === "components" ? (

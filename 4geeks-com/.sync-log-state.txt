@@ -18,3 +18,5 @@
 {"ts":"2026-06-25T20:26:41.627Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
 {"ts":"2026-06-25T20:26:41.719Z","category":"ERROR","message":"Failed to adopt existing webhook #646443114, falling back to create"}
 {"ts":"2026-06-25T20:26:42.128Z","category":"WEBHOOK","message":"Created webhook #646473769 at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:26:43.176Z","category":"WEBHOOK","message":"Cleaned up 1 duplicate webhook(s): #646443114"}
+{"ts":"2026-06-25T20:26:43.181Z","category":"WEBHOOK","message":"Received ping event — webhook is active"}
