@@ -1826,3 +1826,168 @@ export async function getRemoteFileStatus(filePath: string): Promise<{
     remoteContent,
   };
 }
+
+/**
+ * Bootstrap all marketing-content files from the configured remote GitHub repo.
+ *
+ * Designed for the first-start case where marketing-content/ is empty and no
+ * sync state exists yet.  Unlike reconcileSyncStateOnStartup/autoPullNonConflicting
+ * this function does NOT require an existing lastSyncedCommit — it fetches the
+ * full tree from the current branch HEAD and writes every marketing-content file
+ * to the local filesystem.
+ *
+ * After writing, it calls rebuildSyncStateFromLocal so subsequent reconcile /
+ * auto-pull runs work normally.
+ */
+export async function bootstrapContentFromRemote(): Promise<{
+  success: boolean;
+  pulled: number;
+  errors: string[];
+  commitSha: string | null;
+}> {
+  const config = getGitHubConfig();
+  if (!config) {
+    return { success: false, pulled: 0, errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'], commitSha: null };
+  }
+
+  const { logSync } = await import('./sync-log');
+  logSync('AUTO-PULL', 'Bootstrap: starting full content pull from remote...');
+
+  const headSha = await getBranchHeadSha(config);
+  if (!headSha) {
+    return { success: false, pulled: 0, errors: ['Could not get remote branch HEAD SHA'], commitSha: null };
+  }
+
+  const files = await fetchFilesFromTree(config, headSha);
+  if (files.length === 0) {
+    logSync('AUTO-PULL', 'Bootstrap: no marketing-content files found on remote');
+    return { success: true, pulled: 0, errors: [], commitSha: headSha };
+  }
+
+  logSync('AUTO-PULL', `Bootstrap: found ${files.length} files on remote, downloading...`);
+
+  let pulled = 0;
+  const errors: string[] = [];
+
+  for (const filePath of files) {
+    try {
+      const result = await pullSingleFile(filePath);
+      if (result.success) {
+        pulled++;
+      } else {
+        errors.push(`${filePath}: ${result.error || 'unknown error'}`);
+      }
+    } catch (e) {
+      errors.push(`${filePath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Only mark sync state as up-to-date when every file was pulled successfully.
+  // If any files failed, leave lastSyncedCommit unset so the next startup
+  // (or the next reconcile/auto-pull run) can detect and recover the missing files.
+  if (errors.length === 0) {
+    const { rebuildSyncStateFromLocal } = await import('./sync-state');
+    rebuildSyncStateFromLocal(headSha);
+    logSync('AUTO-PULL', `Bootstrap: pulled ${pulled} files successfully — sync state updated to ${headSha.slice(0, 7)}`);
+  } else {
+    logSync('AUTO-PULL', `Bootstrap: pulled ${pulled} files, ${errors.length} failed — sync state NOT updated so next startup can retry`);
+  }
+
+  log.info(`Bootstrap complete: pulled=${pulled}, errors=${errors.length}, sha=${headSha}`);
+
+  return { success: errors.length === 0, pulled, errors, commitSha: headSha };
+}
+
+/**
+ * Walk the local marketing-content/ directory and commit every file to the
+ * configured remote GitHub repo using commitToGitHub (one file at a time).
+ *
+ * Intended as a one-time seed operation when creating a fresh content repo
+ * from an existing folder.
+ *
+ * Returns a summary of committed files and any errors encountered.
+ */
+export async function pushAllContentToRemote(): Promise<{
+  committed: string[];
+  errors: string[];
+}> {
+  const syncEnabled = process.env.GITHUB_SYNC_ENABLED === 'true';
+  if (!syncEnabled) {
+    return { committed: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'] };
+  }
+
+  const config = getGitHubConfig();
+  if (!config) {
+    return { committed: [], errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'] };
+  }
+
+  const { logSync } = await import('./sync-log');
+
+  const contentDir = path.join(process.cwd(), 'marketing-content');
+  if (!fs.existsSync(contentDir)) {
+    return { committed: [], errors: ['marketing-content/ directory does not exist'] };
+  }
+
+  // Explicit denylist: internal runtime state files that must never be pushed
+  // to a public/shared content repo because they may contain webhook secrets
+  // or other deployment-specific credentials.
+  const DENIED_FILENAMES = new Set([
+    '.sync-state.json',
+    '.sync-state.txt',
+    '.gitkeep',
+  ]);
+  const DENIED_SUFFIX_RE = /\.(sync-state|sync-log|webhook-state)\.(json|txt)$/i;
+
+  function isSafeToCommit(entryName: string): boolean {
+    // Always skip dotfiles — covers .sync-state.json and any future state files
+    if (entryName.startsWith('.')) return false;
+    if (DENIED_FILENAMES.has(entryName)) return false;
+    if (DENIED_SUFFIX_RE.test(entryName)) return false;
+    return true;
+  }
+
+  function walkDir(dir: string, base: string): string[] {
+    const results: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!isSafeToCommit(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      const rel = path.join(base, entry.name).replace(/\\/g, '/');
+      if (entry.isDirectory()) {
+        results.push(...walkDir(full, rel));
+      } else {
+        results.push(rel);
+      }
+    }
+    return results;
+  }
+
+  const allFiles = walkDir(contentDir, 'marketing-content');
+  logSync('AUTO-PULL', `Push-all: committing ${allFiles.length} local files to remote...`);
+
+  const committed: string[] = [];
+  const errors: string[] = [];
+
+  for (const relPath of allFiles) {
+    try {
+      const fullPath = path.join(process.cwd(), relPath);
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const result = await commitToGitHub({
+        filePath: relPath,
+        content,
+        message: `[push-all] seed: ${relPath}`,
+      });
+      if (result.success) {
+        committed.push(relPath);
+      } else {
+        errors.push(`${relPath}: ${result.error || 'unknown error'}`);
+      }
+    } catch (e) {
+      errors.push(`${relPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  logSync('AUTO-PULL', `Push-all: committed ${committed.length} files, ${errors.length} errors`);
+  log.info(`Push-all complete: committed=${committed.length}, errors=${errors.length}`);
+
+  return { committed, errors };
+}

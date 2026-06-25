@@ -1027,5 +1027,33 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
+  // Trigger a full bootstrap pull from the content repo (re-downloads all files)
+  app.post("/api/github/content/bootstrap", async (_req, res) => {
+    try {
+      const { bootstrapContentFromRemote } = await import("../github");
+      const result = await bootstrapContentFromRemote();
+      if (result.success) {
+        res.json({ success: true, pulled: result.pulled, errors: result.errors, commitSha: result.commitSha });
+      } else {
+        res.status(500).json({ success: false, pulled: result.pulled, errors: result.errors, commitSha: result.commitSha });
+      }
+    } catch (error) {
+      log.error({ err: error }, "Error running bootstrap pull:");
+      res.status(500).json({ error: "Bootstrap pull failed" });
+    }
+  });
+
+  // Push all local marketing-content/ files to the remote content repo (seed operation)
+  app.post("/api/github/content/push-all", async (_req, res) => {
+    try {
+      const { pushAllContentToRemote } = await import("../github");
+      const result = await pushAllContentToRemote();
+      res.json({ success: result.errors.length === 0, committed: result.committed.length, errors: result.errors });
+    } catch (error) {
+      log.error({ err: error }, "Error running push-all:");
+      res.status(500).json({ error: "Push-all failed" });
+    }
+  });
+
   // Get available variants for a content type and slug (reads versioning.yml)
 }

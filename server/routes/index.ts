@@ -343,7 +343,54 @@ export async function startBackgroundSync(): Promise<void> {
         reconcileSyncStateOnStartup,
         autoPullNonConflicting,
         ensureWebhook,
+        bootstrapContentFromRemote,
+        isGitHubConfigured,
       } = await import("../github");
+
+      // Bootstrap pull: if marketing-content/ has no YAML files and GitHub sync
+      // is configured, do a full pull from the content repo before the normal
+      // reconcile/auto-pull logic runs.
+      const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
+      if (syncEnabled && isGitHubConfigured()) {
+        const pathModule = await import("path");
+        const contentDir = pathModule.join(process.cwd(), "marketing-content");
+        const fsModule = await import("fs");
+        const hasYaml = (dir: string): boolean => {
+          if (!fsModule.existsSync(dir)) return false;
+          for (const entry of fsModule.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+              if (hasYaml(pathModule.join(dir, entry.name))) return true;
+            } else if (/\.(ya?ml)$/i.test(entry.name)) {
+              return true;
+            }
+          }
+          return false;
+        };
+        if (!hasYaml(contentDir)) {
+          routesLogger.info("marketing-content/ appears empty — running bootstrap pull from remote...");
+          try {
+            const bootstrapResult = await bootstrapContentFromRemote();
+            if (bootstrapResult.pulled > 0) {
+              logSync(
+                "AUTO-PULL",
+                `Bootstrap: pulled ${bootstrapResult.pulled} files from remote content repo`,
+              );
+            }
+            if (bootstrapResult.errors.length > 0) {
+              logSync(
+                "ERROR",
+                `Bootstrap: ${bootstrapResult.errors.length} file(s) failed — ${bootstrapResult.errors.slice(0, 3).join("; ")}`,
+              );
+            }
+          } catch (e) {
+            logSync(
+              "ERROR",
+              `Bootstrap pull failed: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        }
+      }
+
       await reconcileSyncStateOnStartup();
       const isAutoPullEnabled =
         process.env.GITHUB_SYNC_ENABLED === "true" &&
