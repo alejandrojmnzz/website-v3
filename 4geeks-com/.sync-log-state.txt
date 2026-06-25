@@ -11,3 +11,8 @@
 {"ts":"2026-06-25T17:56:19.567Z","category":"RECONCILE","message":"Already in sync at 47c4e60"}
 {"ts":"2026-06-25T17:56:19.567Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
 {"ts":"2026-06-25T17:56:20.082Z","category":"WEBHOOK","message":"Verified: webhook #646430296 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T17:56:41.386Z","category":"RESTART","message":"Server started (instance=2727, checkpoint=64c6ad584, env=development, pid=29580)"}
+{"ts":"2026-06-25T17:56:44.833Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T17:56:45.580Z","category":"WEBHOOK","message":"Webhook #646430296 no longer exists on GitHub, recreating..."}
+{"ts":"2026-06-25T17:56:46.638Z","category":"WEBHOOK","message":"Created webhook #646443114 at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T17:57:00.491Z","category":"WEBHOOK","message":"Received ping event — webhook is active"}
