@@ -2048,18 +2048,61 @@ export function writeBootstrapCompleteFlag(contentRoot?: string): void {
  *
  * Returns a summary of committed files and any errors encountered.
  */
+/**
+ * Compute the git blob SHA for a buffer — identical to what GitHub stores.
+ * Formula: sha1("blob " + byteLength + "\0" + content)
+ */
+function computeGitBlobSha(content: Buffer): string {
+  const header = Buffer.from(`blob ${content.length}\0`);
+  const hash = crypto.createHash('sha1');
+  hash.update(header);
+  hash.update(content);
+  return hash.digest('hex');
+}
+
+/**
+ * Fetch a map of { path → blobSha } for every file in the remote tree under
+ * the given commit.  Returns an empty map on failure so callers fall back to
+ * uploading everything.
+ */
+async function fetchRemoteTreeShas(
+  config: GitHubConfig,
+  commitSha: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees/${commitSha}?recursive=1`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (!res.ok) return map;
+    const data = await res.json() as { tree?: Array<{ type: string; path: string; sha: string }> };
+    for (const item of data.tree ?? []) {
+      if (item.type === 'blob') map.set(item.path, item.sha);
+    }
+  } catch {
+    // silently return empty map — caller will upload everything
+  }
+  return map;
+}
+
 export async function pushAllContentToRemote(opts?: { contentRoot?: string; repoUrl?: string }): Promise<{
   committed: string[];
+  skipped: string[];
   errors: string[];
 }> {
   const syncEnabled = process.env.GITHUB_SYNC_ENABLED === 'true';
   if (!syncEnabled) {
-    return { committed: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'] };
+    return { committed: [], skipped: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'] };
   }
 
   const config = getGitHubConfig(opts?.repoUrl);
   if (!config) {
-    return { committed: [], errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'] };
+    return { committed: [], skipped: [], errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'] };
   }
 
   const { logSync } = await import('./sync-log');
@@ -2069,21 +2112,16 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
     : path.join(process.cwd(), process.env.CONTENT_FOLDER || 'content');
   const contentFolderName = path.relative(process.cwd(), contentDir);
   if (!fs.existsSync(contentDir)) {
-    return { committed: [], errors: [`${contentFolderName}/ directory does not exist`] };
+    return { committed: [], skipped: [], errors: [`${contentFolderName}/ directory does not exist`] };
   }
 
   // Explicit denylist: internal runtime state files that must never be pushed
   // to a public/shared content repo because they may contain webhook secrets
   // or other deployment-specific credentials.
-  const DENIED_FILENAMES = new Set([
-    '.sync-state.json',
-    '.sync-state.txt',
-    '.gitkeep',
-  ]);
+  const DENIED_FILENAMES = new Set(['.sync-state.json', '.sync-state.txt', '.gitkeep']);
   const DENIED_SUFFIX_RE = /\.(sync-state|sync-log|webhook-state)\.(json|txt)$/i;
 
   function isSafeToCommit(entryName: string): boolean {
-    // Always skip dotfiles — covers .sync-state.json and any future state files
     if (entryName.startsWith('.')) return false;
     if (DENIED_FILENAMES.has(entryName)) return false;
     if (DENIED_SUFFIX_RE.test(entryName)) return false;
@@ -2096,31 +2134,64 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
       if (!isSafeToCommit(entry.name)) continue;
       const full = path.join(dir, entry.name);
       const rel = path.join(base, entry.name).replace(/\\/g, '/');
-      if (entry.isDirectory()) {
-        results.push(...walkDir(full, rel));
-      } else {
-        results.push(rel);
-      }
+      if (entry.isDirectory()) results.push(...walkDir(full, rel));
+      else results.push(rel);
     }
     return results;
   }
 
   const allFiles = walkDir(contentDir, contentFolderName);
-  logSync('AUTO-PULL', `Push-all: uploading ${allFiles.length} local files as a single commit...`);
 
+  // ── Step 1: get current HEAD + fetch remote tree SHAs for diffing ──
+  const headSha = await getBranchHeadSha(config);
+  const remoteShas = headSha ? await fetchRemoteTreeShas(config, headSha) : new Map<string, string>();
+
+  logSync(
+    'AUTO-PULL',
+    `Push-all: ${allFiles.length} local files, ${remoteShas.size} remote files — diffing...`
+  );
+
+  // ── Step 2: diff — only upload blobs for new/changed files ──
   const errors: string[] = [];
-
-  // ── Step 1: create blobs in parallel (cap concurrency to avoid rate-limits) ──
+  const skipped: string[] = [];
   const CONCURRENCY = 10;
   const blobEntries: Array<{ path: string; blobSha: string }> = [];
 
-  for (let i = 0; i < allFiles.length; i += CONCURRENCY) {
-    const batch = allFiles.slice(i, i + CONCURRENCY);
+  // Separate files that need uploading from those already in sync
+  const filesToUpload: Array<{ relPath: string; content: Buffer }> = [];
+  for (const relPath of allFiles) {
+    try {
+      const fullPath = path.join(process.cwd(), relPath);
+      const content = fs.readFileSync(fullPath);
+      const localSha = computeGitBlobSha(content);
+      const remoteSha = remoteShas.get(relPath);
+      if (remoteSha && remoteSha === localSha) {
+        skipped.push(relPath);
+        // Still include in blobEntries using the known remote SHA (tree needs it)
+        blobEntries.push({ path: relPath, blobSha: remoteSha });
+      } else {
+        filesToUpload.push({ relPath, content });
+      }
+    } catch (e) {
+      errors.push(`${relPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  log.info(
+    `Push-all: ${filesToUpload.length} changed/new, ${skipped.length} unchanged (skipping upload), ${errors.length} read errors`
+  );
+
+  if (filesToUpload.length === 0 && errors.length === 0) {
+    logSync('AUTO-PULL', `Push-all: nothing to do — all ${skipped.length} files already up to date`);
+    return { committed: [], skipped, errors: [] };
+  }
+
+  // ── Step 3: upload blobs only for changed/new files ──
+  for (let i = 0; i < filesToUpload.length; i += CONCURRENCY) {
+    const batch = filesToUpload.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
-      batch.map(async (relPath) => {
+      batch.map(async ({ relPath, content }) => {
         try {
-          const fullPath = path.join(process.cwd(), relPath);
-          const content = fs.readFileSync(fullPath);
           const response = await fetch(
             `https://api.github.com/repos/${config.owner}/${config.repo}/git/blobs`,
             {
@@ -2131,15 +2202,12 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
                 'Content-Type': 'application/json',
                 'X-GitHub-Api-Version': '2022-11-28',
               },
-              body: JSON.stringify({
-                content: content.toString('base64'),
-                encoding: 'base64',
-              }),
+              body: JSON.stringify({ content: content.toString('base64'), encoding: 'base64' }),
             }
           );
           if (!response.ok) {
             const msg = await response.text();
-            errors.push(`${relPath}: blob creation failed (${response.status}): ${msg}`);
+            errors.push(`${relPath}: blob upload failed (${response.status}): ${msg}`);
             return null;
           }
           const data = await response.json() as { sha: string };
@@ -2153,25 +2221,20 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
     for (const r of results) {
       if (r) blobEntries.push(r);
     }
-    log.info(`Push-all: blobs uploaded ${Math.min(i + CONCURRENCY, allFiles.length)}/${allFiles.length}`);
+    log.info(
+      `Push-all: blobs uploaded ${Math.min(i + CONCURRENCY, filesToUpload.length)}/${filesToUpload.length}`
+    );
   }
 
-  if (blobEntries.length === 0) {
-    return { committed: [], errors: errors.length ? errors : ['No blobs created'] };
+  const changedEntries = blobEntries.filter(e => !skipped.includes(e.path));
+  if (changedEntries.length === 0) {
+    return { committed: [], skipped, errors };
   }
 
-  // ── Step 2: get current HEAD (may not exist for empty repos) ──
-  const headSha = await getBranchHeadSha(config);
+  // ── Step 4: create a single tree with ALL files (changed + unchanged) ──
+  let treeSha: string | null = headSha ? await getTreeSha(config, headSha) : null;
+  const parentShas = headSha ? [headSha] : [];
 
-  let treeSha: string | null = null;
-  let parentShas: string[] = [];
-
-  if (headSha) {
-    treeSha = await getTreeSha(config, headSha);
-    parentShas = [headSha];
-  }
-
-  // ── Step 3: create a single tree with all blobs ──
   const treePayload = blobEntries.map(e => ({
     path: e.path,
     mode: '100644' as const,
@@ -2179,77 +2242,83 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
     sha: e.blobSha,
   }));
 
-  const treeUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees`;
   const treeBody: Record<string, unknown> = { tree: treePayload };
   if (treeSha) treeBody.base_tree = treeSha;
 
-  const treeRes = await fetch(treeUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify(treeBody),
-  });
-
+  const treeRes = await fetch(
+    `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify(treeBody),
+    }
+  );
   if (!treeRes.ok) {
     const msg = await treeRes.text();
-    return { committed: [], errors: [`Tree creation failed (${treeRes.status}): ${msg}`, ...errors] };
+    return { committed: [], skipped, errors: [`Tree creation failed (${treeRes.status}): ${msg}`, ...errors] };
   }
   const newTreeSha = ((await treeRes.json()) as { sha: string }).sha;
 
-  // ── Step 4: create commit ──
-  const commitUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits`;
+  // ── Step 5: create commit ──
   const commitBody: Record<string, unknown> = {
-    message: `[push-all] seed ${blobEntries.length} files from ${contentFolderName}/`,
+    message: `[push-all] sync ${changedEntries.length} changed file(s) from ${contentFolderName}/`,
     tree: newTreeSha,
   };
   if (parentShas.length) commitBody.parents = parentShas;
 
-  const commitRes = await fetch(commitUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify(commitBody),
-  });
-
+  const commitRes = await fetch(
+    `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify(commitBody),
+    }
+  );
   if (!commitRes.ok) {
     const msg = await commitRes.text();
-    return { committed: [], errors: [`Commit creation failed (${commitRes.status}): ${msg}`, ...errors] };
+    return { committed: [], skipped, errors: [`Commit creation failed (${commitRes.status}): ${msg}`, ...errors] };
   }
   const newCommitSha = ((await commitRes.json()) as { sha: string }).sha;
 
-  // ── Step 5: update (or create) branch ref ──
-  const refUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/git/refs/heads/${config.branch}`;
-  const updateRes = await fetch(refUrl, {
-    method: headSha ? 'PATCH' : 'POST',
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify(
-      headSha
-        ? { sha: newCommitSha, force: true }
-        : { ref: `refs/heads/${config.branch}`, sha: newCommitSha }
-    ),
-  });
-
+  // ── Step 6: update (or create) branch ref ──
+  const updateRes = await fetch(
+    `https://api.github.com/repos/${config.owner}/${config.repo}/git/refs/heads/${config.branch}`,
+    {
+      method: headSha ? 'PATCH' : 'POST',
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify(
+        headSha
+          ? { sha: newCommitSha, force: true }
+          : { ref: `refs/heads/${config.branch}`, sha: newCommitSha }
+      ),
+    }
+  );
   if (!updateRes.ok) {
     const msg = await updateRes.text();
-    return { committed: [], errors: [`Ref update failed (${updateRes.status}): ${msg}`, ...errors] };
+    return { committed: [], skipped, errors: [`Ref update failed (${updateRes.status}): ${msg}`, ...errors] };
   }
 
-  const committed = blobEntries.map(e => e.path);
-  logSync('AUTO-PULL', `Push-all: 1 commit (${committed.length} files), ${errors.length} blob errors`);
-  log.info(`Push-all complete: commit=${newCommitSha}, files=${committed.length}, errors=${errors.length}`);
+  const committed = changedEntries.map(e => e.path);
+  logSync(
+    'AUTO-PULL',
+    `Push-all: commit ${newCommitSha.slice(0, 7)} — ${committed.length} synced, ${skipped.length} skipped, ${errors.length} errors`
+  );
+  log.info(`Push-all complete: commit=${newCommitSha}, synced=${committed.length}, skipped=${skipped.length}, errors=${errors.length}`);
 
-  return { committed, errors };
+  return { committed, skipped, errors };
 }

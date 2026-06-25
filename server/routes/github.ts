@@ -1112,7 +1112,7 @@ export function registerGithubRoutes(app: Express): void {
         contentRoot: site?.contentRoot,
         repoUrl: site?.config?.githubRepoUrl,
       });
-      res.json({ success: result.errors.length === 0, committed: result.committed.length, errors: result.errors });
+      res.json({ success: result.errors.length === 0, committed: result.committed.length, skipped: result.skipped.length, errors: result.errors });
     } catch (error) {
       log.error({ err: error }, "Error running push-all:");
       res.status(500).json({ error: "Push-all failed" });
