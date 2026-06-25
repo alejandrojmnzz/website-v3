@@ -24,9 +24,10 @@ server/public
 vite.config.ts.*
 *.tar.gz
 
-# Runtime state files (dot-prefixed in marketing-content: bucket in production, local-only in dev)
+# Runtime state files (dot-prefixed in content folders: bucket in production, local-only in dev)
 marketing-content/.*-state.json
 marketing-content/.*-state.txt
+**/.sync-log-state.txt
 
 # Environment variables
 .env
