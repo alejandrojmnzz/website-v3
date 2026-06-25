@@ -204,6 +204,9 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  createPushAllRun,
+  applyPushAllProgress,
+  currentPushAllRun,
 } from "./_helpers";
 import { child } from "../logger";
 const log = child({ module: "routes/github" });
@@ -1104,19 +1107,44 @@ export function registerGithubRoutes(app: Express): void {
   });
 
   // Push all local content files to the remote content repo (seed operation)
+  // Returns immediately with { runId } — poll /api/github/push-all-status for progress.
   app.post("/api/github/content/push-all", async (_req, res) => {
-    try {
-      const { pushAllContentToRemote } = await import("../github");
-      const site = res.locals.site as any;
-      const result = await pushAllContentToRemote({
-        contentRoot: site?.contentRoot,
-        repoUrl: site?.config?.githubRepoUrl,
-      });
-      res.json({ success: result.errors.length === 0, committed: result.committed.length, skipped: result.skipped.length, errors: result.errors });
-    } catch (error) {
-      log.error({ err: error }, "Error running push-all:");
-      res.status(500).json({ error: "Push-all failed" });
+    // If a push is already running, return the active run rather than starting another
+    if (currentPushAllRun?.running) {
+      return res.json({ runId: currentPushAllRun.runId, alreadyRunning: true });
     }
+
+    const site = res.locals.site as any;
+    const run = createPushAllRun(site?.config?.githubRepoUrl);
+
+    // Fire-and-forget
+    (async () => {
+      try {
+        const { pushAllContentToRemote } = await import("../github");
+        await pushAllContentToRemote({
+          contentRoot: site?.contentRoot,
+          repoUrl: site?.config?.githubRepoUrl,
+          onProgress: (event) => applyPushAllProgress(run, event),
+        });
+      } catch (error) {
+        run.running = false;
+        run.phase = "done";
+        run.errors = [error instanceof Error ? error.message : "Push-all failed unexpectedly"];
+        run.failed = 1;
+        run.completedAt = Date.now();
+        log.error({ err: error }, "Error running push-all:");
+      }
+    })();
+
+    res.json({ runId: run.runId });
+  });
+
+  // Get the current (or most recent) push-all run state for polling
+  app.get("/api/github/push-all-status", (_req, res) => {
+    if (!currentPushAllRun) {
+      return res.status(404).json({ error: "No push-all run has started yet" });
+    }
+    res.json(currentPushAllRun);
   });
 
   // Get available variants for a content type and slug (reads versioning.yml)

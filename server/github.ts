@@ -2090,7 +2090,16 @@ async function fetchRemoteTreeShas(
   return map;
 }
 
-export async function pushAllContentToRemote(opts?: { contentRoot?: string; repoUrl?: string }): Promise<{
+export type PushProgressEvent =
+  | { type: "diff"; toUpload: number; skipped: number; created: number; updated: number }
+  | { type: "uploading"; done: number; total: number; file: string }
+  | { type: "done"; created: string[]; updated: string[]; skipped: string[]; errors: string[]; commitSha?: string };
+
+export async function pushAllContentToRemote(opts?: {
+  contentRoot?: string;
+  repoUrl?: string;
+  onProgress?: (event: PushProgressEvent) => void;
+}): Promise<{
   committed: string[];
   skipped: string[];
   errors: string[];
@@ -2161,7 +2170,7 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   const blobEntries: Array<{ path: string; blobSha: string }> = [];
 
   // Separate files that need uploading from those already in sync
-  const filesToUpload: Array<{ relPath: string; content: Buffer }> = [];
+  const filesToUpload: Array<{ relPath: string; content: Buffer; isNew: boolean }> = [];
   for (const relPath of allFiles) {
     try {
       const fullPath = path.join(process.cwd(), relPath);
@@ -2173,7 +2182,7 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
         // Still include in blobEntries using the known remote SHA (tree needs it)
         blobEntries.push({ path: relPath, blobSha: remoteSha });
       } else {
-        filesToUpload.push({ relPath, content });
+        filesToUpload.push({ relPath, content, isNew: !remoteShas.has(relPath) });
       }
     } catch (e) {
       errors.push(`${relPath}: ${e instanceof Error ? e.message : String(e)}`);
@@ -2184,16 +2193,24 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
     `Push-all: ${filesToUpload.length} changed/new, ${skipped.length} unchanged (skipping upload), ${errors.length} read errors`
   );
 
+  const diffCreated = filesToUpload.filter(f => f.isNew).length;
+  const diffUpdated = filesToUpload.filter(f => !f.isNew).length;
+  opts?.onProgress?.({ type: "diff", toUpload: filesToUpload.length, skipped: skipped.length, created: diffCreated, updated: diffUpdated });
+
   if (filesToUpload.length === 0 && errors.length === 0) {
     logSync('AUTO-PULL', `Push-all: nothing to do — all ${skipped.length} files already up to date`);
+    opts?.onProgress?.({ type: "done", created: [], updated: [], skipped, errors: [] });
     return { committed: [], skipped, errors: [] };
   }
 
   // ── Step 3: upload blobs only for changed/new files ──
+  const createdFiles: string[] = [];
+  const updatedFiles: string[] = [];
+
   for (let i = 0; i < filesToUpload.length; i += CONCURRENCY) {
     const batch = filesToUpload.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
-      batch.map(async ({ relPath, content }) => {
+      batch.map(async ({ relPath, content, isNew }) => {
         try {
           const response = await fetch(
             `https://api.github.com/repos/${config.owner}/${config.repo}/git/blobs`,
@@ -2214,7 +2231,7 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
             return null;
           }
           const data = await response.json() as { sha: string };
-          return { path: relPath, blobSha: data.sha };
+          return { path: relPath, blobSha: data.sha, isNew };
         } catch (e) {
           errors.push(`${relPath}: ${e instanceof Error ? e.message : String(e)}`);
           return null;
@@ -2222,11 +2239,15 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
       })
     );
     for (const r of results) {
-      if (r) blobEntries.push(r);
+      if (r) {
+        blobEntries.push({ path: r.path, blobSha: r.blobSha });
+        if (r.isNew) createdFiles.push(r.path);
+        else updatedFiles.push(r.path);
+      }
     }
-    log.info(
-      `Push-all: blobs uploaded ${Math.min(i + CONCURRENCY, filesToUpload.length)}/${filesToUpload.length}`
-    );
+    const doneSoFar = Math.min(i + CONCURRENCY, filesToUpload.length);
+    log.info(`Push-all: blobs uploaded ${doneSoFar}/${filesToUpload.length}`);
+    opts?.onProgress?.({ type: "uploading", done: doneSoFar, total: filesToUpload.length, file: batch[batch.length - 1].relPath });
     // Pause between batches to avoid GitHub secondary rate limits
     if (i + CONCURRENCY < filesToUpload.length) {
       await new Promise(resolve => setTimeout(resolve, BATCH_PAUSE_MS));
@@ -2235,6 +2256,7 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
 
   const changedEntries = blobEntries.filter(e => !skipped.includes(e.path));
   if (changedEntries.length === 0) {
+    opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors });
     return { committed: [], skipped, errors };
   }
 
@@ -2267,7 +2289,9 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   );
   if (!treeRes.ok) {
     const msg = await treeRes.text();
-    return { committed: [], skipped, errors: [`Tree creation failed (${treeRes.status}): ${msg}`, ...errors] };
+    const treeErrors = [`Tree creation failed (${treeRes.status}): ${msg}`, ...errors];
+    opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors: treeErrors });
+    return { committed: [], skipped, errors: treeErrors };
   }
   const newTreeSha = ((await treeRes.json()) as { sha: string }).sha;
 
@@ -2293,7 +2317,9 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   );
   if (!commitRes.ok) {
     const msg = await commitRes.text();
-    return { committed: [], skipped, errors: [`Commit creation failed (${commitRes.status}): ${msg}`, ...errors] };
+    const commitErrors = [`Commit creation failed (${commitRes.status}): ${msg}`, ...errors];
+    opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors: commitErrors });
+    return { committed: [], skipped, errors: commitErrors };
   }
   const newCommitSha = ((await commitRes.json()) as { sha: string }).sha;
 
@@ -2317,7 +2343,9 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   );
   if (!updateRes.ok) {
     const msg = await updateRes.text();
-    return { committed: [], skipped, errors: [`Ref update failed (${updateRes.status}): ${msg}`, ...errors] };
+    const refErrors = [`Ref update failed (${updateRes.status}): ${msg}`, ...errors];
+    opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors: refErrors });
+    return { committed: [], skipped, errors: refErrors };
   }
 
   const committed = changedEntries.map(e => e.path);
@@ -2327,5 +2355,6 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   );
   log.info(`Push-all complete: commit=${newCommitSha}, synced=${committed.length}, skipped=${skipped.length}, errors=${errors.length}`);
 
+  opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors, commitSha: newCommitSha });
   return { committed, skipped, errors };
 }

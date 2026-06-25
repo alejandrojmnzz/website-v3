@@ -1,6 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, ChevronDown, Filter, Github, Loader2, RefreshCw, Search, Server, Trash2, User, Webhook, X } from "lucide-react";
-import { IconCloudUpload, IconCloudDownload } from "@tabler/icons-react";
+import {
+  IconCloudUpload,
+  IconCloudDownload,
+  IconCheck,
+  IconAlertTriangle,
+  IconFilePlus,
+  IconPencil,
+  IconMinus,
+  IconGitCommit,
+} from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
@@ -233,17 +242,47 @@ export default function SyncLogPage() {
 
   const [forcePushOpen, setForcePushOpen] = useState(false);
   const [forcePullOpen, setForcePullOpen] = useState(false);
-  const [pushResult, setPushResult] = useState<{ committed: string[]; skipped: string[]; errors: string[] } | null>(null);
+  const [pushStarted, setPushStarted] = useState(false);
 
-  const pushAllMutation = useMutation({
+  const startPushMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/github/content/push-all").then(r => r.json()),
-    onSuccess: (data) => {
-      setPushResult(data);
-      qc.invalidateQueries({ queryKey: ["/api/github/sync-log"] });
+    onSuccess: () => {
+      setPushStarted(true);
+      qc.invalidateQueries({ queryKey: ["/api/github/push-all-status"] });
     },
-    onError: (err: any) => {
-      setPushResult({ committed: [], skipped: [], errors: [err.message || "Push failed"] });
+  });
+
+  const { data: pushStatus } = useQuery<{
+    runId: string;
+    running: boolean;
+    phase: "diffing" | "uploading" | "committing" | "done";
+    total: number;
+    processed: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    errors: string[];
+    commitSha?: string;
+    repoUrl?: string;
+    startedAt: number;
+    completedAt?: number;
+  } | null>({
+    queryKey: ["/api/github/push-all-status"],
+    enabled: forcePushOpen || pushStarted,
+    queryFn: async () => {
+      const res = await fetch("/api/github/push-all-status");
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Status check failed");
+      return res.json();
     },
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      if (!d) return 800;
+      if (d.running) return 800;
+      return false;
+    },
+    staleTime: 0,
   });
 
   const {
@@ -635,47 +674,135 @@ export default function SyncLogPage() {
     </div>
 
     {/* Force Push Modal */}
-    <Dialog open={forcePushOpen} onOpenChange={(open) => { if (!open) { setForcePushOpen(false); setPushResult(null); } }}>
+    <Dialog open={forcePushOpen} onOpenChange={(open) => { if (!open) setForcePushOpen(false); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <IconCloudUpload className="h-5 w-5" />
-            Force Push to GitHub
+            {pushStatus?.phase === "done" ? (
+              pushStatus.errors.length > 0
+                ? <IconAlertTriangle className="h-5 w-5 text-destructive" />
+                : <IconCheck className="h-5 w-5 text-primary" />
+            ) : pushStatus?.running ? (
+              <IconCloudUpload className="h-5 w-5 animate-pulse" />
+            ) : (
+              <IconCloudUpload className="h-5 w-5" />
+            )}
+            {pushStatus?.phase === "done"
+              ? pushStatus.errors.length > 0 ? "Push completed with errors" : "Push complete"
+              : pushStatus?.running ? "Pushing to GitHub…"
+              : "Force Push to GitHub"}
           </DialogTitle>
-          <DialogDescription asChild>
-            <div className="space-y-2 text-sm">
-              <p>This will sync all local content files to the GitHub repository.</p>
-              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li><span className="font-medium text-foreground">Local always wins</span> — if a file differs, the local version overwrites GitHub.</li>
-                <li><span className="font-medium text-foreground">Skips unchanged files</span> — only files with a different SHA are uploaded.</li>
-                <li><span className="font-medium text-foreground">Single commit</span> — all changes land in one commit using the Git Trees API.</li>
-                <li>Files deleted locally are <span className="font-medium text-foreground">not</span> removed from GitHub.</li>
-              </ul>
-            </div>
-          </DialogDescription>
+
+          {/* Pre-start description — only shown before a push is running */}
+          {!pushStatus?.running && pushStatus?.phase !== "done" && (
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>This will sync all local content files to the GitHub repository.</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li><span className="font-medium text-foreground">Local always wins</span> — if a file differs, the local version overwrites GitHub.</li>
+                  <li><span className="font-medium text-foreground">Skips unchanged files</span> — only files with a different SHA are uploaded.</li>
+                  <li><span className="font-medium text-foreground">Single commit</span> — all changes land in one commit using the Git Trees API.</li>
+                  <li>Files deleted locally are <span className="font-medium text-foreground">not</span> removed from GitHub.</li>
+                </ul>
+              </div>
+            </DialogDescription>
+          )}
         </DialogHeader>
 
-        {pushResult && (
-          <div className="space-y-2 text-sm">
-            {pushResult.errors.length > 0 ? (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20">
-                <X className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-medium text-destructive">Push encountered errors</p>
-                  {pushResult.errors.slice(0, 3).map((e, i) => (
-                    <p key={i} className="text-xs text-destructive/80">{e}</p>
-                  ))}
+        {/* Live progress — shown while running */}
+        {pushStatus?.running && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {pushStatus.phase === "diffing" && "Comparing local files with GitHub…"}
+              {pushStatus.phase === "uploading" && (
+                pushStatus.total > 0
+                  ? `Uploading files… ${pushStatus.processed} of ${pushStatus.total}`
+                  : "Uploading files…"
+              )}
+              {pushStatus.phase === "committing" && "Creating commit…"}
+            </p>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{
+                  width: pushStatus.total > 0
+                    ? `${Math.round((pushStatus.processed / pushStatus.total) * 100)}%`
+                    : pushStatus.phase === "diffing" ? "10%" : "95%",
+                }}
+              />
+            </div>
+            {pushStatus.total > 0 && (
+              <p className="text-xs text-muted-foreground text-right">
+                {pushStatus.processed} / {pushStatus.total} files
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Completion stat grid */}
+        {pushStatus?.phase === "done" && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
+                <IconFilePlus size={16} className="text-primary shrink-0" />
+                <div>
+                  <p className="font-medium">{pushStatus.created}</p>
+                  <p className="text-xs text-muted-foreground">Created</p>
                 </div>
               </div>
-            ) : (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
-                <Check className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
+                <IconPencil size={16} className="text-primary shrink-0" />
                 <div>
-                  <p className="font-medium text-green-700 dark:text-green-300">Push complete</p>
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
-                    {pushResult.committed.length} file{pushResult.committed.length !== 1 ? "s" : ""} committed · {pushResult.skipped.length} already in sync
-                  </p>
+                  <p className="font-medium">{pushStatus.updated}</p>
+                  <p className="text-xs text-muted-foreground">Updated</p>
                 </div>
+              </div>
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
+                <IconMinus size={16} className="text-muted-foreground shrink-0" />
+                <div>
+                  <p className="font-medium">{pushStatus.skipped}</p>
+                  <p className="text-xs text-muted-foreground">Unchanged</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
+                <IconAlertTriangle size={16} className={pushStatus.failed > 0 ? "text-destructive shrink-0" : "text-muted-foreground shrink-0"} />
+                <div>
+                  <p className={`font-medium ${pushStatus.failed > 0 ? "text-destructive" : ""}`}>{pushStatus.failed}</p>
+                  <p className="text-xs text-muted-foreground">Errors</p>
+                </div>
+              </div>
+            </div>
+
+            {pushStatus.commitSha && (() => {
+              const repoUrl = (pushStatus.repoUrl || syncInfo?.repoUrl || "").replace(/\.git$/, "");
+              return (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <IconGitCommit size={14} className="shrink-0" />
+                  {repoUrl ? (
+                    <a
+                      href={`${repoUrl}/commit/${pushStatus.commitSha}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono hover:underline text-foreground"
+                      data-testid="link-push-commit-sha"
+                    >
+                      {pushStatus.commitSha.slice(0, 7)}
+                    </a>
+                  ) : (
+                    <span className="font-mono">{pushStatus.commitSha.slice(0, 7)}</span>
+                  )}
+                </div>
+              );
+            })()}
+
+            {pushStatus.errors.length > 0 && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2.5 space-y-1 max-h-28 overflow-y-auto">
+                {pushStatus.errors.slice(0, 5).map((e, i) => (
+                  <p key={i} className="text-xs font-mono text-destructive break-all">{e}</p>
+                ))}
+                {pushStatus.errors.length > 5 && (
+                  <p className="text-xs text-muted-foreground">…and {pushStatus.errors.length - 5} more</p>
+                )}
               </div>
             )}
           </div>
@@ -684,20 +811,21 @@ export default function SyncLogPage() {
         <DialogFooter className="gap-2 sm:gap-0">
           <Button
             variant="outline"
-            onClick={() => { setForcePushOpen(false); setPushResult(null); }}
+            onClick={() => setForcePushOpen(false)}
+            disabled={pushStatus?.running}
             data-testid="button-cancel-force-push"
           >
-            {pushResult ? "Close" : "Cancel"}
+            {pushStatus?.phase === "done" ? "Close" : pushStatus?.running ? "Running…" : "Cancel"}
           </Button>
-          {!pushResult && (
+          {(!pushStatus || pushStatus.phase === "done") && !pushStatus?.running && (
             <Button
-              onClick={() => pushAllMutation.mutate()}
-              disabled={pushAllMutation.isPending}
+              onClick={() => startPushMutation.mutate()}
+              disabled={startPushMutation.isPending || pushStatus?.running}
               data-testid="button-start-force-push"
             >
-              {pushAllMutation.isPending
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Pushing…</>
-                : <><IconCloudUpload className="h-4 w-4 mr-2" />Start Push</>
+              {startPushMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
+                : <><IconCloudUpload className="h-4 w-4 mr-2" />{pushStatus?.phase === "done" ? "Push Again" : "Start Push"}</>
               }
             </Button>
           )}

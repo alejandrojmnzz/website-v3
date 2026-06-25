@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import type { PushProgressEvent } from '../github';
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
@@ -418,6 +419,73 @@ export function applyFixerProgress(run: ValidationFixRunState, event: ProgressEv
     status: event.status,
     message: event.message,
   });
+}
+
+// ── Push-all run state ─────────────────────────────────────────────────────
+
+export interface PushAllRunState {
+  runId: string;
+  running: boolean;
+  phase: "diffing" | "uploading" | "committing" | "done";
+  total: number;
+  processed: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+  commitSha?: string;
+  repoUrl?: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
+export let currentPushAllRun: PushAllRunState | null = null;
+
+export function createPushAllRun(repoUrl?: string): PushAllRunState {
+  const runId = `push-all-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const run: PushAllRunState = {
+    runId,
+    running: true,
+    phase: "diffing",
+    total: 0,
+    processed: 0,
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+    repoUrl,
+    startedAt: Date.now(),
+  };
+  currentPushAllRun = run;
+  return run;
+}
+
+export function applyPushAllProgress(run: PushAllRunState, event: PushProgressEvent): void {
+  if (event.type === "diff") {
+    run.total = event.toUpload;
+    run.skipped = event.skipped;
+    run.phase = event.toUpload > 0 ? "uploading" : "done";
+    return;
+  }
+  if (event.type === "uploading") {
+    run.processed = event.done;
+    run.phase = event.done >= run.total ? "committing" : "uploading";
+    return;
+  }
+  if (event.type === "done") {
+    run.running = false;
+    run.phase = "done";
+    run.created = event.created.length;
+    run.updated = event.updated.length;
+    run.skipped = event.skipped.length;
+    run.errors = event.errors;
+    run.failed = event.errors.length;
+    run.commitSha = event.commitSha;
+    run.completedAt = Date.now();
+    return;
+  }
 }
 
 export function resolveFixerPipeline(
