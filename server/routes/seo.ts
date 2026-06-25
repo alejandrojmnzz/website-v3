@@ -212,6 +212,9 @@ const log = child({ module: "routes/seo" });
 function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
 
 export function registerSeoRoutes(app: Express): void {
   // Dynamic robots.txt — uses SITE_URL at request time so staging and production
@@ -548,7 +551,7 @@ Sitemap: ${baseUrl}/sitemap.xml
       }
 
       if (hasDatabaseSingle(contentType)) {
-        const page = await loadDatabaseSinglePage(contentType, slug, locale);
+        const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
         if (!page) {
           res.status(404).json({ error: "Content not found" });
           return;

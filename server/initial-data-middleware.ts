@@ -157,7 +157,7 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
           locale = resolved.params.locale;
         }
         const normalizedLocale = normalizeLocale(locale);
-        const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale);
+        const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale, ci.contentRoot);
         if (!page) return null;
         const dbSingleRaw = ci.loadMergedContent(contentType, slug, normalizedLocale);
         const layout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>));

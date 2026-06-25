@@ -235,7 +235,7 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
 
-      const page = await loadDatabaseSinglePage(contentType, slug, locale);
+      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
       if (!page) {
         res
           .status(404)

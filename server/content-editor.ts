@@ -42,6 +42,7 @@ interface ContentEditRequest {
   variant?: string;
   version?: number;
   author?: string;
+  contentRoot?: string;
 }
 
 function getValueAtPath(obj: Record<string, unknown>, pathStr: string): unknown {
@@ -183,7 +184,7 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
 }
 
 export async function editContent(request: ContentEditRequest): Promise<{ success: boolean; error?: string; warning?: string; updatedSections?: unknown[] }> {
-  const { contentType, slug, locale: rawLocale, operations, variant, version } = request;
+  const { contentType, slug, locale: rawLocale, operations, variant, version, contentRoot } = request;
   
   // Normalize locale to prevent es-ES, en-US etc from causing file lookup failures
   const locale = normalizeLocale(rawLocale);
@@ -223,7 +224,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     // before applying, so we write to the correct section in the per-entry file.
     let resolvedOperations = operations;
     if (contentIndex.isDatabaseBacked(contentType) && operations.some(op => op.action === "update_section")) {
-      const mergedTemplate = mergeSingleTemplate(contentType, locale, slug);
+      const mergedTemplate = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedTemplate?.sections)
         ? (mergedTemplate!.sections as Record<string, unknown>[])
         : [];
@@ -303,7 +304,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     //   • Boundary (mixed)         → explicit error; moving across template/per-entry
     //                                boundary is not supported.
     if (contentIndex.isDatabaseBacked(contentType) && resolvedOperations.some(op => op.action === "reorder_sections")) {
-      const mergedView = mergeSingleTemplate(contentType, locale, slug);
+      const mergedView = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedView?.sections)
         ? (mergedView!.sections as Record<string, unknown>[])
         : [];
@@ -713,7 +714,7 @@ function handleSharedTemplateEdit(opts: {
   const fieldMapping = getFieldMapping(contentType);
 
   // Load the raw template to read the original `{{ }}` expressions
-  const template = mergeSingleTemplate(contentType, locale);
+  const template = mergeSingleTemplate(contentType, locale, undefined, undefined, contentRoot);
   const templateSections = Array.isArray(template?.sections)
     ? (template!.sections as Record<string, unknown>[])
     : [];

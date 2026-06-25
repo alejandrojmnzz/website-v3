@@ -567,7 +567,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (hasDatabaseSingle(contentType)) {
-      const page = await loadDatabaseSinglePage(contentType, slug, locale);
+      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
       if (page) {
         if (page.sections && Array.isArray(page.sections)) {
           page.sections = (await resolveDynamicEntries(page.sections, locale)) as any;
@@ -1159,7 +1159,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
       }
-      const merged = mergeSingleTemplate(type, locale);
+      const merged = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res));
       if (!merged) {
         res.status(404).json({ error: "Single template not found" });
         return;
@@ -1576,7 +1576,7 @@ export function registerContentRoutes(app: Express): void {
         const uniqueLocales = [...new Set(items.map(item => String(item[localeKey] || "en")))];
         const templates: Record<string, Record<string, unknown> | null> = {};
         for (const locale of uniqueLocales) {
-          templates[locale] = mergeSingleTemplate(type, locale);
+          templates[locale] = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res));
         }
 
         const entries = items

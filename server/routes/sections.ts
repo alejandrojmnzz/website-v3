@@ -254,7 +254,7 @@ export function registerSectionsRoutes(app: Express): void {
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Load the current merged page to get the section
-      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale);
+      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
       if (!mergedPage) {
         res.status(404).json({ error: "Entry not found" });
         return;
@@ -565,7 +565,7 @@ export function registerSectionsRoutes(app: Express): void {
           // Insert before all sections
           newSection._insertAfterSectionId = null;
         } else {
-          const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale);
+          const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
           const mergedSections = Array.isArray(mergedPage?.sections)
             ? (mergedPage!.sections as Record<string, unknown>[])
             : [];
@@ -621,7 +621,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       // Return updated merged section list so the client can update without a full page reload
-      const updatedPage = await loadDatabaseSinglePage(contentType, slug, locale);
+      const updatedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
       res.json({ success: true, sections: updatedPage?.sections ?? [] });
     } catch (error) {
       log.error({ err: error }, "[per-entry-section-add] Error:");
@@ -659,7 +659,7 @@ export function registerSectionsRoutes(app: Express): void {
       const templateDir = path.join(getContentRoot(res), folder);
 
       // Load the shared template WITHOUT per-entry overlay to get the correct template indices
-      const baseTemplate = mergeSingleTemplate(contentType, locale);
+      const baseTemplate = mergeSingleTemplate(contentType, locale, undefined, undefined, getContentRoot(res));
       if (!baseTemplate) {
         res.status(404).json({ error: "Template not found" });
         return;
@@ -685,7 +685,7 @@ export function registerSectionsRoutes(app: Express): void {
         // The merged view (WITH per-entry overlay) may have fewer sections than the base template
         // because per-entry removals filter some out. Non-per-entry sections in the merged view
         // appear in the same ORDER as in the base template; counting them gives the base index.
-        const mergedWithEntry = mergeSingleTemplate(contentType, locale, slug);
+        const mergedWithEntry = mergeSingleTemplate(contentType, locale, slug, undefined, getContentRoot(res));
         const mergedSections = Array.isArray(mergedWithEntry?.sections)
           ? (mergedWithEntry!.sections as Record<string, unknown>[])
           : [];
@@ -794,7 +794,7 @@ export function registerSectionsRoutes(app: Express): void {
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Load the current merged page to get the section and its id
-      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale);
+      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
       if (!mergedPage) {
         res.status(404).json({ error: "Entry not found" });
         return;
@@ -998,6 +998,7 @@ export function registerSectionsRoutes(app: Express): void {
         variant: effectiveVariant,
         version: effectiveVersion,
         author: authorName,
+        contentRoot: getContentRoot(res),
       });
 
       if (result.success) {

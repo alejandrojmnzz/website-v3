@@ -264,9 +264,11 @@ export function mergeSingleTemplate(
   locale: string,
   slug?: string,
   accum?: PerEntryAccum,
+  contentRoot?: string,
 ): Record<string, unknown> | null {
   const folder = getFolder(contentType);
-  const templateDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", folder);
+  const resolvedRoot = contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+  const templateDir = path.join(resolvedRoot, folder);
   const singleCommonPath = path.join(templateDir, "_common.single.yml");
   const commonPath = path.join(templateDir, "_common.yml");
   let localePath = path.join(templateDir, `single.${locale}.yml`);
@@ -358,13 +360,14 @@ export async function loadDatabaseSinglePage(
   contentType: string,
   slug: string,
   locale: string,
+  contentRoot?: string,
 ): Promise<TemplatePage | null> {
   const dbName = getDatabaseName(contentType);
   if (!dbName) return null;
 
   // Collect per-entry metadata (removed sections, per-entry additions)
   const accum: PerEntryAccum = { removedSections: [] };
-  const merged = mergeSingleTemplate(contentType, locale, slug, accum);
+  const merged = mergeSingleTemplate(contentType, locale, slug, accum, contentRoot);
 
   if (!merged) {
     log.error(
