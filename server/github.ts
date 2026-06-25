@@ -1858,17 +1858,52 @@ export function getBootstrapState(): Readonly<BootstrapState> {
 }
 
 /**
- * Bootstrap all marketing-content files from the configured remote GitHub repo.
- *
- * Designed for the first-start case where marketing-content/ is empty and no
- * sync state exists yet.  Unlike reconcileSyncStateOnStartup/autoPullNonConflicting
- * this function does NOT require an existing lastSyncedCommit — it fetches the
- * full tree from the current branch HEAD and writes every marketing-content file
- * to the local filesystem.
- *
- * After writing, it calls rebuildSyncStateFromLocal so subsequent reconcile /
- * auto-pull runs work normally.
+ * Path to the marker file written on a successful bootstrap.
+ * Its absence signals an incomplete bootstrap so the next startup re-attempts.
  */
+export const BOOTSTRAP_COMPLETE_FLAG = path.join(
+  process.cwd(),
+  'marketing-content',
+  '.bootstrap-complete',
+);
+
+/**
+ * Returns true if a previous bootstrap run completed without errors.
+ */
+export function isBootstrapComplete(): boolean {
+  return fs.existsSync(BOOTSTRAP_COMPLETE_FLAG);
+}
+
+/**
+ * Pull a single file with up to `maxRetries` attempts using exponential back-off.
+ * Retries on any failure; returns the last error if all attempts are exhausted.
+ */
+async function pullWithRetry(
+  filePath: string,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000,
+): Promise<{ success: boolean; error?: string }> {
+  let lastError: string | undefined;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await pullSingleFile(filePath);
+      if (result.success) return result;
+      lastError = result.error;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+    }
+    if (attempt < maxRetries) {
+      const delay = baseDelayMs * Math.pow(2, attempt - 1);
+      log.warn(
+        { filePath, attempt, maxRetries, delayMs: delay },
+        'Bootstrap: pullSingleFile failed, retrying after back-off...',
+      );
+      await new Promise<void>(r => setTimeout(r, delay));
+    }
+  }
+  return { success: false, error: lastError };
+}
+
 export async function bootstrapContentFromRemote(): Promise<{
   success: boolean;
   pulled: number;
@@ -1907,6 +1942,8 @@ export async function bootstrapContentFromRemote(): Promise<{
   const files = await fetchFilesFromTree(config, headSha);
   if (files.length === 0) {
     logSync('AUTO-PULL', 'Bootstrap: no marketing-content files found on remote');
+    // Mark as complete even when there's nothing to pull — directory is in sync.
+    writeBootstrapCompleteFlag();
     _bootstrapState.running = false;
     _bootstrapState.doneAt = Date.now();
     _bootstrapState.success = true;
@@ -1920,18 +1957,12 @@ export async function bootstrapContentFromRemote(): Promise<{
   const errors: string[] = [];
 
   for (const filePath of files) {
-    try {
-      const result = await pullSingleFile(filePath);
-      if (result.success) {
-        pulled++;
-        _bootstrapState.pulled = pulled;
-      } else {
-        const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
-        errors.push(errMsg);
-        _bootstrapState.errors = [...errors];
-      }
-    } catch (e) {
-      const errMsg = `${filePath}: ${e instanceof Error ? e.message : String(e)}`;
+    const result = await pullWithRetry(filePath);
+    if (result.success) {
+      pulled++;
+      _bootstrapState.pulled = pulled;
+    } else {
+      const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
       errors.push(errMsg);
       _bootstrapState.errors = [...errors];
     }
@@ -1943,9 +1974,19 @@ export async function bootstrapContentFromRemote(): Promise<{
   if (errors.length === 0) {
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
     rebuildSyncStateFromLocal(headSha);
+    writeBootstrapCompleteFlag();
     logSync('AUTO-PULL', `Bootstrap: pulled ${pulled} files successfully — sync state updated to ${headSha.slice(0, 7)}`);
   } else {
-    logSync('AUTO-PULL', `Bootstrap: pulled ${pulled} files, ${errors.length} failed — sync state NOT updated so next startup can retry`);
+    // Log each failed file clearly so operators know exactly what is missing.
+    logSync(
+      'ERROR',
+      `Bootstrap: pulled ${pulled}/${files.length} files; ${errors.length} failed after retries — ${errors.join(' | ')}`,
+    );
+    log.error(
+      { failedFiles: errors },
+      'Bootstrap: the following files could not be pulled after all retries; bootstrap is marked INCOMPLETE and will be re-attempted on next startup',
+    );
+    logSync('AUTO-PULL', `Bootstrap: sync state NOT updated — next startup will re-attempt the bootstrap`);
   }
 
   log.info(`Bootstrap complete: pulled=${pulled}, errors=${errors.length}, sha=${headSha}`);
@@ -1956,6 +1997,24 @@ export async function bootstrapContentFromRemote(): Promise<{
   _bootstrapState.success = errors.length === 0;
 
   return { success: errors.length === 0, pulled, errors, commitSha: headSha };
+}
+
+/**
+ * Write (or overwrite) the bootstrap-complete marker file so future startups
+ * know the content directory is fully populated.
+ * Also exported so the startup routine can stamp existing deployments that
+ * predate the flag (migration path).
+ */
+export function writeBootstrapCompleteFlag(): void {
+  try {
+    const dir = path.dirname(BOOTSTRAP_COMPLETE_FLAG);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(BOOTSTRAP_COMPLETE_FLAG, new Date().toISOString(), 'utf-8');
+  } catch (e) {
+    log.warn({ err: e }, 'Bootstrap: could not write bootstrap-complete flag');
+  }
 }
 
 /**

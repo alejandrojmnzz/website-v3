@@ -345,29 +345,42 @@ export async function startBackgroundSync(): Promise<void> {
         ensureWebhook,
         bootstrapContentFromRemote,
         isGitHubConfigured,
+        isBootstrapComplete,
+        writeBootstrapCompleteFlag,
       } = await import("../github");
 
-      // Bootstrap pull: if marketing-content/ has no YAML files and GitHub sync
-      // is configured, do a full pull from the content repo before the normal
-      // reconcile/auto-pull logic runs.
+      // Bootstrap pull: run when GitHub sync is configured AND the bootstrap-complete
+      // flag is absent.  The flag is written only after a fully successful pull, so
+      // any partial / failed bootstrap from a previous startup will be re-attempted
+      // here automatically.
       const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
-      if (syncEnabled && isGitHubConfigured()) {
-        const pathModule = await import("path");
-        const contentDir = pathModule.join(process.cwd(), "marketing-content");
-        const fsModule = await import("fs");
-        const hasYaml = (dir: string): boolean => {
-          if (!fsModule.existsSync(dir)) return false;
-          for (const entry of fsModule.readdirSync(dir, { withFileTypes: true })) {
-            if (entry.isDirectory()) {
-              if (hasYaml(pathModule.join(dir, entry.name))) return true;
-            } else if (/\.(ya?ml)$/i.test(entry.name)) {
-              return true;
-            }
-          }
-          return false;
-        };
-        if (!hasYaml(contentDir)) {
-          routesLogger.info("marketing-content/ appears empty — running bootstrap pull from remote...");
+      if (syncEnabled && isGitHubConfigured() && !isBootstrapComplete()) {
+        // Migration path: detect deployments that existed before the flag was
+        // introduced.  If content is already present (YAML files or a sync-state
+        // commit recorded), we treat this instance as already bootstrapped and
+        // write the flag — no full re-pull needed.
+        const { getLastSyncedCommit } = await import("../sync-state");
+
+        // A non-null lastSyncedCommit is the definitive signal that a
+        // successful pull (or manual reconcile) already ran for this instance.
+        // hasYaml alone is NOT sufficient — a partially-interrupted bootstrap
+        // will also have YAML files but no committed sync state, and it must
+        // be re-attempted, not stamped as complete.
+        const alreadyPopulated = getLastSyncedCommit() !== null;
+
+        if (alreadyPopulated) {
+          // Existing deployment predating the flag — stamp it and move on.
+          routesLogger.info(
+            "bootstrap-complete flag absent but content already exists — writing flag (one-time migration, skipping bootstrap)",
+          );
+          writeBootstrapCompleteFlag();
+          logSync(
+            "AUTO-PULL",
+            "Bootstrap: migration — existing content detected, bootstrap-complete flag written",
+          );
+        } else {
+          // Fresh instance with no content — run the full bootstrap.
+          routesLogger.info("bootstrap-complete flag absent and content uninitialized — running bootstrap pull from remote...");
           try {
             const bootstrapResult = await bootstrapContentFromRemote();
             if (bootstrapResult.pulled > 0) {
@@ -379,7 +392,7 @@ export async function startBackgroundSync(): Promise<void> {
             if (bootstrapResult.errors.length > 0) {
               logSync(
                 "ERROR",
-                `Bootstrap: ${bootstrapResult.errors.length} file(s) failed — ${bootstrapResult.errors.slice(0, 3).join("; ")}`,
+                `Bootstrap: ${bootstrapResult.errors.length} file(s) still failed after retries — ${bootstrapResult.errors.slice(0, 3).join("; ")}`,
               );
             }
           } catch (e) {
