@@ -20,3 +20,17 @@
 {"ts":"2026-06-25T20:26:42.128Z","category":"WEBHOOK","message":"Created webhook #646473769 at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
 {"ts":"2026-06-25T20:26:43.176Z","category":"WEBHOOK","message":"Cleaned up 1 duplicate webhook(s): #646443114"}
 {"ts":"2026-06-25T20:26:43.181Z","category":"WEBHOOK","message":"Received ping event — webhook is active"}
+{"ts":"2026-06-25T20:40:30.081Z","category":"RESTART","message":"Server started (instance=834f, checkpoint=6be6a9f48, env=development, pid=85544)"}
+{"ts":"2026-06-25T20:40:36.191Z","category":"AUTO-PULL","message":"Skipped startup pull [fl.4geeks.com] — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:40:36.986Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
+{"ts":"2026-06-25T20:40:36.987Z","category":"AUTO-PULL","message":"Skipped startup pull [4geeks.com] — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:40:37.198Z","category":"WEBHOOK","message":"Webhook #646473769 no longer exists on GitHub, recreating..."}
+{"ts":"2026-06-25T20:40:37.368Z","category":"WEBHOOK","message":"Webhook #646443114 no longer exists on GitHub, recreating..."}
+{"ts":"2026-06-25T20:40:38.161Z","category":"ERROR","message":"Failed to adopt existing webhook #646476415, falling back to create"}
+{"ts":"2026-06-25T20:40:38.164Z","category":"ERROR","message":"Failed to adopt existing webhook #646476415, falling back to create"}
+{"ts":"2026-06-25T20:40:38.512Z","category":"WEBHOOK","message":"Created webhook #646476439 at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:40:38.514Z","category":"WEBHOOK","message":"Created webhook #646476440 at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:40:39.250Z","category":"WEBHOOK","message":"Cleaned up 2 duplicate webhook(s): #646476415, #646476440"}
+{"ts":"2026-06-25T20:40:39.250Z","category":"WEBHOOK","message":"Cleaned up 2 duplicate webhook(s): #646476415, #646476439"}
+{"ts":"2026-06-25T20:40:39.405Z","category":"WEBHOOK","message":"Received ping event — webhook is active"}
+{"ts":"2026-06-25T20:40:39.454Z","category":"WEBHOOK","message":"Rejected: invalid HMAC signature"}
