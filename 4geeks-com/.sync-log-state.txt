@@ -10,3 +10,11 @@
 {"ts":"2026-06-25T20:24:05.636Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
 {"ts":"2026-06-25T20:24:05.636Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
 {"ts":"2026-06-25T20:24:06.091Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:26:37.742Z","category":"RESTART","message":"Server started (instance=07a0, checkpoint=05b4a9798, env=development, pid=84053)"}
+{"ts":"2026-06-25T20:26:39.574Z","category":"AUTO-PULL","message":"Bootstrap [fl.4geeks.com]: migration — existing content detected, bootstrap-complete flag written"}
+{"ts":"2026-06-25T20:26:40.498Z","category":"AUTO-PULL","message":"Skipped startup pull [fl.4geeks.com] — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:26:41.106Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
+{"ts":"2026-06-25T20:26:41.106Z","category":"AUTO-PULL","message":"Skipped startup pull [4geeks.com] — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:26:41.627Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:26:41.719Z","category":"ERROR","message":"Failed to adopt existing webhook #646443114, falling back to create"}
+{"ts":"2026-06-25T20:26:42.128Z","category":"WEBHOOK","message":"Created webhook #646473769 at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
