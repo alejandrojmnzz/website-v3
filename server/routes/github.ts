@@ -824,9 +824,12 @@ export function registerGithubRoutes(app: Express): void {
             ? `[Author: ${authorName}] ${message.trim()}`
             : message.trim();
           const { commitAndPush } = await import("../github");
+          const site = res.locals.site as any;
           const result = await commitAndPush(finalMsg, {
             force: !!force,
             files: Array.isArray(files) ? files : undefined,
+            repoUrl: site?.config?.githubRepoUrl,
+            contentRoot: site?.contentRootName,
           });
           if (result.success) {
             res.json({ success: true, commitHash: result.commitHash });
@@ -872,9 +875,12 @@ export function registerGithubRoutes(app: Express): void {
       }
 
       const { commitAndPush } = await import("../github");
+      const site = res.locals.site as any;
       const result = await commitAndPush(finalMessage, {
         force: !!force,
         files: Array.isArray(files) ? files : undefined,
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
       });
 
       if (result.success) {

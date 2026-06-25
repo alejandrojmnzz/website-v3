@@ -536,7 +536,7 @@ async function getBranchHeadSha(config: GitHubConfig): Promise<string | null> {
  */
 export async function commitAndPush(
   message: string,
-  options?: { force?: boolean; files?: string[] }
+  options?: { force?: boolean; files?: string[]; repoUrl?: string; contentRoot?: string }
 ): Promise<{ success: boolean; error?: string; commitHash?: string }> {
   const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
   
@@ -544,13 +544,13 @@ export async function commitAndPush(
     return { success: false, error: "GitHub sync is not enabled" };
   }
   
-  const config = getGitHubConfig();
+  const config = getGitHubConfig(options?.repoUrl);
   if (!config) {
     return { success: false, error: "GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)" };
   }
   
   try {
-    const allPendingChanges = await getPendingChanges();
+    const allPendingChanges = detectPendingChanges(options?.contentRoot);
     const pendingChanges = options?.files?.length
       ? allPendingChanges.filter(c => options.files!.includes(c.file))
       : allPendingChanges;
@@ -564,7 +564,7 @@ export async function commitAndPush(
       return { success: false, error: "Could not get current branch HEAD" };
     }
     
-    const lastSyncedCommit = getLastSyncedCommit();
+    const lastSyncedCommit = getLastSyncedCommit(options?.contentRoot);
     if (lastSyncedCommit && lastSyncedCommit !== currentHeadSha && !options?.force) {
       return { 
         success: false, 
@@ -613,7 +613,7 @@ export async function commitAndPush(
       return { success: false, error: "Failed to update branch ref" };
     }
     
-    updateSyncStateAfterCommit(newCommitSha, committedFiles);
+    updateSyncStateAfterCommit(newCommitSha, committedFiles, options?.contentRoot);
     
     log.info(`Committed and pushed to GitHub via API: ${newCommitSha}`);
     return { success: true, commitHash: newCommitSha };
