@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { ArticleSection } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
@@ -223,10 +225,27 @@ export function Article({ data }: ArticleProps) {
   );
 }
 
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    "iframe",
+    "video",
+    "source",
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    iframe: ["src", "width", "height", "allowFullScreen", "allow", "title", "frameBorder"],
+    video: ["src", "controls", "width", "height", "poster", "autoPlay", "loop", "muted"],
+    source: ["src", "type"],
+  },
+};
+
 function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadingId: (text: string) => string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
       components={{
         h1: ({ children, ...props }) => {
           const text = extractTextFromChildren(children);
