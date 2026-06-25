@@ -15,8 +15,8 @@ import { child } from "./logger";
 const log = child({ module: "component-insights" });
 
 
-const SETTINGS_PATH = path.join(process.cwd(), "marketing-content", "settings.yml");
-const OUTPUT_PATH = path.join(process.cwd(), "marketing-content", "component-insights.json");
+const SETTINGS_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "settings.yml");
+const OUTPUT_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "component-insights.json");
 
 const DEFAULT_INTENT = "brand_corporate";
 const FALLBACK_CLUSTER_MIN = 3;
@@ -99,7 +99,7 @@ function scanPages(validIntentIds: Set<string>, contentTypeIntentMap: Map<string
     }
 
     const ctDefault = contentTypeIntentMap.get(contentType) ?? DEFAULT_INTENT;
-    const contentDir = path.join(process.cwd(), "marketing-content", (config as Record<string, unknown>).directory as string);
+    const contentDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", (config as Record<string, unknown>).directory as string);
 
     for (const slug of slugs) {
       let sectionTypes: string[] = [];

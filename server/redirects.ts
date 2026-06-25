@@ -5,21 +5,22 @@ import { getAllConfigs, getFullFieldMapping, getLocaleKey, resolveUrlPatternWith
 import { child } from "./logger";
 const log = child({ module: "redirects" });
 
+// ============================================================================
+// Per-site redirect maps (multi-site isolation)
+// ============================================================================
 
-
-let redirectMap: Map<string, RedirectEntry> | null = null;
-let regexRedirectsBefore: Array<{ regex: RegExp; entry: RedirectEntry }> | null = null;
-let fallbackMap: Map<string, RedirectEntry> | null = null;
-let regexRedirectsFallback: Array<{ regex: RegExp; entry: RedirectEntry }> | null = null;
-let fallbackNonCustomMap: Map<string, RedirectEntry> | null = null;
-let regexRedirectsFallbackNonCustom: Array<{ regex: RegExp; entry: RedirectEntry }> | null = null;
-
-export function isRegexPattern(path: string): boolean {
-  return /\(.*\)|\[.*\]|\.\*|\.\+|\\d|\\w|\\s|\{\d+[,}]/.test(path);
+interface RedirectMaps {
+  map: Map<string, RedirectEntry>;
+  regexBefore: Array<{ regex: RegExp; entry: RedirectEntry }>;
+  fallbackMap: Map<string, RedirectEntry>;
+  regexFallback: Array<{ regex: RegExp; entry: RedirectEntry }>;
+  fallbackNonCustomMap: Map<string, RedirectEntry>;
+  regexFallbackNonCustom: Array<{ regex: RegExp; entry: RedirectEntry }>;
 }
 
-function buildRedirectMap(): Map<string, RedirectEntry> {
-  const entries = contentIndex.getRedirects();
+const _siteRedirectCache = new Map<typeof contentIndex, RedirectMaps>();
+
+function _buildMapsFromEntries(entries: RedirectEntry[]): RedirectMaps {
   const map = new Map<string, RedirectEntry>();
   const regexBefore: Array<{ regex: RegExp; entry: RedirectEntry }> = [];
   const fbMap = new Map<string, RedirectEntry>();
@@ -53,31 +54,54 @@ function buildRedirectMap(): Map<string, RedirectEntry> {
     } else {
       if (isFallback) {
         if (isCustom) {
-          if (!fbMap.has(entry.from)) {
-            fbMap.set(entry.from, entry);
-          }
+          if (!fbMap.has(entry.from)) fbMap.set(entry.from, entry);
         } else {
-          if (!fbNonCustomMap.has(entry.from)) {
-            fbNonCustomMap.set(entry.from, entry);
-          }
+          if (!fbNonCustomMap.has(entry.from)) fbNonCustomMap.set(entry.from, entry);
         }
       } else {
-        if (!map.has(entry.from)) {
-          map.set(entry.from, entry);
-        }
+        if (!map.has(entry.from)) map.set(entry.from, entry);
       }
     }
   }
 
-  regexRedirectsBefore = regexBefore;
-  fallbackMap = fbMap;
-  regexRedirectsFallback = regexFb;
-  fallbackNonCustomMap = fbNonCustomMap;
-  regexRedirectsFallbackNonCustom = regexFbNonCustom;
-  const totalBefore = map.size + regexBefore.length;
-  const totalFallback = fbMap.size + regexFb.length + fbNonCustomMap.size + regexFbNonCustom.length;
-  log.info(`[Redirects] Loaded ${map.size} exact redirects, ${regexBefore.length} regex redirects (before), ${totalFallback} fallback redirects (${fbNonCustomMap.size + regexFbNonCustom.length} non-custom)`);
-  return map;
+  return { map, regexBefore, fallbackMap: fbMap, regexFallback: regexFb, fallbackNonCustomMap: fbNonCustomMap, regexFallbackNonCustom: regexFbNonCustom };
+}
+
+function _getSiteRedirectMaps(ci: typeof contentIndex): RedirectMaps {
+  if (_siteRedirectCache.has(ci)) return _siteRedirectCache.get(ci)!;
+  const maps = _buildMapsFromEntries(ci.getRedirects());
+  const totalFb = maps.fallbackMap.size + maps.regexFallback.length + maps.fallbackNonCustomMap.size + maps.regexFallbackNonCustom.length;
+  log.info(`[Redirects] Per-site maps: ${maps.map.size} exact, ${maps.regexBefore.length} regex, ${totalFb} fallback`);
+  _siteRedirectCache.set(ci, maps);
+  return maps;
+}
+
+// ============================================================================
+// Global redirect maps (single-site / backward-compat)
+// ============================================================================
+
+let redirectMap: Map<string, RedirectEntry> | null = null;
+let regexRedirectsBefore: Array<{ regex: RegExp; entry: RedirectEntry }> | null = null;
+let fallbackMap: Map<string, RedirectEntry> | null = null;
+let regexRedirectsFallback: Array<{ regex: RegExp; entry: RedirectEntry }> | null = null;
+let fallbackNonCustomMap: Map<string, RedirectEntry> | null = null;
+let regexRedirectsFallbackNonCustom: Array<{ regex: RegExp; entry: RedirectEntry }> | null = null;
+
+export function isRegexPattern(path: string): boolean {
+  return /\(.*\)|\[.*\]|\.\*|\.\+|\\d|\\w|\\s|\{\d+[,}]/.test(path);
+}
+
+function buildRedirectMap(): Map<string, RedirectEntry> {
+  const maps = _buildMapsFromEntries(contentIndex.getRedirects());
+  redirectMap = maps.map;
+  regexRedirectsBefore = maps.regexBefore;
+  fallbackMap = maps.fallbackMap;
+  regexRedirectsFallback = maps.regexFallback;
+  fallbackNonCustomMap = maps.fallbackNonCustomMap;
+  regexRedirectsFallbackNonCustom = maps.regexFallbackNonCustom;
+  const totalFallback = maps.fallbackMap.size + maps.regexFallback.length + maps.fallbackNonCustomMap.size + maps.regexFallbackNonCustom.length;
+  log.info(`[Redirects] Loaded ${maps.map.size} exact redirects, ${maps.regexBefore.length} regex redirects (before), ${totalFallback} fallback redirects (${maps.fallbackNonCustomMap.size + maps.regexFallbackNonCustom.length} non-custom)`);
+  return maps.map;
 }
 
 function getRedirectMap(): Map<string, RedirectEntry> {
@@ -129,7 +153,10 @@ function getQueryString(req: Request): string {
 }
 
 export function redirectMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const map = getRedirectMap();
+  const siteCi = (res.locals.site as any)?.contentIndex as typeof contentIndex | undefined;
+  const siteMaps = siteCi ? _getSiteRedirectMaps(siteCi) : null;
+  const map = siteMaps ? siteMaps.map : getRedirectMap();
+  const regexBefore = siteMaps ? siteMaps.regexBefore : (regexRedirectsBefore || []);
   const normalizedPath = normalizePath(req.path);
 
   const entry = map.get(normalizedPath);
@@ -142,18 +169,16 @@ export function redirectMiddleware(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  if (regexRedirectsBefore) {
-    for (const { regex, entry: regexEntry } of regexRedirectsBefore) {
-      const match = req.path.match(regex);
-      if (match) {
-        const captureGroups = match.slice(1);
-        const status = regexEntry.status || 301;
-        const target = resolveRedirectTarget(regexEntry, req, captureGroups);
-        const qs = getQueryString(req);
-        log.info(`[Redirects] ${status} (regex): ${req.path} -> ${target}${qs}`);
-        res.redirect(status, target + qs);
-        return;
-      }
+  for (const { regex, entry: regexEntry } of regexBefore) {
+    const match = req.path.match(regex);
+    if (match) {
+      const captureGroups = match.slice(1);
+      const status = regexEntry.status || 301;
+      const target = resolveRedirectTarget(regexEntry, req, captureGroups);
+      const qs = getQueryString(req);
+      log.info(`[Redirects] ${status} (regex): ${req.path} -> ${target}${qs}`);
+      res.redirect(status, target + qs);
+      return;
     }
   }
 
@@ -166,13 +191,20 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     return;
   }
 
-  getRedirectMap();
+  const siteCi = (res.locals.site as any)?.contentIndex as typeof contentIndex | undefined;
+  const siteMaps = siteCi ? _getSiteRedirectMaps(siteCi) : null;
+  if (!siteMaps) getRedirectMap(); // ensure global maps are built for single-site mode
+  const activeFallbackNonCustomMap = siteMaps ? siteMaps.fallbackNonCustomMap : fallbackNonCustomMap;
+  const activeRegexFbNonCustom = siteMaps ? siteMaps.regexFallbackNonCustom : regexRedirectsFallbackNonCustom;
+  const activeFallbackMap = siteMaps ? siteMaps.fallbackMap : fallbackMap;
+  const activeRegexFb = siteMaps ? siteMaps.regexFallback : regexRedirectsFallback;
+  const activeCi = siteCi ?? contentIndex;
   const normalizedPath = normalizePath(req.path);
 
   // Non-custom (content-defined) fallback redirects fire before the page check —
   // they take priority over any active page at the same URL.
-  if (fallbackNonCustomMap) {
-    const entry = fallbackNonCustomMap.get(normalizedPath);
+  if (activeFallbackNonCustomMap) {
+    const entry = activeFallbackNonCustomMap.get(normalizedPath);
     if (entry) {
       const status = entry.status || 301;
       const target = resolveRedirectTarget(entry, req);
@@ -183,8 +215,8 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     }
   }
 
-  if (regexRedirectsFallbackNonCustom) {
-    for (const { regex, entry: regexEntry } of regexRedirectsFallbackNonCustom) {
+  if (activeRegexFbNonCustom) {
+    for (const { regex, entry: regexEntry } of activeRegexFbNonCustom) {
       const match = req.path.match(regex);
       if (match) {
         const captureGroups = match.slice(1);
@@ -201,7 +233,7 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
   // Custom fallback redirects only fire when no real page exists at this URL.
   const cleanUrl = req.path.split("?")[0].split("#")[0];
   try {
-    if (contentIndex.isKnownUrl(cleanUrl)) {
+    if (activeCi.isKnownUrl(cleanUrl)) {
       next();
       return;
     }
@@ -248,8 +280,8 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     }
   } catch {}
 
-  if (fallbackMap) {
-    const entry = fallbackMap.get(normalizedPath);
+  if (activeFallbackMap) {
+    const entry = activeFallbackMap.get(normalizedPath);
     if (entry) {
       const status = entry.status || 301;
       const target = resolveRedirectTarget(entry, req);
@@ -260,8 +292,8 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     }
   }
 
-  if (regexRedirectsFallback) {
-    for (const { regex, entry: regexEntry } of regexRedirectsFallback) {
+  if (activeRegexFb) {
+    for (const { regex, entry: regexEntry } of activeRegexFb) {
       const match = req.path.match(regex);
       if (match) {
         const captureGroups = match.slice(1);
@@ -464,5 +496,6 @@ export function clearRedirectCache(): void {
   regexRedirectsBefore = null;
   fallbackMap = null;
   regexRedirectsFallback = null;
-  log.info("[Redirects] Cache cleared");
+  _siteRedirectCache.clear();
+  log.info("[Redirects] Cache cleared (global + all per-site)");
 }

@@ -4,17 +4,20 @@ import * as path from "path";
 import { safeYamlLoad, safeYamlDump, requireCapability } from "./_helpers";
 import { markFileAsModified } from "../sync-state";
 
-const OVERLAYS_FILE = path.join(
-  process.cwd(),
-  "marketing-content",
-  "overlays.yml"
-);
+function getOverlaysFile(contentRoot: string): string {
+  return path.join(contentRoot, "overlays.yml");
+}
 
-function readOverlays(): unknown {
-  if (!fs.existsSync(OVERLAYS_FILE)) {
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+
+function readOverlays(contentRoot: string): unknown {
+  const overlaysFile = getOverlaysFile(contentRoot);
+  if (!fs.existsSync(overlaysFile)) {
     return { overlays: [] };
   }
-  return safeYamlLoad(fs.readFileSync(OVERLAYS_FILE, "utf-8")) ?? {
+  return safeYamlLoad(fs.readFileSync(overlaysFile, "utf-8")) ?? {
     overlays: [],
   };
 }
@@ -22,7 +25,7 @@ function readOverlays(): unknown {
 export function registerOverlaysRoutes(app: Express): void {
   app.get("/api/overlays", (_req: Request, res: Response) => {
     try {
-      const data = readOverlays();
+      const data = readOverlays(getContentRoot(res));
       res.json(data);
     } catch {
       res.status(500).json({ error: "Failed to read overlays" });
@@ -39,9 +42,12 @@ export function registerOverlaysRoutes(app: Express): void {
         res.status(400).json({ error: "Invalid body" });
         return;
       }
+      const contentRoot = getContentRoot(res);
+      const contentFolder = path.basename(contentRoot);
+      const overlaysFile = getOverlaysFile(contentRoot);
       const yaml = safeYamlDump(body);
-      fs.writeFileSync(OVERLAYS_FILE, yaml, "utf-8");
-      markFileAsModified("marketing-content/overlays.yml");
+      fs.writeFileSync(overlaysFile, yaml, "utf-8");
+      markFileAsModified(`${contentFolder}/overlays.yml`);
       res.json({ ok: true });
     } catch {
       res.status(500).json({ error: "Failed to save overlays" });

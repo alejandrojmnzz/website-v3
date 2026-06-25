@@ -7,6 +7,19 @@ import { databaseManager } from "./database";
 import { child } from "./logger";
 const log = child({ module: "sitemap" });
 
+// Per-request site context for per-site sitemap generation.
+// Set synchronously inside getCanonicalEntries before calling buildCanonicalSitemapEntries.
+// All callee functions are synchronous — safe in Node.js single-threaded event loop.
+export interface ActiveSiteCtx {
+  contentIndex: typeof contentIndex;
+  contentRootName: string;
+}
+let _activeSiteCtx: ActiveSiteCtx | null = null;
+function _ci(): typeof contentIndex { return _activeSiteCtx?.contentIndex ?? contentIndex; }
+function _contentFolder(): string {
+  return _activeSiteCtx?.contentRootName ?? process.env.CONTENT_FOLDER ?? "content";
+}
+
 
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -53,6 +66,7 @@ interface SitemapCache {
 }
 
 let sitemapCache: SitemapCache | null = null;
+const _perSiteSitemapCache = new Map<typeof contentIndex, SitemapCache>();
 
 // ============================================================================
 // Content Meta Interfaces
@@ -97,21 +111,22 @@ function loadMergedContent(
   contentType: string,
   slug: string,
   localeOrVariant: string,
+  ci: typeof contentIndex = _ci(),
 ): Record<string, unknown> | null {
-  const { data } = contentIndex.loadMergedContent(contentType, slug, localeOrVariant);
+  const { data } = ci.loadMergedContent(contentType, slug, localeOrVariant);
   return data;
 }
 
-function getAvailablePrograms(): AvailableProgram[] {
+function getAvailablePrograms(ci: typeof contentIndex = _ci()): AvailableProgram[] {
   try {
     const programs: AvailableProgram[] = [];
-    const slugs = contentIndex.listContentSlugs("program");
+    const slugs = ci.listContentSlugs("program");
 
     for (const slug of slugs) {
-      const locales = contentIndex.getAvailableLocalesOrVariants("program", slug);
+      const locales = ci.getAvailableLocalesOrVariants("program", slug);
 
       for (const locale of locales) {
-        const merged = loadMergedContent("program", slug, locale);
+        const merged = loadMergedContent("program", slug, locale, ci);
         if (!merged) continue;
 
         const meta = (merged.meta as ContentMeta) || {};
@@ -132,16 +147,16 @@ function getAvailablePrograms(): AvailableProgram[] {
   }
 }
 
-function getAvailableLocations(): AvailableLocation[] {
+function getAvailableLocations(ci: typeof contentIndex = _ci()): AvailableLocation[] {
   try {
     const locations: AvailableLocation[] = [];
-    const slugs = contentIndex.listContentSlugs("location");
+    const slugs = ci.listContentSlugs("location");
 
     for (const slug of slugs) {
-      const locales = contentIndex.getAvailableLocalesOrVariants("location", slug);
+      const locales = ci.getAvailableLocalesOrVariants("location", slug);
 
       for (const locale of locales) {
-        const merged = loadMergedContent("location", slug, locale);
+        const merged = loadMergedContent("location", slug, locale, ci);
         if (!merged) continue;
 
         const visibility = (merged.visibility as string) || "listed";
@@ -166,19 +181,19 @@ function getAvailableLocations(): AvailableLocation[] {
   }
 }
 
-function getAvailableTemplatePages(): AvailableTemplatePage[] {
+function getAvailableTemplatePages(ci: typeof contentIndex = _ci(), cf: string = _contentFolder()): AvailableTemplatePage[] {
   try {
     const pages: AvailableTemplatePage[] = [];
-    const slugs = contentIndex.listContentSlugs("page");
+    const slugs = ci.listContentSlugs("page");
 
     for (const dirSlug of slugs) {
-      const locales = contentIndex.getAvailableLocalesOrVariants("page", dirSlug);
+      const locales = ci.getAvailableLocalesOrVariants("page", dirSlug);
 
       for (const locale of locales) {
         // Only process locale files (en, es)
-        if (!getSupportedLocales().includes(locale)) continue;
+        if (!getSupportedLocales(cf).includes(locale)) continue;
 
-        const merged = loadMergedContent("page", dirSlug, locale);
+        const merged = loadMergedContent("page", dirSlug, locale, ci);
         if (!merged) continue;
 
         const meta = (merged.meta as ContentMeta) || {};
@@ -222,9 +237,10 @@ function formatLocaleLabel(locale: string): string {
  * Falls back to today's date when no sync data exists.
  */
 function getYmlFileLastmod(contentType: string, dirSlug: string, locale: string): string {
-  const directory = getDirectory(contentType);
-  const filePath = `marketing-content/${directory}/${dirSlug}/${locale}.yml`;
-  return getFileLastmod(filePath);
+  const directory = getDirectory(contentType, _contentFolder());
+  const folder = _contentFolder();
+  const filePath = `${folder}/${directory}/${dirSlug}/${locale}.yml`;
+  return getFileLastmod(filePath, _activeSiteCtx?.contentRootName);
 }
 
 /**
@@ -242,7 +258,10 @@ function buildMapKey(entry: CanonicalSitemapEntry): string {
 // CANONICAL BUILDER - Single Source of Truth
 // ============================================================================
 
-function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
+function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, CanonicalSitemapEntry> {
+  const ci = ctx?.contentIndex ?? contentIndex;
+  const cf = ctx?.contentRootName ?? process.env.CONTENT_FOLDER ?? "content";
+
   const today = getCurrentDate();
   const entriesMap = new Map<string, CanonicalSitemapEntry>();
 
@@ -265,7 +284,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
   }
 
   // Dynamic career program pages
-  const programs = getAvailablePrograms();
+  const programs = getAvailablePrograms(ci);
   for (const program of programs) {
     if (!shouldIndex(program.meta.robots)) {
       log.info(
@@ -274,7 +293,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
       continue;
     }
 
-    const url = `${getBaseUrl()}${contentIndex.buildUrl("program", program.locale, program.slug)}`;
+    const url = `${getBaseUrl()}${ci.buildUrl("program", program.locale, program.slug)}`;
 
     addEntry({
       loc: url,
@@ -287,7 +306,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
   }
 
   // Dynamic location pages
-  const locations = getAvailableLocations();
+  const locations = getAvailableLocations(ci);
   for (const location of locations) {
     if (!shouldIndex(location.meta.robots)) {
       log.info(
@@ -296,7 +315,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
       continue;
     }
 
-    const url = `${getBaseUrl()}${contentIndex.buildUrl("location", location.locale, location.slug)}`;
+    const url = `${getBaseUrl()}${ci.buildUrl("location", location.locale, location.slug)}`;
 
     addEntry({
       loc: url,
@@ -309,7 +328,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
   }
 
   // Dynamic template pages
-  const templatePages = getAvailableTemplatePages();
+  const templatePages = getAvailableTemplatePages(ci, cf);
   for (const page of templatePages) {
     if (!shouldIndex(page.meta.robots)) {
       log.info(
@@ -319,7 +338,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
     }
 
     addEntry({
-      loc: `${getBaseUrl()}${contentIndex.buildUrl("page", page.locale, page.slug)}`,
+      loc: `${getBaseUrl()}${ci.buildUrl("page", page.locale, page.slug)}`,
       lastmod: getYmlFileLastmod("page", page.dirSlug, page.locale),
       label: `Page: ${page.title} (${formatLocaleLabel(page.locale)})`,
       type: "template_page",
@@ -330,7 +349,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
 
   // DB-backed content types — read synchronously from the SQLite cache
   try {
-    const allTypeConfigs = getAllConfigs();
+    const allTypeConfigs = getAllConfigs(cf);
     for (const [typeName, typeConfig] of Object.entries(allTypeConfigs)) {
       if (!typeConfig.database?.slug) continue;
       const dbName = typeConfig.database.slug;
@@ -375,18 +394,18 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
 
   const handledTypes = new Set(["program", "location", "page"]);
   try {
-    const allTypeConfigs = getAllConfigs();
+    const allTypeConfigs = getAllConfigs(cf);
     for (const [typeName, typeConfig] of Object.entries(allTypeConfigs)) {
       if (handledTypes.has(typeName)) continue;
       if (typeConfig.database) continue;
 
-      const slugs = contentIndex.listContentSlugs(typeName);
+      const slugs = ci.listContentSlugs(typeName);
       for (const slug of slugs) {
-        const locales = contentIndex.getAvailableLocalesOrVariants(typeName, slug);
+        const locales = ci.getAvailableLocalesOrVariants(typeName, slug);
         for (const locale of locales) {
-          if (!getSupportedLocales().includes(locale)) continue;
+          if (!getSupportedLocales(cf).includes(locale)) continue;
 
-          const merged = loadMergedContent(typeName, slug, locale);
+          const merged = loadMergedContent(typeName, slug, locale, ci);
           if (!merged) continue;
 
           const meta = (merged.meta as ContentMeta) || {};
@@ -395,7 +414,7 @@ function buildCanonicalSitemapEntries(): Map<string, CanonicalSitemapEntry> {
             continue;
           }
 
-          const url = `${getBaseUrl()}${contentIndex.buildUrl(typeName, locale, (merged.slug as string) || slug)}`;
+          const url = `${getBaseUrl()}${ci.buildUrl(typeName, locale, (merged.slug as string) || slug)}`;
           const title = meta.page_title || (merged.title as string) || slug;
           const typeLabel = typeName.charAt(0).toUpperCase() + typeName.slice(1);
 
@@ -489,23 +508,26 @@ function entriesToHumanReadable(
 // Cached Access - Both outputs derive from same canonical data
 // ============================================================================
 
-function getCanonicalEntries(): Map<string, CanonicalSitemapEntry> {
+function getCanonicalEntries(ctx?: ActiveSiteCtx): Map<string, CanonicalSitemapEntry> {
   const now = Date.now();
+  const isSiteSpecific = !!ctx;
+  const cache = isSiteSpecific ? _perSiteSitemapCache.get(ctx!.contentIndex) : sitemapCache;
 
-  // Check if cache exists and is still valid
-  if (sitemapCache && now - sitemapCache.generatedAt < CACHE_TTL_MS) {
-    log.info("[Sitemap] Serving from cache");
-    return sitemapCache.entries;
+  if (cache && now - cache.generatedAt < CACHE_TTL_MS) {
+    log.info(`[Sitemap] Serving from cache (${ctx?.contentRootName ?? "__global__"})`);
+    return cache.entries;
   }
 
-  // Generate fresh entries
-  log.info("[Sitemap] Generating fresh sitemap entries");
-  const entriesMap = buildCanonicalSitemapEntries();
+  log.info(`[Sitemap] Generating fresh sitemap entries (${ctx?.contentRootName ?? "__global__"})`);
+  let entriesMap: Map<string, CanonicalSitemapEntry>;
+  entriesMap = buildCanonicalSitemapEntries(ctx);
 
-  sitemapCache = {
-    entries: entriesMap,
-    generatedAt: now,
-  };
+  const newCache: SitemapCache = { entries: entriesMap, generatedAt: now };
+  if (isSiteSpecific) {
+    _perSiteSitemapCache.set(ctx!.contentIndex, newCache);
+  } else {
+    sitemapCache = newCache;
+  }
 
   return entriesMap;
 }
@@ -514,26 +536,35 @@ function getCanonicalEntries(): Map<string, CanonicalSitemapEntry> {
 // Public API
 // ============================================================================
 
-export function getSitemap(): string {
-  const entriesMap = getCanonicalEntries();
+export function getSitemap(ctx?: ActiveSiteCtx): string {
+  const entriesMap = getCanonicalEntries(ctx);
   return entriesToXml(Array.from(entriesMap.values()));
 }
 
-export function getSitemapUrls(): Array<{ loc: string; label: string; locale?: string }> {
-  const entriesMap = getCanonicalEntries();
+export function getSitemapUrls(ctx?: ActiveSiteCtx): Array<{ loc: string; label: string; locale?: string }> {
+  const entriesMap = getCanonicalEntries(ctx);
   return entriesToHumanReadable(Array.from(entriesMap.values()));
 }
 
 export function clearSitemapCache(): { success: boolean; message: string } {
+  const hadSiteCount = _perSiteSitemapCache.size;
+
   if (sitemapCache) {
     const age = Date.now() - sitemapCache.generatedAt;
     const ageMinutes = Math.round(age / 1000 / 60);
     sitemapCache = null;
-    log.info("[Sitemap] Cache cleared");
+    _perSiteSitemapCache.clear();
+    log.info("[Sitemap] Cache cleared (global + per-site)");
     return {
       success: true,
-      message: `Cache cleared. Previous cache was ${ageMinutes} minutes old.`,
+      message: `Cache cleared. Previous global cache was ${ageMinutes} minutes old; ${hadSiteCount} per-site cache(s) cleared.`,
     };
+  }
+
+  if (hadSiteCount > 0) {
+    _perSiteSitemapCache.clear();
+    log.info("[Sitemap] Per-site cache cleared");
+    return { success: true, message: `${hadSiteCount} per-site cache(s) cleared.` };
   }
 
   return {
@@ -637,7 +668,7 @@ function buildSingleEntry(type: string, dirSlug: string, locale: string): Canoni
   }
 
   const urlSlug = (merged.slug as string) || dirSlug;
-  const url = `${getBaseUrl()}${contentIndex.buildUrl(type, locale, urlSlug)}`;
+  const url = `${getBaseUrl()}${_ci().buildUrl(type, locale, urlSlug)}`;
   const title = meta.page_title || (merged.title as string) || (merged.name as string) || dirSlug;
 
   let entryType: EntryType = type;
@@ -686,7 +717,7 @@ export function refreshSitemapEntry(type: string, dirSlug: string, locale: strin
   if (getContentTypeConfig(type)?.database) return;
 
   // Only process supported locales
-  if (!getSupportedLocales().includes(locale)) return;
+  if (!getSupportedLocales(_contentFolder()).includes(locale)) return;
 
   // Remove only this locale's entry — does not affect sibling locales
   invalidateSitemapEntry(`${type}:${dirSlug}:${locale}`);
@@ -726,7 +757,7 @@ export function refreshSitemapEntriesForContentKey(type: string, dirSlug: string
   // DB-backed types are not handled via YAML refresh
   if (getContentTypeConfig(type)?.database) return;
 
-  const supported = getSupportedLocales();
+  const supported = getSupportedLocales(_contentFolder());
   for (const locale of locales) {
     if (!supported.includes(locale)) continue;
     const entry = buildSingleEntry(type, dirSlug, locale);

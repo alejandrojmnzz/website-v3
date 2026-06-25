@@ -14,7 +14,7 @@ const log = child({ module: "variable-manager" });
 
 const VARIABLES_PATH = path.join(
   process.cwd(),
-  "marketing-content",
+  process.env.CONTENT_FOLDER || "content",
   "variables.yml",
 );
 
@@ -494,7 +494,7 @@ class VariableManager {
       fs.writeFileSync(VARIABLES_PATH, content, "utf-8");
       const stat = fs.statSync(VARIABLES_PATH);
       this.lastModified = stat.mtimeMs;
-      markFileAsModified("marketing-content/variables.yml");
+      markFileAsModified(`${process.env.CONTENT_FOLDER || "content"}/variables.yml`);
       log.info("[VariableManager] Saved variables.yml");
     } catch (err) {
       log.error({ err: err }, "[VariableManager] Failed to save variables.yml:");

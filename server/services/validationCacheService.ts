@@ -15,7 +15,7 @@ import { child } from "../logger";
 
 const log = child({ module: "validationCacheService" });
 
-const CACHE_FILE = path.join(process.cwd(), "marketing-content", "validation-cache.json");
+const CACHE_FILE = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "validation-cache.json");
 const CACHE_VERSION = 2;
 
 function emptyCache(): ValidationCacheFile {

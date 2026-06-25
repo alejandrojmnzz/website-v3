@@ -210,6 +210,17 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/settings" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+function getContentRootName(res: Response): string {
+  const cr = getContentRoot(res);
+  return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
 
 export function registerSettingsRoutes(app: Express): void {
   app.get("/api/version", (_req, res) => {
@@ -229,11 +240,7 @@ export function registerSettingsRoutes(app: Express): void {
 
   app.get("/api/theme", (_req, res) => {
     try {
-      const themePath = path.join(
-        process.cwd(),
-        "marketing-content",
-        "theme.json",
-      );
+      const themePath = path.join(getContentRoot(res), "theme.json");
       if (!fs.existsSync(themePath)) {
         res.status(404).json({ error: "Theme configuration not found" });
         return;
@@ -250,7 +257,7 @@ export function registerSettingsRoutes(app: Express): void {
   app.put("/api/theme/colors", (req, res) => {
     try {
       const { light, dark } = req.body as { light?: Record<string, string>; dark?: Record<string, string> };
-      const themePath = path.join(process.cwd(), "marketing-content", "theme.json");
+      const themePath = path.join(getContentRoot(res), "theme.json");
       if (!fs.existsSync(themePath)) {
         res.status(404).json({ error: "Theme configuration not found" });
         return;
@@ -258,7 +265,7 @@ export function registerSettingsRoutes(app: Express): void {
       const theme = JSON.parse(fs.readFileSync(themePath, "utf-8"));
       theme.colors = { light: light || {}, dark: dark || {} };
       fs.writeFileSync(themePath, JSON.stringify(theme, null, 2));
-      markFileAsModified('marketing-content/theme.json');
+      markFileAsModified('theme.json', undefined, undefined, getContentRoot(res));
       res.json({ success: true });
     } catch (error) {
       log.error({ err: error }, "Error saving theme colors:");
@@ -269,7 +276,7 @@ export function registerSettingsRoutes(app: Express): void {
   app.put("/api/theme/preview-examples", (req, res) => {
     try {
       const examples = req.body as Array<{ component: string; version: string; example: string }>;
-      const themePath = path.join(process.cwd(), "marketing-content", "theme.json");
+      const themePath = path.join(getContentRoot(res), "theme.json");
       if (!fs.existsSync(themePath)) {
         res.status(404).json({ error: "Theme configuration not found" });
         return;
@@ -277,7 +284,7 @@ export function registerSettingsRoutes(app: Express): void {
       const theme = JSON.parse(fs.readFileSync(themePath, "utf-8"));
       theme.preview_examples = Array.isArray(examples) ? examples : [];
       fs.writeFileSync(themePath, JSON.stringify(theme, null, 2));
-      markFileAsModified('marketing-content/theme.json');
+      markFileAsModified('theme.json', undefined, undefined, getContentRoot(res));
       res.json({ success: true });
     } catch (error) {
       log.error({ err: error }, "Error saving preview examples:");
@@ -309,7 +316,7 @@ export function registerSettingsRoutes(app: Express): void {
         return;
       }
 
-      const themePath = path.join(process.cwd(), "marketing-content", "theme.json");
+      const themePath = path.join(getContentRoot(res), "theme.json");
       if (!fs.existsSync(themePath)) {
         res.status(404).json({ error: "Theme configuration not found" });
         return;
@@ -341,7 +348,7 @@ export function registerSettingsRoutes(app: Express): void {
       const tmpPath = path.join(themeDir, `.theme.${Date.now()}.tmp`);
       fs.writeFileSync(tmpPath, JSON.stringify(theme, null, 2));
       fs.renameSync(tmpPath, themePath);
-      markFileAsModified('marketing-content/theme.json');
+      markFileAsModified('theme.json', undefined, undefined, getContentRoot(res));
 
       if (unknownVarWarnings.length > 0) {
         res.json({ ok: true, warnings: unknownVarWarnings });
@@ -511,7 +518,7 @@ export function registerSettingsRoutes(app: Express): void {
   app.get("/api/variables/:name/usage", (req, res) => {
     try {
       const { name } = req.params;
-      const files = contentIndex.getVariableUsage(name);
+      const files = getCI(res).getVariableUsage(name);
       res.json({ variable: name, files });
     } catch (err: any) {
       res
@@ -543,7 +550,7 @@ export function registerSettingsRoutes(app: Express): void {
         });
       }
 
-      const affectedFiles = contentIndex.getVariableUsage(oldName);
+      const affectedFiles = getCI(res).getVariableUsage(oldName);
 
       const pattern = new RegExp(
         `\\{\\{\\s*${oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s*(?:\\|[^}]*)?)\\}\\}`,
@@ -566,7 +573,7 @@ export function registerSettingsRoutes(app: Express): void {
 
       variableManager.renameVariable(oldName, sanitized);
 
-      contentIndex.refresh();
+      getCI(res).refresh();
       invalidateContentCaches();
 
       res.json({
@@ -644,34 +651,34 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/settings/home-page", (_req, res) => {
-    res.json(getHomePage());
+  app.get("/api/settings/home-page", (req, res) => {
+    res.json(getHomePage(getContentRoot(res)));
   });
 
-  app.get("/api/settings/locales", (_req, res) => {
+  app.get("/api/settings/locales", (req, res) => {
     res.json({
-      default_locale: getDefaultLocale(),
-      supported_locales: getLocaleEntries(),
+      default_locale: getDefaultLocale(getContentRoot(res)),
+      supported_locales: getLocaleEntries(getContentRoot(res)),
     });
   });
 
   app.put("/api/settings/locales", (req, res) => {
     try {
       const { default_locale, supported_locales } = req.body;
-      updateLocaleSettings({ default_locale, supported_locales });
+      updateLocaleSettings({ default_locale, supported_locales }, getContentRoot(res));
       res.json({
         success: true,
-        default_locale: getDefaultLocale(),
-        supported_locales: getLocaleEntries(),
+        default_locale: getDefaultLocale(getContentRoot(res)),
+        supported_locales: getLocaleEntries(getContentRoot(res)),
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
     }
   });
 
-  app.get("/api/settings/tracking", (_req, res) => {
+  app.get("/api/settings/tracking", (req, res) => {
     res.json({
-      ...getTrackingSettings(),
+      ...getTrackingSettings(getContentRoot(res)),
       has_env_webhook: !!process.env.DEFAULT_WEBHOOK_URL,
     });
   });
@@ -688,8 +695,8 @@ export function registerSettingsRoutes(app: Express): void {
       updateTrackingSettings({
         ...(conversion_events !== undefined ? { conversion_events } : {}),
         ...(webhook !== undefined ? { webhook } : {}),
-      });
-      res.json({ success: true, ...getTrackingSettings() });
+      }, getContentRoot(res));
+      res.json({ success: true, ...getTrackingSettings(getContentRoot(res)) });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
     }
@@ -707,14 +714,14 @@ export function registerSettingsRoutes(app: Express): void {
       if (!snakeCasePattern.test(trimmed)) {
         return res.status(400).json({ error: "Event name must be snake_case (lowercase letters, digits, underscores, starting with a letter)" });
       }
-      const current = getTrackingSettings();
+      const current = getTrackingSettings(getContentRoot(res));
       if (current.conversion_events.some((e) => e.name === trimmed)) {
         return res.status(409).json({ error: `An event named "${trimmed}" already exists` });
       }
       const updated = current.conversion_events.map((e) =>
         e.name === name ? { ...e, name: trimmed } : e
       );
-      updateTrackingSettings({ conversion_events: updated });
+      updateTrackingSettings({ conversion_events: updated }, getContentRoot(res));
       const filesChanged = bulkReplaceConversionName(name, trimmed);
       res.json({ success: true, filesChanged });
     } catch (err: any) {
@@ -729,13 +736,13 @@ export function registerSettingsRoutes(app: Express): void {
       if (!mergeInto || typeof mergeInto !== "string") {
         return res.status(400).json({ error: "mergeInto is required" });
       }
-      const current = getTrackingSettings();
+      const current = getTrackingSettings(getContentRoot(res));
       if (!current.conversion_events.some((e) => e.name === mergeInto)) {
         return res.status(404).json({ error: `Target event "${mergeInto}" does not exist` });
       }
       const filesChanged = bulkReplaceConversionName(name, mergeInto);
       const filtered = current.conversion_events.filter((e) => e.name !== name);
-      updateTrackingSettings({ conversion_events: filtered });
+      updateTrackingSettings({ conversion_events: filtered }, getContentRoot(res));
       res.json({ success: true, filesChanged });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -787,7 +794,7 @@ export function registerSettingsRoutes(app: Express): void {
       if (!Array.isArray(entries) || entries.length === 0) {
         return res.status(400).json({ error: "entries must be a non-empty array" });
       }
-      const current = getTrackingSettings();
+      const current = getTrackingSettings(getContentRoot(res));
       if (!current.conversion_events.some((e) => e.name === newName)) {
         return res.status(404).json({ error: `Target event "${newName}" does not exist` });
       }
@@ -824,9 +831,9 @@ export function registerSettingsRoutes(app: Express): void {
   app.delete("/api/settings/tracking/conversion-events/:name", (req, res) => {
     try {
       const { name } = req.params;
-      const current = getTrackingSettings();
+      const current = getTrackingSettings(getContentRoot(res));
       const filtered = current.conversion_events.filter((e) => e.name !== name);
-      updateTrackingSettings({ conversion_events: filtered });
+      updateTrackingSettings({ conversion_events: filtered }, getContentRoot(res));
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -844,14 +851,14 @@ export function registerSettingsRoutes(app: Express): void {
       if (!/^[a-z][a-z0-9_]*$/.test(trimmed)) {
         return res.status(400).json({ error: "Event name must be snake_case (lowercase letters, digits, underscores, starting with a letter)" });
       }
-      const current = getTrackingSettings();
+      const current = getTrackingSettings(getContentRoot(res));
       if (current.conversion_events.some((e) => e.name === trimmed)) {
         return res.status(409).json({ error: `An event named "${trimmed}" already exists` });
       }
       const updated = current.conversion_events.map((e) =>
         e.name === name ? { ...e, name: trimmed } : e
       );
-      updateTrackingSettings({ conversion_events: updated });
+      updateTrackingSettings({ conversion_events: updated }, getContentRoot(res));
       const filesChanged = bulkReplaceConversionName(name, trimmed);
       res.json({ success: true, filesChanged });
     } catch (err: any) {
@@ -866,13 +873,13 @@ export function registerSettingsRoutes(app: Express): void {
       if (!mergeInto || typeof mergeInto !== "string") {
         return res.status(400).json({ error: "mergeInto is required" });
       }
-      const current = getTrackingSettings();
+      const current = getTrackingSettings(getContentRoot(res));
       if (!current.conversion_events.some((e) => e.name === mergeInto)) {
         return res.status(404).json({ error: `Target event "${mergeInto}" does not exist` });
       }
       const filesChanged = bulkReplaceConversionName(name, mergeInto);
       const filtered = current.conversion_events.filter((e) => e.name !== name);
-      updateTrackingSettings({ conversion_events: filtered });
+      updateTrackingSettings({ conversion_events: filtered }, getContentRoot(res));
       res.json({ success: true, filesChanged });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -880,7 +887,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.get("/api/settings/optimization", (_req, res) => {
-    res.json(getOptimizationSettings());
+    res.json(getOptimizationSettings(getContentRoot(res)));
   });
 
   app.put("/api/settings/optimization", async (req, res) => {
@@ -889,8 +896,8 @@ export function registerSettingsRoutes(app: Express): void {
       if (!tagmanager || typeof tagmanager !== "object") {
         return res.status(400).json({ error: "Request body must contain a tagmanager object" });
       }
-      updateOptimizationSettings({ tagmanager });
-      res.json({ success: true, ...getOptimizationSettings() });
+      updateOptimizationSettings({ tagmanager }, getContentRoot(res));
+      res.json({ success: true, ...getOptimizationSettings(getContentRoot(res)) });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
     }
@@ -954,7 +961,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
   // Menus API - list all menu files (excludes translation files like .es.yml)
   app.get("/api/menus", (_req, res) => {
-    const menusDir = path.join(process.cwd(), "marketing-content", "menus");
+    const menusDir = path.join(getContentRoot(res), "menus");
 
     if (!fs.existsSync(menusDir)) {
       res.json({ menus: [] });
@@ -1001,7 +1008,7 @@ export function registerSettingsRoutes(app: Express): void {
       return;
     }
 
-    const menusDir = path.join(process.cwd(), "marketing-content", "menus");
+    const menusDir = path.join(getContentRoot(res), "menus");
 
     if (!fs.existsSync(menusDir)) {
       fs.mkdirSync(menusDir, { recursive: true });
@@ -1026,7 +1033,7 @@ export function registerSettingsRoutes(app: Express): void {
     res.status(201).json({ name, file: fileName });
   });
 
-  app.get("/api/menus/:name/usage", (req, res) => {
+  app.get("/api/menus/:name/usage", (req, res) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     try {
       const { name } = req.params;
       const configs = getAllConfigs();
@@ -1043,7 +1050,7 @@ export function registerSettingsRoutes(app: Express): void {
         }
       }
 
-      const rawOverrides = contentIndex.getMenuUsageByMenuId(name);
+      const rawOverrides = getCI(res).getMenuUsageByMenuId(name);
       const overrides = rawOverrides.filter(o => {
         const matchesDefault = defaultContentTypes.some(
           d => d.name === o.contentType && (d.position === "both" || d.position === o.position)
@@ -1069,7 +1076,7 @@ export function registerSettingsRoutes(app: Express): void {
         return;
       }
 
-      const menusDir = path.join(process.cwd(), "marketing-content", "menus");
+      const menusDir = path.join(getContentRoot(res), "menus");
 
       // Find main file (yml or yaml)
       const mainYml = path.join(menusDir, `${name}.yml`);
@@ -1118,9 +1125,9 @@ export function registerSettingsRoutes(app: Express): void {
 
         // Also clean any page-level overrides for this content type
         const position: "top" | "bottom" | "both" = top && bottom ? "both" : top ? "top" : "bottom";
-        const slugs = contentIndex.listContentSlugs(typeName);
+        const slugs = getCI(res).listContentSlugs(typeName);
         for (const slug of slugs) {
-          const commonPath = contentIndex.getCommonFilePath(typeName, slug);
+          const commonPath = getCI(res).getCommonFilePath(typeName, slug);
           if (!fs.existsSync(commonPath)) continue;
           try {
             const raw = fs.readFileSync(commonPath, "utf-8");
@@ -1134,9 +1141,9 @@ export function registerSettingsRoutes(app: Express): void {
       }
 
       // 2. Clean page-level overrides not covered by content-type defaults above
-      const rawOverrides = contentIndex.getMenuUsageByMenuId(name);
+      const rawOverrides = getCI(res).getMenuUsageByMenuId(name);
       for (const override of rawOverrides) {
-        const commonPath = contentIndex.getCommonFilePath(override.contentType, override.slug);
+        const commonPath = getCI(res).getCommonFilePath(override.contentType, override.slug);
         if (!fs.existsSync(commonPath)) continue;
         try {
           const raw = fs.readFileSync(commonPath, "utf-8");
@@ -1161,7 +1168,7 @@ export function registerSettingsRoutes(app: Express): void {
         }
       } catch {}
 
-      contentIndex.refresh();
+      getCI(res).refresh();
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -1200,9 +1207,9 @@ export function registerSettingsRoutes(app: Express): void {
 
       updateContentTypeConfig(type, { layout: { menu: newMenu } });
 
-      const slugs = contentIndex.listContentSlugs(type);
+      const slugs = getCI(res).listContentSlugs(type);
       for (const slug of slugs) {
-        const commonPath = contentIndex.getCommonFilePath(type, slug);
+        const commonPath = getCI(res).getCommonFilePath(type, slug);
         if (!fs.existsSync(commonPath)) continue;
         try {
           const raw = fs.readFileSync(commonPath, "utf-8");
@@ -1231,7 +1238,7 @@ export function registerSettingsRoutes(app: Express): void {
         } catch {}
       }
 
-      contentIndex.refresh();
+      getCI(res).refresh();
       invalidateContentCaches(type);
       res.json({ success: true });
     } catch (err) {
@@ -1242,11 +1249,11 @@ export function registerSettingsRoutes(app: Express): void {
   app.get("/api/menus/:name", (req, res) => {
     const { name } = req.params;
     const locale = req.query.locale as string | undefined;
-    const menusDir = path.join(process.cwd(), "marketing-content", "menus");
+    const menusDir = path.join(getContentRoot(res), "menus");
 
     let filePath: string | null = null;
 
-    if (locale && locale !== getDefaultLocale()) {
+    if (locale && locale !== getDefaultLocale(getContentRoot(res))) {
       const localizedBase = `${name}.${locale}`;
       const localizedYml = path.join(menusDir, `${localizedBase}.yml`);
       const localizedYaml = path.join(menusDir, `${localizedBase}.yaml`);
@@ -1595,7 +1602,7 @@ export function registerSettingsRoutes(app: Express): void {
       return;
     }
 
-    const menusDir = path.join(process.cwd(), "marketing-content", "menus");
+    const menusDir = path.join(getContentRoot(res), "menus");
 
     // Structure changes can ONLY be made to English (master) file
     let filePath = path.join(menusDir, `${name}.yml`);
@@ -1696,8 +1703,8 @@ export function registerSettingsRoutes(app: Express): void {
       return;
     }
 
-    const menusDir = path.join(process.cwd(), "marketing-content", "menus");
-    const isDefaultLocale = locale === getDefaultLocale();
+    const menusDir = path.join(getContentRoot(res), "menus");
+    const isDefaultLocale = locale === getDefaultLocale(getContentRoot(res));
 
     // Build filename based on locale
     const fileBaseName = isDefaultLocale ? name : `${name}.${locale}`;

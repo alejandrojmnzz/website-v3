@@ -10,7 +10,7 @@ const log = child({ module: "image-auto-tagger" });
 
 
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
 const LLM_YML_PATH = path.join(MARKETING_CONTENT_DIR, "llm.yml");
 
 const CONTENT_DIRS = getAllDirectories().map(dir => path.join(MARKETING_CONTENT_DIR, dir));

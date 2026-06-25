@@ -208,6 +208,14 @@ import { child } from "../logger";
 import { sqlite } from "../db";
 const log = child({ module: "routes/admin" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
 
 export function registerAdminRoutes(app: Express): void {
   // Clear sitemap cache (requires token validation)
@@ -267,7 +275,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       // Use content index URL parsing for reliable type+slug resolution
-      let resolved = contentIndex.parseContentUrl(urlPath);
+      let resolved = getCI(res).parseContentUrl(urlPath);
 
       // Fall back to home page for root/locale-only paths like /, /en, /es
       if (!resolved) {
@@ -312,7 +320,7 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      const parsed = contentIndex.parseContentUrl(url);
+      const parsed = getCI(res).parseContentUrl(url);
       if (!parsed) {
         res
           .status(400)
@@ -320,11 +328,11 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      const baseSlug = contentIndex.resolveBaseSlug(
+      const baseSlug = getCI(res).resolveBaseSlug(
         parsed.slug,
         parsed.contentType,
       );
-      const urls = contentIndex.getLocaleUrls(baseSlug, parsed.contentType);
+      const urls = getCI(res).getLocaleUrls(baseSlug, parsed.contentType);
       res.json({ urls, contentType: parsed.contentType, slug: baseSlug });
     } catch (err) {
       log.error({ err: err }, "[API] Failed to resolve locale URLs:");
@@ -340,7 +348,7 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      const parsed = contentIndex.parseContentUrl(url);
+      const parsed = getCI(res).parseContentUrl(url);
       if (!parsed) {
         res
           .status(400)
@@ -348,11 +356,11 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      const baseSlug = contentIndex.resolveBaseSlug(
+      const baseSlug = getCI(res).resolveBaseSlug(
         parsed.slug,
         parsed.contentType,
       );
-      const urls = contentIndex.getLocaleUrls(baseSlug, parsed.contentType);
+      const urls = getCI(res).getLocaleUrls(baseSlug, parsed.contentType);
       res.json({ urls, contentType: parsed.contentType, slug: baseSlug });
     } catch (err) {
       log.error({ err: err }, "[Debug] Failed to resolve locale URLs:");
@@ -398,8 +406,7 @@ export function registerAdminRoutes(app: Express): void {
 
       if (isCustomDestination) {
         const customFilePath = path.join(
-          process.cwd(),
-          "marketing-content",
+          getContentRoot(res),
           "custom-redirects.yml",
         );
 
@@ -454,7 +461,7 @@ export function registerAdminRoutes(app: Express): void {
         fs.writeFileSync(customFilePath, yamlContent, "utf-8");
         markFileAsModified(customFilePath, authorName);
 
-        contentIndex.scan();
+        getCI(res).scan();
         clearRedirectCache();
 
         res.json({
@@ -466,7 +473,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       // Parse destination URL to find the content entry
-      const parsed = contentIndex.parseContentUrl(destUrl);
+      const parsed = getCI(res).parseContentUrl(destUrl);
       if (!parsed) {
         res.status(400).json({
           error: "Could not determine content type from destination URL",
@@ -475,11 +482,11 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const { contentType, locale } = parsed;
-      const resolvedSlug = contentIndex.resolveBaseSlug(
+      const resolvedSlug = getCI(res).resolveBaseSlug(
         parsed.slug,
         contentType,
       );
-      const entries = contentIndex.findBySlug(resolvedSlug, { contentType });
+      const entries = getCI(res).findBySlug(resolvedSlug, { contentType });
       if (entries.length === 0) {
         res.status(404).json({
           error: `No content found for slug "${parsed.slug}" in ${contentType}`,
@@ -541,7 +548,7 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(filePath, yamlContent, "utf-8");
       markFileAsModified(filePath, authorName);
 
-      contentIndex.scan();
+      getCI(res).scan();
       clearRedirectCache();
 
       res.json({
@@ -579,7 +586,7 @@ export function registerAdminRoutes(app: Express): void {
       const sourceFile = source as string;
 
       const resolvedSource = path.resolve(process.cwd(), sourceFile);
-      const marketingDir = path.resolve(process.cwd(), "marketing-content");
+      const marketingDir = path.resolve(getContentRoot(res));
       if (
         !resolvedSource.startsWith(marketingDir + path.sep) &&
         resolvedSource !== marketingDir
@@ -592,10 +599,9 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      if (sourceFile === "marketing-content/custom-redirects.yml") {
+      if (sourceFile === `${path.basename(getContentRoot(res))}/custom-redirects.yml`) {
         const customFilePath = path.join(
-          process.cwd(),
-          "marketing-content",
+          getContentRoot(res),
           "custom-redirects.yml",
         );
 
@@ -639,7 +645,7 @@ export function registerAdminRoutes(app: Express): void {
         fs.writeFileSync(customFilePath, yamlContent, "utf-8");
         markFileAsModified(customFilePath, authorName);
 
-        contentIndex.scan();
+        getCI(res).scan();
         clearRedirectCache();
 
         res.json({
@@ -704,7 +710,7 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(filePath, yamlContent, "utf-8");
       markFileAsModified(filePath, authorName);
 
-      contentIndex.scan();
+      getCI(res).scan();
       clearRedirectCache();
 
       res.json({
@@ -739,8 +745,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const customFilePath = path.join(
-        process.cwd(),
-        "marketing-content",
+        getContentRoot(res),
         "custom-redirects.yml",
       );
 
@@ -770,7 +775,7 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
       markFileAsModified(customFilePath, authorName);
 
-      contentIndex.scan();
+      getCI(res).scan();
       clearRedirectCache();
 
       res.json({
@@ -793,7 +798,7 @@ export function registerAdminRoutes(app: Express): void {
     const result = testRedirect(url, locale);
 
     if (result.match && result.resolvedTo) {
-      const resolved = contentIndex.resolveUrl(result.resolvedTo);
+      const resolved = getCI(res).resolveUrl(result.resolvedTo);
       if (!resolved) {
         result.destinationExists = false;
       } else if (resolved.fromDatabase) {
@@ -834,8 +839,7 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const customFilePath = path.join(
-        process.cwd(),
-        "marketing-content",
+        getContentRoot(res),
         "custom-redirects.yml",
       );
 
@@ -869,7 +873,7 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
       markFileAsModified(customFilePath, authorName);
 
-      contentIndex.scan();
+      getCI(res).scan();
       clearRedirectCache();
 
       res.json({
@@ -892,7 +896,7 @@ export function registerAdminRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "seo_edit");
     if (!auth.authorized) return;
     try {
-      const schemaPath = path.join(process.cwd(), "marketing-content", "schema-org.yml");
+      const schemaPath = path.join(getContentRoot(res), "schema-org.yml");
       let sameAs: string[] = [];
       if (fs.existsSync(schemaPath)) {
         try {
@@ -1611,10 +1615,10 @@ export function registerAdminRoutes(app: Express): void {
     let schemaHtml = "";
 
     const cleanUrl = url.split("?")[0].split("#")[0];
-    const resolved = contentIndex.resolveUrl(cleanUrl);
+    const resolved = getCI(res).resolveUrl(cleanUrl);
     const isDatabaseRoute = resolved && resolved.fromDatabase;
     const listingResolved = !isDatabaseRoute
-      ? contentIndex.resolveListingUrl(cleanUrl)
+      ? getCI(res).resolveListingUrl(cleanUrl)
       : null;
     const isListingRoute = !!listingResolved;
 
@@ -1644,6 +1648,8 @@ export function registerAdminRoutes(app: Express): void {
             resolved.contentType,
             post,
             locale,
+            getCI(res),
+            getContentRoot(res),
           );
           if (typeof (post as any).robots === "string") {
             robotsDirective = (post as any).robots;
@@ -1656,6 +1662,7 @@ export function registerAdminRoutes(app: Express): void {
       schemaHtml = generateListingSsrHtml(
         listingResolved.contentType,
         listingResolved.locale,
+        getContentRoot(res),
       );
     } else if (blogUrlMatch) {
       try {
@@ -1667,7 +1674,7 @@ export function registerAdminRoutes(app: Express): void {
           posts.find((p) => p.slug === slug && (p as any)[localeKey] === locale) ||
           posts.find((p) => p.slug === slug);
         if (post) {
-          schemaHtml = generateDatabaseSsrHtml("blog", post, locale);
+          schemaHtml = generateDatabaseSsrHtml("blog", post, locale, getCI(res), getContentRoot(res));
           if (typeof (post as any).robots === "string") {
             robotsDirective = (post as any).robots;
           }
@@ -1676,8 +1683,8 @@ export function registerAdminRoutes(app: Express): void {
         log.error("[SSR-Blog] Error generating schema for", url, err);
       }
     } else {
-      schemaHtml = generateSsrSchemaHtml(url);
-      robotsDirective = resolvePageRobots(url);
+      schemaHtml = generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
+      robotsDirective = resolvePageRobots(url, getCI(res), getContentRoot(res));
     }
 
     res.setHeader("X-Robots-Tag", robotsDirective);
@@ -1732,7 +1739,7 @@ export function registerAdminRoutes(app: Express): void {
     if (!Array.isArray(capabilities)) {
       return { ok: false, error: "capabilities must be an array" };
     }
-    const knownContentTypes = contentIndex.getContentTypes();
+    const knownContentTypes = getCI(res).getContentTypes();
     const valid: import("../user-store").CapabilityGrant[] = [];
     for (const cap of capabilities) {
       if (!cap || typeof cap.name !== "string") {

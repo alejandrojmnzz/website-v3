@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { StorageProvider } from "./types";
 
-const LOCAL_PREFIXES = ["/marketing-content/images/", "/attached_assets/"];
+const LOCAL_PREFIXES = [`/${process.env.CONTENT_FOLDER || "marketing-content"}/images/`, "/attached_assets/"];
 
 export class LocalProvider implements StorageProvider {
   readonly name = "local";

@@ -153,6 +153,11 @@ export function DebugBubble() {
     staleTime: 60000,
   });
 
+  const { data: siteInfo } = useQuery<{ domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean }>({
+    queryKey: ["/api/site/info"],
+    staleTime: 30000,
+  });
+
   const filteredComponents = (() => {
     const components = componentRegistryData?.components?.filter(c => c.type !== "_common") || [];
     if (!componentSearch) return components;
@@ -1755,6 +1760,7 @@ export function DebugBubble() {
     filteredComponents,
     componentRegistryData,
     componentIconMap,
+    siteInfo,
     versioningLoading,
     versioningData,
     onVersioningDataUpdate: setVersioningData,

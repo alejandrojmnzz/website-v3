@@ -200,17 +200,19 @@ export async function commitToGitHub(options: GitHubCommitOptions): Promise<{ su
 /**
  * Check if GitHub integration is configured
  */
-export function isGitHubConfigured(): boolean {
-  const repoUrl = process.env.GITHUB_REPO_URL || '';
-  const parsed = parseGitHubUrl(repoUrl);
+export function isGitHubConfigured(repoUrl?: string): boolean {
+  const url = repoUrl || process.env.GITHUB_REPO_URL || '';
+  const parsed = parseGitHubUrl(url);
   return !!(process.env.GITHUB_TOKEN && parsed?.owner && parsed?.repo);
 }
 
 /**
- * Fetch all marketing-content files from a commit tree
- * Used when there's no lastSyncedCommit to compare against
+ * Fetch all content-folder files from a commit tree.
+ * Used when there's no lastSyncedCommit to compare against.
+ * @param contentFolder - relative content folder name (e.g. "marketing-content"); defaults to CONTENT_FOLDER env var
  */
-async function fetchFilesFromTree(config: GitHubConfig, commitSha: string): Promise<string[]> {
+async function fetchFilesFromTree(config: GitHubConfig, commitSha: string, contentFolder?: string): Promise<string[]> {
+  const folder = contentFolder || process.env.CONTENT_FOLDER || 'content';
   try {
     // Get the tree for the commit recursively
     const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees/${commitSha}?recursive=1`;
@@ -230,9 +232,9 @@ async function fetchFilesFromTree(config: GitHubConfig, commitSha: string): Prom
     
     const data = await response.json();
     
-    // Filter to only marketing-content files
+    // Filter to files in this site's content folder only
     const files: string[] = (data.tree || [])
-      .filter((item: any) => item.type === 'blob' && item.path.startsWith('marketing-content/'))
+      .filter((item: any) => item.type === 'blob' && item.path.startsWith(`${folder}/`))
       .map((item: any) => item.path);
     
     return files;
@@ -245,12 +247,12 @@ async function fetchFilesFromTree(config: GitHubConfig, commitSha: string): Prom
 /**
  * Get GitHub config from environment variables
  */
-export function getGitHubConfig(): GitHubConfig | null {
+export function getGitHubConfig(repoUrl?: string): GitHubConfig | null {
   const token = process.env.GITHUB_TOKEN || '';
-  const repoUrl = process.env.GITHUB_REPO_URL || '';
+  const url = repoUrl || process.env.GITHUB_REPO_URL || '';
   const branch = process.env.GITHUB_BRANCH || 'main';
   
-  const parsed = parseGitHubUrl(repoUrl);
+  const parsed = parseGitHubUrl(url);
   if (!token || !parsed) return null;
   
   return {
@@ -888,7 +890,7 @@ export async function checkPullConflicts(): Promise<PullConflictCheck> {
   
   // Use changedFiles directly from conflictInfo (filtered by shouldTrackFile)
   const { shouldTrackFile } = await import("./sync-state");
-  const remoteChangedFiles = conflictInfo.changedFiles.filter(shouldTrackFile);
+  const remoteChangedFiles = conflictInfo.changedFiles.filter(f => shouldTrackFile(f));
   
   // Find overlapping files
   const localFileSet = new Set(localPendingFiles);
@@ -912,13 +914,13 @@ export async function checkPullConflicts(): Promise<PullConflictCheck> {
  * 2. AND it appears in remote changes (remote has commits affecting this file)
  * 3. AND the local change has a remoteSha stored (meaning we've synced before)
  */
-export async function getAllSyncChanges(): Promise<PendingChange[]> {
+export async function getAllSyncChanges(contentFolder?: string): Promise<PendingChange[]> {
   const localChanges = await getPendingChanges();
   const conflictInfo = await getConflictInfo();
   
   // Use changedFiles directly from conflictInfo (filtered by shouldTrackFile)
   const { shouldTrackFile } = await import("./sync-state");
-  const remoteChangedFiles = conflictInfo.changedFiles.filter(shouldTrackFile);
+  const remoteChangedFiles = conflictInfo.changedFiles.filter(f => shouldTrackFile(f, undefined, contentFolder));
   const remoteFileSet = new Set(remoteChangedFiles);
   
   // Build maps for file metadata from commits
@@ -984,7 +986,9 @@ export async function getAllSyncChanges(): Promise<PendingChange[]> {
       
       // Parse content type and slug from file path
       const allDirs = [...getAllDirectories(), "component-registry"];
-      const pathMatch = filePath.match(new RegExp(`marketing-content\\/(${allDirs.join("|")})\\/([^\\/]+)`));
+      const _cf = contentFolder || process.env.CONTENT_FOLDER || 'content';
+      const _cfEsc = _cf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pathMatch = filePath.match(new RegExp(`${_cfEsc}\\/(${allDirs.join("|")})\\/([^\\/]+)`));
       changes.push({
         file: filePath,
         status: 'modified',
@@ -1039,8 +1043,8 @@ export async function syncWithRemote(): Promise<{ success: boolean; error?: stri
  * silently updates the sync state instead of showing false "incoming" changes.
  * Uses only 2 API calls: HEAD SHA + compare (no per-file fetches).
  */
-export async function reconcileSyncStateOnStartup(): Promise<void> {
-  const config = getGitHubConfig();
+export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
+  const config = getGitHubConfig(opts?.repoUrl);
   if (!config) return;
 
   const { logSync, refreshGithubCommit } = await import("./sync-log");
@@ -1048,7 +1052,7 @@ export async function reconcileSyncStateOnStartup(): Promise<void> {
 
   try {
     const { getLastSyncedCommit } = await import("./sync-state");
-    const lastSyncedCommit = getLastSyncedCommit();
+    const lastSyncedCommit = getLastSyncedCommit(opts?.contentRoot);
     const remoteCommit = await getBranchHeadSha(config);
 
     if (!remoteCommit || !lastSyncedCommit) {
@@ -1058,11 +1062,11 @@ export async function reconcileSyncStateOnStartup(): Promise<void> {
     const { shouldTrackFile, computeGitBlobSha, computeFileSha, updateFileAfterPull, loadSyncState } = await import("./sync-state");
 
     if (lastSyncedCommit === remoteCommit) {
-      const state = loadSyncState();
+      const state = loadSyncState(opts?.contentRoot);
       const staleFiles: string[] = [];
 
       for (const [filePath, fileInfo] of Object.entries(state.files)) {
-        if (!shouldTrackFile(filePath) || !fileInfo.remoteSha) continue;
+        if (!shouldTrackFile(filePath, undefined, opts?.contentRoot) || !fileInfo.remoteSha) continue;
 
         const fullPath = path.join(process.cwd(), filePath);
         if (!fs.existsSync(fullPath)) {
@@ -1100,10 +1104,11 @@ export async function reconcileSyncStateOnStartup(): Promise<void> {
       }
 
       const { rebuildSyncStateFromLocal } = await import("./sync-state");
-      rebuildSyncStateFromLocal(remoteCommit);
+      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
 
       if (pulledCount > 0) {
-        logSync('RECONCILE', `Pulled ${pulledCount} stale file(s) from GitHub: ${staleFiles.slice(0, 5).map(f => f.replace('marketing-content/', '')).join(', ')}${staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : ''}`);
+        const _cfRec = opts?.contentRoot ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot) : (process.env.CONTENT_FOLDER || 'content');
+        logSync('RECONCILE', `Pulled ${pulledCount} stale file(s) from GitHub: ${staleFiles.slice(0, 5).map(f => f.replace(`${_cfRec}/`, '')).join(', ')}${staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : ''}`);
       }
       if (pullErrors.length > 0) {
         logSync('ERROR', `Failed to pull ${pullErrors.length} stale file(s): ${pullErrors.join('; ')}`);
@@ -1115,10 +1120,10 @@ export async function reconcileSyncStateOnStartup(): Promise<void> {
 
     const conflictInfo = await getConflictInfo();
 
-    const trackedFiles = conflictInfo.changedFiles.filter(shouldTrackFile);
+    const trackedFiles = conflictInfo.changedFiles.filter(f => shouldTrackFile(f, undefined, opts?.contentRoot));
     if (trackedFiles.length === 0) {
       const { rebuildSyncStateFromLocal } = await import("./sync-state");
-      rebuildSyncStateFromLocal(remoteCommit);
+      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
       logSync('RECONCILE', `No tracked files changed, updated to ${remoteCommit.slice(0, 7)}`);
       return;
     }
@@ -1153,7 +1158,7 @@ export async function reconcileSyncStateOnStartup(): Promise<void> {
 
     if (allReconciled) {
       const { rebuildSyncStateFromLocal } = await import("./sync-state");
-      rebuildSyncStateFromLocal(remoteCommit);
+      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
       logSync('RECONCILE', `All ${reconciledCount} files match remote, updated to ${remoteCommit.slice(0, 7)}`);
     } else {
       logSync('RECONCILE', `${reconciledCount}/${trackedFiles.length} files match remote, ${trackedFiles.length - reconciledCount} still differ`);
@@ -1171,13 +1176,17 @@ export async function reconcileSyncStateOnStartup(): Promise<void> {
  * @param changedFiles - optional list of file paths from webhook payload; if omitted, uses getAllSyncChanges
  * @param remoteCommitSha - optional commit SHA from webhook payload
  */
-export async function autoPullNonConflicting(changedFiles?: string[], remoteCommitSha?: string): Promise<{
+export async function autoPullNonConflicting(changedFiles?: string[], remoteCommitSha?: string, opts?: { repoUrl?: string; contentRoot?: string }): Promise<{
   pulled: string[];
   conflicted: string[];
   errors: string[];
 }> {
-  const config = getGitHubConfig();
+  const config = getGitHubConfig(opts?.repoUrl);
   if (!config) return { pulled: [], conflicted: [], errors: ['GitHub not configured'] };
+
+  const contentFolder = opts?.contentRoot
+    ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
+    : (process.env.CONTENT_FOLDER || 'content');
 
   const pulled: string[] = [];
   const conflicted: string[] = [];
@@ -1187,7 +1196,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
     const { shouldTrackFile } = await import("./sync-state");
 
     if (changedFiles) {
-      const tracked = changedFiles.filter(shouldTrackFile);
+      const tracked = changedFiles.filter(f => shouldTrackFile(f, undefined, opts?.contentRoot));
       if (tracked.length === 0) return { pulled, conflicted, errors };
 
       const localChanges = await getPendingChanges();
@@ -1210,7 +1219,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
         }
       }
     } else {
-      const allChanges = await getAllSyncChanges();
+      const allChanges = await getAllSyncChanges(contentFolder);
       const incomingOnly = allChanges.filter(c => c.source === 'incoming');
       if (incomingOnly.length === 0) return { pulled, conflicted, errors };
 
@@ -1235,7 +1244,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
       const { rebuildSyncStateFromLocal } = await import("./sync-state");
       const commitSha = remoteCommitSha || await getBranchHeadSha(config);
       if (commitSha) {
-        rebuildSyncStateFromLocal(commitSha);
+        rebuildSyncStateFromLocal(commitSha, opts?.contentRoot);
       }
     }
   } catch (error) {
@@ -1275,8 +1284,8 @@ function getWebhookBaseUrl(): string | null {
  * Checks sync state for existing webhook, verifies it's active, creates one if needed.
  * Auto-generates a random secret and stores webhookId + secret in sync state.
  */
-export async function ensureWebhook(): Promise<void> {
-  const config = getGitHubConfig();
+export async function ensureWebhook(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
+  const config = getGitHubConfig(opts?.repoUrl);
   if (!config) return;
 
   const { logSync } = await import("./sync-log");
@@ -1291,7 +1300,8 @@ export async function ensureWebhook(): Promise<void> {
 
   try {
     const { getWebhookInfo, setWebhookInfo, clearWebhookInfo } = await import("./sync-state");
-    const existing = getWebhookInfo();
+    const cr = opts?.contentRoot;
+    const existing = getWebhookInfo(cr);
 
     if (existing) {
       if (existing.webhookUrl === webhookUrl) {
@@ -1305,7 +1315,7 @@ export async function ensureWebhook(): Promise<void> {
         logSync('WEBHOOK', `URL changed from ${existing.webhookUrl} to ${webhookUrl}, recreating...`);
         await deleteWebhook(config, existing.webhookId);
       }
-      clearWebhookInfo();
+      clearWebhookInfo(cr);
     }
 
     const secret = crypto.randomBytes(32).toString('hex');
@@ -1321,7 +1331,7 @@ export async function ensureWebhook(): Promise<void> {
           webhookSecret: secret,
           webhookUrl,
           createdAt: new Date().toISOString(),
-        });
+        }, cr);
         logSync('WEBHOOK', `Adopted existing webhook #${webhookId} at ${webhookUrl}`);
       } else {
         logSync('ERROR', `Failed to adopt existing webhook #${existingHook.id}, falling back to create`);
@@ -1332,7 +1342,7 @@ export async function ensureWebhook(): Promise<void> {
             webhookSecret: secret,
             webhookUrl,
             createdAt: new Date().toISOString(),
-          });
+          }, cr);
           logSync('WEBHOOK', `Created webhook #${webhookId} at ${webhookUrl}`);
         } else {
           logSync('ERROR', `Failed to create webhook at ${webhookUrl} (check token permissions: needs admin:repo_hook scope)`);
@@ -1346,7 +1356,7 @@ export async function ensureWebhook(): Promise<void> {
           webhookSecret: secret,
           webhookUrl,
           createdAt: new Date().toISOString(),
-        });
+        }, cr);
         logSync('WEBHOOK', `Created webhook #${webhookId} at ${webhookUrl}`);
       } else {
         logSync('ERROR', `Failed to create webhook at ${webhookUrl} (check token permissions: needs admin:repo_hook scope)`);
@@ -1747,7 +1757,8 @@ export async function commitSingleFile(options: {
     updateFileAfterCommit(options.filePath, commitSha || '');
 
     const { logSync, refreshGithubCommit } = await import("./sync-log");
-    logSync('COMMIT', `${options.filePath.replace('marketing-content/', '')} → ${commitSha?.slice(0, 7) || '?'}${options.author ? ` by ${options.author}` : ''}`);
+    const displayPath = options.filePath.split('/').slice(1).join('/') || options.filePath;
+    logSync('COMMIT', `${displayPath} → ${commitSha?.slice(0, 7) || '?'}${options.author ? ` by ${options.author}` : ''}`);
     refreshGithubCommit();
     
     return { success: true, commitSha };
@@ -1863,15 +1874,22 @@ export function getBootstrapState(): Readonly<BootstrapState> {
  */
 export const BOOTSTRAP_COMPLETE_FLAG = path.join(
   process.cwd(),
-  'marketing-content',
+  process.env.CONTENT_FOLDER || 'content',
   '.bootstrap-complete',
 );
 
+function bootstrapFlagPath(contentRoot?: string): string {
+  if (!contentRoot) return BOOTSTRAP_COMPLETE_FLAG;
+  const abs = path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
+  return path.join(abs, '.bootstrap-complete');
+}
+
 /**
  * Returns true if a previous bootstrap run completed without errors.
+ * Accepts an optional contentRoot to support per-site bootstrap tracking.
  */
-export function isBootstrapComplete(): boolean {
-  return fs.existsSync(BOOTSTRAP_COMPLETE_FLAG);
+export function isBootstrapComplete(contentRoot?: string): boolean {
+  return fs.existsSync(bootstrapFlagPath(contentRoot));
 }
 
 /**
@@ -1904,13 +1922,13 @@ async function pullWithRetry(
   return { success: false, error: lastError };
 }
 
-export async function bootstrapContentFromRemote(): Promise<{
+export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; contentRoot?: string }): Promise<{
   success: boolean;
   pulled: number;
   errors: string[];
   commitSha: string | null;
 }> {
-  const config = getGitHubConfig();
+  const config = getGitHubConfig(opts?.repoUrl);
   if (!config) {
     return { success: false, pulled: 0, errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'], commitSha: null };
   }
@@ -1939,11 +1957,14 @@ export async function bootstrapContentFromRemote(): Promise<{
 
   _bootstrapState.commitSha = headSha;
 
-  const files = await fetchFilesFromTree(config, headSha);
+  const contentFolder = opts?.contentRoot
+    ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
+    : (process.env.CONTENT_FOLDER || 'content');
+  const files = await fetchFilesFromTree(config, headSha, contentFolder);
   if (files.length === 0) {
-    logSync('AUTO-PULL', 'Bootstrap: no marketing-content files found on remote');
+    logSync('AUTO-PULL', `Bootstrap: no ${contentFolder} files found on remote`);
     // Mark as complete even when there's nothing to pull — directory is in sync.
-    writeBootstrapCompleteFlag();
+    writeBootstrapCompleteFlag(opts?.contentRoot);
     _bootstrapState.running = false;
     _bootstrapState.doneAt = Date.now();
     _bootstrapState.success = true;
@@ -1973,8 +1994,8 @@ export async function bootstrapContentFromRemote(): Promise<{
   // (or the next reconcile/auto-pull run) can detect and recover the missing files.
   if (errors.length === 0) {
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
-    rebuildSyncStateFromLocal(headSha);
-    writeBootstrapCompleteFlag();
+    rebuildSyncStateFromLocal(headSha, opts?.contentRoot);
+    writeBootstrapCompleteFlag(opts?.contentRoot);
     logSync('AUTO-PULL', `Bootstrap: pulled ${pulled} files successfully — sync state updated to ${headSha.slice(0, 7)}`);
   } else {
     // Log each failed file clearly so operators know exactly what is missing.
@@ -2005,13 +2026,14 @@ export async function bootstrapContentFromRemote(): Promise<{
  * Also exported so the startup routine can stamp existing deployments that
  * predate the flag (migration path).
  */
-export function writeBootstrapCompleteFlag(): void {
+export function writeBootstrapCompleteFlag(contentRoot?: string): void {
   try {
-    const dir = path.dirname(BOOTSTRAP_COMPLETE_FLAG);
+    const flagPath = bootstrapFlagPath(contentRoot);
+    const dir = path.dirname(flagPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(BOOTSTRAP_COMPLETE_FLAG, new Date().toISOString(), 'utf-8');
+    fs.writeFileSync(flagPath, new Date().toISOString(), 'utf-8');
   } catch (e) {
     log.warn({ err: e }, 'Bootstrap: could not write bootstrap-complete flag');
   }
@@ -2026,7 +2048,7 @@ export function writeBootstrapCompleteFlag(): void {
  *
  * Returns a summary of committed files and any errors encountered.
  */
-export async function pushAllContentToRemote(): Promise<{
+export async function pushAllContentToRemote(opts?: { contentRoot?: string; repoUrl?: string }): Promise<{
   committed: string[];
   errors: string[];
 }> {
@@ -2035,16 +2057,19 @@ export async function pushAllContentToRemote(): Promise<{
     return { committed: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'] };
   }
 
-  const config = getGitHubConfig();
+  const config = getGitHubConfig(opts?.repoUrl);
   if (!config) {
     return { committed: [], errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'] };
   }
 
   const { logSync } = await import('./sync-log');
 
-  const contentDir = path.join(process.cwd(), 'marketing-content');
+  const contentDir = opts?.contentRoot
+    ? (path.isAbsolute(opts.contentRoot) ? opts.contentRoot : path.join(process.cwd(), opts.contentRoot))
+    : path.join(process.cwd(), process.env.CONTENT_FOLDER || 'content');
+  const contentFolderName = path.relative(process.cwd(), contentDir);
   if (!fs.existsSync(contentDir)) {
-    return { committed: [], errors: ['marketing-content/ directory does not exist'] };
+    return { committed: [], errors: [`${contentFolderName}/ directory does not exist`] };
   }
 
   // Explicit denylist: internal runtime state files that must never be pushed
@@ -2080,7 +2105,7 @@ export async function pushAllContentToRemote(): Promise<{
     return results;
   }
 
-  const allFiles = walkDir(contentDir, 'marketing-content');
+  const allFiles = walkDir(contentDir, contentFolderName);
   logSync('AUTO-PULL', `Push-all: committing ${allFiles.length} local files to remote...`);
 
   const committed: string[] = [];

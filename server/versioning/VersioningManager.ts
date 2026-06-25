@@ -12,7 +12,8 @@ const log = child({ module: "versioning/VersioningManager" });
 
 
 
-const CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const DEFAULT_CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "marketing-content";
+const CONTENT_DIR = path.join(process.cwd(), DEFAULT_CONTENT_FOLDER_NAME);
 const STATE_FILE = path.join(CONTENT_DIR, ".versioning-state.json");
 const GCS_STATE_KEY = "sync/versioning-state.json";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -61,8 +62,8 @@ export class VersioningManager {
     locale: string;
   } | null {
     const parts = relativePath.replace(/\\/g, "/").split("/");
-    // Expected structure: marketing-content / {folder} / {slug} / {file}.yml
-    if (parts.length !== 4 || parts[0] !== "marketing-content") return null;
+    // Expected structure: {content-folder} / {folder} / {slug} / {file}.yml
+    if (parts.length !== 4 || parts[0] !== DEFAULT_CONTENT_FOLDER_NAME) return null;
     if (!parts[3].endsWith(".yml")) return null;
 
     const base = parts[3].slice(0, -4); // strip .yml

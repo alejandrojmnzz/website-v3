@@ -10,6 +10,7 @@ import { setAutoCommitCallback } from "./sync-state";
 import { queueFileChange } from "./auto-commit";
 import { databaseManager } from "./database";
 import { contentIndex } from "./content-index";
+import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from "./site-manager";
 import { scanEcommerceContent, startEcommerceWatcher } from "./ecommerce/ecommerce-index";
 import { loadUsersStateFromBucket } from "./user-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
@@ -50,7 +51,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     p.endsWith('/') &&
     !p.startsWith('/api/') &&
     !p.startsWith('/attached_assets/') &&
-    !p.startsWith('/marketing-content/') &&
+    !Array.from(getSiteContextMap().values()).some(ctx => p.startsWith(`/${ctx.contentRootName}/`)) &&
     !p.startsWith('/@') &&
     !p.startsWith('/mcp') &&
     !p.startsWith('/oauth') &&
@@ -89,7 +90,29 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.use('/attached_assets', express.static(path.join(process.cwd(), 'attached_assets')));
-app.use('/marketing-content/images', express.static(path.join(process.cwd(), 'marketing-content', 'images')));
+
+// Dynamic per-site image serving — serves each site's images at /<contentRootName>/images/
+// Handlers are cached after first build to avoid recreating on every request.
+const _imageHandlers = new Map<string, ReturnType<typeof express.static>>();
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const sites = getSiteContextMap();
+  for (const ctx of sites.values()) {
+    const prefix = `/${ctx.contentRootName}/images`;
+    if (req.path === prefix || req.path.startsWith(`${prefix}/`)) {
+      if (!_imageHandlers.has(ctx.contentRoot)) {
+        _imageHandlers.set(ctx.contentRoot, express.static(path.join(ctx.contentRoot, 'images')));
+      }
+      const handler = _imageHandlers.get(ctx.contentRoot)!;
+      const savedUrl = req.url;
+      req.url = req.url.slice(prefix.length) || '/';
+      return handler(req, res, () => {
+        req.url = savedUrl;
+        next();
+      });
+    }
+  }
+  next();
+});
 
 // Proxy /__mockup/ to the mockup sandbox dev server (port 23636)
 // Only active in development — not included in production builds.
@@ -255,6 +278,10 @@ app.use((req, res, next) => {
   // sGTM proxy — registered early so it fires before static file handlers
   registerSgtmProxy(app);
 
+  // Build site context map before routes so siteResolutionMiddleware has data
+  await buildSiteContextMap();
+  app.use(siteResolutionMiddleware);
+
   const server = await registerRoutes(app);
 
   // Fallback redirects: only fire for URLs that would otherwise 404
@@ -294,7 +321,9 @@ app.use((req, res, next) => {
   // Run the fast content-index scan synchronously before the server begins
   // listening so the first request is never blocked by the initial scan.
   // The slow phase (image/variable/redirect/SEO indexing) runs in the background.
-  contentIndex.scanFast();
+  for (const ctx of getSiteContextMap().values()) {
+    ctx.contentIndex.scanFast();
+  }
 
   // Scan ecommerce YAML files and start the file watcher so plan/product data is
   // always available at request time with zero filesystem I/O.
@@ -327,9 +356,15 @@ app.use((req, res, next) => {
     // ─────────────────────────────────────────────────────────────────────────
 
     // All deferred background tasks fire here — server is already ready to handle requests.
-    contentIndex.startSlowScanAsync();
+    for (const ctx of getSiteContextMap().values()) {
+      ctx.contentIndex.startSlowScanAsync();
+    }
     databaseManager.warmup()
-      .then(() => { contentIndex.scanFast(); })
+      .then(() => {
+        for (const ctx of getSiteContextMap().values()) {
+          ctx.contentIndex.scanFast();
+        }
+      })
       .catch((err) => {
         logger.error({ err, worker: "DatabaseManager" }, "warmup error");
       });
@@ -343,7 +378,15 @@ app.use((req, res, next) => {
       logger.error({ err, worker: "FormState" }, "failed to load form state");
     });
     addFileModifiedListener((filePath) => {
-      if (filePath.startsWith("marketing-content/") && (filePath.endsWith(".yml") || filePath.endsWith(".yaml"))) {
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
+        for (const ctx of getSiteContextMap().values()) {
+          if (filePath.startsWith(ctx.contentRootName + "/")) {
+            ctx.contentIndex.scanFast();
+            break;
+          }
+        }
+      }
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         updateFormStateForFile(filePath);
       }
     });

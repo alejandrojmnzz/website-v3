@@ -132,6 +132,7 @@ BREATHECODE_TOKEN = "c6fe193405438832e2790dfb1d6253200fe16775"
 
 [userenv.development]
 SITE_URL = "https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev"
+CONTENT_FOLDER = "marketing-content"
 
 [userenv.production]
 SITE_URL = "https://4geeksacademy.com"

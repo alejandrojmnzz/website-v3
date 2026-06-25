@@ -208,6 +208,17 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/databases" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+function getContentRootName(res: Response): string {
+  const cr = getContentRoot(res);
+  return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
 
 export function registerDatabasesRoutes(app: Express): void {
   app.get("/api/database-single/:contentType/:slug", async (req, res) => {
@@ -232,7 +243,7 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
 
-      const dbSingleRaw = contentIndex.loadMergedContent(contentType, slug, locale);
+      const dbSingleRaw = getCI(res).loadMergedContent(contentType, slug, locale);
       const dbSingleLayout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>));
       const dbSingleData = page as unknown as Record<string, unknown>;
       injectCanonicalIfMissing(dbSingleData, contentType, locale);
@@ -662,7 +673,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const filename = localConfig.filename;
       const resultsPath = localConfig.results_path;
 
-      const filePath = path.join(process.cwd(), "marketing-content", "db", dbName, filename);
+      const filePath = path.join(getContentRoot(res), "db", dbName, filename);
       if (!fs.existsSync(path.dirname(filePath))) {
         res.status(404).json({ error: `Database directory not found` });
         return;
@@ -674,8 +685,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       databaseManager.clearCache(dbName);
 
-      const relPath = `marketing-content/db/${dbName}/${filename}`;
-      markFileAsModified(relPath, "api");
+      const relPath = `db/${dbName}/${filename}`;
+      markFileAsModified(relPath, "api", undefined, getContentRoot(res));
 
       res.json({ success: true, count: items.length });
     } catch (err: unknown) {
@@ -689,7 +700,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   // ── Helper: read raw items array from local file ─────────────
-  function readLocalItems(dbName: string): {
+  function readLocalItems(dbName: string, contentRoot: string): {
     items: Record<string, unknown>[];
     filePath: string;
     resultsPath: string | undefined;
@@ -699,7 +710,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       throw new Error("Only local databases support item editing");
     }
     const localConfig = config.source.local!;
-    const filePath = path.join(process.cwd(), "marketing-content", "db", dbName, localConfig.filename);
+    const filePath = path.join(contentRoot, "db", dbName, localConfig.filename);
     const resultsPath = localConfig.results_path;
     let rawData: unknown = resultsPath ? { [resultsPath]: [] } : [];
     if (fs.existsSync(filePath)) {
@@ -719,6 +730,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     resultsPath: string | undefined,
     items: Record<string, unknown>[],
     filename: string,
+    contentRoot: string,
   ) {
     const data: unknown = resultsPath ? { [resultsPath]: items } : items;
     const yamlStr = safeYamlDump(data, { lineWidth: 120 });
@@ -727,8 +739,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     }
     fs.writeFileSync(filePath, yamlStr);
     databaseManager.clearCache(dbName);
-    const relPath = `marketing-content/db/${dbName}/${filename}`;
-    markFileAsModified(relPath, "api");
+    const relPath = `db/${dbName}/${filename}`;
+    markFileAsModified(relPath, "api", undefined, contentRoot);
   }
 
   app.post("/api/databases/:name/items", async (req, res) => {
@@ -751,8 +763,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       const config = databaseManager.get(dbName);
       const localConfig = config.source.local!;
-      const { items: existing, filePath, resultsPath } = readLocalItems(dbName);
-      writeLocalItems(dbName, filePath, resultsPath, [...existing, ...newItems], localConfig.filename);
+      const { items: existing, filePath, resultsPath } = readLocalItems(dbName, getContentRoot(res));
+      writeLocalItems(dbName, filePath, resultsPath, [...existing, ...newItems], localConfig.filename, getContentRoot(res));
       res.json({ success: true, count: existing.length + newItems.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -776,13 +788,13 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       const config = databaseManager.get(dbName);
       const localConfig = config.source.local!;
-      const { items, filePath, resultsPath } = readLocalItems(dbName);
+      const { items, filePath, resultsPath } = readLocalItems(dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
       items[idx] = { ...items[idx], ...newData };
-      writeLocalItems(dbName, filePath, resultsPath, items, localConfig.filename);
+      writeLocalItems(dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
       res.json({ success: true, item: items[idx] });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -801,13 +813,13 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       const config = databaseManager.get(dbName);
       const localConfig = config.source.local!;
-      const { items, filePath, resultsPath } = readLocalItems(dbName);
+      const { items, filePath, resultsPath } = readLocalItems(dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
       items.splice(idx, 1);
-      writeLocalItems(dbName, filePath, resultsPath, items, localConfig.filename);
+      writeLocalItems(dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
       res.json({ success: true, count: items.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -955,8 +967,8 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
       res.status(400).json({ error: "slug and filename are required" });
       return;
     }
-    const filePath = path.join(process.cwd(), "marketing-content", "db", slug, filename);
-    res.json({ exists: fs.existsSync(filePath), path: `marketing-content/db/${slug}/${filename}` });
+    const filePath = path.join(getContentRoot(res), "db", slug, filename);
+    res.json({ exists: fs.existsSync(filePath), path: `${getContentRootName(res)}/db/${slug}/${filename}` });
   });
 
   app.get("/api/databases/datasets", async (req, res) => {
@@ -969,8 +981,9 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
         path: string;
       }[] = [];
 
-      if (fs.existsSync(path.join(process.cwd(), "marketing-content", "db"))) {
-        const dbDir = path.join(process.cwd(), "marketing-content", "db");
+      const dbBaseDir = path.join(getContentRoot(res), "db");
+      if (fs.existsSync(dbBaseDir)) {
+        const dbDir = dbBaseDir;
         const slugDirs = fs.readdirSync(dbDir).filter((f) => {
           return fs.statSync(path.join(dbDir, f)).isDirectory();
         });
@@ -986,7 +999,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
               filename: file,
               dbSlug: slug,
               provider: "local",
-              path: `marketing-content/db/${slug}/${file}`,
+              path: `${getContentRootName(res)}/db/${slug}/${file}`,
             });
           }
         }
@@ -1032,7 +1045,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
           return;
         }
 
-        const targetDir = path.join(process.cwd(), "marketing-content", "db", slug);
+        const targetDir = path.join(getContentRoot(res), "db", slug);
         if (!fs.existsSync(targetDir)) {
           fs.mkdirSync(targetDir, { recursive: true });
         }
@@ -1045,7 +1058,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
           provider: "local",
           filename,
           slug,
-          path: `marketing-content/db/${slug}/${filename}`,
+          path: `${getContentRootName(res)}/db/${slug}/${filename}`,
         });
       } catch (error: any) {
         res.status(500).json({ error: error.message || "Upload failed" });

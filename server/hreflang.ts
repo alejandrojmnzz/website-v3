@@ -22,11 +22,12 @@ export function generateHreflangTags(
   currentLocale: string,
   record?: Record<string, unknown>,
   params?: Record<string, string>,
+  ci: typeof contentIndex = contentIndex,
 ): string[] {
   try {
     const baseUrl = getBaseUrl();
 
-    const localeUrls = contentIndex.getLocaleUrls(slug, contentType);
+    const localeUrls = ci.getLocaleUrls(slug, contentType);
     if (localeUrls && Object.keys(localeUrls).length >= 2) {
       const tags: string[] = [];
       for (const [locale, urlPath] of Object.entries(localeUrls)) {

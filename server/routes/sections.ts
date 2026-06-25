@@ -208,6 +208,17 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/sections" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+function getContentRootName(res: Response): string {
+  const cr = getContentRoot(res);
+  return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
 
 export function registerSectionsRoutes(app: Express): void {
   // ── Per-entry section operations ──
@@ -238,7 +249,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
-      const templateDir = path.join(process.cwd(), "marketing-content", folder);
+      const templateDir = path.join(getContentRoot(res), folder);
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
@@ -265,7 +276,7 @@ export function registerSectionsRoutes(app: Express): void {
       let entryData: Record<string, unknown> = {};
       if (fs.existsSync(entryFilePath)) {
         const raw = fs.readFileSync(entryFilePath, "utf-8");
-        const parsed = contentIndex.safeYamlLoad(raw);
+        const parsed = getCI(res).safeYamlLoad(raw);
         if (parsed && typeof parsed === "object") entryData = parsed as Record<string, unknown>;
       }
 
@@ -313,7 +324,7 @@ export function registerSectionsRoutes(app: Express): void {
 
           if (fs.existsSync(templateFile)) {
             const rawTemplate = fs.readFileSync(templateFile, "utf-8");
-            const templateData = (contentIndex.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+            const templateData = (getCI(res).safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
             const templateSections = Array.isArray(templateData.sections)
               ? (templateData.sections as Record<string, unknown>[])
               : [];
@@ -400,7 +411,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
-      const templateDir = path.join(process.cwd(), "marketing-content", folder);
+      const templateDir = path.join(getContentRoot(res), folder);
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
@@ -411,7 +422,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       const raw = fs.readFileSync(entryFilePath, "utf-8");
-      const entryData = (contentIndex.safeYamlLoad(raw) as Record<string, unknown>) || {};
+      const entryData = (getCI(res).safeYamlLoad(raw) as Record<string, unknown>) || {};
       const entrySections = Array.isArray(entryData.sections)
         ? (entryData.sections as Record<string, unknown>[])
         : [];
@@ -459,7 +470,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
-      const templateDir = path.join(process.cwd(), "marketing-content", folder);
+      const templateDir = path.join(getContentRoot(res), folder);
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
@@ -470,7 +481,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       const raw = fs.readFileSync(entryFilePath, "utf-8");
-      const entryData = (contentIndex.safeYamlLoad(raw) as Record<string, unknown>) || {};
+      const entryData = (getCI(res).safeYamlLoad(raw) as Record<string, unknown>) || {};
       const entrySections = Array.isArray(entryData.sections)
         ? (entryData.sections as Record<string, unknown>[])
         : [];
@@ -521,7 +532,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
-      const templateDir = path.join(process.cwd(), "marketing-content", folder);
+      const templateDir = path.join(getContentRoot(res), folder);
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
@@ -534,7 +545,7 @@ export function registerSectionsRoutes(app: Express): void {
       let entryData: Record<string, unknown> = {};
       if (fs.existsSync(entryFilePath)) {
         const raw = fs.readFileSync(entryFilePath, "utf-8");
-        const parsed = contentIndex.safeYamlLoad(raw);
+        const parsed = getCI(res).safeYamlLoad(raw);
         if (parsed && typeof parsed === "object") entryData = parsed as Record<string, unknown>;
       }
 
@@ -645,7 +656,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
-      const templateDir = path.join(process.cwd(), "marketing-content", folder);
+      const templateDir = path.join(getContentRoot(res), folder);
 
       // Load the shared template WITHOUT per-entry overlay to get the correct template indices
       const baseTemplate = mergeSingleTemplate(contentType, locale);
@@ -702,7 +713,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       const rawTemplate = fs.readFileSync(templateFile, "utf-8");
-      const templateData = (contentIndex.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+      const templateData = (getCI(res).safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
       const templateSections = Array.isArray(templateData.sections)
         ? [...(templateData.sections as Record<string, unknown>[])]
         : [];
@@ -778,7 +789,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
-      const templateDir = path.join(process.cwd(), "marketing-content", folder);
+      const templateDir = path.join(getContentRoot(res), folder);
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
@@ -809,7 +820,7 @@ export function registerSectionsRoutes(app: Express): void {
 
         if (fs.existsSync(templateFile)) {
           const rawTemplate = fs.readFileSync(templateFile, "utf-8");
-          const templateData = (contentIndex.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+          const templateData = (getCI(res).safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
           const templateSections = Array.isArray(templateData.sections)
             ? (templateData.sections as Record<string, unknown>[])
             : [];
@@ -856,7 +867,7 @@ export function registerSectionsRoutes(app: Express): void {
       let entryData: Record<string, unknown> = {};
       if (fs.existsSync(entryFilePath)) {
         const raw = fs.readFileSync(entryFilePath, "utf-8");
-        const parsed = contentIndex.safeYamlLoad(raw);
+        const parsed = getCI(res).safeYamlLoad(raw);
         if (parsed && typeof parsed === "object") entryData = parsed as Record<string, unknown>;
       }
 
@@ -992,7 +1003,7 @@ export function registerSectionsRoutes(app: Express): void {
       if (result.success) {
         refreshSitemapEntry(contentType, slug, locale);
         clearRedirectCache();
-        contentIndex.refresh();
+        getCI(res).refresh();
         invalidateContentCaches(contentType);
 
         // Propagate to bound sections if this was a section update
@@ -1018,7 +1029,7 @@ export function registerSectionsRoutes(app: Express): void {
             : sIdx;
           if (updatedSection) {
             const normalizedLocaleForBinding = normalizeLocale(locale);
-            const baseSlugForBinding = contentIndex.resolveBaseSlug(slug, contentType);
+            const baseSlugForBinding = getCI(res).resolveBaseSlug(slug, contentType);
             const propagation = bindingManager.propagateUpdate(
               contentType,
               baseSlugForBinding,
@@ -1031,7 +1042,7 @@ export function registerSectionsRoutes(app: Express): void {
               bindingWarnings = propagation.errors;
             }
             if (propagation.updatedFiles.length > 0) {
-              contentIndex.refresh();
+              getCI(res).refresh();
             }
 
             // Audit log: EDIT entry with section context
@@ -1042,7 +1053,7 @@ export function registerSectionsRoutes(app: Express): void {
               const editMsg = `${sectionType} section updated on ${slug}/${locale}${affectedCount > 0 ? ` → propagated to ${affectedCount} bound page(s)` : ""}`;
               const editMeta: Record<string, unknown> = { contentType, slug, locale, sectionIndex: resolvedIdx, sectionType };
               if (affectedCount > 0) {
-                editMeta.affectedPages = propagation.updatedFiles.map(f => f.replace("marketing-content/", ""));
+                editMeta.affectedPages = propagation.updatedFiles.map(f => f.replace(getContentRootName(res) + "/", ""));
               }
               _logSyncEdit("EDIT", editMsg, authorName, editMeta);
             } catch { /* non-fatal */ }
@@ -1098,7 +1109,7 @@ export function registerSectionsRoutes(app: Express): void {
       if (!authorized) return;
 
       const { contentType } = req.body as { contentType?: string };
-      contentIndex.refresh();
+      getCI(res).refresh();
       if (contentType && typeof contentType === "string") {
         invalidateContentCaches(contentType);
       }
@@ -1144,7 +1155,7 @@ export function registerSectionsRoutes(app: Express): void {
       if (result.success) {
         refreshSitemapEntriesForContentKey(contentType, slug, getSupportedLocales());
         clearRedirectCache();
-        contentIndex.refresh();
+        getCI(res).refresh();
         invalidateContentCaches(contentType);
         res.json({ success: true });
       } else {
@@ -1195,8 +1206,7 @@ export function registerSectionsRoutes(app: Express): void {
     }
 
     const folderPath = path.join(
-      process.cwd(),
-      "marketing-content",
+      getContentRoot(res),
       getFolder(type),
       slug,
     );
@@ -1224,16 +1234,16 @@ export function registerSectionsRoutes(app: Express): void {
     const urlsToCheck: string[] = [];
     const ctKey = getFolder(type);
     if (type === "landing") {
-      urlsToCheck.push(contentIndex.buildUrl(ctKey, "default", slug));
+      urlsToCheck.push(getCI(res).buildUrl(ctKey, "default", slug));
     } else if (locale) {
-      urlsToCheck.push(contentIndex.buildUrl(ctKey, locale, slug));
+      urlsToCheck.push(getCI(res).buildUrl(ctKey, locale, slug));
     } else {
       for (const loc of getSupportedLocales()) {
-        urlsToCheck.push(contentIndex.buildUrl(ctKey, loc, slug));
+        urlsToCheck.push(getCI(res).buildUrl(ctKey, loc, slug));
       }
     }
 
-    const redirects = contentIndex.getRedirects();
+    const redirects = getCI(res).getRedirects();
     for (const url of urlsToCheck) {
       const conflict = redirects.find((r) => r.from === url);
       if (conflict) {
@@ -1267,7 +1277,7 @@ export function registerSectionsRoutes(app: Express): void {
       ? originPath
       : `/${originPath}`;
 
-    const redirects = contentIndex.getRedirects();
+    const redirects = getCI(res).getRedirects();
     const existingRedirect = redirects.find((r) => r.from === normalized);
     if (existingRedirect) {
       const redirectTo =
@@ -1282,12 +1292,12 @@ export function registerSectionsRoutes(app: Express): void {
       return;
     }
 
-    const entries = contentIndex.listAll();
+    const entries = getCI(res).listAll();
     for (const entry of entries) {
       const ctKey = getDirectory(entry.contentType);
       for (const locale of entry.locales) {
         if (locale.startsWith("_") || locale.includes(".")) continue;
-        const url = contentIndex.buildUrl(ctKey, locale, entry.slug);
+        const url = getCI(res).buildUrl(ctKey, locale, entry.slug);
         if (url === normalized) {
           res.json({
             taken: true,

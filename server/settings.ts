@@ -6,7 +6,14 @@ const log = child({ module: "settings" });
 
 
 
-const SETTINGS_PATH = path.join(process.cwd(), "marketing-content", "settings.yml");
+const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+
+function resolveSettingsRoot(contentRoot?: string): string {
+  return contentRoot ?? DEFAULT_CONTENT_ROOT;
+}
+function getSettingsPath(contentRoot?: string): string {
+  return path.join(resolveSettingsRoot(contentRoot), "settings.yml");
+}
 
 interface LocaleEntry {
   code: string;
@@ -78,10 +85,13 @@ interface SiteSettings {
   tracking: TrackingSettings;
 }
 
-let cached: SiteSettings | null = null;
+const settingsCache = new Map<string, SiteSettings>();
 
-function loadSettings(): SiteSettings {
-  if (cached) return cached;
+function loadSettings(contentRoot?: string): SiteSettings {
+  const key = resolveSettingsRoot(contentRoot);
+  if (settingsCache.has(key)) return settingsCache.get(key)!;
+
+  const settingsPath = getSettingsPath(key);
 
   const defaults: SiteSettings = {
     i18n: {
@@ -107,18 +117,18 @@ function loadSettings(): SiteSettings {
     },
   };
 
-  if (!fs.existsSync(SETTINGS_PATH)) {
+  if (!fs.existsSync(settingsPath)) {
     log.warn("[Settings] settings.yml not found, using defaults");
-    cached = defaults;
-    return cached;
+    settingsCache.set(key, defaults);
+    return defaults;
   }
 
   try {
-    const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
+    const raw = fs.readFileSync(settingsPath, "utf-8");
     const parsed = yaml.load(raw) as Record<string, unknown> | null;
     if (!parsed) {
-      cached = defaults;
-      return cached;
+      settingsCache.set(key, defaults);
+      return defaults;
     }
 
     const i18nRaw = parsed.i18n as Record<string, unknown> | undefined;
@@ -209,49 +219,50 @@ function loadSettings(): SiteSettings {
       webhook: parseWebhook(trackingRaw?.webhook),
     };
 
-    cached = { ...defaults, i18n, home_page, optimization, tracking };
+    const result: SiteSettings = { ...defaults, i18n, home_page, optimization, tracking };
+    settingsCache.set(key, result);
     log.info(
       `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}`
     );
-    return cached;
+    return result;
   } catch (err) {
     log.error({ err: err }, "[Settings] Failed to parse settings.yml, using defaults:");
-    cached = defaults;
-    return cached;
+    settingsCache.set(key, defaults);
+    return defaults;
   }
 }
 
-export function getSettings(): SiteSettings {
-  return loadSettings();
+export function getSettings(contentRoot?: string): SiteSettings {
+  return loadSettings(contentRoot);
 }
 
-export function getSupportedLocales(): string[] {
-  return loadSettings().i18n.supported_locales.map((l) => l.code);
+export function getSupportedLocales(contentRoot?: string): string[] {
+  return loadSettings(contentRoot).i18n.supported_locales.map((l) => l.code);
 }
 
-export function getDefaultLocale(): string {
-  return loadSettings().i18n.default_locale;
+export function getDefaultLocale(contentRoot?: string): string {
+  return loadSettings(contentRoot).i18n.default_locale;
 }
 
-export function getLocaleLabel(code: string): string | undefined {
-  const entry = loadSettings().i18n.supported_locales.find((l) => l.code === code);
+export function getLocaleLabel(code: string, contentRoot?: string): string | undefined {
+  const entry = loadSettings(contentRoot).i18n.supported_locales.find((l) => l.code === code);
   return entry?.label;
 }
 
-export function getLocaleEntries(): LocaleEntry[] {
-  return loadSettings().i18n.supported_locales;
+export function getLocaleEntries(contentRoot?: string): LocaleEntry[] {
+  return loadSettings(contentRoot).i18n.supported_locales;
 }
 
-export function getHomePage(): HomePageSettings {
-  return loadSettings().home_page;
+export function getHomePage(contentRoot?: string): HomePageSettings {
+  return loadSettings(contentRoot).home_page;
 }
 
-export function normalizeLocale(locale: string | undefined | null): string {
-  const defaultLocale = getDefaultLocale();
+export function normalizeLocale(locale: string | undefined | null, contentRoot?: string): string {
+  const defaultLocale = getDefaultLocale(contentRoot);
   if (!locale) return defaultLocale;
 
   const lower = locale.toLowerCase().replace("_", "-");
-  const supported = getSupportedLocales().map(c => c.toLowerCase());
+  const supported = getSupportedLocales(contentRoot).map(c => c.toLowerCase());
 
   // Exact match first (handles both "es" and "es-mx" if explicitly in supported_locales)
   if (supported.includes(lower)) return lower;
@@ -275,7 +286,7 @@ export function normalizeLocale(locale: string | undefined | null): string {
 export function updateLocaleSettings(input: {
   default_locale: string;
   supported_locales: LocaleEntry[];
-}): void {
+}, contentRoot?: string): void {
   const { default_locale, supported_locales } = input;
 
   if (!Array.isArray(supported_locales) || supported_locales.length === 0) {
@@ -295,10 +306,11 @@ export function updateLocaleSettings(input: {
     throw new Error(`Default locale "${default_locale}" must be in the supported locales list`);
   }
 
+  const settingsPath = getSettingsPath(contentRoot);
   let existing: Record<string, unknown> = {};
-  if (fs.existsSync(SETTINGS_PATH)) {
+  if (fs.existsSync(settingsPath)) {
     try {
-      const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
+      const raw = fs.readFileSync(settingsPath, "utf-8");
       existing = (yaml.load(raw) as Record<string, unknown>) || {};
     } catch {}
   }
@@ -312,29 +324,33 @@ export function updateLocaleSettings(input: {
   };
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
-  fs.writeFileSync(SETTINGS_PATH, output, "utf-8");
-  resetSettings();
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
   log.info(
     `[Settings] Updated: ${supported_locales.length} locale(s), default="${default_locale}"`
   );
 }
 
-export function resetSettings(): void {
-  cached = null;
+export function resetSettings(contentRoot?: string): void {
+  if (contentRoot) {
+    settingsCache.delete(contentRoot);
+  } else {
+    settingsCache.clear();
+  }
 }
 
-export function getOptimizationSettings(): OptimizationSettings {
-  return loadSettings().optimization;
+export function getOptimizationSettings(contentRoot?: string): OptimizationSettings {
+  return loadSettings(contentRoot).optimization;
 }
 
-export function getTrackingSettings(): TrackingSettings {
-  return loadSettings().tracking;
+export function getTrackingSettings(contentRoot?: string): TrackingSettings {
+  return loadSettings(contentRoot).tracking;
 }
 
 export function updateTrackingSettings(input: {
   conversion_events?: ConversionEventEntry[];
   webhook?: { url: string; method?: string; auth_header?: string } | null;
-}): void {
+}, contentRoot?: string): void {
   if (input.conversion_events !== undefined && !Array.isArray(input.conversion_events)) {
     throw new Error("conversion_events must be an array");
   }
@@ -359,10 +375,11 @@ export function updateTrackingSettings(input: {
     }
   }
 
+  const settingsPath = getSettingsPath(contentRoot);
   let existing: Record<string, unknown> = {};
-  if (fs.existsSync(SETTINGS_PATH)) {
+  if (fs.existsSync(settingsPath)) {
     try {
-      const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
+      const raw = fs.readFileSync(settingsPath, "utf-8");
       existing = (yaml.load(raw) as Record<string, unknown>) || {};
     } catch {}
   }
@@ -404,8 +421,8 @@ export function updateTrackingSettings(input: {
   existing.tracking = nextTracking;
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
-  fs.writeFileSync(SETTINGS_PATH, output, "utf-8");
-  resetSettings();
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
   if (input.conversion_events !== undefined) {
     log.info(`[Settings] Updated tracking.conversion_events: ${input.conversion_events.length} event(s)`);
   }
@@ -414,16 +431,17 @@ export function updateTrackingSettings(input: {
   }
 }
 
-export function updateOptimizationSettings(input: { tagmanager: Partial<TagManagerSettings> }): void {
+export function updateOptimizationSettings(input: { tagmanager: Partial<TagManagerSettings> }, contentRoot?: string): void {
+  const settingsPath = getSettingsPath(contentRoot);
   let existing: Record<string, unknown> = {};
-  if (fs.existsSync(SETTINGS_PATH)) {
+  if (fs.existsSync(settingsPath)) {
     try {
-      const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
+      const raw = fs.readFileSync(settingsPath, "utf-8");
       existing = (yaml.load(raw) as Record<string, unknown>) || {};
     } catch {}
   }
 
-  const current = loadSettings().optimization.tagmanager;
+  const current = loadSettings(contentRoot).optimization.tagmanager;
   const tm = input.tagmanager ?? {};
   const updated: TagManagerSettings = {
     sgtm_enabled: typeof tm.sgtm_enabled === "boolean" ? tm.sgtm_enabled : current.sgtm_enabled,
@@ -455,7 +473,7 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
   };
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
-  fs.writeFileSync(SETTINGS_PATH, output, "utf-8");
-  resetSettings();
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
   log.info(`[Settings] Updated optimization.tagmanager: enabled=${updated.sgtm_enabled}, url="${updated.sgtm_server_url}", path="${updated.sgtm_proxy_path}"`);
 }

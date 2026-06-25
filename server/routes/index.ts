@@ -252,6 +252,7 @@ import { registerEcommerceRoutes } from "./ecommerce";
 import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
+import { getSiteInfo, getSiteContextMap } from "../site-manager";
 
 const routesLogger = loggerChild({ module: "routes" });
 
@@ -319,6 +320,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerWebhooksRoutes(app);
   registerOverlaysRoutes(app);
 
+  // Site info endpoint — returns which site/content-folder is active for this request
+  app.get("/api/site/info", (req, res) => {
+    const info = getSiteInfo(req, res);
+    res.json(info);
+  });
+
   const httpServer = createServer(app);
 
   // Start the background image queue worker
@@ -335,10 +342,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 export async function startBackgroundSync(): Promise<void> {
   const { logSync } = await import("../sync-log");
   const { loadSyncStateFromBucket } = await import("../sync-state");
+  const { isMultiSiteMode } = await import("../site-config");
 
-  routesLogger.info("reconciling sync state in background (non-blocking)...");
-  loadSyncStateFromBucket()
-    .then(async () => {
+  // Build per-site sync targets. In multi-site mode ONLY sites that explicitly
+  // configure githubRepoUrl are synced; sites without a repo are skipped entirely
+  // so they cannot inadvertently pull from the global GITHUB_REPO_URL env var.
+  // In single-site mode a single implicit target uses GITHUB_REPO_URL env var.
+  type SyncTarget = { repoUrl?: string; contentRoot?: string; label: string };
+  const syncTargets: SyncTarget[] = [];
+  if (isMultiSiteMode()) {
+    const seen = new Set<string>();
+    for (const ctx of Array.from(getSiteContextMap().values())) {
+      if (!ctx.config.githubRepoUrl) continue; // no repo configured — skip
+      const key = `${ctx.config.githubRepoUrl.replace(/\.git$/, "")}:${ctx.contentRootName}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      syncTargets.push({
+        repoUrl: ctx.config.githubRepoUrl,
+        contentRoot: ctx.contentRootName,
+        label: ctx.config.domain,
+      });
+    }
+    // In multi-site mode we do NOT add a global fallback: any site lacking a
+    // githubRepoUrl should stay isolated from the global GITHUB_REPO_URL env var.
+  } else {
+    // Single-site mode: use GITHUB_REPO_URL env var (may be undefined → no sync).
+    syncTargets.push({ label: "default" });
+  }
+
+  routesLogger.info(`reconciling sync state in background (non-blocking) for ${syncTargets.length} site(s)...`);
+  // Load sync state from GCS for each unique site, isolated by contentRoot so that
+  // multi-site setups don't mix state between repos.
+  const siteContentRoots = Array.from(new Set(syncTargets.map(t => t.contentRoot)));
+  Promise.allSettled(
+    siteContentRoots.map(cr => loadSyncStateFromBucket(cr))
+  ).then(async () => {
       const {
         reconcileSyncStateOnStartup,
         autoPullNonConflicting,
@@ -349,114 +387,96 @@ export async function startBackgroundSync(): Promise<void> {
         writeBootstrapCompleteFlag,
       } = await import("../github");
 
-      // Bootstrap pull: run when GitHub sync is configured AND the bootstrap-complete
-      // flag is absent.  The flag is written only after a fully successful pull, so
-      // any partial / failed bootstrap from a previous startup will be re-attempted
-      // here automatically.
-      const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
-      if (syncEnabled && isGitHubConfigured() && !isBootstrapComplete()) {
-        // Migration path: detect deployments that existed before the flag was
-        // introduced.  If content is already present (YAML files or a sync-state
-        // commit recorded), we treat this instance as already bootstrapped and
-        // write the flag — no full re-pull needed.
-        const { getLastSyncedCommit } = await import("../sync-state");
+      await Promise.all(syncTargets.map(async (target) => {
+        const opts = target.repoUrl ? { repoUrl: target.repoUrl, contentRoot: target.contentRoot } : undefined;
+        const pfx = target.label !== "default" ? ` [${target.label}]` : "";
+        const contentFolder = target.contentRoot ?? (process.env.CONTENT_FOLDER || "content");
 
-        // A non-null lastSyncedCommit is the definitive signal that a
-        // successful pull (or manual reconcile) already ran for this instance.
-        // hasYaml alone is NOT sufficient — a partially-interrupted bootstrap
-        // will also have YAML files but no committed sync state, and it must
-        // be re-attempted, not stamped as complete.
-        const alreadyPopulated = getLastSyncedCommit() !== null;
-
-        if (alreadyPopulated) {
-          // Existing deployment predating the flag — stamp it and move on.
-          routesLogger.info(
-            "bootstrap-complete flag absent but content already exists — writing flag (one-time migration, skipping bootstrap)",
-          );
-          writeBootstrapCompleteFlag();
-          logSync(
-            "AUTO-PULL",
-            "Bootstrap: migration — existing content detected, bootstrap-complete flag written",
-          );
-        } else {
-          // Fresh instance with no content — run the full bootstrap.
-          routesLogger.info("bootstrap-complete flag absent and content uninitialized — running bootstrap pull from remote...");
-          try {
-            const bootstrapResult = await bootstrapContentFromRemote();
-            if (bootstrapResult.pulled > 0) {
-              logSync(
-                "AUTO-PULL",
-                `Bootstrap: pulled ${bootstrapResult.pulled} files from remote content repo`,
-              );
-            }
-            if (bootstrapResult.errors.length > 0) {
-              logSync(
-                "ERROR",
-                `Bootstrap: ${bootstrapResult.errors.length} file(s) still failed after retries — ${bootstrapResult.errors.slice(0, 3).join("; ")}`,
-              );
-            }
-          } catch (e) {
-            logSync(
-              "ERROR",
-              `Bootstrap pull failed: ${e instanceof Error ? e.message : String(e)}`,
+        // Bootstrap pull: run when GitHub sync is configured AND the bootstrap-complete
+        // flag is absent.  The flag is written only after a fully successful pull, so
+        // any partial / failed bootstrap from a previous startup will be re-attempted.
+        const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
+        if (syncEnabled && isGitHubConfigured(target.repoUrl) && !isBootstrapComplete(target.contentRoot)) {
+          // Migration path: check if the content folder already has files on disk.
+          // Uses a per-site filesystem check rather than the shared global sync-state
+          // so that one site's committed SHA cannot skip bootstrap for a different site.
+          const absContentPath = path.join(process.cwd(), contentFolder);
+          const alreadyPopulated = (() => {
+            if (!fs.existsSync(absContentPath)) return false;
+            const dirEntries = fs.readdirSync(absContentPath, { withFileTypes: true });
+            return dirEntries.some(
+              (e) =>
+                (e.isFile() && (e.name.endsWith(".yml") || e.name.endsWith(".yaml"))) ||
+                (e.isDirectory() && !e.name.startsWith(".")),
             );
-          }
-        }
-      }
+          })();
 
-      await reconcileSyncStateOnStartup();
-      const isAutoPullEnabled =
-        process.env.GITHUB_SYNC_ENABLED === "true" &&
-        process.env.GITHUB_AUTO_PULL_ENABLED === "true";
-      if (isAutoPullEnabled) {
-        const result = await autoPullNonConflicting();
-        if (result.pulled.length > 0) {
-          logSync(
-            "AUTO-PULL",
-            `Startup: pulled ${result.pulled.length} incoming files: ${result.pulled.map((f) => f.replace("marketing-content/", "")).join(", ")}`,
-          );
-        }
-        if (result.conflicted.length > 0) {
-          logSync(
-            "CONFLICT",
-            `Startup: ${result.conflicted.length} files have local conflicts, awaiting manual resolution`,
-          );
-        }
-        if (result.errors.length > 0) {
-          logSync(
-            "ERROR",
-            `Startup: ${result.errors.length} file(s) failed to pull — retrying in 10s: ${result.errors.join("; ")}`,
-          );
-          setTimeout(async () => {
+          if (alreadyPopulated) {
+            routesLogger.info(
+              `Bootstrap${pfx}: flag absent but content already exists — writing flag (one-time migration, skipping bootstrap)`,
+            );
+            writeBootstrapCompleteFlag(target.contentRoot);
+            logSync("AUTO-PULL", `Bootstrap${pfx}: migration — existing content detected, bootstrap-complete flag written`);
+          } else {
+            routesLogger.info(`Bootstrap${pfx}: flag absent and content uninitialized — running bootstrap pull from remote...`);
             try {
-              const retry = await autoPullNonConflicting();
-              if (retry.pulled.length > 0) {
-                logSync(
-                  "AUTO-PULL",
-                  `Retry: pulled ${retry.pulled.length} file(s): ${retry.pulled.map((f) => f.replace("marketing-content/", "")).join(", ")}`,
-                );
+              const bootstrapResult = await bootstrapContentFromRemote(opts);
+              if (bootstrapResult.pulled > 0) {
+                logSync("AUTO-PULL", `Bootstrap${pfx}: pulled ${bootstrapResult.pulled} files from remote content repo`);
+                // Re-scan the per-site ContentIndex so pulled files are immediately
+                // reflected in memory rather than waiting for the next file-watcher cycle.
+                if (target.contentRoot) {
+                  const siteCtx = Array.from(getSiteContextMap().values()).find(
+                    (ctx) => ctx.contentRootName === target.contentRoot
+                  );
+                  if (siteCtx?.contentIndex) {
+                    (siteCtx.contentIndex as any).refresh?.();
+                    routesLogger.info(`Bootstrap${pfx}: triggered ContentIndex refresh after pulling ${bootstrapResult.pulled} file(s)`);
+                  }
+                }
               }
-              if (retry.errors.length > 0) {
-                logSync(
-                  "ERROR",
-                  `Retry: ${retry.errors.length} file(s) still failed: ${retry.errors.join("; ")}`,
-                );
+              if (bootstrapResult.errors.length > 0) {
+                logSync("ERROR", `Bootstrap${pfx}: ${bootstrapResult.errors.length} file(s) still failed after retries — ${bootstrapResult.errors.slice(0, 3).join("; ")}`);
               }
             } catch (e) {
-              logSync(
-                "ERROR",
-                `Retry failed: ${e instanceof Error ? e.message : String(e)}`,
-              );
+              logSync("ERROR", `Bootstrap pull${pfx} failed: ${e instanceof Error ? e.message : String(e)}`);
             }
-          }, 10000);
+          }
         }
-      } else {
-        logSync(
-          "AUTO-PULL",
-          "Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'",
-        );
-      }
-      await ensureWebhook();
+
+        await reconcileSyncStateOnStartup(opts);
+        const isAutoPullEnabled =
+          process.env.GITHUB_SYNC_ENABLED === "true" &&
+          process.env.GITHUB_AUTO_PULL_ENABLED === "true";
+        if (isAutoPullEnabled) {
+          const result = await autoPullNonConflicting(undefined, undefined, opts);
+          if (result.pulled.length > 0) {
+            logSync("AUTO-PULL", `Startup${pfx}: pulled ${result.pulled.length} incoming files: ${result.pulled.map((f) => f.replace(contentFolder + "/", "")).join(", ")}`);
+          }
+          if (result.conflicted.length > 0) {
+            logSync("CONFLICT", `Startup${pfx}: ${result.conflicted.length} files have local conflicts, awaiting manual resolution`);
+          }
+          if (result.errors.length > 0) {
+            logSync("ERROR", `Startup${pfx}: ${result.errors.length} file(s) failed to pull — retrying in 10s: ${result.errors.join("; ")}`);
+            setTimeout(async () => {
+              try {
+                const retry = await autoPullNonConflicting(undefined, undefined, opts);
+                if (retry.pulled.length > 0) {
+                  logSync("AUTO-PULL", `Retry${pfx}: pulled ${retry.pulled.length} file(s): ${retry.pulled.map((f) => f.replace(contentFolder + "/", "")).join(", ")}`);
+                }
+                if (retry.errors.length > 0) {
+                  logSync("ERROR", `Retry${pfx}: ${retry.errors.length} file(s) still failed: ${retry.errors.join("; ")}`);
+                }
+              } catch (e) {
+                logSync("ERROR", `Retry${pfx} failed: ${e instanceof Error ? e.message : String(e)}`);
+              }
+            }, 10000);
+          }
+        } else {
+          logSync("AUTO-PULL", `Skipped startup pull${pfx} — GITHUB_AUTO_PULL_ENABLED not set to 'true'`);
+        }
+        await ensureWebhook(opts);
+      }));
     })
     .catch((err) => {
       logSync(

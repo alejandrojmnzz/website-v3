@@ -208,12 +208,23 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/content" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+function getContentRootName(res: Response): string {
+  const cr = getContentRoot(res);
+  return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
 
 export function registerContentRoutes(app: Express): void {
   app.get("/api/career-programs", (req, res) => {
     const locale = normalizeLocale(req.query.locale as string);
     const _location = req.query.location as string | undefined;
-    const programs = listCareerPrograms(locale);
+    const programs = listCareerPrograms(locale, getCI(res));
     res.json(programs);
   });
 
@@ -246,7 +257,7 @@ export function registerContentRoutes(app: Express): void {
 
     // Fall back to default content
     if (!program) {
-      program = loadCareerProgram(slug, locale);
+      program = loadCareerProgram(slug, locale, getCI(res));
     }
 
     if (!program) {
@@ -258,7 +269,7 @@ export function registerContentRoutes(app: Express): void {
     if (Array.isArray(programData.sections)) {
       programData.sections = await resolveDynamicEntries(programData.sections, locale) as any;
     }
-    const programRaw = contentIndex.loadMergedContent("program", slug, locale);
+    const programRaw = getCI(res).loadMergedContent("program", slug, locale);
     const layout = resolveLayout("program", programRaw.data || {});
     const singleEntry = buildSingleEntryFromContent("program", programData);
     injectCanonicalIfMissing(programData, "program", locale);
@@ -272,7 +283,7 @@ export function registerContentRoutes(app: Express): void {
 
   // Landing pages API
   app.get("/api/landings", (_req, res) => {
-    const landings = listLandingPages();
+    const landings = listLandingPages(getCI(res));
     res.json(landings);
   });
 
@@ -285,22 +296,22 @@ export function registerContentRoutes(app: Express): void {
 
     // Resolve the folder slug first — the URL slug may be locale-specific
     // (e.g. "4geeks-vs-otros-landing" → folder "4geeks-vs-others-landing")
-    const baseSlug = contentIndex.resolveBaseSlug(slug, "landing");
+    const baseSlug = getCI(res).resolveBaseSlug(slug, "landing");
 
     // Get locale from query param, _common.yml, or default — then verify it exists
     const queryLocale = req.query.locale as string | undefined;
     const supported = getSupportedLocales();
     const validQueryLocale = queryLocale && supported.includes(queryLocale) ? queryLocale : undefined;
-    const commonData = contentIndex.loadCommonData("landing", baseSlug);
+    const commonData = getCI(res).loadCommonData("landing", baseSlug);
     let locale = validQueryLocale || (commonData?.locale as string) || getDefaultLocale();
-    const availableLocales = contentIndex.getAvailableLocalesOrVariants("landing" as ContentType, baseSlug);
+    const availableLocales = getCI(res).getAvailableLocalesOrVariants("landing" as ContentType, baseSlug);
     if (availableLocales.length > 0 && !availableLocales.includes(locale)) {
       locale = availableLocales[0];
     }
     // If the URL slug is locale-specific (e.g. the ES slug of a bilingual page),
     // detect which locale it belongs to and override the default locale detection
     if (!validQueryLocale) {
-      const detectedLocale = contentIndex.resolveLocaleFromUrlSlug(slug, "landing");
+      const detectedLocale = getCI(res).resolveLocaleFromUrlSlug(slug, "landing");
       if (detectedLocale && availableLocales.includes(detectedLocale)) {
         locale = detectedLocale;
       }
@@ -327,7 +338,7 @@ export function registerContentRoutes(app: Express): void {
 
     // Fall back to default content
     if (!landing) {
-      landing = loadLandingPage(slug, locale);
+      landing = loadLandingPage(slug, locale, getCI(res));
     }
 
     if (!landing) {
@@ -344,7 +355,7 @@ export function registerContentRoutes(app: Express): void {
       applyComponentImageSizes((landing as any).sections as unknown[]);
     }
 
-    const rawMerged = contentIndex.loadMergedContent("landing", slug, locale);
+    const rawMerged = getCI(res).loadMergedContent("landing", slug, locale);
     const layout = resolveLayout("landing", rawMerged.data || commonData || {});
     const singleEntry = buildSingleEntryFromContent("landing", landingData);
     injectCanonicalIfMissing(landingData, "landing", locale);
@@ -362,7 +373,7 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/locations", (req, res) => {
     const locale = normalizeLocale(req.query.locale as string);
     const region = req.query.region as string | undefined;
-    let locations = listLocationPages(locale);
+    let locations = listLocationPages(locale, getCI(res));
 
     if (region) {
       locations = locations.filter((loc) => loc.region === region);
@@ -394,7 +405,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (!location) {
-      location = loadLocationPage(slug, locale);
+      location = loadLocationPage(slug, locale, getCI(res));
     }
 
     if (!location) {
@@ -408,7 +419,7 @@ export function registerContentRoutes(app: Express): void {
       locationData.sections = await resolveDynamicEntries(locationData.sections as any, locale) as any;
       applyComponentImageSizes(locationData.sections);
     }
-    const locationRaw = contentIndex.loadMergedContent("location", slug, locale);
+    const locationRaw = getCI(res).loadMergedContent("location", slug, locale);
     const layout = resolveLayout("location", locationRaw.data || {});
     const singleEntry = buildSingleEntryFromContent("location", locationData);
     injectCanonicalIfMissing(locationData, "location", locale);
@@ -423,7 +434,7 @@ export function registerContentRoutes(app: Express): void {
   // Template Pages API
   app.get("/api/pages", (req, res) => {
     const locale = normalizeLocale(req.query.locale as string);
-    const pages = listTemplatePages(locale);
+    const pages = listTemplatePages(locale, getCI(res));
     res.json(pages);
   });
 
@@ -431,7 +442,7 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/pages/career-programs", (req, res) => {
     const locale = normalizeLocale(req.query.locale as string);
 
-    const page = loadCareerProgramsListing(locale);
+    const page = loadCareerProgramsListing(locale, getCI(res));
 
     if (!page) {
       res.status(404).json({ error: "Career programs listing page not found" });
@@ -439,7 +450,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const cpPageData = page as unknown as Record<string, unknown>;
-    const cpRaw = contentIndex.loadMergedContent("page", "career-programs", locale);
+    const cpRaw = getCI(res).loadMergedContent("page", "career-programs", locale);
     const cpLayout = resolveLayout("page", cpRaw.data || {});
     injectCanonicalIfMissing(cpPageData, "page", locale);
     const { layout: _cpStripLayout, ...cpRest } = cpPageData;
@@ -469,7 +480,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (!page) {
-      page = loadTemplatePage("apply", locale);
+      page = loadTemplatePage("apply", locale, getCI(res));
     }
 
     if (!page) {
@@ -477,8 +488,8 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
-    const commonData = contentIndex.loadCommonData("page", "apply");
-    const applyRaw = contentIndex.loadMergedContent("page", "apply", locale);
+    const commonData = getCI(res).loadCommonData("page", "apply");
+    const applyRaw = getCI(res).loadMergedContent("page", "apply", locale);
     const layout = resolveLayout("page", applyRaw.data || {});
     const applyData = page as unknown as Record<string, unknown>;
     injectCanonicalIfMissing(applyData, "page", locale);
@@ -516,7 +527,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (!page) {
-      page = loadTemplatePage(slug, locale);
+      page = loadTemplatePage(slug, locale, getCI(res));
     }
 
     if (!page) {
@@ -534,7 +545,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const pageData = page as unknown as Record<string, unknown>;
-    const pageRaw = contentIndex.loadMergedContent("page", slug, locale);
+    const pageRaw = getCI(res).loadMergedContent("page", slug, locale);
     const layout = resolveLayout("page", pageRaw.data || {});
     const singleEntry = buildSingleEntryFromContent("page", pageData);
     if (singleEntry) {
@@ -568,7 +579,7 @@ export function registerContentRoutes(app: Express): void {
           const dbResolved = resolveSingleVars(dbPageData, dbSingleEntry) as Record<string, unknown>;
           Object.assign(dbPageData, dbResolved);
         }
-        const dbRaw = contentIndex.loadMergedContent(contentType, slug, locale);
+        const dbRaw = getCI(res).loadMergedContent(contentType, slug, locale);
         const dbLayout = resolveLayout(contentType, dbRaw.data || {});
         injectCanonicalIfMissing(dbPageData, contentType, locale);
         const { layout: _dbStripLayout, ...dbRest } = dbPageData;
@@ -602,7 +613,7 @@ export function registerContentRoutes(app: Express): void {
         (variantPage as any).sections = (await resolveDynamicEntries(variantSections, locale)) as any;
         applyComponentImageSizes((variantPage as any).sections as unknown[]);
       }
-      const variantRaw = contentIndex.loadMergedContent(contentType, slug, locale);
+      const variantRaw = getCI(res).loadMergedContent(contentType, slug, locale);
       const variantLayout = resolveLayout(contentType, variantRaw.data || {});
       const variantSingleEntry = buildSingleEntryFromContent(contentType, variantPage);
       if (variantSingleEntry) {
@@ -616,7 +627,7 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
-    const result = contentIndex.loadContent({
+    const result = getCI(res).loadContent({
       contentType,
       slug,
       localeOrVariant: locale,
@@ -635,7 +646,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const genericPageData = page as unknown as Record<string, unknown>;
-    const genericRaw = contentIndex.loadMergedContent(contentType, slug, locale);
+    const genericRaw = getCI(res).loadMergedContent(contentType, slug, locale);
     const genericLayout = resolveLayout(contentType, genericRaw.data || {});
     const singleEntry = buildSingleEntryFromContent(contentType, genericPageData);
     if (singleEntry) {
@@ -816,7 +827,7 @@ export function registerContentRoutes(app: Express): void {
       const update: Partial<import("../content-types").ContentTypeEntry> = {};
       if (body.url_pattern !== undefined) update.url_pattern = body.url_pattern;
       if (body.database !== undefined) update.database = body.database;
-      updateContentTypeConfig("blog", update);
+      updateContentTypeConfig("blog", update, getContentRoot(res));
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -848,7 +859,7 @@ export function registerContentRoutes(app: Express): void {
           ),
           url_pattern: config.url_pattern,
           locale_key: config.field_mapping?._locale || null,
-          static_entry_count: contentIndex.findByType(type).length,
+          static_entry_count: getCI(res).findByType(type).length,
           layout: getLayout(type),
         });
       }
@@ -897,9 +908,9 @@ export function registerContentRoutes(app: Express): void {
       addContentType(name, {
         directory: dir,
         url_pattern: normalizedPattern,
-      });
+      }, getContentRoot(res));
 
-      contentIndex.refresh();
+      getCI(res).refresh();
       clearSitemapCache();
 
       res.json({
@@ -924,7 +935,7 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
-      const staticEntries = contentIndex.findByType(type);
+      const staticEntries = getCI(res).findByType(type);
       const staticCount = staticEntries.length;
       const hasDatabase = !!config.database?.slug;
 
@@ -933,7 +944,7 @@ export function registerContentRoutes(app: Express): void {
         for (const entry of staticEntries) {
           const locales = entry.locales.length > 0 ? entry.locales : Object.keys(config.url_pattern).filter(k => k !== "default");
           for (const locale of locales) {
-            const url = contentIndex.buildUrl(type, locale, entry.slug);
+            const url = getCI(res).buildUrl(type, locale, entry.slug);
             if (url && !affectedUrls.includes(url)) {
               affectedUrls.push(url);
             }
@@ -948,13 +959,13 @@ export function registerContentRoutes(app: Express): void {
           has_database: hasDatabase,
           database_slug: config.database?.slug || null,
           affected_urls: affectedUrls,
-          message: `Deleting "${type}" will remove its definition from content-types.yml. The ${staticCount} content file(s) in marketing-content/${config.directory}/ will NOT be deleted but will no longer be served.`,
+          message: `Deleting "${type}" will remove its definition from content-types.yml. The ${staticCount} content file(s) in ${getContentRootName(res)}/${config.directory}/ will NOT be deleted but will no longer be served.`,
         });
         return;
       }
 
-      deleteContentType(type);
-      contentIndex.refresh();
+      deleteContentType(type, getContentRoot(res));
+      getCI(res).refresh();
       clearSitemapCache();
       res.json({ success: true, deleted: type });
     } catch (err) {
@@ -978,7 +989,7 @@ export function registerContentRoutes(app: Express): void {
         indexes: config.indexes || null,
         database: config.database || null,
         url_pattern: config.url_pattern,
-        static_entry_count: contentIndex.findByType(type).length,
+        static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -1059,8 +1070,8 @@ export function registerContentRoutes(app: Express): void {
       if (body.indexes !== undefined) update.indexes = body.indexes;
       if (body.unique_fields !== undefined) update.unique_fields = body.unique_fields;
       if (body.database !== undefined) update.database = body.database;
-      updateContentTypeConfig(type, update);
-      contentIndex.invalidateCommonFields(type);
+      updateContentTypeConfig(type, update, getContentRoot(res));
+      getCI(res).invalidateCommonFields(type);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -1075,7 +1086,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
-      const result = contentIndex.getCommonFields(type);
+      const result = getCI(res).getCommonFields(type);
       const excludeMapped = req.query.exclude_mapped === "true";
       if (excludeMapped && config.field_mapping) {
         const mappedSources = new Set(
@@ -1115,13 +1126,13 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
 
-      const slugs = contentIndex.listContentSlugs(type as ContentType);
+      const slugs = getCI(res).listContentSlugs(type as ContentType);
       const entries: Array<{ slug: string; value: unknown; url: string | null }> = [];
       for (const slug of slugs) {
-        const locales = contentIndex.getAvailableLocalesOrVariants(type as ContentType, slug);
+        const locales = getCI(res).getAvailableLocalesOrVariants(type as ContentType, slug);
         const entryLocale = locales.includes(locale) ? locale : locales[0];
         if (!entryLocale) continue;
-        const { data } = contentIndex.loadMergedContent(type, slug, entryLocale);
+        const { data } = getCI(res).loadMergedContent(type, slug, entryLocale);
         if (!data) continue;
         const value = extractByDotPath(data, source);
         let url: string | null = null;
@@ -1181,21 +1192,21 @@ export function registerContentRoutes(app: Express): void {
       const fieldMapping = config.field_mapping ?? {};
       const fieldKeys = Object.keys(fieldMapping).filter((k) => !k.startsWith("_"));
 
-      const slugs = contentIndex.listContentSlugs(type as ContentType);
+      const slugs = getCI(res).listContentSlugs(type as ContentType);
       if (slugs.length === 0) {
         res.json({ slug: null, title: null, fields: {}, computed: [] });
         return;
       }
 
       const targetSlug = slugParam && slugs.includes(slugParam) ? slugParam : slugs[0];
-      const availableLocales = contentIndex.getAvailableLocalesOrVariants(type as ContentType, targetSlug);
+      const availableLocales = getCI(res).getAvailableLocalesOrVariants(type as ContentType, targetSlug);
       const entryLocale = localeParam && availableLocales.includes(localeParam) ? localeParam : availableLocales[0];
       if (!entryLocale) {
         res.json({ slug: null, title: null, fields: {}, computed: [] });
         return;
       }
 
-      const { data } = contentIndex.loadMergedContent(type, targetSlug, entryLocale);
+      const { data } = getCI(res).loadMergedContent(type, targetSlug, entryLocale);
       if (!data) {
         res.json({ slug: null, title: null, fields: {}, computed: [] });
         return;
@@ -1238,9 +1249,9 @@ export function registerContentRoutes(app: Express): void {
         for (const otherSlug of slugs) {
           if (nullFields.length === 0) break;
           if (otherSlug === targetSlug) continue;
-          const otherLocales = contentIndex.getAvailableLocalesOrVariants(type as ContentType, otherSlug);
+          const otherLocales = getCI(res).getAvailableLocalesOrVariants(type as ContentType, otherSlug);
           if (!otherLocales.length) continue;
-          const otherResult = contentIndex.loadMergedContent(type, otherSlug, otherLocales[0]);
+          const otherResult = getCI(res).loadMergedContent(type, otherSlug, otherLocales[0]);
           if (!otherResult?.data) continue;
           for (let i = nullFields.length - 1; i >= 0; i--) {
             const fk = nullFields[i];
@@ -1277,13 +1288,13 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Content type "${name}" not found` });
         return;
       }
-      const filePath = path.join(process.cwd(), "marketing-content", folder, "_common.single.yml");
+      const filePath = path.join(getContentRoot(res), folder, "_common.single.yml");
       if (!fs.existsSync(filePath)) {
         res.json({ defaults: {} });
         return;
       }
       const raw = fs.readFileSync(filePath, "utf-8");
-      const parsed = contentIndex.safeYamlLoad(raw) || {};
+      const parsed = getCI(res).safeYamlLoad(raw) || {};
       res.json({ defaults: parsed });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -1303,11 +1314,11 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: "Request body must be a JSON object" });
         return;
       }
-      const filePath = path.join(process.cwd(), "marketing-content", folder, "_common.single.yml");
+      const filePath = path.join(getContentRoot(res), folder, "_common.single.yml");
       let existing: Record<string, unknown> = {};
       if (fs.existsSync(filePath)) {
         const raw = fs.readFileSync(filePath, "utf-8");
-        existing = contentIndex.safeYamlLoad(raw) || {};
+        existing = getCI(res).safeYamlLoad(raw) || {};
       }
       const merged = deepMerge(existing, body);
       const { escaped, map } = escapeObjectVars(merged);
@@ -1316,7 +1327,7 @@ export function registerContentRoutes(app: Express): void {
       fs.writeFileSync(filePath, yamlStr, "utf-8");
       const author = (req.body as Record<string, unknown>).author as string | undefined;
       markFileAsModified(filePath, author || "api");
-      invalidateContentCaches(name);
+      invalidateContentCaches(name, getCI(res));
       res.json({ success: true, defaults: merged });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -1475,10 +1486,10 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/static-entries", (req, res) => {
     try {
       const { type } = req.params;
-      const entries = contentIndex.findByType(type);
+      const entries = getCI(res).findByType(type);
       const versioningManager = getVersioningManager();
       const results = entries.map((entry) => {
-        const urls = contentIndex.getLocaleUrls(entry.slug, type);
+        const urls = getCI(res).getLocaleUrls(entry.slug, type);
         const versionCounts = versioningManager.getVersionCounts(type, entry.slug);
         return {
           slug: entry.slug,
@@ -1610,9 +1621,9 @@ export function registerContentRoutes(app: Express): void {
 
       // ── YAML-backed ──────────────────────────────────────────────────────────
       const dir = getDirectory(type);
-      const contentDir = path.join(process.cwd(), "marketing-content", dir);
+      const contentDir = path.join(getContentRoot(res), dir);
       if (!fs.existsSync(contentDir)) {
-        res.status(404).json({ error: `Content directory not found: marketing-content/${dir}` });
+        res.status(404).json({ error: `Content directory not found: ${getContentRootName(res)}/${dir}` });
         return;
       }
 
@@ -1635,7 +1646,7 @@ export function registerContentRoutes(app: Express): void {
           const commonPath = path.join(slugPath, "_common.yml");
           if (fs.existsSync(commonPath)) {
             try {
-              commonData = contentIndex.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) || {};
+              commonData = getCI(res).safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) || {};
             } catch { /* ignore broken _common.yml */ }
           }
 
@@ -1645,7 +1656,7 @@ export function registerContentRoutes(app: Express): void {
             if (!fs.existsSync(localePath)) continue;
 
             try {
-              const localeData = contentIndex.safeYamlLoad(fs.readFileSync(localePath, "utf-8")) || {};
+              const localeData = getCI(res).safeYamlLoad(fs.readFileSync(localePath, "utf-8")) || {};
               const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
 
               const rawMeta = (merged.meta as Record<string, unknown>) ?? {};
@@ -1850,7 +1861,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: `Unknown content type "${type}"` });
         return;
       }
-      const dir = path.join(process.cwd(), "marketing-content", config.directory, slug);
+      const dir = path.join(getContentRoot(res), config.directory, slug);
       const promotedPath = path.join(dir, "promoted.yml");
       if (!fs.existsSync(promotedPath)) {
         res.status(400).json({ error: "Not a legacy entry — promoted.yml not found" });
@@ -1870,9 +1881,9 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       fs.renameSync(promotedPath, destPath);
-      contentIndex.refresh();
+      getCI(res).refresh();
       clearSitemapCache();
-      invalidateContentCaches(type);
+      invalidateContentCaches(type, getCI(res));
       res.json({ success: true, locale, newFile: `${locale}.yml` });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -2116,7 +2127,7 @@ Important: Only include mappings where you are confident the field exists. Use d
         return;
       }
 
-      const configPath = path.resolve("marketing-content/llm.yml");
+      const configPath = path.join(getContentRoot(res), "llm.yml");
       const newConfig: Record<string, unknown> = {
         provider: {
           api_key_env:
@@ -2146,8 +2157,7 @@ Important: Only include mappings where you are confident the field exists. Use d
     const normalizedLocale = normalizeLocale(locale);
 
     const testimonialsPath = path.join(
-      process.cwd(),
-      "marketing-content",
+      getContentRoot(res),
       "testimonials",
       `${normalizedLocale}.yml`,
     );

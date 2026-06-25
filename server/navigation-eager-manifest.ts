@@ -16,7 +16,7 @@ const log = child({ module: "navigation-eager-manifest" });
 
 const OUT_FILE = path.join(
   process.cwd(),
-  "marketing-content",
+  process.env.CONTENT_FOLDER || "marketing-content",
   "navigation-eager-manifest.json",
 );
 
@@ -78,12 +78,12 @@ function walkForPaths(obj: unknown, paths: Set<string>): void {
   }
 }
 
-function collectPathsFromContent(): Set<string> {
+function collectPathsFromContent(ci: typeof contentIndex = contentIndex): Set<string> {
   const paths = new Set<string>();
-  for (const entry of contentIndex.listAll()) {
+  for (const entry of ci.listAll()) {
     for (const locale of entry.locales) {
       if (locale.startsWith("_") || locale.includes(".")) continue;
-      const merged = contentIndex.loadMergedContent(entry.contentType, entry.slug, locale);
+      const merged = ci.loadMergedContent(entry.contentType, entry.slug, locale);
       if (merged.data) walkForPaths(merged.data, paths);
     }
   }
@@ -91,7 +91,7 @@ function collectPathsFromContent(): Set<string> {
 }
 
 function collectPathsFromMenus(
-  menusDir = path.join(process.cwd(), "marketing-content", "menus"),
+  menusDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "menus"),
 ): Set<string> {
   const paths = new Set<string>();
   if (!fs.existsSync(menusDir)) return paths;
@@ -108,10 +108,11 @@ function collectPathsFromMenus(
   return paths;
 }
 
-function collectAllInternalPaths(): Set<string> {
+function collectAllInternalPaths(ci: typeof contentIndex = contentIndex, contentRoot?: string): Set<string> {
   const paths = new Set<string>();
-  for (const p of Array.from(collectPathsFromContent())) paths.add(p);
-  for (const p of Array.from(collectPathsFromMenus())) paths.add(p);
+  const menusDir = contentRoot ? path.join(contentRoot, "menus") : undefined;
+  for (const p of Array.from(collectPathsFromContent(ci))) paths.add(p);
+  for (const p of Array.from(collectPathsFromMenus(menusDir))) paths.add(p);
   addPath(paths, "/en");
   addPath(paths, "/es");
   return paths;
@@ -189,8 +190,11 @@ function buildManifestPayload(
 }
 
 /** Writes navigation-eager-manifest.json for client hover prefetch. */
-export async function regenerateNavigationEagerManifest(): Promise<void> {
-  const candidates = collectAllInternalPaths();
+export async function regenerateNavigationEagerManifest(ci: typeof contentIndex = contentIndex, contentRoot?: string): Promise<void> {
+  const outFile = contentRoot
+    ? path.join(contentRoot, "navigation-eager-manifest.json")
+    : OUT_FILE;
+  const candidates = collectAllInternalPaths(ci, contentRoot);
   const sorted = Array.from(candidates).sort();
   const paths: Record<string, ManifestEntry> = {};
 
@@ -198,7 +202,7 @@ export async function regenerateNavigationEagerManifest(): Promise<void> {
   let skipped = 0;
 
   for (const pagePath of sorted) {
-    const result = await resolvePageQuery(pagePath);
+    const result = await resolvePageQuery(pagePath, ci);
     if (!result?.data) {
       skipped++;
       continue;
@@ -213,22 +217,25 @@ export async function regenerateNavigationEagerManifest(): Promise<void> {
   }
 
   const generatedAt = new Date().toISOString();
-  fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const payload = buildManifestPayload(paths, generatedAt);
-  fs.writeFileSync(OUT_FILE, `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
+  fs.writeFileSync(outFile, `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
 
   log.info(
-    `[NavigationManifest] wrote ${OUT_FILE} (${resolved} paths, ${skipped} skipped, ${sorted.length} candidates)`,
+    `[NavigationManifest] wrote ${outFile} (${resolved} paths, ${skipped} skipped, ${sorted.length} candidates)`,
   );
 }
 
 export type NavigationEagerManifestPayload = ReturnType<typeof buildManifestPayload>;
 
-/** Reads marketing-content/navigation-eager-manifest.json (server-side, like theme.json). */
-export function readNavigationEagerManifest(): NavigationEagerManifestPayload | null {
+/** Reads navigation-eager-manifest.json for the given site (server-side, like theme.json). */
+export function readNavigationEagerManifest(contentRoot?: string): NavigationEagerManifestPayload | null {
+  const filePath = contentRoot
+    ? path.join(contentRoot, "navigation-eager-manifest.json")
+    : OUT_FILE;
   try {
-    if (!fs.existsSync(OUT_FILE)) return null;
-    return JSON.parse(fs.readFileSync(OUT_FILE, "utf-8")) as NavigationEagerManifestPayload;
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as NavigationEagerManifestPayload;
   } catch {
     return null;
   }

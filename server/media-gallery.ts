@@ -14,8 +14,10 @@ const log = child({ module: "media-gallery" });
 
 
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "marketing-content";
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), CONTENT_FOLDER_NAME);
 const MARKETING_IMAGES_DIR = path.join(MARKETING_CONTENT_DIR, "images");
+const MARKETING_IMAGES_URL_PREFIX = `/${CONTENT_FOLDER_NAME}/images/`;
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg", ".avif", ".gif"]);
 const OPTIMIZABLE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif"]);
@@ -154,7 +156,7 @@ class MediaGallery {
         // Write the cleaned registry back to disk immediately so the fields
         // are never committed to version control again.
         fs.writeFileSync(REGISTRY_PATH, JSON.stringify(raw, null, 2) + "\n", "utf8");
-        markFileAsModified("marketing-content/image-registry.json");
+        markFileAsModified(`${CONTENT_FOLDER_NAME}/image-registry.json`);
       }
 
       this.registryCache = raw;
@@ -201,7 +203,8 @@ class MediaGallery {
       }
     };
 
-    const URL_PATTERN = /(?:https?:\/\/[^\s"']+|\/attached_assets\/[^\s"']+|\/marketing-content\/images\/[^\s"']+)/g;
+    const escapedPrefix = MARKETING_IMAGES_URL_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const URL_PATTERN = new RegExp(`(?:https?:\\/\\/[^\\s"']+|\\/attached_assets\\/[^\\s"']+|${escapedPrefix}[^\\s"']+)`, "g");
     const isLikelyRegistryId = (value: string): boolean =>
       /^[a-z0-9][a-z0-9-]{3,}$/.test(value) &&
       !value.includes("/") &&
@@ -243,7 +246,7 @@ class MediaGallery {
         srcValues.add(obj);
         if (
           obj.startsWith("/attached_assets/") || obj.startsWith("attached_assets/") ||
-          obj.startsWith("/marketing-content/images/") || obj.startsWith("marketing-content/images/") ||
+          obj.startsWith(MARKETING_IMAGES_URL_PREFIX) || obj.startsWith(`${CONTENT_FOLDER_NAME}/images/`) ||
           obj.startsWith("https://storage.googleapis.com/") ||
           obj.startsWith("http://") || obj.startsWith("https://")
         ) {
@@ -279,9 +282,9 @@ class MediaGallery {
     };
 
     // Parse a YAML file's relative path into content type, slug and locale.
-    // Expected pattern: marketing-content/{contentType}/{slug}/{locale}.yml
+    // Expected pattern: {contentFolder}/{contentType}/{slug}/{locale}.yml
     const parseYamlFilePath = (relPath: string): { contentType: string; slug: string; locale: string } | null => {
-      const match = relPath.match(/^marketing-content\/([^/]+)\/([^/]+)\/([^/.]+)\.ya?ml$/);
+      const match = relPath.match(new RegExp(`^${CONTENT_FOLDER_NAME}\\/([^/]+)\\/([^/]+)\\/([^/.]+)\\.ya?ml$`));
       if (!match) return null;
       return { contentType: match[1], slug: match[2], locale: match[3] };
     };
@@ -458,7 +461,7 @@ class MediaGallery {
     const seen = new Set<string>();
 
     const parseYamlPath = (fp: string) => {
-      const m = fp.match(/^marketing-content\/([^/]+)\/([^/]+)\/([^/.]+)\.ya?ml$/);
+      const m = fp.match(new RegExp(`^${CONTENT_FOLDER_NAME}\\/([^/]+)\\/([^/]+)\\/([^/.]+)\\.ya?ml$`));
       return m ? { contentType: m[1], slug: m[2], locale: m[3] } : null;
     };
 
@@ -603,7 +606,7 @@ class MediaGallery {
       if (raw.editor[dbField].cache_images === true) return true;
       raw.editor[dbField].cache_images = true;
       fs.writeFileSync(configPath, yaml.dump(raw, { lineWidth: -1 }), "utf8");
-      markFileAsModified(`marketing-content/db/${dbSlug}/config.yml`);
+      markFileAsModified(`${CONTENT_FOLDER_NAME}/db/${dbSlug}/config.yml`);
       return true;
     } catch {}
     return false;
@@ -626,7 +629,7 @@ class MediaGallery {
       }
       if (updated) {
         fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n", "utf8");
-        markFileAsModified("marketing-content/image-registry.json");
+        markFileAsModified(`${CONTENT_FOLDER_NAME}/image-registry.json`);
         this.registryCache = null;
         this.lastModified = 0;
       }
@@ -762,7 +765,7 @@ class MediaGallery {
     const attachedAssets = this.scanLocalImageDirectory(
       path.join(process.cwd(), "attached_assets"), "/attached_assets/", true
     );
-    const marketingImages = this.scanLocalImageDirectory(MARKETING_IMAGES_DIR, "/marketing-content/images/", false);
+    const marketingImages = this.scanLocalImageDirectory(MARKETING_IMAGES_DIR, MARKETING_IMAGES_URL_PREFIX, false);
     const combined = new Map<string, string>();
     attachedAssets.forEach((src, key) => combined.set(key, src));
     marketingImages.forEach((src, key) => combined.set(key, src));
@@ -776,7 +779,7 @@ class MediaGallery {
   ): void {
     if (typeof value === "string") {
       if (value.startsWith("/attached_assets/") || value.startsWith("attached_assets/") ||
-          value.startsWith("/marketing-content/images/") || value.startsWith("marketing-content/images/") ||
+          value.startsWith(MARKETING_IMAGES_URL_PREFIX) || value.startsWith(`${CONTENT_FOLDER_NAME}/images/`) ||
           value.startsWith("https://storage.googleapis.com/")) {
         results.push({ field: currentPath, src: value });
       }
@@ -858,7 +861,7 @@ class MediaGallery {
   async scan(): Promise<ScanResult> {
     const registry = this.getRegistry() || { presets: {}, images: {} };
     const allImages = this.scanAllLocalImages();
-    const marketingOnly = this.scanLocalImageDirectory(MARKETING_IMAGES_DIR, "/marketing-content/images/", false);
+    const marketingOnly = this.scanLocalImageDirectory(MARKETING_IMAGES_DIR, MARKETING_IMAGES_URL_PREFIX, false);
     const yamlRefs = this.scanYamlFiles();
 
     const existingSrcSet = new Set<string>();
@@ -1187,7 +1190,7 @@ class MediaGallery {
 
   private toDestKey(sourceKey: string, prefix?: string): string {
     let relative = sourceKey;
-    const localPrefixes = ["/marketing-content/images/", "/attached_assets/", "marketing-content/images/", "attached_assets/"];
+    const localPrefixes = [MARKETING_IMAGES_URL_PREFIX, "/attached_assets/", `${CONTENT_FOLDER_NAME}/images/`, "attached_assets/"];
     for (const p of localPrefixes) {
       if (relative.startsWith(p)) {
         relative = relative.slice(p.length);
@@ -1322,7 +1325,7 @@ class MediaGallery {
       }
       const destPath = path.join(destDir, sanitized);
       fs.writeFileSync(destPath, data);
-      src = `/marketing-content/images/${sanitized}`;
+      src = `${MARKETING_IMAGES_URL_PREFIX}${sanitized}`;
     } else {
       const key = sanitized;
       src = await defaultProvider.upload(key, data, contentType);
@@ -1479,7 +1482,7 @@ class MediaGallery {
       const inAssets = path.join(ATTACHED_ASSETS_DIR, filename);
 
       if (fs.existsSync(inImages)) {
-        redundant.push({ id, cloudUrl: entry.src, localPath: `/marketing-content/images/${filename}` });
+        redundant.push({ id, cloudUrl: entry.src, localPath: `${MARKETING_IMAGES_URL_PREFIX}${filename}` });
       } else if (fs.existsSync(inAssets)) {
         redundant.push({ id, cloudUrl: entry.src, localPath: `/attached_assets/${filename}` });
       }
@@ -1572,7 +1575,7 @@ class MediaGallery {
     }
 
     fs.writeFileSync(REGISTRY_PATH, nextContent, "utf8");
-    markFileAsModified("marketing-content/image-registry.json");
+    markFileAsModified(`${CONTENT_FOLDER_NAME}/image-registry.json`);
     this.clearCache();
   }
 }

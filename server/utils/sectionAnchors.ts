@@ -31,7 +31,7 @@ export interface SectionAnchors {
 
 function getSidecarPath(contentType: string): string {
   const folder = getFolder(contentType);
-  return path.join(process.cwd(), "marketing-content", folder, "_section_anchors.json");
+  return path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", folder, "_section_anchors.json");
 }
 
 /**

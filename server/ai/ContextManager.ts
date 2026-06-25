@@ -82,7 +82,7 @@ export class ContextManager {
    * Load brand context from marketing-content/brand-context.yml
    */
   async getBrandContext(): Promise<BrandContext> {
-    const filePath = path.join(process.cwd(), "marketing-content", "brand-context.yml");
+    const filePath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "brand-context.yml");
     const cacheKey = "brand-context";
     const currentMtime = this.getFileMtime(filePath);
 
@@ -108,7 +108,7 @@ export class ContextManager {
   async getContentContext(type: string, slug: string): Promise<ContentContext> {
     const filePath = path.join(
       process.cwd(),
-      "marketing-content",
+      process.env.CONTENT_FOLDER || "marketing-content",
       type,
       slug,
       "_common.yml"
@@ -146,7 +146,7 @@ export class ContextManager {
   async getComponentContext(name: string, version: string): Promise<ComponentContext> {
     const filePath = path.join(
       process.cwd(),
-      "marketing-content",
+      process.env.CONTENT_FOLDER || "marketing-content",
       "component-registry",
       name,
       version,

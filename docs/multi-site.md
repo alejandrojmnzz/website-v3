@@ -1,5 +1,38 @@
 # Multi-site content repo separation
 
+## Subdomain routing (single deployment, multiple sites)
+
+One deployment can serve multiple sites differentiated by subdomain or domain. Each
+site gets its own content folder. The router reads `sites.yml` at the repo root.
+
+### sites.yml format
+
+```yaml
+# sites.yml (repo root)
+app.example.com:
+  content_folder: content-example        # relative to project root
+  github_repo_url: https://github.com/org/example-content
+
+app.other.com:
+  content_folder: content-other
+  github_repo_url: https://github.com/org/other-content
+```
+
+When `sites.yml` is absent the server falls back to **single-site mode** using the
+`CONTENT_FOLDER` environment variable (default: `content`).
+
+### Development override
+
+Append `?__site=app.example.com` to any URL to force a specific site without editing DNS.
+
+### Environment variables
+
+| Variable | Description |
+|---|---|
+| `CONTENT_FOLDER` | Content folder for single-site mode (default: `content`). Set to `marketing-content` for existing deployments that haven't migrated. |
+
+---
+
 This platform supports running the **same code** across multiple sites, each with its
 own `marketing-content/` stored in a dedicated GitHub repository.  The platform code
 repo does **not** contain any content — `marketing-content/` is gitignored (except for

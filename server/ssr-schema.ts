@@ -13,27 +13,28 @@ const log = child({ module: "ssr-schema" });
 
 
 
-const MARKETING_CONTENT_PATH = path.join(process.cwd(), "marketing-content");
+const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
 
 const DEFAULT_IMAGE_DIMENSIONS = { width: 1200, height: 630 };
-let imageRegistryCache: Record<string, { src?: string; width?: number; height?: number }> | null = null;
+const imageRegistryByRoot = new Map<string, Record<string, { src?: string; width?: number; height?: number }>>();
 
-function getImageRegistryImages(): Record<string, { src?: string; width?: number; height?: number }> {
-  if (imageRegistryCache) return imageRegistryCache;
+function getImageRegistryImages(contentRoot: string): Record<string, { src?: string; width?: number; height?: number }> {
+  if (imageRegistryByRoot.has(contentRoot)) return imageRegistryByRoot.get(contentRoot)!;
   try {
-    const regPath = path.join(MARKETING_CONTENT_PATH, "image-registry.json");
+    const regPath = path.join(contentRoot, "image-registry.json");
     if (!fs.existsSync(regPath)) return {};
     const parsed = JSON.parse(fs.readFileSync(regPath, "utf-8")) as { images?: Record<string, { src?: string; width?: number; height?: number }> };
-    imageRegistryCache = parsed.images || {};
-    return imageRegistryCache;
+    const result = parsed.images || {};
+    imageRegistryByRoot.set(contentRoot, result);
+    return result;
   } catch {
     return {};
   }
 }
 
-function getImageDimensions(imageUrl: string): { width: number; height: number } {
+function getImageDimensions(imageUrl: string, contentRoot: string): { width: number; height: number } {
   if (!imageUrl) return DEFAULT_IMAGE_DIMENSIONS;
-  const images = getImageRegistryImages();
+  const images = getImageRegistryImages(contentRoot);
   const entry = Object.values(images).find((img) => img.src === imageUrl);
   if (entry?.width && entry?.height) return { width: entry.width, height: entry.height };
   return DEFAULT_IMAGE_DIMENSIONS;
@@ -81,30 +82,32 @@ interface ParsedRoute {
   locale: string;
 }
 
-let faqCache: Record<string, FaqItem[]> = {};
+const faqCacheByRoot = new Map<string, Record<string, FaqItem[]>>();
 
-function loadCentralizedFaqs(locale: string): FaqItem[] {
-  if (faqCache[locale]) return faqCache[locale];
+function loadCentralizedFaqs(locale: string, contentRoot: string): FaqItem[] {
+  if (!faqCacheByRoot.has(contentRoot)) faqCacheByRoot.set(contentRoot, {});
+  const rootCache = faqCacheByRoot.get(contentRoot)!;
+  if (rootCache[locale]) return rootCache[locale];
 
-  const faqPath = path.join(MARKETING_CONTENT_PATH, "faqs", `${locale}.yml`);
+  const faqPath = path.join(contentRoot, "faqs", `${locale}.yml`);
   if (!fs.existsSync(faqPath)) return [];
 
   try {
     const content = fs.readFileSync(faqPath, "utf-8");
     const data = safeYamlLoad(content) as { faqs?: FaqItem[] };
-    faqCache[locale] = data?.faqs || [];
-    return faqCache[locale];
+    rootCache[locale] = data?.faqs || [];
+    return rootCache[locale];
   } catch {
     return [];
   }
 }
 
 export function clearSsrSchemaCache(): void {
-  faqCache = {};
-  imageRegistryCache = null;
+  faqCacheByRoot.clear();
+  imageRegistryByRoot.clear();
 }
 
-function parseRoute(url: string): ParsedRoute | null {
+function parseRoute(url: string, ci: typeof contentIndex = contentIndex): ParsedRoute | null {
   const cleanUrl = url.split("?")[0].split("#")[0];
 
   const supportedLocales = getSupportedLocales();
@@ -122,13 +125,13 @@ function parseRoute(url: string): ParsedRoute | null {
     return { contentType: homePage.type, slug: homePage.slug, locale };
   }
 
-  const resolved = contentIndex.resolveUrl(cleanUrl);
+  const resolved = ci.resolveUrl(cleanUrl);
   if (resolved && !resolved.fromDatabase) {
     let locale = cleanUrl.match(/^\/(es)\b/) ? "es" : "en";
     if (resolved.params?.locale) {
       locale = resolved.params.locale;
     } else if (!cleanUrl.match(/^\/(en|es)\b/)) {
-      const commonData = contentIndex.loadCommonData(resolved.contentType, resolved.slug);
+      const commonData = ci.loadCommonData(resolved.contentType, resolved.slug);
       if (commonData?.locale && typeof commonData.locale === "string") {
         locale = commonData.locale;
       }
@@ -139,10 +142,10 @@ function parseRoute(url: string): ParsedRoute | null {
   return null;
 }
 
-export function loadRawYaml(contentType: string, slug: string, locale: string): Record<string, unknown> | null {
-  const resolvedSlug = contentIndex.resolveBaseSlug(slug, contentType);
+export function loadRawYaml(contentType: string, slug: string, locale: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): Record<string, unknown> | null {
+  const resolvedSlug = ci.resolveBaseSlug(slug, contentType);
   const folder = getFolder(contentType);
-  const contentDir = path.join(MARKETING_CONTENT_PATH, folder, resolvedSlug);
+  const contentDir = path.join(contentRoot, folder, resolvedSlug);
   const commonPath = path.join(contentDir, "_common.yml");
 
   const contentPath = path.join(contentDir, `${locale}.yml`);
@@ -195,13 +198,13 @@ export function buildBreadcrumbListSchema(items: BreadcrumbSectionItem[], baseUr
   };
 }
 
-export function resolveFaqItems(section: FaqSection, locale: string, locationSlug?: string, programSlug?: string): Array<{ question: string; answer: string }> {
+export function resolveFaqItems(section: FaqSection, locale: string, locationSlug?: string, programSlug?: string, contentRoot: string = DEFAULT_CONTENT_ROOT): Array<{ question: string; answer: string }> {
   if (section.items && section.items.length > 0) {
     return section.items.map(({ question, answer }) => ({ question, answer }));
   }
 
   if (section.related_features && section.related_features.length > 0) {
-    const allFaqs = loadCentralizedFaqs(locale);
+    const allFaqs = loadCentralizedFaqs(locale, contentRoot);
     const relatedFeatures = section.related_features;
 
     let filtered = allFaqs
@@ -257,6 +260,8 @@ export function generateDatabaseSsrHtml(
   contentType: string,
   record: Record<string, unknown>,
   locale: string,
+  ci: typeof contentIndex = contentIndex,
+  contentRoot: string = DEFAULT_CONTENT_ROOT,
 ): string {
   const baseUrl = getBaseUrl();
   const config = getContentTypeConfig(contentType);
@@ -283,7 +288,7 @@ export function generateDatabaseSsrHtml(
 
   const title = ((record.title as string) || "").replace(/"/g, "&quot;");
   const description = ((record.description as string) || (record.preview as string) || "").replace(/"/g, "&quot;");
-  const image = record.preview as string || record.image as string || "";
+  const image = (record.preview as string) || (record.image as string) || "";
   const publishedAt = (record.published_at as string) || (record.created_at as string) || "";
   const updatedAt = (record.updated_at as string) || publishedAt;
 
@@ -329,7 +334,7 @@ export function generateDatabaseSsrHtml(
   const robots = typeof record.robots === "string" ? record.robots : "index, follow";
   const ogType = contentType === "blog" ? "article" : "website";
   const twitterHandle = getOrganizationTwitterHandle();
-  const imageDimensions = image ? getImageDimensions(image) : null;
+  const imageDimensions = image ? getImageDimensions(image, contentRoot) : null;
   const metaTags = [
     `<title>${title} | 4Geeks Academy</title>`,
     `<meta name="robots" content="${robots}" />`,
@@ -353,11 +358,11 @@ export function generateDatabaseSsrHtml(
     `<link rel="canonical" href="${recordUrl}" />`,
   ].filter(Boolean);
 
-  const hreflangTags = generateHreflangTags(contentType, record.slug as string || "", locale, record);
+  const hreflangTags = generateHreflangTags(contentType, (record.slug as string) || "", locale, record, undefined, ci);
   return [...hreflangTags, ...metaTags, ...scripts].join("\n");
 }
 
-export function generateListingSsrHtml(contentType: string, locale: string): string {
+export function generateListingSsrHtml(contentType: string, locale: string, contentRoot: string = DEFAULT_CONTENT_ROOT): string {
   const baseUrl = getBaseUrl();
   const config = getContentTypeConfig(contentType);
   if (!config?.url_pattern) return "";
@@ -374,7 +379,7 @@ export function generateListingSsrHtml(contentType: string, locale: string): str
 
   const twitterHandle = getOrganizationTwitterHandle();
   const defaultSocialImage = getWebsiteDefaultSocialImage();
-  const defaultImageDimensions = defaultSocialImage ? getImageDimensions(defaultSocialImage) : null;
+  const defaultImageDimensions = defaultSocialImage ? getImageDimensions(defaultSocialImage, contentRoot) : null;
   const metaTags = [
     `<title>${title}</title>`,
     `<meta name="robots" content="index, follow" />`,
@@ -399,11 +404,11 @@ export function generateListingSsrHtml(contentType: string, locale: string): str
   return [...hreflangTags, ...metaTags].join("\n");
 }
 
-export function resolvePageRobots(url: string): string {
+export function resolvePageRobots(url: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): string {
   try {
-    const route = parseRoute(url);
+    const route = parseRoute(url, ci);
     if (!route) return "index, follow";
-    const pageData = loadRawYaml(route.contentType, route.slug, route.locale);
+    const pageData = loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
     if (!pageData) return "index, follow";
     const meta = pageData.meta as Record<string, unknown> | undefined;
     return typeof meta?.robots === "string" ? meta.robots : "index, follow";
@@ -412,12 +417,12 @@ export function resolvePageRobots(url: string): string {
   }
 }
 
-export function generateSsrSchemaHtml(url: string): string {
+export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): string {
   try {
-    const route = parseRoute(url);
+    const route = parseRoute(url, ci);
     if (!route) return "";
 
-    const pageData = loadRawYaml(route.contentType, route.slug, route.locale);
+    const pageData = loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
     if (!pageData) return "";
 
     const scripts: string[] = [];
@@ -440,7 +445,7 @@ export function generateSsrSchemaHtml(url: string): string {
 
       for (const section of sections) {
         if (section.type === "faq") {
-          const faqItems = resolveFaqItems(section as unknown as FaqSection, route.locale, locationSlug, programSlug);
+          const faqItems = resolveFaqItems(section as unknown as FaqSection, route.locale, locationSlug, programSlug, contentRoot);
           if (faqItems.length > 0) {
             scripts.push(
               `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildFaqPageSchema(faqItems))}</script>`
@@ -467,7 +472,7 @@ export function generateSsrSchemaHtml(url: string): string {
     const ogImage = typeof meta?.og_image === "string" ? meta.og_image : null;
     const twitterHandle = getOrganizationTwitterHandle();
     const socialImageUrl = ogImage || getWebsiteDefaultSocialImage();
-    const socialImageDimensions = socialImageUrl ? getImageDimensions(socialImageUrl) : null;
+    const socialImageDimensions = socialImageUrl ? getImageDimensions(socialImageUrl, contentRoot) : null;
     const socialTags = [
       twitterHandle ? `<meta name="twitter:site" content="${twitterHandle}" />` : "",
       twitterHandle ? `<meta name="twitter:creator" content="${twitterHandle}" />` : "",
@@ -480,7 +485,7 @@ export function generateSsrSchemaHtml(url: string): string {
     const isHomepageRoute = homePage?.type === route.contentType && homePage?.slug === route.slug;
     const hreflangTags = isHomepageRoute
       ? generateHomepageHreflangTags()
-      : generateHreflangTags(route.contentType, route.slug, route.locale);
+      : generateHreflangTags(route.contentType, route.slug, route.locale, undefined, undefined, ci);
     return [...hreflangTags, robotsTag, ...socialTags, ...scripts].join("\n");
   } catch (err) {
     log.error("[SSR-Schema] Error generating schema for", url, err);

@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { getSiteContextMap } from "../site-manager";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
@@ -233,18 +234,41 @@ export function registerGithubRoutes(app: Express): void {
       }
 
       const { getWebhookInfo } = await import("../sync-state");
-      const webhookInfo = getWebhookInfo();
-      if (!webhookInfo) {
-        logSync("WEBHOOK", "Rejected: no webhook configured in sync state");
-        res.status(500).json({ error: "No webhook configured" });
-        return;
-      }
-
       const { verifyWebhookSignature } = await import("../github");
       const rawBody = (req as any).rawBody;
       const payload = rawBody
         ? rawBody.toString("utf-8")
         : JSON.stringify(req.body);
+
+      // Resolve the correct per-site webhook secret by matching the push repo URL
+      // against registered site configs.  Falls back to the default (no contentRoot)
+      // state for single-site deployments.
+      let webhookInfo = (() => {
+        try {
+          const parsedRaw = rawBody ? JSON.parse(rawBody.toString("utf-8")) : req.body;
+          const incomingRepo = (
+            parsedRaw?.repository?.html_url ||
+            parsedRaw?.repository?.clone_url ||
+            ""
+          ).replace(/\.git$/, "").toLowerCase();
+          if (incomingRepo) {
+            for (const ctx of Array.from(getSiteContextMap().values())) {
+              const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
+              if (siteRepo && siteRepo === incomingRepo) {
+                const perSiteInfo = getWebhookInfo(ctx.contentRootName);
+                if (perSiteInfo) return perSiteInfo;
+              }
+            }
+          }
+        } catch { /* fall through */ }
+        return getWebhookInfo();
+      })();
+
+      if (!webhookInfo) {
+        logSync("WEBHOOK", "Rejected: no webhook configured in sync state");
+        res.status(500).json({ error: "No webhook configured" });
+        return;
+      }
 
       if (
         !verifyWebhookSignature(payload, signature, webhookInfo.webhookSecret)
@@ -315,23 +339,43 @@ export function registerGithubRoutes(app: Express): void {
         for (const f of commit.removed || []) changedFiles.add(f);
       }
 
+      // Match this push to a site by comparing the payload's repo URL against
+      // registered sites' githubRepoUrl.  Falls back to the global GITHUB_REPO_URL
+      // env var (single-site mode or un-matched multi-site push).
+      const pushRepoUrl = (
+        pushPayload.repository?.html_url ||
+        pushPayload.repository?.clone_url ||
+        ""
+      ).replace(/\.git$/, "").toLowerCase();
+
+      let contentFolderPrefix = process.env.CONTENT_FOLDER || "content";
+      if (pushRepoUrl) {
+        for (const ctx of Array.from(getSiteContextMap().values())) {
+          const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
+          if (siteRepo && siteRepo === pushRepoUrl) {
+            contentFolderPrefix = ctx.contentRootName;
+            break;
+          }
+        }
+      }
+
       const marketingFiles = Array.from(changedFiles).filter((f) =>
-        f.startsWith("marketing-content/"),
+        f.startsWith(`${contentFolderPrefix}/`),
       );
 
       if (marketingFiles.length === 0) {
         logSync(
           "WEBHOOK",
-          `Push ${commitSha?.slice(0, 7)} by ${person}: no marketing-content files changed`,
+          `Push ${commitSha?.slice(0, 7)} by ${person}: no ${contentFolderPrefix} files changed`,
           person,
         );
-        res.json({ ok: true, message: "No marketing-content files changed" });
+        res.json({ ok: true, message: `No ${contentFolderPrefix} files changed` });
         return;
       }
 
       logSync(
         "WEBHOOK",
-        `Push ${commitSha?.slice(0, 7)} by ${person}: ${marketingFiles.length} marketing-content files changed`,
+        `Push ${commitSha?.slice(0, 7)} by ${person}: ${marketingFiles.length} ${contentFolderPrefix} files changed`,
         person,
       );
 
@@ -348,18 +392,22 @@ export function registerGithubRoutes(app: Express): void {
       }
 
       const { autoPullNonConflicting } = await import("../github");
-      const result = await autoPullNonConflicting(marketingFiles, commitSha);
+      const pullOpts = {
+        contentRoot: contentFolderPrefix,
+        repoUrl: pushRepoUrl || undefined,
+      };
+      const result = await autoPullNonConflicting(marketingFiles, commitSha, pullOpts);
 
       if (result.pulled.length > 0) {
         logSync(
           "AUTO-PULL",
-          `Webhook: pulled ${result.pulled.length} files from ${commitSha?.slice(0, 7)}: ${result.pulled.map((f) => f.replace("marketing-content/", "")).join(", ")}`,
+          `Webhook: pulled ${result.pulled.length} files from ${commitSha?.slice(0, 7)}: ${result.pulled.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
         );
       }
       if (result.conflicted.length > 0) {
         logSync(
           "CONFLICT",
-          `Webhook: ${result.conflicted.length} files have local edits: ${result.conflicted.map((f) => f.replace("marketing-content/", "")).join(", ")}`,
+          `Webhook: ${result.conflicted.length} files have local edits: ${result.conflicted.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
         );
       }
       if (result.errors.length > 0) {
@@ -807,7 +855,7 @@ export function registerGithubRoutes(app: Express): void {
         const effectiveAuthor = authorName || "MCP";
         for (const filePath of filesToQueue) {
           markFileAsModified(filePath, effectiveAuthor);
-          const shortPath = filePath.replace("marketing-content/", "");
+          const shortPath = filePath.split('/').slice(1).join('/') || filePath;
           logSync("EDIT", `MCP queued edit: ${shortPath}`, effectiveAuthor);
         }
 
@@ -1049,11 +1097,15 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
-  // Push all local marketing-content/ files to the remote content repo (seed operation)
+  // Push all local content files to the remote content repo (seed operation)
   app.post("/api/github/content/push-all", async (_req, res) => {
     try {
       const { pushAllContentToRemote } = await import("../github");
-      const result = await pushAllContentToRemote();
+      const site = res.locals.site as any;
+      const result = await pushAllContentToRemote({
+        contentRoot: site?.contentRoot,
+        repoUrl: site?.config?.githubRepoUrl,
+      });
       res.json({ success: result.errors.length === 0, committed: result.committed.length, errors: result.errors });
     } catch (error) {
       log.error({ err: error }, "Error running push-all:");

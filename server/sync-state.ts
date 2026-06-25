@@ -15,48 +15,94 @@ const log = child({ module: "sync-state" });
 
 
 
-const SYNC_STATE_PATH = path.join(process.cwd(), 'marketing-content', '.sync-state.json');
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), 'marketing-content');
-const GCS_SYNC_STATE_KEY = 'sync/sync-state.json';
+const DEFAULT_CONTENT_FOLDER = process.env.CONTENT_FOLDER || 'content';
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), DEFAULT_CONTENT_FOLDER);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+/**
+ * Returns the relative content folder name for a given contentRoot.
+ * Falls back to CONTENT_FOLDER env var (or 'marketing-content') when no contentRoot provided.
+ */
+export function getContentFolder(contentRoot?: string): string {
+  if (!contentRoot) return DEFAULT_CONTENT_FOLDER;
+  return path.isAbsolute(contentRoot)
+    ? path.relative(process.cwd(), contentRoot)
+    : contentRoot;
+}
+
+/**
+ * Normalize a file path so it carries the correct content folder prefix.
+ * Handles absolute paths, already-prefixed relative paths, and bare relative paths.
+ */
+function normalizePath(filePath: string, contentRoot?: string): string {
+  if (path.isAbsolute(filePath)) {
+    return path.relative(process.cwd(), filePath);
+  }
+  const folder = getContentFolder(contentRoot);
+  return filePath.startsWith(`${folder}/`) || filePath.startsWith('client/')
+    ? filePath
+    : `${folder}/${filePath}`;
+}
+
+/**
+ * Returns the local filesystem path for the sync-state JSON file.
+ * When contentRoot is provided each site stores its own isolated state file
+ * inside its content directory, preventing cross-repo contamination.
+ */
+function getSyncStatePath(contentRoot?: string): string {
+  if (!contentRoot) return path.join(process.cwd(), DEFAULT_CONTENT_FOLDER, '.sync-state.json');
+  const abs = path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
+  return path.join(abs, '.sync-state.json');
+}
+
+/**
+ * Returns the GCS bucket key used to persist sync state across deployments.
+ * Keyed by contentRoot so that multi-site setups don't share a single key.
+ */
+function getGcsSyncStateKey(contentRoot?: string): string {
+  if (!contentRoot) return 'sync/sync-state.json';
+  const rel = path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot;
+  return `sync/${rel}/sync-state.json`;
+}
 
 /**
  * Load sync state from GCS bucket on startup using authenticated download.
  * In production: loads from bucket, falls back to local file.
  * In development: uses local file only (each dev environment has its own state).
  */
-export async function loadSyncStateFromBucket(): Promise<SyncState> {
+export async function loadSyncStateFromBucket(contentRoot?: string): Promise<SyncState> {
   if (!IS_PRODUCTION) {
     log.info('[SyncState] Development mode, using local file only');
-    return loadSyncState();
+    return loadSyncState(contentRoot);
   }
 
   if (!gcs.available) {
     log.info('[SyncState] GCS unavailable, loading from local file');
-    return loadSyncState();
+    return loadSyncState(contentRoot);
   }
 
+  const gcsKey = getGcsSyncStateKey(contentRoot);
   try {
-    const exists = await gcs.exists(GCS_SYNC_STATE_KEY);
+    const exists = await gcs.exists(gcsKey);
     if (!exists) {
       log.info('[SyncState] No sync state found in bucket, using local file');
-      return loadSyncState();
+      return loadSyncState(contentRoot);
     }
 
-    const data = await gcs.download(GCS_SYNC_STATE_KEY);
+    const data = await gcs.download(gcsKey);
     if (!data) {
       log.info('[SyncState] Empty download from bucket, using local file');
-      return loadSyncState();
+      return loadSyncState(contentRoot);
     }
 
     const state = JSON.parse(data.toString('utf-8')) as SyncStateWithConfig;
     log.info('[SyncState] Loaded sync state from GCS bucket (authenticated)');
 
-    saveSyncStateLocal(state);
+    saveSyncStateLocal(state, contentRoot);
     return state;
   } catch (error) {
     log.error({ err: error }, '[SyncState] Error loading from bucket:');
-    return loadSyncState();
+    return loadSyncState(contentRoot);
   }
 }
 
@@ -64,12 +110,13 @@ export async function loadSyncStateFromBucket(): Promise<SyncState> {
  * Save sync state to GCS bucket for persistence across deployments.
  * Only runs in production — development uses local file only.
  */
-async function saveSyncStateToBucket(state: SyncStateWithConfig): Promise<void> {
+async function saveSyncStateToBucket(state: SyncStateWithConfig, contentRoot?: string): Promise<void> {
   if (!IS_PRODUCTION || !gcs.available) return;
 
   try {
     const content = JSON.stringify(state, null, 2);
-    gcs.debouncedUpload(GCS_SYNC_STATE_KEY, Buffer.from(content, 'utf-8'), 'application/json');
+    const gcsKey = getGcsSyncStateKey(contentRoot);
+    gcs.debouncedUpload(gcsKey, Buffer.from(content, 'utf-8'), 'application/json');
   } catch (error) {
     log.error({ err: error }, '[SyncState] Error saving to bucket:');
   }
@@ -80,10 +127,11 @@ async function saveSyncStateToBucket(state: SyncStateWithConfig): Promise<void> 
  * Tracks YAML and JSON files in marketing-content directory.
  * Excludes component-registry, dot-prefixed state files, and image directories.
  */
-export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string>): boolean {
+export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string>, contentRoot?: string): boolean {
   if (allowedExceptions instanceof Set && allowedExceptions.has(filePath)) return true;
 
-  if (!filePath.startsWith('marketing-content/')) {
+  const folder = getContentFolder(contentRoot);
+  if (!filePath.startsWith(`${folder}/`)) {
     return false;
   }
   
@@ -184,42 +232,44 @@ export function computeGitBlobSha(content: string): string {
   return crypto.createHash('sha1').update(header).update(buf).digest('hex');
 }
 
-export function getSyncConfig(): SyncConfig {
-  const state = loadSyncState() as SyncStateWithConfig;
+export function getSyncConfig(contentRoot?: string): SyncConfig {
+  const state = loadSyncState(contentRoot) as SyncStateWithConfig;
   return state.config || DEFAULT_CONFIG;
 }
 
-export function updateSyncConfig(config: Partial<SyncConfig>): void {
-  const state = loadSyncState() as SyncStateWithConfig;
+export function updateSyncConfig(config: Partial<SyncConfig>, contentRoot?: string): void {
+  const state = loadSyncState(contentRoot) as SyncStateWithConfig;
   state.config = { ...(state.config || DEFAULT_CONFIG), ...config };
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
 /**
  * Save sync state to local file only (no bucket upload).
  */
-function saveSyncStateLocal(state: SyncStateWithConfig): void {
+function saveSyncStateLocal(state: SyncStateWithConfig, contentRoot?: string): void {
   try {
-    const dir = path.dirname(SYNC_STATE_PATH);
+    const statePath = getSyncStatePath(contentRoot);
+    const dir = path.dirname(statePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(SYNC_STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+    fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
   } catch (error) {
     log.error({ err: error }, 'Error saving sync state locally:');
   }
 }
 
-export function loadSyncState(): SyncState {
+export function loadSyncState(contentRoot?: string): SyncState {
   try {
-    if (fs.existsSync(SYNC_STATE_PATH)) {
-      const content = fs.readFileSync(SYNC_STATE_PATH, 'utf-8');
+    const statePath = getSyncStatePath(contentRoot);
+    if (fs.existsSync(statePath)) {
+      const content = fs.readFileSync(statePath, 'utf-8');
       const state = JSON.parse(content) as SyncStateWithConfig;
       
       const prunedFiles: Record<string, FileSyncInfo> = {};
       let pruned = false;
       for (const [filePath, info] of Object.entries(state.files)) {
-        if (shouldTrackFile(filePath)) {
+        if (shouldTrackFile(filePath, undefined, contentRoot)) {
           prunedFiles[filePath] = info;
         } else {
           pruned = true;
@@ -228,7 +278,7 @@ export function loadSyncState(): SyncState {
       
       if (pruned) {
         state.files = prunedFiles;
-        saveSyncStateLocal(state);
+        saveSyncStateLocal(state, contentRoot);
       }
       
       return state;
@@ -242,13 +292,13 @@ export function loadSyncState(): SyncState {
 /**
  * Save sync state to local file AND to GCS bucket.
  */
-export function saveSyncState(state: SyncState): void {
+export function saveSyncState(state: SyncState, contentRoot?: string): void {
   const stateWithConfig = state as SyncStateWithConfig;
   if (!stateWithConfig.config) {
     stateWithConfig.config = DEFAULT_CONFIG;
   }
-  saveSyncStateLocal(stateWithConfig);
-  saveSyncStateToBucket(stateWithConfig).catch(err => {
+  saveSyncStateLocal(stateWithConfig, contentRoot);
+  saveSyncStateToBucket(stateWithConfig, contentRoot).catch(err => {
     log.error({ err: err }, '[SyncState] Background bucket save failed:');
   });
 }
@@ -280,25 +330,14 @@ export function addFileModifiedListener(cb: (filePath: string) => void): void {
  * @param filePath - The file path to mark as modified
  * @param author - Optional author name who made the modification
  */
-export function markFileAsModified(filePath: string, author?: string, allowedExceptions?: Set<string>): void {
-  const cwd = process.cwd();
-  let relativePath: string;
+export function markFileAsModified(filePath: string, author?: string, allowedExceptions?: Set<string>, contentRoot?: string): void {
+  const relativePath = normalizePath(filePath, contentRoot);
   
-  if (path.isAbsolute(filePath)) {
-    relativePath = filePath.startsWith(cwd) 
-      ? filePath.slice(cwd.length + 1)
-      : filePath;
-  } else if (filePath.startsWith('marketing-content/') || filePath.startsWith('client/')) {
-    relativePath = filePath;
-  } else {
-    relativePath = `marketing-content/${filePath}`;
-  }
-  
-  if (!shouldTrackFile(relativePath, allowedExceptions)) {
+  if (!shouldTrackFile(relativePath, allowedExceptions, contentRoot)) {
     return;
   }
   
-  const state = loadSyncState();
+  const state = loadSyncState(contentRoot);
   const fullPath = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), relativePath);
   
   if (fs.existsSync(fullPath)) {
@@ -314,7 +353,7 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
       modifiedAt: new Date().toISOString(),
     };
     
-    saveSyncState(state);
+    saveSyncState(state, contentRoot);
 
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
@@ -327,7 +366,7 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
       modifiedAt: new Date().toISOString(),
     };
     
-    saveSyncState(state);
+    saveSyncState(state, contentRoot);
 
     if (autoCommitCallback) {
       autoCommitCallback(relativePath, author, allowedExceptions);
@@ -341,9 +380,12 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
   }
 }
 
-function getAllContentFiles(): string[] {
+function getAllContentFiles(contentRoot?: string): string[] {
   const files: string[] = [];
-  
+  const scanDir = contentRoot
+    ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
+    : MARKETING_CONTENT_DIR;
+
   function walkDir(dir: string) {
     if (!fs.existsSync(dir)) return;
     
@@ -358,7 +400,7 @@ function getAllContentFiles(): string[] {
         const ext = path.extname(entry.name).toLowerCase();
         if (ext === '.yml' || ext === '.yaml' || ext === '.json') {
           const relativePath = path.relative(process.cwd(), fullPath);
-          if (shouldTrackFile(relativePath)) {
+          if (shouldTrackFile(relativePath, undefined, contentRoot)) {
             files.push(relativePath);
           }
         }
@@ -366,12 +408,13 @@ function getAllContentFiles(): string[] {
     }
   }
   
-  walkDir(MARKETING_CONTENT_DIR);
+  walkDir(scanDir);
   return files;
 }
 
-function parseContentPath(filePath: string): { contentType: string; slug: string } {
-  const withoutPrefix = filePath.replace('marketing-content/', '');
+function parseContentPath(filePath: string, contentRoot?: string): { contentType: string; slug: string } {
+  const folder = getContentFolder(contentRoot);
+  const withoutPrefix = filePath.startsWith(`${folder}/`) ? filePath.slice(folder.length + 1) : filePath;
   const parts = withoutPrefix.split('/');
   if (parts.length >= 2) {
     return {
@@ -385,14 +428,14 @@ function parseContentPath(filePath: string): { contentType: string; slug: string
   };
 }
 
-export function detectPendingChanges(): PendingChange[] {
-  const state = loadSyncState();
+export function detectPendingChanges(contentRoot?: string): PendingChange[] {
+  const state = loadSyncState(contentRoot);
   const changesMap = new Map<string, PendingChange>();
-  const currentFiles = getAllContentFiles();
+  const currentFiles = getAllContentFiles(contentRoot);
   const processedFiles = new Set<string>();
   
   for (const filePath of currentFiles) {
-    if (!shouldTrackFile(filePath)) {
+    if (!shouldTrackFile(filePath, undefined, contentRoot)) {
       continue;
     }
     
@@ -404,7 +447,7 @@ export function detectPendingChanges(): PendingChange[] {
       const currentSha = computeFileSha(content);
       const storedInfo = state.files[filePath];
       
-      const { contentType, slug } = parseContentPath(filePath);
+      const { contentType, slug } = parseContentPath(filePath, contentRoot);
       
       // Safety net: if the current content already matches the stored remoteSha,
       // the file is in sync with the remote — skip it regardless of stale local state.
@@ -454,8 +497,8 @@ export function detectPendingChanges(): PendingChange[] {
   }
   
   for (const [filePath, info] of Object.entries(state.files)) {
-    if (!processedFiles.has(filePath) && shouldTrackFile(filePath) && info.remoteSha) {
-      const { contentType, slug } = parseContentPath(filePath);
+    if (!processedFiles.has(filePath) && shouldTrackFile(filePath, undefined, contentRoot) && info.remoteSha) {
+      const { contentType, slug } = parseContentPath(filePath, contentRoot);
       changesMap.set(filePath, {
         file: filePath,
         status: 'deleted',
@@ -475,9 +518,10 @@ export function detectPendingChanges(): PendingChange[] {
 
 export function updateSyncStateAfterCommit(
   commitSha: string,
-  committedFiles: string[]
+  committedFiles: string[],
+  contentRoot?: string
 ): void {
-  const state = loadSyncState();
+  const state = loadSyncState(contentRoot);
   
   state.lastSyncedCommit = commitSha;
   state.lastSyncedAt = new Date().toISOString();
@@ -485,7 +529,7 @@ export function updateSyncStateAfterCommit(
   const committedAt = new Date().toISOString();
   
   for (const filePath of committedFiles) {
-    if (!shouldTrackFile(filePath)) {
+    if (!shouldTrackFile(filePath, undefined, contentRoot)) {
       continue;
     }
     
@@ -506,14 +550,15 @@ export function updateSyncStateAfterCommit(
     }
   }
   
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
 export function initializeSyncStateFromRemote(
   commitSha: string,
-  remoteFiles: Array<{ path: string; sha: string }>
+  remoteFiles: Array<{ path: string; sha: string }>,
+  contentRoot?: string
 ): void {
-  const existingState = loadSyncState() as SyncStateWithConfig;
+  const existingState = loadSyncState(contentRoot) as SyncStateWithConfig;
   const state: SyncStateWithConfig = {
     config: existingState.config || DEFAULT_CONFIG,
     ...(existingState.webhook ? { webhook: existingState.webhook } : {}),
@@ -523,7 +568,7 @@ export function initializeSyncStateFromRemote(
   };
   
   for (const file of remoteFiles) {
-    if (!shouldTrackFile(file.path)) {
+    if (!shouldTrackFile(file.path, undefined, contentRoot)) {
       continue;
     }
     
@@ -541,12 +586,12 @@ export function initializeSyncStateFromRemote(
     }
   }
   
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
-export function rebuildSyncStateFromLocal(commitSha: string): void {
-  const currentFiles = getAllContentFiles();
-  const existingState = loadSyncState() as SyncStateWithConfig;
+export function rebuildSyncStateFromLocal(commitSha: string, contentRoot?: string): void {
+  const currentFiles = getAllContentFiles(contentRoot);
+  const existingState = loadSyncState(contentRoot) as SyncStateWithConfig;
   const state: SyncStateWithConfig = {
     config: existingState.config || DEFAULT_CONFIG,
     ...(existingState.webhook ? { webhook: existingState.webhook } : {}),
@@ -556,7 +601,7 @@ export function rebuildSyncStateFromLocal(commitSha: string): void {
   };
   
   for (const filePath of currentFiles) {
-    if (!shouldTrackFile(filePath)) {
+    if (!shouldTrackFile(filePath, undefined, contentRoot)) {
       continue;
     }
     
@@ -585,11 +630,11 @@ export function rebuildSyncStateFromLocal(commitSha: string): void {
     }
   }
   
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
-export function getLastSyncedCommit(): string | null {
-  const state = loadSyncState();
+export function getLastSyncedCommit(contentRoot?: string): string | null {
+  const state = loadSyncState(contentRoot);
   return state.lastSyncedCommit;
 }
 
@@ -597,12 +642,9 @@ export function getLastSyncedCommit(): string | null {
  * Get the best available lastmod date for a file, for use in sitemaps.
  * Priority: committedAt > modifiedAt > today's date.
  */
-export function getFileLastmod(filePath: string): string {
-  const relativePath = filePath.startsWith('marketing-content/')
-    ? filePath
-    : `marketing-content/${filePath}`;
-
-  const state = loadSyncState();
+export function getFileLastmod(filePath: string, contentRoot?: string): string {
+  const relativePath = normalizePath(filePath, contentRoot);
+  const state = loadSyncState(contentRoot);
   const info = state.files[relativePath];
 
   if (info?.committedAt) {
@@ -616,22 +658,20 @@ export function getFileLastmod(filePath: string): string {
   return new Date().toISOString().split('T')[0];
 }
 
-export function getFileStatus(filePath: string): {
+export function getFileStatus(filePath: string, contentRoot?: string): {
   exists: boolean;
   localSha: string | null;
   remoteSha: string | null;
   hasConflict: boolean;
   status: 'synced' | 'modified' | 'added' | 'deleted' | 'conflict' | 'unknown';
 } {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
+  const relativePath = normalizePath(filePath, contentRoot);
   
-  if (!shouldTrackFile(relativePath)) {
+  if (!shouldTrackFile(relativePath, undefined, contentRoot)) {
     return { exists: false, localSha: null, remoteSha: null, hasConflict: false, status: 'unknown' };
   }
   
-  const state = loadSyncState();
+  const state = loadSyncState(contentRoot);
   const fullPath = path.join(process.cwd(), relativePath);
   const storedInfo = state.files[relativePath];
   
@@ -657,16 +697,14 @@ export function getFileStatus(filePath: string): {
   return { exists: true, localSha, remoteSha, hasConflict: false, status: 'modified' };
 }
 
-export function updateFileAfterPull(filePath: string, pulledFromCommit?: string, committedAt?: string): void {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
+export function updateFileAfterPull(filePath: string, pulledFromCommit?: string, committedAt?: string, contentRoot?: string): void {
+  const relativePath = normalizePath(filePath, contentRoot);
   
-  if (!shouldTrackFile(relativePath)) {
+  if (!shouldTrackFile(relativePath, undefined, contentRoot)) {
     return;
   }
   
-  const state = loadSyncState();
+  const state = loadSyncState(contentRoot);
   const fullPath = path.join(process.cwd(), relativePath);
   
   if (fs.existsSync(fullPath)) {
@@ -682,16 +720,13 @@ export function updateFileAfterPull(filePath: string, pulledFromCommit?: string,
       ...(committedAt ? { committedAt } : {}),
     };
     
-    saveSyncState(state);
+    saveSyncState(state, contentRoot);
   }
 }
 
-export function wasFilePulledFromCommit(filePath: string, commitSha: string): boolean {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
-  
-  const state = loadSyncState();
+export function wasFilePulledFromCommit(filePath: string, commitSha: string, contentRoot?: string): boolean {
+  const relativePath = normalizePath(filePath, contentRoot);
+  const state = loadSyncState(contentRoot);
   const fileInfo = state.files[relativePath];
   
   if (!fileInfo || !fileInfo.pulledFromCommit) {
@@ -701,16 +736,14 @@ export function wasFilePulledFromCommit(filePath: string, commitSha: string): bo
   return fileInfo.pulledFromCommit === commitSha;
 }
 
-export function updateFileAfterCommit(filePath: string, commitSha: string): void {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
+export function updateFileAfterCommit(filePath: string, commitSha: string, contentRoot?: string): void {
+  const relativePath = normalizePath(filePath, contentRoot);
   
-  if (!shouldTrackFile(relativePath)) {
+  if (!shouldTrackFile(relativePath, undefined, contentRoot)) {
     return;
   }
   
-  const state = loadSyncState();
+  const state = loadSyncState(contentRoot);
   const fullPath = path.join(process.cwd(), relativePath);
   
   state.lastSyncedCommit = commitSha;
@@ -731,15 +764,12 @@ export function updateFileAfterCommit(filePath: string, commitSha: string): void
     delete state.files[relativePath];
   }
   
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
-export function isFileSynced(filePath: string): boolean {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
-  
-  const state = loadSyncState();
+export function isFileSynced(filePath: string, contentRoot?: string): boolean {
+  const relativePath = normalizePath(filePath, contentRoot);
+  const state = loadSyncState(contentRoot);
   const fileInfo = state.files[relativePath];
   
   if (!fileInfo) {
@@ -749,21 +779,19 @@ export function isFileSynced(filePath: string): boolean {
   return fileInfo.sha === fileInfo.remoteSha;
 }
 
-export function discardLocalChanges(filePath: string): boolean {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
+export function discardLocalChanges(filePath: string, contentRoot?: string): boolean {
+  const relativePath = normalizePath(filePath, contentRoot);
   
-  if (!shouldTrackFile(relativePath)) {
+  if (!shouldTrackFile(relativePath, undefined, contentRoot)) {
     return false;
   }
   
-  const state = loadSyncState();
+  const state = loadSyncState(contentRoot);
   const fullPath = path.join(process.cwd(), relativePath);
   
   if (!fs.existsSync(fullPath)) {
     delete state.files[relativePath];
-    saveSyncState(state);
+    saveSyncState(state, contentRoot);
     return true;
   }
   
@@ -777,33 +805,30 @@ export function discardLocalChanges(filePath: string): boolean {
     remoteSha: sha,
   };
   
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
   return true;
 }
 
-export function removeFileFromState(filePath: string): void {
-  const relativePath = filePath.startsWith('marketing-content/') 
-    ? filePath 
-    : `marketing-content/${filePath}`;
-  
-  const state = loadSyncState();
+export function removeFileFromState(filePath: string, contentRoot?: string): void {
+  const relativePath = normalizePath(filePath, contentRoot);
+  const state = loadSyncState(contentRoot);
   delete state.files[relativePath];
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
-export function getWebhookInfo(): WebhookInfo | undefined {
-  const state = loadSyncState() as SyncStateWithConfig;
+export function getWebhookInfo(contentRoot?: string): WebhookInfo | undefined {
+  const state = loadSyncState(contentRoot) as SyncStateWithConfig;
   return state.webhook;
 }
 
-export function setWebhookInfo(webhook: WebhookInfo): void {
-  const state = loadSyncState() as SyncStateWithConfig;
+export function setWebhookInfo(webhook: WebhookInfo, contentRoot?: string): void {
+  const state = loadSyncState(contentRoot) as SyncStateWithConfig;
   state.webhook = webhook;
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }
 
-export function clearWebhookInfo(): void {
-  const state = loadSyncState() as SyncStateWithConfig;
+export function clearWebhookInfo(contentRoot?: string): void {
+  const state = loadSyncState(contentRoot) as SyncStateWithConfig;
   delete state.webhook;
-  saveSyncState(state);
+  saveSyncState(state, contentRoot);
 }

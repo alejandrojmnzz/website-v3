@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
 import { getValidationService } from "../../scripts/validation/service";
@@ -33,6 +33,14 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/validation" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
 
 export function registerValidationRoutes(app: Express): void {
   // ============================================
@@ -635,7 +643,7 @@ export function registerValidationRoutes(app: Express): void {
               urlLocale || (url.startsWith("/es/") ? "es" : "en");
           }
           const folderSlug = path.basename(path.dirname(file.filePath));
-          const result = contentIndex.loadContent({
+          const result = getCI(res).loadContent({
             contentType: file.type,
             slug: folderSlug,
             localeOrVariant: inferredLocale,
@@ -684,7 +692,7 @@ export function registerValidationRoutes(app: Express): void {
       let schemaHtml = "";
       let parsedSchemas: any[] = [];
       try {
-        schemaHtml = generateSsrSchemaHtml(url);
+        schemaHtml = generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
         const scriptRegex =
           /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
         let match: RegExpExecArray | null;

@@ -502,16 +502,20 @@ export function registerAiRoutes(app: Express): void {
     empty_conversation_grace_minutes?: number;
   }
 
-  function loadLLMConfig(): ParsedLLMConfig {
-    const llmPath = path.resolve("marketing-content/llm.yml");
+  function getContentRoot(res: Response): string {
+    return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+  }
+
+  function loadLLMConfig(contentRoot: string): ParsedLLMConfig {
+    const llmPath = path.join(contentRoot, "llm.yml");
     if (!fs.existsSync(llmPath)) return {};
     const raw = yaml.load(fs.readFileSync(llmPath, "utf-8"));
     if (!raw || typeof raw !== "object") return {};
     return raw as ParsedLLMConfig;
   }
 
-  function loadFeatureTags(): string[] {
-    const settingsPath = path.resolve("marketing-content/settings.yml");
+  function loadFeatureTags(contentRoot: string): string[] {
+    const settingsPath = path.join(contentRoot, "settings.yml");
     if (!fs.existsSync(settingsPath)) return [];
     const raw = yaml.load(fs.readFileSync(settingsPath, "utf-8"));
     if (!raw || typeof raw !== "object") return [];
@@ -552,9 +556,9 @@ export function registerAiRoutes(app: Express): void {
     return tags;
   }
 
-  app.get("/api/chat/config", (_req, res) => {
+  app.get("/api/chat/config", (req, res) => {
     try {
-      const cfg = loadLLMConfig();
+      const cfg = loadLLMConfig(getContentRoot(res));
       const bubble = cfg.chat_bubble || {};
       res.json({
         enabled: bubble.enabled !== false,
@@ -573,7 +577,7 @@ export function registerAiRoutes(app: Express): void {
   // ─── Brand Context & Chat API ──────────────────────────────────────────────
   app.get("/api/brand-context", (req, res) => {
     try {
-      const filePath = path.join(process.cwd(), "marketing-content", "brand-context.yml");
+      const filePath = path.join(getContentRoot(res), "brand-context.yml");
       if (!fs.existsSync(filePath)) {
         res.status(404).json({ error: "brand-context.yml not found" });
         return;
@@ -591,7 +595,7 @@ export function registerAiRoutes(app: Express): void {
       const { conversationStore } = await import("../ai/ConversationStore");
       const { page_url, content_type, content_slug, locale, user_id } = req.body || {};
 
-      const allFeatureTags = loadFeatureTags();
+      const allFeatureTags = loadFeatureTags(getContentRoot(res));
       const derivedTags = deriveFeatureTags(content_type || null, page_url || null, allFeatureTags);
 
       const conv = await conversationStore.createConversation({

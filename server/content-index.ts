@@ -13,7 +13,8 @@ const log = child({ module: "content-index" });
 
 
 
-export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "marketing-content");
+/** Backward-compat: resolves from CONTENT_FOLDER env var or falls back to the canonical content folder name. */
+export const MARKETING_CONTENT_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
 
 function stripNullValues<T>(obj: T): T {
   if (obj === null) {
@@ -96,7 +97,7 @@ export interface CommonFieldInfo {
   partial: { key: string; count: number; total: number }[];
 }
 
-class ContentIndex {
+export class ContentIndex {
   private entries: ContentEntry[] = [];
   private bySlug: Map<string, ContentEntry[]> = new Map();
   private byPath: Map<string, ContentEntry> = new Map();
@@ -114,19 +115,24 @@ class ContentIndex {
   private initialized = false;
   private slowPhaseReady = false;
 
-  private static instance: ContentIndex;
+  /** Absolute path to the content root folder (e.g. /home/user/project/content). */
+  readonly contentRoot: string;
+  /** Relative path from process.cwd() (e.g. "content" or "marketing-content"). */
+  readonly contentRootName: string;
 
-  static getInstance(): ContentIndex {
-    if (!ContentIndex.instance) {
-      ContentIndex.instance = new ContentIndex();
-    }
-    return ContentIndex.instance;
+  constructor(contentFolder?: string) {
+    const folder = contentFolder || process.env.CONTENT_FOLDER || "content";
+    this.contentRoot = path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);
+    this.contentRootName = path.relative(process.cwd(), this.contentRoot);
   }
 
-  private constructor() {}
+  /** @deprecated Use `new ContentIndex(contentFolder?)` directly. */
+  static getInstance(): ContentIndex {
+    return new ContentIndex();
+  }
 
   private loadContentTypes(): Record<string, ContentTypeConfig> {
-    const configPath = path.join(process.cwd(), "marketing-content", "content-types.yml");
+    const configPath = path.join(this.contentRoot, "content-types.yml");
     if (!fs.existsSync(configPath)) {
       log.warn("[ContentIndex] content-types.yml not found, using empty config");
       return {};
@@ -202,7 +208,7 @@ class ContentIndex {
    * Completes before the server begins listening so the first request is never delayed.
    */
   scanFast(): void {
-    const baseDir = path.join(process.cwd(), "marketing-content");
+    const baseDir = this.contentRoot;
     this.contentTypeConfigs = this.loadContentTypes();
     const contentTypes = Object.keys(this.contentTypeConfigs);
 
@@ -232,7 +238,7 @@ class ContentIndex {
 
       for (const folderName of folders) {
         const folderPath = path.join(typeDir, folderName);
-        const relFolder = `marketing-content/${diskFolder}/${folderName}`;
+        const relFolder = `${this.contentRootName}/${diskFolder}/${folderName}`;
         const files = fs.readdirSync(folderPath)
           .filter(f => f.endsWith(".yml") || f.endsWith(".yaml"));
 
@@ -305,7 +311,7 @@ class ContentIndex {
         const templateEntry: ContentEntry = {
           slug: contentType,
           contentType,
-          directory: `marketing-content/${config.directory || contentType}`,
+          directory: `${this.contentRootName}/${config.directory || contentType}`,
           files: [],
           locales: [],
         };
@@ -338,7 +344,7 @@ class ContentIndex {
    * Routes that depend on this data handle the not-yet-ready state gracefully.
    */
   scanSlow(): void {
-    const baseDir = path.join(process.cwd(), "marketing-content");
+    const baseDir = this.contentRoot;
 
     for (const entry of this.entries) {
       const folderPath = path.join(process.cwd(), entry.directory);
@@ -537,7 +543,7 @@ class ContentIndex {
           this.addImageRef(value, filePath);
         } else if (
           (key === "image" || key === "src" || key === "background_image" || key === "logo" || key === "icon_image") &&
-          (value.startsWith("/attached_assets/") || value.startsWith("/marketing-content/images/") || value.startsWith("http://") || value.startsWith("https://"))
+          (value.startsWith("/attached_assets/") || value.startsWith(`/${this.contentRootName}/images/`) || value.startsWith("/marketing-content/images/") || value.startsWith("http://") || value.startsWith("https://"))
         ) {
           this.addImageRef(value, filePath);
         }
@@ -667,7 +673,7 @@ class ContentIndex {
           from: normalizedFrom,
           to: obj.to,
           type: "custom",
-          source: "marketing-content/custom-redirects.yml",
+          source: `${this.contentRootName}/custom-redirects.yml`,
           status,
           priority,
         });
@@ -700,13 +706,13 @@ class ContentIndex {
 
       if (!fs.existsSync(typeDir)) {
         fs.mkdirSync(typeDir, { recursive: true });
-        log.info(`[ContentIndex] Auto-created folder: marketing-content/${folder}/`);
+        log.info(`[ContentIndex] Auto-created folder: ${this.contentRootName}/${folder}/`);
       }
 
       const commonPath = path.join(typeDir, "_common.single.yml");
       if (!fs.existsSync(commonPath)) {
         fs.writeFileSync(commonPath, "# Common data shared across all single (database-backed) entries\n");
-        log.info(`[ContentIndex] Auto-created: marketing-content/${folder}/_common.single.yml`);
+        log.info(`[ContentIndex] Auto-created: ${this.contentRootName}/${folder}/_common.single.yml`);
       }
 
       const locales = Object.keys(config.url_pattern).filter(k => k !== "default");
@@ -723,7 +729,7 @@ class ContentIndex {
             "",
           ].join("\n");
           fs.writeFileSync(singlePath, template);
-          log.info(`[ContentIndex] Auto-created single template: marketing-content/${folder}/single.${locale}.yml`);
+          log.info(`[ContentIndex] Auto-created single template: ${this.contentRootName}/${folder}/single.${locale}.yml`);
         }
       }
     }
@@ -1059,7 +1065,7 @@ class ContentIndex {
             return {
               contentType,
               slug,
-              entry: { slug, contentType, directory: `marketing-content/${config.directory}`, files: [], locales: [] },
+              entry: { slug, contentType, directory: `${this.contentRootName}/${config.directory}`, files: [], locales: [] },
               fromDatabase: true,
               params,
               patternLocale: localeKey,
@@ -1147,10 +1153,10 @@ class ContentIndex {
   getContentFolderPath(contentType: string, slug: string): string {
     const folder = this.getFolderName(contentType);
     const resolved = this.resolveBaseSlug(slug, contentType);
-    const slugDir = path.join(MARKETING_CONTENT_PATH, folder, resolved);
+    const slugDir = path.join(this.contentRoot, folder, resolved);
     if (fs.existsSync(slugDir)) return slugDir;
     if (this.isDatabaseBacked(contentType)) {
-      return path.join(MARKETING_CONTENT_PATH, folder);
+      return path.join(this.contentRoot, folder);
     }
     return slugDir;
   }
@@ -1172,7 +1178,7 @@ class ContentIndex {
     // `{typeRoot}/{locale}.yml` (e.g. `blog/en.yml`) — a path that must never be
     // treated as a valid per-entry file. Derive the slug dir directly instead.
     if (this.isDatabaseBacked(contentType)) {
-      const typeRoot = path.join(MARKETING_CONTENT_PATH, this.getFolderName(contentType));
+      const typeRoot = path.join(this.contentRoot, this.getFolderName(contentType));
       const resolved = this.resolveBaseSlug(slug, contentType);
       const slugDir = path.join(typeRoot, resolved);
 
@@ -1224,10 +1230,10 @@ class ContentIndex {
 
   loadCommonData(contentType: ContentType, slug: string): Record<string, unknown> | null {
     const resolved = this.resolveBaseSlug(slug, contentType);
-    let commonPath = path.join(MARKETING_CONTENT_PATH, this.getFolderName(contentType), resolved, "_common.yml");
+    let commonPath = path.join(this.contentRoot, this.getFolderName(contentType), resolved, "_common.yml");
 
     if (!fs.existsSync(commonPath) && this.isDatabaseBacked(contentType)) {
-      commonPath = path.join(MARKETING_CONTENT_PATH, this.getFolderName(contentType), "_common.single.yml");
+      commonPath = path.join(this.contentRoot, this.getFolderName(contentType), "_common.single.yml");
     }
 
     if (!fs.existsSync(commonPath)) {
@@ -1257,7 +1263,7 @@ class ContentIndex {
       }
 
       const folder = this.getFolderName(contentType);
-      const singleCommonPath = path.join(MARKETING_CONTENT_PATH, folder, "_common.single.yml");
+      const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {
         const singleCommonContent = fs.readFileSync(singleCommonPath, "utf-8");
@@ -1294,12 +1300,12 @@ class ContentIndex {
     try {
       const folder = this.getFolderName(contentType);
       let resolvedSlug = slug;
-      const initialDir = path.join(MARKETING_CONTENT_PATH, folder, slug);
+      const initialDir = path.join(this.contentRoot, folder, slug);
       if (!fs.existsSync(initialDir)) {
         resolvedSlug = this.resolveBaseSlug(slug, contentType);
       }
 
-      const contentDir = path.join(MARKETING_CONTENT_PATH, folder, resolvedSlug);
+      const contentDir = path.join(this.contentRoot, folder, resolvedSlug);
       const commonPath = path.join(contentDir, "_common.yml");
       const contentPath = path.join(contentDir, `${localeOrVariant}.yml`);
 
@@ -1311,7 +1317,7 @@ class ContentIndex {
         return { success: false, error: `Required _common.yml not found: ${commonPath}` };
       }
 
-      const singleCommonPath = path.join(MARKETING_CONTENT_PATH, folder, "_common.single.yml");
+      const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {
         const singleCommonContent = fs.readFileSync(singleCommonPath, "utf-8");
@@ -1353,7 +1359,7 @@ class ContentIndex {
   }
 
   listContentSlugs(contentType: ContentType): string[] {
-    const contentDir = path.join(MARKETING_CONTENT_PATH, this.getFolderName(contentType));
+    const contentDir = path.join(this.contentRoot, this.getFolderName(contentType));
 
     if (!fs.existsSync(contentDir)) {
       return [];
@@ -1371,7 +1377,7 @@ class ContentIndex {
   }
 
   getAvailableLocalesOrVariants(contentType: ContentType, slug: string): string[] {
-    const contentDir = path.join(MARKETING_CONTENT_PATH, this.getFolderName(contentType), slug);
+    const contentDir = path.join(this.contentRoot, this.getFolderName(contentType), slug);
 
     if (!fs.existsSync(contentDir)) {
       return [];
@@ -1774,4 +1780,8 @@ class ContentIndex {
 
 export { stripNullValues };
 
-export const contentIndex = ContentIndex.getInstance();
+/**
+ * Default singleton instance — used by code that hasn't migrated to per-site
+ * routing yet. Reads contentRoot from CONTENT_FOLDER env var (default: "marketing-content").
+ */
+export const contentIndex = new ContentIndex();

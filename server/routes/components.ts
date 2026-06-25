@@ -208,6 +208,17 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/components" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+function getContentRootName(res: Response): string {
+  const cr = getContentRoot(res);
+  return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
 
 export function registerComponentsRoutes(app: Express): void {
 
@@ -251,11 +262,7 @@ export function registerComponentsRoutes(app: Express): void {
   });
   // Molecules Showcase API endpoint
   app.get("/api/molecules", (_req, res) => {
-    const moleculesPath = path.join(
-      process.cwd(),
-      "marketing-content",
-      "molecules.json",
-    );
+    const moleculesPath = path.join(getContentRoot(res), "molecules.json");
     try {
       const moleculesData = JSON.parse(fs.readFileSync(moleculesPath, "utf-8"));
       res.json(moleculesData);
@@ -464,7 +471,7 @@ export function registerComponentsRoutes(app: Express): void {
 
       const examples = getVariantExamples(componentType, variantName).map((e) => e.name);
 
-      const pagesRaw = contentIndex.removeAllVariantSectionsFromPages(componentType, variantName, true);
+      const pagesRaw = getCI(res).removeAllVariantSectionsFromPages(componentType, variantName, true);
       const pagesMap = new Map<string, { count: number; sectionIds: string[] }>();
       for (const p of pagesRaw) {
         const key = `/${p.locale}/${p.slug}`;
@@ -525,7 +532,7 @@ export function registerComponentsRoutes(app: Express): void {
         markFileAsModified(relPath, undefined, exceptions);
       }
 
-      const pagesAffected = contentIndex.removeAllVariantSectionsFromPages(componentType, decodeURIComponent(variantName));
+      const pagesAffected = getCI(res).removeAllVariantSectionsFromPages(componentType, decodeURIComponent(variantName));
 
       res.json({
         success: true,
@@ -544,13 +551,13 @@ export function registerComponentsRoutes(app: Express): void {
       }
       const normalizedPath = path.normalize(folderPath);
       if (
-        !normalizedPath.startsWith("marketing-content/") ||
+        !normalizedPath.startsWith(getContentRootName(res) + "/") ||
         normalizedPath.includes("..")
       ) {
         res.status(403).json({ error: "Access denied" });
         return;
       }
-      const entry = contentIndex.findByPath(normalizedPath);
+      const entry = getCI(res).findByPath(normalizedPath);
       if (!entry) {
         res.status(404).json({ error: "Folder not found" });
         return;
@@ -571,7 +578,7 @@ export function registerComponentsRoutes(app: Express): void {
         return;
       }
       const opts = type ? { contentType: type as any } : undefined;
-      const matches = contentIndex.findBySlug(slug, opts);
+      const matches = getCI(res).findBySlug(slug, opts);
       if (matches.length === 0) {
         res
           .status(404)
@@ -605,8 +612,8 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.get("/api/content/index", (_req, res) => {
     try {
-      const entries = contentIndex.listAll();
-      const stats = contentIndex.getStats();
+      const entries = getCI(res).listAll();
+      const stats = getCI(res).getStats();
       res.json({ entries, stats });
     } catch (error) {
       log.error({ err: error }, "Error listing content index:");
@@ -616,8 +623,8 @@ export function registerComponentsRoutes(app: Express): void {
 
   app.post("/api/content/index/refresh", (_req, res) => {
     try {
-      contentIndex.refresh();
-      const stats = contentIndex.getStats();
+      getCI(res).refresh();
+      const stats = getCI(res).getStats();
       res.json({ refreshed: true, stats });
     } catch (error) {
       log.error({ err: error }, "Error refreshing content index:");
@@ -634,14 +641,14 @@ export function registerComponentsRoutes(app: Express): void {
         return;
       }
 
-      // Security: only allow files within marketing-content directory
+      // Security: only allow files within the site's content directory
       const normalizedPath = path.normalize(filePath);
       if (
-        !normalizedPath.startsWith("marketing-content/") ||
+        !normalizedPath.startsWith(getContentRootName(res) + "/") ||
         normalizedPath.includes("..")
       ) {
         res.status(403).json({
-          error: "Access denied: Only marketing-content files allowed",
+          error: `Access denied: Only ${getContentRootName(res)} files allowed`,
         });
         return;
       }
@@ -680,12 +687,12 @@ export function registerComponentsRoutes(app: Express): void {
 
       let resolvedSlug = slug;
       try {
-        resolvedSlug = contentIndex.resolveBaseSlug(slug, folder);
+        resolvedSlug = getCI(res).resolveBaseSlug(slug, folder);
       } catch {
         // keep original slug if resolution fails
       }
 
-      const baseDir = path.join(process.cwd(), "marketing-content", folder);
+      const baseDir = path.join(getContentRoot(res), folder);
       let contentDir = path.join(baseDir, resolvedSlug);
 
       if (!fs.existsSync(contentDir)) {
@@ -731,14 +738,14 @@ export function registerComponentsRoutes(app: Express): void {
       if (fs.existsSync(localePath)) {
         files.locale = {
           path: variantSlug
-            ? `marketing-content/${folder}/${resolvedSlug}/${variantSlug}.${locale}.yml`
-            : `marketing-content/${folder}/${resolvedSlug}/${locale}.yml`,
+            ? `${getContentRootName(res)}/${folder}/${resolvedSlug}/${variantSlug}.${locale}.yml`
+            : `${getContentRootName(res)}/${folder}/${resolvedSlug}/${locale}.yml`,
           content: fs.readFileSync(localePath, "utf-8"),
         };
       }
       if (fs.existsSync(commonPath)) {
         files.common = {
-          path: `marketing-content/${folder}/${resolvedSlug}/_common.yml`,
+          path: `${getContentRootName(res)}/${folder}/${resolvedSlug}/_common.yml`,
           content: fs.readFileSync(commonPath, "utf-8"),
         };
       }
@@ -773,12 +780,13 @@ export function registerComponentsRoutes(app: Express): void {
 
       // Derive contentType from filePath (e.g. marketing-content/courses/... → "courses").
       // Reject when content type cannot be determined — unscoped writes are not allowed.
+      const contentRootPrefix = getContentRootName(res);
       const derivedContentType: string | undefined = (() => {
-        const m = rawFilePath.match(/marketing-content\/([^/]+)\//);
+        const m = rawFilePath.match(new RegExp(`^${contentRootPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\/([^/]+)\\/`));
         return m ? m[1] : undefined;
       })();
       if (!derivedContentType) {
-        res.status(400).json({ error: "Cannot determine content type from filePath; path must be under marketing-content/<contentType>/" });
+        res.status(400).json({ error: `Cannot determine content type from filePath; path must be under ${contentRootPrefix}/<contentType>/` });
         return;
       }
 
@@ -804,11 +812,11 @@ export function registerComponentsRoutes(app: Express): void {
 
       const normalizedPath = path.normalize(filePath);
       if (
-        !normalizedPath.startsWith("marketing-content/") ||
+        !normalizedPath.startsWith(getContentRootName(res) + "/") ||
         normalizedPath.includes("..")
       ) {
         res.status(403).json({
-          error: "Access denied: Only marketing-content files allowed",
+          error: `Access denied: Only ${getContentRootName(res)} files allowed`,
         });
         return;
       }
@@ -822,11 +830,11 @@ export function registerComponentsRoutes(app: Express): void {
       fs.writeFileSync(fullPath, content, "utf-8");
       markFileAsModified(normalizedPath, authorName);
       clearRedirectCache();
-      contentIndex.refresh();
+      getCI(res).refresh();
 
-      // Derive content type from path (marketing-content/<folder>/...) for targeted invalidation
+      // Derive content type from path (contentRoot/<folder>/...) for targeted invalidation
       const pathParts = normalizedPath.replace(/\\/g, "/").split("/");
-      const folderSegment = pathParts[1]; // segment after "marketing-content"
+      const folderSegment = pathParts[1]; // segment after contentRoot name
       const resolvedType = folderSegment ? getType(folderSegment) : undefined;
 
       // Targeted sitemap cache invalidation based on file path
@@ -858,7 +866,7 @@ export function registerComponentsRoutes(app: Express): void {
         ...g,
         members: g.members.map((m) => ({
           ...m,
-          localeSlug: contentIndex.getLocaleSlug(
+          localeSlug: getCI(res).getLocaleSlug(
             m.slug,
             m.contentType,
             g.locale,
@@ -888,7 +896,7 @@ export function registerComponentsRoutes(app: Express): void {
         return;
       }
       const resolvedLocale = normalizeLocale((locale as string) || "en");
-      const baseSlug = contentIndex.resolveBaseSlug(
+      const baseSlug = getCI(res).resolveBaseSlug(
         slug as string,
         contentType as string,
       );
@@ -906,7 +914,7 @@ export function registerComponentsRoutes(app: Express): void {
         ...group,
         members: group.members.map((m) => ({
           ...m,
-          localeSlug: contentIndex.getLocaleSlug(
+          localeSlug: getCI(res).getLocaleSlug(
             m.slug,
             m.contentType,
             group.locale,
@@ -935,7 +943,7 @@ export function registerComponentsRoutes(app: Express): void {
       }
 
       const normalizedLocale = normalizeLocale(locale as string);
-      const allEntries = contentIndex.listAll();
+      const allEntries = getCI(res).listAll();
       const candidates: Array<{
         contentType: string;
         slug: string;
@@ -954,7 +962,7 @@ export function registerComponentsRoutes(app: Express): void {
 
         try {
           const localeForLoad = normalizedLocale;
-          const { data: merged } = contentIndex.loadMergedContent(
+          const { data: merged } = getCI(res).loadMergedContent(
             entryContentType,
             entry.slug,
             localeForLoad,
@@ -976,7 +984,7 @@ export function registerComponentsRoutes(app: Express): void {
               candidates.push({
                 contentType: entryContentType,
                 slug: entry.slug,
-                localeSlug: contentIndex.getLocaleSlug(
+                localeSlug: getCI(res).getLocaleSlug(
                   entry.slug,
                   entryContentType,
                   normalizedLocale,
@@ -1041,7 +1049,7 @@ export function registerComponentsRoutes(app: Express): void {
       const normalizedLocale = normalizeLocale(locale);
       const resolvedMembers = members.map(
         (m: { contentType: string; slug: string; sectionIndex: number }) => {
-          const memberBaseSlug = contentIndex.resolveBaseSlug(
+          const memberBaseSlug = getCI(res).resolveBaseSlug(
             m.slug,
             m.contentType,
           );
@@ -1074,7 +1082,7 @@ export function registerComponentsRoutes(app: Express): void {
         ...group,
         members: group.members.map((m) => ({
           ...m,
-          localeSlug: contentIndex.getLocaleSlug(
+          localeSlug: getCI(res).getLocaleSlug(
             m.slug,
             m.contentType,
             group.locale,
@@ -1148,7 +1156,7 @@ export function registerComponentsRoutes(app: Express): void {
         res.status(404).json({ error: "Binding group not found" });
         return;
       }
-      const addBaseSlug = contentIndex.resolveBaseSlug(slug, contentType);
+      const addBaseSlug = getCI(res).resolveBaseSlug(slug, contentType);
       const sectionId = bindingManager.ensureSectionId(
         contentType,
         addBaseSlug,
@@ -1169,7 +1177,7 @@ export function registerComponentsRoutes(app: Express): void {
         ...updatedGroup,
         members: updatedGroup.members.map((m) => ({
           ...m,
-          localeSlug: contentIndex.getLocaleSlug(
+          localeSlug: getCI(res).getLocaleSlug(
             m.slug,
             m.contentType,
             updatedGroup.locale,
@@ -1216,7 +1224,7 @@ export function registerComponentsRoutes(app: Express): void {
         res.status(404).json({ error: "Binding group not found" });
         return;
       }
-      const removeBaseSlug = contentIndex.resolveBaseSlug(slug, contentType);
+      const removeBaseSlug = getCI(res).resolveBaseSlug(slug, contentType);
       const sectionId = bindingManager.getSectionIdAtIndex(
         contentType,
         removeBaseSlug,
@@ -1243,7 +1251,7 @@ export function registerComponentsRoutes(app: Express): void {
           ...result,
           members: result.members.map((m) => ({
             ...m,
-            localeSlug: contentIndex.getLocaleSlug(
+            localeSlug: getCI(res).getLocaleSlug(
               m.slug,
               m.contentType,
               result.locale,

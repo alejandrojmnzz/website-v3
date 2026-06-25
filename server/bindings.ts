@@ -4,7 +4,7 @@ import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
 import { markFileAsModified } from "./sync-state";
 import { generateSectionId } from "./utils/generateSectionId";
-import { contentIndex, MARKETING_CONTENT_PATH } from "./content-index";
+import { contentIndex } from "./content-index";
 import { child } from "./logger";
 const log = child({ module: "bindings" });
 
@@ -16,7 +16,9 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
   return unescapeYamlDump(dumped, map);
 }
 
-const BINDINGS_FILE = path.join(MARKETING_CONTENT_PATH, "section-bindings.json");
+function getBindingsFile(): string {
+  return path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", "section-bindings.json");
+}
 
 const EXCLUDED_PROPERTIES = new Set([
   "paddingY",
@@ -139,8 +141,8 @@ class BindingManager {
 
   load(): void {
     try {
-      if (fs.existsSync(BINDINGS_FILE)) {
-        const raw = fs.readFileSync(BINDINGS_FILE, "utf-8");
+      if (fs.existsSync(getBindingsFile())) {
+        const raw = fs.readFileSync(getBindingsFile(), "utf-8");
         this.data = JSON.parse(raw);
         if (!Array.isArray(this.data.groups)) {
           this.data = { groups: [] };
@@ -196,12 +198,13 @@ class BindingManager {
 
   private save(author?: string): void {
     try {
-      const dir = path.dirname(BINDINGS_FILE);
+      const bindingsFile = getBindingsFile();
+      const dir = path.dirname(bindingsFile);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(BINDINGS_FILE, JSON.stringify(this.data, null, 2), "utf-8");
-      markFileAsModified("marketing-content/section-bindings.json", author);
+      fs.writeFileSync(bindingsFile, JSON.stringify(this.data, null, 2), "utf-8");
+      markFileAsModified(`${process.env.CONTENT_FOLDER || "content"}/section-bindings.json`, author);
     } catch (error) {
       log.error({ err: error }, "[BindingManager] Error saving bindings:");
     }

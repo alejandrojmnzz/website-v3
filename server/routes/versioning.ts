@@ -204,6 +204,18 @@ import {
   FixerItemStatus,
 } from "./_helpers";
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
+function getContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+}
+function getContentRootName(res: Response): string {
+  const cr = getContentRoot(res);
+  return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
+
 export function registerVersioningRoutes(app: Express): void {
   app.get("/api/debug/versioning", (req, res) => {
     const versioningManager = getVersioningManager();
@@ -257,8 +269,7 @@ export function registerVersioningRoutes(app: Express): void {
     const versioningManager = getVersioningManager();
     const versioning = versioningManager.getVersioningForContent(contentType, contentSlug);
     const filePath = path.join(
-      process.cwd(),
-      "marketing-content",
+      getContentRoot(res),
       getFolder(contentType as ContentType) || contentType,
       contentSlug,
       "versioning.yml",
@@ -356,7 +367,7 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     const folder = getFolder(contentType as ContentType);
-    const contentDir = path.join(process.cwd(), "marketing-content", folder, contentSlug);
+    const contentDir = path.join(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
       res.status(404).json({ error: "Content folder not found" });
@@ -378,7 +389,7 @@ export function registerVersioningRoutes(app: Express): void {
     try {
       const sourceContent = fs.readFileSync(sourceFilePath, "utf-8");
       fs.writeFileSync(variantFilePath, sourceContent, "utf-8");
-      markFileAsModified(`marketing-content/${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api");
+      markFileAsModified(`${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
 
       const versioningManager = getVersioningManager();
       const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
@@ -396,7 +407,7 @@ export function registerVersioningRoutes(app: Express): void {
         success: true,
         variantSlug,
         locale,
-        filePath: `marketing-content/${folder}/${contentSlug}/${variantSlug}.${locale}.yml`,
+        filePath: `${getContentRootName(res)}/${folder}/${contentSlug}/${variantSlug}.${locale}.yml`,
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -426,7 +437,7 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     const folder = getFolder(contentType as ContentType);
-    const contentDir = path.resolve(process.cwd(), "marketing-content", folder, contentSlug);
+    const contentDir = path.resolve(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
       res.status(404).json({ error: "Content folder not found" });
@@ -464,11 +475,11 @@ export function registerVersioningRoutes(app: Express): void {
 
       fs.unlinkSync(variantFilePath);
 
-      contentIndex.invalidateCommonFields(contentType);
+      getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
-      const folder = getFolder(contentType as ContentType);
-      markFileAsModified(`marketing-content/${folder}/${contentSlug}/${locale}.yml`, "api");
-      markFileAsModified(`marketing-content/${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api");
+      const folder2 = getFolder(contentType as ContentType);
+      markFileAsModified(`${folder2}/${contentSlug}/${locale}.yml`, "api", undefined, getContentRoot(res));
+      markFileAsModified(`${folder2}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
 
       res.json({ success: true });
     } catch (error) {
@@ -499,7 +510,7 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     const folder = getFolder(contentType as ContentType);
-    const contentDir = path.resolve(process.cwd(), "marketing-content", folder, contentSlug);
+    const contentDir = path.resolve(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
       res.status(404).json({ error: "Content folder not found" });
@@ -521,7 +532,7 @@ export function registerVersioningRoutes(app: Express): void {
 
     try {
       fs.unlinkSync(variantFilePath);
-      markFileAsModified(`marketing-content/${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api");
+      markFileAsModified(`${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
 
       const versioningManager = getVersioningManager();
       const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
@@ -534,11 +545,11 @@ export function registerVersioningRoutes(app: Express): void {
         });
       }
 
-      contentIndex.invalidateCommonFields(contentType);
+      getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
 
       const updated = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
-      const availableLocales = contentIndex.getAvailableLocalesOrVariants(contentType as ContentType, contentSlug);
+      const availableLocales = getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, contentSlug);
       res.json({
         hasVersioningFile: true,
         versioning: updated,

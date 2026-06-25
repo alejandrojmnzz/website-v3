@@ -26,6 +26,7 @@ import {
   invalidateSitemapEntriesByContentKey,
   refreshSitemapEntry,
   refreshSitemapEntriesForContentKey,
+  type ActiveSiteCtx,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
@@ -207,6 +208,10 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/seo" });
 
+/** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as any)?.contentIndex ?? contentIndex;
+}
 
 export function registerSeoRoutes(app: Express): void {
   // Dynamic robots.txt — uses SITE_URL at request time so staging and production
@@ -256,7 +261,12 @@ Sitemap: ${baseUrl}/sitemap.xml
 
   // Dynamic sitemap with caching
   app.get("/sitemap.xml", (req, res) => {
-    const xml = getSitemap();
+    // res.locals.site is a SiteContext; extract typed fields for per-site sitemap generation
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      : undefined;
+    const xml = getSitemap(siteCtx);
     res.set("Content-Type", "application/xml");
     res.set("Cache-Control", "public, max-age=3600"); // Browser cache for 1 hour
     res.send(xml);
@@ -316,7 +326,7 @@ Sitemap: ${baseUrl}/sitemap.xml
       }
 
       const normalizedPath = normalizeUrl(pagePath);
-      const resolved = contentIndex.resolveUrl(normalizedPath);
+      const resolved = getCI(res).resolveUrl(normalizedPath);
 
       let effectiveLocale = (req.query.locale as string) || "en";
       if (resolved && !req.query.locale && resolved.patternLocale) {
@@ -327,7 +337,7 @@ Sitemap: ${baseUrl}/sitemap.xml
       let rawData: Record<string, unknown> | null = null;
 
       if (resolved && !resolved.fromDatabase) {
-        const merged = contentIndex.loadMergedContent(
+        const merged = getCI(res).loadMergedContent(
           resolved.contentType,
           resolved.slug,
           effectiveLocale,
@@ -405,8 +415,8 @@ Sitemap: ${baseUrl}/sitemap.xml
   // ============================================================================
   app.get("/api/seo/overview", (req, res) => {
     try {
-      const entries = contentIndex.listAll();
-      const seoEntries = contentIndex.getAllSeoEntries();
+      const entries = getCI(res).listAll();
+      const seoEntries = getCI(res).getAllSeoEntries();
 
       const intentDistribution: Record<string, Record<string, number>> = {};
       const clusterMap = new Map<string, string[]>();
@@ -430,7 +440,7 @@ Sitemap: ${baseUrl}/sitemap.xml
           if (locale.startsWith("_") || locale.includes(".")) continue;
           totalPages++;
 
-          const merged = contentIndex.loadMergedContent(ct, entry.slug, locale);
+          const merged = getCI(res).loadMergedContent(ct, entry.slug, locale);
           if (!merged.data) continue;
           const data = merged.data as Record<string, unknown>;
 
@@ -639,9 +649,9 @@ Sitemap: ${baseUrl}/sitemap.xml
       };
 
       if (getType(contentType) === "landing") {
-        const commonData = contentIndex.loadCommonData("landing", slug);
+        const commonData = getCI(res).loadCommonData("landing", slug);
         responseData.locations = (commonData?.locations as string[]) || [];
-        responseData.availableLocations = listLocationPages(locale).map(
+        responseData.availableLocations = listLocationPages(locale, getCI(res)).map(
           (loc) => ({
             slug: loc.slug,
             name: loc.name,
@@ -699,7 +709,7 @@ Sitemap: ${baseUrl}/sitemap.xml
         return;
       }
 
-      const landingDir = contentIndex.getContentFolderPath(contentType, slug);
+      const landingDir = getCI(res).getContentFolderPath(contentType, slug);
       const variantFiles = fs
         .readdirSync(landingDir)
         .filter((f) => f.endsWith(".yml") && f !== "_common.yml");
@@ -737,7 +747,7 @@ Sitemap: ${baseUrl}/sitemap.xml
         );
       }
 
-      contentIndex.refresh();
+      getCI(res).refresh();
       invalidateContentCaches(contentType);
 
       res.json({

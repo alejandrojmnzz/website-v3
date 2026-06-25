@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Request, Response, NextFunction } from "express";
-import { contentIndex } from "./content-index";
+import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
 import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig } from "./content-types";
 import {
@@ -99,7 +99,7 @@ function resolveBlogConfigQuery(): SingleQuery | null {
   }
 }
 
-export async function resolvePageQuery(url: string): Promise<SingleQuery | null> {
+export async function resolvePageQuery(url: string, ci: ContentIndex = contentIndex): Promise<SingleQuery | null> {
   // Don't seed page data for force_variant requests — the SSR render would use
   // the default-page data while the client needs a different query key for the
   // variant, causing a hydration mismatch. Return null so SSR emits an empty
@@ -117,7 +117,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
   ) {
     const locale = cleanUrl.startsWith("/es") ? "es" : "en";
     const slug = "home";
-    const result = contentIndex.loadContent({
+    const result = ci.loadContent({
       contentType: "page",
       slug,
       localeOrVariant: locale,
@@ -132,7 +132,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
         )) as any;
         applyComponentImageSizes(data.sections);
       }
-      const pageRaw = contentIndex.loadMergedContent("page", slug, locale);
+      const pageRaw = ci.loadMergedContent("page", slug, locale);
       const layout = resolveLayout("page", pageRaw.data || {});
       data.layout = layout;
       return {
@@ -144,7 +144,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
   }
 
   try {
-    const resolved = contentIndex.resolveUrl(cleanUrl);
+    const resolved = ci.resolveUrl(cleanUrl);
     if (!resolved) return null;
 
     const { contentType, slug, fromDatabase, patternLocale } = resolved;
@@ -159,7 +159,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
         const normalizedLocale = normalizeLocale(locale);
         const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale);
         if (!page) return null;
-        const dbSingleRaw = contentIndex.loadMergedContent(contentType, slug, normalizedLocale);
+        const dbSingleRaw = ci.loadMergedContent(contentType, slug, normalizedLocale);
         const layout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>));
         const { layout: _strip, ...pageRest } = page as unknown as Record<string, unknown>;
         return {
@@ -176,7 +176,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
     if (resolved.params?.locale) {
       locale = resolved.params.locale;
     } else if (!cleanUrl.match(/^\/(en|es)\b/)) {
-      const commonData = contentIndex.loadCommonData(contentType, slug);
+      const commonData = ci.loadCommonData(contentType, slug);
       if (commonData?.locale && typeof commonData.locale === "string") {
         locale = commonData.locale;
       }
@@ -185,7 +185,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
     if (apiPath) {
       const localeOrVariant = locale;
 
-      const result = contentIndex.loadContent({
+      const result = ci.loadContent({
         contentType,
         slug,
         localeOrVariant,
@@ -202,7 +202,7 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
         )) as any;
         applyComponentImageSizes(data.sections);
       }
-      const rawContent = contentIndex.loadMergedContent(
+      const rawContent = ci.loadMergedContent(
         contentType,
         slug,
         locale,
@@ -223,9 +223,9 @@ export async function resolvePageQuery(url: string): Promise<SingleQuery | null>
   }
 }
 
-function resolveMenuQuery(menuId: string, locale: string): SingleQuery | null {
+function resolveMenuQuery(menuId: string, locale: string, contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content")): SingleQuery | null {
   try {
-    const menusDir = path.join(process.cwd(), "marketing-content", "menus");
+    const menusDir = path.join(contentRoot, "menus");
     let filePath: string | null = null;
 
     if (locale && locale !== getDefaultLocale()) {
@@ -511,6 +511,7 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
 
 export async function resolveInitialData(
   url: string,
+  ci: ContentIndex = contentIndex,
 ): Promise<InitialDataPayload | null> {
   const cleanUrl = url.split("?")[0].split("#")[0];
   const isBlogListing =
@@ -519,8 +520,8 @@ export async function resolveInitialData(
     cleanUrl === "/es/blog" ||
     cleanUrl === "/es/blog/";
 
-  const pageQuery = await resolvePageQuery(url);
-  const parsedUrl = contentIndex.parseContentUrl(cleanUrl);
+  const pageQuery = await resolvePageQuery(url, ci);
+  const parsedUrl = ci.parseContentUrl(cleanUrl);
 
   const variablesQuery: SingleQuery = {
     queryKey: ["/api/variables"],
@@ -535,9 +536,9 @@ export async function resolveInitialData(
   // are always present in the server-rendered HTML, even when pageQuery is null
   // (e.g. database-backed pages where the DB query failed or returned no result).
   const defaultLocale = cleanUrl.startsWith("/es") ? "es" : "en";
-  const defaultNavbarQuery = resolveMenuQuery("main-navbar", defaultLocale);
+  const defaultNavbarQuery = resolveMenuQuery("main-navbar", defaultLocale, ci.contentRoot);
   if (defaultNavbarQuery) queries.push(defaultNavbarQuery);
-  const defaultFooterQuery = resolveMenuQuery("main-footer", defaultLocale);
+  const defaultFooterQuery = resolveMenuQuery("main-footer", defaultLocale, ci.contentRoot);
   if (defaultFooterQuery) queries.push(defaultFooterQuery);
 
   // If SSR resolved a canonical/base slug but the current URL uses a localized
@@ -596,16 +597,16 @@ export async function resolveInitialData(
     resolvedLocale = locale;
 
     if (layout?.menu?.top) {
-      const mq = resolveMenuQuery(layout.menu.top, locale);
+      const mq = resolveMenuQuery(layout.menu.top, locale, ci.contentRoot);
       if (mq) queries.push(mq);
     }
     if (layout?.menu?.bottom) {
-      const mq = resolveMenuQuery(layout.menu.bottom, locale);
+      const mq = resolveMenuQuery(layout.menu.bottom, locale, ci.contentRoot);
       if (mq) queries.push(mq);
     }
   }
 
-  const contentTypesPayload = buildContentTypesPayload();
+  const contentTypesPayload = buildContentTypesPayload(ci);
   queries.push({
     queryKey: ["/api/content-types"],
     data: contentTypesPayload,
@@ -619,7 +620,7 @@ export async function resolveInitialData(
     });
   }
 
-  const navigationManifest = readNavigationEagerManifest();
+  const navigationManifest = readNavigationEagerManifest(ci.contentRoot);
   if (navigationManifest) {
     queries.push({
       queryKey: ["navigation-eager-manifest"],
@@ -630,13 +631,13 @@ export async function resolveInitialData(
   return { queries, locale: resolvedLocale };
 }
 
-function buildContentTypesPayload(): Record<string, unknown>[] {
-  const configs = getAllConfigs();
+function buildContentTypesPayload(ci: ContentIndex = contentIndex): Record<string, unknown>[] {
+  const configs = getAllConfigs(ci.contentRoot);
   const result: Record<string, unknown>[] = [];
   for (const [type, config] of Object.entries(configs)) {
     result.push({
       name: type,
-      label: getLabel(type),
+      label: getLabel(type, ci.contentRoot),
       directory: config.directory,
       has_database: !!config.database?.slug,
       database_slug: config.database?.slug || null,
@@ -652,16 +653,16 @@ function buildContentTypesPayload(): Record<string, unknown>[] {
       ),
       url_pattern: config.url_pattern,
       locale_key: config.field_mapping?._locale || null,
-      static_entry_count: contentIndex.findByType(type).length,
-      layout: getLayout(type),
+      static_entry_count: ci.findByType(type).length,
+      layout: getLayout(type, ci.contentRoot),
     });
   }
   return result;
 }
 
-function buildThemeCssOverrides(): string {
+function buildThemeCssOverrides(contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content")): string {
   try {
-    const themePath = path.join(process.cwd(), "marketing-content", "theme.json");
+    const themePath = path.join(contentRoot, "theme.json");
     if (!fs.existsSync(themePath)) return "";
     const theme = JSON.parse(fs.readFileSync(themePath, "utf-8")) as {
       colors?: { light?: Record<string, string>; dark?: Record<string, string> };
@@ -720,7 +721,8 @@ export function initialDataMiddleware(
     return next();
   }
 
-  const payloadPromise = resolveInitialData(req.originalUrl).catch(() => null);
+  const ci = ((res.locals as any).site?.contentIndex ?? contentIndex) as ContentIndex;
+  const payloadPromise = resolveInitialData(req.originalUrl, ci).catch(() => null);
 
   const originalEnd = res.end;
   res.end = function (this: Response, chunk?: any, ...args: any[]) {
@@ -747,7 +749,7 @@ export function initialDataMiddleware(
             if (payload) {
               const scriptTag = `<script id="__INITIAL_DATA__" type="application/json">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>`;
               injected = injected.replace("</body>", scriptTag + "</body>");
-              const themeStyle = buildThemeCssOverrides();
+              const themeStyle = buildThemeCssOverrides(ci.contentRoot);
               if (themeStyle && !injected.includes('id="__theme_overrides__"')) {
                 injected = injected.replace("</head>", themeStyle + "</head>");
               }

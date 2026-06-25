@@ -777,13 +777,15 @@ export function registerMediaRoutes(app: Express): void {
       let newSrc: string;
 
       if (defaultProvider.name === "local") {
-        const MARKETING_IMAGES_DIR = path.join(process.cwd(), "marketing-content", "images");
-        if (!fs.existsSync(MARKETING_IMAGES_DIR)) {
-          fs.mkdirSync(MARKETING_IMAGES_DIR, { recursive: true });
+        const contentRoot: string = (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+        const contentRootName = path.basename(contentRoot);
+        const imagesDir = path.join(contentRoot, "images");
+        if (!fs.existsSync(imagesDir)) {
+          fs.mkdirSync(imagesDir, { recursive: true });
         }
-        const destPath = path.join(MARKETING_IMAGES_DIR, derivedFilename);
+        const destPath = path.join(imagesDir, derivedFilename);
         fs.writeFileSync(destPath, processedBuffer);
-        newSrc = `/marketing-content/images/${derivedFilename}`;
+        newSrc = `/${contentRootName}/images/${derivedFilename}`;
       } else {
         newSrc = await defaultProvider.upload(derivedFilename, processedBuffer, "image/webp");
       }

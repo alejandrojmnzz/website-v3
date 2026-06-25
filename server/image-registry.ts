@@ -9,7 +9,7 @@ import {
   getAllQueueState,
 } from "./image-queue-state";
 
-const REGISTRY_PATH = path.join(process.cwd(), "marketing-content", "image-registry.json");
+const REGISTRY_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "image-registry.json");
 
 const RETRY_FAILED_AFTER_MS = 24 * 60 * 60 * 1000;
 

@@ -7,7 +7,7 @@ const log = child({ module: "db-job-state" });
 
 const STATE_PATH = path.join(
   process.cwd(),
-  "marketing-content",
+  process.env.CONTENT_FOLDER || "marketing-content",
   ".db-job-state.json"
 );
 

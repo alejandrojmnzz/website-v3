@@ -328,9 +328,9 @@ export function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 }
 
 
-export function invalidateContentCaches(contentType?: string): void {
+export function invalidateContentCaches(contentType?: string, ci: typeof contentIndex = contentIndex): void {
   if (contentType) {
-    contentIndex.invalidateCommonFields(contentType);
+    ci.invalidateCommonFields(contentType);
   }
   clearSsrSchemaCache();
 }
@@ -487,8 +487,8 @@ export const careerProgramsListingSchema = z.object({
   ),
 });
 
-export function loadCareerProgramsListing(locale: string) {
-  const result = contentIndex.loadContent({
+export function loadCareerProgramsListing(locale: string, ci: typeof contentIndex = contentIndex) {
+  const result = ci.loadContent({
     contentType: "page",
     slug: "career-programs",
     schema: careerProgramsListingSchema,
@@ -532,8 +532,8 @@ export function injectCanonicalIfMissing(
   meta.canonical_url = getBaseUrl() + urlPath;
 }
 
-export function loadCareerProgram(slug: string, locale: string): CareerProgram | null {
-  const result = contentIndex.loadContent<CareerProgram>({
+export function loadCareerProgram(slug: string, locale: string, ci: typeof contentIndex = contentIndex): CareerProgram | null {
+  const result = ci.loadContent<CareerProgram>({
     contentType: "program",
     slug,
     localeOrVariant: locale,
@@ -555,14 +555,15 @@ export function loadCareerProgram(slug: string, locale: string): CareerProgram |
 
 export function listCareerPrograms(
   locale: string,
+  ci: typeof contentIndex = contentIndex,
 ): Array<{ slug: string; title: string; bc_slug: string }> {
-  const slugs = contentIndex.listContentSlugs("program");
+  const slugs = ci.listContentSlugs("program");
   const programs: Array<{ slug: string; title: string; bc_slug: string }> = [];
 
   for (const slug of slugs) {
-    const program = loadCareerProgram(slug, locale);
+    const program = loadCareerProgram(slug, locale, ci);
     if (program) {
-      const commonData = contentIndex.loadCommonData("program", slug);
+      const commonData = ci.loadCommonData("program", slug);
       if (commonData?.valid_lead_form_option === false) continue;
       const bcSlug = (commonData?.bc_slug as string) || slug;
       programs.push({
@@ -576,9 +577,9 @@ export function listCareerPrograms(
   return programs;
 }
 
-export function loadLandingPage(slug: string, locale?: string): LandingPage | null {
-  const effectiveLocale = locale || ((contentIndex.loadCommonData("landing", slug)?.locale as string) || getDefaultLocale());
-  const result = contentIndex.loadContent<LandingPage>({
+export function loadLandingPage(slug: string, locale?: string, ci: typeof contentIndex = contentIndex): LandingPage | null {
+  const effectiveLocale = locale || ((ci.loadCommonData("landing", slug)?.locale as string) || getDefaultLocale());
+  const result = ci.loadContent<LandingPage>({
     contentType: "landing",
     slug,
     localeOrVariant: effectiveLocale,
@@ -598,18 +599,18 @@ export function loadLandingPage(slug: string, locale?: string): LandingPage | nu
   return result.data;
 }
 
-export function listLandingPages(): Array<{
+export function listLandingPages(ci: typeof contentIndex = contentIndex): Array<{
   slug: string;
   title: string;
   locale: string;
 }> {
-  const slugs = contentIndex.listContentSlugs("landing");
+  const slugs = ci.listContentSlugs("landing");
   const landings: Array<{ slug: string; title: string; locale: string }> = [];
 
   for (const slug of slugs) {
-    const commonData = contentIndex.loadCommonData("landing", slug);
+    const commonData = ci.loadCommonData("landing", slug);
     const locale = (commonData?.locale as string) || getDefaultLocale();
-    const landing = loadLandingPage(slug, locale);
+    const landing = loadLandingPage(slug, locale, ci);
     if (landing) {
       const landingSlug = landing.slug || slug;
       const landingTitle = landing.title || "";
@@ -622,8 +623,8 @@ export function listLandingPages(): Array<{
   return landings;
 }
 
-export function loadLocationPage(slug: string, locale: string): LocationPage | null {
-  const result = contentIndex.loadContent<LocationPage>({
+export function loadLocationPage(slug: string, locale: string, ci: typeof contentIndex = contentIndex): LocationPage | null {
+  const result = ci.loadContent<LocationPage>({
     contentType: "location",
     slug,
     localeOrVariant: locale,
@@ -643,14 +644,14 @@ export function loadLocationPage(slug: string, locale: string): LocationPage | n
   return result.data;
 }
 
-export function listLocationPages(locale: string): Array<{
+export function listLocationPages(locale: string, ci: typeof contentIndex = contentIndex): Array<{
   slug: string;
   name: string;
   city: string;
   country: string;
   region: string;
 }> {
-  const slugs = contentIndex.listContentSlugs("location");
+  const slugs = ci.listContentSlugs("location");
   const locations: Array<{
     slug: string;
     name: string;
@@ -660,7 +661,7 @@ export function listLocationPages(locale: string): Array<{
   }> = [];
 
   for (const slug of slugs) {
-    const location = loadLocationPage(slug, locale);
+    const location = loadLocationPage(slug, locale, ci);
     if (location && location.visibility === "listed") {
       locations.push({
         slug: location.slug,
@@ -676,8 +677,8 @@ export function listLocationPages(locale: string): Array<{
 }
 
 // Template Pages (marketing-content/pages/)
-export function loadTemplatePage(slug: string, locale: string): TemplatePage | null {
-  const result = contentIndex.loadContent<TemplatePage>({
+export function loadTemplatePage(slug: string, locale: string, ci: typeof contentIndex = contentIndex): TemplatePage | null {
+  const result = ci.loadContent<TemplatePage>({
     contentType: "page",
     slug,
     localeOrVariant: locale,
@@ -716,12 +717,13 @@ export function buildSingleEntryFromContent(
 
 export function listTemplatePages(
   locale: string,
+  ci: typeof contentIndex = contentIndex,
 ): Array<{ slug: string; title: string }> {
-  const slugs = contentIndex.listContentSlugs("page");
+  const slugs = ci.listContentSlugs("page");
   const pages: Array<{ slug: string; title: string }> = [];
 
   for (const slug of slugs) {
-    const page = loadTemplatePage(slug, locale);
+    const page = loadTemplatePage(slug, locale, ci);
     if (page) {
       pages.push({
         slug: page.slug,

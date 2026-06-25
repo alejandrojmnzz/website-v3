@@ -266,7 +266,7 @@ export function mergeSingleTemplate(
   accum?: PerEntryAccum,
 ): Record<string, unknown> | null {
   const folder = getFolder(contentType);
-  const templateDir = path.join(process.cwd(), "marketing-content", folder);
+  const templateDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", folder);
   const singleCommonPath = path.join(templateDir, "_common.single.yml");
   const commonPath = path.join(templateDir, "_common.yml");
   let localePath = path.join(templateDir, `single.${locale}.yml`);
