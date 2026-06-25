@@ -1,0 +1,206 @@
+slug: plataforma-online
+template: default
+title: online-platform
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Plataforma de Aprendizaje Online | 4Geeks
+  description: Aprende con nuestra plataforma online y accede a programas de AI, Full Stack y más con 4Geeks Academy, líder en educación tecnológica.
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-noc2jn
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: Dentro de la plataforma de 4Geeks
+    subtitle: Descubre la plataforma de 4Geeks Academy que combina aprendizaje impulsado por IA con mentores expertos. Aprende a programar con LearnPack, el mentor de IA Rigobot y soporte humano ilimitado.
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/community_1764717588840.png
+      alt: Estudiantes colaborando en un espacio tecnológico
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: md none
+  - type: article
+    section_id: article-wfpu86
+    content: |
+      ## Bienvenido a tu plataforma de lanzamiento profesional en programación
+
+      ¿Te sientes abrumado por el ritmo acelerado del mundo tech? ¿Te preguntas cómo comenzar una carrera en programación cuando la IA parece estar haciendo todo? No estás solo. En 4Geeks Academy creemos que el futuro pertenece a quienes saben programar *con* la IA, no en su contra. Nuestra plataforma no es solo una herramienta de aprendizaje, es tu puerta de entrada personalizada al mundo tech, diseñada para [resultados reales, soporte real y empleos reales.](https://new.4geeks.com/es/soporte-profesional-geekforce)
+
+      Veamos más de cerca por qué la plataforma de 4Geeks se siente diferente a cualquier otra experiencia de bootcamp.
+
+      ## Un dashboard que se siente como un centro de control
+
+      Cuando inicias sesión en la plataforma, no te lanza a un mar de pestañas y listas interminables. Te dice: **"Bienvenido, [Tu Nombre]"** y muestra tu progreso de inmediato. Tu dashboard es un centro de control dinámico que destaca:
+
+      - Tus programas activos y porcentaje de progreso  
+      - Lecciones completadas, proyectos realizados y ejercicios pendientes  
+      - Mentores disponibles para sesiones 1-a-1  
+      - Próximas sesiones LIVE  
+      - Bucle de retroalimentación en tiempo real  
+
+      Todo está diseñado para ayudarte a enfocarte, planificar y mantenerte motivado. No es solo fácil de usar, es *hecho para ti*.
+
+      ## Aprende haciendo: modular, interactivo y centrado en las personas
+
+      Sabemos que ver horas de video no te hará estar listo para un empleo. Por eso nuestra plataforma divide el aprendizaje en **módulos desbloqueables**:
+
+      - **Lecciones de Lectura**: Explicaciones claras y fundamentales  
+      - **Ejercicios Interactivos**: Retos autoevaluados con retroalimentación instantánea y tutoriales en video integrados  
+      - **Proyectos**: Construcciones dignas de portafolio con funcionalidad del mundo real e instrucciones paso a paso  
+      - **Quizzes**: Revisiones rápidas para reforzar conceptos y medir comprensión  
+
+      Tu progreso se rastrea en tiempo real, para que siempre sepas cuánto has avanzado y qué viene después.
+
+      ## Programa como un profesional con LearnPack y Rigobot
+
+      Aquí es donde 4Geeks marca la diferencia. Toda la plataforma está [impulsada por **LearnPack**](https://new.4geeks.com/es/learnpack), nuestro framework open-source que se integra perfectamente con **Visual Studio Code**. Obtienes las mismas herramientas que utilizan los desarrolladores profesionales:
+
+      - Lanzamiento con un clic mediante Gitpod o Codespaces  
+      - Sin configuración local necesaria  
+      - Pruebas de código en tiempo real  
+
+      Y a tu lado está [**Rigobot**](https://new.4geeks.com/es/rigobot), tu mentor de programación impulsado por IA. Analiza tu código, encuentra errores, explica fallos y te guía en las correcciones en tiempo real, dentro de tu ventana de desarrollo. Ya sea depurando un bucle en Python o diseñando un layout responsivo, Rigobot te explica el *por qué* detrás de cada solución.
+
+      ## Mentoría humana que nunca desaparece
+
+      Incluso la mejor IA no puede reemplazar la retroalimentación humana real. Por eso integramos mentoría ilimitada en tu experiencia:
+
+      - Reserva sesiones 1-a-1 con mentores expertos a tu ritmo  
+      - Aprende en sesiones LIVE con instructores en clases y workshops  
+      - Conecta con tus compañeros a través de Slack, herramientas de feedback y seguimientos semanales  
+
+      Ya sea revisión de código, consejos para tu portafolio o simplemente hablar sobre el síndrome del impostor, siempre hay alguien de tu lado.
+
+      ## Una plataforma construida para todos, en cualquier lugar
+
+      Nos tomamos la accesibilidad en serio:
+
+      - LearnPack es open-source y utilizado por universidades en todo el mundo
+      - Más de 1,000 tutoriales y proyectos en GitHub  
+      - Navegación por teclado e interfaces adaptadas para daltonismo  
+      - Disponible en múltiples idiomas (English, Spanish y más)  
+      - Opciones presenciales y remotas en seis países  
+
+      Comienza a programar desde un Chromebook en Chile o una MacBook en Madrid. La experiencia es la misma: fluida, profesional e inclusiva.
+
+      ## ¿Los resultados? Hablan por sí solos
+
+      | **Métrica** | **Valor** |
+      | --- | --- |
+      | Graduados | 6,000+ |
+      | [Inserción laboral (en 140d)](https://4geeksacademy.com/es/resultados) | 75 % |
+      | Tutoriales en GitHub | 1,000+ (open-source) |
+      | [Calificación en SwitchUp](https://www.switchup.org/bootcamps/4geeks-academy) | 4.9/5 |
+      | Campus | 7 (USA, Spain, Germany, LATAM, etc.) |
+      | Plataforma usada en universidades | Sí (vía Gitpod + LearnPack) |
+
+      ## Por qué 4Geeks se siente diferente
+
+      Este no es un bootcamp que te deja viendo videos solo. Es un **sistema de aprendizaje completo** construido sobre:
+
+      - IA que se adapta a tu código en tiempo real  
+      - Proyectos que reflejan entrevistas técnicas reales  
+      - Mentoría que no expira  
+      - Comunidad que permanece contigo mucho después de graduarte  
+
+      Lo construimos así porque creemos que **la educación tech debe sentirse humana**, no como una máquina. Incluso mientras te entrenamos para trabajar con IA, estamos aquí para mantenerte conectado, motivado y acompañado.
+
+      ## 🚀 ¿Listo para comenzar?
+
+      No necesitas saberlo todo para empezar. Solo necesitas un navegador, un poco de valentía y una plataforma que te respalde.
+
+      Explora la plataforma de 4Geeks Academy, comienza a aprender con LearnPack, programa junto a Rigobot y da el primer paso hacia tu nueva carrera tech.
+
+      👉 [Explora los programas ahora](https://4geeksacademy.com/es/financiaciones) o agenda una sesión con un mentor hoy.
+    show_toc: true
+    max_width: xl
+  - type: faq
+    section_id: faq-scuwx9
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - online-platform
+        - item_property_slug: locations
+          value: all
+    paddingY:
+      desktop: none md
+  - type: cta_banner
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-wgv8l9
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-q9qyqt

@@ -223,7 +223,7 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
   }
 }
 
-function resolveMenuQuery(menuId: string, locale: string, contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com")): SingleQuery | null {
+function resolveMenuQuery(menuId: string, locale: string, contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content")): SingleQuery | null {
   try {
     const menusDir = path.join(contentRoot, "menus");
     let filePath: string | null = null;
@@ -660,7 +660,7 @@ function buildContentTypesPayload(ci: ContentIndex = contentIndex): Record<strin
   return result;
 }
 
-function buildThemeCssOverrides(contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com")): string {
+function buildThemeCssOverrides(contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content")): string {
   try {
     const themePath = path.join(contentRoot, "theme.json");
     if (!fs.existsSync(themePath)) return "";

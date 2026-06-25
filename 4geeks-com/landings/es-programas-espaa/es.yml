@@ -1,0 +1,520 @@
+sections:
+  - type: hero
+    version: "1.0"
+    variant: productShowcase
+    title: en 4Geeks
+    brand_mark:
+      prefix: La IA está cambiando todos los empleos en España. Empieza tu carrera en
+      highlight: tecnología con IA
+      color: primary
+    description: En 4Geeks no solo aprendes a programar. Te preparamos para conseguir trabajo. Mentorías ilimitadas de por vida, herramientas de IA integradas en cada programa y apoyo de carrera hasta que firmes tu primer contrato.
+    bullets:
+      - text: Elige entre Full Stack, Ingeniería de IA, Data Science o Ciberseguridad según tus objetivos
+      - text: La única academia que no termina cuando te gradúas, mentoría ilimitada de por vida incluida
+      - text: Grupos reducidos con acompañamiento real antes, durante y después de graduarte
+      - text: Más de 5.000 graduados empleados en empresas tech de todo el mundo
+    image_object_fit: none
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: Solicita información
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          default: ai-engineering
+      success:
+        message: Ya estás dentro. Alguien de nuestro equipo se pondrá en contacto contigo en unos minutos. Revisa tu bandeja de entrada.
+    form_vertical_align: top
+    form_card_text_color: hsl(var(--foreground))
+    form_card_title: Recibe todos los detalles del programa
+    form_card_subtitle: Tarda 2 minutos. Nuestro equipo de admisiones te enviará la información completa del programa que más te interese en unos minutos.
+    form_card_image: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Best-Coding-Bootcamp-2026-Badge.png
+    show_awards_marquee: false
+    awards_marquee:
+      items:
+        - id: switchup-2025
+          alt: SwitchUp - Mejores Bootcamps de Código 2025
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+          logoHeight: 55px
+        - id: course-report-2024
+          alt: Course Report - Mejor Bootcamp de Código 2024
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+          logoHeight: 55px
+        - id: tech-hub
+          alt: South Florida Tech Hub
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/south-florida-tech-hub_1765548979070.jpeg
+          logoHeight: 55px
+        - id: ebootcamp
+          alt: eBootcamp Top
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp-top_1765549056325.png
+          logoHeight: 55px
+        - id: premios-tecnologia
+          alt: Premios Tecnología Siglo XXI
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+          logoHeight: 55px
+        - id: newsweek
+          alt: Newsweek
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_1764709608255.webp
+          logoHeight: 55px
+        - id: reviews-coursereport
+          alt: 4.9 en Reseñas de Course Report
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+          logoHeight: 55px
+        - id: excelencia-educativa
+          alt: Excelencia Educativa - Calidad Institucional
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+          logoHeight: 55px
+    video_title: GeekForce Career Support
+    marginY:
+      desktop: none md
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: md none
+    marginX:
+      desktop: none
+    section_id: hero-l4c46u
+    image_alt: "Image: Course Report Best Coding Bootcamp 2026 Badge"
+  - type: trust_cards
+    maxWidth:
+      desktop: 6xl
+    version: v1.0
+    title: La academia mejor valorada en todas las plataformas de reseñas
+    items:
+      - image: https://old.4geeksacademy.com/static/01607bc41a0de635d83e9500e7cdb2ba/b490d/course-report.webp
+        rating: 4.9
+        review_count: 4.9 en Course Report
+      - image: https://old.4geeksacademy.com/static/b75f1b5bdfb35d447612388524e6ca96/611d9/google.webp
+        rating: 4.8
+        review_count: 4.8 en Google
+      - image: https://old.4geeksacademy.com/static/2c0afa9f6c7390203793f4d0bb6c5728/4d404/career-karma.webp
+        rating: 4.9
+        review_count: 4.9 en Career Karma
+      - image: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        rating: 4.9
+        review_count: 4.9 en SwitchUp
+    name: Default Trust Cards
+    description: Four review platform cards with ratings
+    section_id: trust_cards-eslgbu
+    paddingY:
+      desktop: sm md
+    marginY:
+      desktop: none sm
+    background: hsl(var(--secondary))
+  - type: course_selector
+    version: "1.0"
+    variant: spotlight
+    heading: Find Your Path
+    subheading: Four programs. All built around getting you hired, not just trained.
+    courses:
+      - name: AI Engineering
+        icon: Bolt
+        duration: 24 weeks, or 15-week accelerated track
+        label: Updated in 2026
+        title: AI Engineering
+        badges:
+          - icon: Bolt
+            text: RAG & Vector Search
+          - icon: Bolt
+            text: AI Agents
+          - icon: Bolt
+            text: Python
+        description: Transform a real business case into a fully AI-native system, layer by layer. Master the agents, RAG systems, and automation pipelines that companies are hiring for right now.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/ai-engineering
+        course_background: accent
+      - name: Data Science and Machine Learning
+        icon: IconChartBar
+        duration: 18 weeks
+        label: Updated in 2026
+        title: Data Science and Machine Learning
+        badges:
+          - icon: ChartBar
+            text: Python & Pandas
+          - icon: ChartBar
+            text: TensorFlow
+          - icon: ChartBar
+            text: Data Visualization
+        description: Master the skills behind AI-driven decisions. Build models, analyze data at scale, and deploy solutions that companies in every industry are actively hiring for.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/data-science-ml
+        course_background: hsl(var(--muted-foreground))
+      - name: Cybersecurity
+        icon: IconShield
+        duration: 16 weeks
+        label: Updated in 2026
+        title: Cybersecurity
+        badges:
+          - icon: Shield
+            text: Ethical Hacking & Pentesting
+          - icon: Shield
+            text: NIST Framework
+        description: Detect threats, protect systems, and secure the data every organization depends on. One of the fastest-growing careers in tech, with a global shortage of skilled professionals that shows no signs of slowing.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/cybersecurity
+        course_background: destructive
+      - name: Full Stack Development with AI
+        icon: IconCode
+        duration: 20 weeks
+        label: Updated in 2026
+        title: Full Stack Development with AI
+        badges:
+          - icon: Code
+            text: React & Next.js
+          - icon: Code
+            text: Python & APIs
+          - icon: Code
+            text: AI Integration
+        description: Build modern, production-ready web applications from frontend to backend, with AI integrated into your development process from day one.
+        cta_text: Get Program Details
+        cta_url: /en/career-programs/full-stack
+        course_background: primary
+    maxWidth:
+      desktop: 6xl
+    marginY:
+      desktop: none
+    section_id: course_selector-ut5wua
+    background: hsl(var(--card))
+  - type: graduates_stats
+    heading: Nuestros Graduados Consiguen Empleo. Rápido.
+    subheading: Más de 6,000 graduados en todo el mundo. Ahora prosperando en tecnología.
+    stats:
+      - value: {{ global.global_job_placement_rate | 84% }}%
+        label: Tasa de contratación promedio
+      - value: {{ global.global_salary_increase | 55% }}%
+        label: Aumento salarial promedio en el nuevo puesto
+      - value: 3-6 meses
+        label: Tiempo promedio para conseguir empleo
+    collage_images:
+      - image_id: group-7085-1
+        col_span: 5
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_uwpyyruwpyyruwpy"
+        id: gemini-generated-image-uwpyyruwpyyruwpy
+        object_scale: 1.1
+        object_position: 50% 30%
+      - image_id: group-7086-1
+        col_span: 7
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_pd2u4upd2u4upd2u"
+        id: gemini-generated-image-pd2u4upd2u4upd2u
+        object_scale: 1
+        transform_origin: 50% 50%
+        object_position: 50% 60%
+      - image_id: group-7084-1
+        col_span: 6
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_dhko5mdhko5mdhko (1)"
+        id: gemini-generated-image-dhko5mdhko5mdhko-1
+        object_scale: 1.05
+      - image_id: group-7087-1
+        col_span: 6
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_wpk4yvwpk4yvwpk4"
+        id: gemini-generated-image-wpk4yvwpk4yvwpk4
+        object_scale: 1.05
+        transform_origin: 50% 50%
+        object_position: 50% 45%
+    section_id: graduates_stats-cnxqbb
+    marginY:
+      desktop: none
+    maxWidth:
+      desktop: 6xl
+  - type: two_column
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      video: https://youtu.be/9Vm_xD49MaU
+      justify: center
+    right:
+      heading: "Diego Gómez González: cómo 4Geeks cambió su vida profesional"
+      sub_heading: La experiencia de un estudiante de nuestro bootcamp
+      description: Diego, uno de nuestros estudiantes, comparte su experiencia en 4Geeks Academy, donde cursó el bootcamp de desarrollo Full Stack. Con un grado superior en desarrollo multiplataforma, Diego ya contaba con conocimientos en programación, pero necesitaba reforzar su capacidad para conectar las distintas áreas del desarrollo.
+      button:
+        text: Solicita tu plaza
+        url: "#bottom"
+        variant: primary
+        icon: Rocket
+    gap: "8"
+    section_id: ai_learning-gyglcr
+    marginY:
+      desktop: none xl
+    paddingY:
+      desktop: md
+    background: hsl(var(--secondary))
+  - type: ai_learning
+    section_id: ai_learning-qmjitd
+    badge: ¿Por qué 4Geeks?
+    title: La academia que no te abandona cuando te gradúas
+    description: La mayoría de academias te dan un curso y te desean suerte. 4Geeks se queda contigo desde tu primera línea de código hasta tu primera oferta de trabajo y más allá.
+    features:
+      - icon: TrendingUp
+        title: Apoyo de carrera construido para el mercado tech en Chile
+        show_rigobot_logo: true
+        bullets:
+          - text: Coaching 1:1 enfocado en conseguir roles de Ingeniería de IA específicamente
+          - text: CV y portfolio optimizados para pasar los filtros automáticos de los recruiters
+          - text: Preparación para entrevistas técnicas y negociación salarial
+          - text: Apoyo de carrera de por vida, no solo hasta que te gradúas
+        video_url: https://www.youtube.com/shorts/8ELYdTsuA1A?autoplay=1&mute=1&playsinline=1
+      - icon: bot
+        title: Aprende más rápido con un tutor de IA que sabe dónde te has atascado
+        show_rigobot_logo: true
+        bullets:
+          - text: Rigobot te da feedback instantáneo sobre tu código sin esperar a que haya un humano disponible
+          - text: Adapta las explicaciones a tu nivel exacto y ritmo de aprendizaje
+          - text: Desbloquéate a las 2 de la madrugada sin perder el hilo
+          - text: Cientos de ejercicios interactivos en Learnpack, nuestra plataforma de aprendizaje
+        video_url: https://youtu.be/NRuShbSLtg0
+      - icon: Headset
+        title: Mentoría 1:1 ilimitada de por vida, no solo mientras estudias
+        show_rigobot_logo: true
+        bullets:
+          - text: Reserva sesiones 1:1 ilimitadas con ingenieros senior incluso después de graduarte
+          - text: Ratio 7:1 estudiante por mentor para que tu mentor sepa quién eres
+          - text: Check-ins semanales para que te mantengas enfocado y termines el programa
+          - text: Comunidad activa en Slack con canales de empleo, soporte técnico y consejos de carrera
+        video_url: https://youtu.be/Zoxxw5jP7xA
+    paddingY:
+      mobile: lg none
+      desktop: none
+    marginY:
+      desktop: none
+    background: hsl(var(--card))
+  - type: testimonials_slide
+    title: Dieron el salto y esto es lo que pasó.
+    description: Músicos, filósofos, especialistas de soporte y personas sin experiencia previa, ahora son desarrolladores con empleos reales y salarios que no esperaban.
+    testimonials:
+      - name: Loretta Thompson
+        img: https://storage.googleapis.com/4geeks-academy-website/media/ttaLoretta_1764725322100.jpeg
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: United Way Miami
+        description: Loretta joined in 2022 and graduated in 2023. She already found a job within the next few months and has fulfilled the whole circle of skills+job that we all want to complete!
+        achievement: She got a 45% increase in her salary
+      - name: Rich Akers
+        img: https://storage.googleapis.com/4geeks-academy-website/media/Akers_1764725327796.jpeg
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: Clark University
+        description: Richard is a great developer that just transitioned from a different background and is now working as a web dev in the tech field.
+        achievement: He got a 30% increase in his salary
+      - name: MaiLinh Tran
+        img: https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh_1764725334980.png
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: Clark University
+        description: An entrepreneur with a passion for technology is now focusing on the dev side of their endeavour.
+        achievement: She has launched her startup, is capable of hiring new tech talent and coordinates a dev team!
+      - name: Jorge Martín Coimbra
+        img: https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Martín joined the first program that we launched together with UTEC and IDB. He got a better paying job, a career that he is passionate about and a new professional life.
+        achievement: He got a 100% increase in his salary
+      - name: Jean St. Cloud
+        img: https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: Clark
+        description: Jean is transitioning from other industries (Music) and is finding his way into Tech. He got it with the support of Clark University and is already performing as a developer and a Mentor.
+        achievement: He got a 100% increase in his salary
+      - name: Alexandra Espinoza
+        img: https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        status: Graduated
+        country:
+          name: Costa Rica
+          iso: cr
+        contributor: CINDE-BID
+        description: Alexandra came from a total different background is been a huge revelation for her and everyone around her. She is now a successful and talented software developer in Costa Rica.
+        achievement: She got a 100% increase in her salary
+      - name: Gabriel Salazar
+        img: https://storage.googleapis.com/4geeks-academy-website/media/GabrielSalazar_1764725392872.jpeg
+        status: Graduated
+        country:
+          name: Costa Rica
+          iso: cr
+        contributor: CINDE-BID
+        description: Gabriel was already a support specialist at Microsoft and after completing the program he was able to achieve a new position within Microsoft where he is now working as a Software Engineer.
+        achievement: He got a 50% increase in his salary
+      - name: Laura Magallanes
+        img: https://storage.googleapis.com/4geeks-academy-website/media/Laura_1764725397398.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Laura is just extraordinary. From a little town in Uruguay with no experience in Coding, she is now a woman head of household, an Instructor and a Program Coordinator.
+        achievement: She got a 120% increase in her salary
+      - name: Melanie Galaretto
+        img: https://storage.googleapis.com/4geeks-academy-website/media/MelamnieGalaretto_1764725408397.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Melanie is a young professional who is dreaming of achieving a life that now she owns. She is a resourceful and committed software developer working for a software firm in her home country.
+        achievement: She got a +100% increase in her salary
+      - name: Natia Lombardo
+        img: https://storage.googleapis.com/4geeks-academy-website/media/NatiaLombardo_1764725413363.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Natia is a philosopher and a software developer. Currently working as a QA Engineer of a huge and successful International firm.
+      - name: Luis Larraburo
+        img: https://storage.googleapis.com/4geeks-academy-website/media/LuisLarraburo_1764725418057.jpeg
+        status: Graduated
+        country:
+          name: Costa Rica
+          iso: cr
+        contributor: CINDE-BID
+        description: Luis came to the program without any previous experience. He is now a software developer working at a tech firm in Costa Rica.
+        achievement: He got a 50% increase in his salary
+      - name: Leandro Matonte
+        img: https://storage.googleapis.com/4geeks-academy-website/media/Leandro_1764725403142.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Leandro got into the program with the expectation to achieve a better understanding and some coding skills. Now he is a software developer at a tech firm in Uruguay.
+        achievement: He got a 60% increase in his salary
+    section_id: testimonials_slide-731ujk
+  - type: cards_deck
+    section_id: cards_deck-8jlm80
+    version: "1.0"
+    heading: Historias reales de cambios de carrera
+    subtitle: Miles de graduados han utilizado nuestros programas para entrar en el mundo de la tecnología. Estas son solo algunas de sus historias, desde aumentos salariales hasta reinvenciones completas de carrera.
+    cards:
+      - video:
+          url: https://www.youtube.com/watch?v=B01-eTfgqqc
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Mattia Tozzi
+        title: "\"4Geeks ha empujado mi futuro laboral\""
+        description: Las tutorías ilimitadas de 4Geeks fueron clave para elegirlos. Con la ayuda de sus profesores y la comunidad, pudo resolver todas sus dudas rápidamente y avanzar en su aprendizaje.
+        alt: Geekpal
+      - video:
+          url: https://www.youtube.com/watch?v=XqyM_QSVcOs
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Ana Romero
+        title: "\"He superado mi miedo a programar\""
+        description: Están ahí siempre para brindarte apoyo. Sus buenos mentores, guías de programación y las herramientas de 4Geeks son excelentes. La recomendaría un millón de veces.
+        alt: Geekpal
+      - video:
+          url: https://www.youtube.com/watch?v=rtpfwwfE0yY
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekforce-logo-new.png
+        author_name: Joshua Bravo
+        title: "\"De asistente de cocina a Desarrollador Full Stack\""
+        description: Joshua pasó de trabajar en cocina y contabilidad a conseguir empleo como desarrollador en Regcheq, una startup fintech en Chile, tras completar el bootcamp de 4Geeks.
+        alt: Geekforce
+    marginY:
+      desktop: none xl
+    background: hsl(var(--card))
+  - type: whos_hiring
+    variant: carousel
+    title: Empresas que contratan a nuestros estudiantes
+    subtitle: Nuestros graduados trabajan en compañías líderes a nivel global
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    section_id: whos_hiring-ed05rj
+    marginY:
+      desktop: none lg
+    paddingY:
+      desktop: none
+  - type: cta_banner
+    version: "1.0"
+    title: Tu nueva carrera en tech no va a empezar sola.
+    subtitle: Cada semana que esperas es una semana que otro se lleva el trabajo. Aplica en 2 minutos. Es gratis.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      conversion_name: request_more_info
+      submit_label: Obtén mas info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu email
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+          placeholder: Teléfono
+        program:
+          visible: true
+          default: ai-engineering
+      success:
+        message: Ya estás dentro. Alguien de nuestro equipo se pondrá en contacto contigo en unos minutos. Revisa tu bandeja de entrada.
+      button_className: bg-primary border-white
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    section_id: cta_banner-n4bqol
+    marginY:
+      mobile: md none
+      desktop: md none
+    paddingY:
+      mobile: lg
+      desktop: lg

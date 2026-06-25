@@ -1,0 +1,4 @@
+meta:
+  page_title: "{{ single.title }}"
+  description: "{{ single.description }}"
+sections: []

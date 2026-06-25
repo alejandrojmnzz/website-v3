@@ -1,0 +1,38 @@
+slug: resto-de-america
+meta:
+  page_title: Bootcamp de Programación en Rest of America | 4Geeks
+  description: Únete a 4Geeks Academy en Rest of America. Aprende a programar con nuestros programas de bootcamp.
+sections:
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: {{ global.call_to_action_apply | Aplicar ahora }}
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre Completo
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+          placeholder: Número telefónico
+        program:
+          visible: true
+          required: true
+          default: auto
+          placeholder: Selecciona un programa
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    section_id: sticky_cta-hm3f6z

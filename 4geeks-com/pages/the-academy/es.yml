@@ -1,0 +1,301 @@
+slug: sobre-la-academia
+template: default
+title: Sobre 4Geeks
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: "Sobre 4Geeks Academy | Quiénes Somos"
+  description: Aprende sobre nuestros programas de AI, Full Stack y Data Science en 4Geeks Academy y lánzate a una carrera en tech con nuestras garantías de empleo.
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-1dzhwx
+    version: "1.0"
+    variant: singleColumn
+    title: Construyendo carreras en la era de la IA
+    subtitle: 4Geeks Academy es un coding bootcamp internacional con 8 campus en EE. UU., Latinoamérica y Europa. Formamos estudiantes en Ingeniería en IA, Data Science & Machine Learning y Ciberseguridad — con un camino claro hacia el empleo.
+    badge: 10+ años lanzando carreras en tecnología
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/academy_header_coding-1000x247-q90.webp
+      alt: Estudiantes programando en computadoras en un aula
+    image_full_width: false
+    marginY:
+      desktop: none md
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: md none
+  - type: split_cards
+    section_id: split_cards-4sew7d
+    variant: primary-left
+    primary_width: narrow
+    primary:
+      heading: Nuestra misión y enfoque
+      description: "Desde 2015, 4Geeks Academy ha ayudado a miles de estudiantes a hacer la transición hacia carreras en tecnología. Nuestro modelo combina formación práctica basada en proyectos con mentorías ilimitadas 1:1, herramientas de aprendizaje impulsadas por IA y acompañamiento estructurado para la búsqueda de empleo. El objetivo es simple: brindar la profundidad técnica, experiencia práctica y estrategia profesional necesarias para conseguir trabajo — y seguir creciendo."
+      badge: Modelo respaldado por resultados
+    secondary:
+      benefits:
+        - text: Currículo alineado con la industria e integrado con IA
+        - text: Mentoría personalizada ilimitada
+        - text: Soporte de carrera de por vida
+      image_id: what_is_4geeks-700x438-q75
+      image_object_fit: cover
+      image_object_position: 60% 100%
+    marginY:
+      desktop: lg none
+  - type: features_quad
+    section_id: features_quad-b7t650
+    version: "1.0"
+    variant: laptopEdge
+    laptop_image:
+      image_id: laptop
+    heading: Qué nos hace diferentes
+    cards:
+      - icon: Trophy
+        title: Programas enfocados en la carrera
+        description: Formación práctica, intensiva y orientada al mundo real para lanzar carreras tecnológicas.
+      - icon: Wallet
+        title: Aprendizaje hiperpersonalizado
+        description: Rigobot ofrece retroalimentación instantánea 24/7 para asegurar que siempre recibas la guía que necesitas.
+      - icon: Clock
+        title: Mentoría humana ilimitada
+        description: Mentores y coaches de carrera brindan apoyo personalizado durante el programa y para siempre.
+      - icon: Users
+        title: Habilidades preparadas para el futuro
+        description: Currículo actualizado continuamente con herramientas y tecnologías que impulsan la industria tecnológica.
+    background: hsl(var(--muted))
+    description_with_background: false
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: none
+  - type: stats
+    section_id: stats-r34w4a
+    version: "1.0"
+    items:
+      - value: +{{ global.global_total_alumni | 7000 }}
+        label: Alumni
+      - value: {{ global.global_campuses | 10 }}
+        label: Campus
+      - value: ~{{ global.global_job_placement_rate | 84 }}%
+        label: Tasa de Contratación
+      - value: {{ global.global_review_rating | 4.9 }}
+        label: Calificación Promedio
+    marginY:
+      desktop: lg
+    paddingY:
+      desktop: none sm
+  - type: two_column
+    section_id: two_column-4q8dyy
+    proportions:
+      - 4
+      - 8
+    background: hsl(var(--muted))
+    alignment: center
+    left:
+      image: https://storage.googleapis.com/4geeks-academy-website/media/crusa_forte_scholarship-600x600-q60.webp
+      image_alt: Estudiante programando en una laptop
+      image_object_fit: cover
+      image_object_position: 10% 80%
+      justify: end
+    right:
+      heading: Impulsando el ecosistema tecnológico global
+      description: En 4Geeks Academy creemos que la colaboración genera impacto real. Trabajamos con universidades, organizaciones sin fines de lucro, iniciativas de desarrollo laboral, organizaciones globales y comunidades tecnológicas locales para ampliar el acceso a educación tecnológica de alto nivel y fortalecer las oportunidades profesionales. Juntos formamos y colocamos talento diverso, cerramos la brecha de habilidades digitales y construimos la fuerza laboral tecnológica del futuro. También participamos activamente en la comunidad, colaborando en hackatones, desafíos tecnológicos y eventos de la industria que conectan talento con oportunidades y muestran las habilidades de nuestros estudiantes y graduados.
+      text_align: left
+    gap: "12"
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: sm
+  - type: awards_marquee
+    section_id: awards_marquee-di0a41
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: logo-crusa
+        alt: Logo Fundación CRUSA
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/crusa-logo_1770608198366.webp
+        logoHeight: 65px
+      - id: logo-miami-tech-works
+        alt: Logo Miami Tech Works
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/logo_miami_tech_works-400x221-q60.webp
+        logoHeight: 65px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 56px
+      - id: logo-bite-con
+        alt: Logo BITE-CON
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/bite-con_1770608313051.png
+        logoHeight: 56px
+      - id: logo-kosmos
+        alt: Logo Kosmos
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/kosmos-logo_1770608352885.png
+        logoHeight: 56px
+      - id: logo-united-way
+        alt: Logo United Way
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/united_way_mini_1770608055840.PNG
+        logoHeight: 56px
+      - id: clark-university
+        alt: Logo Clark University
+        logo: /marketing-content/images/clark-university_1769653206336.png
+        logoHeight: 56px
+      - id: logo-cinde
+        alt: Logo CINDE Invest in Costa Rica
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/cinde_1770608132364.png
+        logoHeight: 56px
+      - id: logo-utec
+        alt: Logo UTEC Universidad Tecnológica
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/logo_utec-545x305-q70.webp
+        logoHeight: 56px
+    paddingY:
+      desktop: lg none
+  - type: whos_hiring
+    section_id: whos_hiring-sfj8fr
+    variant: carousel
+    title: Empresas que confían en nuestros graduados
+    description: |-
+      Los graduados de 4Geeks son contratados por empresas tecnológicas líderes en EE. UU., Latinoamérica y Europa. Los empleadores destacan constantemente su profundidad técnica, experiencia práctica y capacidad de aportar valor desde el primer día.
+      'Siempre me impresiona la profundidad de conocimiento de los estudiantes de 4Geeks. Una de mis contrataciones se convirtió en líder de equipo.' - CodeNinjas
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefónica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    marginY:
+      desktop: lg none
+  - type: profiles_carousel
+    section_id: profiles_carousel-o4egkg
+    version: v1.0
+    heading: Conoce a los Geeks
+    description: Nuestro equipo es dedicado, altamente capacitado y siempre está listo para apoyarte en tu camino hacia la tecnología. Te brindan toda la orientación y motivación que necesitas para lanzar una nueva carrera exitosa.
+    image_round: false
+    profiles:
+      - image_id: alejandro_sanchez
+        name: Alejandro Sánchez
+        role: Co-Fundador y Director de Tecnología
+        linkedin_url: https://www.linkedin.com/in/alesanchezr/
+      - image_id: marcelo_ricigliano
+        name: Marcelo Ricigliano
+        role: Co-Fundador y CEO
+        linkedin_url: https://www.linkedin.com/in/marcelo-ricigliano-32440379/
+      - image_id: alissalandra
+        name: Alissa Landra
+        role: Campus & Growth Manager USA
+        linkedin_url: https://www.linkedin.com/in/alissalandra/
+      - image_id: victor_gomez
+        name: Victor Manuel Gómez Pérez
+        role: Regional Manager Europe
+        linkedin_url: https://www.linkedin.com/in/victormgomezp/
+      - image_id: pablo_bullor
+        name: Pablo Bullor
+        role: Program Manager LATAM
+        linkedin_url: https://www.linkedin.com/in/pablobullor/
+      - image_id: laura
+        name: Laura Magallanes
+        role: Program Manager USA
+        linkedin_url: https://www.linkedin.com/in/laura-magallanes-dev/
+      - image_id: valentina_ancieta
+        name: Valentina Ancieta
+        role: Workforce Development Manager USA & LATAM
+        linkedin_url: https://www.linkedin.com/in/valentinaancieta/
+      - image_id: ariana_sanchez
+        name: Ariana Sánchez
+        role: Culture & Talent Leader
+        linkedin_url: https://www.linkedin.com/in/ariana-sánchez-7720aa78/
+  - type: cta_banner
+    section_id: cta_banner-b9w150
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: student_application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-9wup64

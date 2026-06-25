@@ -1,0 +1,69 @@
+meta:
+  page_title: Aplica Ahora - Comienza Tu Carrera Tech | 4Geeks
+  description: Desarrolla habilidades tech con nuestros programas de AI, Data Science y más. Aprende con expertos y asegura tu futuro en el mundo digital.
+  robots: index, follow
+  redirects:
+    - /es/proceso-de-aplicacion
+sections:
+  - type: hero
+    section_id: hero-eaz4qj
+    version: '1.0'
+    variant: singleColumn
+    title: Tu futuro en tecnologia empieza ahora
+    subtitle: Estas un paso mas cerca de tu nueva careera en tecnología.<div>Completa el siguiente formulario y nuestro equipo de admisiones se pondrá en contacto contigo para los próximos pasos.</div>
+    marginY:
+      desktop: md none
+    paddingY:
+      mobile: sm none
+      desktop: lg md
+  - type: apply_form
+    section_id: apply_form-s655dh
+    version: '1.0'
+    hero:
+      title: Tu Futuro en Tech Comienza Aquí
+      subtitle: Estás a un paso de tu nueva carrera en tecnología — ¡felicidades! Completa el formulario a continuación, y nuestro equipo de admisiones te guiará en los siguientes pasos.
+      note: (Y no te preocupes — aún no te estás comprometiendo a nada, solo estamos iniciando la conversación.)
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: APLICAR
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Ingresa tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Ingresa tu nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Ingresa tu apellido
+        phone:
+          visible: true
+          required: true
+          placeholder: Ingresa tu número de teléfono
+        program:
+          visible: true
+          required: true
+        region:
+          visible: true
+          required: true
+        location:
+          visible: true
+          required: true
+      turnstile:
+        enabled: true
+    next_steps:
+      title: ¿Qué Pasa Después?
+      items:
+        - title: Confirmación instantánea
+          description: Te enviaremos el programa de estudios por correo electrónico de inmediato.
+        - title: Seguimiento personalizado
+          description: Nuestro equipo de admisiones te contactará por mensaje y teléfono para programar una llamada rápida.
+        - title: Pregúntanos lo que quieras
+          description: Programas, horarios, financiamiento, apoyo profesional — te guiaremos por tus opciones y compartiremos todos los detalles.
+        - title: Decide con confianza
+          description: Tendrás toda la información que necesitas para elegir el camino correcto para ti. Y estamos aquí para ayudarte.
+      closing: ¡Ahora estás listo para tomar la mejor decisión para tu carrera!

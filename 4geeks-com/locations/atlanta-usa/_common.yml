@@ -1,0 +1,44 @@
+slug: atlanta-usa
+name: Atlanta
+city: Atlanta
+country: United States
+country_code: US
+latitude: 33.749
+longitude: -84.388
+region: usa-canada
+default_language: en
+timezone: America/New_York
+phone: +1 404-555-0100
+address: 191 Peachtree St NE, Atlanta, GA 30303
+available_programs:
+  - "full-stack"
+  
+context:
+  when_to_use: For Atlanta-area visitors or those interested in tech opportunities in the Southeast's growing tech ecosystem.
+  target_audience: Local Atlanta residents, professionals in Georgia and the Southeast, and career changers seeking tech roles in a major Southern hub.
+  goals:
+    - Highlight Atlanta's flourishing tech ecosystem with 850+ companies and 70,000+ tech workers
+    - Emphasize connections to major employers like Google and Facebook
+    - Showcase demand for coding expertise in expanding tech companies
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: 191 Peachtree St NE
+        addressLocality: Atlanta
+        addressRegion: GA
+        postalCode: "30303"
+        addressCountry: US

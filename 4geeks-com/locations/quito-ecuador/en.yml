@@ -1,0 +1,392 @@
+meta:
+  page_title: 4Geeks Quito | Coding Bootcamp in Ecuador
+  description: Join 4Geeks Quito coding bootcamp. Learn Full Stack Development, AI, or Data Science with unlimited mentorship and job guarantee.
+  robots: index, follow
+  og_image: /images/locations/quito-og.jpg
+  priority: 0.8
+  change_frequency: monthly
+  redirects:
+    - /us/coding-campus/coding-bootcamp-ecuador
+sections:
+  - type: hero
+    section_id: hero-n7tpm2
+    version: "1.0"
+    variant: singleColumn
+    title: Launch an AI-Ready Tech Career in Quito
+    subtitle: Train for in-demand tech roles, including AI Engineering, in Ecuador's capital and growing tech hub. Live instruction, hands-on projects, and career support for real hiring.
+    badge: Quito Campus
+    cta_buttons:
+      - text: Apply Now
+        url: "#bottom"
+        variant: primary
+      - text: Download Syllabus
+        url: "#syllabus-modal"
+        variant: outline
+    marginY:
+      desktop: none lg
+    paddingY:
+      desktop: md none
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+  - type: awards_marquee
+    section_id: awards_marquee-iwcs9g
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: switchup-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logoHeight: 56px
+      - id: course-report-2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        alt: Course Report - Best Coding Bootcamp 2024
+        logoHeight: 56px
+      - id: tech-hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        alt: South Florida Tech Hub
+        logoHeight: 56px
+      - id: ebootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        alt: eBootcamp Top
+        logoHeight: 56px
+      - id: premios-tecnologia
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        alt: Premios Tecnologia Siglo XXI
+        logoHeight: 56px
+      - id: newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        alt: Newsweek
+        logoHeight: 56px
+      - id: reviews-coursereport
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        alt: 4.9 on Course Report Reviews
+        logoHeight: 56px
+      - id: excelencia-educativa
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        alt: Excelencia Educativa - Institutional Quality
+        logoHeight: 56px
+    marginY:
+      desktop: lg none
+  - type: banner
+    section_id: banner-nf6s7t
+    version: "1.0"
+    logo: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    avatars:
+      - https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+      - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+      - https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+      - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+    title: At the Center of Quito's Tech Momentum
+    description: Quito's tech ecosystem is thriving with a growing number of tech companies and startups. The city has become a hub for innovation and technology, with major corporations establishing their presence. As Quito continues to expand its tech sector, we connect you with local employers, tech events, and hiring partners—helping you build relationships that support your entry and long-term growth in tech.
+    background: gradient
+    marginY:
+      desktop: lg none
+  - type: two_column
+    section_id: two_column-sivazj
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      video: https://youtu.be/ln3bQsV1BaQ
+    right:
+      heading: Launch Your Tech Career in Quito
+      sub_heading: Alissa on How 4Geeks Empowers Quito Learners
+      description: 4Geeks Academy offers the guidance, structure, and hands-on experience you need to succeed in Quito's growing tech ecosystem. Build practical job-ready skills through project-based learning, explore tools and workflows used in today's tech careers, and get expert coaching tailored to Quito's evolving job market.
+      button:
+        text: Watch the full interview
+        url: https://youtu.be/ln3bQsV1BaQ
+        variant: primary
+        icon: Rocket
+    gap: "8"
+    marginY:
+      desktop: none sm
+    paddingY:
+      desktop: none md
+  - type: course_selector
+    version: "1.0"
+    variant: solid
+    heading: Explore Our Programs
+    subheading: Industry-aligned training designed to launch your career in tech
+    courses:
+      - name: AI Engineering
+        icon: Brain
+        duration: 24 weeks
+        label: Updated in 2026
+        title: AI Engineering
+        badges:
+          - icon: Cpu
+            text: LLMs, AI Agents & Automation
+          - icon: Database
+            text: Production AI Systems
+        description: "Build and scale AI-native products while mastering real-world AI systems, workflows, and deployment strategies.  "
+        cta_text: View Program Details
+        cta_url: /en/career-programs/ai-engineering
+        course_background: hsl(var(--accent))
+      - name: Full Stack Development with AI
+        icon: Code
+        duration: 20 weeks
+        label: Updated in 2026
+        title: Full Stack Software Development
+        badges:
+          - icon: Code
+            text: React, Node.js & Python
+        tags:
+          - icon: Plus
+            text: API Development
+          - icon: ""
+            text: ""
+        description: "Master modern web development from frontend to backend and build production-ready applications using industry-standard tools.  "
+        cta_text: View Program Details
+        cta_url: /en/career-programs/full-stack
+        course_background: hsl(var(--destructive))
+      - name: Data Science & ML
+        icon: ChartLine
+        duration: 16 weeks
+        label: Updated in 2026
+        title: Data Science & Machine Learning with AI
+        badges:
+          - icon: BrainCircuit
+            text: Machine Learning & AI Models
+          - icon: BarChart
+            text: Data Analysis & Visualization
+        description: "Learn to analyze complex datasets, build intelligent models, and deploy AI-driven solutions to real-world problems.  "
+        cta_text: View Program Details
+        cta_url: /en/career-programs/data-science-ml
+        course_background: hsl(var(--primary))
+      - name: Cybersecurity
+        icon: Shield
+        duration: 16 weeks
+        label: Updated in 2026
+        title: Cybersecurity
+        badges:
+          - icon: Lock
+            text: Threat Detection & Network Security
+          - icon: Server
+            text: Cloud Security
+        description: "Develop practical skills to protect systems, secure infrastructure, and respond to modern cybersecurity threats.  "
+        cta_text: View Program Details
+        cta_url: /en/career-programs/cybersecurity
+        course_background: hsl(var(--secondary-foreground))
+    section_id: course_selector-9nlqmk
+  - type: two_column_accordion_card
+    variant: image_background
+    version: "1.0"
+    title: Everything You Need to Succeed in an AI-Driven Industry
+    description: AI-ready training, expert guidance, and long-term support designed for the modern tech landscape.
+    bullets:
+      - heading: 1:1 Mentorship, Unlimited and for Life
+        text: Get personalized technical guidance whenever you need it. Work one-on-one with experienced mentors during the program and continue receiving support long after you graduate.
+      - heading: AI-Powered Learning Support
+        text: Get instant feedback from RigoBot, our built-in AI learning assistant. Practice, debug, and improve continuously with guidance tailored to your learning path.
+      - heading: Career Support, Unlimited and for Life
+        text: Receive expert, personalized career coaching focused on getting you hired. From job strategy and positioning to interviews and negotiation, support evolves with your goals and experience.
+      - heading: An Active Global Tech Community
+        text: Join a supportive Slack community of students, mentors, and alumni. Ask questions, share opportunities, and stay connected to a global network well beyond graduation.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-470x315.webp
+    image_alt: Student working on AI project
+    image_object_fit: cover
+    paddingY:
+      desktop: md none
+    section_id: two_column_accordion_card-9fc8uy
+  - type: testimonials_slide
+    section_id: testimonials_slide-82mbjn
+    title: Proven Paths to Tech Careers
+    description: These student journeys show how structured learning, AI-powered support, and expert career coaching lead to real outcomes.
+    background: bg-sidebar
+    dynamic_entries:
+      database: testimonials_en
+      limit: 30
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - career-support
+
+  - type: split_cards
+    variant: primary-left
+    primary:
+      heading: The Confidence of a Job Guarantee*
+      description: |-
+        The strongest proof that our approach works?&nbsp;<div>We’re willing to stand behind it. Our optional Job Guarantee is designed to give students extra confidence when transitioning into tech. While many schools talk about career support, we commit to outcomes: get hired into a tech role within 9 months of graduation, or receive a full tuition refund.&nbsp;<div><span style="font-size: 0.875rem;">* Not available in all regions. <a href="https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf">Terms and conditions apply.</a></span>
+        </div></div>
+      badge: Results-Backed Promise
+    secondary:
+      benefits:
+        - text: {{ global.global_job_placement_rate | 84 }}% hiring rate among graduates
+        - text: 3–6 months average time to get hired
+        - text: {{ global.global_salary_increase | 55 }}% average salary increase in tech roles
+    marginY:
+      desktop: none xl
+    background: hsl(var(--secondary))
+    section_id: split_cards-ma7z98
+  - type: why_learn_ai
+    section_id: why_learn_ai-9hbryz
+    variant: laptop-edge
+    laptop_image:
+      image_id: laptop
+    mobile_see_more: true
+    mobile_see_more_label: See more
+    mobile_see_less_label: See less
+    title: Why Quito Is a Smart Place to Launch Your Tech Career
+    subtitle: A thriving tech ecosystem with real hiring momentum
+    description: "Quito's tech ecosystem is thriving with a growing number of tech companies and startups. The city has become a hub for innovation and technology, with major corporations establishing their presence.<br><div><div><ul><li><span style=\"font-size: 0.875rem; color: rgb(0, 7, 26);\">Quito-Fort Worth is home to numerous Fortune 500 companies and a rapidly expanding tech sector</span></li><li>Strong hiring demand across diverse industries, from energy and healthcare to startups</li><li>Growing demand for software, AI, and data skills across the region</li></ul></div><div>From our Quito campus, we connect you with local employers, tech events, and a thriving ecosystem so you build relationships that support your entry and long-term growth in tech.</div></div>"
+  - type: mentorship
+    section_id: mentorship-cw5mp3
+    version: v1.0
+    title: Mentorship & Support
+    subtitle: You're never alone in your learning journey
+    cards:
+      - icon: user
+        title: 1-on-1 Mentorship
+        description: Weekly sessions with experienced developers who guide you through challenges and help you grow professionally.
+      - icon: users
+        title: Career Coaching
+        description: Dedicated career coaches help you build your resume, prepare for interviews, and connect with hiring partners.
+      - icon: headset
+        title: 24/7 Community Support
+        description: Join our Slack community of students and alumni. Get help anytime from peers who understand your journey.
+  - type: mentorship
+    section_id: mentorship-9xm27f
+    version: v1.0
+    title: Mentorship & Support
+    subtitle: You're never alone in your learning journey
+    cards:
+      - icon: user
+        title: 1-on-1 Mentorship
+        description: Weekly sessions with experienced developers who guide you through challenges and help you grow professionally.
+      - icon: users
+        title: Career Coaching
+        description: Dedicated career coaches help you build your resume, prepare for interviews, and connect with hiring partners.
+      - icon: headset
+        title: 24/7 Community Support
+        description: Join our Slack community of students and alumni. Get help anytime from peers who understand your journey.
+  - type: testimonials
+    section_id: testimonials-6h0c55
+    version: v1.0
+    title: What Our Students Say
+    subtitle: Hear directly from graduates who transformed their careers
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 2,847 }}
+    items:
+      - name: Maria Rodriguez
+        role: Software Engineer
+        company: Google
+        rating: 5
+        comment: This program changed my life. I went from zero coding experience to landing my dream job in 6 months.
+        outcome: Hired in 4 months
+      - name: James Chen
+        role: Full Stack Developer
+        company: Spotify
+        rating: 5
+        comment: The mentorship was incredible. Having unlimited access to senior developers made all the difference.
+        outcome: 3x salary increase
+      - name: Sarah Williams
+        role: Frontend Developer
+        company: Meta
+        rating: 5
+        comment: The AI-powered learning tools helped me understand complex concepts faster than any other course I've tried.
+        outcome: Career change at 35
+      - name: Carlos Mendez
+        role: Backend Engineer
+        company: Amazon
+        rating: 4
+        comment: Practical projects and real-world scenarios prepared me better than my computer science degree.
+        outcome: Remote work achieved
+      - name: Emily Thompson
+        role: DevOps Engineer
+        company: Netflix
+        rating: 5
+        comment: The career support team helped me negotiate a 50% higher salary than I expected.
+        outcome: 50% salary boost
+      - name: David Kim
+        role: Tech Lead
+        company: Uber
+        rating: 5
+        comment: Started as a complete beginner, now leading a team of developers. Forever grateful.
+        outcome: Promoted in 1 year
+  - type: faq
+    section_id: faq-sirdhd
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      sort: priority
+      permanent_filters:
+        - item_property_slug: locations
+          value: quito-ecuador
+    marginY:
+      desktop: lg none
+    background: hsl(var(--muted))
+    paddingY:
+      desktop: md lg
+  - type: cta_banner
+    version: "1.0"
+    title: Take the Next Step Toward Your Tech Career
+    subtitle: Receive personalized program information and next steps.
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the details
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: Thank you! We'll be in touch soon.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-82lr2m
+  - type: sticky_cta
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+    section_id: sticky_cta-i6uxdo

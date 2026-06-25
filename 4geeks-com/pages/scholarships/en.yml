@@ -1,0 +1,672 @@
+slug: scholarships
+template: default
+title: scholarships
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Tech Scholarships & Financial Aid | 4Geeks
+  description: Find scholarships and financial aid opportunities to fund your tech education at 4Geeks Academy, making coding bootcamps more accessible for everyone.
+  redirects:
+    - /scholarships
+    - /us/20-million
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-3zjxhs
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: Scholarships That Open Doors to Tech Careers
+    subtitle: Explore scholarship opportunities designed to support your transition into high-growth tech careers.
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-1000x668-q74.webp
+      alt: Students collaborating in a tech workspace
+    cta_buttons:
+      - text: Get more info
+        url: "#bottom"
+        variant: primary
+        icon: Rocket
+    background: bg-gradient-to-b from-primary/5 to-background
+    marginY:
+      desktop: md lg
+  - type: features_grid
+    section_id: features_grid-q51ypc
+    version: "1.0"
+    variant: cardHeader
+    heading: Available Funding Opportunities
+    description: We offer scholarships across select programs and regions to help make tech education more accessible. Opportunities vary by location and program, and can include institutional partnerships, sponsored awards, or merit-based support.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/community-support-cropped-800x476-q70.webp
+    image_alt: Students supported through scholarship opportunities
+    background: bg-primary/5
+    cards:
+      - icon: Globe
+        text: Institutional and government partnerships help expand access to tech education in select regions.
+      - icon: Handshake
+        text: Corporate and community partners sponsor scholarships to support emerging tech talent.
+      - icon: Award
+        text: A limited number of merit-based partial scholarships are awarded to qualified applicants based on commitment, potential, and program fit.
+    marginY:
+      desktop: none md
+  - type: partnership_carousel
+    section_id: partnership_carousel-olwirb
+    variant: split-card
+    vertical_cards: true
+    version: v1.0
+    heading: $20+ Million in Scholarships
+    subtitle: Backed by global institutions and industry leaders, we’ve awarded over $20 million in scholarships to expand access to tech careers worldwide.
+    slides:
+      - image_id: united_way_event
+        object_position: 100% 80%
+        title: United Way Miami and 4Geeks
+        subtitle: Launching the Miami Workforce Project
+        description: United Way Miami has partnered with 4Geeks Academy to launch the Miami Workforce Project. This transformative program was created to provide top-quality education and training to Miami-Dade County residents and is made possible by a multi-million gift from philanthropist Mackenzie Scott. Admitted students will receive coding training with no upfront costs.
+        stats:
+          - value: $1mm
+            label: Total cost
+          - value: "100"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: Miami Herald
+            url: https://www.miamiherald.com/news/business/article263937731.html
+            source: Miami Herald
+          - text: Refresh Miami
+            url: https://refreshmiami.com/news/miami-based-coding-school-4geeks-is-breaking-down-the-barriers-to-becoming-a-software-developer/
+            source: Refresh Miami
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/UWM%20facts%20.pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en/partners
+          variant: primary
+      - image_id: crusa_forte_scholarship-600x600-q60
+        object_position: 100% 80%
+        title: Costa Rica Forte and 4Geeks
+        subtitle: Boosting talent development in Costa Rica
+        description: In collaboration with Forte and Crusa, 4Geeks Academy has partnered with the FORTE model to boost talent development in Costa Rica. This program has trained over 35 students in high-demand digital technologies, focusing on women from areas with high unemployment. Through the program, participants receive free training, enabling them to access better jobs in the 4.0 industry and contribute to the country's economic growth.
+        stats:
+          - value: $50,000
+            label: Total cost
+          - value: "35"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: bid_logo
+            alt: BID logo
+          - image_id: logo_crusa
+            alt: CRUSA Foundation logo
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: Periodico Mensaje
+            url: https://www.periodicomensaje.com/educacion/11609-mas-de-100-mujeres-concluyeron-formacion-en-tecnologias-digitales-gracias-a-la-alianza-crusa-forte
+            source: Periodico Mensaje
+          - text: La Republica
+            url: https://www.larepublica.net/noticia/mas-de-100-mujeres-se-formaron-en-tecnologias-digitales-para-aumentar-sus-oportunidades-de-empleo
+            source: La Republica
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/FORTE%20Report.pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en
+          variant: primary
+      - image_id: costa_rica_city
+        object_position: 10% 80%
+        title: Costa Rica-CINDE and 4Geeks Project
+        subtitle: Investing in Costa Rica's tech talent
+        description: In collaboration with the Ministry for Science, Technology, Telecommunication and Innovation of Costa Rica, the IDB launched a program to invest in Costa Rica's talent. Together, we're helping around 250 students become skilled software developers, opening doors to better job opportunities after graduation.
+        stats:
+          - value: $1.5mm
+            label: Total cost
+          - value: "212"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: logo_crusa
+            alt: CRUSA Foundation logo
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: Revista Summa
+            url: https://revistasumma.com/costa-rica-y-bid-lanzan-becas-para-aprender-programacion/
+            source: Revista Summa
+          - text: IDB Press
+            url: https://www.iadb.org/es/idb-blog
+            source: IDB Press
+          - text: Cultura Costa Rica
+            url: https://culturacr.net/4geeks-academy-ofrecera-becas-del-100-para-aprender-programacion/
+            source: Cultura Costa Rica
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/Costa%20Rica%20CINDE%20and%204Geeks%20(1).pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en
+          variant: outline
+      - image_id: uruguay_city
+        object_position: 10% 80%
+        title: UTEC and 4Geeks
+        subtitle: Training Uruguayans in coding
+        description: This project was possible thanks to a combined effort between UTEC, IDB, and 4Geeks. The goal was to train Uruguayans in coding and leverage tech-driven growth in the country.
+        stats:
+          - value: 175k
+            label: Total cost
+          - value: "60"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: bid_logo
+            alt: Interamerican Development Bank logo
+          - image_id: logo_utec-545x305-q70
+            alt: UTEC logo
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: El País
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/Costa%20Rica%20CINDE%20and%204Geeks%20(1).pdf
+            source: El País
+          - text: San José Ahora
+            url: https://sanjoseahora.com.uy/2022/03/31/utec-san-jose-brindara-un-nuevo-bootcamp-sobre-machine-learning-e-inteligencia-artificial/
+            source: San José Ahora
+          - text: Marca País
+            url: https://www.uruguayxxi.gub.uy/es/marca-pais/
+            source: Marca País
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/Uruguay%20Projects.pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en
+          variant: outline
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: partnership_carousel
+    section_id: partnership_carousel-xvlwbf
+    variant: split-card
+    vertical_cards: true
+    version: v1.0
+    heading: {{ global.total_scholarships | $20 }}+ Million in Scholarships
+    subtitle: Backed by global institutions and industry leaders, we’ve awarded over 17 million in scholarships to expand access to tech careers worldwide.
+    background: hsl(var(--muted))
+    slides:
+      - image_id: student_coding_laptop
+        object_position: 100% 80%
+        title: Digital Talent Scholarship and 4Geeks
+        subtitle: Launched by ONCE Foundation
+        description: The ONCE Foundation, through its Digital Talent programme, promotes training in technological skills through a partial scholarship to improve the employability of people with disabilities. In collaboration with 4Geeks Academy, this scholarship provides access to intensive training programmes in programming, data science, artificial intelligence and other digital areas with high labour demand.
+        stats:
+          - value: 20%
+            label: Cost borne by the student + taxes
+          - value: "+10"
+            label: Geeks who benefited
+        institution_logos:
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+          - image_id: logo-fonce
+            alt: "Image: logo-fonce"
+        press_references:
+          - text: Digital Talent
+            url: https://portalentodigital.fundaciononce.es/becas
+            source: ONCE Foundation
+        cta:
+          text: Conviértete en partner
+          url: /en/partners
+          variant: primary
+      - image_id: united_way_event
+        object_position: 100% 80%
+        title: United Way Miami and 4Geeks
+        subtitle: Launching the Miami Workforce Project
+        description: United Way Miami has partnered with 4Geeks Academy to launch the Miami Workforce Project. This transformative program was created to provide top-quality education and training to Miami-Dade County residents and is made possible by a multi-million gift from philanthropist Mackenzie Scott. Admitted students will receive coding training with no upfront costs.
+        stats:
+          - value: $1mm
+            label: Total cost
+          - value: "100"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: Miami Herald
+            url: https://www.miamiherald.com/news/business/article263937731.html
+            source: Miami Herald
+          - text: Refresh Miami
+            url: https://refreshmiami.com/news/miami-based-coding-school-4geeks-is-breaking-down-the-barriers-to-becoming-a-software-developer/
+            source: Refresh Miami
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/UWM%20facts%20.pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en/partners
+          variant: primary
+      - image_id: crusa_forte_scholarship-600x600-q60
+        object_position: 100% 80%
+        title: Costa Rica Forte and 4Geeks
+        subtitle: Boosting talent development in Costa Rica
+        description: In collaboration with Forte and Crusa, 4Geeks Academy has partnered with the FORTE model to boost talent development in Costa Rica. This program has trained over 35 students in high-demand digital technologies, focusing on women from areas with high unemployment. Through the program, participants receive free training, enabling them to access better jobs in the 4.0 industry and contribute to the country's economic growth.
+        stats:
+          - value: $50,000
+            label: Total cost
+          - value: "35"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: bid_logo
+            alt: BID logo
+          - image_id: logo_crusa
+            alt: CRUSA Foundation logo
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: Periodico Mensaje
+            url: https://www.periodicomensaje.com/educacion/11609-mas-de-100-mujeres-concluyeron-formacion-en-tecnologias-digitales-gracias-a-la-alianza-crusa-forte
+            source: Periodico Mensaje
+          - text: La Republica
+            url: https://www.larepublica.net/noticia/mas-de-100-mujeres-se-formaron-en-tecnologias-digitales-para-aumentar-sus-oportunidades-de-empleo
+            source: La Republica
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/FORTE%20Report.pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en
+          variant: primary
+      - image_id: costa_rica_city
+        object_position: 10% 80%
+        title: Costa Rica-CINDE and 4Geeks Project
+        subtitle: Investing in Costa Rica's tech talent
+        description: In collaboration with the Ministry for Science, Technology, Telecommunication and Innovation of Costa Rica, the IDB launched a program to invest in Costa Rica's talent. Together, we're helping around 250 students become skilled software developers, opening doors to better job opportunities after graduation.
+        stats:
+          - value: $1.5mm
+            label: Total cost
+          - value: "212"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: logo_crusa
+            alt: CRUSA Foundation logo
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: Revista Summa
+            url: https://revistasumma.com/costa-rica-y-bid-lanzan-becas-para-aprender-programacion/
+            source: Revista Summa
+          - text: IDB Press
+            url: https://www.iadb.org/es/idb-blog
+            source: IDB Press
+          - text: Cultura Costa Rica
+            url: https://culturacr.net/4geeks-academy-ofrecera-becas-del-100-para-aprender-programacion/
+            source: Cultura Costa Rica
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/Costa%20Rica%20CINDE%20and%204Geeks%20(1).pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en
+          variant: outline
+      - image_id: uruguay_city
+        object_position: 10% 80%
+        title: UTEC and 4Geeks
+        subtitle: Training Uruguayans in coding
+        description: This project was possible thanks to a combined effort between UTEC, IDB, and 4Geeks. The goal was to train Uruguayans in coding and leverage tech-driven growth in the country.
+        stats:
+          - value: 175k
+            label: Total cost
+          - value: "60"
+            label: Geeks benefited
+        institution_logos:
+          - image_id: bid_logo
+            alt: Interamerican Development Bank logo
+          - image_id: logo_utec-545x305-q70
+            alt: UTEC logo
+          - image_id: 4geeks_academy_logo
+            alt: 4Geeks Academy logo
+        press_references:
+          - text: El País
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/Costa%20Rica%20CINDE%20and%204Geeks%20(1).pdf
+            source: El País
+          - text: San José Ahora
+            url: https://sanjoseahora.com.uy/2022/03/31/utec-san-jose-brindara-un-nuevo-bootcamp-sobre-machine-learning-e-inteligencia-artificial/
+            source: San José Ahora
+          - text: Marca País
+            url: https://www.uruguayxxi.gub.uy/es/marca-pais/
+            source: Marca País
+          - text: See full project (PDF)
+            url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/Uruguay%20Projects.pdf
+            source: PDF
+        cta:
+          text: Become a partner
+          url: /en
+          variant: outline
+    showOnLocations:
+      - barcelona-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - madrid-spain
+      - malaga-spain
+      - milan-italy
+      - munich-germany
+      - rome-italy
+      - valencia-spain
+  - type: testimonials_slide
+    section_id: testimonials_slide-k2y8py
+    title: Where Access Turns Into Real Careers
+    description: Our graduates launch careers in high-growth tech roles, with over 84% hired within six months.
+    dynamic_entries:
+      database: testimonials_en
+      limit: 30
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - price
+    testimonials:
+      - name: Loretta Thompson
+        img: https://storage.googleapis.com/4geeks-academy-website/media/ttaLoretta_1764725322100.jpeg
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: United Way Miami
+        description: Loretta joined in 2022 and graduated in 2023. She already found a job within the next few months and has fulfilled the whole circle of skills+job that we all want to complete!
+        achievement: She got a 45% increase in her salary
+      - name: Rich Akers
+        img: https://storage.googleapis.com/4geeks-academy-website/media/Akers_1764725327796.jpeg
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: Clark University
+        description: Richard is a great developer that just transitioned from a different background and is now working as a web dev in the tech field.
+        achievement: He got a 30% increase in his salary
+      - name: MaiLinh Tran
+        img: https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh_1764725334980.png
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: Clark University
+        description: An entrepreneur with a passion for technology is now focusing on the dev side of their endeavour.
+        achievement: She has launched her startup, is capable of hiring new tech talent and coordinates a dev team!
+      - name: Jorge Martín Coimbra
+        img: https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Martín joined the first program that we launched together with UTEC and IDB. He got a better paying job, a career that he is passionate about and a new professional life.
+        achievement: He got a 100% increase in his salary
+      - name: Jean St. Cloud
+        img: https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+        status: Graduated
+        country:
+          name: United States of America
+          iso: us
+        contributor: Clark
+        description: Jean is transitioning from other industries (Music) and is finding his way into Tech. He got it with the support of Clark University and is already performing as a developer and a Mentor.
+        achievement: He got a 100% increase in his salary
+      - name: Alexandra Espinoza
+        img: https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        status: Graduated
+        country:
+          name: Costa Rica
+          iso: cr
+        contributor: CINDE-BID
+        description: Alexandra came from a total different background is been a huge revelation for her and everyone around her. She is now a successful and talented software developer in Costa Rica.
+        achievement: She got a 100% increase in her salary
+      - name: Gabriel Salazar
+        img: https://storage.googleapis.com/4geeks-academy-website/media/GabrielSalazar_1764725392872.jpeg
+        status: Graduated
+        country:
+          name: Costa Rica
+          iso: cr
+        contributor: CINDE-BID
+        description: Gabriel was already a support specialist at Microsoft and after completing the program he was able to achieve a new position within Microsoft where he is now working as a Software Engineer.
+        achievement: He got a 50% increase in his salary
+      - name: Laura Magallanes
+        img: https://storage.googleapis.com/4geeks-academy-website/media/Laura_1764725397398.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Laura is just extraordinary. From a little town in Uruguay with no experience in Coding, she is now a woman head of household, an Instructor and a Program Coordinator.
+        achievement: She got a 120% increase in her salary
+      - name: Melanie Galaretto
+        img: https://storage.googleapis.com/4geeks-academy-website/media/MelamnieGalaretto_1764725408397.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Melanie is a young professional who is dreaming of achieving a life that now she owns. She is a resourceful and committed software developer working for a software firm in her home country.
+        achievement: She got a +100% increase in her salary
+      - name: Natia Lombardo
+        img: https://storage.googleapis.com/4geeks-academy-website/media/NatiaLombardo_1764725413363.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Natia is a philosopher and a software developer. Currently working as a QA Engineer of a huge and successful International firm.
+      - name: Luis Larraburo
+        img: https://storage.googleapis.com/4geeks-academy-website/media/LuisLarraburo_1764725418057.jpeg
+        status: Graduated
+        country:
+          name: Costa Rica
+          iso: cr
+        contributor: CINDE-BID
+        description: Luis came to the program without any previous experience, He is now a software developer working on a tech firm in Costa Rica.
+        achievement: He got a 50% increase in his salary
+      - name: Leandro Matonte
+        img: https://storage.googleapis.com/4geeks-academy-website/media/Leandro_1764725403142.jpeg
+        status: Graduated
+        country:
+          name: Uruguay
+          iso: uy
+        contributor: UTEC-BID
+        description: Leandro got into the program with the expectation to achieve a better understanding and some coding skills that will help with his decision of being a computer scientist graduate. Now he is a software developer at a tech firm in Uruguay.
+        achievement: He got a 60% increase in his salary
+  - type: horizontal_bars
+    section_id: horizontal_bars-sw2w96
+    version: "1.0"
+    title: The Return on Opportunity
+    subtitle: See how our graduates increase their earning power across regions.
+    items:
+      - label: LATAM
+        value: 233
+      - label: U.S.
+        value: 55
+      - label: Spain
+        value: 30
+    marginY:
+      desktop: none lg
+  - type: whos_hiring
+    section_id: whos_hiring-ur1a3r
+    variant: carousel
+    pretitle: Customer Stories
+    title: The Companies Hiring Our Graduates
+    subtitle: Access creates opportunity. Employers turn it into real tech careers.
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+  - type: faq
+    section_id: faq-3tg7bo
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - scholarships
+            - job-guarantee
+            - online-platform
+        - item_property_slug: locations
+          value: all
+    paddingY:
+      desktop: md none
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+  - type: faq
+    section_id: faq-z0wdqi
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - scholarships
+            - online-platform
+            - outcomes
+        - item_property_slug: locations
+          value: all
+    paddingY:
+      desktop: lg sm
+    showOnLocations:
+      - berlin-germany
+      - barcelona-spain
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - madrid-spain
+      - malaga-spain
+      - milan-italy
+      - munich-germany
+      - rome-italy
+      - valencia-spain
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: cta_banner
+    section_id: cta_banner-andrj7
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: student_application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-white text-primary hover:bg-white/90 border-white
+      terms_className: text-white/80
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    section_id: sticky_cta-l6o08m
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

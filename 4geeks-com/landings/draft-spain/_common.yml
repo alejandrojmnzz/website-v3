@@ -1,0 +1,17 @@
+slug: draft-spain
+title: draft-spain
+meta:
+  page_title: AI Engineer Career Program | 4Geeks
+  description: >-
+    Become an AI Engineer in 24 weeks. 84% hiring rate, $95K–$135K salaries, unlimited mentorship, and career support
+    designed to get you hired. 4Geeks Academy.
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locale: es

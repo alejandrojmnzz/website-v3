@@ -1,0 +1,15 @@
+slug: ai-engineering-for-developers
+title: ai-engineering-for-developers
+locale: en
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: AI Engineering for Developers | Turn Your Programming Skills Into an AI Career | 4Geeks
+  description: Already a developer? Turn your coding skills into an AI Engineering career in 24 weeks. Build and AI-native business, with agents, RAG systems and AI workflows.  Job Guarantee offered. Start earning $95K–$135K.
+schema:
+  include:
+    - organization
+    - website
+locations: null

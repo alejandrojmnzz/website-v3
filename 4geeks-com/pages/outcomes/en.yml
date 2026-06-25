@@ -1,0 +1,399 @@
+slug: outcomes
+template: default
+title: Outcomes
+meta:
+  page_title: 4Geeks Outcomes Report | Career Success Data
+  description: 84% of 4Geeks graduates get hired in 3-6 months. 55% avg salary increase. Verified outcomes across AI Engineering, Data Science, Cybersecurity, and Full Stack.
+  robots: index, follow
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-p2bzil
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: Real Career Outcomes, Backed by Data
+    subtitle: We measure success by real results. Our graduates get hired in AI engineering, data science, and cybersecurity; the outcomes are backed by verified data.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/graduates_celebration-700x522-q70.webp
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: lg none
+  - type: vertical_bars_cards
+    section_id: vertical_bars_cards-4nogxn
+    version: "1.0"
+    title: Hiring Results, Year after Year
+    subtitle: How our graduates perform in the job market-based on verified outcomes from recent cohorts.
+    metrics:
+      - title: Job Placement Rate
+        unit: Graduates hired within 6 months
+        description: Our job placement rate stays consistently above 80%, reflecting a hiring-focused program and hands-on career support. We track outcomes for up to nine months after graduation to keep the data accurate and comparable across cohorts.
+        years:
+          - year: "2023"
+            value: 86
+            displayValue: 86%
+          - year: "2024"
+            value: 84
+            displayValue: 84%
+          - year: Mid 2025
+            value: 82
+            displayValue: 82%
+      - title: Average Salary Increase
+        unit: Compared to pre-bootcamp salary
+        description: Graduates earn significantly more after completing the program. This reflects both market demand for tech talent and the practical, job-ready skills students build during the bootcamp.
+        years:
+          - year: "2023"
+            value: 12500
+            displayValue: $12.5k
+          - year: "2024"
+            value: 14200
+            displayValue: $14.2k
+          - year: Mid 2025
+            value: 15800
+            displayValue: $15.8k
+      - title: Days to First Job
+        unit: Average time from graduation to offer
+        description: Graduates are landing roles faster each year. With personalized coaching and employer connections, we help students move from graduation to their first offer quickly.
+        years:
+          - year: "2023"
+            value: 52
+            displayValue: 52 days
+          - year: "2024"
+            value: 48
+            displayValue: 48 days
+          - year: Mid 2025
+            value: 45
+            displayValue: 45 days
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none md
+    showOnLocations:
+      - austin-usa
+      - atlanta-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: vertical_bars_cards
+    section_id: vertical_bars_cards-lv0dsv
+    version: "1.0"
+    title: Hiring Results, Year after Year
+    subtitle: How our graduates perform in the job market-based on verified outcomes from recent cohorts.
+    metrics:
+      - title: Job Placement Rate
+        unit: Graduates hired within 6 months
+        description: Our job placement rate stays consistently above 80%, reflecting a hiring-focused program and hands-on career support. We track outcomes for up to nine months after graduation to keep the data accurate and comparable across cohorts.
+        years:
+          - year: "2023"
+            value: 80
+            displayValue: 80%
+          - year: "2024"
+            value: 75
+            displayValue: 75%
+          - year: Mid 2025
+            value: 75
+            displayValue: 75%
+      - title: Average Salary Increase
+        unit: Compared to pre-bootcamp salary
+        description: Graduates earn significantly more after completing the program. This reflects both market demand for tech talent and the practical, job-ready skills students build during the bootcamp.
+        years:
+          - year: "2023"
+            value: 22
+            displayValue: 22%
+          - year: "2024"
+            value: 18
+            displayValue: 18%
+          - year: Mid 2025
+            value: 33
+            displayValue: 33%
+      - title: Days to First Job
+        unit: Average time from graduation to offer
+        description: Graduates are landing roles faster each year. With personalized coaching and employer connections, we help students move from graduation to their first offer quickly.
+        years:
+          - year: "2023"
+            value: 96
+            displayValue: 96 days
+          - year: "2024"
+            value: 128
+            displayValue: 128 days
+          - year: Mid 2025
+            value: 85
+            displayValue: 85 days
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none md
+    showOnLocations:
+      - barcelona-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - madrid-spain
+      - malaga-spain
+      - munich-germany
+      - milan-italy
+      - rome-italy
+      - valencia-spain
+  - type: stats
+    section_id: stats-v2ghyn
+    version: "1.0"
+    title: Hiring Outcomes Across Regions
+    subtitle: Our graduates get hired and increase their salaries in multiple job markets.
+    background: hsl(210 100% 50% / 0.05)
+    items:
+      - value: 84%
+        label: of U.S. graduates hired within 6 months
+      - value: +55%
+        label: average U.S. salary increase
+      - value: +233%
+        label: average salary increase in LATAM
+      - value: 75%
+        label: placement rate in Spain
+      - value: 3-6 months
+        label: average time to get hired across all markets
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg
+  - type: pie_charts
+    section_id: pie_charts-ql2qkx
+    version: "1.0"
+    title: Our Student Body at a Glance
+    subtitle: A snapshot of who our students are by age, gender, and region.
+    background: hsl(var(--background))
+    charts:
+      - title: Age
+        items:
+          - label: 22-25
+            value: 30
+            color: chart-5
+          - label: 26-32
+            value: 44
+          - label: 33-42
+            value: 26
+      - title: Gender
+        items:
+          - label: Male
+            value: 76
+          - label: Female
+            value: 24
+            color: chart-5
+      - title: Region
+        items:
+          - label: North America
+            value: 50
+            color: chart-5
+          - label: Lat.Am.
+            value: 28
+          - label: Europe
+            value: 21
+          - label: Asia
+            value: 1
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: sm none
+  - type: value_proof_panel
+    section_id: value_proof_panel-thhky1
+    title: Globally Recognized for Real Outcomes
+    subtitle: Independent organizations recognize 4Geeks for graduate results, the quality of our programs and career support.
+    evidence_items:
+      - icon: Trophy
+        title: Top 5 Coding Bootcamps worldwide
+        source: Newsweek, Forbes, SwitchUp, Course Report
+      - icon: Award
+        title: Best student support & best value
+        source: Course Report, SwitchUp
+      - icon: Users
+        title: 35,000+ graduates across 20+ countries
+        description: A global community of successful tech professionals
+      - icon: Certificate
+        title: Industry-recognized certificates
+        description: Credentials that employers trust and value
+    media:
+      type: image
+      src: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-1000x668-q74.webp
+      alt: Students collaborating in classroom
+      aspect_ratio: "4:3"
+      style: rounded
+    stacked_header: true
+  - type: awards_marquee
+    section_id: awards_marquee-u63t4x
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 120
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 56px
+      - id: course-report-2024
+        alt: Course Report - Best Coding Bootcamp 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 56px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 56px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 56px
+      - id: premios-tecnologia
+        alt: Premios Tecnologia Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 56px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 56px
+      - id: reviews-coursereport
+        alt: 4.9 on Course Report Reviews
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 56px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Institutional Quality
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 56px
+    marginY:
+      desktop: none sm
+    paddingY:
+      desktop: md lg
+  - type: two_column_accordion_card
+    variant: image_background
+    version: "1.0"
+    title: Why our Graduates Consistently get Hired
+    description: Strong outcomes come from how we teach, support, and place students into tech roles.
+    bullets:
+      - heading: GeekFORCE lifelong career support
+        text: Unlimited 1:1 career mentorship, interview prep, and resume and portfolio coaching, designed around today’s AI-driven hiring processes.
+      - heading: GeekPAL lifelong technical mentorship
+        text: Unlimited access to human mentors who help students keep progressing and build real-world confidence.
+      - heading: AI-Powered learning & feedback
+        text: 24/7 personalized feedback that helps students learn faster and more effectively.
+      - heading: Global hiring partner network
+        text: Hundreds of companies worldwide that actively recruit 4Geeks graduates.
+    footer: Support built for long-term careers, not just first jobs.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/miami-people_1770606916405.jpeg
+    image_alt: Student working on AI project
+    reverse: true
+    section_id: two_column_accordion_card-gr6szh
+    marginY:
+      desktop: none lg
+  - type: testimonials
+    section_id: testimonials-lz1yjz
+    version: v1.0
+    title: Real Career Results
+    subtitle: Alumni share how they landed roles, advanced their careers, and increased their earning power.
+    related_features:
+      - outcomes
+      - career-support
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 2,847 }}
+    paddingY:
+      desktop: none
+    background: hsl(210 100% 50% / 0.05)
+  - type: faq
+    section_id: faq-tea0cz
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - outcomes
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: lg none
+  - type: cta_banner
+    section_id: cta_banner-khrszu
+    version: "1.0"
+    title: Take the Next Step Toward your Tech Career
+    subtitle: Get pricing, program details, and personalized guidance.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the details
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+      success:
+        message: Thank you! We'll be in touch soon.
+      button_className: bg-white text-primary hover:bg-white/90 border-white
+      terms_className: text-white/80
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    section_id: sticky_cta-2nxchd
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: outcomes_report
+      submit_label: Submit Application
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+    load: eager

@@ -1,0 +1,29 @@
+overlays:
+  - id: ai-bootcamp-banner
+    enabled: true
+    trigger:
+      event: page_load
+      delay: 500
+    targeting:
+      pages: all
+      geo:
+        countries:
+          - US
+        regions:
+          - Florida
+    frequency: session
+    component: modal
+    content:
+      title: Are You A Florida Resident?
+      body: >-
+        Only our full-stack development program is authorized by the Commission
+        for Independent Education in Florida. Our job guarantee bundle is not
+        offered in Florida where our only physical location is in Miami.
+      buttons:
+        - label: I do not live in Florida, USA
+          variant: default
+          href: /
+        - label: I live in Florida, USA
+          variant: secondary
+          href: /en/location/miami-usa
+      image_id: ''

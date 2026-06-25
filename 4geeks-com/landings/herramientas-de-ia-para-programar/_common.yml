@@ -1,0 +1,27 @@
+slug: herramientas-de-ia-para-programar
+title: herramientas de IA para programar
+locale: es
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: De usar herramientas de IA a construir con ellas | 4Geeks
+  description: Aprende a desarrollar, integrar y desplegar soluciones de IA en 24 semanas con mentoría 1:1 ilimitada y una comunidad profesional que acompaña tu crecimiento profesional.
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locations:
+  - caracas-venezuela
+  - buenosaires-argentina
+  - costa-rica
+  - lapaz-bolivia
+  - lima-peru
+  - mexicocity-mexico
+  - montevideo-uruguay
+  - panamacity-panama
+  - quito-ecuador
+  - santiago-chile
+  - bogota-colombia

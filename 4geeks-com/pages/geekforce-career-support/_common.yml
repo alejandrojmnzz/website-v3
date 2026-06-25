@@ -1,0 +1,14 @@
+slug: geekforce-career-support
+title: GeekForce Career Support
+meta:
+  priority: 0.9
+  change_frequency: weekly
+  robots: index, follow
+  page_title: GeekForce Career Support | 4Geeks
+  description: The career support that gets 84% of 4Geeks graduates hired. Lifelong 1:1 coaching, 400+ hiring partners, resume, interviews, and salary negotiation included.
+  redirects:
+    - /geekforce-career-support
+schema:
+  include:
+    - organization
+    - website

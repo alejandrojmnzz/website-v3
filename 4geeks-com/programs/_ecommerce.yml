@@ -1,0 +1,6 @@
+# Type-level ecommerce defaults for the "program" content type.
+# These values are deep-merged with per-entry _ecommerce.yml files.
+# An entry must set purchasable: true to become a purchasable product.
+
+purchasable: false
+plans: []

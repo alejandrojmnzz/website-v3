@@ -1,0 +1,10 @@
+slug: from-developer-to-certified-ai-engineer-with-job-guarantee
+title: From Developer to Certified AI Engineer with Job Guarantee
+locale: en
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering

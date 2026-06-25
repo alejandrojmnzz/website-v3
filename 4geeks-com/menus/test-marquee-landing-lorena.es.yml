@@ -1,0 +1,8 @@
+navbar:
+  items:
+    - label: NEW ITEM
+      href: /new-page
+      component: Logo
+    - label: NEW ITEM
+      href: /new-page
+      component: TypewriterAnnouncement

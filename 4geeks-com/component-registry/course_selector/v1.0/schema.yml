@@ -1,0 +1,35 @@
+name: Course Selector
+version: "1.0"
+component: CourseSelector
+file: client/src/components/CourseSelector.tsx
+description: >-
+  A tabbed card component with selectable course tabs on the left and detailed course
+  content on the right. Each tab shows course details including duration, title, badges/tags,
+  description, pricing, and a CTA button. The right panel features a gradient background
+  that changes color per tab using semantic background colors.
+
+when_to_use: >
+  Use this component to showcase multiple courses or programs side by side in an interactive,
+  tabbed layout. Ideal for program comparison pages or landing pages where users need to
+  explore different course options.
+
+props:
+  heading:
+    type: string
+    required: false
+    description: Optional heading displayed above the selector card
+  subheading:
+    type: string
+    required: false
+    description: Optional subheading below the heading
+  courses:
+    type: array
+    required: true
+    description: >-
+      Array of course items. Each course has: name (tab label), duration, label (optional badge),
+      title, subtitle OR badges/tags, description, price, original_price (optional strikethrough),
+      price_info (optional), cta_text, cta_url, course_background (semantic color for gradient/badges).
+  background:
+    type: string
+    required: false
+    description: Section background CSS class

@@ -1,0 +1,15 @@
+slug: ai-engineering-chile
+title: Conviértete en Ingeniero de IA en 24 semanas | 4Geeks  Chile
+locale: es
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locations:
+  - santiago-chile
+layout:
+  menu:
+    top: logo-only

@@ -1,0 +1,254 @@
+slug: testing
+template: default
+title: Awards
+meta:
+  robots: noindex, nofollow
+  priority: 0.8
+  change_frequency: monthly
+  page_title: "Testing Resource Page | 4Geeks"
+  description: Internal testing resource for downloadable content. This page is not indexed and not intended for public visitors.
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-4ju2pa
+    version: '1.0'
+    variant: singleColumn
+    title: Top Coding Bootcamp
+    subtitle: >-
+      4Geeks Academy earns top honors from Forbes, SwitchUp, Course Report and global industry leaders for our hands-on,
+      career-focused programs.
+    badge: Awards & recognitions
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/the-academy-header_1770614327963.png
+      alt: Students coding at computers in a classroom
+    image_full_width: true
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: lg none
+  - type: press_mentions
+    section_id: press_mentions-w0plj5
+    version: v1.0
+    title: Our Awards
+    subtitle: Globally recognized for excellence in tech education
+    subtitle_color: hsl(var(--primary))
+    columns: 3
+    items:
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp
+        logo_height: 80
+        title: Best Overall Data Science and Machine Learning Bootcamp 2025
+        excerpt: >-
+          Our bootcamp was chosen as the top option for its hands- on beginner friendly format, verified outcomes and
+          job guarantee.
+        link_text: See article
+        link_url: >-
+          https://www.forbes.com/advisor/education/bootcamps/best-data-science-bootcamps/#4geeks_academy_data_science_and_machine_learning_course_section
+        box_color: ''
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/arp-logo-certification_1765548854924.png
+        logo_height: 80
+        title: Institutional Quality Online Education
+        excerpt: 4Geeks Academy has earned the ARP certification, distinguishing it as a leader in online coding education.
+        link_text: See website
+        link_url: https://arpcertificate.com/listado-de-cursos/programa-full-stack-development/
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/south-florida-tech-hub_1765548979070.jpeg
+        logo_height: 80
+        title: Education Champion Award 2024
+        excerpt: Recognized by the South Florida Tech Hub for advancing tech education and career growth across the region.
+        link_text: See article
+        link_url: https://techhubsouthflorida.org/tech-hub-announces-the-2nd-annual-golden-palm-gala-award-2024-honorees/
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+        logo_height: 80
+        title: Best Educational Program 2022
+        excerpt: >-
+          We have been awarded the Excellence in Education Award for Best Educational Program 2022. This recognition is
+          a testament to our commitment to quality and innovation in education.
+        link_text: Read article
+        link_url: http://premiosexcelenciaeducativa.org/wp-content/uploads/2022/03/PALMAR%C3%89S-EXCELENCIA-2022.pdf
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+        logo_height: 80
+        title: International Trajectory Recognition
+        excerpt: >-
+          As part of the Excellence in Education Awards 2022, we are proud to have been awarded the International
+          Trajectory Outstanding Award in the field of Software Development School.
+        link_text: Read article
+        link_url: http://premiosexcelenciaeducativa.org/wp-content/uploads/2022/03/PALMAR%C3%89S-EXCELENCIA-2022.pdf
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/pee-trajectory_1765549529048.png
+        logo_height: 150
+        title: Best International Trajectory
+        excerpt: >-
+          Educational Excelence Awards 2021 to the best international trajectory school, more information found on the
+          palmares for the 2021 awards
+        link_text: Read article
+        link_url: https://premiosexcelenciaeducativa.org/wp-content/uploads/2016/05/PALMARE%CC%81S-EXCELENCIA-2020-1.pdf
+      - logo: https://4geeksacademy.com/static/2042ae654deef4b35e123c32d23fe0cb/e8f29/switchup-badge-2023.webp
+        logo_height: 80
+        title: Best Bootcamp according to Switchup 2023
+        excerpt: >-
+          Not only in Florida, but over each of our campus 4Geeks is constantly keeping a ~5 start rating that makes us
+          one of the top bootcamp in the world
+        link_text: See article
+        link_url: https://www.switchup.org/bootcamps/4geeks-academy
+        box_color: ''
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup-best-bootcamps-2025_1770392145139.png
+        logo_height: 80
+        title: Top 5 Coding Bootcamps on Switchup 2025
+        excerpt: >-
+          SwitchUp has honored 4Geeks Academy by featuring it on their prestigious list of top coding bootcamps for
+          2025.
+        link_text: See website
+        link_url: https://www.switchup.org/rankings/best-coding-bootcamps
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp
+        logo_height: 80
+        title: Top Online Full-Stack Bootcamps Of 2024
+        excerpt: We have been selected as one of the Top Online Coding Bootcamps by Forbes.
+        link_text: See article
+        link_url: >-
+          https://www.forbes.com/advisor/education/bootcamps/best-full-stack-developer-bootcamp/#4geeks_academy_full_stack_developer_bootcamp_section
+        box_color: ''
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp-top_1765549056325.png
+        logo_height: 80
+        title: Best Bootcamp Ebootcamp for 2024
+        excerpt: We've been nominated by eBootcamp as the top coding bootcamp for 2024
+        link_text: See article
+        link_url: https://ebootcamp.net/top-bootcamps-programacion/
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_1764709608255.webp
+        logo_height: 80
+        title: Top Coding School according to Newsweek
+        excerpt: >-
+          4Geeks Academy has been recognized as one of the top 10 coding bootcamps in the United States according to
+          Newsweek.
+        link_text: See article
+        link_url: https://starthubcenters.com/4geeks-academy-named-top-coding-school-2017/
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+        logo_height: 80
+        title: Best International Scholarship Program 2022
+        excerpt: ''
+        link_text: See article
+        link_url: http://premiosexcelenciaeducativa.org/wp-content/uploads/2022/03/PALMAR%C3%89S-EXCELENCIA-2022.pdf
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/pee-career_1765549482702.png
+        logo_height: 150
+        title: Best Career Oriented Educational Program
+        excerpt: >-
+          Educational Excelence Awards 2021 to the Best Career Oriented Educational Program specialized in Coding
+          Bootcamps, more information found on the palmares for the 2021 awards
+        link_text: Read article
+        link_url: https://premiosexcelenciaeducativa.org/wp-content/uploads/2016/05/PALMARE%CC%81S-EXCELENCIA-2020-1.pdf
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/fortune-logo_1764709618095.webp
+        logo_height: 80
+        title: Excellence in Education for Spanish Speakers
+        excerpt: >-
+          4Geeks Academy has been recognized by Fortune as one of the top coding bootcamps for Spanish speakers,
+          highlighting our commitment to inclusive and accessible education.
+        link_text: See website
+        link_url: https://fortune.com/education/articles/best-software-engineering-bootcamps/#4Geeks-Academy
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+        logo_height: 80
+        title: Best Bootcamp for Course Report 2025
+        excerpt: We have been selected as one of the Top Coding Bootcamps globally for 3 years in a row
+        link_text: See article
+        link_url: https://www.coursereport.com/best-coding-bootcamps
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logo_height: 80
+        title: 4.9 on all reviews
+        excerpt: 4.9 in all Course Report, Switchup and Google reviews.
+        link_text: See article
+        link_url: https://www.switchup.org/bootcamps/4geeks-academy
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+        logo_height: 80
+        title: Best On-site Bootcamp Awards 2022
+        excerpt: >-
+          Our campus in Spain has been honored with the Excellence in Education Award for Best On-site Bootcamp 2022.
+          This recognition is a testament to our unwavering commitment to excellence in on-site education in the field
+          of technology.
+        link_text: Read article
+        link_url: http://premiosexcelenciaeducativa.org/wp-content/uploads/2022/03/PALMAR%C3%89S-EXCELENCIA-2022.pdf
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/pee-innovation_1765549510015.png
+        logo_height: 150
+        title: Most Innovative Program
+        excerpt: >-
+          Educational Excelence Awards 2021 to the most innovative coding bootcamp school, more information found on the
+          palmares for the 2021 awards
+        link_text: Read article
+        link_url: https://premiosexcelenciaeducativa.org/wp-content/uploads/2016/05/PALMARE%CC%81S-EXCELENCIA-2020-1.pdf
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp-top_1765549056325.png
+        logo_height: 80
+        title: Best Bootcamp Ebootcamp for 2024
+        excerpt: We've been nominated by eBootcamp as the top coding bootcamp for 2024
+        link_text: See article
+        link_url: https://ebootcamp.net/top-bootcamps-programacion/
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+        logo_height: 150
+        title: Best Coding Bootcamp Program 2022
+        excerpt: >-
+          We are pleased to announce that we have been distinguished with the Excellence in Education Award for Best
+          Coding Bootcamp Program of 2022. This recognition highlights our commitment to excellence in technology
+          education.
+        link_text: Read article
+        link_url: http://premiosexcelenciaeducativa.org/wp-content/uploads/2022/03/PALMAR%C3%89S-EXCELENCIA-2022.pdf
+  - type: cta_banner
+    section_id: cta_banner-13e2qc
+    version: '1.0'
+    title: Take the Next Step Toward your Tech Career
+    subtitle: Get pricing, program details, and personalized guidance.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the details
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+      success:
+        message: Thank you! We'll be in touch soon.
+      button_className: bg-white text-primary hover:bg-white/90 border-white
+      terms_className: text-white/80
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    section_id: sticky_cta-5hnk9p
+    version: '1.0'
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

@@ -1,0 +1,539 @@
+slug: applied-ai-course
+title: applied-ai-course
+settings:
+  loading:
+    eager_count: 3
+meta:
+  page_title: Applied AI Course for Professionals | 4Geeks
+  description: Accelerate your career with our Applied AI course at 4Geeks Academy, designed for professionals seeking expert mentorship, AI skills and strong job outcomes.
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+sections:
+  - type: breadcrumb
+    section_id: breadcrumb-applied-ai-course
+    items:
+      - label: Home
+        url: /
+      - label: Career Programs
+        url: /en/career-programs
+      - label: Applied AI
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: Stay Relevant in Your Career. Lead with AI.
+    title_highlight: Lead with AI
+    subtitle: Gain the AI skills to stay competitive and advance your career in just 6 weeks. Learn to apply AI at work for greater efficiency, creativity, and impact.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra-1764725341501-512x512-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/jeanstcloud-1764725356935-800x800-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +6000 graduates
+    bullet_points:
+      - Learn practical AI skills you can apply immediately in your current role or business workflows.
+      - Use AI to improve productivity, creativity, decision-making, and day-to-day execution at work.
+      - Build confidence using modern AI tools in real professional contexts, not just theory.
+      - Hyper-personalized learning with unlimited 1:1 mentorship and support that continues beyond the program.
+      - Ideal for professionals looking to stay relevant in an AI-powered job market.
+    tutors:
+      - name: Marco Gonzalo
+        role: Main Instructor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/410890.jpg
+      - name: Rigo
+        role: AI Tutor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Your support system:"
+    media:
+      type: video
+      src: https://www.youtube.com/watch?v=E9RpwJhJi-k
+      thumbnail: https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=450&fit=crop
+      alt: Artificial Intelligence for Professionals program introduction
+    signup_card:
+      title: Download Course Details
+      description: Receive the full course overview, learning structure, schedule, and the practical AI skills you’ll develop in just 6 weeks.
+      cta_button:
+        text: Download Course Details
+        url: "#modal-o9bufw"
+        variant: primary
+      login_link:
+        text: Already a student? Login here.
+        url: https://4geeks.com/login
+      features:
+        - icon: calendar
+          text: 6-Week Professional AI Program
+        - icon: IconRobot
+          text: Practical AI Skills for Real Work
+        - icon: briefcase-business
+          text: Career-Relevant, Productivity-Focused Training
+        - icon: IconUsers
+          text: Hyper-Personalized Learning Experience
+        - icon: IconUserCheck
+          text: Unlimited 1:1 Mentorship
+        - icon: book
+          text: Real-World AI Applications
+    section_id: hero-74qn9v
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none
+  - type: modal
+    version: "1.0"
+    heading: Request Program Details
+    description: Enter your details to receive the complete syllabus, program structure, schedule options, tuition information, and support framework.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Get the Full Overview
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | datascience-ml }}
+      success:
+        message: Thank you. A program advisor will reach out with the details within 24 hours.
+    section_id: modal-o9bufw
+  - type: awards_marquee
+    section_id: awards_marquee-jnnxte
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Best Coding Bootcamp 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 64px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 64px
+      - id: premios-tecnologia
+        alt: Premios Tecnologia Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 on Course Report Reviews
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Institutional Quality
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 64px
+    paddingY:
+      desktop: none
+    marginY:
+      desktop: md lg
+  - type: features_grid
+    version: "1.0"
+    variant: stats-text
+    maxWidth:
+      desktop: 6xl
+    title: Why AI Skills Matter Now
+    subtitle: AI is becoming a core workplace skill
+    description: AI is rapidly becoming part of everyday work across industries. Professionals who understand how to use AI tools and workflows are gaining a significant advantage in productivity, career growth, and earning potential.
+    background: hsl(210 100% 50% / 0.05)
+    items:
+      - id: "1"
+        value: 56%
+        title: Average wage premium for professionals with AI skills
+      - id: "2"
+        value: 40%
+        title: Of U.S. employees already use AI at work
+      - id: "3"
+        value: 21%→40%
+        title: Growth in employees using AI tools at work
+    section_id: features_grid-go2y2k
+  - type: syllabus
+    variant: program-modules
+    program_title: Applied AI for Professionals
+    program_description: In just 6 weeks, learn how to leverage today’s leading AI tools to optimize your workflow, improve output quality, and stay ahead in your career. This program focuses on practical AI skills using tools like ChatGPT, Gemini, Claude, and modern image generation models applied directly to real-world professional tasks.
+    tech_logos:
+      - name: ChatGPT
+        icon: openai
+      - name: Gemini
+        icon: google
+      - name: Claude
+        icon: anthropic
+      - name: Midjourney
+        icon: sparkles
+      - name: Stable Diffusion
+        icon: cpu
+    module_cards:
+      - title: Introduction to AI
+        duration: Week 1
+        objectives:
+          - Understanding how modern AI systems work
+          - Overview of generative AI models
+          - Key concepts behind LLMs and AI assistants
+          - Responsible and effective AI usage
+        projects: Apply AI tools to simple professional workflows.
+        orientation: vertical
+        icon: IconRobot
+      - title: AI for Productivity
+        duration: Week 2
+        objectives:
+          - Using AI to automate everyday work tasks
+          - Research acceleration with AI assistants
+          - Summarization and information processing
+          - AI workflows for productivity
+        projects: Build AI-assisted workflows for daily professional tasks.
+        orientation: vertical
+        icon: IconBolt
+      - title: Text Generation & Communication
+        duration: Week 3
+        objectives:
+          - Prompt engineering fundamentals
+          - Writing, editing, and summarizing with AI
+          - AI for reports, emails, documentation, and marketing
+          - Structuring prompts for better outputs
+        projects: Create professional content using generative AI tools.
+        orientation: vertical
+        icon: IconFileText
+      - title: Image Generation & Visual AI
+        duration: Weeks 4–5
+        objectives:
+          - Understanding image generation models
+          - Tools like Stable Diffusion, DALL-E, and Midjourney
+          - Prompt engineering for image generation
+          - Using AI visuals in professional contexts
+        projects: Design and optimize prompts to generate images for real use cases.
+        orientation: vertical
+        icon: IconPhoto
+      - title: AI Tools & Future of Work
+        duration: Week 6
+        objectives:
+          - Overview of modern AI ecosystems
+          - Evaluating new AI tools and capabilities
+          - Understanding AI adoption across industries
+          - Integrating AI into long-term workflows
+        projects: Develop an AI strategy for your role or organization.
+        orientation: horizontal
+        icon: IconSparkles
+    section_id: syllabus-9j2a7p
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+  - type: ai_learning
+    section_id: ai_learning-bohkbh
+    variant: feature-tabs
+    badge: Why 4Geeks?
+    title: How You’ll Learn at 4Geeks
+    description: Move faster and stay motivated with our AI-driven tools and hyperpersonalized teaching method.
+    features:
+      - icon: bot
+        title: Progress faster with AI-powered tools
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Instant feedback from Rigobot, our custom AI tutor
+          - text: Advice adjusted to your skill level and progress
+          - text: 24/7 help with debugging and problem-solving
+          - text: Hundreds of interactive coding exercises and tests
+        video_url: https://storage.googleapis.com/breathecode/videos/landing-pages/learnpack-demo.mp4
+      - icon: TrendingUp
+        title: Thrive in tech with career support for the AI-Era
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Personalized 1:1 coaching
+          - text: AI-ready resumes and portfolios
+          - text: Interview prep and salary negotiation
+          - text: Lifelong access to support your growth
+        video_url: https://youtu.be/-2ZvlgDnltc
+      - icon: Headset
+        title: Unlimited 1:1 mentorship and an active community
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Lifelong access to 1:1 mentorship sessions
+          - text: {{ global.global_teacher_student_ratio | 7:1 }} student–teacher ratio for personalized guidance
+          - text: Peer collaboration through Slack channels and weekly check-ins
+          - text: Dedicated Slack channels for coding support, job boards, and career advice
+        image_id: community-support-cropped-800x476-q70
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+  - type: certificate
+    title: Career Outcomes
+    description: "Earn an industry-recognized certificate from a Florida Department of Education accredited institution. Access AI-powered roles employers are actively hiring for:"
+    benefits:
+      - text: "Prompt Engineer: $100K–$160K"
+      - text: "AI Automation Specialist: $75K–$120K"
+      - text: "AI Solutions Specialist: $85K–$130K"
+      - text: "Generative AI Specialist: $95K–$145K"
+    card:
+      title: Applied AI
+      subtitle: 4Geeks Academy Certificate
+      program_name: AI for Professionals
+    stats:
+      - value: {{ global.global_job_placement_rate | 84 }}%
+        label: Hiring rate
+        description: Build practical AI skills you can apply across business, marketing, operations, and digital workflows, supported by recognized certification and career guidance.
+        benefits:
+          - text: Certificate recognized by the Florida Department of Education
+          - text: Practical experience with leading AI tools and real workplace workflows
+          - text: Portfolio of applied AI use cases and projects
+          - text: Professional profile optimized for AI-related opportunities
+      - value: 3-6 months
+        label: Time to get hired
+        description: Use your AI skills to qualify for emerging roles and strengthen your current professional profile with tools employers are already adopting.
+        benefits:
+          - text: Optimize your resume, LinkedIn, and professional positioning
+          - text: Practice how to communicate your AI skills in interviews
+          - text: Build a personalized job-search strategy for AI-related roles
+      - value: {{ global.global_salary_increase | 55 }}%
+        label: Average Salary Increase
+        description: Workers with AI skills command strong salary premiums as AI becomes a core workplace capability across industries.
+        benefits:
+          - text: "Prompt Engineer: $100K–$160K"
+          - text: "AI Automation Specialist: $75K–$120K"
+          - text: "AI Solutions Specialist: $85K–$130K"
+          - text: "Generative AI Specialist: $95K–$145K"
+      - value: 400+
+        label: Hiring partners
+        description: Access our network of hiring partners and career support resources to connect your new AI skills with real professional opportunities.
+        benefits:
+          - text: Exclusive job board access
+          - text: Priority referrals to partner companies
+          - text: Networking events with hiring managers
+          - text: Companies include Google, Meta, Amazon, startups
+    certificate_position: right
+    useSolidCard: true
+    section_id: certificate-z3vs8h
+    marginY:
+      mobile: none
+      desktop: none
+    paddingY:
+      mobile: lg
+      desktop: lg
+    background: hsl(var(--secondary))
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Payment plans
+    subtitle: Select the location and payment option that suits you best.
+    discount_text: "Best Deal: Pay only $3,000 when you pay in full."
+    financing_text: Flexible weekly payments from
+    financing_amount: $550/week
+    tech_icons:
+      - openai
+      - brain
+      - robot
+      - settings
+      - api
+    features_title: Pick your flexible payment plan.
+    features:
+      - icon: IconCheck
+        text: Pay $550 a week for 6 weeks while completing the program.
+      - icon: IconCheck
+        text: Pay upfront and save with a full payment option of $3,000.
+      - icon: IconCheck
+        text: Flexible payment plans available so you can focus on learning, not finances.
+      - icon: IconCheck
+        text: Speak with an advisor to find the best payment option for your situation.
+    cta:
+      text: Request a Syllabus
+      url: "#modal-o9bufw"
+      variant: primary
+    section_id: pricing-5ihe9a
+    marginY:
+      desktop: lg xl
+    paddingY:
+      desktop: none md
+  - type: whos_hiring
+    variant: carousel
+    pretitle: Customer Stories
+    title: Who's Hiring Our Graduates?
+    subtitle: Top companies hire 4Geeks graduates, with 84% landing jobs within 6 months of graduation, thanks to their skills and our personalized career support. Our grads don’t just get hired—they launch successful careers and consistently earn recognition for their technical expertise and professionalism. "I’m continually impressed by the depth of knowledge possessed by 4Geeks students. One of my hires ended up becoming a team leader." - CodeNinjas.
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    section_id: whos_hiring-b1g5t9
+    marginY:
+      desktop: none md
+  - type: faq
+    title: FAQ
+    hardcoded_entries:
+      - question: What prerequisites do I need for AI Engineering?
+        answer: Basic programming knowledge is recommended but not required. Our program starts with foundational concepts and builds up to advanced AI engineering. If you're new to coding, we have preparatory materials to help you get started.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: How long does the program take?
+        answer: The AI Engineering program is designed to be completed in 20 weeks. However, as a self-paced program, you can accelerate or take more time based on your schedule and learning pace.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: What kind of projects will I build?
+        answer: You'll build production-ready AI applications including RAG systems, multi-agent orchestrators, real-time AI applications, and a full capstone project. All projects use real-world technologies and patterns used by top companies.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: Do I need expensive hardware for AI development?
+        answer: No! All exercises and projects run in the cloud. We provide access to cloud-based development environments and AI APIs, so you can learn with just a laptop and internet connection.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: Is the certificate recognized by employers?
+        answer: Yes! Our certificate is recognized by employers worldwide. We're licensed by the Florida Department of Education and have been featured by Forbes, Newsweek, and Course Report as one of the top coding bootcamps.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - applied-ai
+            - mentors-and-teachers
+        - item_property_slug: locations
+          value: all
+    item_overrides:
+      how-long-does-the-program-take:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    section_id: faq-8vzhp4
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+  - type: cta_banner
+    version: "1.0"
+    title: Ready to Become an {{ single.job_role | AI Engineer }}?
+    subtitle: The fastest-growing job of 2026 is a click away. This is your window. Join the next cohort.
+    variant: form
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: Start Your Application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | ai-engineering }}
+      success:
+        message: Check your inbox. Our admissions team will be in touch shortly with everything you need to know.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-8dww61
+  - type: sticky_cta
+    section_id: sticky_cta-v968gv
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: false
+          default: {{ single.bc_slug | unknown }}
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

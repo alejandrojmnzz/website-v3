@@ -1,0 +1,41 @@
+name: Interactive Exercises
+source:
+  type: api
+  api:
+    endpoint: https://breathecode.herokuapp.com/v1/registry/asset
+    results_path: results
+    params:
+      asset_type: EXERCISE
+      academy: 4,6,47
+      limit: '100'
+      expand: readme
+      status: PUBLISHED
+cache:
+  ttl_hours: 25
+field_mapping:
+  id: id
+  slug: slug
+  title: title
+  language: function:KHZhbHVlLCBpdGVtKSA9PiBTdHJpbmcoaXRlbS5sYW5nKSA9PT0gJ3VzJyA/ICdlbicgOiBTdHJpbmcoaXRlbS5sYW5nKQ==
+  updated_at: updated_at
+  category_id: category.id
+  category_name: category.title
+  visibility: visibility
+  image_url: preview
+  tags: technologies
+  description: description
+  content: readme.decoded
+vector_search:
+  enabled: true
+  fields:
+    - slug
+    - title
+search_fields:
+  - slug
+  - title
+editor:
+  image_url:
+    cache_images: true
+  tags:
+    type: tags
+    populate_options: true

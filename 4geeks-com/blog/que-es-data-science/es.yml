@@ -1,0 +1,59 @@
+sections:
+  - id: hero-j3g7yh
+    type: hero
+    version: "1.0"
+    variant: singleColumn
+    badge: {{ single.category | Blog }}
+    title: Qué es + Salarios 2026 y Cómo Aprenderlo | 4Geeks
+    subtitle: Descubre qué es Data Science, salarios reales desde €45K y herramientas clave. Aprende con mentoring ilimitado y proyectos reales en 4Geeks Academy.
+    image:
+      src: {{ single.image | https://storage.googleapis.com/4geeks-academy-website/media/Group-original_1765419144159.webp }}
+    image_full_width: false
+    section_id: hero-4dyjfe
+  - type: faq
+    version: v1.0
+    section_id: faq-31bv5t
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - online-platform
+            - certification
+            - mentors-and-teachers
+        - item_property_slug: locations
+          value: all
+      ignored_entries:
+        - 4geeks-academy-ofrece-apoyo-profesional
+        - cmo-estn-estructuradas-las-clases-en-vivo
+        - esto-me-prepara-para-certificaciones
+        - necesito-equipo-costoso
+        - necesito-hardware-costoso-para-desarrollo-con-ia
+        - qu-es-learnpack-y-cmo-se-usa-durante-el-bootcamp
+        - mantengo-acceso-a-learnpack-despus-de-graduarme
+        - puedo-aprender-con-learnpack-desde-cualquier-dispositivo-o-sistema-operativo
+        - cmo-funcionan-los-ejercicios-con-correccin-automtica-en-learnpack
+        - puedo-estudiar-100-en-lnea-o-debo-estar-en-el-campus
+        - recibir-un-certificado-de-finalizacin-y-qu-incluye
+        - 4geeks-es-una-institucin-certificada
+        - por-qu-4geeks-academy
+        - el-certificado-es-reconocido-por-empleadores
+        - geekforce-o-geekpal-cul-elegir
+        - qu-pasa-si-tengo-problemas-tcnicos-con-la-plataforma-durante-el-curso
+        - necesito-instalar-software-para-acceder-a-la-plataforma-en-lnea
+        - ayudan-a-los-estudiantes-a-prepararse-para-certificaciones-de-la-industria
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: md none
+    id: faq-mc56sy
+    hardcoded_entries:
+      - question: ¿Cuánto tiempo lleva aprender Data Science desde cero?
+        answer: Con formación intensiva puedes dominar los fundamentos en 4-6 meses. El bootcamp de Data Science & ML de 4Geeks Academy dura 16 semanas con mentoring ilimitado, cubriendo desde Python básico hasta deep learning y deployment de modelos.
+      - question: ¿Qué diferencia hay entre Data Science y Data Analytics?
+        answer: Data Science incluye machine learning e inteligencia artificial para generar insights futuros. Data Analytics se enfoca en análisis descriptivo de datos históricos. Los Data Scientists construyen algoritmos; los Data Analysts interpretan tendencias existentes.
+      - question: ¿Necesito saber matemáticas avanzadas para ser Data Scientist?
+        answer: Requieres estadística, álgebra lineal y cálculo básico, pero no ser matemático puro. Lo crucial es entender correlación, regresión y distribuciones. 4Geeks Academy enseña las matemáticas aplicadas con enfoque práctico en proyectos reales.
+    _insertAfterSectionId: article-631g5w

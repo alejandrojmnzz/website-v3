@@ -1,0 +1,20 @@
+name: Testimonials ES
+description: Spanish testimonials
+source:
+  type: local
+  local:
+    filename: testimonials.yml
+cache:
+  ttl_hours: 24
+field_mapping:
+  student_name: student_name
+  student_thumb: student_thumb
+  excerpt: excerpt
+  full_text: full_text
+  related_features: related_features
+  priority: priority
+  role: role
+  company: company
+editor:
+  student_thumb:
+    cache_images: true

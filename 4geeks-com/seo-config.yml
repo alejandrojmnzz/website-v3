@@ -1,0 +1,46 @@
+intents:
+  awareness:
+    label: "Learn / Awareness"
+    description: "Educational content — the reader is exploring options and learning about coding careers"
+  consideration:
+    label: "Compare / Consideration"
+    description: "Comparison content — the reader is evaluating 4Geeks vs alternatives and wants specifics"
+  transaction:
+    label: "Decide / Transaction"
+    description: "Conversion content — the reader is ready to enroll and needs to take action"
+  post-enrollment:
+    label: "Succeed / Post-Enrollment"
+    description: "Success content — the reader is an existing student looking for resources"
+
+intent_defaults:
+  programs: transaction
+  landings: consideration
+  pages: awareness
+  downloadable: post-enrollment
+  locations: consideration
+
+focus_features:
+  mentorship:
+    label: "1-on-1 Mentorship"
+    description: "Unlimited 1-on-1 mentorship sessions with senior developers throughout the program"
+  job_guarantee:
+    label: "Job Guarantee"
+    description: "Money-back guarantee if the student does not find a job within 6 months of graduating"
+  flexible_schedule:
+    label: "Flexible Schedule"
+    description: "Part-time, full-time, and self-paced options to fit any lifestyle"
+  financing:
+    label: "Financing & ISA"
+    description: "Income share agreements, installment plans, and third-party financing options"
+  community:
+    label: "Alumni Community"
+    description: "Access to a global network of 4Geeks alumni and ongoing community events"
+  portfolio:
+    label: "Real Portfolio"
+    description: "Graduate with a portfolio of real-world projects built during the program"
+  career_support:
+    label: "Career Support"
+    description: "Career coaching, resume reviews, mock interviews, and job placement assistance"
+  multilingual:
+    label: "Multilingual Instruction"
+    description: "Instruction and support available in both English and Spanish"

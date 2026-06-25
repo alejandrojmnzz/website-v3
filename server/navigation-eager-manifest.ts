@@ -16,7 +16,7 @@ const log = child({ module: "navigation-eager-manifest" });
 
 const OUT_FILE = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "4geeks-com",
+  process.env.CONTENT_FOLDER || "content",
   "navigation-eager-manifest.json",
 );
 
@@ -91,7 +91,7 @@ function collectPathsFromContent(ci: typeof contentIndex = contentIndex): Set<st
 }
 
 function collectPathsFromMenus(
-  menusDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "menus"),
+  menusDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", "menus"),
 ): Set<string> {
   const paths = new Set<string>();
   if (!fs.existsSync(menusDir)) return paths;

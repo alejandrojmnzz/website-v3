@@ -1,0 +1,39 @@
+slug: montevideo-uruguay
+name: Montevideo
+city: Montevideo
+country: Uruguay
+country_code: UY
+latitude: -34.9011
+longitude: -56.1645
+region: latam
+default_language: es
+timezone: America/Montevideo
+phone: +598 2 123 4567
+address: 18 de Julio 1234, Montevideo
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For this campus visitors and those interested in tech opportunities.
+  target_audience: Local professionals and residents seeking a coding bootcamp with job-focused training.
+  goals:
+    - Highlight job outcomes and connections to local employers
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: 18 de Julio 1234
+        addressLocality: Montevideo
+        addressCountry: UY

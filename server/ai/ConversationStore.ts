@@ -108,7 +108,7 @@ export class ConversationStore {
 
     let graceMinutes = 15;
     try {
-      const llmPath = path.resolve(`${process.env.CONTENT_FOLDER || "4geeks-com"}/llm.yml`);
+      const llmPath = path.resolve(`${process.env.CONTENT_FOLDER || "content"}/llm.yml`);
       if (fs.existsSync(llmPath)) {
         const raw = yaml.load(fs.readFileSync(llmPath, "utf-8")) as Record<string, unknown>;
         if (raw && typeof raw.empty_conversation_grace_minutes === "number") {

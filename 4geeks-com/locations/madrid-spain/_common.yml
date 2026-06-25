@@ -1,0 +1,45 @@
+slug: madrid-spain
+name: Madrid
+city: Madrid
+country: Spain
+country_code: ES
+latitude: 40.4168
+longitude: -3.7038
+region: europe
+default_language: es
+timezone: Europe/Madrid
+phone: +34 910 86 69 83
+address: Calle de Alcalá 54, 28014 Madrid
+available_programs:
+  - "full-stack"
+
+context:
+  when_to_use: "For Madrid-area visitors or those interested in tech opportunities in Spain's largest and fastest-growing tech ecosystem."
+  target_audience: "Local Madrid residents, professionals seeking career transitions into tech, Latin American expats in Spain, and EU citizens attracted by Spain's digital nomad visa and startup-friendly policies."
+  goals:
+    - "Position Madrid as Europe's #1 emerging startup ecosystem and Spain's leading tech hub"
+    - "Emphasize bilingual (Spanish/English) support and international community"
+    - "Highlight the 25,000+ unfilled developer positions and strong hiring demand across fintech, AI, and cybersecurity"
+    - "Showcase Madrid's role as a gateway between European and Latin American tech markets"
+
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Calle de Alcalá 54
+        addressLocality: Madrid
+        postalCode: "28014"
+        addressCountry: ES

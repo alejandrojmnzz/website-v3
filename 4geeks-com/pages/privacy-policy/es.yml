@@ -1,0 +1,128 @@
+slug: politicas-de-privacidad
+template: default
+title: privacy-policy
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Política de Privacidad | 4Geeks
+  description: Conoce nuestra política de privacidad en 4Geeks Academy y aprende a proteger tus datos personales de manera efectiva y segura en línea.
+  redirects:
+    - /politicas-de-privacidad
+    - /es/privacidad
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: article
+    section_id: article-cdgypu
+    content: |
+      # Política de Privacidad, 4Geeks Academy
+
+      **Fecha de entrada en vigor: 2025-07-23**
+
+      En 4Geeks Academy, accesible desde https://4geeksacademy.com, una de nuestras principales prioridades es la privacidad de nuestros visitantes y estudiantes. Esta Política de Privacidad explica qué información recopilamos, cómo la utilizamos incluyendo comunicaciones por SMS y qué opciones tienes como usuario. Si tienes preguntas, puedes contactarnos en privacy@4geeksacademy.com.
+
+      ## Archivos de Registro (Log Files)
+
+      4Geeks Academy sigue un procedimiento estándar de uso de archivos de registro. Estos archivos registran a los visitantes cuando acceden al sitio web. La información recopilada puede incluir direcciones IP, tipo de navegador, proveedor de servicios de internet (ISP), fecha y hora de acceso, páginas de referencia o salida y número de clics. 
+
+      Esta información no está vinculada a datos que permitan identificar personalmente al usuario. Su finalidad es analizar tendencias, administrar el sitio, rastrear el movimiento de los usuarios y recopilar información demográfica.
+
+      ## Cookies y Web Beacons
+
+      Como muchos otros sitios web, 4Geeks Academy utiliza cookies para almacenar información, incluyendo preferencias de los visitantes y páginas visitadas dentro del sitio. Esta información se utiliza para optimizar la experiencia del usuario, personalizando el contenido según el tipo de navegador u otros datos relevantes.
+
+      ## Comunicaciones por SMS y Consentimiento (10DLC)
+
+      ### Qué enviamos y por qué
+      Si proporcionas tu número de teléfono móvil, podremos enviarte mensajes SMS relacionados con el servicio o de carácter informativo, como actualizaciones de inscripción, recordatorios o notificaciones de soporte. Los mensajes de marketing solo se enviarán si has otorgado tu consentimiento explícito.
+
+      ### Cómo obtenemos el consentimiento
+      El consentimiento se obtiene a través de formularios web, casillas de verificación, procesos de inscripción, registros a eventos o cuando nos envías un mensaje primero. Cada formulario indica claramente que al enviar tu número autorizas el envío de mensajes SMS.
+
+      ### Cómo darte de baja
+      Puedes darte de baja en cualquier momento respondiendo STOP a cualquier mensaje recibido. Podrás recibir un último mensaje confirmando la cancelación. Para asistencia, responde HELP o escribe a privacy@4geeksacademy.com.
+
+      ### Tarifas de mensajes y datos
+      Pueden aplicarse tarifas estándar de mensajes y datos. La frecuencia de los mensajes puede variar.
+
+      ### Aviso sobre operadores
+      Los operadores móviles no son responsables de mensajes retrasados o no entregados.
+
+      ## Tratamiento y Seguridad de los Datos SMS
+
+      Tratamos los números de teléfono y los datos de interacción por SMS como información personal:
+
+      - No venta ni cesión: No vendemos ni compartimos tu número de teléfono con terceros para fines de marketing propios.
+      - Acceso limitado: Solo el personal autorizado y proveedores de servicios como plataformas de envío de SMS pueden acceder a estos datos para prestar servicios en nuestro nombre.
+      - Almacenamiento seguro: Los datos se protegen mediante medidas administrativas, técnicas y físicas adecuadas.
+      - Conservación: Los datos relacionados con SMS se conservan únicamente durante el tiempo necesario para cumplir con su finalidad o con obligaciones legales, tras lo cual se eliminan o anonimizan.
+
+      ## Socios Publicitarios
+
+      Algunos anunciantes en nuestro sitio pueden utilizar cookies y web beacons. Cada socio publicitario dispone de su propia Política de Privacidad que regula el tratamiento de datos de los usuarios. Recomendamos revisar dichas políticas.
+
+      Los servidores o redes publicitarias de terceros pueden utilizar tecnologías como cookies, JavaScript o web beacons en sus anuncios y enlaces que aparecen en nuestro sitio. Estas tecnologías reciben automáticamente tu dirección IP y se utilizan para medir la efectividad de las campañas publicitarias o personalizar el contenido mostrado.
+
+      4Geeks Academy no tiene acceso ni control sobre las cookies utilizadas por terceros.
+
+      ## Políticas de Privacidad de Terceros
+
+      Esta Política de Privacidad no se aplica a otros anunciantes, proveedores de mensajería o sitios web externos. Recomendamos consultar sus respectivas Políticas de Privacidad para obtener información más detallada sobre sus prácticas y cómo ejercer opciones de exclusión.
+
+      Puedes desactivar las cookies desde la configuración de tu navegador. Las instrucciones están disponibles en la página oficial de cada navegador.
+
+      ## Información de Menores
+
+      La protección de los menores en internet es una prioridad. 4Geeks Academy no recopila de forma consciente información personal identificable de menores de 13 años. Si consideras que un menor nos ha proporcionado información personal, contáctanos inmediatamente para proceder a su eliminación.
+
+      ## Aplicación Exclusiva en Línea
+
+      Esta Política de Privacidad se aplica únicamente a nuestras actividades en línea y es válida para los visitantes del sitio web respecto a la información compartida o recopilada en 4Geeks Academy. No se aplica a información recopilada fuera de línea o por otros canales distintos a este sitio web.
+
+      ## Consentimiento
+
+      Al utilizar nuestro sitio web, aceptas esta Política de Privacidad. Al proporcionar tu número de teléfono y otorgar el consentimiento correspondiente cuando sea requerido, aceptas recibir comunicaciones por SMS según lo descrito y aceptas nuestros Términos y Condiciones.
+
+      ## Cambios en esta Política
+
+      Podemos actualizar esta Política de Privacidad periódicamente. Publicaremos la versión revisada con la fecha de actualización correspondiente. El uso continuado del sitio después de cualquier cambio implica la aceptación de la política revisada.
+
+      2025-07-23
+    show_toc: true
+    max_width: xl
+  - type: sticky_cta
+    version: '1.0'
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-2lps8w

@@ -1,0 +1,3 @@
+section_defaults:
+  maxWidth:
+    desktop: full

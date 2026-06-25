@@ -1,0 +1,94 @@
+meta:
+  page_title: {{ single.title }}
+  description: {{ single.description }}
+sections:
+  - type: hero
+    version: "1.0"
+    variant: productShowcase
+    title: " "
+    brand_mark:
+      prefix: {{ single.title | interactive exercise title }}
+      color: primary
+    description: {{ single.description | exercise description }}
+    image_object_fit: none
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: Start Exercise
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        program:
+          visible: false
+          default: {{ single.slug | undefined }}
+      success:
+        message: Una vez completado el formulario, alguien de nuestro equipo se pondrá en contacto contigo en breves minutos a través de un correo electrónico.
+    form_vertical_align: bottom
+    form_card_text_color: hsl(var(--foreground))
+    form_card_title: Get Free Access
+    form_card_subtitle: Sign up and get access to this free interactive tutorial
+    form_card_image: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+    show_awards_marquee: false
+    awards_marquee:
+      items:
+        - id: switchup-2025
+          alt: SwitchUp - Mejores Bootcamps de Código 2025
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+          logoHeight: 55px
+        - id: course-report-2024
+          alt: Course Report - Mejor Bootcamp de Código 2024
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+          logoHeight: 55px
+        - id: tech-hub
+          alt: South Florida Tech Hub
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/south-florida-tech-hub_1765548979070.jpeg
+          logoHeight: 55px
+        - id: ebootcamp
+          alt: eBootcamp Top
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp-top_1765549056325.png
+          logoHeight: 55px
+        - id: premios-tecnologia
+          alt: Premios Tecnología Siglo XXI
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+          logoHeight: 55px
+        - id: newsweek
+          alt: Newsweek
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_1764709608255.webp
+          logoHeight: 55px
+        - id: reviews-coursereport
+          alt: 4.9 en Reseñas de Course Report
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+          logoHeight: 55px
+        - id: excelencia-educativa
+          alt: Excelencia Educativa - Calidad Institucional
+          logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+          logoHeight: 55px
+    video_title: GeekForce Career Support
+    marginY:
+      desktop: none
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: md none
+    marginX:
+      desktop: none
+    section_id: hero-ylwr8f
+  - type: article
+    version: v1.0
+    show_toc: false
+    max_width: lg
+    content: {{ single.content | exercise instructions }}
+    section_id: article-ulix1m
+    paddingY:
+      desktop: sm
+    maxWidth:
+      desktop: xl

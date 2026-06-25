@@ -1,0 +1,86 @@
+slug: terminos-y-condiciones
+template: default
+title: terms-conditions
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Términos y Condiciones | 4Geeks
+  description: Conoce los términos y condiciones de 4Geeks Academy, y descubre cómo nuestros programas de capacitación en tecnología pueden ayudarte a alcanzar tus objetivos
+  redirects:
+    - /terminos-y-condiciones
+    - /es/terminos
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: article
+    section_id: article-q25rx4
+    content: |
+      # Términos y Condiciones de 4Geeks Academy
+
+      ## Titular del Sitio Web
+
+      El presente Aviso Legal regula el uso del Sitio Web, así como su acceso, navegación y, en general, la relación entre el titular del Sitio Web y cualquier persona que acceda al mismo (en adelante, el "Usuario" o los "Usuarios").
+
+      El Sitio Web proporciona a los Usuarios información general sobre 4GEEKS y sus actividades (en adelante, el "Contenido"), todo ello conforme a lo establecido en este Aviso Legal. Al tratarse de un sitio profesional, su contenido no está dirigido a Usuarios menores de edad.
+
+      ## Objeto, Alcance y Duración
+
+      El acceso a determinados contenidos o servicios que puedan ofrecerse en el futuro podrá estar sujeto al cumplimiento de condiciones específicas que, según el caso, sustituirán, complementarán y/o modificarán las presentes condiciones generales y, en caso de contradicción, prevalecerán.
+
+      4GEEKS se reserva el derecho de modificar, en cualquier momento y sin previo aviso, la presentación, configuración y contenido del Sitio Web o las condiciones requeridas para su acceso y/o uso, así como de interrumpir, suspender o finalizar el acceso al contenido del Sitio Web, sin que el Usuario pueda exigir indemnización alguna.
+
+      La vigencia temporal del presente Aviso Legal coincide con el tiempo de su publicación, hasta que sea modificado total o parcialmente. Una vez modificado, el nuevo Aviso Legal publicado en este Sitio Web entrará en vigor.
+
+      El acceso, navegación y uso del Sitio Web por parte del Usuario implica la aceptación expresa y sin reservas de todos los términos del presente Aviso Legal y de cualesquiera condiciones aplicables, con la misma validez y eficacia que cualquier contrato celebrado por escrito y firmado.
+
+      ## Acceso
+
+      El uso del Sitio Web es gratuito, sin perjuicio del coste de conexión a través de la red de telecomunicaciones a la que tenga acceso el Usuario.
+
+      4GEEKS no será responsable de los daños y perjuicios de cualquier naturaleza que puedan derivarse para el Usuario por fallos o desconexiones en las redes de telecomunicaciones que ocasionen la suspensión, cancelación o interrupción del acceso al Sitio Web.
+
+      ## Condiciones de la Garantía de Empleo
+
+      Las condiciones aplicables al programa de Garantía de Empleo se regulan en un documento legal independiente.
+
+      Los Usuarios interesados en consultar los términos específicos, requisitos y criterios de elegibilidad de la Garantía de Empleo deberán revisar el documento correspondiente disponible en este Sitio Web.
+
+      Para mayor información, puede visitar directamente la página de Términos y Condiciones.
+    show_toc: true
+    max_width: xl
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-j7oxg1

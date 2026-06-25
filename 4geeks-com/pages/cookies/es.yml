@@ -1,0 +1,65 @@
+slug: cookies
+template: default
+title: cookies
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: "Política de Cookies | 4Geeks Academy"
+  description: Descubre cómo 4Geeks Academy utiliza cookies para mejorar tu experiencia y ofrecerte contenidos personalizados en nuestros programas de AI, Full Stack y más.
+  redirects:
+    - /es/cookie
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: article
+    section_id: article-li4dl3
+    content: |
+      # Política de Cookies. 4Geeks Academy
+
+      ## Información sobre Cookies
+
+      Debido a la entrada en vigor de la modificación de la **Ley de Servicios de la Sociedad de la Información (LSSICE)** establecida por el Real Decreto 13/2012, es obligatorio obtener el consentimiento expreso del usuario en todas las páginas web que utilicen cookies prescindibles antes de que éste navegue por ellas.
+
+      ## ¿Qué son las Cookies?
+
+      Las cookies y otras tecnologías similares, tales como *local shared objects*, *flash cookies* o píxeles, son herramientas empleadas por los servidores web para almacenar y recuperar información acerca de sus visitantes, así como para garantizar el correcto funcionamiento del sitio.
+
+      Mediante el uso de estos dispositivos, el servidor web puede recordar determinados datos del usuario, como sus preferencias de visualización, nombre y contraseña, productos de interés u otra información relevante para mejorar su experiencia de navegación.
+    show_toc: true
+    max_width: xl
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-voehmb

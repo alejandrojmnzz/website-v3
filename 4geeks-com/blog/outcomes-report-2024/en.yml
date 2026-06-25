@@ -1,0 +1,35 @@
+sections:
+  - id: faq-kpnock
+    type: faq
+    version: v1.0
+    title: Frequently Asked Questions
+    hardcoded_entries:
+      - question: Do I need prior coding experience?
+        answer: No prior experience is required. Our program is designed to take you from complete beginner to job-ready developer. We start with the fundamentals and progressively build your skills.
+      - question: How long does the program take to complete?
+        answer: The full-time program takes 16 weeks, while our part-time option spans 26 weeks. Both tracks cover the same comprehensive curriculum and lead to the same career outcomes.
+      - question: What kind of job support do you provide?
+        answer: We offer lifetime career support including resume reviews, interview preparation, job placement assistance, and access to our employer network. Our career coaches work with you one-on-one until you land your first tech role.
+      - question: Can I pay in installments? n
+        answer: Yes! We offer flexible payment plans with monthly installments. We also have income share agreements (ISA) where you only pay after you get hired. Financial aid and scholarships are available for qualifying students.
+      - question: What technologies will I learn?
+        answer: You'll master modern web technologies including HTML, CSS, JavaScript, React, Python, Flask, SQL databases, Git, and deployment tools. Our curriculum is continuously updated to match industry demands.
+      - question: Is this program available online?
+        answer: Yes, we offer both online and in-person options. Our online program provides the same quality instruction with live sessions, mentorship, and collaborative projects - all accessible from anywhere in the world.
+    section_id: faq-o27257
+    paddingY:
+      desktop: sm
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - online-platform
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: monthly
+  page_title: dd
+  description: aaa
+  og_image: https://breathecode.herokuapp.com/v1/media/file/outcomes-report-bg-png

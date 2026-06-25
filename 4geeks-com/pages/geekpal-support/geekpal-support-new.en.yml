@@ -1,0 +1,258 @@
+slug: geekpal-support
+template: default
+title: GeekPAL Support
+meta:
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: GeekPAL Support | 4Geeks
+  description: Get unlimited 1:1 technical mentorship with real tech professionals, available during your program and for life. No session cap, no expiration date. Includes AI support from Rigobot 24/7 and access to a global community of 6,000+ graduates and mentors.
+  redirects:
+    - /geekpal-support
+    - /us/geekpal-support
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-ivsy21
+    version: "1.0"
+    variant: productShowcase
+    welcome_text: Mentorship at 4Geeks
+    brand_mark:
+      prefix: Geek
+      highlight: PAL
+      suffix: ":"
+      color: destructive
+    title: Unlimited mentorship, for life.
+    description: With GeekPal, you get unlimited 1:1 technical mentorship with expert mentors, whenever you need it, for life. You choose who you work with, and when. No session cap, no expiration date.
+    bullets_heading: Support is always there when you need it
+    bullets:
+      - text: Experienced mentors who've built what you're building
+      - text: Rigobot, our AI tutor, always on to support you
+      - text: A global Slack community of 6,000+ graduates and mentors, ready to help
+    video:
+      url: https://youtu.be/D5nUZNL52-Q
+      ratio: "3:4"
+    paddingY:
+      mobile: none lg
+      desktop: md lg
+  - type: banner
+    section_id: banner-7ct56k
+    version: "1.0"
+    logo: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    avatars:
+      - https://randomuser.me/api/portraits/women/1.jpg
+      - https://randomuser.me/api/portraits/men/2.jpg
+      - https://randomuser.me/api/portraits/women/3.jpg
+      - https://randomuser.me/api/portraits/men/4.jpg
+    title: Advance Faster, Never Lose Momentum
+    description: "The #1 reason people quit when learning to code? Getting stuck. GeekPal keeps you moving with support that shows up exactly when you need it."
+    background: gradient
+  - type: human_and_ai_duo
+    section_id: human_and_ai_duo-zg16oa
+    version: "1.0"
+    heading: Human mentors whenever you need them. AI support 24/7.
+    description: Human mentors bring judgment, experience, and live problem-solving. Rigobot, our AI tutor, and Learnpack bring instant feedback and structured practice. Between the two, you always have what you need to go deeper and move faster.
+    bullet_groups:
+      - title: "Your expert mentors:"
+        image: https://storage.googleapis.com/4geeks-academy-website/media/profile-pic6_1764775742734.webp
+        bullets:
+          - text: 1:1 guidance adapted to where you are and where you're going
+          - text: Live help with whatever you're building or stuck on
+          - text: Available during the program and for life
+      - title: "Rigobot + Learnpack:"
+        bullets:
+          - text: Instant feedback and support, 24/7
+          - text: Adjusts to your skill level and progress
+          - text: Hundreds of interactive exercises and hands-on projects
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_asian-133x500.webp
+        alt: Asian student learning to code
+        object_fit: cover
+        object_position: 40%20%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latin_male-133x500.webp
+        alt: Latino student working on a project
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_african-133x500.webp
+        alt: African student collaborating with team
+        object_fit: cover
+        object_position: 50%15%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latina_female-133x500.webp
+        alt: Latina student celebrating success
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group_6685_(1)_1765300162049.png
+    image_alt: Woman working on laptop in cafe
+    background: hsl(var(--secondary))
+    paddingY:
+      mobile: sm none
+      desktop: md none
+  - type: two_column
+    version: v1.0
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    gap: "8"
+    left:
+      video: https://www.youtube.com/watch?v=MBXqEnhodx0
+      justify: center
+    right:
+      heading: The impact of unlimited technical mentorship.
+      description: Joao shares how 1:1 mentorship supported him through the program and beyond.
+    marginY:
+      desktop: none sm
+    paddingY:
+      desktop: lg
+    section_id: two_column-wtzzue
+  - type: community_support
+    section_id: community_support-hnuq6q
+    version: "1.0"
+    heading: A Global Community of 6,000+ Graduates, Mentors, and Tech Professionals.
+    description: A network to support you for life.
+    bullet_groups:
+      - title: Slack Community
+        description: Regional and global channels for technical support, job boards, and career advice in real time.
+        icon: BrandSlack
+        badge: 6,000+ Members
+        accent_color: primary
+      - title: 4Geeks.com
+        description: Keep advancing with self-paced courses, live events, and collaborative projects used by thousands of tech professionals worldwide.
+        icon: Rigobot
+        accent_color: primary
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group-6606.webp
+    image_alt: 4Geeks global developer community
+    background: bg-primary/5
+    paddingY:
+      desktop: none md
+  - type: testimonials_slide
+    section_id: testimonials_slide-rrnpaj
+    title: Real Careers Start Here
+    description: See how our alumni achieved their goals
+    related_features:
+      - career-support
+      - mentors-and-teachers
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md none
+  - type: faq
+    section_id: faq-zr2zqa
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - mentors-and-teachers
+            - career-support
+        - item_property_slug: locations
+          value: all
+    item_overrides:
+      do-i-get-a-job-after-completing-the-program:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+      how-are-the-live-classes-structured:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none md
+  - type: cta_banner
+    version: "1.0"
+    title: Ready to learn with mentorship that's with you for life?
+    subtitle: "Fill in your details and our admissions team will send you everything you need: program descriptions, requirements, and financing options. It only takes 2 minutes."
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the Full Program Details
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: Check your inbox. Our admissions team will be in touch shortly with everything you need to know.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-yh5dbf
+  - type: sticky_cta
+    section_id: sticky_cta-ycj71c
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Start Your Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: Check your inbox. Our admissions team will be in touch shortly with everything you need to know.

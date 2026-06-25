@@ -1,0 +1,168 @@
+name: Double CTA
+version: "1.0"
+component: DoubleCTA
+file: client/src/components/double-cta/DoubleCTA.tsx
+description: Two side-by-side CTA boxes with expanding/collapsing hover interaction. Left box is active by default. On hover, the hovered box expands while the other shrinks and fades. Each box supports heading, description, bullet points, CTA button, sub-text, and an optional image.
+when_to_use: |
+  Use as a dual call-to-action section when you want to present two distinct actions side by side.
+  Great for offering alternatives like "Book a consultation" vs "Apply now".
+  The interactive hover effect draws attention and encourages engagement.
+
+variants:
+  - name: expandable
+    description: "Two columns that expand/collapse on hover with a peek animation on load (default)"
+    best_for: "Conversion sections with two distinct paths — e.g. consult vs. apply, online vs. in-person"
+
+props:
+  variant:
+    type: string
+    required: false
+    default: expandable
+    options:
+      - expandable
+  title:
+    type: string
+    required: false
+    description: Section title displayed above the two boxes
+    example: Take the Next Step in Your Tech Career
+  subtitle:
+    type: string
+    required: false
+    description: Section subtitle displayed below the title
+    example: Join thousands of students who have transformed their careers
+  background:
+    type: string
+    required: false
+    description: Section background color (semantic token)
+  left:
+    type: object
+    required: false
+    description: Left box content
+    fields:
+      heading:
+        type: string
+        required: false
+        example: Book a Free 15-Minute Consultation
+      description:
+        type: string
+        required: false
+        example: Get personalized guidance from our admissions team.
+      bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+            description: Tabler icon name
+          text:
+            type: string
+            required: false
+      image_id:
+        type: string
+        required: false
+        description: Image registry ID for optional image displayed beside the content
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+      image_object_position:
+        type: string
+        required: false
+      image_beside_bullets:
+        type: boolean
+        required: false
+        default: false
+        description: When true, the image is placed beside only the bullets. When false (default), the image is placed beside both the description and bullets.
+      cta_text:
+        type: string
+        required: false
+        example: Schedule now!
+      cta_url:
+        type: string
+        required: false
+        example: /apply
+      cta_variant:
+        type: string
+        required: false
+        default: primary
+        options:
+          - primary
+          - secondary
+          - outline
+      sub_text:
+        type: string
+        required: false
+        example: Free 15-minute session - No commitment required
+  right:
+    type: object
+    required: false
+    description: Right box content
+    fields:
+      heading:
+        type: string
+        required: false
+        example: Start Your Journey Today
+      description:
+        type: string
+        required: false
+        example: Take the next step toward your tech career.
+      bullets:
+        type: array
+        required: false
+        items:
+          icon:
+            type: string
+            required: false
+            description: Tabler icon name
+          text:
+            type: string
+            required: false
+      image_id:
+        type: string
+        required: false
+        description: Image registry ID for optional image displayed beside the content
+      image_object_fit:
+        type: string
+        required: false
+        options:
+          - cover
+          - contain
+          - fill
+          - none
+      image_object_position:
+        type: string
+        required: false
+      image_beside_bullets:
+        type: boolean
+        required: false
+        default: false
+        description: When true, the image is placed beside only the bullets. When false (default), the image is placed beside both the description and bullets.
+      cta_text:
+        type: string
+        required: false
+        example: Apply now
+      cta_url:
+        type: string
+        required: false
+        example: /apply
+      cta_variant:
+        type: string
+        required: false
+        default: primary
+        options:
+          - primary
+          - secondary
+          - outline
+      sub_text:
+        type: string
+        required: false
+        example: Weekly updates - Unsubscribe anytime - No spam, ever
+
+responsive_behavior:
+  desktop: "Two columns side by side with expanding/collapsing hover interaction"
+  mobile: "Cards stacked vertically, no hover interaction"

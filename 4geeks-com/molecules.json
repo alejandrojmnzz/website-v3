@@ -1,0 +1,383 @@
+{
+  "molecules": [
+    {
+      "id": "universal-video-youtube",
+      "component": "UniversalVideo",
+      "variant": "YouTube",
+      "description": "Embedded YouTube video with responsive aspect ratio",
+      "tags": ["video", "embed", "media"],
+      "props": {
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "ratio": "16:9"
+      }
+    },
+    {
+      "id": "universal-video-local",
+      "component": "UniversalVideo",
+      "variant": "Local",
+      "description": "Self-hosted video with custom preview image and shadow border",
+      "tags": ["video", "embed", "media"],
+      "props": {
+        "url": "/videos/sample.mp4",
+        "ratio": "16:9",
+        "muted": true,
+        "autoplay": false,
+        "loop": true
+      }
+    },
+    {
+      "id": "universal-video-autoplay",
+      "component": "UniversalVideo",
+      "variant": "Autoplay",
+      "description": "Muted autoplay video for background sections",
+      "tags": ["video", "embed", "media"],
+      "props": {
+        "url": "/videos/background.mp4",
+        "ratio": "21:9",
+        "muted": true,
+        "autoplay": true,
+        "loop": true
+      }
+    },
+    {
+      "id": "universal-image-logo",
+      "component": "UniversalImage",
+      "variant": "Logo",
+      "description": "Company logo from registry with logo preset",
+      "tags": ["image"],
+      "props": {
+        "id": "arp_logo_certification",
+        "preset": "logo",
+        "className": "w-32"
+      }
+    },
+    {
+      "id": "universal-image-avatar",
+      "component": "UniversalImage",
+      "variant": "Avatar",
+      "description": "Square avatar image for profiles",
+      "tags": ["image", "avatar"],
+      "props": {
+        "id": "badges_new",
+        "preset": "avatar",
+        "className": "w-16 h-16 rounded-full"
+      }
+    },
+    {
+      "id": "universal-image-card",
+      "component": "UniversalImage",
+      "variant": "Card",
+      "description": "Standard card thumbnail image",
+      "tags": ["image", "card", "thumbnail"],
+      "props": {
+        "id": "logo_beacon_council",
+        "preset": "card",
+        "className": "w-full rounded-lg"
+      }
+    },
+    {
+      "id": "stat-card-default",
+      "component": "StatCard",
+      "variant": "Default",
+      "description": "Statistics card with value and title, wrapped in Card component",
+      "tags": ["stats", "card", "data"],
+      "props": {
+        "value": "3.5M",
+        "title": "AI-related roles expected by 2026",
+        "use_card": true,
+        "card_color": "bg-primary/5"
+      }
+    },
+    {
+      "id": "stat-card-no-wrapper",
+      "component": "StatCard",
+      "variant": "No Card Wrapper",
+      "description": "Statistics display without Card wrapper, just styled div",
+      "tags": ["stats", "data"],
+      "props": {
+        "value": "47%",
+        "title": "Year-over-year growth in AI job postings",
+        "use_card": false,
+        "card_color": "bg-background"
+      }
+    },
+    {
+      "id": "syllabus-module-card-vertical",
+      "component": "SyllabusModuleCard",
+      "variant": "Vertical",
+      "description": "Syllabus module card with vertical layout (default)",
+      "tags": ["syllabus", "card", "module"],
+      "props": {
+        "duration": "Milestone 1",
+        "title": "Web Foundations",
+        "objectives": ["HTML, CSS, Tailwind", "Accessibility best practices", "Layout techniques"],
+        "projects": "Build the company's first webpage",
+        "isActive": true,
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": "syllabus-module-card-horizontal",
+      "component": "SyllabusModuleCard",
+      "variant": "Horizontal",
+      "description": "Syllabus module card with horizontal layout",
+      "tags": ["syllabus", "card", "module"],
+      "props": {
+        "duration": "Milestone 2",
+        "title": "Programming Foundations",
+        "objectives": ["Algorithms and data structures", "Stateflow vs controlflow", "JavaScript mastery"],
+        "projects": "Complete coding challenges",
+        "isActive": true,
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": "certificate-display-left",
+      "component": "CertificateDisplay",
+      "variant": "Certificate Left",
+      "description": "Certificate card on left, text and benefits on right",
+      "tags": ["certificate", "card", "display"],
+      "props": {
+        "programName": "AI Engineering",
+        "description": "Most graduates secure their first role within 3-6 months of completing the program.",
+        "benefits": [
+          { "text": "Job search strategy and planning" },
+          { "text": "Salary negotiation coaching" },
+          { "text": "Lifetime career support" }
+        ],
+        "certificate_position": "left",
+        "iconSetIndex": 0
+      }
+    },
+    {
+      "id": "certificate-display-right",
+      "component": "CertificateDisplay",
+      "variant": "Certificate Right",
+      "description": "Text and benefits on left, certificate card on right",
+      "tags": ["certificate", "card", "display"],
+      "props": {
+        "programName": "Full Stack Developer",
+        "description": "Our comprehensive program prepares you for real-world challenges.",
+        "benefits": [
+          { "text": "Portfolio development" },
+          { "text": "Interview preparation" },
+          { "text": "Mentor matching" }
+        ],
+        "certificate_position": "right",
+        "iconSetIndex": 1
+      }
+    },
+    {
+      "id": "tech-molecule",
+      "component": "TechMolecule",
+      "variant": "Default",
+      "description": "Decorative molecule diagram with animated tech nodes connected by glowing lines. Features central AI brain with surrounding code, database, cloud, terminal, and CPU nodes.",
+      "tags": ["decorative", "diagram", "animation", "tech"],
+      "props": {
+        "className": ""
+      }
+    },
+    {
+      "id": "button-primary",
+      "component": "Button",
+      "variant": "Primary",
+      "description": "shadcn Button — primary/default variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "variant": "default", "label": "Apply Now" }
+    },
+    {
+      "id": "button-secondary",
+      "component": "Button",
+      "variant": "Secondary",
+      "description": "shadcn Button — secondary variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "variant": "secondary", "label": "Learn More" }
+    },
+    {
+      "id": "button-outline",
+      "component": "Button",
+      "variant": "Outline",
+      "description": "shadcn Button — outline variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "variant": "outline", "label": "See Details" }
+    },
+    {
+      "id": "button-ghost",
+      "component": "Button",
+      "variant": "Ghost",
+      "description": "shadcn Button — ghost variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "variant": "ghost", "label": "Cancel" }
+    },
+    {
+      "id": "button-destructive",
+      "component": "Button",
+      "variant": "Destructive",
+      "description": "shadcn Button — destructive variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "variant": "destructive", "label": "Delete" }
+    },
+    {
+      "id": "badge-default",
+      "component": "Badge",
+      "variant": "Default",
+      "description": "shadcn Badge — default variant",
+      "tags": ["theme-preview", "atoms", "badge"],
+      "props": { "variant": "default", "label": "New" }
+    },
+    {
+      "id": "badge-secondary",
+      "component": "Badge",
+      "variant": "Secondary",
+      "description": "shadcn Badge — secondary variant",
+      "tags": ["theme-preview", "atoms", "badge"],
+      "props": { "variant": "secondary", "label": "Popular" }
+    },
+    {
+      "id": "badge-outline",
+      "component": "Badge",
+      "variant": "Outline",
+      "description": "shadcn Badge — outline variant",
+      "tags": ["theme-preview", "atoms", "badge"],
+      "props": { "variant": "outline", "label": "Beta" }
+    },
+    {
+      "id": "badge-destructive",
+      "component": "Badge",
+      "variant": "Destructive",
+      "description": "shadcn Badge — destructive variant",
+      "tags": ["theme-preview", "atoms", "badge"],
+      "props": { "variant": "destructive", "label": "Deprecated" }
+    },
+    {
+      "id": "card-basic",
+      "component": "Card",
+      "variant": "Basic Card",
+      "description": "shadcn Card with title and body text",
+      "tags": ["theme-preview", "atoms", "card"],
+      "props": { "title": "Card Title", "body": "A basic card with a title and body text that responds to theme color changes." }
+    },
+    {
+      "id": "input-text",
+      "component": "Input",
+      "variant": "Text Input",
+      "description": "shadcn Input with label",
+      "tags": ["theme-preview", "atoms", "form"],
+      "props": { "placeholder": "Enter your email...", "label": "Email address" }
+    },
+    {
+      "id": "switch-toggle",
+      "component": "Switch",
+      "variant": "Toggle",
+      "description": "shadcn Switch toggle",
+      "tags": ["theme-preview", "atoms", "form"],
+      "props": { "label": "Enable notifications", "defaultChecked": true }
+    },
+    {
+      "id": "checkbox-item",
+      "component": "Checkbox",
+      "variant": "Checkbox",
+      "description": "shadcn Checkbox with label",
+      "tags": ["theme-preview", "atoms", "form"],
+      "props": { "label": "Accept terms and conditions", "defaultChecked": false }
+    },
+    {
+      "id": "avatar-fallback",
+      "component": "Avatar",
+      "variant": "Fallback",
+      "description": "shadcn Avatar with initials fallback",
+      "tags": ["theme-preview", "atoms"],
+      "props": { "fallback": "JD", "label": "John Doe" }
+    },
+    {
+      "id": "cta-button-primary",
+      "component": "CtaButton",
+      "variant": "Primary Link",
+      "description": "Project custom button-as-anchor — primary variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "text": "Apply Now", "url": "#", "variant": "primary" }
+    },
+    {
+      "id": "cta-button-secondary",
+      "component": "CtaButton",
+      "variant": "Secondary Link",
+      "description": "Project custom button-as-anchor — secondary variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "text": "Learn More", "url": "#", "variant": "secondary" }
+    },
+    {
+      "id": "cta-button-outline",
+      "component": "CtaButton",
+      "variant": "Outline Link",
+      "description": "Project custom button-as-anchor — outline variant",
+      "tags": ["theme-preview", "atoms", "button"],
+      "props": { "text": "See Details", "url": "#", "variant": "outline" }
+    },
+    {
+      "id": "simple-link",
+      "component": "SimpleLink",
+      "variant": "Nav Link",
+      "description": "Hover-elevate styled anchor used in main navigation",
+      "tags": ["theme-preview", "atoms"],
+      "props": { "label": "Programs", "href": "#" }
+    },
+    {
+      "id": "solid-card-basic",
+      "component": "SolidCard",
+      "variant": "Basic",
+      "description": "Brand-specific card with bold offset shadow border",
+      "tags": ["theme-preview", "atoms", "card"],
+      "props": { "children": "A SolidCard with bold border and offset shadow — this is a custom card style used in marketing sections." }
+    },
+    {
+      "id": "dots-indicator-3",
+      "component": "DotsIndicator",
+      "variant": "3 Dots",
+      "description": "Carousel dot indicator with 3 items, second active",
+      "tags": ["theme-preview", "atoms"],
+      "props": { "count": 3, "activeIndex": 1 }
+    },
+    {
+      "id": "stats-card-up",
+      "component": "StatsCard",
+      "variant": "Trend Up",
+      "description": "Data card with icon, large value, and positive trend",
+      "tags": ["theme-preview", "atoms", "stats"],
+      "props": { "title": "Students Enrolled", "value": "12,400", "icon": "people-group", "trend": "+8% this month", "trendUp": true }
+    },
+    {
+      "id": "stats-card-down",
+      "component": "StatsCard",
+      "variant": "Trend Down",
+      "description": "Data card with icon, large value, and negative trend",
+      "tags": ["theme-preview", "atoms", "stats"],
+      "props": { "title": "Dropout Rate", "value": "4.2%", "icon": "chart-bar", "trend": "-0.5% this quarter", "trendUp": false }
+    },
+    {
+      "id": "banner-gradient",
+      "component": "Banner",
+      "variant": "Gradient",
+      "description": "Info strip with gradient background, title, description, and CTA",
+      "tags": ["theme-preview", "atoms", "banner"],
+      "props": {
+        "title": "Meet Rigobot, your AI mentor",
+        "description": "Get personalized guidance on every step of your learning journey.",
+        "background": "gradient",
+        "cta": { "text": "Try now", "url": "#", "variant": "secondary" }
+      }
+    },
+    {
+      "id": "banner-muted",
+      "component": "Banner",
+      "variant": "Muted",
+      "description": "Info strip with muted background",
+      "tags": ["theme-preview", "atoms", "banner"],
+      "props": {
+        "title": "Join 12,000+ students",
+        "description": "Learn from industry experts and land your first tech job.",
+        "background": "muted",
+        "cta": { "text": "Explore programs", "url": "#", "variant": "primary" }
+      }
+    }
+  ]
+}

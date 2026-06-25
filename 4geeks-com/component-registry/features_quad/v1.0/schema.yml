@@ -1,0 +1,82 @@
+name: Features Quad
+version: "1.0"
+component: FeaturesQuad
+file: client/src/components/FeaturesQuad.tsx
+description: >-
+  A 4-card feature grid with optional images or laptop mockup. Supports default (images on right) 
+  and laptopEdge (laptop image with content) variants. Use compact mode for icon+title only.
+
+when_to_use: >
+  Use this component when you need to display exactly 4 feature cards in a visually appealing grid layout.
+  The default variant shows feature cards with optional header images.
+  The laptopEdge variant displays a laptop mockup with the feature cards.
+image_sizes:
+  laptopEdge.laptop_image.image_id: "100vw"
+variants:
+  default:
+    description: Standard 4-card grid with optional header images on the right
+    when_to_use: Showcasing 4 key features or benefits with visual support
+    best_for: Feature sections, benefit highlights
+  laptopEdge:
+    description: Feature cards displayed alongside a laptop mockup
+    when_to_use: When showing features in a tech/digital context
+    best_for: Product features, platform capabilities
+
+props:
+  heading:
+    type: string
+    required: true
+    description: Section heading
+  description:
+    type: string
+    required: true
+    description: Section description text
+  cards:
+    type: array
+    required: true
+    description: Array of exactly 4 feature cards with icon, title, and description
+  images:
+    type: array
+    required: false
+    description: Array of images (up to 4) displayed in the header area
+  compact:
+    type: boolean
+    required: false
+    description: If true, cards show only icon + title (no description)
+  background:
+    type: string
+    required: false
+    description: Background CSS class (e.g., "bg-muted/30")
+  video:
+    type: string
+    required: false
+    description: Video URL (YouTube, Vimeo, or local). When provided, replaces images with video.
+    example: "https://www.youtube.com/watch?v=MBXqEnhodx0"
+  video_preview_image:
+    type: string
+    required: false
+    description: Custom preview/thumbnail image URL for the video
+    example: "https://storage.googleapis.com/4geeks-academy-website/media/video-preview.jpg"
+  video_ratio:
+    type: string
+    required: false
+    default: "16:9"
+    description: Aspect ratio for the video (e.g., "16:9", "2.39:1", "4:3")
+    example: "16:9"
+  description_with_background:
+    type: boolean
+    required: false
+    description: Whether to display the description with a background color
+    example: false
+  laptop_image:
+    type: object
+    required: false
+    description: Optional laptop image override for the laptopEdge variant. If not set, uses the default laptop image.
+    properties:
+      image_id:
+        type: string
+        description: Image ID from the image registry
+      alt:
+        type: string
+        required: false
+        description: Alt text for the laptop image

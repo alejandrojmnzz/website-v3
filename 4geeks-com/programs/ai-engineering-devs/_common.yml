@@ -1,0 +1,12 @@
+slug: ai-engineering-devs
+title: AI Engineering for Developers
+job_role: AI Engineer
+bc_slug: ai-engineering-devs
+valid_lead_form_option: false
+schema:
+  include:
+    - organization
+    - website
+settings:
+  loading:
+    eager_count: 3

@@ -1,0 +1,15 @@
+slug: ai-engineering-spain
+title: Programa de Ingeniería de IA (España)
+locale: es
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+  page_title: Bootcamp de Ingeniería de IA en España | 4Geeks
+  description: Aprende a desarrollar, integrar y desplegar soluciones de IA que las empresas ya están contratando — en solo 24 semanas.
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locations:
+  - madrid-spain

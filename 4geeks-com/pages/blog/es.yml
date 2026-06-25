@@ -1,0 +1,47 @@
+slug: blog
+template: default
+title: Blog
+meta:
+  page_title: Blog - Recursos y Artículos | 4Geeks
+  description: Lee las últimas noticias, tutoriales y artículos sobre programación, tecnología y educación en 4Geeks Academy.
+  robots: index, follow
+  priority: 0.9
+  change_frequency: daily
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: list_cards
+    section_id: list_cards-vj452p
+    title: Blog
+    sub_heading: Artículos, tutoriales y noticias sobre programación y tecnología
+    layout:
+      columns: 3
+    search:
+      enabled: true
+      placeholder: Buscar artículos...
+    pagination:
+      page_size: 12
+      page_label: Página
+      of_label: de
+      items_label: artículos
+      empty_text: No se encontraron artículos.
+    dynamic_entries:
+      content_type: blog
+      sort: "-published_at"
+      user_filters:
+        - item_property_slug: badge
+          component_renderer: tags
+          all_label: Todos
+      item_template:
+        image: {{ single.image }}
+        title: {{ single.title }}
+        description: {{ single.description }}
+        badge: {{ single.category }}
+        url: {{ single._resolved_url }}
+        meta_left: {{ single.author }}
+        meta_right: {{ single.published_at | }}
+        cta_text: Leer más
+    maxWidth:
+      desktop: xl

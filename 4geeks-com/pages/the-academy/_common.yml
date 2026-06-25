@@ -1,0 +1,6 @@
+# Common properties shared across all language variants
+slug: "the-academy"
+title: "The Academy"
+
+meta:
+  change_frequency: "weekly"

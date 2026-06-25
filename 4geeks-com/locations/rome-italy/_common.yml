@@ -1,0 +1,40 @@
+slug: rome-italy
+name: Rome
+city: Rome
+country: Italy
+country_code: IT
+latitude: 41.9028
+longitude: 12.4964
+region: europe
+default_language: en
+timezone: Europe/Rome
+phone: +39 06 555 0100
+address: Via del Corso 123, 00186 Roma
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For this campus visitors and those interested in tech opportunities.
+  target_audience: Local professionals and residents seeking a coding bootcamp with job-focused training.
+  goals:
+    - Highlight job outcomes and connections to local employers
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Via del Corso 123
+        addressLocality: Roma
+        postalCode: "00186"
+        addressCountry: IT

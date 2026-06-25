@@ -1,0 +1,19 @@
+sections:
+  - id: faq-kpnock
+    type: faq
+    version: v1.0
+    title: Frequently Asked Questions
+    items:
+      - question: What is an online coding bootcamp?
+        answer: An online coding bootcamp is an intensive training program that teaches you the skills needed to become a software developer or data scientist. These programs are delivered online, offering flexibility and convenience for students around the world.
+      - question: What programs does 4Geeks Academy offer online?
+        answer: 4Geeks Academy offers online bootcamps in Full-Stack Development (18 weeks), Data Science & Machine Learning (16 weeks), and AI Engineering (24 weeks). Our programs are designed to equip you with the skills employers are looking for.
+      - question: What makes 4Geeks Academy's online bootcamp different?
+        answer: 4Geeks Academy stands out with GeekPAL (unlimited mentoring from senior developers), GeekFORCE (lifetime career support), and an active community. We also offer live classes with experienced instructors and a high placement rate.
+      - question: How much does an online coding bootcamp cost?
+        answer: The cost of an online coding bootcamp varies, but 4Geeks Academy offers flexible payment options and financing to make education accessible. Contact us to learn more about tuition and available discounts.
+      - question: Will I get a job after completing the online bootcamp?
+        answer: 4Geeks Academy has a strong focus on career support, with a dedicated career services team and a network of over 200 companies. Our graduates have a high placement rate within 180 days of graduation.
+    section_id: faq-o27257
+    paddingY:
+      desktop: sm

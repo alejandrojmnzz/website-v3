@@ -1,0 +1,536 @@
+slug: limpieza-componentes-final
+sections:
+  - type: ai_learning
+    version: v1.0
+    variant: feature-tabs
+    badge: Why 4Geeks?
+    title: The Most Personalized Path to an AI Career
+    description: From AI-powered feedback to unlimited 1:1 mentorship and lifelong career support, every part of the experience is built around you.
+    features:
+      - icon: bot
+        title: AI-powered feedback, available 24/7
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Instant feedback from Rigobot, our custom AI tutor
+          - text: Advice adjusted to your skill level and progress
+          - text: Instant help at any hour, day or night
+          - text: Hundreds of interactive coding exercises and tests
+        video_url: https://www.youtube.com/watch?v=NRuShbSLtg0
+      - icon: Headset
+        title: Unlimited 1:1 mentorship, for life
+        description: ""
+        bullets:
+          - text: Lifelong access to 1:1 technical mentorship
+          - text: "7:1 student-to-mentor ratio: so your mentor knows your name"
+          - text: Weekly check-ins and peer collaboration via Slack
+          - text: Dedicated channels for coding support, job boards, and career advice
+        video_url: https://www.youtube.com/watch?v=1BmVA2a4h6o
+      - icon: TrendingUp
+        title: Career support built for the AI job market
+        description: ""
+        bullets:
+          - text: Lifelong 1:1 career coaching
+          - text: Resume and portfolio built to pass AI-based screening
+          - text: Interview prep and salary negotiation
+          - text: Direct referrals to our 400+ employer network
+        video_url: https://youtu.be/-2ZvlgDnltc
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md sm
+    section_id: ai_learning-hbfpho
+  - type: apply_form
+    version: "1.0"
+    hero:
+      title: Your Future in Tech Starts Here
+      subtitle: You're one step closer to your new career in tech — congratulations! Fill out the form below, and our admissions team will walk you through the next steps.
+      note: (And don't worry — you won't be committing to anything yet, just starting the conversation.)
+    form:
+      program_label: Please select one program
+      program_placeholder: Select a program
+      location_label: Select your preferred location
+      location_placeholder: Select a location
+      first_name_label: First Name
+      first_name_placeholder: Enter your first name
+      last_name_label: Last Name
+      last_name_placeholder: Enter your last name
+      email_label: Email
+      email_placeholder: Enter your email address
+      phone_label: Phone Number
+      phone_placeholder: Enter your phone number
+      consent_marketing: I agree to receive information through email, WhatsApp and/or other channels about workshops, events, courses, and other marketing materials. We will never share your contact information, and you can easily opt out at any moment.
+      consent_sms: I agree to receive SMS/text messages about workshops, events, courses, and other marketing materials. Message and data rates may apply. Reply STOP to unsubscribe, HELP for help. You may receive up to 4–6 text messages per month.
+      submit_text: APPLY
+      terms_text: By signing up, you agree to the
+      terms_link_text: Terms and Conditions
+      terms_link_url: /terms-conditions
+      privacy_text: and
+      privacy_link_text: Privacy Policy
+      privacy_link_url: /privacy-policy
+    next_steps:
+      title: What Happens Next?
+      items:
+        - title: Instant confirmation
+          description: We'll send you the syllabus by email right away.
+        - title: Personal follow-up
+          description: Our admissions team will reach out by text and phone to set up a quick call.
+        - title: Ask us anything
+          description: Programs, schedules, financing, career support — we'll walk you through your options and share all the details.
+        - title: Decide with confidence
+          description: You'll have all the info you need to choose the path that's right for you. And we are here to help.
+      closing: Now you're ready to make the best decision for your career!
+    section_id: apply_form-f81aap
+    paddingY:
+      desktop: sm
+  - type: award_badges
+    version: v1.0
+    variant: detailed
+    showBorder: false
+    items:
+      - id: course-report-badge
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/Course-Report-Badge-2025_1764709632231.webp
+        alt: Course Report Badge 2025
+        logoHeight: 64px
+        description: Recognized as one of the best coding bootcamps worldwide
+        link: https://www.coursereport.com/schools/4geeks-academy
+        linkText: Read reviewsn
+      - id: logo-switchup-best-bootcamps-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup-best-bootcamps-2025_1770392145139.png
+        alt: SwitchUp Best Bootcamps 2025
+        logoHeight: 64px
+        description: Top-rated bootcamp based on verified student reviews
+        link: https://www.switchup.org/bootcamps/4geeks-academy
+        linkText: See rankings
+      - id: 4geeks-academy-reviews-cost-courses-and-outcomes-05-26-2026-10-59-am
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/4Geeks-Academy-Reviews-Cost-Courses-and-Outcomes-05-26-2026_10_59_AM.png
+        alt: "Image: 4Geeks-Academy-Reviews-Cost-Courses-and-Outcomes-05-26-2026_10_59_AM"
+        logoHeight: 64px
+        description: Best coding bootcamp for career changers and beginners
+        link: https://careerkarma.com/schools/4geeks-academy/
+        linkText: Learn more
+    section_id: award_badges-j7julo
+    paddingY:
+      desktop: sm
+  - type: awards_marquee
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: switchup-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logoHeight: 56px
+      - id: course-report-2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        alt: Course Report - Best Coding Bootcamp 2024
+        logoHeight: 56px
+      - id: tech-hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south-florida-tech-hub_1765548979070.jpeg
+        alt: South Florida Tech Hub
+        logoHeight: 56px
+      - id: ebootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp-top_1765549056325.png
+        alt: eBootcamp Top
+        logoHeight: 56px
+      - id: premios-tecnologia
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        alt: Premios Tecnologia Siglo XXI
+        logoHeight: 56px
+      - id: newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_1764709608255.webp
+        alt: Newsweek
+        logoHeight: 56px
+      - id: reviews-coursereport
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        alt: 4.9 on Course Report Reviews
+        logoHeight: 56px
+      - id: excelencia-educativa
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia-educativa-es_1765549347699.png
+        alt: Excelencia Educativa - Institutional Quality
+        logoHeight: 56px
+    section_id: awards_marquee-su3zqj
+    paddingY:
+      desktop: sm
+  - type: banner
+    version: "1.0"
+    logo: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    avatars:
+      - https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+      - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+      - https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+      - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+    title: Advance Faster, Never Lose Momentum
+    description: "The #1 reason people quit when learning to code? Getting stuck. GeekPal keeps you moving with support that shows up exactly when you need it."
+    background: gradient
+    section_id: banner-ow8skv
+    paddingY:
+      desktop: sm
+  - type: bento_cards
+    version: "1.0"
+    title: 7 Ways Rigobot Keeps You Moving
+    subtitle: Never get stuck again
+    description: Rigobot is your AI-powered coding companion that ensures you never lose momentum. Whether you're debugging at 2am or preparing for an exam, Rigobot is there to help you push through challenges and keep learning.
+    items:
+      - icon: CodeReview
+        title: Code Review
+        description: Get instant feedback on your code quality, best practices, and potential improvements.
+      - icon: Brain
+        title: AI Mentoring
+        description: Personalized guidance that adapts to your learning style and pace.
+      - icon: School
+        title: Homework & Exam Prep
+        description: Practice problems and explanations to help you ace your assessments.
+      - icon: TrendingUp
+        title: Skill Building
+        description: Targeted exercises to strengthen weak areas and build new competencies.
+      - icon: Bug
+        title: Debugging Assistant
+        description: Step-by-step help to understand and fix errors in your code.
+      - icon: Lightbulb
+        title: Concept Explanations
+        description: Clear, patient explanations of complex programming concepts.
+      - icon: Clock
+        title: 24/7 Availability
+        description: Get help whenever you need it, no waiting for office hours.
+    background: bg-background
+    section_id: bento_cards-lurxas
+    paddingY:
+      desktop: sm
+  - type: bullet_tabs_showcase
+    version: "1.0"
+    heading: ¿Este programa es para ti?
+    tabs:
+      - label: Compromiso intensivo
+        description: |-
+          Listo para un compromiso intensivo:
+          20-24 horas/semana durante 24 semanas. (Clases en vivo + ~12 h de tareas)
+        image_id: group_original
+      - label: Enfocado en carrera
+        description: |-
+          Enfocado en resultados de carrera:
+          Quieres habilidades en IA que abran roles bien pagados y demandados.
+        image_id: students_group_collaboration
+      - label: Motivado por la estructura
+        description: |-
+          Motivado por la estructura:
+          Prefieres hitos claros, instructores expertos y una cohorte que te apoye.
+        image_id: student_coding_laptop
+    image_position: right
+    marginY:
+      mobile: xl lg
+      desktop: lg
+    paddingY:
+      mobile: none
+      desktop: none
+    section_id: bullet_tabs_showcase-o5sme5
+  - type: cards_deck
+    version: "1.0"
+    heading: Real Stories of Real Career Change
+    subtitle: Thousands of graduates have used our programs to break into tech. Here are just a few of their stories, from salary increases to total career reinventions.
+    cards:
+      - video:
+          url: https://youtu.be/ln3bQsV1BaQ
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekforce-logo-new.png
+        author_name: Hernán García
+        title: "\"I got offers from companies I wasn't expecting\""
+        description: Hernán landed a job in tech within one month of starting his job search.
+        alt: Geekforce
+      - video:
+          url: https://youtu.be/MBXqEnhodx0
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Joao Henrique
+        title: "\"You'll always have support from the Academy\""
+        description: Joao shares his experience receiving coding mentorship as a student, after graduating, and in his current job.
+        alt: Geekpal
+      - video:
+          url: https://youtu.be/oeX_ocy6zv4
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Jonathan Ferragut
+        title: "\"Taking a course like this benefits us in a lot of different ways\""
+        description: Jonathan shares how the program helped him build confidence and create projects from scratch.
+        alt: Geekpal
+    section_id: cards_deck-l33j7h
+    paddingY:
+      desktop: sm
+  - type: cards_deck
+    version: "1.0"
+    heading: Historias reales de cambios de carrera
+    subtitle: Miles de graduados han utilizado nuestros programas para entrar en el mundo de la tecnología. Estas son solo algunas de sus historias, desde aumentos salariales hasta reinvenciones completas de carrera.
+    cards:
+      - video:
+          url: https://www.youtube.com/watch?v=B01-eTfgqqc
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Mattia Tozzi
+        title: "\"4Geeks ha empujado mi futuro laboral\""
+        description: Las tutorías ilimitadas de 4Geeks fueron clave para elegirlos. Con la ayuda de sus profesores y la comunidad, pudo resolver todas sus dudas rápidamente y avanzar en su aprendizaje.
+        alt: Geekpal
+      - video:
+          url: https://www.youtube.com/watch?v=XqyM_QSVcOs
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekpal-logo-new.png
+        author_name: Ana Romero
+        title: "\"He superado mi miedo a programar\""
+        description: Están ahí siempre para brindarte apoyo. Sus buenos mentores, guías de programación y las herramientas de 4Geeks son excelentes. La recomendaría un millón de veces.
+        alt: Geekpal
+      - video:
+          url: https://www.youtube.com/watch?v=rtpfwwfE0yY
+        image: ""
+        brand_image: https://storage.googleapis.com/4geeks-academy-website/media/geekforce-logo-new.png
+        author_name: Joshua Bravo
+        title: "\"De asistente de cocina a Desarrollador Full Stack\""
+        description: Joshua pasó de trabajar en cocina y contabilidad a conseguir empleo como desarrollador en Regcheq, una startup fintech en Chile, tras completar el bootcamp de 4Geeks.
+        alt: Geekforce
+    marginY:
+      desktop: none xl
+    background: hsl(var(--card))
+    section_id: cards_deck-3brw7f
+    paddingY:
+      desktop: sm
+  - type: certificate
+    version: v1.0
+    title: Your Certificate. Your Career Leverage.
+    description: "Earn an industry-recognized certificate from a Florida Department of Education accredited institution. Step into roles paying:"
+    benefits:
+      - text: "AI Engineer: $95K–$135K"
+      - text: "Forward-Deployed Engineer: $105K–$155K"
+      - text: "Full-Stack Engineer (AI-Fluent): $100K–$145K"
+      - text: "Workflow Automation Engineer: $85K–$120K"
+    card:
+      title: AI Engineer
+      subtitle: 4Geeks Academy Certificate
+      program_name: AI Engineering
+    stats:
+      - value: __TPL_0__%
+        label: Hiring rate
+        description: Graduate with the credentials, portfolio, and professional profile to get hired — not just qualified.
+        benefits:
+          - text: Certificate recognized by the Florida Department of Education
+          - text: End-to-end AI-engineered company in your portfolio
+          - text: Demonstrated experience with agents, workflows, and AI systems
+          - text: Optimized professional profile and job-search strategy
+      - value: 3-6 months
+        label: Time to get hired
+        description: Most graduates land their first role within 3–6 months. A structured 3-step career process turns your skills into offers fast.
+        benefits:
+          - text: Resume, portfolio, and profiles optimized to attract recruiters and pass AI-based screening
+          - text: Technical and behavioral interview preparation
+          - text: Personalized job-search strategy with access to relevant hiring networks
+      - value: __TPL_1__%
+        label: Average salary increase
+        description: AI skills are exactly what companies can't find enough of. Step into high-priority roles with immediate growth and long-term upside.
+        benefits:
+          - text: "AI Software Engineer: __TPL_2__"
+          - text: "Forward-Deployed Engineer: __TPL_3__"
+          - text: "Agentic Systems Engineer: __TPL_4__"
+          - text: "Workflow Automation Engineer: __TPL_5__"
+      - value: 400+
+        label: Hiring partners
+        description: 400+ companies actively hiring our graduates. Get exclusive access, priority referrals, and direct connections to the people making hiring decisions.
+        benefits:
+          - text: Exclusive job board access
+          - text: Priority referrals to partner companies
+          - text: Networking events with hiring managers
+          - text: Companies include Google, Meta, Amazon, startups
+    certificate_position: right
+    useSolidCard: true
+    marginY:
+      mobile: none
+      desktop: none sm
+    paddingY:
+      mobile: lg
+      desktop: lg
+    background: hsl(var(--muted))
+    section_id: certificate-2m89tr
+  - type: community_support
+    version: "1.0"
+    heading: A Global Developer Community Supporting Your Growth
+    description: 4Geeks is more than a bootcamp — it's a supportive network of tech pros, mentors, and fellow geeks to keep you moving forward in your career.
+    background: bg-primary/5
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group-6606.webp
+    image_alt: 4Geeks global developer community
+    bullet_groups:
+      - title: Slack Community
+        badge: 6,000+ Members
+        icon: BrandSlack
+        accent_color: primary
+        description: Get real-time help from mentors, alumni, and peers through our active, theme specific channels — from coding support, to job boards and career advice (and yes, there's coding humor too!).
+      - title: 4Geeks.com
+        icon: Rigobot
+        accent_color: primary
+        description: Keep advancing your skills with further training resources, live events, and collaborative projects. Connect with people who've been where you are — and know how to help you get where you want to go.
+        button:
+          text: Visit Now
+          url: https://4geeks.com
+          variant: primary
+    section_id: community_support-7ziawo
+    paddingY:
+      desktop: sm
+  - type: list_press_mentions
+    version: v1.0
+    variant: cards
+    title: Featured in the Press
+    columns: 3
+    dynamic_entries:
+      database: press_mentions
+      limit: 6
+      sort: priority
+    section_id: list_press_mentions-uhjqnk
+    paddingY:
+      desktop: sm
+  - type: list_single_press_mention
+    version: "1.0"
+    organization: Forbes
+    title: 5 Best Online Full-Stack Bootcamps Of 2024
+    subtitle: "Ranked #1 in the Forbes Advisor analysis"
+    excerpt: Full-stack developers create and troubleshoot both the back-end and front-end of websites and software — an indispensable skill set. 4Geeks Academy ranked among the top 5 full-stack bootcamps nationally, standing out for mentorship, career support, and real-world project curriculum.
+    link_text: Read Article
+    link_url: https://www.forbes.com/advisor/education/bootcamps/best-coding-bootcamps/
+    button_icon: IconExternalLink
+    image: https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80
+    section_id: list_single_press_mention-bvf1bl
+    paddingY:
+      desktop: sm
+  - type: numbered_steps
+    version: "1.0"
+    title: How the Refund Works
+    description: Our commitment to your success is backed by a simple, transparent refund policy. If you've put in the work and followed our proven methodology, but haven't landed a job within 180 days of graduation, you're eligible for a full tuition refund.
+    description_link:
+      text: Conditions Apply.
+      url: /terms-and-conditions
+    background: bg-muted/30
+    steps:
+      - icon: School
+        text: Complete our intensive coding bootcamp and graduate within 180 days of your program start date.
+      - icon: Briefcase
+        text: Actively apply for jobs using our career services, attend all coaching sessions, and follow our job search methodology.
+      - icon: Cash
+        text: If you haven't received a qualifying job offer within 180 days of graduation, request your full tuition refund.
+    section_id: numbered_steps-1jav2b
+    paddingY:
+      desktop: sm
+  - type: pricing_plans
+    version: v1.0
+    id: pricing-plans-section
+    title: Choose Your Plan
+    subtitle: Flexible options to match your learning goals. Cancel anytime.
+    cta_label: Get Started
+    cta_url: /en/apply
+    section_id: pricing_plans-j7xy2d
+    paddingY:
+      desktop: sm
+  - type: two_column
+    version: v1.0
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    gap: "8"
+    left:
+      video: "-2ZvlgDnltc"
+      justify: center
+    right:
+      heading: See It In Action
+      sub_heading: Watch how our platform transforms careers
+      description: Our AI-powered learning platform adapts to your pace and style, providing personalized guidance every step of the way.
+      button:
+        text: Start Free Trial
+        url: /signup
+        variant: primary
+        icon: Rocket
+    section_id: two_column-3nvfsk
+    paddingY:
+      desktop: sm
+  - type: two_column
+    version: v1.0
+    proportions:
+      - 7
+      - 5
+    alignment: center
+    gap: "12"
+    left:
+      heading: Learn By Doing
+      sub_heading: Hands-on projects from day one
+      description: Our project-based curriculum ensures you're building real applications while learning core concepts. No more boring tutorials—start creating immediately.
+      text_align: left
+    right:
+      image: https://images.unsplash.com/photo-1531482615713-2afd69097998?w=600&h=400&fit=crop
+      image_alt: Student coding on laptop
+      justify: end
+    section_id: two_column-8pumht
+    paddingY:
+      desktop: sm
+  - type: two_column_accordion_card
+    version: "1.0"
+    variant: image_background
+    title: Everything You Need to Succeed in an AI-Driven Industry
+    description: AI-ready training, expert guidance, and long-term support designed for the modern tech landscape.
+    bullets:
+      - heading: 1:1 Mentorship, Unlimited and for Life
+        text: Get personalized technical guidance whenever you need it. Work one-on-one with experienced mentors during the program and continue receiving support long after you graduate.
+      - heading: AI-Powered Learning Support
+        text: Get instant feedback from RigoBot, our built-in AI learning assistant. Practice, debug, and improve continuously with guidance tailored to your learning path.
+      - heading: Career Support, Unlimited and for Life
+        text: Receive expert, personalized career coaching focused on getting you hired. From job strategy and positioning to interviews and negotiation, support evolves with your goals and experience.
+      - heading: An Active Global Tech Community
+        text: Join a supportive Slack community of students, mentors, and alumni. Ask questions, share opportunities, and stay connected to a global network well beyond graduation.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-470x315.webp
+    image_alt: Student working on AI project
+    image_object_fit: cover
+    paddingY:
+      desktop: md none
+    section_id: two_column_accordion_card-wlnjlr
+  - type: why_learn_ai
+    version: "1.0"
+    variant: default
+    title: Why Should I Learn to Build and Code with AI?
+    subtitle: Software Development as You Know It Will Cease to Exist
+    description: Coding with AI will become a new standard, but it's a very different profession from traditional software development. The developers who embrace AI tools now will have a significant advantage in the job market.
+    cta:
+      text: Join now!
+      url: /signup
+      variant: primary
+    section_id: why_learn_ai-o8i4id
+    paddingY:
+      desktop: sm
+  - type: mentorship
+    version: v1.0
+    title: Mentorship & Support
+    subtitle: You're never alone in your learning journey
+    cards:
+      - icon: user
+        title: 1-on-1 Mentorship
+        description: Weekly sessions with experienced developers who guide you through challenges and help you grow professionally.
+      - icon: users
+        title: Career Coaching
+        description: Dedicated career coaches help you build your resume, prepare for interviews, and connect with hiring partners.
+      - icon: headset
+        title: 24/7 Community Support
+        description: Join our Slack community of students and alumni. Get help anytime from peers who understand your journey.
+    section_id: mentorship-6uxehn
+    paddingY:
+      desktop: sm
+  - type: mentorship
+    version: v1.0
+    title: Mentorship & Support
+    subtitle: You're never alone in your learning journey
+    cards:
+      - icon: user
+        title: 1-on-1 Mentorship
+        description: Weekly sessions with experienced developers who guide you through challenges and help you grow professionally.
+      - icon: users
+        title: Career Coaching
+        description: Dedicated career coaches help you build your resume, prepare for interviews, and connect with hiring partners.
+      - icon: headset
+        title: 24/7 Community Support
+        description: Join our Slack community of students and alumni. Get help anytime from peers who understand your journey.
+    section_id: mentorship-6xenja
+    paddingY:
+      desktop: sm
+meta:
+  page_title: limpieza componentes-final

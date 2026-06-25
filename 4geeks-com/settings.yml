@@ -1,0 +1,101 @@
+i18n:
+  default_locale: en
+  supported_locales:
+    - code: en
+      label: English
+    - code: es
+      label: Spanish
+optimization:
+  tagmanager:
+    sgtm_enabled: true
+    sgtm_server_url: https://metrics.4geeksacademy.com
+    sgtm_proxy_path: /sgtm/
+page_intents:
+  - id: content_seo
+    what_for: 'Educational, long-form content designed to rank on Google. Examples: guides, how-to articles, pillar pages.'
+  - id: product_service
+    what_for: 'Showcases what you sell or offer. Examples: product pages, feature pages, pricing pages.'
+  - id: lead_generation
+    what_for: 'Tries to capture email or contact info. Examples: landing pages, webinars, free downloads.'
+  - id: sales_conversion
+    what_for: 'Pushes for purchase or sign-up. Examples: checkout pages, sales pages, order forms.'
+  - id: brand_corporate
+    what_for: 'About the company and trust building. Examples: about us, homepage, press, careers.'
+  - id: outcome
+    what_for: 'Demonstrates results and impact. Examples: outcome reports, case studies, success stories.'
+  - id: research_awareness
+    what_for: 'Introduces a brand or problem to attract new cold traffic. Examples: viral content, infographics, awareness blogs.'
+feature_tags:
+  - enrollment
+  - pricing
+  - curriculum
+  - career-services
+  - campus-life
+  - admissions
+  - financial-aid
+  - student-support
+tracking:
+  conversion_events:
+    - name: student_application
+      description: Form submission
+      tags:
+        - website-lead
+      consent:
+        marketing: false
+        sms: false
+        whatsapp: false
+        sms_usa_only: false
+        show_terms: false
+    - name: request_more_info
+      description: Form submission
+      tags:
+        - request_more_info
+      consent:
+        marketing: false
+        sms: true
+        whatsapp: true
+        sms_usa_only: true
+        show_terms: false
+    - name: financing_guide_download
+      description: Form submission
+      tags:
+        - financing_guide_download
+      consent:
+        marketing: true
+        sms: false
+        whatsapp: false
+        sms_usa_only: false
+        show_terms: false
+    - name: partner_application
+      description: Form submission
+      consent:
+        marketing: true
+        sms: false
+        whatsapp: false
+        sms_usa_only: false
+        show_terms: false
+    - name: job_application
+      description: Form submission
+    - name: newsletter_signup
+      description: Form submission
+    - name: contact_us
+      description: Form submission
+      tags:
+        - contact-us
+      consent:
+        marketing: true
+        sms: false
+        whatsapp: false
+        sms_usa_only: false
+        show_terms: false
+    - name: outcomes_report
+      description: Form submission
+      consent:
+        marketing: true
+        sms: false
+        whatsapp: false
+        sms_usa_only: false
+        show_terms: false
+  webhook:
+    url: https://breathecode.herokuapp.com/v2/marketing/lead
+    method: POST

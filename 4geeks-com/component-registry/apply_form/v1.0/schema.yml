@@ -1,0 +1,188 @@
+name: Apply Form Section
+version: "1.0"
+component: ApplyFormSection
+file: client/src/components/ApplyFormSection.tsx
+description: Application form with hero section, multi-field form, and next steps explanation. Designed for program applications with country-based phone input and geo-located defaults.
+when_to_use: |
+  Use this component for program application pages. It includes:
+  - Hero section with title, subtitle, and optional note
+  - Program and location selection dropdowns (populated from _common.yml)
+  - Contact information fields with phone input featuring country flags
+  - Marketing and SMS consent checkboxes (SMS only shown for US users)
+  - Next steps section explaining what happens after submission
+
+props:
+  hero:
+    type: object
+    required: true
+    description: Hero section displayed above the form
+    properties:
+      title:
+        type: string
+        required: true
+        description: Main headline for the apply page
+        example: "Your Future in Tech Starts Here"
+      subtitle:
+        type: string
+        required: true
+        description: Supporting text explaining the application process
+        example: "You're one step closer to your new career in tech"
+      note:
+        type: string
+        required: false
+        description: Additional note displayed below subtitle (often reassuring text)
+        example: "(And don't worry — you won't be committing to anything yet)"
+
+  webhook:
+    type: object
+    required: false
+    description: >-
+      Form-level webhook — highest priority in the three-level chain (form > per-event > global).
+      When set, this webhook is always used for this apply form regardless of tracking settings.
+    properties:
+      url:
+        type: string
+        required: true
+        description: Destination URL to POST/GET the conversion payload
+        example: https://hooks.zapier.com/hooks/catch/xxxxx/yyyyy/
+      method:
+        type: string
+        required: false
+        options:
+          - POST
+          - GET
+        description: HTTP method (default POST)
+        example: POST
+
+  form:
+    type: object
+    required: true
+    description: Form field labels and placeholders
+    properties:
+      program_label:
+        type: string
+        required: true
+        example: "Please select one program"
+      program_placeholder:
+        type: string
+        required: true
+        example: "Select a program"
+      location_label:
+        type: string
+        required: true
+        example: "Select your preferred location"
+      location_placeholder:
+        type: string
+        required: true
+        example: "Select a location"
+      first_name_label:
+        type: string
+        required: true
+        example: "First Name"
+      first_name_placeholder:
+        type: string
+        required: true
+        example: "Enter your first name"
+      last_name_label:
+        type: string
+        required: true
+        example: "Last Name"
+      last_name_placeholder:
+        type: string
+        required: true
+        example: "Enter your last name"
+      email_label:
+        type: string
+        required: true
+        example: "Email"
+      email_placeholder:
+        type: string
+        required: true
+        example: "Enter your email address"
+      phone_label:
+        type: string
+        required: true
+        example: "Phone Number"
+      phone_placeholder:
+        type: string
+        required: true
+        example: "Enter your phone number"
+      consent_marketing:
+        type: string
+        required: true
+        description: Marketing consent checkbox text
+        example: "I agree to receive information through email, WhatsApp..."
+      consent_sms:
+        type: string
+        required: true
+        description: SMS consent checkbox text (only shown for US users)
+        example: "I agree to receive SMS/text messages..."
+      submit_text:
+        type: string
+        required: true
+        example: "APPLY"
+      terms_text:
+        type: string
+        required: true
+        example: "By signing up, you agree to the"
+      terms_link_text:
+        type: string
+        required: true
+        example: "Terms and Conditions"
+      terms_link_url:
+        type: string
+        required: true
+        example: "/terms-conditions"
+      privacy_text:
+        type: string
+        required: true
+        example: "and"
+      privacy_link_text:
+        type: string
+        required: true
+        example: "Privacy Policy"
+      privacy_link_url:
+        type: string
+        required: true
+        example: "/privacy-policy"
+
+  next_steps:
+    type: object
+    required: true
+    description: Section explaining what happens after form submission
+    properties:
+      title:
+        type: string
+        required: true
+        example: "What Happens Next?"
+      items:
+        type: array
+        required: true
+        description: List of next step items
+        items:
+          title:
+            type: string
+            required: true
+            example: "Instant confirmation"
+          description:
+            type: string
+            required: true
+            example: "We'll send you the syllabus by email right away."
+      closing:
+        type: string
+        required: true
+        description: Final encouraging message
+        example: "Now you're ready to make the best decision for your career!"
+
+features:
+  - Country-based phone input with flags and dial codes
+  - Auto-selects country based on user's geolocation (session data)
+  - SMS consent checkbox only visible for US users
+  - Turnstile CAPTCHA integration for spam protection
+  - Form validation with clear error messages
+  - Success state with confetti animation
+  - Responsive two-column layout on larger screens
+
+data_sources:
+  programs: Loaded from marketing-content/pages/apply/_common.yml
+  locations: Loaded from marketing-content/pages/apply/_common.yml

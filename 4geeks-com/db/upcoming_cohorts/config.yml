@@ -1,0 +1,39 @@
+name: Upcoming Cohorts
+description: Upcoming coding bootcamp cohorts with start dates and schedules
+
+source:
+  type: api
+  api:
+    endpoint: https://breathecode.herokuapp.com/v1/admissions/cohort/all
+    params:
+      upcoming: true
+      never_ends: false
+      sort: kickoff_date
+      limit: 50
+    results_path: results
+    auth:
+      token_env_var: BREATHECODE_ACADEMY_TOKEN
+      prefix: Token
+    headers: {}
+
+cache:
+  ttl_hours: 1
+
+field_mapping:
+  id: id
+  slug: slug
+  name: name
+  language: language
+  kickoff_date: kickoff_date
+  ending_date: ending_date
+  remote_available: remote_available
+  program_name: syllabus_version.name
+  program_slug: syllabus_version.slug
+  program_logo: syllabus_version.logo
+  academy_name: academy.name
+  academy_slug: academy.slug
+  location_country: academy.country.name
+  location_city: academy.city.name
+  schedule_name: schedule.name
+  schedule_type: schedule.schedule_type
+  timezone: timezone

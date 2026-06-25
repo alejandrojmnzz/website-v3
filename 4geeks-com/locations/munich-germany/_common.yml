@@ -1,0 +1,40 @@
+slug: munich-germany
+name: Munich
+city: Munich
+country: Germany
+country_code: DE
+latitude: 48.1351
+longitude: 11.582
+region: europe
+default_language: en
+timezone: Europe/Berlin
+phone: +49 89 555 0100
+address: Marienplatz 1, 80331 München
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For this campus visitors and those interested in tech opportunities.
+  target_audience: Local professionals and residents seeking a coding bootcamp with job-focused training.
+  goals:
+    - Highlight job outcomes and connections to local employers
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Marienplatz 1
+        addressLocality: München
+        postalCode: "80331"
+        addressCountry: DE

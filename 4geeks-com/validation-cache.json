@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "lastFullRunAt": null,
+    "version": 2
+  },
+  "pages": {
+    "/en/career-programs/ai-engineering-devs": {
+      "lastRunAt": "2026-06-19T15:28:08.248Z",
+      "errors": [
+        {
+          "type": "error",
+          "code": "INVALID_BACKGROUND",
+          "message": "Invalid background value: \"bg-slate-950\" at sections[4].background",
+          "file": "/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml",
+          "suggestion": "Use a theme-defined value. Examples: background, hsl(var(--background)), muted, hsl(var(--muted)), card",
+          "category": "content"
+        }
+      ],
+      "warnings": [
+        {
+          "type": "warning",
+          "code": "MISSING_OG_IMAGE",
+          "message": "Missing og_image in meta",
+          "file": "/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml",
+          "suggestion": "Add an og_image for better social media sharing appearance",
+          "category": "seo"
+        },
+        {
+          "type": "warning",
+          "code": "FAQ_SECTION_NO_SCHEMA",
+          "message": "Page has FAQ section but no FAQPage schema rendered for /en/career-programs/ai-engineering-devs",
+          "file": "/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml",
+          "suggestion": "Ensure FAQ sections generate FAQPage structured data",
+          "category": "seo"
+        },
+        {
+          "type": "warning",
+          "code": "EMPTY_FIELD_VALUE",
+          "message": "Critical field \"sections[7].features[0].description\" has an empty value",
+          "file": "/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml",
+          "suggestion": "Fill in the empty field or remove it if not needed",
+          "category": "content"
+        },
+        {
+          "type": "warning",
+          "code": "EMPTY_FIELD_VALUE",
+          "message": "Critical field \"sections[7].features[1].description\" has an empty value",
+          "file": "/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml",
+          "suggestion": "Fill in the empty field or remove it if not needed",
+          "category": "content"
+        },
+        {
+          "type": "warning",
+          "code": "EMPTY_FIELD_VALUE",
+          "message": "Critical field \"sections[7].features[2].description\" has an empty value",
+          "file": "/home/runner/workspace/marketing-content/programs/ai-engineering-devs/en.yml",
+          "suggestion": "Fill in the empty field or remove it if not needed",
+          "category": "content"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+slug: ai-bootcamp-with-job-placement
+title: ai-bootcamp-with-job-placement
+locale: en
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering

@@ -1,0 +1,92 @@
+name: Testimonials Grid
+version: "1.0"
+component: TestimonialsGrid
+file: client/src/components/TestimonialsGrid.tsx
+description: Masonry-style testimonial grid with customizable box colors and image/video support per testimonial
+when_to_use: |
+  Use when you need a dense, Pinterest/masonry-style testimonial layout.
+  Each testimonial card can have its own background color and optional media (image or video).
+  Great for showing many testimonials at once with visual variety.
+props:
+  title:
+    type: string
+    required: false
+    description: Section heading
+    example: What Our Students Say
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below the title
+  default_box_color:
+    type: string
+    required: false
+    description: Default background color for testimonial boxes (CSS value). Individual items can override this.
+    example: "hsl(var(--muted))"
+  columns:
+    type: number
+    required: false
+    description: Number of columns in the grid (2-4). Defaults to 3.
+    example: 3
+  background:
+    type: string
+    required: false
+    description: Section background color
+  items:
+    type: array
+    required: false
+    items:
+      name:
+        type: string
+        required: true
+        description: Person's full name
+        example: James Dugard
+      role:
+        type: string
+        required: true
+        description: Current job title
+        example: Full Stack Developer
+      company:
+        type: string
+        required: false
+        description: Current employer
+        example: Regcheq
+      comment:
+        type: string
+        required: true
+        description: The testimonial text
+      rating:
+        type: number
+        required: false
+        description: Star rating from 1-5
+        example: 5
+      avatar:
+        type: string
+        required: false
+        description: URL to profile photo
+      linkedin_url:
+        type: string
+        required: false
+        description: LinkedIn profile URL
+      box_color:
+        type: string
+        required: false
+        description: Background color for this specific card (CSS value, overrides default_box_color)
+        example: "hsl(200 80% 92%)"
+      media:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: true
+            description: URL of the image or video
+          type:
+            type: string
+            required: false
+            description: "Media type: 'image' or 'video'. Auto-detected if not set."
+          ratio:
+            type: string
+            required: false
+            description: Aspect ratio for the media
+            example: "16:9"
+    description: "List of testimonials for the grid"

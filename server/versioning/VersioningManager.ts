@@ -12,7 +12,7 @@ const log = child({ module: "versioning/VersioningManager" });
 
 
 
-const DEFAULT_CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "4geeks-com";
+const DEFAULT_CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "content";
 const CONTENT_DIR = path.join(process.cwd(), DEFAULT_CONTENT_FOLDER_NAME);
 const STATE_FILE = path.join(CONTENT_DIR, ".versioning-state.json");
 const GCS_STATE_KEY = "sync/versioning-state.json";

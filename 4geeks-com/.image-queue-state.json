@@ -1,0 +1,56 @@
+{
+  "00fav-img-8339": {
+    "failed_at": "2026-04-29T15:13:39.462Z"
+  },
+  "00fav-img-8394": {
+    "failed_at": "2026-04-29T15:13:39.422Z"
+  },
+  "blog_posts-programmer-at-night-2-jpg-35b58415": {
+    "failed_at": "2026-06-24T18:55:12.719Z",
+    "error": "Failed to fetch https://breathecode.herokuapp.com/v1/media/file/programmer-at-night-2-jpg"
+  },
+  "blog_posts-madrid-3-cc244880": {
+    "failed_at": "2026-06-24T18:55:13.231Z",
+    "error": "Failed to fetch https://4geeksacademy.com/static/e87935aadbb3844e3734315214b5f032/9298b/madrid-3.webp"
+  },
+  "blog_posts-4geeks-main-a636e72f": {
+    "failed_at": "2026-06-24T18:55:13.233Z",
+    "error": "Failed to fetch https://4GeeksAcademy.com/images/4geeks-main.jpg"
+  },
+  "blog_posts-miami-dade-50bd6ebf": {
+    "failed_at": "2026-06-24T18:55:12.897Z",
+    "error": "Failed to fetch https://4GeeksAcademy.com/wp-content/uploads/2017/08/Miami-Dade.jpg"
+  },
+  "blog_posts-why2-ba4909d2": {
+    "failed_at": "2026-06-24T18:55:13.229Z",
+    "error": "Failed to fetch https://4geeksacademy.com/images/why2.jpg"
+  },
+  "testimonials_en-joao-b9b1bfe7": {
+    "failed_at": "2026-05-05T04:03:11.514Z",
+    "error": "Failed to fetch https://storage.googleapis.com/4geeks-academy-website/media/joao.png"
+  },
+  "interactive-exercises-preview-20af6f86": {
+    "failed_at": "2026-06-24T21:38:51.279Z",
+    "error": "Failed to fetch https://github.com/breatheco-de/typescript-fundamentals-for-javascript-developers/blob/main/preview.png"
+  },
+  "interactive-exercises-preview-7983da9e": {
+    "failed_at": "2026-06-24T21:38:51.362Z",
+    "error": "Failed to fetch https://github.com/4GeeksAcademy/linear-algebra-in-python-and-numpy/blob/main/.learn/assets/preview.png"
+  },
+  "interactive-exercises-preview-b2d56098": {
+    "failed_at": "2026-06-24T21:38:50.915Z",
+    "error": "Failed to fetch https://github.com/breatheco-de/ai-in-the-workplace-quiz/blob/master/preview.png"
+  },
+  "interactive-exercises-preview-c378211d": {
+    "failed_at": "2026-06-24T21:38:50.958Z",
+    "error": "Failed to fetch https://github.com/breatheco-de/python-oop-tutorial/blob/main/.learn/assets/preview.jpg?raw=true"
+  },
+  "interactive-exercises-preview-2f8bd3df": {
+    "failed_at": "2026-06-24T21:38:51.287Z",
+    "error": "Failed to fetch https://github.com/breatheco-de/prompt-engineering-exercise-course/blob/e1b79cb6e1f4a1371fb041483a0ba417efd0b44d/preview.png"
+  },
+  "interactive-exercises-preview-7d8fe9ce": {
+    "failed_at": "2026-06-24T21:38:51.544Z",
+    "error": "Failed to fetch https://github.com/4GeeksAcademy/node-api-tutorial/blob/master/.learn/assets/preview.png"
+  }
+}

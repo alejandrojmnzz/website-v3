@@ -1,0 +1,1481 @@
+slug: ai-flex
+title: AI Flex
+settings:
+  loading:
+    eager_count: 3
+meta:
+  page_title: AI Flex
+  description: 8 AI courses, at your pace. Ready-made learning paths available. Stackable certificates, AI tutor, and mentorship. $65/month. Cancel anytime. 4Geeks, 4.9-rated.
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+sections:
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: AI Flex. Real AI Skills. At Your Own Pace.
+    title_highlight: Real AI Skills. At Your Own Pace.
+    subtitle: The people building AI skills right now are pulling ahead fast. AI Flex gives you access to 8 courses covering automation, AI workflows, vibe coding, and data skills. Follow a curated learning path or build your own. Fully self-paced.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra-1764725341501-512x512-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/jeanstcloud-1764725356935-800x800-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +6000 graduates
+    bullet_points:
+      - 24/7 feedback and guidance from Rigobot, our AI tutor.
+      - Book 1:1 mentorship sessions whenever you need human expertise.
+      - Certificates that stack toward AI Fluency and AI Engineering.
+    tutors:
+      - name: Expert Instructor
+        role: Lead Instructor
+        image: https://randomuser.me/api/portraits/men/10.jpg
+      - name: Rigo
+        role: AI Tutor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Your tutors:"
+    description: AI is not the future, it's the foundation. AI Flex gives you the skills to stay ahead, at the pace that fits your life.
+    signup_card:
+      title: Start Learning Today
+      description: Choose your plan and get instant access to 8 AI courses, Rigobot, and your first mentorship session.
+      cta_button:
+        text: See Plans and Pricing
+        url: "#pricing-aiflex"
+        variant: primary
+      login_link:
+        text: Already a student? Login here.
+        url: https://4geeks.com/login
+      features:
+        - icon: calendar
+          text: Self-Paced, Start Anytime
+        - icon: IconUsers
+          text: 8 AI and Tech Courses
+        - icon: IconUserCheck
+          text: Optional 1:1 Mentorship
+        - icon: IconRobot
+          text: AI-Powered Learning & Feedback
+    paddingY:
+      desktop: lg md
+    marginY:
+      desktop: none
+    section_id: hero-aiflex
+    video:
+      url: https://youtu.be/sGADk75qvNI
+  - type: awards_marquee
+    section_id: awards_marquee-t8ylg2
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Best Coding Bootcamp 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 64px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 64px
+      - id: premios-tecnologia
+        alt: Premios Tecnologia Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 on Course Report Reviews
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Institutional Quality
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 64px
+    paddingY:
+      desktop: none
+    marginY:
+      desktop: md lg
+  - type: modal
+    version: "1.0"
+    heading: Get the Program Details
+    description: Fill in your contact info and our admissions team will send you everything you need to know.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Send Me the Details
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | ai-fluency }}
+      success:
+        message: Check your inbox. Our admissions team will be in touch shortly.
+    section_id: modal-y2myvq
+  - type: features_quad
+    version: "1.0"
+    variant: default
+    heading: Is AI Flex Right for You?
+    description: If you are nodding at any of these, you are exactly who this is built for.
+    cards:
+      - icon: IconRocket
+        title: You want to build real AI skills, at your own pace.
+        description: No cohort, no fixed schedule, no pressure to keep up with anyone but yourself.
+      - icon: IconBulb
+        title: You are a self-directed learner and AI is the most interesting space to be in right now.
+        description: Eight courses, pick what pulls you in, go as deep as you want.
+      - icon: IconUserCheck
+        title: When you get stuck, a human expert is one message away.
+        description: Optional 1:1 mentorship, available whenever you need it.
+      - icon: book-open-check
+        title: Learn directly on our interactive platform from your browser. No setup, no installs.
+        description: Interactive auto-graded exercises with an AI tutor that works with you 24/7. Just open and start.
+    background: hsl(var(--muted))
+    section_id: features_quad-aiflex
+    marginY:
+      desktop: none lg
+  - type: features_grid
+    version: "1.0"
+    variant: stats-charts
+    subtitle: The data is in.
+    title: How AI Skills Can Boost Your Career
+    description: Across every industry, professionals with AI skills are working faster, earning more, and moving into higher-value roles. The data is clear — and so is the opportunity.
+    card_bars_accent: hsl(var(--primary))
+    card_gauge_accent: hsl(var(--destructive) / 0.5)
+    card_trend_accent: hsl(var(--accent))
+    card_bars:
+      title: The Salary Premium Is Real
+      description: Same role · with vs without AI skills · PwC 2025
+      stat_value: +56%
+      stat_label: earned by AI-skilled workers over same-role peers
+      displaced_label: Without AI skills
+      created_label: With AI skills
+    card_trend:
+      title: Demand Grew 7x in Two Years
+      description: Roles requiring AI fluency · McKinsey 2025
+      stat_value: 7x
+      stat_label: growth in roles requiring AI fluency since 2023
+      end_label: 7x · 2025
+    card_gauge:
+      title: The Productivity Jump Is Real
+      description: Productivity growth · AI-exposed industries · PwC 2025
+      inner_stat_percentage: 27
+      outer_stat_percentage: 73
+      show_gauge: false
+      inner_stat_highlight: false
+      gauge_label: productivity growth rate
+      stat_label: productivity growth in companies using AI well, up from 7% in 2022
+      bar1_label: AI-adopting companies
+      bar2_label: Industry average
+    paddingY:
+      desktop: none md
+    marginY:
+      desktop: lg
+    section_id: features_grid-aiflex-whynow
+  - type: survey
+    version: v1.0
+    variant: default
+    aggregation_method: sum
+    infinite_progress_bar: false
+    badge_text: Build your path
+    title: Your AI curriculum,
+    title_highlight: built around you.
+    subtitle: A few questions. No commitment. We map the exact courses you need.
+    icon: 4GeeksAvatar
+    back_label: Back
+    restart_label: Start over
+    step_label: Question
+    step_of_label: of
+    max_questions: 4
+    alternate_link:
+      label: Browse the catalog instead
+      url: inline#ai-flex-path-ai-first
+    questions:
+      - text: What's your main goal right now?
+        options:
+          - label: Use AI to be more productive at my current job
+            value: 0
+            action:
+              next_question: 2
+          - label: Automate repetitive tasks without writing code
+            value: 3
+            action:
+              next_question: 2
+          - label: Build apps or technical projects with AI
+            value: 6
+            action:
+              next_question: 2
+          - label: Work with data, analytics, or machine learning
+            value: 10
+            action:
+              next_question: 2
+      - text: How comfortable are you with coding?
+        options:
+          - label: No experience — and I'd like to keep it that way
+            value: 0
+            action:
+              next_question: 3
+          - label: No experience — but I'm open to basics
+            value: 2
+            action:
+              next_question: 3
+          - label: Some basics (scripts, spreadsheets, HTML)
+            value: 5
+            action:
+              next_question: 3
+          - label: I code regularly
+            value: 8
+            action:
+              next_question: 3
+      - text: What skill would make the biggest difference in your work right now?
+        options:
+          - label: Getting reliable, professional-quality results from AI tools
+            value: 0
+            action:
+              next_question: 4
+          - label: Setting up AI assistants for my existing tools
+            value: 1
+            action:
+              next_question: 4
+          - label: Building automations that run without me
+            value: 2
+            action:
+              next_question: 4
+          - label: Writing code or building software with AI
+            value: 5
+            action:
+              next_question: 4
+          - label: Analyzing data and making smarter decisions
+            value: 7
+            action:
+              next_question: 4
+      - text: How do you plan to use what you learn?
+        options:
+          - label: Get better at what I already do
+            value: 0
+          - label: Explore — not sure yet
+            value: 1
+          - label: Add a new capability to my current role
+            value: 2
+          - label: Prepare for a career shift into tech
+            value: 4
+    routes:
+      thresholds:
+        - until: 5
+          url: inline#ai-flex-path-ai-first
+        - until: 11
+          url: inline#ai-flex-path-builder
+        - until: 20
+          url: inline#ai-flex-path-career-switcher
+        - until: 29
+          url: inline#ai-flex-path-data-driven-analyst
+      fallback:
+        url: inline#ai-flex-path-data-driven-analyst
+    maxWidth:
+      desktop: xl
+    section_id: survey-g6wkjo
+    paddingY:
+      desktop: sm
+    image_id: rigobot-png
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+  - type: ai_flex_path
+    version: v1.0
+    variant: course_color_selector
+    section_id: ai-flex-path-ai-first
+    ready_label: Your path is ready
+    path_name: The AI-First Professional
+    tagline: AI tools mastery for knowledge workers
+    results_subtitle: View your courses or build your own path
+    max_selections: 4
+    slot_colors:
+      - color: hsl(var(--primary))
+      - color: hsl(var(--destructive) / 0.5)
+      - color: hsl(var(--accent))
+      - color: hsl(var(--muted-foreground) / 0.7)
+    view_details_label: View details
+    drag_instruction_label: Also available — drag any card to swap it into your path
+    replace_label: Replace with
+    swap_label: Swap into path
+    swap_icon: arrow-left-right
+    swap_prompt_label: Tap a course in your path to replace it
+    swap_cancel_label: Cancel
+    tools_label: Tools in this path
+    tools_marquee: true
+    icon: 4GeeksAvatar
+    default_courses:
+      - Prompt Engineering
+      - Applied AI
+      - No-Code & Automations
+      - Building Personal Assistants with AI
+    cta:
+      title: Ready to start learning?
+      subtitle: Choose a plan and get instant access to your path.
+      banner: true
+      buttons:
+        - text: Enroll now
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1713
+          variant: primary
+        - text: View plans
+          variant: outline
+          url: "#pricing-6svo9e"
+    courses:
+      - name: Prompt Engineering
+        tagline: Prompting patterns & reusable libraries
+        hrs: ~8 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - ChatGPT
+          - Claude
+          - Gemini
+          - Perplexity
+        skills:
+          - name: Prompting patterns
+            skill_percentage: 55
+          - name: Output control
+            skill_percentage: 28
+          - name: Context management
+            skill_percentage: 17
+      - name: Applied AI
+        tagline: AI for real professional work tasks
+        hrs: ~12 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - ChatGPT
+          - Notion
+          - Otter.ai
+          - Grammarly
+          - Gamma
+        skills:
+          - name: AI writing & editing
+            skill_percentage: 40
+          - name: Research tools
+            skill_percentage: 35
+          - name: Workflow documentation
+            skill_percentage: 25
+      - name: No-Code & Automations
+        tagline: Visual workflows with n8n, Zapier, Make
+        hrs: ~10 hrs
+        color: hsl(142 71% 45%)
+        tools:
+          - n8n
+          - Make
+          - Zapier
+          - Airtable
+          - Webhooks
+        skills:
+          - name: Visual workflows
+            skill_percentage: 45
+          - name: App integrations
+            skill_percentage: 35
+          - name: AI steps in pipelines
+            skill_percentage: 20
+      - name: Vibe Coding with AI
+        tagline: Build apps with AI coding assistants
+        hrs: ~12 hrs
+        color: hsl(330 80% 62%)
+        tools:
+          - Cursor
+          - GitHub Copilot
+          - Replit
+          - Vercel
+        skills:
+          - name: AI-assisted coding
+            skill_percentage: 50
+          - name: Shipping projects
+            skill_percentage: 30
+          - name: Debug & review
+            skill_percentage: 20
+      - name: Building Personal Assistants with AI
+        tagline: Personal AI assistant setup & integration
+        hrs: ~6 hrs
+        color: hsl(262 83% 58%)
+        tools:
+          - OpenClaw
+          - Slack
+          - Notion
+          - Google Sheets
+        skills:
+          - name: Assistant setup
+            skill_percentage: 50
+          - name: Custom skill design
+            skill_percentage: 30
+          - name: Tool connection
+            skill_percentage: 20
+      - name: Backend Dev with Python
+        tagline: APIs with FastAPI, databases, deployment
+        hrs: ~20 hrs
+        color: hsl(217 91% 60%)
+        tools:
+          - FastAPI
+          - PostgreSQL
+          - Docker
+          - Railway
+          - Supabase
+        skills:
+          - name: REST API design
+            skill_percentage: 45
+          - name: Database & deploy
+            skill_percentage: 35
+          - name: AI API integration
+            skill_percentage: 20
+      - name: Deep Dive into Python
+        tagline: Python fundamentals to advanced
+        hrs: ~18 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - Python
+          - VS Code
+          - Git
+          - GitHub
+        skills:
+          - name: Python foundations
+            skill_percentage: 50
+          - name: OOP & structures
+            skill_percentage: 30
+          - name: Project setup
+            skill_percentage: 20
+      - name: Data Science & ML
+        tagline: Data analysis, ML models, predictions
+        hrs: ~22 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - Pandas
+          - NumPy
+          - scikit-learn
+          - Jupyter
+          - Streamlit
+        skills:
+          - name: Data analysis & viz
+            skill_percentage: 45
+          - name: ML model building
+            skill_percentage: 35
+          - name: Model evaluation
+            skill_percentage: 20
+    maxWidth:
+      desktop: xl
+    hidden_until_redirection: true
+    paddingY:
+      desktop: md
+    image_id: rigobot-png
+  - type: ai_flex_path
+    version: v1.0
+    variant: course_color_selector
+    section_id: ai-flex-path-builder
+    ready_label: Your path is ready
+    path_name: The Builder
+    tagline: Build real products with AI, code-optional
+    results_subtitle: View your courses or build your own path
+    max_selections: 4
+    slot_colors:
+      - color: hsl(var(--primary))
+      - color: hsl(var(--destructive) / 0.5)
+      - color: hsl(var(--accent))
+      - color: hsl(var(--muted-foreground) / 0.7)
+    view_details_label: View details
+    drag_instruction_label: Also available — drag any card to swap it into your path
+    replace_label: Replace with
+    swap_label: Swap into path
+    swap_icon: arrow-left-right
+    swap_prompt_label: Tap a course in your path to replace it
+    swap_cancel_label: Cancel
+    tools_label: Tools in this path
+    tools_marquee: true
+    icon: 4GeeksAvatar
+    default_courses:
+      - Vibe Coding with AI
+      - Backend Dev with Python
+      - No-Code & Automations
+      - Building Personal Assistants with AI
+    cta:
+      title: Ready to start learning?
+      subtitle: Choose a plan and get instant access to your path.
+      banner: true
+      buttons:
+        - text: Enroll now
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1718
+          variant: primary
+        - text: View plans
+          url: "#pricing-6svo9e"
+          variant: outline
+    courses:
+      - name: Prompt Engineering
+        tagline: Prompting patterns & reusable libraries
+        hrs: ~8 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - ChatGPT
+          - Claude
+          - Gemini
+          - Perplexity
+        skills:
+          - name: Prompting patterns
+            skill_percentage: 55
+          - name: Output control
+            skill_percentage: 28
+          - name: Context management
+            skill_percentage: 17
+      - name: Applied AI
+        tagline: AI for real professional work tasks
+        hrs: ~12 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - ChatGPT
+          - Notion
+          - Otter.ai
+          - Grammarly
+          - Gamma
+        skills:
+          - name: AI writing & editing
+            skill_percentage: 40
+          - name: Research tools
+            skill_percentage: 35
+          - name: Workflow documentation
+            skill_percentage: 25
+      - name: No-Code & Automations
+        tagline: Visual workflows with n8n, Zapier, Make
+        hrs: ~10 hrs
+        color: hsl(142 71% 45%)
+        tools:
+          - n8n
+          - Make
+          - Zapier
+          - Airtable
+          - Webhooks
+        skills:
+          - name: Visual workflows
+            skill_percentage: 45
+          - name: App integrations
+            skill_percentage: 35
+          - name: AI steps in pipelines
+            skill_percentage: 20
+      - name: Vibe Coding with AI
+        tagline: Build apps with AI coding assistants
+        hrs: ~12 hrs
+        color: hsl(330 80% 62%)
+        tools:
+          - Cursor
+          - GitHub Copilot
+          - Replit
+          - Vercel
+        skills:
+          - name: AI-assisted coding
+            skill_percentage: 50
+          - name: Shipping projects
+            skill_percentage: 30
+          - name: Debug & review
+            skill_percentage: 20
+      - name: Building Personal Assistants with AI
+        tagline: Personal AI assistant setup & integration
+        hrs: ~6 hrs
+        color: hsl(262 83% 58%)
+        tools:
+          - OpenClaw
+          - Slack
+          - Notion
+          - Google Sheets
+        skills:
+          - name: Assistant setup
+            skill_percentage: 50
+          - name: Custom skill design
+            skill_percentage: 30
+          - name: Tool connection
+            skill_percentage: 20
+      - name: Backend Dev with Python
+        tagline: APIs with FastAPI, databases, deployment
+        hrs: ~20 hrs
+        color: hsl(217 91% 60%)
+        tools:
+          - FastAPI
+          - PostgreSQL
+          - Docker
+          - Railway
+          - Supabase
+        skills:
+          - name: REST API design
+            skill_percentage: 45
+          - name: Database & deploy
+            skill_percentage: 35
+          - name: AI API integration
+            skill_percentage: 20
+      - name: Deep Dive into Python
+        tagline: Python fundamentals to advanced
+        hrs: ~18 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - Python
+          - VS Code
+          - Git
+          - GitHub
+        skills:
+          - name: Python foundations
+            skill_percentage: 50
+          - name: OOP & structures
+            skill_percentage: 30
+          - name: Project setup
+            skill_percentage: 20
+      - name: Data Science & ML
+        tagline: Data analysis, ML models, predictions
+        hrs: ~22 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - Pandas
+          - NumPy
+          - scikit-learn
+          - Jupyter
+          - Streamlit
+        skills:
+          - name: Data analysis & viz
+            skill_percentage: 45
+          - name: ML model building
+            skill_percentage: 35
+          - name: Model evaluation
+            skill_percentage: 20
+    maxWidth:
+      desktop: xl
+    hidden_until_redirection: true
+    paddingY:
+      desktop: md
+    image_id: rigobot-png
+  - type: ai_flex_path
+    version: v1.0
+    variant: course_color_selector
+    section_id: ai-flex-path-career-switcher
+    ready_label: Your path is ready
+    path_name: The Career Switcher
+    tagline: Code foundations + applied AI for career pivoters
+    results_subtitle: View your courses or build your own path
+    max_selections: 4
+    slot_colors:
+      - color: hsl(var(--primary))
+      - color: hsl(var(--destructive) / 0.5)
+      - color: hsl(var(--accent))
+      - color: hsl(var(--muted-foreground) / 0.7)
+    view_details_label: View details
+    drag_instruction_label: Also available — drag any card to swap it into your path
+    replace_label: Replace with
+    swap_label: Swap into path
+    swap_icon: arrow-left-right
+    swap_prompt_label: Tap a course in your path to replace it
+    swap_cancel_label: Cancel
+    tools_label: Tools in this path
+    tools_marquee: true
+    icon: 4GeeksAvatar
+    default_courses:
+      - Deep Dive into Python
+      - Backend Dev with Python
+      - Vibe Coding with AI
+      - Applied AI
+    cta:
+      title: Ready to start learning?
+      subtitle: Choose a plan and get instant access to your path.
+      banner: true
+      buttons:
+        - text: Enroll now
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1717
+          variant: primary
+        - text: View plans
+          url: "#pricing-6svo9e"
+          variant: outline
+    courses:
+      - name: Prompt Engineering
+        tagline: Prompting patterns & reusable libraries
+        hrs: ~8 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - ChatGPT
+          - Claude
+          - Gemini
+          - Perplexity
+        skills:
+          - name: Prompting patterns
+            skill_percentage: 55
+          - name: Output control
+            skill_percentage: 28
+          - name: Context management
+            skill_percentage: 17
+      - name: Applied AI
+        tagline: AI for real professional work tasks
+        hrs: ~12 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - ChatGPT
+          - Notion
+          - Otter.ai
+          - Grammarly
+          - Gamma
+        skills:
+          - name: AI writing & editing
+            skill_percentage: 40
+          - name: Research tools
+            skill_percentage: 35
+          - name: Workflow documentation
+            skill_percentage: 25
+      - name: No-Code & Automations
+        tagline: Visual workflows with n8n, Zapier, Make
+        hrs: ~10 hrs
+        color: hsl(142 71% 45%)
+        tools:
+          - n8n
+          - Make
+          - Zapier
+          - Airtable
+          - Webhooks
+        skills:
+          - name: Visual workflows
+            skill_percentage: 45
+          - name: App integrations
+            skill_percentage: 35
+          - name: AI steps in pipelines
+            skill_percentage: 20
+      - name: Vibe Coding with AI
+        tagline: Build apps with AI coding assistants
+        hrs: ~12 hrs
+        color: hsl(330 80% 62%)
+        tools:
+          - Cursor
+          - GitHub Copilot
+          - Replit
+          - Vercel
+        skills:
+          - name: AI-assisted coding
+            skill_percentage: 50
+          - name: Shipping projects
+            skill_percentage: 30
+          - name: Debug & review
+            skill_percentage: 20
+      - name: Building Personal Assistants with AI
+        tagline: Personal AI assistant setup & integration
+        hrs: ~6 hrs
+        color: hsl(262 83% 58%)
+        tools:
+          - OpenClaw
+          - Slack
+          - Notion
+          - Google Sheets
+        skills:
+          - name: Assistant setup
+            skill_percentage: 50
+          - name: Custom skill design
+            skill_percentage: 30
+          - name: Tool connection
+            skill_percentage: 20
+      - name: Backend Dev with Python
+        tagline: APIs with FastAPI, databases, deployment
+        hrs: ~20 hrs
+        color: hsl(217 91% 60%)
+        tools:
+          - FastAPI
+          - PostgreSQL
+          - Docker
+          - Railway
+          - Supabase
+        skills:
+          - name: REST API design
+            skill_percentage: 45
+          - name: Database & deploy
+            skill_percentage: 35
+          - name: AI API integration
+            skill_percentage: 20
+      - name: Deep Dive into Python
+        tagline: Python fundamentals to advanced
+        hrs: ~18 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - Python
+          - VS Code
+          - Git
+          - GitHub
+        skills:
+          - name: Python foundations
+            skill_percentage: 50
+          - name: OOP & structures
+            skill_percentage: 30
+          - name: Project setup
+            skill_percentage: 20
+      - name: Data Science & ML
+        tagline: Data analysis, ML models, predictions
+        hrs: ~22 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - Pandas
+          - NumPy
+          - scikit-learn
+          - Jupyter
+          - Streamlit
+        skills:
+          - name: Data analysis & viz
+            skill_percentage: 45
+          - name: ML model building
+            skill_percentage: 35
+          - name: Model evaluation
+            skill_percentage: 20
+    maxWidth:
+      desktop: xl
+    hidden_until_redirection: true
+    paddingY:
+      desktop: md
+    image_id: rigobot-png
+  - type: ai_flex_path
+    version: v1.0
+    variant: course_color_selector
+    section_id: ai-flex-path-data-driven-analyst
+    ready_label: Your path is ready
+    path_name: The Data-Driven Analyst
+    tagline: Python, data science and ML with AI tools
+    results_subtitle: View your courses or build your own path
+    max_selections: 4
+    slot_colors:
+      - color: hsl(var(--primary))
+      - color: hsl(var(--destructive) / 0.5)
+      - color: hsl(var(--accent))
+      - color: hsl(var(--muted-foreground) / 0.7)
+    view_details_label: View details
+    drag_instruction_label: Also available — drag any card to swap it into your path
+    replace_label: Replace with
+    swap_label: Swap into path
+    swap_icon: arrow-left-right
+    swap_prompt_label: Tap a course in your path to replace it
+    swap_cancel_label: Cancel
+    tools_label: Tools in this path
+    tools_marquee: true
+    icon: 4GeeksAvatar
+    default_courses:
+      - Deep Dive into Python
+      - Data Science & ML
+      - Applied AI
+      - Prompt Engineering
+    cta:
+      title: Ready to start learning?
+      subtitle: Choose a plan and get instant access to your path.
+      banner: true
+      buttons:
+        - text: Enroll now
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
+          variant: primary
+        - text: View plans
+          url: "#pricing-6svo9e"
+          variant: outline
+    courses:
+      - name: Prompt Engineering
+        tagline: Prompting patterns & reusable libraries
+        hrs: ~8 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - ChatGPT
+          - Claude
+          - Gemini
+          - Perplexity
+        skills:
+          - name: Prompting patterns
+            skill_percentage: 55
+          - name: Output control
+            skill_percentage: 28
+          - name: Context management
+            skill_percentage: 17
+      - name: Applied AI
+        tagline: AI for real professional work tasks
+        hrs: ~12 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - ChatGPT
+          - Notion
+          - Otter.ai
+          - Grammarly
+          - Gamma
+        skills:
+          - name: AI writing & editing
+            skill_percentage: 40
+          - name: Research tools
+            skill_percentage: 35
+          - name: Workflow documentation
+            skill_percentage: 25
+      - name: No-Code & Automations
+        tagline: Visual workflows with n8n, Zapier, Make
+        hrs: ~10 hrs
+        color: hsl(142 71% 45%)
+        tools:
+          - n8n
+          - Make
+          - Zapier
+          - Airtable
+          - Webhooks
+        skills:
+          - name: Visual workflows
+            skill_percentage: 45
+          - name: App integrations
+            skill_percentage: 35
+          - name: AI steps in pipelines
+            skill_percentage: 20
+      - name: Vibe Coding with AI
+        tagline: Build apps with AI coding assistants
+        hrs: ~12 hrs
+        color: hsl(330 80% 62%)
+        tools:
+          - Cursor
+          - GitHub Copilot
+          - Replit
+          - Vercel
+        skills:
+          - name: AI-assisted coding
+            skill_percentage: 50
+          - name: Shipping projects
+            skill_percentage: 30
+          - name: Debug & review
+            skill_percentage: 20
+      - name: Building Personal Assistants with AI
+        tagline: Personal AI assistant setup & integration
+        hrs: ~6 hrs
+        color: hsl(262 83% 58%)
+        tools:
+          - OpenClaw
+          - Slack
+          - Notion
+          - Google Sheets
+        skills:
+          - name: Assistant setup
+            skill_percentage: 50
+          - name: Custom skill design
+            skill_percentage: 30
+          - name: Tool connection
+            skill_percentage: 20
+      - name: Backend Dev with Python
+        tagline: APIs with FastAPI, databases, deployment
+        hrs: ~20 hrs
+        color: hsl(217 91% 60%)
+        tools:
+          - FastAPI
+          - PostgreSQL
+          - Docker
+          - Railway
+          - Supabase
+        skills:
+          - name: REST API design
+            skill_percentage: 45
+          - name: Database & deploy
+            skill_percentage: 35
+          - name: AI API integration
+            skill_percentage: 20
+      - name: Deep Dive into Python
+        tagline: Python fundamentals to advanced
+        hrs: ~18 hrs
+        color: hsl(0 84% 60%)
+        tools:
+          - Python
+          - VS Code
+          - Git
+          - GitHub
+        skills:
+          - name: Python foundations
+            skill_percentage: 50
+          - name: OOP & structures
+            skill_percentage: 30
+          - name: Project setup
+            skill_percentage: 20
+      - name: Data Science & ML
+        tagline: Data analysis, ML models, predictions
+        hrs: ~22 hrs
+        color: hsl(45 96% 53%)
+        tools:
+          - Pandas
+          - NumPy
+          - scikit-learn
+          - Jupyter
+          - Streamlit
+        skills:
+          - name: Data analysis & viz
+            skill_percentage: 45
+          - name: ML model building
+            skill_percentage: 35
+          - name: Model evaluation
+            skill_percentage: 20
+    maxWidth:
+      desktop: xl
+    hidden_until_redirection: true
+    paddingY:
+      desktop: md
+    image_id: rigobot-png
+  - type: trust_cards
+    version: v1.0
+    title: Top rated across all major platforms.
+    items:
+      - image: https://old.4geeksacademy.com/static/01607bc41a0de635d83e9500e7cdb2ba/b490d/course-report.webp
+        rating: 4.9
+        review_count: 4.9 on Course Report
+      - image: https://old.4geeksacademy.com/static/b75f1b5bdfb35d447612388524e6ca96/611d9/google.webp
+        rating: 4.8
+        review_count: 4.8 on Google
+      - image: https://old.4geeksacademy.com/static/2c0afa9f6c7390203793f4d0bb6c5728/4d404/career-karma.webp
+        rating: 4.9
+        review_count: 4.9 on Career Karma
+      - image: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        rating: 4.9
+        review_count: 4.9 on SwitchUp
+    name: Default Trust Cards
+    description: Four review platform cards with ratings
+    section_id: trust_cards-2jxl3t
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: md lg
+    background: hsl(var(--secondary))
+    maxWidth:
+      desktop: 6xl
+  - type: human_and_ai_duo
+    version: "1.0"
+    heading: 24/7 AI Tutoring. Human Expertise on Demand.
+    description: Rigobot is available around the clock throughout your subscription — ask for help, get feedback, or work through a concept whenever you need it. If you want a human perspective, senior mentors are available to book anytime.
+    bullet_groups:
+      - title: "Rigobot, your AI tutor:"
+        image: https://images.prismic.io/4geeks/ZhcryjjCgu4jzvSJ_rigobot-1-.png?auto=format,compress
+        bullets:
+          - text: Available 24/7 across every course in the catalog
+          - text: Ask for help, get feedback, or work through a concept at any point
+          - text: Adapts to your level and what you are working on
+      - title: "Expert mentors:"
+        image: https://storage.googleapis.com/4geeks-academy-website/media/profile-pic6_1764775742734.webp
+        bullets:
+          - text: Book a 1:1 session with a senior instructor for $25
+          - text: Focused on your actual work, your pace, your questions
+          - text: Add as many sessions as you need, whenever you need them
+    section_id: human_and_ai_duo-aiflex
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_asian-133x500.webp
+        alt: Asian student learning to code
+        object_fit: cover
+        object_position: 40%20%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latin_male-133x500.webp
+        alt: Latino student working on a project
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_african-133x500.webp
+        alt: African student collaborating with team
+        object_fit: cover
+        object_position: 50%15%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latina_female-133x500.webp
+        alt: Latina student celebrating success
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+    paddingY:
+      desktop: none
+  - type: two_column_accordion_card
+    version: "1.0"
+    variant: image_background
+    title: More Than Just Courses
+    description: AI Flex is a complete learning environment. Interactive courses, AI-powered tools, and an active community.
+    bullets:
+      - heading: Interactive Courses with AI Tutoring Built In
+        text: LearnPack turns every course into a hands-on, auto-graded experience. Rigobot, our AI tutor, is embedded throughout, tracking your progress and giving personalized guidance whenever you need it, 24/7.
+      - heading: A Full AI Toolkit, Included
+        text: Every plan comes with AI compilations, premium Copilot requests, cloud Codespaces so you can code from any browser, a GitHub Developer Program school account, a VPS, and monthly LLM tokens giving you access to DeepSeek, Claude Sonnet, Llama 3, and Codex. The quantities scale with your plan.
+      - heading: Guided Paths and Stackable Certificates
+        text: Follow one of our pre-built learning paths, or build your own with Rigobot's guidance. Complete each course and earn a certificate that stacks toward AI Fluency and AI Engineering.
+      - heading: Human Support, Built In
+        text: Every plan includes monthly 1:1 mentorship sessions with a senior instructor. Need more? Book additional sessions at $25 each. You are also part of the 4Geeks community on WhatsApp, where students and alumni learn alongside each other.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/valentina_brightened.png
+    image_alt: Valentina Ancieta
+    section_id: two_column_accordion_card-aiflex
+    background: hsl(var(--secondary))
+    paddingY:
+      desktop: lg
+    marginY:
+      desktop: lg none
+  - type: pricing
+    version: "1.0"
+    variant: plan_cards
+    title: An investment that pays for itself.
+    subtitle: No contracts. Cancel anytime. All plans include the full course catalog.
+    plans:
+      - name: Basic Plan
+        tag: Monthly
+        for_label: For 1 student
+        currency: $
+        amount: "65"
+        period: /month
+        billing_note: Recurring monthly charge
+        cta:
+          label: Subscribe to Basic Plan
+          url: https://academy.4geeks.com/plans/201
+        featured: false
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+            not_included: true
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
+      - name: Pro Plan
+        tag: Annual
+        for_label: For up to 2 students
+        currency: $
+        amount: "449"
+        cents: ".99"
+        period: /year
+        billing_note: Annual billing
+        featured: true
+        top_badge: Save 10 months
+        bottom_label: Financing with
+        bottom_badges:
+          - Klarna
+          - Affirm
+        cta:
+          label: Subscribe to Pro Plan
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
+    addon:
+      label: Optional add-on
+      title: Extra mentorship sessions
+      description: Book as many as you need. Senior instructors, on demand.
+      currency: $
+      amount: "25"
+      period: per session
+    section_id: pricing-6svo9e
+    paddingY:
+      desktop: sm
+    background: hsl(var(--card))
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+  - type: pricing
+    version: "1.0"
+    variant: plan_cards
+    title: An investment that pays for itself.
+    subtitle: No contracts. Cancel anytime. All plans include the full course catalog.
+    plans:
+      - name: Basic Plan
+        tag: Monthly
+        for_label: For 1 student
+        currency: $
+        amount: "65"
+        period: /month
+        billing_note: Recurring monthly charge
+        cta:
+          label: Subscribe to Basic Plan
+          url: https://academy.4geeks.com/plans/201
+        featured: false
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+            not_included: true
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
+      - name: Pro Plan
+        tag: Annual
+        for_label: For up to 2 students
+        currency: $
+        amount: "449"
+        cents: ".99"
+        period: /year
+        billing_note: Annual billing
+        featured: true
+        top_badge: Save 10 months
+        bottom_label: Financing with
+        bottom_badges:
+          - Klarna
+          - Affirm
+        cta:
+          label: Subscribe to Pro Plan
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
+    addon:
+      label: Optional add-on
+      title: Extra mentorship sessions
+      description: Book as many as you need. Senior instructors, on demand.
+      currency: $
+      amount: "25"
+      period: per session
+    section_id: pricing-6svo9e
+    paddingY:
+      desktop: sm
+    background: hsl(var(--card))
+    showOnLocations:
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: pricing
+    version: "1.0"
+    variant: plan_cards
+    title: An investment that pays for itself.
+    subtitle: No contracts. Cancel anytime. All plans include the full course catalog.
+    plans:
+      - name: Basic Plan
+        tag: Monthly
+        for_label: For 1 student
+        currency: $
+        amount: "65"
+        period: /month
+        billing_note: Recurring monthly charge
+        cta:
+          label: Subscribe to Basic Plan
+          url: https://academy.4geeks.com/plans/201
+        featured: false
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+            not_included: true
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
+      - name: Pro Plan
+        tag: Annual
+        for_label: For up to 2 students
+        currency: $
+        amount: "449"
+        cents: ".99"
+        period: /year
+        billing_note: Annual billing
+        featured: true
+        top_badge: Save 10 months
+        bottom_label: Financing with
+        bottom_badges:
+          - Klarna
+          - Affirm
+        cta:
+          label: Subscribe to Pro Plan
+          url: https://4geeks.com/es/checkout?plan=ai-flex-pro&cohort=1719
+        features:
+          - text: Mentorship sessions / month
+          - text: Access to exclusive events
+          - text: AI compilations
+          - text: 300 premium Copilot requests
+          - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+          - text: Codespaces ($10/mo included)
+          - text: School account with GitHub Developer Program
+          - text: VPS included
+          - text: Course certificates
+    addon:
+      label: Optional add-on
+      title: Extra mentorship sessions
+      description: Book as many as you need. Senior instructors, on demand.
+      currency: $
+      amount: "25"
+      period: per session
+    section_id: pricing-6svo9e
+    paddingY:
+      desktop: sm
+    background: hsl(var(--card))
+    showOnLocations:
+      - barcelona-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - madrid-spain
+      - malaga-spain
+      - milan-italy
+      - munich-germany
+      - rome-italy
+      - valencia-spain
+  - type: testimonials
+    section_id: testimonials-cbhm8t
+    title: The People Behind the Numbers.
+    subtitle: "Different backgrounds. One outcome: real AI skills."
+    related_features:
+      - content-and-syllabus
+      - career-support
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 700 }}
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: none md
+  - type: faq
+    section_id: faq-hwxrsu
+    title: FAQ
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: locations
+          value: all
+      ignored_entries:
+        - do-i-get-a-job-after-completing-the-program
+        - does-the-job-guarantee-refund-the-full-tuition-if-i-dont-get-hired
+        - how-does-the-4geeks-academy-job-guarantee-work
+        - geekforce-or-geekpal-which-one-to-choose
+        - do-i-need-prior-cybersecurity-experience
+        - do-i-need-to-have-work-authorization-to-qualify-for-the-job-guarantee
+        - do-i-need-to-have-previous-experience-in-programming-to-join-the-bootcamp
+        - do-i-need-expensive-hardware-for-ai-development
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+    background: hsl(var(--muted))
+    item_overrides:
+      how-long-does-the-program-take:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    hardcoded_entries:
+      - question: What is included in an AI Flex subscription?
+        answer: "Every AI Flex plan includes access to the full course catalogue via LearnPack, Rigobot as your built-in AI tutor available throughout every module, 300 premium Copilot requests per month, 300 AI compilations, Codespaces ($10/month value included), $5/month in LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex), a school account with the GitHub Developer Program, a VPS, access to exclusive 4Geeks events, and a certificate for every course you complete. Each plan also includes at least one mentorship session per month with an expert instructor. "
+      - question: Which courses are included in AI Flex and how do I choose?
+        answer: |
+          The catalog includes +8 courses: Prompt Engineering, Applied AI, No-Code and Automations, Vibe Coding with AI, OpenClaw, Backend Dev with Python, Deep Dive into Python, and Data Science and ML. If you are not sure where to start, 4Geeks offers four ready-made paths based on your goals: The AI-First Professional, The Career Switcher, The Data-Driven Analyst, and The Builder. Each path combines 4 courses chosen for a specific professional outcome.
+      - question: Is there a start date or schedule for AI Flex?
+        answer: |
+
+          There are no cohorts, no live classes, and no fixed schedule. You start anytime and learn entirely at your own pace. You can also  cancel your subscription anytime.
+      - question: Do the certificates from AI Flex count toward the full AI Engineering program?
+        answer: |
+          Yes. Certificates earned in AI Flex are the same certificates awarded in AI Fluency and the AI Engineering program. They are stackable: if you complete courses in AI Flex and later enroll in AI Engineering, you receive credit for what you have already completed. AI Flex is a genuine entry point into the full 4Geeks learning path, not a separate track.
+      - question: Who is AI Flex designed for?
+        answer: " AI Flex works for professionals at any technical level — from non-technical knowledge workers who want to automate their work, to developers who want to add AI engineering skills to their existing stack. The course catalog spans from no-code automations and prompt engineering to backend development with Python and data science. You choose the courses that match where you are and where you want to go."
+  - type: cta_banner
+    version: "1.0"
+    title: Your AI Skills Start Here.
+    subtitle: 8 courses, curated learning paths, and everything you need to build real AI skills.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: Get Started
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: false
+          required: false
+          placeholder: Phone number
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | ai-flex }}
+      success:
+        message: Check your inbox. We'll send you everything you need to get started.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+    section_id: cta_banner-aiflex
+  - type: sticky_cta
+    section_id: sticky_cta-tmw0th
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+    load: eager

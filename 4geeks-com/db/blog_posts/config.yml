@@ -1,0 +1,48 @@
+name: Blog Posts
+description: Blog articles from the Breathecode API for the 4Geeks Academy blog
+source:
+  type: api
+  api:
+    endpoint: https://breathecode.herokuapp.com/v1/registry/academy/asset
+    results_path: results
+    auth:
+      token_env_var: BREATHECODE_ACADEMY_TOKEN
+      prefix: Token
+    params:
+      limit: '500'
+      offset: '0'
+      status: published
+      visibility: public
+      academy: '7'
+      big: 'true'
+      expand: cluster
+cache:
+  ttl_hours: 24
+field_mapping:
+  id: id
+  slug: slug
+  title: title
+  description: description
+  status: status
+  language: >-
+    function:KHZhbHVlLCBpdGVtKSA9PiB7IGNvbnN0IHYgPSBTdHJpbmcoaXRlbS5sYW5nIHx8ICcnKTsgcmV0dXJuIHYgPT09ICd1cycgPyAnZW4nIDogdjsgfQ==
+  published_at: published_at
+  updated_at: updated_at
+  url: url
+  preview_image: preview
+  category_id: category.id
+  category_slug: category.slug
+  category_title: category.title
+  tags: technologies
+  seo_keywords: seo_keywords
+  cluster_id: cluster.id
+  cluster_slug: cluster.slug
+  allow_contributions: allow_contributions
+  feature: feature
+  content: readme.decoded
+editor:
+  preview_image:
+    cache_images: true
+search_fields:
+  - title
+  - slug

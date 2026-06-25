@@ -214,7 +214,7 @@ function getCI(res: Response): typeof contentIndex {
 }
 
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
 }
 
 export function registerAdminRoutes(app: Express): void {

@@ -1,0 +1,134 @@
+slug: apply
+template: default
+title: Apply
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: monthly
+  page_title: Apply Now - Start Your Tech Career | 4Geeks
+  description: Unlock your tech potential with 4Geeks Academy's immersive programs and career support, apply now and start thriving
+schema:
+  include:
+    - organization
+    - website
+programs:
+  - id: full-stack
+    name_en: Full Stack Developer
+    name_es: Desarrollador Full Stack
+  - id: data-science-ml
+    name_en: Data Science & Machine Learning
+    name_es: Ciencia de Datos y Machine Learning
+  - id: ai-engineering
+    name_en: AI Engineering
+    name_es: Ingeniería de IA
+  - id: cybersecurity
+    name_en: Cybersecurity
+    name_es: Ciberseguridad
+locations:
+  - id: online
+    name_en: Online
+    name_es: En línea
+  - id: usa-canada
+    name_en: USA & Canada
+    name_es: EE.UU. y Canadá
+  - id: miami
+    name_en: Miami, USA
+    name_es: Miami, EE.UU.
+  - id: nyc
+    name_en: NYC, USA
+    name_es: NYC, EE.UU.
+  - id: orlando
+    name_en: Orlando, USA
+    name_es: Orlando, EE.UU.
+  - id: toronto
+    name_en: Toronto, Canada
+    name_es: Toronto, Canadá
+  - id: madrid
+    name_en: Madrid, Spain
+    name_es: Madrid, España
+  - id: barcelona
+    name_en: Barcelona, Spain
+    name_es: Barcelona, España
+  - id: mexico
+    name_en: Mexico City, Mexico
+    name_es: Ciudad de México, México
+  - id: bogota
+    name_en: Bogotá, Colombia
+    name_es: Bogotá, Colombia
+  - id: santiago
+    name_en: Santiago, Chile
+    name_es: Santiago, Chile
+sections:
+  - type: hero
+    section_id: hero-zojvst
+    version: "1.0"
+    variant: singleColumn
+    title: Your Future in Tech Starts Here
+    subtitle: "You’re one step closer to your new career in tech, congratulations! Fill out the form below, and our admissions team will walk you through the next steps.<div><br></div><div><span style=\"font-size: 12px; text-align: center;\">Florida residents: Only our full-stack development program is authorized by the Commission for Independent Education in Florida. Our job guarantee bundle is not offered in Florida where our only physical location is in Miami.</span></div>"
+    marginY:
+      desktop: md none
+    paddingY:
+      mobile: sm none
+      desktop: lg none
+  - type: apply_form
+    section_id: apply_form-fw5ak2
+    version: "1.0"
+    hero:
+      title: Your Future in Tech Starts Here
+      subtitle: You're one step closer to your new career in tech — congratulations! Fill out the form below, and our admissions team will walk you through the next steps.
+      note: (And don't worry — you won't be committing to anything yet, just starting the conversation.)
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: APPLY
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Enter your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: Enter your first name
+        last_name:
+          visible: true
+          required: true
+          placeholder: Enter your last name
+        phone:
+          visible: true
+          required: true
+          placeholder: Enter your phone number
+        program:
+          visible: true
+          required: true
+        region:
+          visible: true
+          required: true
+        location:
+          visible: true
+          required: true
+      turnstile:
+        enabled: true
+    next_steps:
+      title: What Happens Next?
+      items:
+        - title: Instant confirmation
+          description: We'll send you the syllabus by email right away.
+        - title: Personal follow-up
+          description: Our admissions team will reach out by text and phone to set up a quick call.
+        - title: Ask us anything
+          description: Programs, schedules, financing, career support — we'll walk you through your options and share all the details.
+        - title: Decide with confidence
+          description: You'll have all the info you need to choose the path that's right for you. And we are here to help.
+      closing: Now you're ready to make the best decision for your career!
+  - type: breadcrumb
+    version: v1.0
+    items:
+      - label: Home
+        url: /
+      - label: Career Programs
+        url: /en/career-programs
+      - label: Full Stack Developer
+    section_id: breadcrumb-gdzotq
+    paddingY:
+      desktop: sm

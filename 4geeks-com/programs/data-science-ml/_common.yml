@@ -1,0 +1,23 @@
+slug: data-science-ml
+bc_slug: datascience-ml
+title: Data Science and Machine Learning
+job_role: Machine Learning Engineer
+valid_lead_form_option: true
+meta:
+  og_image: /images/programs/data-science-ml-og.jpg
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: Data Science and Machine Learning Career Program | 4Geeks
+  description: Data Science and Machine Learning in 18 weeks. 84% hiring rate, $80K–$150K salaries, unlimited mentorship, and career support to get you hired. 4Geeks Academy.
+  redirects:
+    - /bootcamp/data-science
+    - /programs/datascience-machine-learning
+    - /coding-bootcamp/machine-learning
+    - /us/coding-bootcamps/datascience-machine-learning
+    - /en/machine-learning-engineer/machine-learning-engineer
+schema:
+  include:
+    - organization
+    - website
+    - courses:data-science

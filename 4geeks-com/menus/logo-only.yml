@@ -1,0 +1,7 @@
+navbar:
+  items:
+    - label: 4Geeks Logo
+      href: ''
+      component: Logo
+      imageId: 4geeks-devs-logo-1763162063433
+      imageAlt: 'Image: 4geeks-devs-logo_1763162063433'

@@ -1,0 +1,17 @@
+slug: de-aprender-programacion-a-ser-ai-engineer-mexico
+title: de aprender programacion a ser ai engineer mexico
+locale: es
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: De aprender Programación a ser AI Engineer | 4Geeks
+  description: Aprende a desarrollar, integrar y desplegar soluciones de IA que las empresas ya están contratando — en solo 24 semanas.
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locations:
+  - mexicocity-mexico

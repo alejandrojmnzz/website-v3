@@ -1,0 +1,193 @@
+slug: learnpack
+template: default
+title: learnpack
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Aprende programación con 4Geeks
+  description: Desarrolla habilidades en programación con nuestros cursos y garantía de empleo en 4Geeks Academy, ¡aprende más!
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-ygb37z
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: LearnPack Crea enseña aprende
+    subtitle: LearnPack transforma cualquier tema en cursos interactivos con autoevaluación en minutos usando IA. Crea currículos completos con lecciones, quizzes y ejercicios, sin necesidad de programar.
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/students_collaborating-479x280-479x280.webp
+      alt: Estudiantes colaborando en un espacio tecnológico
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: md
+  - type: article
+    section_id: article-66pvji
+    content: |
+      ## Por qué LearnPack es clave en 2026
+
+      En la era de los LLM, memorizar sintaxis ya no tiene sentido. Lo que importa es **pensar como desarrollador** y colaborar con la IA. LearnPack convierte cualquier tema, técnico o no, en un **curso interactivo con autoevaluación** en minutos.
+
+      Dile a la plataforma un título, duración y objetivos de aprendizaje, o agrega tu propio contenido (documentos, videos o simplemente un tema), y al instante genera un **sílabus estructurado** y un curso interactivo completo. Incluye lecciones, quizzes y ejercicios autoevaluados, sin necesidad de programar. Luego **Rigobot**, nuestro mentor con IA disponible 24/7, guía a los estudiantes línea por línea.
+
+      ### Contexto y visión general
+
+      En el panorama digital actual, que evoluciona rápidamente, las plataformas de aprendizaje deben adaptarse para cubrir diversas necesidades. LearnPack, inicialmente lanzado como una herramienta de educación en programación, ha evolucionado hasta convertirse en una plataforma versátil que permite a cualquier persona crear cursos interactivos con autoevaluación sin experiencia técnica.
+
+      Accesible en [learnpack.co](https://www.learnpack.co/), LearnPack aprovecha la inteligencia artificial para generar cursos completos, haciendo que la creación educativa esté al alcance de todos. Este artículo explora la evolución de LearnPack, sus funcionalidades impulsadas por IA y su impacto en el aprendizaje global, respaldado por el mentor con IA Rigobot.
+
+      ## Cómo funciona la creación de cursos
+
+      1. **Abre LearnPack** en [learnpack.co](https://www.learnpack.co/) y crea un nuevo curso.
+      2. **Ingresa los detalles del curso**, incluyendo duración, tema y tópicos clave.
+      3. **Deja que la IA haga el trabajo pesado**. En segundos, LearnPack genera un currículo completo con lecciones, quizzes y ejercicios autoevaluados.
+      4. **Comienza a aprender de inmediato**, sin configuración de código ni necesidad de Visual Studio Code. Todo funciona en tu navegador.
+      5. **Ten a Rigobot a tu lado**. A medida que avanzas, Rigobot detecta cuándo estás atascado y ofrece orientación sin simplemente darte la respuesta, como un profesor ayudándote a razonar.
+
+      ## Funcionalidades
+
+      | **Funcionalidad** | **Qué hace** | **Por qué te encantará** |
+      | --- | --- | --- |
+      | AI course builder | Crea currículos completos a partir de una breve descripción | Lanza un curso en minutos, sin código ni configuración |
+      | Rigobot mentor | Sigue el aprendizaje en tiempo real y adapta la guía | Aprende más rápido con coaching estilo profesor |
+      | Ejercicios y quizzes autoevaluados | Verifica respuestas y código al instante | Retroalimentación inmediata mantiene alta la motivación |
+      | Experiencia 100% en navegador | Funciona completamente online | Aprende desde cualquier dispositivo, en cualquier lugar |
+      | Accesibilidad e i18n | Navegación por teclado, UI accesible, EN/ES | Aprendizaje inclusivo y bilingüe desde el primer día |
+      | Repositorio Open-source | Contenido disponible en GitHub | Reutiliza, adapta y mejora libremente |
+
+      ## Resultados recientes (Ene – Jun 2025)
+
+      | **Métrica** | **Mitad de 2025** | **Fuente** |
+      | --- | --- | --- |
+      | Estudiantes en LearnPack | 4,000+ en 6 países | Caso de estudio de Gitpod |
+      | Instalaciones en VS Code Marketplace | 88,268 | Estadísticas del VS Marketplace |
+      | Tasa de inserción laboral de graduados | 79% en 140 días | [Mid-Year Outcomes 2025](https://new.4geeks.com/es/resultados) |
+      | Incremento salarial mediano en LATAM | +282% | Mismo reporte |
+
+      ## Por qué LearnPack supera a los LMS genéricos
+
+      |  | **LearnPack** | LMS Típico |
+      | --- | --- | --- |
+      | La IA genera cursos completos | ✅ | ❌ |
+      | Tareas con autoevaluación (con y sin código) | ✅ | ❌ |
+      | Mentor con IA integrado (Rigobot) | ✅ | ❌ |
+      | Funciona en VS Code o Cloud IDE | ✅ | ❌ |
+      | 100% open-source | ✅ | ❌ |
+
+      ## Beneficios para estudiantes
+
+      - **Retroalimentación instantánea** mediante ejercicios y quizzes autoevaluados, sin esperar respuestas en foros.
+      - **Aprende desde cualquier lugar** con una experiencia centrada en el navegador que funciona en cualquier dispositivo.
+      - **Guía de Rigobot** que se adapta a tu ritmo y se vuelve más avanzada a medida que mejoras.
+
+      ## Beneficios para educadores
+
+      - **Creación de cursos sin código**. Ingresa el tema, los tópicos y la duración y deja que la IA construya el currículo.
+      - **Analíticas integradas** que muestran progreso, tasas de finalización y bloqueos comunes.
+      - **Biblioteca open-source** con más de 1,000 tutoriales disponibles para reutilizar o expandir.
+
+      ## Construido para la era de la IA
+
+      Modelos de lenguaje como Grok, GPT-4o y Claude 3 aceleran los flujos de trabajo modernos. LearnPack los adopta mediante:
+
+      - Integración de **Rigobot** para coaching línea por línea.
+      - Permitir código inicial generado por IA mientras exige pasar unit tests.
+      - Enseñar una mentalidad de **humano + IA como pair-programmers** que las empresas ya esperan.
+
+      ## ¿Listo para crear o aprender?
+
+      - 🔗 Prueba el **generador de cursos con IA** en [learnpack.co](https://www.learnpack.co/)
+      - 🔗 Mira Rigobot en acción en la [página de Rigobot](https://new.4geeks.com/es/rigobot)
+      - 🔗 ¿Quieres impulsar tu carrera? Aplica al [Full Stack Bootcamp](https://new.4geeks.com/es/programas-de-carrera/desarrollo-full-stack) y obtén LearnPack y Rigobot desde el primer día.
+
+      ¿Preguntas? Escribe a **info@4geeksacademy.com** o chatea con un asesor.
+    show_toc: true
+    max_width: xl
+  - type: faq
+    section_id: faq-o7ylnr
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - learnpack
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: none md
+  - type: cta_banner
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-9hs26r
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-k83jhk

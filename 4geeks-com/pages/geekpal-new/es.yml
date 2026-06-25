@@ -1,0 +1,276 @@
+slug: geekpal-new
+template: default
+title: GeekPAL-new
+meta:
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: GeekPAL-new
+  description: >-
+    Recibe ayuda en programación con mentoría y acompañamiento personalizado en todas nuestras carreras, incluyendo IA,
+    desarrollo full stack y más en 4Geeks Academ
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    version: '1.0'
+    variant: productShowcase
+    title: Mentoría en programación potenciada por IA
+    welcome_text: Bienvenido a
+    brand_mark:
+      prefix: Geek
+      highlight: PAL
+      suffix: ':'
+      color: destructive
+    description: >-
+      Accede a mentoría ilimitada en programación, soporte inteligente con IA disponible 24/7 y una comunidad global de
+      desarrolladores para acelerar tu aprendizaje y avanzar en tu carrera en tecnología.
+    bullets:
+      - text: Mentoría ilimitada 1:1 en programación
+      - text: Soporte personalizado con IA 24/7
+      - text: Acceso de por vida
+      - text: Comunidad global de desarrolladores
+    video:
+      url: https://youtu.be/D5nUZNL52-Q
+      ratio: '3:4'
+      muted: true
+      autoplay: false
+      loop: true
+    section_id: hero-lhm9h5
+    paddingY:
+      mobile: none lg
+      desktop: md lg
+  - type: banner
+    section_id: banner-jlr9uz
+    version: '1.0'
+    logo: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    avatars:
+      - https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+      - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+      - https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+      - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+    title: Avanza sin bloqueos. Aprende con confianza.
+    description: >-
+      El mayor obstáculo al aprender tecnología no es la dificultad, sino quedarse sin apoyo en el momento clave.
+      GeekPAL está siempre disponible para ti, ofreciéndote orientación inmediata cuando la necesitas, para que avances
+      de forma constante y segura.
+    background: gradient
+  - type: human_and_ai_duo
+    section_id: human_and_ai_duo-q4tfyb
+    version: '1.0'
+    heading: 'Mentores expertos + IA: Acelera tu aprendizaje en programación'
+    description: >-
+      El aprendizaje en programación es más efectivo cuando la experiencia humana y la IA trabajan en conjunto. En
+      4Geeks, avanzas con mentoría 1:1 ilimitada y el soporte inteligente de Rigobot, disponibles cuando los necesites.
+    bullet_groups:
+      - title: 'Nuestro Equipo de Mentores Expertos ofrece:'
+        image: https://storage.googleapis.com/4geeks-academy-website/media/profile-pic6_1764775742734.webp
+        bullets:
+          - text: Orientación personalizada
+          - text: Resolución de problemas en vivo
+          - text: Asistencia experta para corregir errores
+          - text: Perspectiva de la industria y asesoría profesional
+      - title: 'Rigobot + Learnpack:'
+        bullets:
+          - text: Feedback y tutoría instantánea 24/7
+          - text: Ajusta sus recomendaciones a tus habilidades y progreso
+          - text: Soporte para debugging y resolución de problemas
+          - text: Cientos de ejercicios prácticos y pruebas de programación
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_asian-133x500.webp
+        alt: Estudiante asiático aprendiendo a programar
+        object_fit: cover
+        object_position: 40%20%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latin_male-133x500.webp
+        alt: Estudiante latino trabajando en un proyecto
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_african-133x500.webp
+        alt: Estudiante africano colaborando con su equipo
+        object_fit: cover
+        object_position: 50%15%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latina_female-133x500.webp
+        alt: Estudiante latina celebrando su éxito
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group_6685_(1)_1765300162049.png
+    image_alt: Mujer trabajando en laptop en un café
+    background: bg-background
+    paddingY:
+      mobile: sm none
+      desktop: md none
+  - type: community_support
+    section_id: community_support-vmpuv0
+    version: '1.0'
+    heading: Aprende acompañado por una comunidad global
+    description: >-
+      4Geeks es más que un programa; es una red activa de profesionales tech, mentores y geeks que te ayudan a seguir
+      avanzando en tu carrera.
+    bullet_groups:
+      - title: Comunidad en Slack
+        description: >-
+          Recibe ayuda en tiempo real de mentores, alumni y compañeros a través de nuestros canales activos y temáticos,
+          desde soporte técnico, hasta bolsas de empleo y consejos de carrera (¡y sí, también hay humor geek!).
+        icon: BrandSlack
+        badge: 6,000+ Miembros
+        accent_color: primary
+      - title: 4Geeks.com
+        description: >-
+          Sigue desarrollando tus habilidades con recursos adicionales, eventos en vivo y proyectos colaborativos.
+          Conecta con personas que ya estuvieron donde tú estás y saben cómo ayudarte a llegar a donde quieres ir.
+        icon: Rigobot
+        accent_color: primary
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group-6606.webp
+    image_alt: Comunidad global de desarrolladores 4Geeks
+    background: bg-primary/5
+    paddingY:
+      desktop: none md
+  - type: two_column
+    section_id: two_column-9qmtyc
+    proportions:
+      - 12
+      - 0
+    background: bg-background
+    alignment: center
+    left:
+      video: https://www.youtube.com/watch?v=MBXqEnhodx0
+      video_width: 900px
+      heading: Escucha a nuestros graduados
+      description: >-
+        Escucha a Joao hablar sobre su experiencia durante y después de nuestro bootcamp y cómo el acceso ilimitado a
+        mentoría en programación marcó una gran diferencia en su carrera.
+      justify: center
+      text_align: center
+      font_size: lg
+    heading_above_on_md: false
+    gap: '8'
+    paddingY:
+      desktop: lg md
+  - type: testimonials_slide
+    section_id: testimonials_slide-taaol5
+    title: Carreras reales que comenzaron aquí
+    description: Descubre cómo nuestros estudiantes alcanzaron sus metas
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md none
+  - type: faq
+    section_id: faq-p0t1d3
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - mentors-and-teachers
+            - career-support
+        - item_property_slug: locations
+          value: all
+    item_overrides:
+      cmo-estn-estructuradas-las-clases-en-vivo:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+      consigo-trabajo-despus-de-completar-el-programa:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none md
+  - type: sticky_cta
+    version: '1.0'
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-suj2s7
+  - type: cta_banner
+    version: '1.0'
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-ydwcdl

@@ -1,0 +1,12 @@
+slug: home-copia-prueba
+title: home copia prueba
+meta:
+  priority: 1
+  change_frequency: daily
+schema:
+  include:
+    - organization
+    - website
+layout:
+  menu:
+    top: main-navbar

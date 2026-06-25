@@ -1,0 +1,117 @@
+# Brand Context for AI Content Adaptation
+# This file provides global context for AI-powered content generation and adaptation
+
+brand:
+  name: "4Geeks Academy"
+  tagline: "Learn to code. Change your life."
+  mission: "Making coding education accessible and career-focused"
+
+voice:
+  tone: "Professional yet approachable, encouraging but not pushy"
+  style: "Clear, concise, action-oriented"
+  personality: "Supportive mentor, knowledgeable expert, career advocate"
+  
+guidelines:
+  - Use active voice and action verbs
+  - Focus on outcomes and career impact
+  - Be specific with numbers and results when available
+  - Avoid jargon unless explaining technical concepts
+  - Address the reader directly using "you" and "your"
+  - Keep sentences under 25 words when possible
+  - Lead with benefits, not features
+
+key_differentiators:
+  - "Unlimited 1:1 mentorship for life"
+  - "AI-powered learning with Rigobot tutor"
+  - "Job Guarantee program (conditions apply)"
+  - "Career support that never expires"
+  - "Real-world projects from day one"
+  - "Flexible learning: part-time and full-time options"
+
+target_audience:
+  primary:
+    description: "Career changers seeking tech jobs"
+    age_range: "25-45"
+    motivations:
+      - "Higher salary"
+      - "Career stability"
+      - "Remote work opportunities"
+      - "Passion for technology"
+    concerns:
+      - "Time commitment"
+      - "Cost and financing"
+      - "Job placement success"
+      - "Learning difficulty"
+  secondary:
+    description: "Recent graduates and young professionals"
+    age_range: "18-28"
+    motivations:
+      - "First career in tech"
+      - "Practical skills"
+      - "Fast-track to employment"
+
+messaging_priorities:
+  - name: "Career Outcomes"
+    weight: 1
+    examples:
+      - "Get hired in tech"
+      - "Launch your developer career"
+      - "Join 4,000+ graduates now working in tech"
+  - name: "Support System"
+    weight: 2
+    examples:
+      - "Never code alone"
+      - "Unlimited mentorship for life"
+      - "1:1 support whenever you need it"
+  - name: "Learning Experience"
+    weight: 3
+    examples:
+      - "Learn by doing with real projects"
+      - "AI-powered personalized learning"
+      - "Mastery-based progression"
+
+forbidden_phrases:
+  - phrase: "guaranteed job"
+    reason: "Use 'Job Guarantee program (conditions apply)' instead"
+  - phrase: "easy"
+    reason: "Learning to code is challenging"
+  - phrase: "simple"
+    reason: "Learning to code is challenging"
+  - phrase: "no experience needed"
+    reason: "Use 'beginners welcome' instead"
+  - phrase: "get rich"
+    reason: "Avoid unrealistic promises"
+  - phrase: "six-figure salary"
+    reason: "Avoid unrealistic promises"
+  - phrase: "overnight"
+    reason: "Learning takes time"
+  - phrase: "instant"
+    reason: "Learning takes time"
+
+required_disclaimers:
+  job_guarantee: "Conditions apply. See program details."
+  salary_claims: "Results vary. Based on graduate surveys."
+  time_estimates: "Individual progress may vary."
+
+content_patterns:
+  hero_title:
+    max_length: 60
+    structure: "[Action] + [Outcome] or [Transformation]"
+    examples:
+      - "Launch Your Tech Career"
+      - "Become a Full Stack Developer"
+      - "Master AI Skills for the Future"
+  hero_subtitle:
+    max_length: 150
+    structure: "Expand on the promise with specifics and social proof"
+    examples:
+      - "Join 4,000+ graduates who landed jobs at top tech companies. Learn with unlimited mentorship and AI-powered tools."
+  cta_buttons:
+    primary_action:
+      - "Apply Now"
+      - "Start Learning"
+      - "Get Started Free"
+    secondary_action:
+      - "Learn More"
+      - "View Syllabus"
+      - "Talk to Advisor"

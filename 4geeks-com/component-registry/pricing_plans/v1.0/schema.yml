@@ -1,0 +1,42 @@
+name: Pricing Plans
+version: "1.0"
+component: PricingPlansDefault
+file: client/src/components/pricing_plans/variants/PricingPlansDefault.tsx
+description: >-
+  A responsive grid of pricing plan cards. Plans are automatically injected from the
+  ecommerce layer when the page has a matching product. Each card shows plan name, price,
+  billing period, features list, and an optional highlighted/recommended state.
+when_to_use: |
+  Add this section to any page that has a matching ecommerce product. Plans are resolved
+  automatically from the product's plan list — no manual duplication of pricing data.
+  Use when you want to present subscription or one-time purchase options inline on a
+  marketing or program page.
+props:
+  title:
+    type: string
+    required: false
+    description: Optional heading above the plan grid
+    example: Choose Your Plan
+  subtitle:
+    type: string
+    required: false
+    description: Optional supporting text below the title
+    example: Flexible options to match your learning goals
+  cta_label:
+    type: string
+    required: false
+    description: Label for the CTA button on each plan card
+    example: Get Started
+  cta_url:
+    type: string
+    required: false
+    description: URL for the CTA button (plan_id appended as query param at runtime)
+    example: /en/apply
+  plan_ids:
+    type: array
+    required: false
+    description: >
+      Explicit list of plan IDs to display. When omitted, plans are injected automatically
+      from the matched ecommerce product.
+    items:
+      type: string

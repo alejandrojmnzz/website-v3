@@ -1,0 +1,12 @@
+sections:
+  - id: hero-j3g7yh
+    type: hero
+    version: "1.0"
+    variant: singleColumn
+    badge: {{ single.category | Blog }}
+    title: Aprende Programación Jugando, Los Mejores Juegos para Programar
+    subtitle: ¿Quieres aprender a programar de forma divertida? Descubre los mejores juegos de programación para principiantes y expertos. ¡Practica tus habilidades y conviértete en un maestro del código!
+    image:
+      src: {{ single.image | https://storage.googleapis.com/4geeks-academy-website/media/Group-original_1765419144159.webp }}
+    image_full_width: false
+    section_id: hero-4dyjfe

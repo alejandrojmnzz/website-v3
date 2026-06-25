@@ -1,0 +1,112 @@
+slug: sample-page
+template: default
+title: sample page
+meta:
+  robots: noindex, nofollow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: "Sample Page | 4Geeks Academy Pro"
+  description: "Sample page - Learn more about this topic and related resources at 4Geeks Academy."
+  redirects:
+    - /sample-page
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-gi7p0x
+    version: "1.0"
+    variant: course
+    title: "{{ global.sample_greeting | Welcome to 4Geeks }}"
+    subtitle: Boost your career, harness the power of Applied AI.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra_1764725341501.png
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/JeanSt.Cloud_1764725356935.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +48 students enrolled
+    bullet_points:
+      - Learn "{{ global.workflowlele | prompt engineering }}" techniques to control AI outputs precisely
+      - Create professional images, videos, and documents using AI tools
+      - Build automated workflows that save hours of repetitive work
+      - Develop websites and chatbots without writing code
+      - Apply AI to enhance your learning and personal development
+    tutors:
+      - name: Charly Chacón
+        role: "{{ global.sample_greeting | Main Instructor }}"
+        image: https://randomuser.me/api/portraits/men/10.jpg
+      - name: Rigo
+        role: AI Tutor
+        image: https://randomuser.me/api/portraits/lego/1.jpg
+    tutors_label: "Your tutors:"
+    description: Unlock the power of Applied AI and Generative AI in your professional life—no coding required. This self-paced course teaches you how to master prompt engineering, automate workflows, and create content using advanced AI tools. Learn to compare open source and cloud-based solutions, generate documents and websites, build chatbots, and optimize your productivity with automation platforms.
+    media:
+      type: video
+      src: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+      thumbnail: https://images.unsplash.com/photo-1587620962725-abab7fe55159?w=800&h=450&fit=crop
+      alt: Course introduction video
+    signup_card:
+      title: Sign up to 4Geeks Plus
+      description: Subscribe and get access to hundreds of challenges, projects and courses
+      cta_button:
+        text: "{{ global.call_to_action_apply | Apply now }}"
+        url: /signup
+        variant: primary
+      login_link:
+        text: Login here.
+        url: /login
+      features:
+        - icon: book
+          text: Readings and videos
+          count: "31"
+        - icon: code
+          text: Interactive Exercises
+          count: "2"
+        - icon: briefcase
+          text: Interactive Projects
+          count: "8"
+        - icon: bot
+          text: Real Time AI Feedback
+        - icon: calendar
+          text: Workshops every week
+        - icon: users
+          text: Community Gatherings.
+  - type: certificate
+    section_id: certificate-h4c4h0
+    title: Certificate & Career Network
+    description: Graduate with a recognized certificate and join our global alumni network of over 5,000 developers working at top companies.
+    benefits:
+      - text: Internationally recognized certificate
+      - text: Access to exclusive job board with 300+ partner companies
+      - text: Lifetime membership in our alumni community
+    card:
+      title: Full Stack Developer
+      subtitle: 4Geeks Academy Certificate
+    showOn: mobile
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - munich-germany
+      - madrid-spain
+  - type: image_row
+    section_id: image_row-qrfsfa
+    maxWidth:
+      desktop: 6xl
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/image_1765318600261.png
+        alt: Feature illustration
+        id: image-feature-5
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student-2-latin.pngtin.png
+        alt: Latino student working on a project
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student-3-african.png
+        alt: African student collaborating with team
+    height: 20rem
+    gap: lg
+    rounded: true
+  - type: footer
+    section_id: footer-y5ws8i
+    version: v1.0
+    copyright_text: 2024 4Geeks Academy. All rights reserved.

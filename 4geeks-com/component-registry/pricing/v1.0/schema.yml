@@ -1,0 +1,116 @@
+name: Pricing Section
+version: "1.0"
+component: PricingSection
+file: client/src/components/career-programs/PricingSection.tsx
+description: Pricing card with monthly/yearly toggle, features grid, and tech icons
+when_to_use: |
+  Use to display subscription pricing options.
+  Shows pricing with discount badges, features included, and tech stack icons.
+props:
+  title:
+    type: string
+    required: true
+    description: Main heading for the pricing section
+    example: Get access to all of our learning database, courses, and services
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below title
+    example: Earn new skills every 30 min, never get stuck or lost again.
+  monthly:
+    type: object
+    required: true
+    properties:
+      discount_badge:
+        type: string
+        required: true
+        example: 35% OFF
+      price:
+        type: string
+        required: true
+        example: "38.99"
+      period:
+        type: string
+        required: true
+        example: mo
+      original_price:
+        type: string
+        required: false
+        example: "59.99"
+      savings_badge:
+        type: string
+        required: false
+    description: Monthly pricing details
+  yearly:
+    type: object
+    required: true
+    properties:
+      discount_badge:
+        type: string
+        required: true
+        example: 35% OFF
+      price:
+        type: string
+        required: true
+        example: "311.99"
+      period:
+        type: string
+        required: true
+        example: yr
+      original_price:
+        type: string
+        required: false
+        example: "479.99"
+      savings_badge:
+        type: string
+        required: false
+        example: Save 3 months
+    description: Yearly pricing details
+  tech_icons:
+    type: array
+    required: false
+    items:
+      type:
+        type: string
+        required: true
+    description: List of technology icons to display
+  features_title:
+    type: string
+    required: false
+    description: Title above the features list
+  features:
+    type: array
+    required: true
+    items:
+      icon:
+        type: string
+        required: false
+        description: Icon name - supports Tabler icons (robot, certificate, cloud, etc.) or custom icons (RigobotIconTiny, Rigobot)
+      text:
+        type: string
+        required: true
+        description: Feature description
+    description: List of included features
+  cta:
+    type: object
+    required: true
+    properties:
+      text:
+        type: string
+        required: true
+        example: Get plan
+      url:
+        type: string
+        required: true
+        example: /signup
+      variant:
+        type: string
+        required: true
+        options:
+          - primary
+          - secondary
+          - outline
+      icon:
+        type: string
+        required: false
+    description: Call-to-action button

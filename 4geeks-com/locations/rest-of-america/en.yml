@@ -1,0 +1,35 @@
+slug: rest-of-america
+meta:
+  page_title: Rest of America Coding Bootcamp | 4Geeks
+  description: Join 4Geeks Academy in Rest of America. Learn to code with our immersive bootcamp programs.
+sections:
+  - type: sticky_cta
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+    section_id: sticky_cta-ni4ipw

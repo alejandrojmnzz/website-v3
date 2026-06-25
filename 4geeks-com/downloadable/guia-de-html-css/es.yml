@@ -1,0 +1,206 @@
+slug: guia-de-html-css
+title: guia de html css
+meta:
+  page_title: "Guía de HTML y CSS | 4Geeks Academy"
+  description: Aprende a dominar HTML y CSS con nuestra guía gratuita y potencia tu carrera como desarrollador web con 4Geeks Academy.
+sections:
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: ¡Descarga hoy la Guía de HTML y CSS gratis!
+    title_highlight: ""
+    subtitle: ""
+    description: HTML y CSS son las bases de la web. Dominar las etiquetas HTML y los selectores CSS será parte de los primeros pasos que te lleven a convertirte en un excelente programador algún día. ¿A qué esperas? ¡Descarga hoy la guía de HTML y CSS GRATIS!
+    signup_card:
+      title: Descargar Guía
+      description: En breves minutos, después de haber completado el formulario, en tu correo electrónico habrás recibido la guía de HTML y CSS, tendrás acceso a todo lo que necesitas para empezar a aprender programación web.
+      form:
+        variant: stacked
+        submit_label: Descargar la Guía Gratis
+        conversion_name: financing_guide_download
+        tags: request_downloadable
+        fields:
+          email:
+            visible: true
+            required: true
+            placeholder: Correo electrónico
+          first_name:
+            visible: true
+            required: true
+            placeholder: Nombre completo
+          phone:
+            visible: true
+            required: true
+    background: hsl(210 100% 50% / 0.05)
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: none
+  - type: two_column
+    proportions:
+      - 7
+      - 5
+    background: hsl(210 100% 50% / 0.05)
+    alignment: center
+    left:
+      image: https://storage.googleapis.com/4geeks-academy-website/media/unsplash_workspace-700x467-q65.webp
+      image_alt: Student coding on laptop
+      justify: end
+    right:
+      heading: Guía de HTML y CSS, aprende lo necesario sobre etiquetas HTML y su estructura
+      sub_heading: ""
+      description: Actualmente la demanda de desarrolladores web calificados se está disparando. Las empresas de todos los tamaños confían en la web para llegar a sus clientes y necesitan profesionales capacitados para crear y mantener sus sitios web.
+      text_align: left
+    gap: "12"
+    paddingY:
+      desktop: lg
+  - type: awards_marquee
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: switchup-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logoHeight: 56px
+      - id: course-report-2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        alt: Course Report - Best Coding Bootcamp 2024
+        logoHeight: 56px
+      - id: tech-hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        alt: South Florida Tech Hub
+        logoHeight: 56px
+      - id: ebootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        alt: eBootcamp Top
+        logoHeight: 56px
+      - id: premios-tecnologia
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        alt: Premios Tecnologia Siglo XXI
+        logoHeight: 56px
+      - id: newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        alt: Newsweek
+        logoHeight: 56px
+      - id: reviews-coursereport
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        alt: 4.9 on Course Report Reviews
+        logoHeight: 56px
+      - id: excelencia-educativa
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        alt: Excelencia Educativa - Institutional Quality
+        logoHeight: 56px
+    paddingY:
+      desktop: lg
+  - type: two_column
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      heading: Domina los lenguajes básicos de la web. Descarga hoy la guía de HTML y CSS.
+      sub_heading: ¿Estás listo para dar tus primeros pasos en el emocionante mundo del desarrollo web?
+      description: HTML y CSS son los pilares fundamentales para crear páginas web que funcionen y se vean increíbles en cualquier dispositivo. Con esta guía completa, aprenderás los conceptos esenciales de estos lenguajes y estarás en camino de convertirte en un desarrollador web exitoso.
+      button:
+        text: Descargar la guía
+        url: "#cta_banner-6"
+        variant: primary
+        icon: Rocket
+    right:
+      image: https://storage.googleapis.com/4geeks-academy-website/media/Group_6660_1765391357731.png
+      justify: center
+    gap: "8"
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: none
+  - type: two_column
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      video: https://www.youtube.com/watch?v=OtJvrNwQw9E&t=1s
+      justify: center
+    right:
+      heading: Descubre por qué 4Geeks Academy es tu mejor opción para aprender HTML, CSS y mucho más
+      sub_heading: ""
+      description: En 4Geeks Academy, te brindamos las herramientas y el apoyo que necesitas para convertirte en un desarrollador web exitoso. Nuestra metodología de aprendizaje efectiva, basada en proyectos y práctica constante, te permitirá dominar HTML y CSS de manera rápida y efectiva.
+      button:
+        text: Descarga la Guía Gratis
+        url: "#cta_banner"
+        variant: primary
+        icon: Rocket
+    gap: "8"
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg
+  - type: whos_hiring
+    variant: carousel
+    pretitle: ""
+    title: ¡Las oportunidades te esperan!
+    subtitle: Muchas de las empresas líderes en el mundo buscan programadores web
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    background: hsl(210 100% 50% / 0.05)
+  - type: cta_banner
+    version: "1.0"
+    title: Descargar Guía
+    subtitle: En breves minutos, después de haber completado el formulario, en tu correo electrónico habrás recibido la guía de HTML y CSS, tendrás acceso a todo lo que necesitas para empezar a aprender programación web.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Descargar la Guía Gratis
+      conversion_name: financing_guide_download
+      tags: request_downloadable
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre Completo
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+      success:
+        message: ¡Gracias! En unos minutos recibirás la guía.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    section_id: cta_banner-afj5t3
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md

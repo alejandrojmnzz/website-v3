@@ -1,0 +1,137 @@
+slug: latam-video-ingeniera-de-ia
+title: Latam Video ingeniería de IA
+locale: es
+meta:
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+  page_title: Ingeniería AI con 4Geeks
+  description: Desarrolla soluciones de IA con mentoría y comunidad profesional en 4Geeks Academy, mejora tu carrera
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locations:
+  - caracas-venezuela
+  - buenosaires-argentina
+  - costa-rica
+  - lapaz-bolivia
+  - lima-peru
+  - mexicocity-mexico
+  - montevideo-uruguay
+  - panamacity-panama
+  - quito-ecuador
+  - santiago-chile
+  - bogota-colombia
+sections:
+  - type: two_column
+    version: v1.0
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    gap: "8"
+    left:
+      video: https://www.youtube.com/shorts/-SpU1PWNBF4?feature=share
+      justify: center
+    right:
+      heading: Por qué Ingeniería de IA es la carrera más importante de esta década
+      sub_heading: Y por qué el mercado necesita ingenieros ahora mismo
+      description: El 87% de las empresas no encuentra los ingenieros de IA que necesita. La demanda crece un 30% cada año y los salarios de entrada superan los $20K USD. Este programa existe para que seas tú quien cubra esa demanda.
+      button:
+        text: Iniciar mi aplicación
+        url: https://4geeksacademy.com/landing/herramientas-de-ia-para-programar
+        variant: primary
+        icon: Rocket
+    section_id: two_column-vs20nh
+    marginY:
+      desktop: none sm
+    paddingY:
+      desktop: lg
+    background: hsl(var(--secondary))
+  - type: numbered_steps
+    section_id: numbered_steps-v2sl9u
+    version: "1.0"
+    variant: verticalCards
+    title: Nuestro proceso de admisión
+    description: "Trabajamos con un proceso de admisión selectivo. La postulación no garantiza la inscripción: evaluamos cada aplicación para asegurar compromiso y alineación con el programa."
+    steps:
+      - icon: ClipboardList
+        title: Aplicación al programa
+        bullets:
+          - Completas el formulario inicial para iniciar tu postulación.
+          - Serás contactado por WhatsApp para conversar y analizar tu perfil, experiencia y objetivos profesionales.
+      - icon: UserCheck
+        title: Evaluación del perfil
+        bullets:
+          - Analizamos tu motivación, disponibilidad y encaje con el enfoque de nuestra academia.
+          - Identificamos candidatos con el nivel de compromiso que requiere el programa.
+      - icon: ArrowRightCircle
+        title: Selección y próximos pasos
+        bullets:
+          - Si tu perfil encaja, te compartimos la información completa para avanzar, incluyendo fechas, inversión y expectativas.
+          - Si no es el momento adecuado, te recomendamos alternativas alineadas a tu crecimiento profesional.
+    background: bg-muted/30
+    bullet_icon: Check
+    bullet_icon_color: text-primary
+  - type: two_column
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      video: https://www.youtube.com/watch?v=rtpfwwfE0yY
+      justify: center
+    right:
+      heading: "Joshua Bravo: de asistente de cocina a desarrollador Full Stack en una fintech"
+      sub_heading: Graduado de 4Geeks Academy, ahora trabajando en tecnología
+      description: Joshua trabajaba como asistente de cocina y contable mientras intentaba aprender a programar solo con tutoriales de YouTube. Sabía que necesitaba algo más estructurado para dar el salto real. Tras completar el bootcamp de Full Stack en 4Geeks, construyó aplicaciones web completas de cero y consiguió empleo como desarrollador en Regcheq, una startup fintech. Hoy hace lo que le apasiona.
+      button:
+        text: Iniciar mi aplicación
+        url: https://4geeksacademy.com/landing/herramientas-de-ia-para-programar
+        variant: primary
+        icon: Rocket
+    gap: "8"
+    marginY:
+      desktop: none xl
+    section_id: two_column-5ioq6d
+    background: hsl(var(--card))
+    paddingY:
+      desktop: lg
+  - type: trust_cards
+    maxWidth:
+      desktop: 6xl
+    version: v1.0
+    title: La academia mejor valorada en todas las plataformas de reseñas
+    items:
+      - image: https://old.4geeksacademy.com/static/01607bc41a0de635d83e9500e7cdb2ba/b490d/course-report.webp
+        rating: 4.9
+        review_count: 4.9 en Course Report
+      - image: https://old.4geeksacademy.com/static/b75f1b5bdfb35d447612388524e6ca96/611d9/google.webp
+        rating: 4.8
+        review_count: 4.8 en Google
+      - image: https://old.4geeksacademy.com/static/2c0afa9f6c7390203793f4d0bb6c5728/4d404/career-karma.webp
+        rating: 4.9
+        review_count: 4.9 en Career Karma
+      - image: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        rating: 4.9
+        review_count: 4.9 en SwitchUp
+    name: Default Trust Cards
+    description: Four review platform cards with ratings
+    section_id: trust_cards-oo4o98
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none md
+    background: hsl(var(--secondary))
+  - type: footer
+    section_id: footer-45a4k0
+    version: "1.0"
+    copyright_text: 2024 4Geeks. Todos los derechos reservados.
+    paddingY:
+      mobile: none
+      desktop: none
+    marginY:
+      desktop: sm none

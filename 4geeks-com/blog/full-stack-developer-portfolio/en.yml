@@ -1,0 +1,12 @@
+sections:
+  - id: hero-0ggr1k
+    type: hero
+    section_id: hero-cweekr
+    version: "1.0"
+    variant: singleColumn
+    badge: software-engineer-salary
+    title: Full Stack Portfolio - Examples & How to Build Yours | 4Geeks
+    subtitle: Craft a killer full stack dev portfolio that lands you the job See top examples, essential elements, and AI-ready skills. Get started
+    image_full_width: false
+    image:
+      src: {{ single.image | https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-learnpack-logo-jpg-d58de33d-736x414.webp }}

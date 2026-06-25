@@ -1,0 +1,40 @@
+slug: lisbon-portugal
+name: Lisbon
+city: Lisbon
+country: Portugal
+country_code: PT
+latitude: 38.7223
+longitude: -9.1393
+region: europe
+default_language: en
+timezone: Europe/Lisbon
+phone: +351 21 123 4567
+address: Avenida da Liberdade 110, 1250-146 Lisboa
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For this campus visitors and those interested in tech opportunities.
+  target_audience: Local professionals and residents seeking a coding bootcamp with job-focused training.
+  goals:
+    - Highlight job outcomes and connections to local employers
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Avenida da Liberdade 110
+        addressLocality: Lisboa
+        postalCode: 1250-146
+        addressCountry: PT

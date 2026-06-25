@@ -1,0 +1,40 @@
+slug: valencia-spain
+name: Valencia
+city: Valencia
+country: Spain
+country_code: ES
+latitude: 39.4699
+longitude: -0.3763
+region: europe
+default_language: es
+timezone: Europe/Madrid
+phone: +34 963 55 01 00
+address: Calle Colón 48, 46004 Valencia
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For this campus visitors and those interested in tech opportunities.
+  target_audience: Local professionals and residents seeking a coding bootcamp with job-focused training.
+  goals:
+    - Highlight job outcomes and connections to local employers
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Calle Colón 48
+        addressLocality: Valencia
+        postalCode: "46004"
+        addressCountry: ES

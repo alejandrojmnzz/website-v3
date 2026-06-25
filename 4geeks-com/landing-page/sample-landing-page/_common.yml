@@ -1,0 +1,12 @@
+slug: sample-landing-page
+title: Landing Page
+
+meta:
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+
+schema:
+  include:
+    - organization
+    - website

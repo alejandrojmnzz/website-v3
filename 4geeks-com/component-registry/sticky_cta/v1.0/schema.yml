@@ -1,0 +1,62 @@
+name: Sticky CTA
+version: "1.0"
+component: StickyCallToAction
+file: client/src/components/StickyCallToAction.tsx
+section_defaults:
+  load: eager
+description: >-
+  A sticky bottom bar that follows users as they scroll. Contains a heading and
+  an "Apply" button that expands to reveal a lead capture form.
+when_to_use: |
+  Use this component to maximize conversions on landing pages:
+  - When you want a persistent call-to-action visible at all times
+  - For long-form landing pages where users might scroll past the main CTA
+  - To capture leads without requiring users to scroll back up
+  - When you want an unobtrusive but accessible application form
+props:
+  heading:
+    type: string
+    required: true
+    description: Text displayed in the sticky bar next to the button
+    example: Ready to start your tech career?
+  button_label:
+    type: string
+    required: false
+    description: Label for the expand/apply button
+    example: Apply Now
+  form:
+    type: object
+    required: false
+    description: LeadForm configuration shown when the bar expands
+    properties:
+      variant:
+        type: string
+        required: false
+        options:
+          - stacked
+          - inline
+        description: Layout variant for the form
+      title:
+        type: string
+        required: false
+        description: Form heading (optional, since sticky bar already has heading)
+      submit_label:
+        type: string
+        required: false
+        description: Text for the submit button
+      fields:
+        type: object
+        required: false
+        description: Configuration for form fields (email, first_name, phone, etc.)
+      success:
+        type: object
+        required: false
+        properties:
+          url:
+            type: string
+            required: false
+            description: Redirect URL after success
+          message:
+            type: string
+            required: false
+            description: Success message to display

@@ -1,0 +1,18 @@
+# Common properties shared across all language variants
+slug: "job-guarantee"
+title: "Job Guarantee"
+
+meta:
+  priority: 0.9
+  change_frequency: "weekly"
+
+# AI Content Adaptation Context
+# Used by the AI system to adapt component examples to this specific content
+context:
+  when_to_use: "For visitors who are skeptical about bootcamp outcomes or need reassurance about their career investment."
+  target_audience: "Risk-averse career changers who need strong guarantees before committing to education investment."
+  goals:
+    - "Build trust through transparent guarantee terms"
+    - "Address skepticism about bootcamp effectiveness"
+    - "Highlight success rates and employer partnerships"
+    - "Make the financial commitment feel secure"

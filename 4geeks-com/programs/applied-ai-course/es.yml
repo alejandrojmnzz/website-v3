@@ -1,0 +1,540 @@
+slug: curso-inteligencia-artificial
+title: curso-inteligencia-artificial
+job_role: Ingeniero de Inteligencia Artificial
+settings:
+  loading:
+    eager_count: 3
+meta:
+  page_title: Programa de IA Aplicada para Profesionales | 4Geeks
+  description: "Domina las habilidades de IA para seguir siendo competitivo y avanzar en tu carrera en solo 6 semanas. Aprende a aplicar la IA para mayor eficiencia e impacto."
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+sections:
+  - type: breadcrumb
+    section_id: breadcrumb-curso-inteligencia-artificial-es
+    items:
+      - label: Inicio
+        url: /
+      - label: Programas de Carrera
+        url: /es/programas-de-carrera
+      - label: "Inteligencia Artificial Aplicada"
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: Mantente Relevante en Tu Carrera. Lidera con IA.
+    title_highlight: Lidera con IA
+    subtitle: Adquiere las habilidades de IA para seguir siendo competitivo y avanzar en tu carrera en solo 6 semanas. Aprende a aplicar la IA en el trabajo para mayor eficiencia, creatividad e impacto.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra-1764725341501-512x512-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/jeanstcloud-1764725356935-800x800-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +6000 graduados
+    bullet_points:
+      - Aprende habilidades prácticas de IA que puedes aplicar de inmediato en tu rol actual o flujos de trabajo empresariales.
+      - Usa la IA para mejorar la productividad, creatividad, toma de decisiones y ejecución diaria en el trabajo.
+      - Desarrolla confianza usando herramientas modernas de IA en contextos profesionales reales, no solo teoría.
+      - Aprendizaje hiperpersonalizado con mentoría 1:1 ilimitada y apoyo que continúa más allá del programa.
+      - Ideal para profesionales que buscan mantenerse relevantes en un mercado laboral impulsado por la IA.
+    tutors:
+      - name: Marco Gonzalo
+        role: Instructor Principal
+        image: https://storage.googleapis.com/4geeks-academy-website/media/410890.jpg
+      - name: Rigo
+        role: Tutor de IA
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Tu sistema de apoyo:"
+    media:
+      type: video
+      src: https://www.youtube.com/watch?v=E9RpwJhJi-k
+      thumbnail: https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=450&fit=crop
+      alt: Introducción al programa de Inteligencia Artificial para Profesionales
+    signup_card:
+      title: Descarga los Detalles del Curso
+      description: Recibe el resumen completo del curso, la estructura de aprendizaje, el calendario y las habilidades prácticas de IA que desarrollarás en solo 6 semanas.
+      cta_button:
+        text: Descargar Detalles del Curso
+        url: "#modal-o9bufw"
+        variant: primary
+      login_link:
+        text: ¿Ya eres estudiante? Inicia sesión aquí.
+        url: https://4geeks.com/es/login
+      features:
+        - icon: calendar
+          text: Programa Profesional de IA de 6 Semanas
+        - icon: IconRobot
+          text: Habilidades Prácticas de IA para el Trabajo Real
+        - icon: briefcase-business
+          text: Formación Relevante para la Carrera, Enfocada en Productividad
+        - icon: IconUsers
+          text: Experiencia de Aprendizaje Hiperpersonalizada
+        - icon: IconUserCheck
+          text: Mentoría 1:1 Ilimitada
+        - icon: book
+          text: Aplicaciones Reales de IA en el Mundo Laboral
+    section_id: hero-74qn9v
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none
+  - type: modal
+    version: "1.0"
+    section_id: modal-o9bufw
+    heading: Solicitar Detalles del Programa
+    description: Ingresa tus datos para recibir el plan de estudios completo, la estructura del programa, las opciones de horario, la información de matrícula y el marco de apoyo.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Obtener el Resumen Completo
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | applied-ai }}
+      success:
+        message: Gracias. Un asesor del programa se comunicará contigo con los detalles en las próximas 24 horas.
+  - type: awards_marquee
+    section_id: awards_marquee-jnnxte
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Mejores Bootcamps de Programación 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Mejor Bootcamp de Programación 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 64px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 64px
+      - id: premios-tecnologia
+        alt: Premios Tecnología Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 en Reseñas de Course Report
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Calidad Institucional
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 64px
+    paddingY:
+      desktop: none
+    marginY:
+      desktop: md lg
+  - type: features_grid
+    version: "1.0"
+    variant: stats-text
+    maxWidth:
+      desktop: 6xl
+    title: Por Qué las Habilidades de IA Importan Ahora
+    subtitle: La IA se está convirtiendo en una habilidad laboral fundamental
+    description: La IA está rápidamente convirtiéndose en parte del trabajo cotidiano en todos los sectores. Los profesionales que saben cómo usar herramientas y flujos de trabajo de IA están obteniendo una ventaja significativa en productividad, crecimiento profesional y potencial de ingresos.
+    background: hsl(210 100% 50% / 0.05)
+    items:
+      - id: "1"
+        value: 56%
+        title: Prima salarial promedio para profesionales con habilidades de IA
+      - id: "2"
+        value: 40%
+        title: De los empleados en EE.UU. ya usan IA en el trabajo
+      - id: "3"
+        value: 21%→40%
+        title: Crecimiento de empleados que usan herramientas de IA en el trabajo
+    section_id: features_grid-go2y2k
+  - type: syllabus
+    variant: program-modules
+    program_title: IA Aplicada para Profesionales
+    program_description: En solo 6 semanas, aprende a aprovechar las principales herramientas de IA actuales para optimizar tu flujo de trabajo, mejorar la calidad de tu trabajo y mantenerte adelante en tu carrera. Este programa se enfoca en habilidades prácticas de IA usando herramientas como ChatGPT, Gemini, Claude y modelos modernos de generación de imágenes aplicados directamente a tareas profesionales del mundo real.
+    tech_logos:
+      - name: ChatGPT
+        icon: openai
+      - name: Gemini
+        icon: google
+      - name: Claude
+        icon: anthropic
+      - name: Midjourney
+        icon: sparkles
+      - name: Stable Diffusion
+        icon: cpu
+    module_cards:
+      - title: Introducción a la IA
+        duration: Semana 1
+        objectives:
+          - Comprender cómo funcionan los sistemas modernos de IA
+          - Panorama de los modelos de IA generativa
+          - Conceptos clave detrás de los LLMs y asistentes de IA
+          - Uso responsable y efectivo de la IA
+        projects: Aplica herramientas de IA a flujos de trabajo profesionales simples.
+        orientation: vertical
+        icon: IconRobot
+      - title: IA para la Productividad
+        duration: Semana 2
+        objectives:
+          - Usar IA para automatizar tareas laborales cotidianas
+          - Aceleración de investigación con asistentes de IA
+          - Resumen y procesamiento de información
+          - Flujos de trabajo de IA para la productividad
+        projects: Construye flujos de trabajo asistidos por IA para tareas profesionales diarias.
+        orientation: vertical
+        icon: IconBolt
+      - title: Generación de Texto y Comunicación
+        duration: Semana 3
+        objectives:
+          - Fundamentos de ingeniería de prompts
+          - Redacción, edición y resumen con IA
+          - IA para informes, correos, documentación y marketing
+          - Estructurar prompts para mejores resultados
+        projects: Crea contenido profesional usando herramientas de IA generativa.
+        orientation: vertical
+        icon: IconFileText
+      - title: Generación de Imágenes e IA Visual
+        duration: Semanas 4–5
+        objectives:
+          - Comprensión de los modelos de generación de imágenes
+          - Herramientas como Stable Diffusion, DALL-E y Midjourney
+          - Ingeniería de prompts para generación de imágenes
+          - Uso de visuales de IA en contextos profesionales
+        projects: Diseña y optimiza prompts para generar imágenes para casos de uso reales.
+        orientation: vertical
+        icon: IconPhoto
+      - title: Herramientas de IA y el Futuro del Trabajo
+        duration: Semana 6
+        objectives:
+          - Panorama de los ecosistemas modernos de IA
+          - Evaluación de nuevas herramientas y capacidades de IA
+          - Comprensión de la adopción de IA en distintos sectores
+          - Integración de la IA en flujos de trabajo a largo plazo
+        projects: Desarrolla una estrategia de IA para tu rol u organización.
+        orientation: horizontal
+        icon: IconSparkles
+    section_id: syllabus-9j2a7p
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+  - type: ai_learning
+    section_id: ai_learning-bohkbh
+    variant: feature-tabs
+    badge: ¿Por qué 4Geeks?
+    title: Cómo Aprenderás en 4Geeks
+    description: Avanza más rápido y mantente motivado con nuestras herramientas impulsadas por IA y nuestro método de enseñanza hiperpersonalizado.
+    features:
+      - icon: bot
+        title: Avanza más rápido con herramientas impulsadas por IA
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Feedback instantáneo de Rigobot, nuestro tutor de IA personalizado
+          - text: Orientación ajustada a tu nivel de habilidad y progreso
+          - text: Ayuda 24/7 con depuración y resolución de problemas
+          - text: Cientos de ejercicios prácticos interactivos y pruebas
+        video_url: https://storage.googleapis.com/breathecode/videos/landing-pages/learnpack-demo.mp4
+      - icon: TrendingUp
+        title: Prospera en tech con apoyo profesional para la Era de la IA
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Coaching personalizado 1:1
+          - text: CVs y portafolios optimizados para la IA
+          - text: Preparación para entrevistas y negociación salarial
+          - text: Acceso de por vida para apoyar tu crecimiento
+        video_url: https://youtu.be/-2ZvlgDnltc
+      - icon: Headset
+        title: Mentoría 1:1 ilimitada y una comunidad activa
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Acceso de por vida a sesiones de mentoría 1:1
+          - text: Proporción {{ global.global_teacher_student_ratio | 7:1 }} de estudiante–profesor para orientación personalizada
+          - text: Colaboración entre pares a través de canales de Slack y revisiones semanales
+          - text: Canales dedicados de Slack para soporte de código, bolsa de trabajo y consejos de carrera
+        image_id: community-support-cropped-800x476-q70
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+  - type: certificate
+    title: Resultados Profesionales
+    description: "Obtén un certificado reconocido por la industria de una institución acreditada por el Departamento de Educación de Florida. Accede a roles impulsados por IA que los empleadores están buscando activamente:"
+    benefits:
+      - text: "Ingeniero de Prompts: $100K–$160K"
+      - text: "Especialista en Automatización con IA: $75K–$120K"
+      - text: "Especialista en Soluciones de IA: $85K–$130K"
+      - text: "Especialista en IA Generativa: $95K–$145K"
+    card:
+      title: IA Aplicada
+      subtitle: Certificado de 4Geeks Academy
+      program_name: IA para Profesionales
+    stats:
+      - value: {{ global.global_job_placement_rate | 84 }}%
+        label: Tasa de contratación
+        description: Desarrolla habilidades prácticas de IA que puedes aplicar en negocios, marketing, operaciones y flujos de trabajo digitales, respaldadas por una certificación reconocida y orientación profesional.
+        benefits:
+          - text: Certificado reconocido por el Departamento de Educación de Florida
+          - text: Experiencia práctica con las principales herramientas de IA y flujos de trabajo reales
+          - text: Portafolio de casos de uso y proyectos de IA aplicada
+          - text: Perfil profesional optimizado para oportunidades relacionadas con la IA
+      - value: 3-6 meses
+        label: Tiempo para ser contratado
+        description: Usa tus habilidades de IA para acceder a roles emergentes y fortalecer tu perfil profesional actual con herramientas que los empleadores ya están adoptando.
+        benefits:
+          - text: Optimiza tu CV, LinkedIn y posicionamiento profesional
+          - text: Practica cómo comunicar tus habilidades de IA en entrevistas
+          - text: Desarrolla una estrategia personalizada de búsqueda de empleo para roles relacionados con la IA
+      - value: {{ global.global_salary_increase | 55 }}%
+        label: Aumento Salarial Promedio
+        description: Los trabajadores con habilidades de IA obtienen importantes primas salariales a medida que la IA se convierte en una capacidad laboral fundamental en todos los sectores.
+        benefits:
+          - text: "Ingeniero de Prompts: $100K–$160K"
+          - text: "Especialista en Automatización con IA: $75K–$120K"
+          - text: "Especialista en Soluciones de IA: $85K–$130K"
+          - text: "Especialista en IA Generativa: $95K–$145K"
+      - value: 400+
+        label: Empresas que contratan
+        description: Accede a nuestra red de empresas colaboradoras y recursos de apoyo profesional para conectar tus nuevas habilidades de IA con oportunidades profesionales reales.
+        benefits:
+          - text: Acceso exclusivo a bolsa de trabajo
+          - text: Referencias prioritarias a empresas colaboradoras
+          - text: Eventos de networking con responsables de contratación
+          - text: Empresas como Google, Meta, Amazon y startups
+    certificate_position: right
+    useSolidCard: true
+    section_id: certificate-z3vs8h
+    marginY:
+      mobile: none
+      desktop: none
+    paddingY:
+      mobile: lg
+      desktop: lg
+    background: hsl(var(--secondary))
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Planes de pago
+    subtitle: Selecciona la ubicación y la opción de pago que mejor se adapte a ti.
+    discount_text: "Mejor oferta: Paga solo $3,000 al pagar en su totalidad."
+    financing_text: Pagos semanales flexibles desde
+    financing_amount: $550/semana
+    tech_icons:
+      - openai
+      - brain
+      - robot
+      - settings
+      - api
+    features_title: Elige tu plan de pago flexible.
+    features:
+      - icon: IconCheck
+        text: Paga $550 por semana durante 6 semanas mientras completas el programa.
+      - icon: IconCheck
+        text: Paga por adelantado y ahorra con la opción de pago total de $3,000.
+      - icon: IconCheck
+        text: Planes de pago flexibles disponibles para que puedas enfocarte en aprender, no en las finanzas.
+      - icon: IconCheck
+        text: Habla con un asesor para encontrar la mejor opción de pago según tu situación.
+    cta:
+      text: Solicitar un Plan de Estudios
+      url: "#modal-o9bufw"
+      variant: primary
+    section_id: pricing-5ihe9a
+    marginY:
+      desktop: lg xl
+    paddingY:
+      desktop: none md
+  - type: whos_hiring
+    variant: carousel
+    pretitle: Historias de Éxito
+    title: ¿Quién Contrata a Nuestros Graduados?
+    subtitle: Las mejores empresas contratan graduados de 4Geeks, con el 84% consiguiendo empleo dentro de los 6 meses posteriores a su graduación, gracias a sus habilidades y a nuestro apoyo profesional personalizado. Nuestros graduados no solo consiguen empleo, sino que lanzan carreras exitosas y reciben reconocimiento constante por su experiencia técnica y profesionalismo. "Me impresiona continuamente la profundidad del conocimiento que poseen los estudiantes de 4Geeks. Uno de mis contratados terminó convirtiéndose en líder de equipo." - CodeNinjas.
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefónica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    section_id: whos_hiring-b1g5t9
+    marginY:
+      desktop: none md
+  - type: faq
+    title: Preguntas Frecuentes
+    hardcoded_entries:
+      - question: ¿Qué requisitos previos necesito para el curso de IA Aplicada?
+        answer: No se requieren conocimientos previos de programación. Nuestro programa comienza con conceptos fundamentales y progresa hacia el uso avanzado de herramientas de IA. Si eres nuevo en el mundo digital, contamos con materiales preparatorios para ayudarte a comenzar.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: ¿Cuánto tiempo dura el programa?
+        answer: El programa de IA Aplicada para Profesionales está diseñado para completarse en 6 semanas. Al ser un programa con ritmo guiado, puedes adaptarlo a tu horario con el apoyo de tus mentores.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: ¿Qué tipo de proyectos voy a desarrollar?
+        answer: Aplicarás herramientas de IA a flujos de trabajo profesionales reales, crearás contenido usando IA generativa, generarás imágenes para casos de uso concretos y desarrollarás una estrategia de IA para tu rol u organización.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: ¿Necesito hardware costoso para el curso?
+        answer: ¡No! Todos los ejercicios y proyectos se ejecutan en la nube. Solo necesitas una laptop y conexión a internet para aprender con las principales herramientas de IA.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+      - question: ¿El certificado es reconocido por los empleadores?
+        answer: ¡Sí! Nuestro certificado es reconocido por empleadores a nivel mundial. Estamos acreditados por el Departamento de Educación de Florida y hemos sido destacados por Forbes, Newsweek y Course Report como uno de los mejores bootcamps de programación.
+        locations:
+          - all
+        related_features: []
+        priority: 0
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - applied-ai
+            - mentors-and-teachers
+        - item_property_slug: locations
+          value: all
+    item_overrides:
+      how-long-does-the-program-take:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    section_id: faq-8vzhp4
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+  - type: cta_banner
+    version: "1.0"
+    title: ¿Listo para Convertirte en un Profesional de Inteligencia Artificial?
+    subtitle: Plazas limitadas disponibles. Comienza tu transformación hoy.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Aplicar ahora
+      conversion_name: student_application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: applied-ai
+      success:
+        message: ¡Gracias! Nos pondremos en contacto pronto.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    section_id: cta_banner-8dww61
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    section_id: sticky_cta-v968gv
+    version: "1.0"
+    heading: ¿Listo para iniciar tu carrera en tecnología?
+    button_label: Aplicar Ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar Solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: false
+          default: {{ single.bc_slug | unknown }}
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en las próximas 24 horas.

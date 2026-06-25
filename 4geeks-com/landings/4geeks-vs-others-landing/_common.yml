@@ -1,0 +1,24 @@
+slug: 4geeks-vs-others-landing
+title: 4Geeks vs others landing
+meta:
+  priority: 0.9
+  change_frequency: weekly
+  redirects:
+    - /us/landing/4geeks-vs-others
+  robots: index, follow
+  page_title: 4Geeks vs others | Top Coding Bootcamp
+  description: Get hired with 4Geeks Academy's job guarantee, lifelong mentorship and proven outcomes, launch your career today
+  og_image: https://storage.googleapis.com/4geeks-academy-website/media/4geeks_academy_logo_black.webp
+schema:
+  include:
+    - organization
+    - website
+locations:
+  - mexicocity-mexico
+  - santiago-chile
+  - caracas-venezuela
+  - buenosaires-argentina
+  - bogota-colombia
+  - costa-rica
+  - montevideo-uruguay
+  - panamacity-panama

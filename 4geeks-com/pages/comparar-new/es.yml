@@ -1,0 +1,120 @@
+type: comparar-new
+version: "2.0"
+title: "No importa qué buscas — AI es el camino"
+subtitle: "Cybersecurity, Fullstack, Data Science: el mercado los absorbió. Hoy todos esos roles se construyen sobre AI. Aquí están las tres formas de llegar, dependiendo de dónde estás parado."
+columns:
+  - name: Category
+    highlight: true
+  - name: AI Engineering
+  - name: AI Fluent for Professionals
+  - name: AI Flex
+rows:
+  - feature: Para quién es
+    values:
+      - Para quien quiere cambiar de carrera y construir sistemas de AI. No se requiere experiencia técnica previa. Ideal para developers, career switchers y profesionales técnicos.
+      - Para marketers, abogados, consultores, ejecutivos, y cualquier profesional con trabajo cognitivo que aún hace manualmente lo que AI puede hacer mejor. Sin código requerido.
+      - Para quien quiere explorar antes de comprometerse. Elige hasta 4 cursos del catálogo, a tu ritmo, con la opción de acreditar lo aprendido si después decides el bootcamp completo.
+
+  - feature: La pregunta que responde
+    values:
+      - '"Quiero construir sistemas de AI y que me paguen bien por eso."'
+      - '"Quiero usar AI en mi trabajo actual sin tener que aprender código."'
+      - '"No sé exactamente qué quiero. Necesito explorar primero."'
+
+  - feature: Por qué ahora
+    values:
+      - El 73% de las Fortune 500 está contratando AI Engineers hoy. Los salarios crecieron 40% en dos años. No es una moda — es la nueva columna vertebral del software, y los roles de Cybersecurity, Fullstack y Data Science hoy se construyen sobre esta base.
+      - Los profesionales que usan AI productivamente completan tareas 40–60% más rápido (MIT, BCG). Ya existe una brecha de productividad entre colegas. Los que no se adaptan no compiten en igualdad de condiciones.
+      - El catálogo incluye desde Prompt Engineering hasta Data Science & ML. Cada curso tiene su propio certificado — y todos cuentan si después decides hacer el AI Engineering Bootcamp completo.
+
+  - feature: Qué vas a construir
+    values:
+      - Agentes con tool calling, pipelines RAG, sistemas multi-agente con LangGraph, APIs con FastAPI, workflows automatizados con n8n, y un capstone completo que transforma una empresa real con AI.
+      - Una librería personal de prompts para tu trabajo real, una automatización funcional en n8n, y la eliminación de tus 3 tareas más repetitivas. Todo en 4 semanas, sin código.
+      - Algo real en lo que te interese. Si eliges Vibe Coding, construyes una app. Si eliges Prompt Engineering, te vas con una librería lista para usar mañana. Si eliges No-Code, tienes un workflow activo. Cada curso tiene su propio proyecto — te recomendamos 4 cursos según tu perfil, pero tienes acceso a todo el catálogo.
+
+  - feature: Roles de destino
+    values:
+      - AI Engineer · Forward-Deployed Engineer · AI Systems Engineer · Automation Engineer · AI Software Engineer
+      - No aplica — diseñado para potenciar el rol que ya tienes, no para cambiarlo.
+      - Variable según los cursos elegidos. Puede ser rampa hacia AI Engineering o complemento de cualquier carrera técnica.
+
+  - feature: Salario promedio (EE.UU.)
+    values:
+      - $100K a $160K
+      - Incremento de productividad en rol actual — no cambio de salario base inmediato.
+      - A medida que completas más cursos potencias tu campo de trabajo actual. Si en algún momento decides hacer AI Engineering, ya tienes una base sólida y un salario promedio respaldado por la demanda del mercado: $100K a $160K en EE.UU.
+
+  - feature: Duración
+    values:
+      - Part-Time 24 semanas o curso intensivo de 15 semanas
+      - 4 semanas, 1 clase en vivo por semana más módulos self-paced
+      - Sin fecha de cierre, avanzas a tu ritmo. Cada curso tiene sus propias horas estimadas (6 a 22 hrs).
+
+  - feature: Precio
+    values:
+      - $14,999 (descuentos y becas disponibles)
+      - $900 (pago trimestral o anual disponible)
+      - $30/mes o $199/año, 7 días gratis para probar
+
+  - feature: Planes de pago
+    values:
+      - Planes mensuales, descuento por pago adelantado, préstamos e ISA disponibles.
+      - Trimestral o anual. Descuento aplicado en pago anual.
+      - Mensual o anual. Sin contratos. Cancela cuando quieras.
+
+  - feature: Job Guarantee
+    values:
+      - Disponible por $2,000 adicionales.
+      - No aplica.
+      - No aplica — no es un programa de cambio de carrera.
+
+  - feature: Mejor para ti si
+    values:
+      - Quieres un trabajo nuevo en tech, con salario de ingeniería, construyendo los sistemas que otros simplemente usan. Funciona incluso si hoy no sabes programar.
+      - Ya tienes un trabajo y quieres ser la persona más productiva de tu equipo usando AI. No quieres aprender código — quieres resultados esta semana.
+      - No estás seguro de qué quieres aprender. Prefieres probar antes de comprometerte, o necesitas una habilidad específica sin hacer un bootcamp completo.
+
+  - feature: "¿Buscabas otro programa?"
+    values:
+      - Los módulos de Cybersecurity, Data Science y Full Stack viven dentro de AI Engineering. El mercado los absorbió — hoy se construyen sobre la misma base de agents, LLMs y automatización.
+      - Si buscabas Cybersecurity o Data Science para tu trabajo actual, AI Fluent te da las herramientas para usar AI en tu contexto profesional sin cambiar de carrera.
+      - Fullstack Dev, Data Science & ML y No-Code & Automations están disponibles como cursos individuales en el catálogo de AI Flex. Explóralos antes de comprometerte con un bootcamp.
+
+  - feature: Listo para empezar
+    values:
+      - cta:
+          - text: Aplicar ahora
+            url: /en/apply
+            variant: primary
+          - text: Ver programa completo
+            url: /en/career-programs/ai-engineering
+            variant: outline
+      - cta:
+          - text: Saber más
+            url: /en/career-programs/ai-fluent
+            variant: primary
+      - cta:
+          - text: Empezar gratis — 7 días
+            url: /en/ai-flex
+            variant: primary
+          - text: Ver catálogo
+            url: /en/ai-flex/catalog
+            variant: outline
+
+footer_note: "* Algunos programas están sujetos a disponibilidad por región. Descuentos y becas disponibles para todos los programas de carrera."
+
+other_programs_note:
+  title: "¿Buscabas Cybersecurity, Full Stack o Data Science?"
+  message: "Estos programas siguen disponibles. Pero antes de elegir, considera esto: el mercado los está absorbiendo dentro de AI. Un Cybersecurity Engineer hoy usa LLMs para auditoría. Un Data Scientist hoy trabaja con pipelines de AI. Un Full Stack Developer hoy hace Vibe Coding con agentes. Si te interesa alguno de ellos, cuéntanos — podemos ayudarte a encontrar el camino que tenga más sentido para ti."
+  programs:
+    - name: Full Stack Development with AI
+      url: /en/career-programs/full-stack
+    - name: Data Science & Machine Learning with AI
+      url: /en/career-programs/data-science-ml
+    - name: Cybersecurity
+      url: /en/career-programs/cybersecurity
+
+section_id: comparison_table-ai-programs-v2
+marginY:
+  desktop: xl lg

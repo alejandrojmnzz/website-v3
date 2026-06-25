@@ -350,7 +350,7 @@ export function registerFormsRoutes(app: Express): void {
 
     // Get all visible locations grouped by region
     const locationsPath = path.join(
-      (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com"),
+      (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "content"),
       getFolder("location"),
     );
     const locationsList: Array<{

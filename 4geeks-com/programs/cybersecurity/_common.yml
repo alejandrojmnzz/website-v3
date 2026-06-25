@@ -1,0 +1,22 @@
+slug: cybersecurity
+bc_slug: cybersecurity
+title: Cybersecurity
+job_role: Cybersecurity Specialist
+valid_lead_form_option: true
+meta:
+  og_image: /images/programs/cybersecurity-og.jpg
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: Cybersecurity Bootcamp | 4Geeks
+  description: Become a Cybersecurity Specialist in 16 weeks. 84% hiring rate, $75K–$165K salaries, unlimited mentorship, and career support designed to get you hired. 4Geeks Academy.
+  redirects:
+    - /bootcamp/cybersecurity
+    - /programs/cybersecurity-specialist
+    - /coding-bootcamp/cybersecurity
+    - /us/coding-bootcamps/cybersecurity
+schema:
+  include:
+    - organization
+    - website
+    - courses:cybersecurity

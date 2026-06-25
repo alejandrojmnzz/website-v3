@@ -1,0 +1,126 @@
+slug: privacy-policy
+template: default
+title: privacy-policy
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Official Privacy Policy | 4Geeks
+  description: Discover how 4Geeks Academy protects your data with our comprehensive privacy policy, ensuring transparency and security for all users and students.
+  redirects:
+    - /privacy-policy
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: article
+    section_id: article-ksd57j
+    content: |
+      # Privacy Policy, 4Geeks Academy 
+
+      **Effective Date: 2025-07-23**
+
+      At 4Geeks Academy, accessible from https://4geeksacademy.com, one of our main priorities is the privacy of our visitors and students. This Privacy Policy explains what information we collect, how we use it including SMS communications, and the choices you have. If you have questions, contact us at privacy@4geeksacademy.com.
+
+      ## Log Files
+
+      4Geeks Academy follows a standard procedure of using log files. These files log visitors when they visit websites. The information collected may include IP addresses, browser type, Internet Service Provider (ISP), date and time stamp, referring or exit pages, and number of clicks. This information is not linked to personally identifiable data.
+
+      The purpose of collecting this information is to analyze trends, administer the site, track users' movement, and gather demographic insights.
+
+      ## Cookies and Web Beacons
+
+      Like many websites, 4Geeks Academy uses cookies to store information including visitor preferences and pages accessed. This information is used to optimize the user experience by customizing web content based on browser type and other relevant data.
+
+      ## SMS Communications and Consent (10DLC)
+
+      ### What We Send and Why
+      If you provide your mobile number, we may send service-related or informational SMS messages such as enrollment updates, reminders, and support notifications. Marketing messages are sent only if you explicitly agree to receive them.
+
+      ### How We Collect Consent
+      Consent is obtained through web forms, checkboxes, enrollment flows, event registrations, or when you text us first. Each form clearly states that submitting your number authorizes us to send SMS messages.
+
+      ### Opting Out
+      You can opt out at any time by replying STOP to any message. You may receive one final message confirming your opt-out. For assistance, reply HELP or email privacy@4geeksacademy.com.
+
+      ### Message and Data Rates
+      Standard message and data rates may apply. Message frequency may vary.
+
+      ### Carrier Disclaimer
+      Carriers are not liable for delayed or undelivered messages.
+
+      ## SMS Data Handling and Security
+
+      We treat phone numbers and SMS interaction data as personal information:
+
+      - No Sale or Sharing: We do not sell or share your phone number with third parties for their own marketing purposes.
+      - Limited Access: Only authorized personnel and service providers such as SMS delivery vendors may access this data to perform services on our behalf.
+      - Secure Storage: Data is protected using administrative, technical, and physical safeguards.
+      - Retention: SMS-related data is retained only as long as necessary to fulfill its purpose or comply with legal obligations, after which it is deleted or anonymized.
+
+      ## Advertising Partners
+
+      Some advertisers on our site may use cookies and web beacons. Each advertising partner has its own Privacy Policy governing their data practices. We encourage users to review those policies.
+
+      Third-party ad servers or ad networks may use cookies, JavaScript, or web beacons in advertisements and links that appear on our website. These technologies automatically receive your IP address and are used to measure advertising effectiveness and personalize content.
+
+      4Geeks Academy does not have access to or control over cookies used by third-party advertisers.
+
+      ## Third-Party Privacy Policies
+
+      This Privacy Policy does not apply to other advertisers, messaging providers, or external websites. We recommend reviewing the respective Privacy Policies of those third parties to understand their data practices and opt-out options.
+
+      You may disable cookies through your browser settings. Instructions are available on your browser’s website.
+
+      ## Children's Information
+
+      Protecting children online is important to us. 4Geeks Academy does not knowingly collect personal identifiable information from children under the age of 13. If you believe that a child has provided such information, please contact us immediately so we can promptly remove it.
+
+      ## Online Privacy Policy Only
+
+      This Privacy Policy applies only to our online activities and is valid for visitors to our website regarding the information shared and collected on 4Geeks Academy. It does not apply to information collected offline or through other channels.
+
+      ## Consent
+
+      By using our website, you consent to this Privacy Policy. By providing your phone number and affirmatively opting in where required, you consent to receive SMS communications as described above and agree to our Terms and Conditions.
+
+      ## Changes to This Policy
+
+      We may update this Privacy Policy from time to time. The revised version will be posted with an updated effective date. Continued use of the website after changes indicates acceptance of the revised policy.
+
+      2025-07-23
+    show_toc: true
+    max_width: xl
+    maxWidth:
+      desktop: 2xl
+  - type: sticky_cta
+    section_id: sticky_cta-1bijgm
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

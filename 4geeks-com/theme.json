@@ -1,0 +1,638 @@
+{
+  "icons": [
+    "IconRocket",
+    "IconUsers",
+    "IconBriefcase",
+    "IconShield",
+    "IconCheck",
+    "IconX",
+    "IconPlus",
+    "IconMinus",
+    "IconStar",
+    "IconHeart",
+    "IconHome",
+    "IconSettings",
+    "IconSearch",
+    "IconMail",
+    "IconPhone",
+    "IconCalendar",
+    "IconClock",
+    "IconMap",
+    "IconMapPin",
+    "IconGlobe",
+    "IconWorld",
+    "IconSend",
+    "IconDownload",
+    "IconUpload",
+    "IconShare",
+    "IconLink",
+    "IconExternalLink",
+    "IconEye",
+    "IconEyeOff",
+    "IconLock",
+    "IconLockOpen",
+    "IconKey",
+    "IconUser",
+    "IconUserPlus",
+    "IconUserCheck",
+    "IconCreditCard",
+    "IconWallet",
+    "IconCash",
+    "IconCoin",
+    "IconCurrency",
+    "IconCurrencyDollar",
+    "IconCurrencyEuro",
+    "IconReceipt",
+    "IconCalculator",
+    "IconChart",
+    "IconChartBar",
+    "IconChartLine",
+    "IconChartPie",
+    "IconTrendingUp",
+    "IconTrendingDown",
+    "IconTarget",
+    "IconAward",
+    "IconTrophy",
+    "IconMedal",
+    "IconCertificate",
+    "IconBadge",
+    "IconFlag",
+    "IconBookmark",
+    "IconTag",
+    "IconTags",
+    "IconFolder",
+    "IconFile",
+    "IconFileText",
+    "IconClipboard",
+    "IconNotes",
+    "IconPencil",
+    "IconEdit",
+    "IconTrash",
+    "IconArchive",
+    "IconRefresh",
+    "IconRotate",
+    "IconRepeat",
+    "IconArrowUp",
+    "IconArrowDown",
+    "IconArrowLeft",
+    "IconArrowRight",
+    "IconChevronUp",
+    "IconChevronDown",
+    "IconChevronLeft",
+    "IconChevronRight",
+    "IconMenu",
+    "IconDotsVertical",
+    "IconDots",
+    "IconFilter",
+    "IconSort",
+    "IconZoomIn",
+    "IconZoomOut",
+    "IconMaximize",
+    "IconMinimize",
+    "IconFullscreen",
+    "IconCode",
+    "IconTerminal",
+    "IconBrandGithub",
+    "IconBrandLinkedin",
+    "IconBrandTwitter",
+    "IconBrandFacebook",
+    "IconBrandInstagram",
+    "IconBrandYoutube",
+    "IconBrandSlack",
+    "IconBrandDiscord",
+    "IconMessage",
+    "IconMessageCircle",
+    "IconMessages",
+    "IconBell",
+    "IconBellRinging",
+    "IconAlertCircle",
+    "IconAlertTriangle",
+    "IconInfoCircle",
+    "IconHelp",
+    "IconQuestionMark",
+    "IconBulb",
+    "IconLightbulb",
+    "IconFlame",
+    "IconBolt",
+    "IconZap",
+    "IconCloud",
+    "IconCloudDownload",
+    "IconCloudUpload",
+    "IconDatabase",
+    "IconServer",
+    "IconCpu",
+    "IconDevices",
+    "IconDeviceDesktop",
+    "IconDeviceMobile",
+    "IconDeviceTablet",
+    "IconPrinter",
+    "IconCamera",
+    "IconPhoto",
+    "IconVideo",
+    "IconMusic",
+    "IconHeadphones",
+    "IconHeadset",
+    "IconMicrophone",
+    "IconVolume",
+    "IconVolumeOff",
+    "IconWifi",
+    "IconBluetooth",
+    "IconCast",
+    "IconAntenna",
+    "IconSignal",
+    "IconBattery",
+    "IconPlug",
+    "IconPower",
+    "IconSun",
+    "IconMoon",
+    "IconCloudRain",
+    "IconSnowflake",
+    "IconWind",
+    "IconDroplet",
+    "IconThermometer",
+    "IconCompass",
+    "IconNavigation",
+    "IconCar",
+    "IconPlane",
+    "IconShip",
+    "IconBike",
+    "IconWalk",
+    "IconRun",
+    "IconSwimming",
+    "IconGym",
+    "IconPizza",
+    "IconCoffee",
+    "IconGlass",
+    "IconBottle",
+    "IconApple",
+    "IconLeaf",
+    "IconTree",
+    "IconFlower",
+    "IconSeedling",
+    "IconPaw",
+    "IconDog",
+    "IconCat",
+    "IconFish",
+    "IconBird",
+    "IconBug",
+    "IconAtom",
+    "IconDna",
+    "IconMicroscope",
+    "IconTelescope",
+    "IconPlanet",
+    "IconSchool",
+    "IconBook",
+    "IconBooks",
+    "IconNotebook",
+    "IconBackpack",
+    "IconGraduationCap",
+    "IconCertificate2",
+    "IconMath",
+    "IconAbc",
+    "IconLanguage",
+    "IconPalette",
+    "IconBrush",
+    "IconPaint",
+    "IconVector",
+    "IconShape",
+    "IconCircle",
+    "IconSquare",
+    "IconTriangle",
+    "IconHexagon",
+    "IconOctagon",
+    "IconHeart",
+    "IconHeartFilled",
+    "IconStarFilled",
+    "IconThumbUp",
+    "IconThumbDown",
+    "IconMoodHappy",
+    "IconMoodSad",
+    "IconMoodSmile",
+    "IconMoodCry",
+    "IconMoodNeutral",
+    "IconGift",
+    "IconParty",
+    "IconConfetti",
+    "IconBalloon",
+    "IconCake",
+    "IconRobot",
+    "IconBrain",
+    "IconActivity",
+    "IconPulse",
+    "IconHeartbeat",
+    "IconStethoscope",
+    "IconPill",
+    "IconVaccine",
+    "IconFirstAid",
+    "IconAmbulance",
+    "IconBuildingHospital",
+    "IconBuildingBank",
+    "IconBuildingStore",
+    "IconBuildingFactory",
+    "IconBuildingSkyscraper",
+    "IconBuildingCommunity",
+    "IconBuildingChurch",
+    "IconBuildingMonument",
+    "IconBuildingBridge",
+    "IconBuildingLighthouse"
+  ],
+  "backgrounds": [
+    {
+      "id": "background",
+      "label": "Background",
+      "cssVar": "--background"
+    },
+    {
+      "id": "muted",
+      "label": "Muted",
+      "cssVar": "--muted"
+    },
+    {
+      "id": "card",
+      "label": "Card",
+      "cssVar": "--card"
+    },
+    {
+      "id": "accent",
+      "label": "Accent",
+      "cssVar": "--accent"
+    },
+    {
+      "id": "light-accent-5",
+      "label": "Light Accent 5%",
+      "value": "hsl(43 100% 55 / 0.05)"
+    },
+    {
+      "id": "primary",
+      "label": "Primary",
+      "cssVar": "--primary"
+    },
+    {
+      "id": "secondary",
+      "label": "Secondary",
+      "cssVar": "--secondary"
+    },
+    {
+      "id": "sidebar",
+      "label": "Sidebar",
+      "cssVar": "--sidebar-background"
+    },
+    {
+      "id": "light-blue-5",
+      "label": "Light Blue 5%",
+      "value": "hsl(210 100% 50% / 0.05)"
+    },
+    {
+      "id": "light-blue-5-gradient",
+      "label": "Light Blue 5% Gradient",
+      "value": "linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)"
+    },
+    {
+      "id": "light-blue-diagonal-gradient",
+      "label": "Light Blue Diagonal Gradient",
+      "value": "linear-gradient(to bottom right, hsl(var(--primary) / 0.05), transparent, hsl(var(--chart-2) / 0.05))"
+    },
+    {
+      "id": "hero-orbit-gradient",
+      "label": "Hero Orbit Gradient",
+      "value": "linear-gradient(to bottom left, hsl(var(--primary) / 0.14), transparent 60%)"
+    }
+  ],
+  "accents": [
+    {
+      "id": "primary",
+      "label": "Primary",
+      "cssVar": "--primary"
+    },
+    {
+      "id": "secondary",
+      "label": "Secondary",
+      "cssVar": "--secondary"
+    },
+    {
+      "id": "accent",
+      "label": "Accent",
+      "cssVar": "--accent"
+    },
+    {
+      "id": "destructive",
+      "label": "Destructive",
+      "cssVar": "--destructive"
+    },
+    {
+      "id": "secondary-foreground",
+      "label": "Secondary",
+      "cssVar": "--secondary-foreground"
+    }
+  ],
+  "text": [
+    {
+      "id": "foreground",
+      "label": "Default",
+      "cssVar": "--foreground"
+    },
+    {
+      "id": "muted-foreground",
+      "label": "Muted",
+      "cssVar": "--muted-foreground"
+    },
+    {
+      "id": "primary-foreground",
+      "label": "On Primary",
+      "cssVar": "--primary-foreground"
+    },
+    {
+      "id": "secondary-foreground",
+      "label": "On Secondary",
+      "cssVar": "--secondary-foreground"
+    },
+    {
+      "id": "primary",
+      "label": "Primary",
+      "cssVar": "--primary"
+    }
+  ],
+  "courses": [
+    {
+      "id": "primary",
+      "label": "Primary",
+      "value": "hsl(var(--primary) / 0.4)"
+    },
+    {
+      "id": "primary-soft",
+      "label": "Primary Soft",
+      "value": "hsl(var(--primary) / 0.3)"
+    },
+    {
+      "id": "primary-light",
+      "label": "Primary Light",
+      "value": "hsl(var(--primary) / 0.2)"
+    },
+    {
+      "id": "muted",
+      "label": "Muted",
+      "cssVar": "--muted-foreground"
+    },
+    {
+      "id": "muted-soft",
+      "label": "Muted Soft",
+      "value": "hsl(var(--muted-foreground) / 0.7)"
+    },
+    {
+      "id": "primary",
+      "label": "Primary",
+      "cssVar": "--primary"
+    },
+    {
+      "id": "secondary",
+      "label": "Secondary",
+      "cssVar": "--secondary"
+    },
+    {
+      "id": "accent",
+      "label": "Accent",
+      "cssVar": "--accent"
+    },
+    {
+      "id": "destructive",
+      "label": "Destructive",
+      "value": "hsl(var(--destructive) / 0.5)"
+    },
+    {
+      "id": "secondary-foreground",
+      "label": "Secondary",
+      "cssVar": "--secondary-foreground"
+    },
+    {
+      "id": "green",
+      "label": "Green",
+      "cssVar": "--color-green"
+    },
+    {
+      "id": "orange",
+      "label": "Orange",
+      "cssVar": "--color-orange"
+    },
+    {
+      "id": "pink",
+      "label": "Pink",
+      "cssVar": "--color-pink"
+    },
+    {
+      "id": "purple",
+      "label": "Purple",
+      "cssVar": "--color-purple"
+    }
+  ],
+  "fontSizes": [
+    {
+      "id": "xs",
+      "label": "Extra Small",
+      "value": "0.75rem",
+      "tailwind": "text-xs"
+    },
+    {
+      "id": "sm",
+      "label": "Small",
+      "value": "0.875rem",
+      "tailwind": "text-sm"
+    },
+    {
+      "id": "base",
+      "label": "Normal",
+      "value": "1rem",
+      "tailwind": "text-base"
+    },
+    {
+      "id": "lg",
+      "label": "Large",
+      "value": "1.125rem",
+      "tailwind": "text-lg"
+    },
+    {
+      "id": "xl",
+      "label": "Extra Large",
+      "value": "1.25rem",
+      "tailwind": "text-xl"
+    },
+    {
+      "id": "2xl",
+      "label": "2XL",
+      "value": "1.5rem",
+      "tailwind": "text-2xl"
+    },
+    {
+      "id": "4xl",
+      "label": "4XL",
+      "value": "2.25rem",
+      "tailwind": "text-4xl"
+    },
+    {
+      "id": "6xl",
+      "label": "6XL",
+      "value": "3.75rem",
+      "tailwind": "text-6xl"
+    }
+  ],
+  "button_variants": [
+    {
+      "id": "primary",
+      "label": "Primary"
+    },
+    {
+      "id": "secondary",
+      "label": "Secondary"
+    },
+    {
+      "id": "outline",
+      "label": "Outline"
+    },
+    {
+      "id": "ghost",
+      "label": "Ghost"
+    },
+    {
+      "id": "destructive",
+      "label": "Destructive"
+    }
+  ],
+  "colors": {
+    "light": {
+      "--primary": "210 100% 50%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "0 0% 96%",
+      "--secondary-foreground": "223 100% 5%",
+      "--accent": "43 100% 55%",
+      "--accent-foreground": "223 100% 5%",
+      "--destructive": "0 75% 45%",
+      "--destructive-foreground": "0 0% 98%",
+      "--background": "0 0% 100%",
+      "--foreground": "223 100% 5%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "223 100% 5%",
+      "--muted": "0 0% 98%",
+      "--muted-foreground": "0 0% 45%",
+      "--border": "0 0% 90%",
+      "--input": "0 0% 80%",
+      "--ring": "210 100% 50%",
+      "--radius": "0.75rem"
+    },
+    "dark": {
+      "--primary": "210 100% 50%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "0 0% 15%",
+      "--secondary-foreground": "0 0% 95%",
+      "--accent": "195 100% 35%",
+      "--accent-foreground": "0 0% 100%",
+      "--destructive": "0 75% 45%",
+      "--destructive-foreground": "0 0% 98%",
+      "--background": "0 0% 8%",
+      "--foreground": "0 0% 95%",
+      "--card": "0 0% 10%",
+      "--card-foreground": "0 0% 95%",
+      "--muted": "0 0% 14%",
+      "--muted-foreground": "0 0% 65%",
+      "--border": "0 0% 16%",
+      "--input": "0 0% 25%",
+      "--ring": "210 100% 50%",
+      "--radius": "0.75rem"
+    }
+  },
+  "lineHeights": [
+    {
+      "id": "tight",
+      "label": "Tight",
+      "value": "1.1"
+    },
+    {
+      "id": "snug",
+      "label": "Snug",
+      "value": "1.375"
+    },
+    {
+      "id": "normal",
+      "label": "Normal",
+      "value": "1.5"
+    },
+    {
+      "id": "relaxed",
+      "label": "Relaxed",
+      "value": "1.625"
+    },
+    {
+      "id": "loose",
+      "label": "Loose",
+      "value": "2"
+    }
+  ],
+  "fontWeights": [
+    {
+      "id": "light",
+      "label": "Light",
+      "value": "300"
+    },
+    {
+      "id": "regular",
+      "label": "Regular",
+      "value": "400"
+    },
+    {
+      "id": "medium",
+      "label": "Medium",
+      "value": "500"
+    },
+    {
+      "id": "semibold",
+      "label": "Semibold",
+      "value": "600"
+    },
+    {
+      "id": "bold",
+      "label": "Bold",
+      "value": "700"
+    },
+    {
+      "id": "extrabold",
+      "label": "Extra Bold",
+      "value": "800"
+    },
+    {
+      "id": "black",
+      "label": "Black",
+      "value": "900"
+    }
+  ],
+  "letterSpacings": [
+    {
+      "id": "tighter",
+      "label": "Tighter",
+      "value": "-0.8px"
+    },
+    {
+      "id": "tight",
+      "label": "Tight",
+      "value": "-0.4px"
+    },
+    {
+      "id": "normal",
+      "label": "Normal",
+      "value": "0px"
+    },
+    {
+      "id": "wide",
+      "label": "Wide",
+      "value": "0.4px"
+    },
+    {
+      "id": "wider",
+      "label": "Wider",
+      "value": "0.8px"
+    },
+    {
+      "id": "widest",
+      "label": "Widest",
+      "value": "1.6px"
+    }
+  ],
+  "preview_examples": []
+}

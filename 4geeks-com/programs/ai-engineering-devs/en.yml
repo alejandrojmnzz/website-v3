@@ -1,0 +1,789 @@
+slug: ai-engineering-for-devs
+title: AI Engineering
+meta:
+  page_title: AI Engineer Career Program | 4Geeks
+  description: "AI Engineer: fastest-growing job of 2026. Get job-ready in 24 weeks. 84% hiring rate, $95K–$135K salaries. Lifelong mentorship and career support. 4Geeks."
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+  redirects:
+    - /bootcamp/ai-engineering
+    - /programs/ai-engineer
+    - /coding-bootcamp/ai-engineering
+    - /en/coding-bootcamps/software-engineer-bootcamp
+    - /en/online-coding-bootcamp/best-online-coding-bootcamp
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+sections:
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: AI Engineering
+    title_highlight: Artificial Intelligence Engineering
+    subtitle: AI Engineer is the fastest-growing job of 2026. Our intensive program is built to get you hired, backed by an AI-first methodology, unlimited 1:1 mentorship, and lifelong career support.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra-1764725341501-512x512-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/jeanstcloud-1764725356935-800x800-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +6000 graduates
+    bullet_points:
+      - Build a complete AI-native company end to end, with agents, pipelines, and real-time data.
+      - Work with AI coding agents to build and deliver production-ready software faster.
+      - Leave with a portfolio that gets you in the door at top tech companies.
+    tutors:
+      - name: Marco Gonzalo
+        role: Main Instructor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/410890.jpg
+      - name: Rigo
+        role: AI Tutor
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Your tutors:"
+    description: "Graduate job-ready for one of tech's fastest-growing roles, with the skills and support to land positions paying $95K–$135K+.<div><br></div><div><span style=\"font-size: 12px; text-align: center;\">Florida residents: Only our full-stack development program is authorized by the Commission for Independent Education in Florida. Our job guarantee bundle is not offered in Florida where our only physical location is in Miami.</span></div>"
+    media:
+      type: video
+      src: https://www.youtube.com/shorts/sSxJnelPJT8
+      thumbnail: https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=450&fit=crop
+      alt: AI Engineering program introduction
+    signup_card:
+      title: Get the Full Program Overview
+      description: "Fill in your details and our admissions team will send you everything you need: syllabus, program details, financing options and more. It takes 2 minutes."
+      cta_button:
+        text: Send Me the Details
+        url: "#modal-ubwgcj"
+        variant: primary
+      login_link:
+        text: Already a student? Login here.
+        url: https://4geeks.com/login
+      features:
+        - icon: calendar
+          text: 24-Week or 15-Week Accelerated Morning Track
+        - icon: IconShield
+          text: Optional Job Guarantee (available as add-on)
+        - icon: IconUsers
+          text: {{ global.global_teacher_student_ratio | 7:1 }} Student-to-Instructor Ratio
+        - icon: IconUserCheck
+          text: Unlimited 1:1 Mentorship
+        - icon: IconRobot
+          text: AI-Powered Learning & Feedback
+    section_id: hero-tznhhe
+    paddingY:
+      desktop: lg md
+    marginY:
+      desktop: none
+  - type: modal
+    version: "1.0"
+    heading: Request Program Details
+    description: Enter your details to receive the complete syllabus, program structure, schedule options, tuition information, and support framework.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Get the Full Overview
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: ai-engineering
+      success:
+        message: Thank you. A program advisor will reach out with the details within 24 hours.
+    section_id: modal-ubwgcj
+  - type: awards_marquee
+    section_id: awards_marquee-l2cz6y
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Best Coding Bootcamp 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 64px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 64px
+      - id: premios-tecnologia
+        alt: Premios Tecnologia Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 on Course Report Reviews
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Institutional Quality
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 64px
+    paddingY:
+      desktop: none
+    marginY:
+      desktop: md
+  - type: graduates_stats
+    heading: Real Outcomes. Real Numbers.
+    subheading: 6,000+ graduates. Strong outcomes across the board.
+    stats:
+      - value: 84%
+        label: Average hiring rate
+      - value: 55%
+        label: Average salary increase at new position
+      - value: 3-6 months
+        label: Average time to get hired
+    collage_images:
+      - image_id: group-7085-1
+        col_span: 5
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_uwpyyruwpyyruwpy"
+        id: gemini-generated-image-uwpyyruwpyyruwpy
+        object_scale: 1.1
+        object_position: 50% 30%
+      - image_id: group-7086-1
+        col_span: 7
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_pd2u4upd2u4upd2u"
+        id: gemini-generated-image-pd2u4upd2u4upd2u
+        object_scale: 1
+        transform_origin: 50% 50%
+        object_position: 50% 60%
+      - image_id: group-7084-1
+        col_span: 6
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_dhko5mdhko5mdhko (1)"
+        id: gemini-generated-image-dhko5mdhko5mdhko-1
+        object_scale: 1.05
+      - image_id: group-7087-1
+        col_span: 6
+        row_span: 2
+        alt: "Image: Gemini_Generated_Image_wpk4yvwpk4yvwpk4"
+        id: gemini-generated-image-wpk4yvwpk4yvwpk4
+        object_scale: 1.05
+        transform_origin: 50% 50%
+        object_position: 50% 45%
+    section_id: graduates_stats-cnxqbb
+    marginY:
+      desktop: none md
+    maxWidth:
+      desktop: 6xl
+    paddingY:
+      desktop: md none
+  - type: features_grid
+    version: "1.0"
+    variant: stats-charts
+    subtitle: The demand is there. The talent isn't.
+    title: Why AI Engineering Now
+    description: In the past two years, AI has created 1.3 million new roles globally — and only 3% of the workforce has the skills to fill them. LinkedIn ranks AI Engineer among the fastest-growing jobs of 2026. The demand is there. The talent isn't. That's your opportunity.
+    background: bg-slate-950
+    card_bars_accent: hsl(var(--primary))
+    card_gauge_accent: hsl(var(--destructive) / 0.5)
+    card_trend_accent: hsl(var(--accent))
+    card_bars:
+      title: More New AI Roles Than Job Losses
+      description: Annual delta · 2021-2025 · indexed
+      stat_value: +340%
+      stat_label: net new AI roles created since 2021
+      displaced_label: Displaced
+      created_label: Created by AI
+    card_gauge:
+      title: Who's Qualified for AI Roles?
+      description: Global workforce · 2025 data
+      inner_stat_percentage: 3
+      outer_stat_percentage: 97
+      show_gauge: true
+      inner_stat_highlight: true
+      gauge_label: qualified
+      stat_label: of the workforce is not ready for AI roles today
+      bar1_label: Traditional workforce
+      bar2_label: AI-ready professionals
+    card_trend:
+      title: Demand Is Accelerating
+      description: Indexed job postings · 2020 → 2027 projected
+      stat_value: 1.3M
+      stat_label: new AI roles created globally in two years
+      end_label: 1.3M · 2027
+    section_id: features_grid-hudxi9
+    paddingY:
+      desktop: none lg
+    marginY:
+      desktop: md lg
+  - type: syllabus
+    section_id: syllabus-5hjjcl
+    variant: program-modules
+    program_title: AI Engineering Program Modules
+    program_description: Build real AI-powered systems from day one. This curriculum is organized around two tracks — Core AI and Agents, and Infrastructure for AI — plus a capstone that integrates everything into a fully transformed, deployed company. Supported by complementary foundations in modern development tools and practices throughout.
+    tech_logos:
+      - name: Python
+        icon: python
+      - name: OpenAI
+        icon: openai
+      - name: n8n
+        icon: n8n
+      - name: Docker
+        icon: docker
+      - name: React
+        icon: react
+    module_cards:
+      - title: Personal Assistants with OpenClaw
+        duration: Core AI and Agents
+        objectives:
+          - Configure an open-source AI agent as a personal assistant
+          - Assign tasks and integrate external applications with the agent
+        projects: Deploy and configure a self-hosted AI assistant — yours, under your control, without relying on external vendors.
+        orientation: vertical
+        icon: IconRobot
+      - title: Advanced Personal Assistants with OpenClaw
+        duration: Core AI and Agents
+        objectives:
+          - Identify scenarios where an agent solves real business problems
+          - Develop custom skills for OpenClaw
+          - Implement contextual memory (episodic, semantic, procedural)
+          - Advanced configuration and extension of the agent
+        projects: Take your basic assistant agent to a productive tool with real autonomy in business contexts.
+        orientation: vertical
+        icon: IconRobot
+      - title: Working with AI Coding Agents
+        duration: Core AI and Agents
+        objectives:
+          - Build memory banks and context rules from an existing codebase
+          - Write executable specifications for agents (agent specs)
+          - Synthesize reusable skills so agents act with precision
+        projects: Build memory banks and context rules that turn a coding agent into a collaborator that understands your codebase.
+        orientation: vertical
+        icon: IconCode
+      - title: LLMs, Training & RAG
+        duration: Core AI and Agents
+        objectives:
+          - Prepare data and select models for training
+          - Implement RAG techniques on proprietary knowledge bases
+          - Work with vector databases
+          - Evaluate, debug, and integrate models in production
+        projects: Implement RAG so your agent answers with proprietary, up-to-date knowledge.
+        orientation: vertical
+        icon: IconDatabase
+      - title: Agentic Engineering
+        duration: Core AI and Agents
+        objectives:
+          - Build agents with tool calling (real function calls)
+          - Implement guardrails as a security and control mechanism
+          - Provide tools to the agent via CLIs optimized for AI
+          - Extend agent capabilities with the Model Context Protocol (MCP)
+          - Give an agent persistent memory
+        projects: Build agents that call tools, access external systems via MCPs and CLIs, and operate with persistent memory.
+        orientation: vertical
+        icon: IconBolt
+      - title: Agentic Workflows
+        duration: Core AI and Agents
+        objectives:
+          - Design multi-agent systems with routing and arbitration
+          - Implement shared memory across agents
+          - Deploy agentic workflows with serverless and durable functions
+        projects: Design systems where multiple agents collaborate, distribute tasks, and run autonomously at scale.
+        orientation: vertical
+        icon: IconLayoutKanban
+      - title: Backend Development with Coding Agents
+        duration: Infrastructure for AI
+        objectives:
+          - Design backend architectures for AI-powered solutions
+          - Create agent loops integrating LLMs with APIs
+          - Implement lightweight storage and CSV data processing
+          - Build and expose REST APIs for frontends and agents
+        projects: Build robust APIs with FastAPI, implement agent loops in Python, and design backend architectures for AI use cases.
+        orientation: vertical
+        icon: IconServer
+      - title: Workflow Automations
+        duration: Infrastructure for AI
+        objectives:
+          - Model business logic with workflow diagrams
+          - Implement basic and advanced flows in n8n
+          - Integrate LLMs and external apps in automations
+          - Deploy maintainable workflows with error handling
+        projects: Build AI-powered business automations in n8n that run autonomously without manual intervention.
+        orientation: vertical
+        icon: IconCode
+      - title: Data Pipelines
+        duration: Infrastructure for AI
+        objectives:
+          - Manipulate and prepare datasets with Python
+          - Build data pipelines from the application to analysis systems
+        projects: Build pipelines that take raw data, transform it, and leave it ready to feed models, reports, or agents.
+        orientation: vertical
+        icon: IconChartBar
+      - title: Telemetry
+        duration: Infrastructure for AI
+        objectives:
+          - Optimize storage for reporting and data integrity
+          - Identify data collection opportunities in real scenarios
+          - Collect telemetry and user context from the application
+          - Build reports from telemetry data
+        projects: Instrument applications to collect behavioral data and make decisions based on real evidence.
+        orientation: vertical
+        icon: IconChartBar
+      - title: Asynchronous Processing and Offloading
+        duration: Infrastructure for AI
+        objectives:
+          - Implement background processing for costly tasks
+          - Manage process queues with workers
+          - Use queues to delegate work between agents and services
+        projects: Implement background processing and queue systems that let agents delegate heavy work without blocking users.
+        orientation: vertical
+        icon: IconServer
+      - title: Real-Time
+        duration: Infrastructure for AI
+        objectives:
+          - Build support chats with LLMs in real time
+          - Implement response streaming with generators (yield)
+          - Integrate webhooks and pub/sub in AI applications
+        projects: Implement real-time communication between users and language models using streaming, WebSockets, and event-driven architectures.
+        orientation: vertical
+        icon: IconBolt
+      - title: Web Application Authentication
+        duration: Infrastructure for AI
+        objectives:
+          - Implement authentication and route restrictions in FastAPI
+          - Build complete authentication flows (login, tokens, sessions)
+        projects: Implement secure authentication in FastAPI and build complete login flows that define what each user — and agent — can do.
+        orientation: vertical
+        icon: IconCode
+      - title: Error Handling, Debugging and Testing
+        duration: Infrastructure for AI
+        objectives:
+          - Understand and manage runtime errors with flow control
+          - Develop test suites for robust applications
+        projects: Verify AI-generated code with controlled error handling and test suites that validate expected behavior.
+        orientation: vertical
+        icon: IconCode
+      - title: Cybersecurity in AI Applications
+        duration: Infrastructure for AI
+        objectives:
+          - Identify and fix OWASP Top 10 vulnerabilities in web applications
+          - Implement security practices specific to AI integrations
+          - Use LLMs as a cybersecurity auditing tool
+        projects: Identify critical vulnerabilities in AI applications and implement safe practices in model integration.
+        orientation: vertical
+        icon: IconCode
+      - title: AI-Transformed Company
+        duration: Capstone
+        objectives:
+          - AI-generated frontend
+          - API with full authentication
+          - Telemetry and reporting pipeline
+          - Agent-generated automated workflows
+          - RAG knowledge layer
+          - Agents with tool calling
+          - Real-time communication
+        projects: Integrate everything you have learned into a working, deployed system — a full transformation of a company through AI.
+        orientation: horizontal
+        icon: IconCode
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+  - type: trust_cards
+    version: v1.0
+    title: Top rated across all major platforms.
+    items:
+      - image: https://old.4geeksacademy.com/static/01607bc41a0de635d83e9500e7cdb2ba/b490d/course-report.webp
+        rating: 4.9
+        review_count: 4.9 on Course Report
+      - image: https://old.4geeksacademy.com/static/b75f1b5bdfb35d447612388524e6ca96/611d9/google.webp
+        rating: 4.8
+        review_count: 4.8 on Google
+      - image: https://old.4geeksacademy.com/static/2c0afa9f6c7390203793f4d0bb6c5728/4d404/career-karma.webp
+        rating: 4.9
+        review_count: 4.9 on Career Karma
+      - image: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        rating: 4.9
+        review_count: 4.9 on SwitchUp
+    name: Default Trust Cards
+    description: Four review platform cards with ratings
+    section_id: trust_cards-eslgbu
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: md lg
+    background: hsl(var(--secondary))
+    maxWidth:
+      desktop: 6xl
+  - type: ai_learning
+    variant: feature-tabs
+    badge: Why 4Geeks?
+    title: The Most Personalized Path to an AI Career
+    description: Progress faster than ever before, with a support system built around your pace, your goals, your career.
+    features:
+      - icon: Robot
+        title: AI-powered feedback 24/7
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Instant feedback from Rigobot, our custom AI tutor
+          - text: Advice adjusted to your skill level and progress
+          - text: Instant help at any hour, day or night
+          - text: Hundreds of interactive coding exercises and tests
+        video_url: https://www.youtube.com/watch?v=6m1Jyya7eCc
+      - icon: Headset
+        title: Unlimited 1:1 mentorship, for life
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Lifelong access to 1:1 technical mentorship
+          - text: {{ global.global_teacher_student_ratio | 7:1 }} student-to-instructor ratio
+          - text: Weekly check-ins and peer collaboration via Slack
+          - text: Dedicated channels for coding support, job boards, and career advice
+        video_url: https://www.youtube.com/watch?v=1BmVA2a4h6o
+      - icon: TrendingUp
+        title: Career support built for the AI job market
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Lifelong 1:1 career coaching
+          - text: Resume and portfolio built to pass AI-based screening
+          - text: Interview prep and salary negotiation
+          - text: Direct referrals to our 400+ employer network
+        video_url: https://youtu.be/-2ZvlgDnltc
+    section_id: ai_learning-xiuj75
+    marginY:
+      desktop: md xl
+    paddingY:
+      desktop: md sm
+    background: hsl(210 100% 50% / 0.05)
+  - type: features_grid
+    version: "1.0"
+    variant: stats-cards
+    title: The Roles You Can Land. And the Salaries That Follow.
+    subtitle: High demand. High salaries.
+    description: AI Engineering roles are among the fastest-growing and highest-paying in tech right now. Companies are hiring urgently and paying a premium for engineers who can build with AI. LinkedIn reports 42x growth in Forward-Deployed Engineering alone since 2023. These are some of the roles our graduates are landing.
+    card_color: bg-background
+    items:
+      - value: $105K–$155K
+        title: Forward-Deployed Engineer
+      - value: $95K–$135K
+        title: AI Software Engineer
+      - value: $90K–$130K
+        title: AI-Fluent Full Stack Engineer
+    section_id: features_grid-r890zf
+    marginY:
+      desktop: none xl
+    paddingY:
+      desktop: md none
+    background: hsl(var(--card))
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Tuition & Financing Options
+    subtitle: Investing in a new career matters. We make it easier with multiple ways to fund your enrollment.
+    discount_text: "Full Payment Discount: Save 10% with upfront payment."
+    financing_text: "Credit-Based Financing: starting at"
+    financing_amount: {{ global.price_ai_engineering | $399 }}
+    tech_icons:
+      - openai
+      - python
+      - react
+      - nodejs
+      - api
+      - brain
+      - robot
+      - settings
+    features_title: Choose the option that fits you best.
+    features:
+      - icon: IconCheck
+        text: {{ global.full_tuition_ai_engineering | Standard tuition is $14,999. }} Pay upfront and receive a 10% discount, or spread payments interest-free over 6 months.
+      - icon: IconCheck
+        text: Enroll with a Job Guarantee* for added confidence. Get hired within 9 months of graduation or your money back.&nbsp;<div>*Not available in all regions. <a href="https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf">Terms and conditions apply</a>.</div>
+      - icon: IconCheck
+        text: Finance your tuition in monthly installments, with term lengths of up to 48 months depending on your region.
+    cta:
+      text: Get more info
+      url: "#modal-ubwgcj"
+      variant: primary
+    section_id: pricing-oyjnax
+    marginY:
+      desktop: lg md
+    paddingY:
+      desktop: md
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - tampa-usa
+      - orlando-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+      - mexicocity-mexico
+    background: hsl(var(--secondary))
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Tuition and Financing Options
+    subtitle: Investing in a new career matters. We make it easier with multiple ways to finance your enrollment.
+    discount_text: "Full payment discount: Save 10% with early payment."
+    financing_text: Estimated installment of €140/month financing €5,750 over 48 months (7.75% APR), after a €500 deposit and subject to lender approval.*
+    financing_amount: 140€
+    tech_icons:
+      - python
+      - tensorflow
+      - pandas
+      - numpy
+      - sql
+      - git
+      - jupyter
+      - api
+    static_icons: true
+    features_title: Choose the option that fits you best.
+    features:
+      - icon: IconCheck
+        text: Pay upfront to get a better price with an additional discount, or split your payments into 6 interest-free installments through our partners.
+      - icon: IconCheck
+        text: 2–3 merit-based scholarships available per cohort for highly qualified applicants.
+      - icon: IconCheck
+        text: We work with trusted partners to offer flexible and affordable financing, so you can focus on your future, not your fees.
+    cta:
+      text: Get more information
+      url: /es/apply
+      variant: primary
+    section_id: pricing-4zx54o
+    marginY:
+      desktop: md xl
+    paddingY:
+      desktop: lg md
+    showOnLocations:
+      - barcelona-spain
+      - madrid-spain
+      - malaga-spain
+      - valencia-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - milan-italy
+      - munich-germany
+      - rome-italy
+    background: hsl(var(--secondary))
+  - type: numbered_steps
+    version: "1.0"
+    title: Get Hired. Or Your Money Back.
+    description: Enroll with our optional Job Guarantee. Get hired within 9 months, or we refund your full tuition. That's how confident we are in what we built.
+    description_link:
+      text: "*Not available in all regions. Terms and conditions apply."
+      url: https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf
+    background: bg-muted/30
+    steps:
+      - icon: School
+        text: Add the Job Guarantee to your payment plan.
+      - icon: briefcase-business
+        text: Complete the program and follow the GeekForce career process.
+      - icon: banknote
+        text: Get hired within 9 months, or receive a full tuition refund.
+    section_id: numbered_steps-pegmvh
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+    paddingY:
+      desktop: none md
+    marginY:
+      desktop: none md
+  - type: testimonials
+    section_id: testimonials-uastb3
+    title: The People Behind the Numbers.
+    subtitle: "Different backgrounds. One outcome: a career in tech."
+    related_features:
+      - content-and-syllabus
+      - career-support
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 700 }}
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: none md
+  - type: whos_hiring
+    section_id: whos_hiring-6ml5ey
+    variant: carousel
+    title: Where Our Graduates Work
+    subtitle: From startups to global tech leaders, our graduates work at some of the most recognized companies worldwide.
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    marginY:
+      desktop: md xl
+    paddingY:
+      desktop: none
+    background: hsl(var(--background))
+  - type: faq
+    section_id: faq-dm78m2
+    title: FAQ
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - ai-engineering
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+    background: hsl(var(--muted))
+    item_overrides:
+      how-long-does-the-program-take:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+  - type: cta_banner
+    version: "1.0"
+    title: Ready to Become an {{ single.job_role | AI Engineer }}?
+    subtitle: The fastest-growing job of 2026 is a click away. This is your window. Join the next cohort.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: Start Your Application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | ai-engineering }}
+      success:
+        message: Check your inbox. Our admissions team will be in touch shortly with everything you need to know.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+    section_id: cta_banner-h3e30q
+  - type: sticky_cta
+    section_id: sticky_cta-nmcllq
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+    load: eager

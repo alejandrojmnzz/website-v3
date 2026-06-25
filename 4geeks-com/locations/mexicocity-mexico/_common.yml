@@ -1,0 +1,40 @@
+slug: mexicocity-mexico
+name: Mexico City
+city: Mexico City
+country: Mexico
+country_code: MX
+latitude: 19.4326
+longitude: -99.1332
+region: latam
+default_language: es
+timezone: America/Mexico_City
+phone: +52 55 1234 5678
+address: Paseo de la Reforma 222, 06600 CDMX
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For this campus visitors and those interested in tech opportunities.
+  target_audience: Local professionals and residents seeking a coding bootcamp with job-focused training.
+  goals:
+    - Highlight job outcomes and connections to local employers
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Paseo de la Reforma 222
+        addressLocality: Ciudad de México
+        postalCode: "06600"
+        addressCountry: MX

@@ -1,0 +1,407 @@
+slug: resultados
+template: default
+title: Resultados
+meta:
+  page_title: Resultados de Carrera en 4Geeks
+  description: Descubre los resultados profesionales de graduados de 4Geeks Academy. Ve tasas de empleo, aumentos salariales e historias de éxito de nuestros alumni.
+  robots: index, follow
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-rp6vvm
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: Resultados profesionales reales, respaldados por datos
+    subtitle: Descubre los resultados profesionales verificados de nuestros graduados contratados en ingeniería de IA, ciencia de datos y ciberseguridad. Medimos el éxito por resultados reales.
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/outcomes_1765562850573.png
+      alt: Gráfico de crecimiento de resultados de estudiantes
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: lg none
+  - type: vertical_bars_cards
+    section_id: vertical_bars_cards-syvr11
+    version: "1.0"
+    title: Resultados de contratación año tras año
+    subtitle: Cómo se desempeñan nuestros graduados en el mercado laboral, basado en resultados verificados de cohortes recientes.
+    metrics:
+      - title: Tasa de colocación laboral
+        unit: Graduados contratados en 6 meses
+        description: Nuestra tasa de colocación se mantiene consistentemente por encima del 80%, reflejando un programa enfocado en contratación y soporte profesional práctico. Rastreamos outcomes hasta nueve meses después de la graduación para mantener los datos precisos y comparables entre cohortes.
+        years:
+          - year: "2023"
+            value: 86
+            displayValue: 86%
+          - year: "2024"
+            value: 84
+            displayValue: 84%
+          - year: Mid 2025
+            value: 82
+            displayValue: 82%
+      - title: Aumento salarial promedio
+        unit: Comparado con salario pre-bootcamp
+        description: Los graduados ganan significativamente más después de completar el programa. Esto refleja tanto la demanda del mercado por talento tech como las habilidades prácticas y listas para el empleo que desarrollan durante el bootcamp.
+        years:
+          - year: "2023"
+            value: 12500
+            displayValue: $12.5k
+          - year: "2024"
+            value: 14200
+            displayValue: $14.2k
+          - year: Mid 2025
+            value: 15800
+            displayValue: $15.8k
+      - title: Días para el primer empleo
+        unit: Tiempo promedio desde graduación hasta oferta
+        description: Los graduados están consiguiendo roles más rápido cada año. Con coaching personalizado y conexiones con empleadores, ayudamos a los estudiantes a pasar de la graduación a su primera oferta rápidamente.
+        years:
+          - year: "2023"
+            value: 52
+            displayValue: 52 días
+          - year: "2024"
+            value: 48
+            displayValue: 48 días
+          - year: Mid 2025
+            value: 45
+            displayValue: 45 días
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none md
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: vertical_bars_cards
+    section_id: vertical_bars_cards-ultzcf
+    version: "1.0"
+    title: Resultados de contratación año tras año
+    subtitle: Cómo se desempeñan nuestros graduados en el mercado laboral, basado en datos verificados de cohortes recientes.
+    metrics:
+      - title: Tasa de colocación laboral
+        unit: Graduados contratados en 6 meses
+        description: Nuestra tasa de colocación se mantiene consistentemente por encima del 80%, reflejando un programa enfocado en contratación y soporte profesional práctico. Rastreamos outcomes hasta nueve meses después de la graduación para mantener los datos precisos y comparables entre cohortes.
+        years:
+          - year: "2023"
+            value: 80
+            displayValue: 80%
+          - year: "2024"
+            value: 75
+            displayValue: 75%
+          - year: Mid 2025
+            value: 75
+            displayValue: 75%
+      - title: Aumento salarial promedio
+        unit: Comparado con salario pre-bootcamp
+        description: Los graduados ganan significativamente más después de completar el programa. Esto refleja tanto la demanda del mercado por talento tech como las habilidades prácticas y listas para el empleo que desarrollan durante el bootcamp.
+        years:
+          - year: "2023"
+            value: 22
+            displayValue: 22%
+          - year: "2024"
+            value: 18
+            displayValue: 18%
+          - year: Mid 2025
+            value: 33
+            displayValue: 33%
+      - title: Días para el primer empleo
+        unit: Tiempo promedio desde graduación hasta oferta
+        description: Los graduados están consiguiendo roles más rápido cada año. Con coaching personalizado y conexiones con empleadores, ayudamos a los estudiantes a pasar de la graduación a su primera oferta rápidamente.
+        years:
+          - year: "2023"
+            value: 96
+            displayValue: 96 días
+          - year: "2024"
+            value: 128
+            displayValue: 128 días
+          - year: Mid 2025
+            value: 85
+            displayValue: 85 días
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none md
+    showOnLocations:
+      - barcelona-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - madrid-spain
+      - malaga-spain
+      - milan-italy
+      - munich-germany
+      - rome-italy
+      - valencia-spain
+  - type: stats
+    section_id: stats-4iokfv
+    version: "1.0"
+    title: Resultados de contratación por regiones
+    subtitle: Nuestros graduados consiguen empleo y aumentan sus salarios en múltiples mercados laborales.
+    background: hsl(210 100% 50% / 0.05)
+    items:
+      - value: 84%
+        label: de graduados en EE.UU. contratados en 6 meses
+      - value: +55%
+        label: aumento salarial promedio en EE.UU.
+      - value: +233%
+        label: aumento salarial promedio en LATAM
+      - value: 75%
+        label: Tasa de contratación en Europa
+      - value: 3-6 meses
+        label: tiempo promedio para conseguir empleo en todos los mercados
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg
+  - type: pie_charts
+    section_id: pie_charts-7nlotg
+    version: "1.0"
+    title: Nuestra comunidad estudiantil de un vistazo
+    subtitle: Un snapshot de quiénes son nuestros estudiantes por edad, género y región.
+    background: hsl(var(--background))
+    charts:
+      - title: Edad
+        items:
+          - label: 22-25
+            value: 30
+            color: chart-5
+          - label: 26-32
+            value: 44
+          - label: 33-42
+            value: 26
+      - title: Género
+        items:
+          - label: Masculino
+            value: 76
+          - label: Femenino
+            value: 24
+            color: chart-5
+      - title: Región
+        items:
+          - label: Norteamérica
+            value: 50
+            color: chart-5
+          - label: Lat.Am.
+            value: 28
+          - label: Europa
+            value: 21
+          - label: Asia
+            value: 1
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: sm none
+  - type: value_proof_panel
+    section_id: value_proof_panel-j9bpz7
+    title: Reconocidos globalmente por resultados reales
+    subtitle: Organizaciones independientes reconocen a 4Geeks por los resultados de graduados, la calidad de nuestros programas y el soporte profesional.
+    evidence_items:
+      - icon: Trophy
+        title: Top 5 coding bootcamps mundiales
+        source: Newsweek, Forbes, SwitchUp, Course Report
+      - icon: Award
+        title: Mejor soporte estudiantil y mejor valor
+        source: Course Report, SwitchUp
+      - icon: Users
+        title: Más de 35,000 graduados en más de 20 países
+        description: Una comunidad global de profesionales tech exitosos
+      - icon: Certificate
+        title: Certificados reconocidos por la industria
+        description: Credenciales que los empleadores confían y valoran
+    media:
+      type: image
+      src: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-1000x668-q74.webp
+      alt: Estudiantes colaborando en el aula
+      aspect_ratio: "4:3"
+      style: rounded
+    stacked_header: true
+  - type: awards_marquee
+    section_id: awards_marquee-wwpzeo
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: switchup-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        alt: SwitchUp - Mejores Coding Bootcamps 2025
+        logoHeight: 56px
+      - id: course-report-2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        alt: Course Report - Mejor Coding Bootcamp 2024
+        logoHeight: 56px
+      - id: tech-hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        alt: South Florida Tech Hub
+        logoHeight: 56px
+      - id: ebootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        alt: eBootcamp Top
+        logoHeight: 56px
+      - id: premios-tecnologia
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        alt: Premios Tecnología Siglo XXI
+        logoHeight: 56px
+      - id: newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        alt: Newsweek
+        logoHeight: 56px
+      - id: reviews-coursereport
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        alt: 4.9 en Reseñas de Course Report
+        logoHeight: 56px
+      - id: excelencia-educativa
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        alt: Excelencia Educativa - Calidad Institucional
+        logoHeight: 56px
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: none sm
+  - type: two_column_accordion_card
+    section_id: two_column_accordion_card-u89jw0
+    variant: image_background
+    version: "1.0"
+    title: Por qué nuestros graduados siempre consiguen empleo
+    description: Los excelentes resultados provienen de cómo enseñamos, apoyamos y colocamos a los estudiantes en roles tech.
+    bullets:
+      - heading: Soporte profesional GeekFORCE de por vida
+        text: Mentoría ilimitada 1:1 en carrera, preparación de entrevistas, y coaching de CV y portafolio, diseñado para los procesos de contratación impulsados por IA actuales.
+      - heading: Mentoría técnica GeekPAL de por vida
+        text: Acceso ilimitado a mentores humanos que ayudan a los estudiantes a seguir progresando y ganar confianza en el mundo real.
+      - heading: Aprendizaje y feedback impulsado por IA
+        text: Feedback personalizado 24/7 que ayuda a los estudiantes a aprender más rápido y de forma más efectiva.
+      - heading: Red global de socios de contratación
+        text: Cientos de empresas en todo el mundo que reclutan activamente a graduados de 4Geeks.
+    footer: Soporte diseñado para carreras a largo plazo, no solo para el primer empleo.
+    image: https://4geeksacademy.com/static/197e7cf794b47d7a7f53770a4b55186f/56f2e/marceloricigliano.webp
+    image_alt: Estudiante trabajando en proyecto de IA
+    reverse: true
+    marginY:
+      desktop: none lg
+  - type: testimonials
+    section_id: testimonials-jkcrpv
+    version: v1.0
+    title: Resultados profesionales reales
+    subtitle: Nuestros alumni comparten cómo consiguieron roles, avanzaron en sus carreras y aumentaron su poder adquisitivo.
+    related_features:
+      - outcomes
+      - career-support
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 2,847 }}
+    paddingY:
+      desktop: none
+    background: hsl(210 100% 50% / 0.05)
+  - type: faq
+    section_id: faq-ik7fic
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - outcomes
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: lg none
+  - type: cta_banner
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-l5m2ie
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-kpmomo

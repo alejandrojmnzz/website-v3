@@ -1,0 +1,121 @@
+name: Split Cards
+version: "1.0"
+description: "Two-card split layout with responsive sizing. Primary card (3/4 desktop, 50% tablet) has dark background with heading, description, and optional floating icons. Secondary card (1/4 desktop, 50% tablet) displays a benefits list with checkmarks."
+when_to_use: |
+  Use for sections that pair a bold headline message with a concise benefits list — such as
+  a program value proposition alongside key feature checkmarks. The dark primary card creates
+  high contrast while the smaller secondary card reinforces the message with scannable bullets.
+  Great for mid-page conversion sections or feature introductions.
+
+variants:
+  - name: primary-left
+    description: "Primary card on the left, secondary on the right (default)"
+    best_for: "Standard feature or value proposition sections"
+  - name: primary-right
+    description: "Primary card on the right, secondary on the left"
+    best_for: "Alternating layouts when placed next to another left-dominant section"
+
+image_sizes:
+  primary-left.secondary.image_id: "(min-width: 768px) 300px, 200px"
+  primary-right.secondary.image_id: "(min-width: 768px) 300px, 200px"
+properties:
+  variant:
+    type: string
+    enum: ["primary-left", "primary-right"]
+    default: "primary-left"
+    description: "Layout variant controlling primary card position"
+  primary:
+    type: object
+    required: true
+    description: "Primary card content (larger card with dark background)"
+    fields:
+      heading:
+        type: string
+        required: true
+        description: "Main heading text"
+      description:
+        type: string
+        required: false
+        description: "Supporting description text"
+      badge:
+        type: string
+        required: false
+        description: "Small badge/label above heading"
+      tool_icons:
+        type: array
+        required: false
+        description: "Floating tool icons with positioning"
+        items:
+          icon:
+            type: string
+            description: "Tabler icon name (e.g., 'BrandOpenai', 'BrandFigma', 'Code')"
+          image_id:
+            type: string
+            description: "Image registry ID (alternative to icon)"
+          size:
+            type: string
+            enum: ["sm", "md", "lg"]
+            default: "md"
+            description: "Icon size preset"
+          position:
+            type: object
+            required: false
+            description: "Positioning within the card"
+            fields:
+              top:
+                type: string
+                description: "Top offset (e.g., '10%')"
+              bottom:
+                type: string
+                description: "Bottom offset (e.g., '20%')"
+              left:
+                type: string
+                description: "Left offset (e.g., '10%')"
+              right:
+                type: string
+                description: "Right offset (e.g., '30%')"
+
+  secondary:
+    type: object
+    required: true
+    description: "Secondary card content (smaller card). Supports either a benefits list or a full-bleed image — at least one must be provided."
+    fields:
+      benefits:
+        type: array
+        required: false
+        min: 1
+        max: 5
+        description: "List of benefit items with checkmarks. Required when no image_id is provided."
+        items:
+          text:
+            type: string
+            required: true
+            description: "Benefit text"
+          icon:
+            type: string
+            required: false
+            description: "Optional custom icon (defaults to checkmark)"
+      image_id:
+        type: string
+        required: false
+        description: "Image registry ID to display as a full-bleed image in the secondary card. Use instead of benefits."
+      object_fit:
+        type: string
+        enum: ["cover", "contain", "fill", "none"]
+        required: false
+        description: "CSS object-fit for the image. Defaults to 'cover'."
+      object_position:
+        type: string
+        required: false
+        description: "CSS object-position for the image (e.g. 'center center', 'top left')."
+
+  background:
+    type: string
+    required: false
+    description: "Section background (muted, card, or default)"
+    enum: ["muted", "card"]
+
+responsive_behavior:
+  desktop: "Primary card 75% width, secondary card 25% width"
+  tablet: "Both cards 50% width side-by-side"
+  mobile: "Cards stacked vertically"

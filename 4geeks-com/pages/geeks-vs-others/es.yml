@@ -1,0 +1,346 @@
+slug: geeks-vs-otros
+template: default
+title: 4Geeks vs Otros
+meta:
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: 4Geeks vs Competidores | ¿Por qué Elegirnos?
+  description: Descubre por qué 4Geeks Academy supera a otros bootcamps con mentoría ilimitada, garantía de empleo y resultados comprobados entre nuestros graduados.
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: 4Geeks vs otros programas
+    subtitle: Descubre por qué nuestros graduados triunfan en tech. Desde aprendizaje impulsado por IA y proyectos prácticos hasta mentoría personalizada y soporte profesional de por vida, todo está diseñado para ayudarte a lanzar una carrera exitosa y duradera.
+    badge: Por qué 4Geeks destaca
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/unsplash_workspace-700x467-q65.webp
+      alt: Estudiantes programando juntos en una mesa con laptops
+    background: hsl(210 100% 50% / 0.05)
+    paddingY:
+      desktop: lg
+    marginY:
+      desktop: none md
+    section_id: hero-qasor1
+  - type: comparison_table
+    version: "1.0"
+    title: Lanzando carreras tech exitosas en la era de la IA
+    subtitle: "Estamos construidos para prepararte para el éxito. Desde un currículo alineado con la industria y preparado para el futuro hasta mentoría de por vida y soporte profesional, así es como 4Geeks se diferencia:"
+    columns:
+      - name: Característica
+      - name: 4Geeks Academy
+        highlight: true
+      - name: Promedio de la industria / competidores
+    rows:
+      - feature: Apoyo profesional
+        values:
+          - Orientación personalizada y de por vida
+          - Limitado o de corto plazo
+      - feature: Ratio Profesor-estudiante
+        values:
+          - {{ global.global_teacher_student_ratio | 1:7 }}
+          - Usualmente 1:10 o más
+      - feature: Feedback impulsado por IA
+        values:
+          - Personalizado según tu progreso de aprendizaje
+          - Raramente disponible
+      - feature: Mentoría 1:1
+        values:
+          - Acceso ilimitado y de por vida
+          - Mayormente sesiones limitadas
+      - feature: Currículo
+        values:
+          - Actualizado continuamente para ajustarse a las necesidades del mercado
+          - Actualizaciones varían según el proveedor
+      - feature: Tasa de contratación
+        values:
+          - ~{{ global.global_job_placement_rate | 84 }}% en 6 meses
+          - Varía; mayormente no reportada
+      - feature: Comunidad
+        values:
+          - Fuerte red local y global
+          - Depende de la escuela
+      - feature: Formato de clases
+        values:
+          - Opciones online y presencial
+          - Usualmente solo un formato
+      - feature: Experiencia previa
+        values:
+          - No se requiere experiencia
+          - La mayoría exige habilidades previas o evaluaciones
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: md lg
+    section_id: comparison_table-xny910
+  - type: two_column_accordion_card
+    variant: image_background
+    version: "1.0"
+    title: Aprendizaje hiperpersonalizado y soporte que dura toda la vida
+    description: En 4Geeks construimos un sistema completo de soporte alrededor de la personalización. Y, a diferencia de la mayoría de programas, no termina con tu primer empleo.
+    bullets:
+      - heading: Mentoría 1:1 ilimitada
+        text: Accede a orientación personalizada cuando la necesites. Desde depurar código hasta prepararte para roles senior, nuestros mentores apoyan tu aprendizaje y crecimiento en cada etapa.
+      - heading: Aprendizaje y feedback impulsado por IA
+        text: Rigobot + LearnPack optimizan tu aprendizaje mediante personalización, proporcionando feedback instantáneo, guiándote para resolver problemas eficientemente y rastreando tu desarrollo de habilidades.
+      - heading: Soporte profesional de por vida
+        text: GeekFORCE está diseñado para conseguirte empleo y seguir impulsando tu carrera. Desde conseguir tu primer rol hasta ascender, puedes acceder a coaching profesional cuando lo necesites.
+    footer: Más de 10,000 graduados han lanzado carreras tech exitosas con 4Geeks.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/students_collaborating-548x299-q85.webp
+    section_id: two_column_accordion_card-wgdedr
+  - type: features_grid
+    version: "1.0"
+    variant: stats-cards
+    title: El éxito de nuestros graduados en números
+    subtitle: Nuestros alumnos están consiguiendo empleos, aumentando salarios y lanzando carreras tech en todo el mundo.
+    use_card: true
+    items:
+      - value: {{ global.global_job_placement_rate | 84 }}%
+        title: Tasa de colocación laboral
+      - value: 3-6 meses
+        title: Tiempo promedio para conseguir empleo
+      - value: {{ global.global_salary_increase | 55 }}%
+        title: Aumento salarial después de graduarte
+    marginY:
+      desktop: lg none
+    section_id: features_grid-3sdurt
+  - type: testimonials_slide
+    title: Carreras reales comienzan aquí — solo pregúntale a nuestros estudiantes
+    description: Con el {{ global.global_job_placement_rate | 84 }}% de nuestros graduados contratados en seis meses, sus historias muestran cómo el aprendizaje práctico, la mentoría personalizada y el soporte profesional lanzan carreras en tech.
+    marginY:
+      desktop: md none
+    section_id: testimonials_slide-vwshg0
+  - type: value_proof_panel
+    title: Reconocidos globalmente por excelencia
+    subtitle: No solo lo decimos — el reconocimiento de fuentes confiables demuestra nuestro valor.
+    evidence_items:
+      - icon: Trophy
+        title: Top 5 coding bootcamps mundiales
+        source: Newsweek, Forbes, SwitchUp, Course Report
+      - icon: Award
+        title: Mejor soporte estudiantil y mejor valor
+        source: Course Report, SwitchUp
+      - icon: Users
+        title: Más de 35,000 graduados en Más de 20 Países
+        description: Una comunidad global de profesionales tech exitosos
+      - icon: Certificate
+        title: Certificados reconocidos por la Industria
+        description: Credenciales que los empleadores confían y valoran
+    media:
+      type: image
+      src: https://old.4geeksacademy.com/static/0e206e6ab1ae7f4ca09668b2d287baa7/56f2e/alejandrosanchez.webp
+      alt: Estudiantes colaborando en el aula
+      aspect_ratio: "4:3"
+      style: rounded
+    background: bg-muted/30
+    stacked_header: true
+    marginY:
+      desktop: none lg
+    paddingY:
+      desktop: none sm
+    section_id: value_proof_panel-9m6are
+  - type: split_cards
+    variant: primary-left
+    primary:
+      heading: Tu Carrera – garantizada
+      description: "La prueba más fuerte de que creemos en nuestro modelo? Lo respaldamos con una Garantía de Empleo opcional. La mayoría de escuelas prometen \"apoyo profesional\". En 4Geeks prometemos resultados: consigue empleo en 9 meses o te devolvemos el 100% de tu matrícula.&nbsp;<div bis_skin_checked=\"1\"><a href=\"https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guaranteee-es.pdf\"><span style=\"font-size: 0.875rem;\">Condiciones aplican.</span></a></div>"
+      badge: Promesa Respaldada por Resultados
+    secondary:
+      benefits:
+        - text: Nuestro currículo está alineado con la industria y listo para IA
+        - text: Nuestra mentoría es ilimitada y personalizada
+        - text: Nuestro soporte profesional nunca expira
+    background: muted
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - costa-rica
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+    marginY:
+      desktop: none xl
+    section_id: split_cards-wggstx
+  - type: features_quad
+    version: "1.0"
+    variant: default
+    heading: Volviendo accesibles las carreras en tech
+    description: Las carreras tech pueden transformar vidas y las finanzas nunca deberían ser un obstáculo. Por eso ofrecemos algunas de las opciones de pago y becas más flexibles y amigables para estudiantes en la industria.
+    cards:
+      - icon: dollar-sign
+        title: Matrícula asequible
+        description: Entre las matrículas más asequibles de cualquier programa top-ranked (reconocido por Forbes).
+      - icon: CreditCard
+        title: Financiamiento flexible
+        description: Opciones de financiamiento desde {{ global.lowest_monthly_financing_option | $299 }}/mes, para que aprendas sin estrés financiero.
+      - icon: coins
+        title: Pago basado en ingresos
+        description: Comienza a aprender ahora y solo paga una vez que estés ganando en tech.
+      - icon: School
+        title: Becas disponibles
+        description: Becas parciales disponibles para estudiantes elegibles.
+    background: hsl(var(--secondary))
+    marginY:
+      desktop: none xl
+    section_id: features_quad-9pbped
+  - type: whos_hiring
+    variant: carousel
+    pretitle: Colocación Laboral
+    title: Nuestros alumnos trabajan en las mejores empresas globales
+    subtitle: Triunfa en tech con nuestra red mundial de socios de contratación.
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    paddingY:
+      desktop: none md
+    section_id: whos_hiring-2xpv9w
+  - type: faq
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - online-platform
+            - certification
+            - career-support
+        - item_property_slug: locations
+          value: all
+    item_overrides:
+      consigo-trabajo-despus-de-completar-el-programa:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+          - bogota-colombia
+          - buenosaires-argentina
+          - caracas-venezuela
+          - costa-rica
+          - lapaz-bolivia
+          - lima-peru
+          - mexicocity-mexico
+          - montevideo-uruguay
+          - panamacity-panama
+          - quito-ecuador
+          - santiago-chile
+    paddingY:
+      desktop: md
+    section_id: faq-usgps6
+  - type: cta_banner
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: lg none
+    background: hsl(var(--primary))
+    section_id: cta_banner-gmr9co
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-v1d4aq

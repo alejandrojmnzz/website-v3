@@ -1,0 +1,43 @@
+slug: austin-usa
+name: Austin
+city: Austin
+country: United States
+country_code: US
+latitude: 30.2672
+longitude: -97.7431
+region: usa-canada
+default_language: en
+timezone: America/Chicago
+phone: +1 512-887-4460
+address: 701 Brazos St, Austin, TX 78701
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For Austin-area visitors or those interested in tech opportunities in Texas's most innovative city.
+  target_audience: Local Austin residents, professionals in Texas, and career changers seeking tech roles at companies like IBM, Indeed, and local startups.
+  goals:
+    - Highlight Austin's innovative tech community and demand for coding proficiency
+    - Emphasize flexible schedules, job guarantee, and real-world project experience
+    - Showcase career outcomes and connections to Austin's top tech companies
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: 701 Brazos St
+        addressLocality: Austin
+        addressRegion: TX
+        postalCode: "78701"
+        addressCountry: US

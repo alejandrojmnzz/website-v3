@@ -1,0 +1,634 @@
+slug: ciencia-de-datos-ml
+title: Ciencia de Datos y Machine Learning
+job_role: Ingeniero de Machine Learning
+meta:
+  robots: index, follow
+  og_image: /images/programs/data-science-ml-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+  page_title: Programa de Ciencia de Datos y Machine Learning | 4Geeks
+  description: "Aprende ciencia de datos y machine learning con herramientas de IA, mentoría ilimitada y una comunidad global. Domina Python, TensorFlow y modelado predictivo."
+  redirects:
+    - /bootcamp/ciencia-de-datos
+    - /programas/datascience-machine-learning
+    - /es/coding-bootcamps/curso-datascience-machine-learning
+schema:
+  include:
+    - organization
+    - website
+    - courses:data-science
+sections:
+  - type: breadcrumb
+    section_id: breadcrumb-ciencia-de-datos-ml-es
+    items:
+      - label: Inicio
+        url: /
+      - label: Programas de Carrera
+        url: /es/programas-de-carrera
+      - label: "Ciencia de Datos y Machine Learning"
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: Ciencia de Datos y Machine Learning
+    title_highlight: Ciencia de Datos
+    subtitle: Domina las habilidades que impulsan la revolución de la IA. Aprende a analizar datos y construir modelos que impulsan decisiones en el mundo real.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra-1764725341501-512x512-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/jeanstcloud-1764725356935-800x800-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +500 estudiantes inscritos
+    bullet_points:
+      - Transforma datos crudos en insights claros y modelos predictivos, paso a paso.
+      - Domina Python, SQL y herramientas de IA para analizar información y automatizar decisiones.
+      - Integra Machine Learning en sistemas empresariales para generar resultados reales.
+    tutors:
+      - name: Charly Chacón
+        role: Instructor Principal
+        image: https://randomuser.me/api/portraits/men/10.jpg
+      - name: Rigo
+        role: Tutor de IA
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Tus tutores:"
+    description: Prepárate para roles de alta demanda en ciencia de datos y machine learning a través de proyectos prácticos, mentoría ilimitada y soporte de carrera diseñado para que consigas empleo.
+    video:
+      url: https://youtu.be/QlJpTqXCAFw?is=CLYXW9MtMyxQZLJU
+      preview_image_url: https://storage.googleapis.com/4geeks-academy-website/media/Captura-de-pantalla-2026-03-09-120742.png
+    signup_card:
+      title: Recibe el plan de estudios completo
+      description: Accede al plan de estudios completo, horarios y todo lo que necesitas saber.
+      cta_button:
+        text: Recibir el plan de estudios
+        url: "#apply-modal"
+        variant: primary
+      login_link:
+        text: ¿Ya eres estudiante? Inicia sesión aquí.
+        url: https://4geeks.com/es/login
+      features:
+        - icon: IconCalendar
+          text: Programa intensivo de {{ global.data_science_week_duration | 18 }} Semanas
+        - icon: briefcase-business
+          text: Plan de estudios orientado al empleo
+        - icon: IconRobot
+          text: Aprendizaje y retroalimentación con IA
+        - icon: IconUsers
+          text: Ratio de {{ global.global_teacher_student_ratio | 8:1 }} Estudiante-Instructor
+        - icon: IconUserCheck
+          text: Mentoría 1:1 ilimitada
+        - icon: book
+          text: Portafolio real de Data Science y ML
+    section_id: hero-jlzfrx
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none
+  - type: modal
+    version: "1.0"
+    section_id: apply-modal
+    heading: Recibir el Plan de Estudios
+    description: Completa el siguiente formulario y nos comunicaremos contigo dentro de 24 horas.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Obtener
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: datascience-ml
+      success:
+        message: ¡Gracias! Nos pondremos en contacto dentro de 24 horas.
+  - type: awards_marquee
+    section_id: awards_marquee-6oxolr
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Best Coding Bootcamp 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 64px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 64px
+      - id: premios-tecnologia
+        alt: Premios Tecnologia Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 on Course Report Reviews
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Institutional Quality
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 64px
+    marginY:
+      desktop: md lg
+    paddingY:
+      desktop: none
+  - type: features_grid
+    section_id: features_grid-w5522p
+    version: "1.0"
+    variant: stats-text
+    maxWidth:
+      desktop: 6xl
+    title: ¿Por qué Ciencia de Datos ahora?
+    subtitle: Los datos son el combustible de la revolución de la IA.
+    description: A medida que las empresas avanzan hacia operaciones autónomas, la demanda de expertos capaces de convertir información en inteligencia predictiva nunca ha sido mayor. La Ciencia de Datos y el Machine Learning no se tratan solo de analizar el pasado, sino de construir los sistemas que predicen el futuro. Aprovechando herramientas modernas de IA, los profesionales de datos de hoy generan los insights que están transformando cada industria. Domina las habilidades que se mantienen en demanda, sin importar cómo cambie el panorama tecnológico.
+    background: hsl(var(--background))
+    items:
+      - id: "1"
+        value: 36%
+        title: tasa de crecimiento proyectada en la próxima década
+      - id: "3"
+        value: {{ global.salary_data_scientist | 22.000€ }}
+        title: Salario inicial promedio para científicos de datos
+  - type: syllabus
+    section_id: syllabus-wr3sk5
+    variant: program-modules
+    program_title: Lo que aprenderás en el programa de ciencia de Datos & Machine Learning
+    program_description: Domina el conjunto de herramientas estándar de la industria utilizado por equipos de datos modernos. Ve más allá del análisis simple para construir sistemas listos para producción, desde la ingeniería de datos crudos hasta el despliegue de modelos predictivos que las empresas usan para impulsar la innovación y escalar.
+    tech_logos:
+      - name: Python
+        icon: python
+      - name: TensorFlow
+        icon: tensorflow
+      - name: Pandas
+        icon: pandas
+      - name: NumPy
+        icon: numpy
+      - name: SQL
+        icon: sql
+      - name: Git
+        icon: git
+    module_cards:
+      - title: Fundamentos de Python y Notebooks
+        duration: Semanas 1-3
+        objectives:
+          - Domina los fundamentos de Python incluyendo condicionales, funciones y estructuras de datos
+          - Trabaja con Jupyter notebooks para exploración interactiva de datos
+          - Construye una base sólida de programación para machine learning
+        projects: Completa ejercicios de Python y crea tu primer notebook de análisis de datos
+        orientation: vertical
+        icon: IconBrandPython
+      - title: Análisis y Visualización de Datos
+        duration: Semanas 4-6
+        objectives:
+          - Analiza y manipula datos con Pandas
+          - Limpia, normaliza y transforma datasets
+          - Crea visualizaciones impactantes con Matplotlib y Seaborn
+        projects: Construye dashboards interactivos de datos e informes de análisis exploratorio
+        orientation: vertical
+        icon: IconChartBar
+      - title: Recolección de Datos con SQL, Scraping y APIs
+        duration: Semanas 7-8
+        objectives:
+          - Escribe consultas SQL para extraer datos de bases de datos
+          - Haz scraping de sitios web con BeautifulSoup
+          - Trabaja con APIs REST para recopilar datos del mundo real
+        projects: Construye un pipeline de datos que recolecta y procesa información de múltiples fuentes
+        orientation: vertical
+        icon: IconDatabase
+      - title: Fundamentos de Matemáticas y Probabilidad
+        duration: Semanas 9-10
+        objectives:
+          - Domina conceptos de probabilidad y estadística
+          - Comprende los fundamentos del álgebra lineal
+          - Aprende operaciones matriciales que potencian los algoritmos de ML
+        projects: Aplica análisis estadístico a datasets del mundo real
+        orientation: vertical
+        icon: IconMath
+      - title: Machine Learning Aplicado
+        duration: Semanas 11-14
+        objectives:
+          - Construye modelos de regresión y clasificación
+          - Implementa árboles de decisión, random forests y boosting
+          - Domina clustering y pronóstico de series temporales
+        projects: Entrena, evalúa y optimiza modelos de ML para problemas del mundo real
+        orientation: vertical
+        icon: IconBrain
+      - title: Deep Learning, NLP y Despliegue de Modelos
+        duration: Semanas 15-16
+        objectives:
+          - Construye redes neuronales con TensorFlow y Keras
+          - Implementa técnicas de procesamiento de lenguaje natural
+          - Despliega modelos en entornos de producción
+        projects: Crea y despliega una aplicación web de ML completa
+        orientation: vertical
+        icon: IconRocket
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+  - type: ai_learning
+    section_id: ai_learning-kbf2uv
+    variant: feature-tabs
+    badge: ¿Por qué 4Geeks?
+    title: El Modelo de aprendizaje 4Geeks
+    description: Combina herramientas de IA, mentoría estructurada y acompañamiento profesional para avanzar con mayor claridad y resultados medibles.
+    features:
+      - icon: bot
+        title: Aprende más rápido con herramientas de IA
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Feedback instantáneo de Rigobot, nuestro tutor de IA
+          - text: Orientación adaptada a tu nivel y progreso
+          - text: Soporte 24/7 para depuración y resolución de errores
+          - text: Cientos de ejercicios prácticos y evaluaciones técnicas
+        video_url: https://storage.googleapis.com/breathecode/videos/landing-pages/learnpack-demo.mp4
+      - icon: TrendingUp
+        title: Acompañamiento profesional diseñado para lanzar tu carrera
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Coaching personalizado 1:1
+          - text: CVs y portafolios optimizados para filtros de IA
+          - text: Preparación para entrevistas y negociación salarial
+          - text: Acceso de por vida para apoyar tu crecimiento
+        video_url: https://youtu.be/-2ZvlgDnltc
+        cta:
+          text: ¡Empieza a aprender ahora!
+          url: /es/aplica
+          variant: primary
+      - icon: Headset
+        title: Mentoría 1:1 ilimitada y una comunidad activa
+        description: ""
+        show_rigobot_logo: true
+        bullets:
+          - text: Sesiones ilimitadas con mentores técnicos
+          - text: Proporción {{ global.global_teacher_student_ratio | 1:8 }} de estudiante–profesor para una orientación personalizada
+          - text: Trabajo colaborativo y revisiones en grupo
+          - text: Canales dedicados de Slack para soporte de código, bolsa de trabajo y consejos de carrera
+        image_id: community-support-cropped-800x476-q70
+        cta:
+          text: ¡Empieza a aprender ahora!
+          url: /es/aplica
+          variant: primary
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md none
+  - type: certificate
+    section_id: certificate-x5e6qd
+    title: Resultados profesionales
+    description: "Obtén un certificado reconocido por la industria de una institución acreditada por el Departamento de Educación de Florida. Accede a roles bien remunerados:"
+    benefits:
+      - text: Analista de Ciberseguridad Junior 20.000€ a 25.000€
+      - text: Data Scientist
+      - text: Full-Stack Engineer (<2 años)
+      - text: AI Engineer 22.000€ a 35.000€ (<2 años)
+    card:
+      title: Data Scientist
+      subtitle: Certificado de 4Geeks Academy
+      program_name: Data Science & Machine Learning
+    stats:
+      - value: {{ global.global_job_placement_rate | 84 }}%
+        label: Tasa de contratación
+        description: Gradúate con las habilidades, credenciales y perfil profesional que los empleadores buscan activamente.
+        benefits:
+          - text: Certificado reconocido por el Departamento de Educación de Florida
+          - text: Proyectos de datos enfocados en análisis, insights y decisiones
+          - text: Experiencia práctica construyendo y evaluando modelos predictivos de machine learning
+          - text: Perfil profesional optimizado y estrategia de búsqueda de empleo
+      - value: 3-6 meses
+        label: Tiempo para conseguir empleo
+        description: Consigue tu primer rol en 3–6 meses después de graduarte. Con nuestro proceso estructurado de desarrollo profesional en 3 pasos, tus habilidades se convierten en ofertas de trabajo rápidamente.
+        benefits:
+          - text: Optimiza tu currículum, portafolio y perfiles en línea para atraer reclutadores y superar filtros basados en IA
+          - text: Practica para entrevistas técnicas y conductuales
+          - text: Ejecuta una estrategia personalizada de búsqueda de empleo con acceso a redes de contratación relevantes
+      - value: {{ global.global_salary_increase | 55 }}%
+        label: Aumento salarial promedio
+        description: Gradúate listo para ocupar posiciones bien remuneradas en ciencia de datos y machine learning, con crecimiento inmediato y estabilidad a largo plazo.
+        benefits:
+          - text: Científico de datos {{ global.salary_data_scientist }}
+          - text: Ingeniero de Machine Learnign {{ global.average_salary_machine_learning_engineer | $90K–$150K  }}
+          - text: Analista de Datos {{ global.average_salary_data_analyst | 20.000€-30.000€ }}
+          - text: AI Engineer {{ global.average_salary_ai_engineer | 22.000€-35.000€ }}
+      - value: {{ global.number_of_hiring_partners_aprox | 5,000 }}+
+        label: Empresas Asociadas
+        description: Accede a nuestra red de más de {{ global.number_of_hiring_partners_aprox | 5,000 }} empresas asociadas que buscan activamente talento en ciencia de datos. Obtén oportunidades de trabajo exclusivas y referencias prioritarias.
+        benefits:
+          - text: Acceso exclusivo a bolsa de trabajo
+          - text: Referencias prioritarias a empresas asociadas
+          - text: Eventos de networking con gerentes de contratación
+          - text: Las empresas incluyen Google, Meta, Amazon, startups
+    certificate_position: right
+    useSolidCard: true
+    paddingY:
+      mobile: lg
+      desktop: none lg
+  - type: features_grid
+    section_id: features_grid-1gd8mw
+    variant: highlight
+    title: Inscríbete con Garantía de Empleo*
+    subtitle: "¿Necesitas mayor tranquilidad? Agrega nuestra Garantía de Empleo opcional para mayor seguridad.<div><span style=\"font-size: 0.75rem;\"><span>*No aplica para todos los mercados, países o estados donde opera 4Geeks. <a href=\"https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guaranteee-es.pdf\">Condiciones aplican</a>.</span></span></div>"
+    items:
+      - icon: Star
+        title: Agrega la Garantía de Empleo a tu plan de pago
+      - icon: Users
+        title: Completa el programa y sigue el proceso de carrera GeekFORCE
+      - icon: Award
+        title: Consigue empleo en 9 meses después de graduarte o te devolvemos tu dinero
+    columns: 3
+    icon_color: "#0097CD"
+    background: hsl(var(--secondary))
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - orlando-usa
+      - newyork-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+  - type: pricing
+    section_id: pricing-6r6wue
+    version: "1.0"
+    variant: product
+    title: Matrícula y opciones de financiamiento
+    subtitle: Invertir en tu carrera importa. Te lo facilitamos con múltiples formas de financiar tu inscripción.
+    discount_text: "Descuento por pago completo: Ahorra 10% con pago anticipado."
+    financing_text: Financiamiento en cuotas desde
+    financing_amount: {{ global.price_datascience | 200€ }}
+    tech_icons:
+      - python
+      - tensorflow
+      - pandas
+      - numpy
+      - sql
+      - git
+      - jupyter
+      - api
+    static_icons: true
+    features_title: Elige la opción que mejor se adapte a ti.
+    features:
+      - icon: IconCheck
+        text: Paga de contado para obtener un mejor precio con un descuento adicional o distribuye los pagos de 6 a 24 cuotas con nuestros partners.
+      - icon: IconCheck
+        text: 2–3 becas basadas en mérito disponibles por cohorte para solicitantes altamente calificados.
+      - icon: IconCheck
+        text: Trabajamos con socios de confianza para ofrecer financiamiento flexible y asequible, para que puedas enfocarte en tu futuro, no en tus tarifas.
+    cta:
+      text: Obtener más información
+      url: /es/apply
+      variant: primary
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg md
+    showOnLocations:
+      - barcelona-spain
+      - madrid-spain
+      - malaga-spain
+      - valencia-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - milan-italy
+      - munich-germany
+      - rome-italy
+  - type: pricing
+    section_id: pricing-240zru
+    version: "1.0"
+    variant: product
+    title: Matrícula y opciones de financiamiento
+    subtitle: Invertir en tu carrera importa. Hacemos que sea más fácil con varias formas de financiar tu inscripción.
+    discount_text: "Descuento por pago completo: Ahorra 10% pagando de una sola vez."
+    financing_text: "Financiamiento basado en crédito: desde"
+    financing_amount: {{ global.price_datascience | 200€ }}
+    tech_icons:
+      - openai
+      - python
+      - react
+      - nodejs
+      - api
+      - brain
+      - robot
+      - settings
+    features_title: Elige la opción que mejor se adapte a ti.
+    features:
+      - icon: IconCheck
+        text: Paga de una sola vez y recibe un 10% de descuento, o divide los pagos sin intereses en 6 meses.
+      - icon: IconCheck
+        text: Trabajamos con socios de confianza para ofrecer financiamiento flexible y asequible, para que puedas enfocarte en tu futuro, no en tus tarifas.
+      - icon: IconCheck
+        text: Financia tu matrícula con planes de pago de 12, 18 o 24 meses
+    cta:
+      text: Recibir más información
+      url: "#apply-modal"
+      variant: primary
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg md
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - newyork-usa
+      - losangeles-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - caracas-venezuela
+      - costa-rica
+      - lapaz-bolivia
+      - lima-peru
+      - mexicocity-mexico
+      - montevideo-uruguay
+      - panamacity-panama
+      - quito-ecuador
+      - santiago-chile
+  - type: whos_hiring
+    section_id: whos_hiring-7ts6hv
+    variant: carousel
+    title: Empresas que contratan a nuestros estudiantes
+    subtitle: Nuestros graduados trabajan en compañías líderes a nivel global
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    paddingY:
+      desktop: none
+  - type: testimonials
+    section_id: testimonials-q929xd
+    title: Éxito profesional comprobado
+    subtitle: “Más de {{ global.global_total_alumni | 5,000 }} graduados y {{ global.global_verified_reviews_count | 3,000 }}+ reseñas verificadas respaldan nuestro impacto en carreras tecnológicas.”
+    related_features:
+      - data-science
+      - content-and-syllabus
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 1,294 }}
+    marginY:
+      desktop: md lg
+    paddingY:
+      desktop: md none
+  - type: faq
+    section_id: faq-1fjtnp
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - data-science
+        - item_property_slug: locations
+          value: all
+    item_overrides:
+      cunto-tiempo-toma-completar-el-programa-de-data-science:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: sm md
+    background: hsl(var(--muted))
+  - type: cta_banner
+    section_id: cta_banner-iahx6n
+    version: "1.0"
+    title: ¿Listo para iniciar tu carrera en Ciencia de Datos?
+    subtitle: Plazas limitadas disponibles. Comienza tu transformación hoy.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Aplicar Ahora
+      conversion_name: student_application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: false
+          required: true
+          default: datascience-ml
+      success:
+        message: ¡Gracias! Nos pondremos en contacto pronto.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    section_id: sticky_cta-g1rrxu
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: {{ global.call_to_action_apply | Aplicar ahora }}
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+          placeholder: Número telefónico
+        program:
+          visible: false
+          default: datascience-ml
+      success:
+        message: ¡Gracias! Nos pondremos en contacto pronto.

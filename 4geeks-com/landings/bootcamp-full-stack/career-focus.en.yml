@@ -1,0 +1,121 @@
+# Full Stack Development - Career Focus Variant
+# Experiment variant emphasizing career growth and job opportunities
+
+meta:
+  page_title: Full Stack Developer Bootcamp | 4Geeks
+  description: Transform into a skilled Full Stack Developer with hands-on training, career support and job guarantee at 4Geeks Academy, launching careers in tech
+  robots: "index, follow"
+  og_image: "/images/programs/full-stack-og.jpg"
+
+sections:
+  - type: hero
+    section_id: hero-ufwbeo
+    variant: singleColumn
+    version: "1.0"
+    background: "linear-gradient(to bottom, hsl(var(--primary) / 0.05), hsl(var(--background)))"
+    badge: "Career Transformation"
+    title: "Launch Your Tech Career in 18 Weeks"
+    subtitle: "Join 2,500+ graduates who transformed their careers. Our 84% hire rate within 6 months and job guarantee means you'll land your first developer role - or your money back."
+    trust_bar:
+      rating: "4.5"
+      rating_count: "1,294"
+      trusted_text: "2,500+ career changers hired"
+    cta_buttons:
+      - text: "Start Your Career Change"
+        url: "/en/apply"
+        variant: "primary"
+        icon: "Rocket"
+      - text: "See Success Stories"
+        url: "/success-stories"
+        variant: "outline"
+        icon: "Users"
+  - type: award_badges
+    section_id: award_badges-0w29yt
+    version: "1.0"
+    variant: simple
+    showBorder: true
+    items:
+      - id: forbes-2024
+        alt: Forbes - Top Coding Bootcamp
+        source: Forbes
+        name: Top Coding Bootcamp
+        year: "2024"
+      - id: fortune-2024
+        alt: Fortune - Best for Spanish Speakers
+        source: Fortune
+        name: Best for Spanish Speakers
+        year: "2024"
+      - id: newsweek-2024
+        alt: Newsweek - Top Coding Bootcamp
+        source: Newsweek
+        name: Top Coding Bootcamp
+        year: "2024"
+      - id: course-report-2025
+        alt: Course Report - Best Coding Bootcamp
+        source: Course Report
+        name: Best Coding Bootcamp
+        year: "2025"
+
+  - type: syllabus
+    section_id: syllabus-fk7900
+    title: "Skills That Get You Hired"
+    subtitle: "Our curriculum is designed with hiring managers to ensure you learn exactly what employers are looking for."
+    modules:
+      - title: "Introduction To HTML And CSS"
+        description: "Learn to create web structures with HTML and style them with CSS, essential for building visually appealing and functional websites."
+      - title: "JavaScript"
+        description: "Master the fundamentals of JavaScript, the programming language that powers interactive web experiences."
+      - title: "React"
+        description: "Build modern user interfaces with React, the most in-demand JavaScript library used by top companies like Netflix, Airbnb, and Meta."
+      - title: "Python"
+        description: "Dive into Python, a versatile programming language used in web development, data science, and automation."
+      - title: "Creating APIs"
+        description: "Learn to design and build RESTful APIs using modern frameworks. A must-have skill for any full stack developer."
+      - title: "Agile Methodologies"
+        description: "Understand Scrum, Kanban, and other agile frameworks used by development teams worldwide."
+
+  - type: projects
+    section_id: projects-df2t67
+    title: "Build a Portfolio That Gets Interviews"
+    subtitle: "Graduate with 10+ real projects that demonstrate your skills to employers. Our projects are designed to match real job requirements."
+    items:
+      - title: "Build a StarWars REST API"
+        description: "Practice building REST APIs using Flask and SQLAlchemy - skills that 78% of job postings require."
+        image: "star-wars"
+        tags: ["REST", "Portfolio"]
+        duration: "8 HOURS"
+        date: "15/11/2022"
+        difficulty: "easy"
+      - title: "Authentication System with JWT"
+        description: "Create a complete authentication system - a core requirement in 95% of developer positions."
+        image: "authentication"
+        tags: ["Security", "JWT"]
+        duration: "6 HOURS"
+        date: "20/01/2023"
+        difficulty: "medium"
+      - title: "Full-Stack Final Project"
+        description: "Your capstone project becomes the centerpiece of your portfolio, showcasing your ability to build complete applications."
+        image: "final-project"
+        tags: ["Full-Stack", "Capstone"]
+        duration: "40 HOURS"
+        date: "01/03/2023"
+        difficulty: "hard"
+
+  - type: ai_learning
+    section_id: ai_learning-ci599u
+    version: "1.0"
+    variant: feature-tabs
+    badge: "Career Support"
+    title: "From Learning to Landing Your First Job"
+    description: "We don't just teach you to code - we help you get hired with dedicated career services and job placement support."
+    video_url: "https://www.youtube.com/watch?v=6m1Jyya7eCc"
+    features:
+      - icon: "Briefcase"
+        title: "Career Coaching"
+        description: "Work with career coaches who help you with resume writing, interview prep, and job search strategy."
+      - icon: "Users"
+        title: "Hiring Partner Network"
+        description: "Get introduced to our network of 200+ hiring partners actively looking for junior developers."
+      - icon: "Shield"
+        title: "Job Guarantee"
+        description: "If you don't get hired within 6 months, we'll refund your tuition. That's how confident we are in our program."

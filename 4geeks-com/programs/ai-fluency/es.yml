@@ -1,0 +1,555 @@
+slug: ai-fluency
+title: AI fluency
+settings:
+  loading:
+    eager_count: 3
+meta:
+  page_title: AI fluency
+  description: Automatiza tu trabajo con IA en 4 semanas. Sin programación. Mentoría 1:1 y tutor de IA 24/7 incluidos. Certificado AI Fluency for Professionals. $900. 4Geeks, valorado con 4.9.
+  robots: index, follow
+  og_image: /images/programs/ai-engineering-og.jpg
+  priority: 0.9
+  change_frequency: weekly
+  redirects:
+    - /es/programas-de-carrera/ai-fluent
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+sections:
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: AI Fluency. Los profesionales más destacados ya están aquí.
+    title_highlight: Los profesionales más destacados ya están aquí.
+    subtitle: Las habilidades en IA tienen ahora una prima salarial del 56% en todas las industrias. En cuatro semanas, construirás flujos de trabajo con IA alrededor de tu trabajo real, automatizarás tus tareas más repetitivas y convertirás la IA en tu colaboradora más capaz. No se requiere programación.
+    students_enrolled:
+      avatars:
+        - https://storage.googleapis.com/4geeks-academy-website/media/coimbra-1764725341501-512x512-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/AlexandraEspinoza_1764725386161.jpeg
+        - https://storage.googleapis.com/4geeks-academy-website/media/jeanstcloud-1764725356935-800x800-q70.webp
+        - https://storage.googleapis.com/4geeks-academy-website/media/MaiLinh2_1770856306817.webp
+      count: +6000 graduados
+    bullet_points:
+      - Automatiza trabajo repetitivo con agentes de IA y n8n.
+      - Escribe prompts que dan resultados profesionales cada vez.
+      - Construye flujos de trabajo reales con IA que usarás en tu trabajo.
+    tutors:
+      - name: Instructor Experto
+        role: Instructor Principal
+        image: https://randomuser.me/api/portraits/men/10.jpg
+      - name: Rigo
+        role: Tutor de IA
+        image: https://storage.googleapis.com/4geeks-academy-website/media/rigobot-logo_1764707022198.webp
+    tutors_label: "Tus tutores:"
+    description: La IA no es el futuro, es la base. Los profesionales que van adelante no están esperando. Con AI Fluency, desarrollarás las habilidades para dar el salto.
+    signup_card:
+      title: Recibe el resumen completo del programa
+      description: "Completa tus datos y el equipo de admisiones te enviará todo lo que necesitas: plan de estudios, detalles del programa y precios. Solo tarda 2 minutos."
+      cta_button:
+        text: Envíame los detalles
+        url: "#modal-y2myvq"
+        variant: primary
+      login_link:
+        text: ¿Ya eres estudiante? Inicia sesión aquí.
+        url: https://4geeks.com/es/login
+      features:
+        - icon: calendar
+          text: Programa de cohorte de 4 semanas
+        - icon: IconUsers
+          text: 1 clase en vivo por semana
+        - icon: IconUserCheck
+          text: Sesión de mentoría 1:1 incluida
+        - icon: IconRobot
+          text: Aprendizaje y feedback con IA
+    paddingY:
+      desktop: lg md
+    marginY:
+      desktop: none
+    section_id: hero-yt9c4j
+    video:
+      url: https://www.youtube.com/watch?v=a6aYSobiuBc
+    form:
+      conversion_name: request_more_info
+  - type: modal
+    version: "1.0"
+    heading: Recibe los detalles del programa
+    description: Completa tus datos de contacto y el equipo de admisiones te enviará todo lo que necesitas saber.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Envíame los detalles
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | ai-fluency }}
+      success:
+        message: Revisa tu bandeja de entrada. El equipo de admisiones se pondrá en contacto pronto.
+    section_id: modal-aifluency
+  - type: awards_marquee
+    section_id: awards_marquee-tjpzl5
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Mejores Bootcamps de Código 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Mejor Bootcamp de Código 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: tech-hub
+        alt: South Florida Tech Hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        logoHeight: 64px
+      - id: ebootcamp
+        alt: eBootcamp Top
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        logoHeight: 64px
+      - id: premios-tecnologia
+        alt: Premios Tecnología Siglo XXI
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 en Reseñas de Course Report
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+      - id: excelencia-educativa
+        alt: Excelencia Educativa - Calidad Institucional
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        logoHeight: 64px
+    paddingY:
+      desktop: none
+    marginY:
+      desktop: md lg
+  - type: features_quad
+    version: "1.0"
+    variant: default
+    heading: ¿Es este programa para ti?
+    description: Si te identificas con alguno de estos puntos, este programa está hecho para ti.
+    cards:
+      - icon: IconRocket
+        title: Usas herramientas de IA pero no estás aprovechando todo su potencial.
+      - icon: IconClock
+        title: Las tareas repetitivas consumen tu tiempo y tu atención.
+      - icon: IconTrendingUp
+        title: Sabes que la fluidez en IA se está convirtiendo en un requisito para avanzar en tu carrera.
+      - icon: IconCoin
+        title: Quieres la prima salarial que viene con habilidades reales en IA.
+    background: hsl(var(--muted))
+    section_id: features_quad-aifluency
+    marginY:
+      desktop: none lg
+  - type: features_grid
+    version: "1.0"
+    variant: stats-charts
+    subtitle: Los datos son claros.
+    title: La fluidez en IA es cómo aceleran las carreras
+    description: Los profesionales con habilidades en IA ganan más, avanzan más rápido y tienen mayor demanda en todas las industrias, no solo en tecnología. La oportunidad es real, y los números lo demuestran.
+    background: bg-slate-950
+    card_bars_accent: hsl(var(--primary))
+    card_gauge_accent: hsl(var(--destructive) / 0.5)
+    card_trend_accent: hsl(var(--accent))
+    card_bars:
+      title: Las habilidades en IA generan una prima salarial
+      description: Mismo rol · con y sin habilidades en IA · PwC 2025
+      stat_value: +56%
+      stat_label: prima salarial para trabajadores con habilidades en IA frente a compañeros del mismo rol
+      displaced_label: Sin habilidades en IA
+      created_label: Con habilidades en IA
+    card_gauge:
+      title: La alfabetización en IA se convierte en requisito laboral
+      description: Roles laborales globales · LinkedIn 2025
+      outer_stat_percentage: 70
+      show_gauge: true
+      inner_stat_highlight: false
+      gauge_label: requieren alfabetización en IA
+      stat_label: de los roles laborales ya requieren alfabetización en IA a nivel global
+      bar1_label: Roles que requieren alfabetización en IA
+      bar2_label: Roles sin requisito de IA
+    card_trend:
+      title: La demanda de trabajadores con fluidez en IA se acelera
+      description: Crecimiento de demanda indexado · LinkedIn/WEF 2026
+      stat_value: 7x
+      stat_label: crecimiento en la demanda de trabajadores con fluidez en IA desde 2023
+      end_label: 7x · 2026
+    section_id: features_grid-aifluency
+    paddingY:
+      desktop: none lg
+    marginY:
+      desktop: lg
+  - type: trust_cards
+    version: v1.0
+    title: Muy bien valorado en las principales plataformas.
+    items:
+      - image: https://old.4geeksacademy.com/static/01607bc41a0de635d83e9500e7cdb2ba/b490d/course-report.webp
+        rating: 4.9
+        review_count: 4.9 en Course Report
+      - image: https://old.4geeksacademy.com/static/b75f1b5bdfb35d447612388524e6ca96/611d9/google.webp
+        rating: 4.8
+        review_count: 4.8 en Google
+      - image: https://old.4geeksacademy.com/static/2c0afa9f6c7390203793f4d0bb6c5728/4d404/career-karma.webp
+        rating: 4.9
+        review_count: 4.9 en Career Karma
+      - image: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        rating: 4.9
+        review_count: 4.9 en SwitchUp
+    name: Tarjetas de confianza por defecto
+    description: Cuatro tarjetas de plataformas de reseñas con valoraciones
+    section_id: trust_cards-jji04i
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: md lg
+    background: hsl(var(--secondary))
+    maxWidth:
+      desktop: 6xl
+  - type: syllabus
+    variant: program-modules
+    program_title: Descripción del Programa AI Fluency
+    program_description: Aprende haciendo, semana a semana. El programa comienza con un análisis de tu propio trabajo y tareas, para que todo lo que aprendas se aplique directamente a tu día a día. Cada semana combina módulos a tu ritmo y una sesión en vivo con tu instructor y cohorte para practicar, resolver dudas y recibir feedback.
+    tech_logos:
+      - name: OpenAI
+        icon: openai
+      - name: n8n
+        icon: n8n
+      - name: Git
+        icon: git
+    module_cards:
+      - title: Cómo funciona realmente la IA
+        duration: Semana 1
+        objectives:
+          - Qué son los LLMs y cómo funcionan
+          - Por qué la elección del modelo importa en costo y calidad
+          - La diferencia entre un chatbot, asistente y agente
+          - "Fundamentos del prompting: rol, contexto, formato, restricciones"
+          - "Auditoría laboral: identifica tus principales candidatos a automatización"
+        projects: Escribe tus primeros 5 prompts para tareas reales que haces cada semana.
+        orientation: vertical
+        icon: IconBolt
+      - title: El prompting como habilidad
+        duration: Semana 2
+        objectives:
+          - "Patrones de prompting: cadena de pensamiento, few-shot, persona, output estructurado"
+          - Prompting para emails, informes, investigación y resúmenes de reuniones
+          - Gestión efectiva del contexto en IA
+          - Construcción de una biblioteca personal de prompts
+        projects: Sal con 3-5 prompts funcionales para tareas reales de tu trabajo.
+        orientation: vertical
+        icon: IconCode
+      - title: Tu asistente personal de IA
+        duration: Semana 3
+        objectives:
+          - Qué son los agentes de IA y cómo funcionan las habilidades
+          - Instalación y configuración de OpenClaw
+          - Creación de habilidades personalizadas a partir de plantillas de prompts
+          - Conexión de tu asistente a Google Drive, Gmail o Notion
+        projects: Ejecuta una habilidad personalizada en una tarea personal real.
+        orientation: vertical
+        icon: IconRobot
+      - title: Pipelines de automatización con n8n
+        duration: Semana 4
+        objectives:
+          - "Fundamentos de n8n: nodos, disparadores y flujos de trabajo"
+          - Conexión de n8n con Gmail, Slack, Google Sheets y webhooks
+          - Integración de n8n con un agente de IA para pasos de toma de decisiones inteligentes
+          - "Preparación del proyecto final: mapea y construye tu automatización"
+        projects: Construye y demuestra una automatización en vivo que gestione una tarea recurrente real.
+        orientation: vertical
+        icon: IconLayoutKanban
+      - title: Flujo de trabajo automatizado con IA
+        duration: Proyecto Capstone
+        objectives:
+          - Una automatización en vivo en n8n que resuelve una tarea personal o profesional real
+          - Al menos un paso de toma de decisiones con IA integrado en el flujo de trabajo
+          - Demo en vivo presentada al instructor y a los compañeros
+        projects: Una automatización real que construiste, que es tuya y que puedes seguir mejorando.
+        orientation: horizontal
+        icon: IconChartBar
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: lg
+    section_id: syllabus-aifluency
+  - type: human_and_ai_duo
+    version: "1.0"
+    heading: Soporte humano y de IA para que nunca pierdas el ritmo
+    description: Mantenerse motivado es fácil cuando todo encaja. Se vuelve difícil cuando te topas con un muro. AI Fluency combina un mentor humano real con Rigobot, nuestro tutor de IA, para que siempre tengas a alguien a quien acudir y ninguna razón para parar.
+    bullet_groups:
+      - title: "Tu mentor experto:"
+        image: https://storage.googleapis.com/4geeks-academy-website/media/profile-pic6_1764775742734.webp
+        bullets:
+          - text: Una sesión 1:1 con un instructor senior, incluida en tu matrícula
+          - text: Orientación experta adaptada a ti.
+          - text: Enfocado en tus tareas, flujos de trabajo y objetivos reales
+          - text: Sesiones adicionales disponibles para reservar cuando quieras, con costo adicional
+      - title: "Rigobot, tu tutor de IA:"
+        image: https://images.prismic.io/4geeks/ZhcryjjCgu4jzvSJ_rigobot-1-.png?auto=format,compress
+        bullets:
+          - text: Disponible 24/7 durante todo el programa
+          - text: Pide ayuda, feedback o una explicación cuando lo necesites
+          - text: Tu tutor siempre activo para todos los módulos a tu propio ritmo
+          - text: Se adapta a tu nivel y a lo que estás trabajando
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_asian-133x500.webp
+        alt: Estudiante asiática aprendiendo a programar
+        object_fit: cover
+        object_position: 40%20%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latin_male-133x500.webp
+        alt: Estudiante latino trabajando en un proyecto
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_african-133x500.webp
+        alt: Estudiante africana colaborando con su equipo
+        object_fit: cover
+        object_position: 50%15%
+        border_radius: 0.5rem
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student_latina_female-133x500.webp
+        alt: Estudiante latina celebrando un logro
+        object_fit: cover
+        object_position: 50%30%
+        border_radius: 0.5rem
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Group_6685_(1)_1765300162049.png
+    image_alt: Mujer trabajando con portátil en una cafetería
+    background: bg-background
+    paddingY:
+      mobile: sm none
+      desktop: md none
+    section_id: human_and_ai_duo-99s71d
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Matrícula y opciones de financiamiento
+    subtitle: Invertir en tus habilidades de IA es la decisión inteligente. 4Geeks tiene el historial para respaldarlo.
+    discount_text: "Descuento por pago completo: Ahorra 10% con pago anticipado."
+    financing_text: "Financiamiento flexible: desde"
+    financing_amount: {{ global.price_ai_fluency_financing | $150 }}
+    tech_icons:
+      - openai
+      - claude
+      - n8n
+      - openclaw
+    features_title: Elige la opción que mejor se adapte a ti.
+    features:
+      - icon: IconCheck
+        text: La matrícula completa es $900. Paga por adelantado y recibe un 10% de descuento.
+      - icon: IconCheck
+        text: Divide tus pagos con financiamiento flexible a través de Affirm o Klarna. Términos y disponibilidad varían según la región.
+      - icon: IconCheck
+        text: Una sesión de mentoría 1:1 incluida. Agrega más en cualquier momento por $25 cada una.
+    cta:
+      text: Inscríbete ahora
+      url: https://4geeks.com/es/checkout?plan=ai-fluency&cohort=1706
+      variant: primary
+    section_id: pricing-aifluency
+    marginY:
+      desktop: lg md
+    paddingY:
+      desktop: md lg
+    background: hsl(210 100% 50% / 0.05)
+  - type: pricing
+    version: "1.0"
+    variant: product
+    title: Matrícula y opciones de financiamiento
+    subtitle: Invertir en una nueva carrera importa. Te lo facilitamos con múltiples formas de financiar tu inscripción.
+    discount_text: "Descuento por pago completo: Ahorra 10% con pago anticipado."
+    financing_text: Cuota estimada de 140 €/mes financiando 5.750 € a 48 meses (TIN 7,75 %), tras una reserva previa de 500 € y sujeta a aprobación por la entidad financiera.*
+    financing_amount: 140€
+    tech_icons:
+      - python
+      - tensorflow
+      - pandas
+      - numpy
+      - sql
+      - git
+      - jupyter
+      - api
+    static_icons: true
+    features_title: Elige la opción que mejor se adapte a ti.
+    features:
+      - icon: IconCheck
+        text: Paga de contado para obtener un mejor precio con un descuento adicional, o divide tus pagos en 6 cuotas sin intereses con nuestros partners.
+      - icon: IconCheck
+        text: 2–3 becas basadas en mérito disponibles por cohorte para solicitantes altamente calificados.
+      - icon: IconCheck
+        text: Trabajamos con socios de confianza para ofrecer financiamiento flexible y asequible, para que puedas enfocarte en tu futuro, no en tus tarifas.
+    cta:
+      text: Inscríbete ahora
+      url: https://4geeks.com/es/checkout?plan=ai-fluency&cohort=1706
+      variant: primary
+    section_id: pricing-qhcsa1
+    marginY:
+      desktop: md xl
+    paddingY:
+      desktop: md lg
+    showOnLocations:
+      - barcelona-spain
+      - madrid-spain
+      - malaga-spain
+      - valencia-spain
+      - berlin-germany
+      - dublin-ireland
+      - hamburg-germany
+      - lisbon-portugal
+      - milan-italy
+      - munich-germany
+      - rome-italy
+    background: hsl(210 100% 50% / 0.05)
+  - type: testimonials
+    section_id: testimonials-ghxelh
+    title: Las personas detrás de los números.
+    subtitle: "Distintos puntos de partida. Un mismo resultado: fluidez real en IA."
+    related_features:
+      - content-and-syllabus
+      - career-support
+    rating_summary:
+      average: {{ global.global_review_rating | 4.9 }}
+      count: {{ global.global_review_count | 700 }}
+    paddingY:
+      desktop: md lg
+    marginY:
+      desktop: none md
+  - type: faq
+    section_id: faq-f4yd0z
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: locations
+          value: all
+      ignored_entries:
+        - does-the-job-guarantee-refund-the-full-tuition-if-i-dont-get-hired
+        - do-i-get-a-job-after-completing-the-program
+        - do-i-need-prior-cybersecurity-experience
+        - geekforce-or-geekpal-which-one-to-choose
+        - how-does-the-4geeks-academy-job-guarantee-work
+        - do-i-need-expensive-hardware-for-ai-development
+        - do-i-need-to-have-previous-experience-in-programming-to-join-the-bootcamp
+        - do-i-need-to-have-work-authorization-to-qualify-for-the-job-guarantee
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+    background: hsl(var(--muted))
+    item_overrides:
+      how-long-does-the-program-take:
+        hideOnLocations:
+          - barcelona-spain
+          - berlin-germany
+          - dublin-ireland
+          - hamburg-germany
+          - lisbon-portugal
+          - madrid-spain
+          - malaga-spain
+          - milan-italy
+          - munich-germany
+          - rome-italy
+          - valencia-spain
+    hardcoded_entries:
+      - question: ¿Necesito saber programar para tomar AI Fluency?
+        answer: |2-
+
+           No. AI Fluency está diseñado para profesionales en activo sin experiencia en programación. Todas las herramientas del programa — desde prompt engineering hasta automatizaciones con n8n — funcionan sin escribir una sola línea de código. El foco está en aplicar la IA a tareas reales de trabajo, no en programar.
+      - question: ¿Cómo funciona el programa AI Fluency?
+        answer: AI Fluency dura 4 semanas. Cada semana tiene un módulo a tu ritmo que completas según tu horario, seguido de una clase en vivo donde aplicas lo aprendido con la guía del instructor y el feedback de tus compañeros. Si te pierdes una clase en vivo, la grabación está disponible para que puedas ponerte al día antes de la siguiente sesión.
+      - question: ¿Qué construyo durante el programa AI Fluency?
+        answer: |2-
+
+           Al terminar AI Fluency tendrás tres entregables concretos: una biblioteca personal de prompts que puedes usar de inmediato en tu trabajo, un asistente de IA configurado y conectado a las herramientas que ya usas a diario, y una automatización funcional en n8n que gestiona una tarea recurrente real en tu vida profesional. No son ejercicios — son herramientas que conservas y usas desde el primer día después del programa.
+      - question: ¿Cómo me inscribo en AI Fluency y cuándo puedo empezar?
+        answer: |2-
+
+           AI Fluency funciona con fechas fijas de inicio de cohorte y plazas limitadas por cohorte para mantener las sesiones en vivo pequeñas e interactivas. Las próximas fechas de inicio están listadas en la página del programa AI Fluency.
+  - type: cta_banner
+    version: "1.0"
+    title: ¿Listo para desarrollar tu fluidez en IA?
+    subtitle: Únete a la próxima cohorte y sal con habilidades reales, una automatización en vivo y un certificado. Tu siguiente paso empieza aquí.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      conversion_name: student_application
+      submit_label: Iniciar solicitud
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: false
+          required: true
+          default: {{ single.bc_slug | ai-fluency }}
+      success:
+        message: Revisa tu bandeja de entrada. El equipo de admisiones se pondrá en contacto pronto con todo lo que necesitas saber.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+    section_id: cta_banner-aifluency
+  - type: sticky_cta
+    section_id: sticky_cta-euuky9
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: false
+          required: true
+          default: ai-engineering
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager

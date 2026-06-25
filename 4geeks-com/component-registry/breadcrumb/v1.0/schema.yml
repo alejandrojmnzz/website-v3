@@ -1,0 +1,24 @@
+name: Breadcrumb
+version: "1.0"
+component: BreadcrumbDefault
+file: client/src/components/breadcrumb/variants/BreadcrumbDefault.tsx
+description: Navigation breadcrumb trail showing the user's location within the site hierarchy
+when_to_use: |
+  Add near the top of content pages (blog posts, programs, landing pages) to help
+  users understand where they are and navigate back to parent sections.
+  Also generates BreadcrumbList JSON-LD for Google Rich Results.
+props:
+  items:
+    type: array
+    required: true
+    description: Ordered list of breadcrumb links. The last item is the current page (rendered without a link).
+    items:
+      label:
+        type: string
+        required: true
+        example: Home
+      url:
+        type: string
+        required: false
+        description: Absolute or relative URL. Omit (or leave empty) for the current page item.
+        example: /en/career-programs

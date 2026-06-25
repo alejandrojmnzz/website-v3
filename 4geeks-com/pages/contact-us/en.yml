@@ -1,0 +1,111 @@
+slug: contact-us
+template: default
+title: Contact 4Geeks
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: "Contact 4Geeks | 4Geeks Academy"
+  description: Contact 4Geeks Academy - Learn more about this topic at 4Geeks Academy.
+  redirects:
+    - /contact-us
+    - /us/contact
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-t12r78
+    version: "1.0"
+    variant: singleColumn
+    title: Contact Us
+    subtitle: Do you have any questions? We will be happy to respond as soon as possible. We also invite you to review our <a href="/en/faq">Frequently Asked Questions page</a>.
+    badge: Contact
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md sm
+  - type: contact_us_info
+    version: "1.0"
+    title: Tell us about you
+    background: hsl(var(--muted))
+    form:
+      variant: stacked
+      submit_label: Send
+      conversion_name: contact_us
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        last_name:
+          visible: true
+          required: true
+          placeholder: Last name
+        client_comments:
+          visible: true
+          required: true
+          placeholder: Comments
+      success:
+        message: Thank you! We'll be in touch soon.
+    locations:
+      - code: US
+        name: USA
+        address: {{ global.address_miami | 1111 Brickell Ave, Miami, FL 33129 }}
+        phone: +1 (786) 416-6640
+        email: info@4GeeksAcademy.com
+      - code: ES
+        name: Madrid
+        address: Calle Edison, 3. 28006 Madrid, España.
+        phone: +34 (910) 86 69 83
+        email: es@4geeksacademy.com
+      - code: CL
+        name: Chile
+        address: Av. Manquehue Sur 350, oficina 110, Las Condes Región Metropolitana, Chile.
+        phone: +56 (9) 7284 8039
+        email: chile@4GeeksAcademy.com
+      - code: CR
+        name: Costa Rica
+        email: puravida@4GeeksAcademy.com
+      - code: VE
+        name: Venezuela
+        email: venezuela@4GeeksAcademy.com
+    section_id: contact_us_info-tflvss
+    paddingY:
+      desktop: sm
+  - type: sticky_cta
+    section_id: sticky_cta-nb2b12
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

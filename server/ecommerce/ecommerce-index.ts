@@ -25,7 +25,7 @@ const log = child({ module: "ecommerce/ecommerce-index" });
 
 
 
-export const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
+export const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
 export const ECOMMERCE_SETTINGS_PATH = path.join(MARKETING_CONTENT_DIR, "ecommerce-settings.yml");
 const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_DIR, "content-types.yml");
 

@@ -1,0 +1,537 @@
+slug: home-copia-prueba
+template: default
+title: home copia prueba
+settings:
+  loading:
+    eager_count: 3
+meta:
+  robots: noindex, nofollow
+  priority: 1
+  change_frequency: daily
+  page_title: Copia de Prueba del Inicio | 4Geeks
+  description: Copia interna de la página de inicio para pruebas. No indexada ni destinada a visitantes públicos o motores de búsqueda.
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    version: '1.0'
+    variant: singleColumn
+    title: >-
+      1.3 Million New AI Roles.&nbsp;<div><span style="color: hsl(var(--primary));"><span style="color:
+      hsl(var(--foreground));">We're </span>Your Path In.</span></div>
+    subtitle: >-
+      <span style="font-size: 16px; text-align: center;"><span style="font-size: 1.5rem;">Immersive programs built to
+      launch AI careers. Backed by lifelong unlimited mentorship, AI-powered learning, and career support that gets you
+      hired.</span></span>
+    cta_buttons:
+      - text: Start Your Application
+        url: /signup
+        variant: primary
+    award_badges:
+      - name: Best Coding Bootcamp
+        source: Forbes
+        year: '2024'
+      - name: Top Tech School
+        source: Course Report
+    section_id: hero-lkbn89
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: xl none
+    marginY:
+      desktop: none
+    marginX:
+      desktop: none
+    paddingX:
+      desktop: xl
+    maxWidth:
+      desktop: none
+  - type: awards_marquee
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: download-1
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/download-1-.png
+        alt: 'Image: download (1)'
+        logoHeight: 60px
+      - id: clark-university
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/clark-university_1769653206336.png
+        alt: Clark University Logo
+        logoHeight: 60px
+      - id: download-2
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/download-2-.png
+        alt: 'Image: download (2)'
+        logoHeight: 60px
+      - id: download-3
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/download-3-.png
+        alt: 'Image: download (3)'
+        logoHeight: 60px
+      - id: download-4
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/download-4-.png
+        alt: 'Image: download (4)'
+        logoHeight: 60px
+      - id: download-4-1
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/download-4-.jpg
+        alt: 'Image: download (4)'
+        logoHeight: 60px
+    section_id: awards_marquee-jld4gp
+    title: >-
+      <span style="font-size: 1.875rem;"><span style="font-size: 1.125rem;"><span style="font-size:
+      1.25rem;"><span><span style="font-size: 1rem;">The tech training institutions trust for their high-stake
+      programs.&nbsp;</span></span></span></span></span>
+    title_above_carousel: true
+    marginY:
+      desktop: none xl
+  - type: graduates_stats
+    maxWidth:
+      desktop: 6xl
+    heading: Our Graduates Get Hired. Fast.
+    subheading: 6,000+ graduates worldwide. Now thiriving in tech.
+    stats:
+      - value: 84%
+        label: Average hiring rate
+      - value: 55%
+        label: Average salary increase at new position
+      - value: 3-6 months
+        label: Average time to get hired
+    collage_images:
+      - image_id: graduates_team_1
+        col_span: 5
+        row_span: 2
+      - image_id: graduates_team_2
+        col_span: 7
+        row_span: 2
+      - image_id: graduates_coding
+        col_span: 6
+        row_span: 2
+      - image_id: graduates_friends
+        col_span: 6
+        row_span: 2
+    section_id: graduates_stats-9hscv4
+    marginY:
+      desktop: none md
+  - type: image_row
+    maxWidth:
+      desktop: 6xl
+    images:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student-1-asian.png
+        alt: Student learning to code
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student-2-latin.pngtin.png
+        alt: Developer working on project
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student-3-african.png
+        alt: Team collaboration session
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/student-4-lady-latin.png
+        alt: Graduate celebrating success
+    highlight:
+      heading: You bring the commitment. We bring everything else.
+      text: >-
+        Mentors and career coaches that are always within reach, an AI tutor, and your personal AI agent. All tailored
+        to you.
+      background: primary
+      width: 2
+      text_2: >-
+        <div><span style="font-size: 1.5rem;"></span></div><span style="font-size:
+        1.5rem;"><div><span></span></div></span><span style="font-size:
+        1.5rem;"><span><div><span><br></span></div></span></span><span style="font-size: 1.5rem;">Unlimited 1:1
+        mentorship with real tech professionals, career coaching, an AI tutor, and your own AI
+        agent.&nbsp;</span><div><span style="font-size: 1.5rem;"><br></span></div><div><span style="font-size:
+        1.5rem;">Tailored to you and yours for life.</span><span style="font-size: 1.5rem;"></span><span
+        style="font-size: 1.5rem;"></span></div>
+      text_1: >-
+        <span style="font-size: 1.875rem;"><b>We accelerate your learning and back your career like no other
+        program.</b></span>
+    height: 31rem
+    mobile_height: 24rem
+    gap: md
+    rounded: true
+    background: hsl(var(--background))
+    section_id: image_row-7zvlzj
+    marginY:
+      desktop: none xl
+    paddingY:
+      desktop: none
+  - type: features_grid
+    version: '1.0'
+    variant: stats-text
+    maxWidth:
+      desktop: 6xl
+    title: AI is replacing jobs. It's also creating new ones faster than the workforce is prepared to fill.
+    subtitle: That's your opportunity.
+    description: >-
+      Every week, companies post AI roles they cannot fill. They need engineers who build with AI, analysts who work
+      with AI, and security professionals who defend against it. The talent gap is real, and it is widening fast.
+    background: hsl(var(--secondary))
+    items:
+      - id: '1'
+        value: 7x
+        title: Growth in demand for AI-fluent workers since 2023
+      - id: '2'
+        value: 3%
+        title: Of the workforce qualifies for AI roles
+      - id: '3'
+        value: 56%
+        title: Salary premium for workers with AI skills
+    section_id: section-17y1az
+    marginY:
+      desktop: md
+  - type: features_grid
+    version: '1.0'
+    variant: stats-text
+    maxWidth:
+      desktop: 6xl
+    title: AI is replacing jobs. It's also creating new ones faster than the workforce is prepared to fill.
+    subtitle: That's your opportunity.
+    description: >-
+      Every week, companies post AI roles they cannot fill. They need engineers who build with AI, analysts who work
+      with AI, and security professionals who defend against it. The talent gap is real, and it is widening fast.
+    background: hsl(210 100% 50% / 0.05)
+    items:
+      - id: '1'
+        value: 7x
+        title: Growth in demand for AI-fluent workers since 2023
+      - id: '2'
+        value: 3%
+        title: Of the workforce qualifies for AI roles
+      - id: '3'
+        value: 56%
+        title: Salary premium for workers with AI skills
+    section_id: section-17y1az
+    marginY:
+      desktop: none xl
+  - type: career_support_explain
+    version: v1.0
+    maxWidth:
+      desktop: 6xl
+    heading: We Stay With You Until You're Hired.
+    description: >-
+      This is what separates 4Geeks from every other platform. Not just courses. A complete system that takes you from
+      enrolled to employed. AI-optimized profiles, direct access to 400+ hiring partners, and hands-on support from your
+      first day to your signed offer letter and beyond.
+    tabs:
+      - tab_label: Job-Ready, Faster
+        layout: three_columns
+        col1_subtitle: Build a Recruiter-Ready Profile, Smarter.
+        col1_description: >-
+          Prepare for real hiring processes using a combination of AI tools and 1-on-1 coaching.
+
+          RigoBot reviews your resume and LinkedIn in real-time. Career mentors help you refine your story, portfolio,
+          and interview performance for optimal impact.
+        col1_tagline: We'll help you create tailored job search materials
+        col1_boxes:
+          - icon: linkedin
+            text: LinkedIn
+          - icon: IconFileText
+            text: Resume
+          - icon: briefcase-business
+            text: Portfolio
+          - icon: IconMail
+            text: Cover letter
+        col2_heading: Career Strategy, Built Around You
+        col2_bullets:
+          - icon: IconRobot
+            text: 24/7 feedback from RigoBot to audit your LinkedIn and resume
+          - icon: IconUsers
+            text: 1-on-1 career coaching and strategy sessions
+          - icon: IconMicrophone
+            text: Mock interviews and technical interview prep
+        col3_image_id: 4geeks_member
+        col3_object_fit: cover
+        col3_object_position: center
+      - tab_label: Real Hiring Access
+        layout: two_column_cards
+        title: Access the Hidden Job Market.
+        left_text: >-
+          Once your profile is ready, visibility becomes the focus. We connect you directly with hiring partners and
+          decision-makers. Your profile is shared with companies actively recruiting 4Geeks graduates, supported by a
+          targeted networking strategy.
+        left_image_id: career_team_women
+        left_image_object_fit: cover
+        left_image_object_position: center
+        left_stat:
+          value: 400+
+          label: companies in 4Geeks employer network
+        right_bullets:
+          - icon: IconUserPlus
+            text: Direct referrals to hiring partners
+          - icon: target
+            text: Curated job matches based on your profile
+          - icon: bot-message-square
+            text: Networking and recruiter conversation coaching
+        right_logos:
+          - image_id: logo_google
+            alt: Google
+          - image_id: logo_meta
+            alt: Meta
+          - image_id: logo_microsoft
+            alt: Microsoft
+          - image_id: logo_uber
+            alt: Uber
+          - image_id: logo_ebay
+            alt: eBay
+          - image_id: logo_kpmg
+            alt: KPMG
+      - tab_label: Proof That Converts
+        layout: text_and_image
+        title: Projects that Demonstrate Real Skill.
+        left_description: >-
+          Visibility gets attention. Proof closes the gap.
+
+          Graduate with a portfolio that shows what you can actually build. From hands-on projects to a capstone that
+          solves real business problems, your work becomes clear evidence of your ability.
+        left_bullets:
+          - icon: briefcase-business
+            text: Industry-aligned, real-world projects
+          - icon: IconPresentation
+            text: A showcase-ready capstone project
+          - icon: github
+            text: GitHub optimization and professional code review
+        right_image_id: geekforce_valentina_ancieta
+        right_image_object_fit: cover
+        right_image_object_position: center
+      - tab_label: Your Best-Fit Role
+        layout: text_with_testimonials_carousel
+        title: Turn Your Background into an Advantage.
+        left_description: >-
+          Once offers are on the table, we help you choose and negotiate with confidence.
+
+          Your previous experience matters. We map transferable skills, focus your job search on the right roles, and
+          support you through salary negotiation and long-term growth.
+        left_bullets:
+          - icon: IconTransfer
+            text: Transferable skills mapping
+          - icon: IconMap
+            text: Personalized career roadmap
+          - icon: IconCoin
+            text: Salary negotiation coaching
+          - icon: IconUsers
+            text: Ongoing alumni career support
+        testimonials:
+          - image_id: mailinh_tran
+            image_object_fit: cover
+            image_object_position: center
+            contributor_logos:
+              - image_id: clark_university
+            description: >-
+              MaiLinh Tran is an entrepreneur with a passion for technology, now focusing on the dev side of her
+              endeavor.
+            achievement: She launched her own startup, is hiring new tech talent, and coordinates an entire team of developers.
+          - image_id: martin_coimbra
+            image_object_fit: cover
+            image_object_position: center top
+            contributor_logos:
+              - image_id: logo_utec
+            description: >-
+              Martín joined the first program we launched together with UTEC and IDB. He landed a better-paying job, a
+              career he is passionate about, and a whole new professional life.
+            achievement: He achieved a 100% salary increase.
+          - image_id: melanie_galaretto
+            image_object_fit: cover
+            image_object_position: center
+            contributor_logos:
+              - image_id: logo_utec
+              - image_id: bid_logo
+            description: >-
+              Melanie is a young professional who dreamed of achieving the life she now has. She is a resourceful and
+              committed software developer working at a software company in her home country.
+            achievement: She achieved a 100% salary increase.
+    section_id: career_support_explain-atccy5
+    marginY:
+      desktop: none lg
+    background: hsl(var(--muted))
+  - type: numbered_steps
+    section_id: numbered_steps-k1da7b
+    version: '1.0'
+    variant: bubbleText
+    title: From zero to hired. Here's exactly how it works.
+    description: >-
+      No guesswork. No vague promises. This is the exact path 4Geeks takes you through — from your first application to
+      your first day at a new job.
+    steps:
+      - icon: Application
+        title: Apply in minutes. Hear back in 48 hours.
+        bullets:
+          - Fill out a short form — no technical test, no prior experience required.
+          - Our admissions team reviews your profile and goals within 48 hours.
+          - A quick conversation to make sure this is the right moment for you.
+      - icon: Learning
+        title: Learn by building real things with AI.
+        bullets:
+          - Live classes, hands-on projects, and an AI-native curriculum updated for 2025.
+          - Unlimited 1-on-1 mentorship from day one — available whenever you need it.
+          - Rigobot, your personal AI tutor, tracks your progress and adapts to your pace.
+      - icon: Career
+        title: Build your professional profile before you graduate.
+        bullets:
+          - LinkedIn optimization, portfolio, CV, and mock interviews — all included.
+          - GeekForce starts working with you weeks before graduation.
+          - You leave with a real product you built, not just a certificate.
+      - icon: Hiring
+        title: We stay with you until you sign your offer.
+        bullets:
+          - Direct access to our hiring partner network from day one.
+          - Dedicated career mentor tracks your job search and keeps it moving.
+          - Lifetime career support — even for your next career move after your first job.
+    background: bg-background
+  - type: testimonials_slide
+    title: They Were Exactly Where You Are Now.
+    description: >-
+      Different backgrounds, different programs, one result: a career in tech they didn't think was possible. These are
+      real 4Geeks graduates with real numbers to back it up.
+    background: hsl(var(--card))
+    section_id: testimonials_slide-6fuyi4
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: none
+  - type: programs_showcase
+    version: v1.0
+    layout: spotlight_with_list
+    heading: Find the program that fits where you're going.
+    subheading: Four paths. All built around getting you hired — not just trained.
+    featured_label: Most Popular
+    programs:
+      - name: AI Engineering
+        icon: IconBrain
+        description: >-
+          Build the AI systems companies are hiring for right now. Master LLMs, AI agents, and automation while
+          transforming a real business case into a fully AI-native system, layer by layer.
+        duration: 24 weeks
+        avg_salary: $95,000 – $150,000
+        cta_text: See If You Qualify
+        cta_url: '#hero-nzpyph'
+      - name: Full Stack Development with AI
+        icon: IconCode
+        description: >-
+          Build modern, production-ready web applications from frontend to backend — with AI integrated at every layer,
+          not added on top.
+        duration: 20 weeks
+        avg_salary: $65,000 – $105,000
+        cta_text: See If You Qualify
+        cta_url: '#hero-nzpyph'
+      - name: Data Science and Machine Learning
+        icon: IconChartBar
+        description: >-
+          Analyze complex data, build intelligent models, and deploy AI solutions that solve real business problems —
+          not just academic exercises.
+        duration: 16 weeks
+        avg_salary: $70,000 – $130,000
+        cta_text: See If You Qualify
+        cta_url: '#hero-nzpyph'
+      - name: Cybersecurity
+        icon: IconShield
+        description: >-
+          Protect the systems AI depends on. Every company scaling AI infrastructure needs specialists who can secure
+          it. That demand isn't slowing down.
+        duration: 16 weeks
+        avg_salary: $65,000 – $120,000
+        cta_text: See If You Qualify
+        cta_url: '#hero-nzpyph'
+    section_id: programs_showcase-tej6dk
+    background: hsl(var(--card))
+    paddingY:
+      desktop: none lg
+    marginY:
+      desktop: none lg
+  - type: why_learn_ai
+    variant: laptop-edge
+    laptop_image:
+      image_id: laptop
+    title: Get Hired. Or Your Money Back.
+    subtitle: Most bootcamps hope you get a job. We guarantee it.
+    description: >-
+      <div><ul><li><span style="font-size: 1.125rem;"><span><span><span style="font-size: 1.25rem;">Enroll with the Job
+      Guarantee added to your payment plan.</span></span></span></span></li><li><span style="font-size:
+      1.125rem;"><span><span><span style="font-size: 1.25rem;">Complete the program and the GeekFORCE career development
+      process.</span></span></span></span></li><li><span style="font-size: 1.125rem;"><span><span><span
+      style="font-size: 1.25rem;">If you're not hired within 9 months of graduation, you'll get a full refund of your
+      tuition.</span></span></span></span></li></ul><div><span style="font-size:
+      1.125rem;"><span><span><div><span><span><span style="font-size: 0.875rem;">*The Job Guarantee is not available in
+      all regions. <a
+      href="https://storage.googleapis.com/4geeks-academy-website/PDF%20and%20Docs/job-guarantee-en.pdf">Terms and
+      conditions apply.</a></span></span></span></div></span></span></span></div></div>
+    cta:
+      text: See How It Works
+      url: /en/job-guarantee
+      variant: primary
+    section_id: why_learn_ai-efzm04
+    marginY:
+      desktop: md lg
+    paddingY:
+      desktop: none
+    background: hsl(var(--muted))
+    showOnLocations:
+      - atlanta-usa
+      - austin-usa
+      - chicago-usa
+      - dallas-usa
+      - miami-usa
+      - houston-usa
+      - losangeles-usa
+      - newyork-usa
+      - orlando-usa
+      - tampa-usa
+      - toronto-canada
+      - bogota-colombia
+      - buenosaires-argentina
+      - costa-rica
+      - mexicocity-mexico
+  - type: faq
+    section_id: faq-26f1yx
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - online-platform
+            - certification
+            - mentors-and-teachers
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: md none
+  - type: cta_banner
+    section_id: cta_banner-vf5u70
+    version: '1.0'
+    title: Take the Next Step Toward Your Tech Career
+    subtitle: Get pricing, program details, and personalized guidance.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the details
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: false
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: Thank you! We'll be in touch soon.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+locale: es

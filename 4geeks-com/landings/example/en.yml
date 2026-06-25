@@ -1,0 +1,456 @@
+slug: example
+sections:
+  - type: ai_flex_selector
+    version: v1.0
+    variant: default
+    badge_text: Build your path
+    title: Your AI curriculum,
+    title_highlight: built around you.
+    subtitle: 4 questions. No commitment. We map the exact courses you need.
+    icon: 4GeeksAvatar
+    back_label: Back
+    restart_label: Start over and change my answers
+    skills_breakdown_label: Skills breakdown
+    max_selections: 4
+    tools_marquee: true
+    results:
+      ready_label: Your path is ready
+      subtitle: View your courses or build your own path
+      counter_label: selected
+      tools_label: Tools in this path
+    cta:
+      title: Start with a 7-day free trial.
+      subtitle: No commitment. Cancel anytime. Your path stays saved.
+      banner: true
+      buttons:
+        - text: Start free trial
+          url: /en/apply
+          variant: primary
+    questions:
+      - subtitle: Question 1 of 4
+        text: What's your main goal right now?
+        options:
+          - label: Use AI to be more productive at my current job
+          - label: Automate repetitive tasks without writing code
+          - label: Build apps or technical projects with AI
+          - label: Work with data, analytics, or machine learning
+      - subtitle: Question 2 of 4
+        text: How comfortable are you with coding?
+        options:
+          - label: No experience — and I'd like to keep it that way
+          - label: No experience — but I'm open to basics
+          - label: Some basics (scripts, spreadsheets, HTML)
+          - label: I code regularly
+      - subtitle: Question 3 of 4
+        text: What skill would make the biggest difference in your work right now?
+        options:
+          - label: Getting reliable, professional-quality results from AI tools
+          - label: Building automations that run without me
+          - label: Setting up AI assistants for my existing tools
+          - label: Writing code or building software with AI
+          - label: Analyzing data and making smarter decisions
+      - subtitle: Question 4 of 4
+        text: How do you plan to use what you learn?
+        options:
+          - label: Get better at what I already do
+          - label: Add a new capability to my current role
+          - label: Prepare for a career shift into tech
+          - label: Explore — not sure yet
+    courses:
+      - name: Prompt Engineering
+        tagline: Prompting patterns & reusable libraries
+        hrs: ~8 hrs
+        tools:
+          - ChatGPT
+          - Claude
+          - Gemini
+          - Perplexity
+        skills:
+          - name: Prompting patterns
+            skill_percentage: 55
+          - name: Output control
+            skill_percentage: 28
+          - name: Context management
+            skill_percentage: 17
+      - name: Applied AI
+        tagline: AI for real professional work tasks
+        hrs: ~12 hrs
+        tools:
+          - ChatGPT
+          - Notion
+          - Otter.ai
+          - Grammarly
+          - Gamma
+        skills:
+          - name: AI writing & editing
+            skill_percentage: 40
+          - name: Research tools
+            skill_percentage: 35
+          - name: Workflow documentation
+            skill_percentage: 25
+      - name: No-Code & Automations
+        tagline: Visual workflows with n8n, Zapier, Make
+        hrs: ~10 hrs
+        tools:
+          - n8n
+          - Make
+          - Zapier
+          - Airtable
+          - Webhooks
+        skills:
+          - name: Visual workflows
+            skill_percentage: 45
+          - name: App integrations
+            skill_percentage: 35
+          - name: AI steps in pipelines
+            skill_percentage: 20
+      - name: Vibe Coding with AI
+        tagline: Build apps with AI coding assistants
+        hrs: ~12 hrs
+        tools:
+          - Cursor
+          - GitHub Copilot
+          - Replit
+          - Vercel
+        skills:
+          - name: AI-assisted coding
+            skill_percentage: 50
+          - name: Shipping projects
+            skill_percentage: 30
+          - name: Debug & review
+            skill_percentage: 20
+      - name: OpenClaw
+        tagline: Personal AI assistant setup & integration
+        hrs: ~6 hrs
+        tools:
+          - OpenClaw
+          - Slack
+          - Notion
+          - Google Sheets
+        skills:
+          - name: Assistant setup
+            skill_percentage: 50
+          - name: Custom skill design
+            skill_percentage: 30
+          - name: Tool connection
+            skill_percentage: 20
+      - name: Backend Dev with Python
+        tagline: APIs with FastAPI, databases, deployment
+        hrs: ~20 hrs
+        tools:
+          - FastAPI
+          - PostgreSQL
+          - Docker
+          - Railway
+          - Supabase
+        skills:
+          - name: REST API design
+            skill_percentage: 45
+          - name: Database & deploy
+            skill_percentage: 35
+          - name: AI API integration
+            skill_percentage: 20
+      - name: Deep Dive into Python
+        tagline: Python fundamentals to advanced
+        hrs: ~18 hrs
+        tools:
+          - Python
+          - VS Code
+          - Git
+          - GitHub
+        skills:
+          - name: Python foundations
+            skill_percentage: 50
+          - name: OOP & structures
+            skill_percentage: 30
+          - name: Project setup
+            skill_percentage: 20
+      - name: Data Science & ML
+        tagline: Data analysis, ML models, predictions
+        hrs: ~22 hrs
+        tools:
+          - Pandas
+          - NumPy
+          - scikit-learn
+          - Jupyter
+          - Streamlit
+        skills:
+          - name: Data analysis & viz
+            skill_percentage: 45
+          - name: ML model building
+            skill_percentage: 35
+          - name: Model evaluation
+            skill_percentage: 20
+    paths:
+      - name: The Data-Driven Analyst
+        tagline: Python, data science and ML with AI tools
+        courses:
+          - Deep Dive into Python
+          - Data Science & ML
+          - Applied AI
+          - Prompt Engineering
+      - name: The Builder
+        tagline: Build real products with AI, code-optional
+        courses:
+          - Vibe Coding with AI
+          - Backend Dev with Python
+          - No-Code & Automations
+          - OpenClaw
+      - name: The Career Switcher
+        tagline: Code foundations + applied AI for career pivoters
+        courses:
+          - Deep Dive into Python
+          - Backend Dev with Python
+          - Vibe Coding with AI
+          - Applied AI
+      - name: The Automation Specialist
+        tagline: No-code workflows and AI pipelines
+        courses:
+          - No-Code & Automations
+          - Prompt Engineering
+          - OpenClaw
+          - Applied AI
+      - name: The AI-First Professional
+        tagline: AI tools mastery for knowledge workers
+        courses:
+          - Prompt Engineering
+          - Applied AI
+          - No-Code & Automations
+          - OpenClaw
+    section_id: ai_flex_selector-78ovp3
+    paddingY:
+      desktop: sm
+    maxWidth:
+      desktop: xl
+  - type: pricing
+    version: "1.0"
+    variant: plan_cards_comparison
+    title: An investment that pays for itself.
+    subtitle: No contracts. Cancel anytime. All plans include the full course catalog.
+    plans:
+      - name: Basic Plan
+        tag: Monthly
+        for_label: For 1 student
+        currency: $
+        amount: "65"
+        period: /month
+        billing_note: Recurring monthly charge
+        cta:
+          label: Subscribe to Basic Plan
+          url: /en/signup
+      - name: Pro Plan
+        tag: Annual
+        for_label: For up to 2 students
+        currency: $
+        amount: "449"
+        cents: ".99"
+        period: /year
+        billing_note: Annual billing
+        featured: true
+        top_badge: Save 10 months
+        bottom_label: Financing with
+        bottom_badges:
+          - Klarna
+          - Affirm
+        cta:
+          label: Subscribe to Pro Plan
+          url: /en/signup-pro
+    features:
+      - text: Mentorship sessions / month
+      - text: Access to exclusive events
+        exclude_from_plans:
+          - Basic Plan
+      - text: AI compilations
+      - text: 300 premium Copilot requests
+      - text: $5 LLM tokens (DeepSeek 3.1, Claude Sonnet, Llama 3, Codex)
+      - text: Codespaces ($10/mo included)
+      - text: School account with GitHub Developer Program
+      - text: VPS included
+      - text: Course certificates
+    addon:
+      label: Optional add-on
+      title: Extra mentorship sessions
+      description: Book as many as you need. Senior instructors, on demand.
+      currency: $
+      amount: "25"
+      period: per session
+    section_id: pricing-fdivws
+    paddingY:
+      desktop: sm
+  - type: syllabus
+    version: v1.0
+    variant: program-modules
+    program_title: AI Native Full Stack — Program Modules
+    program_description: Build real AI-powered systems from day one. This curriculum is organized around two tracks — Core AI and Agents, and Infrastructure for AI — plus a capstone that integrates everything into a fully transformed, deployed company. Supported by complementary foundations in modern development tools and practices throughout.
+    tech_logos:
+      - name: Python
+        icon: python
+      - name: OpenAI
+        icon: openai
+      - name: n8n
+        icon: n8n
+      - name: Docker
+        icon: docker
+      - name: React
+        icon: react
+    module_cards:
+      - title: Personal Assistants with OpenClaw
+        duration: Core AI and Agents
+        objectives:
+          - Configure an open-source AI agent as a personal assistant
+          - Assign tasks and integrate external applications with the agent
+        projects: Deploy and configure a self-hosted AI assistant — yours, under your control, without relying on external vendors.
+        orientation: vertical
+        icon: IconRobot
+      - title: Advanced Personal Assistants with OpenClaw
+        duration: Core AI and Agents
+        objectives:
+          - Identify scenarios where an agent solves real business problems
+          - Develop custom skills for OpenClaw
+          - Implement contextual memory (episodic, semantic, procedural)
+          - Advanced configuration and extension of the agent
+        projects: Take your basic assistant agent to a productive tool with real autonomy in business contexts.
+        orientation: vertical
+        icon: IconRobot
+      - title: Working with AI Coding Agents
+        duration: Core AI and Agents
+        objectives:
+          - Build memory banks and context rules from an existing codebase
+          - Write executable specifications for agents (agent specs)
+          - Synthesize reusable skills so agents act with precision
+        projects: Build memory banks and context rules that turn a coding agent into a collaborator that understands your codebase.
+        orientation: vertical
+        icon: IconCode
+      - title: LLMs, Training & RAG
+        duration: Core AI and Agents
+        objectives:
+          - Prepare data and select models for training
+          - Implement RAG techniques on proprietary knowledge bases
+          - Work with vector databases
+          - Evaluate, debug, and integrate models in production
+        projects: Implement RAG so your agent answers with proprietary, up-to-date knowledge.
+        orientation: vertical
+        icon: IconDatabase
+      - title: Agentic Engineering
+        duration: Core AI and Agents
+        objectives:
+          - Build agents with tool calling (real function calls)
+          - Implement guardrails as a security and control mechanism
+          - Provide tools to the agent via CLIs optimized for AI
+          - Extend agent capabilities with the Model Context Protocol (MCP)
+          - Give an agent persistent memory
+        projects: Build agents that call tools, access external systems via MCPs and CLIs, and operate with persistent memory.
+        orientation: vertical
+        icon: IconBolt
+      - title: Agentic Workflows
+        duration: Core AI and Agents
+        objectives:
+          - Design multi-agent systems with routing and arbitration
+          - Implement shared memory across agents
+          - Deploy agentic workflows with serverless and durable functions
+        projects: Design systems where multiple agents collaborate, distribute tasks, and run autonomously at scale.
+        orientation: vertical
+        icon: IconLayoutKanban
+      - title: Backend Development with Coding Agents
+        duration: Infrastructure for AI
+        objectives:
+          - Design backend architectures for AI-powered solutions
+          - Create agent loops integrating LLMs with APIs
+          - Implement lightweight storage and CSV data processing
+          - Build and expose REST APIs for frontends and agents
+        projects: Build robust APIs with FastAPI, implement agent loops in Python, and design backend architectures for AI use cases.
+        orientation: vertical
+        icon: IconServer
+      - title: Workflow Automations
+        duration: Infrastructure for AI
+        objectives:
+          - Model business logic with workflow diagrams
+          - Implement basic and advanced flows in n8n
+          - Integrate LLMs and external apps in automations
+          - Deploy maintainable workflows with error handling
+        projects: Build AI-powered business automations in n8n that run autonomously without manual intervention.
+        orientation: vertical
+        icon: IconCode
+      - title: Data Pipelines
+        duration: Infrastructure for AI
+        objectives:
+          - Manipulate and prepare datasets with Python
+          - Build data pipelines from the application to analysis systems
+        projects: Build pipelines that take raw data, transform it, and leave it ready to feed models, reports, or agents.
+        orientation: vertical
+        icon: IconChartBar
+      - title: Telemetry
+        duration: Infrastructure for AI
+        objectives:
+          - Optimize storage for reporting and data integrity
+          - Identify data collection opportunities in real scenarios
+          - Collect telemetry and user context from the application
+          - Build reports from telemetry data
+        projects: Instrument applications to collect behavioral data and make decisions based on real evidence.
+        orientation: vertical
+        icon: IconChartBar
+      - title: Asynchronous Processing and Offloading
+        duration: Infrastructure for AI
+        objectives:
+          - Implement background processing for costly tasks
+          - Manage process queues with workers
+          - Use queues to delegate work between agents and services
+        projects: Implement background processing and queue systems that let agents delegate heavy work without blocking users.
+        orientation: vertical
+        icon: IconServer
+      - title: Real-Time
+        duration: Infrastructure for AI
+        objectives:
+          - Build support chats with LLMs in real time
+          - Implement response streaming with generators (yield)
+          - Integrate webhooks and pub/sub in AI applications
+        projects: Implement real-time communication between users and language models using streaming, WebSockets, and event-driven architectures.
+        orientation: vertical
+        icon: IconBolt
+      - title: Web Application Authentication
+        duration: Infrastructure for AI
+        objectives:
+          - Implement authentication and route restrictions in FastAPI
+          - Build complete authentication flows (login, tokens, sessions)
+        projects: Implement secure authentication in FastAPI and build complete login flows that define what each user — and agent — can do.
+        orientation: vertical
+        icon: IconCode
+      - title: Error Handling, Debugging and Testing
+        duration: Infrastructure for AI
+        objectives:
+          - Understand and manage runtime errors with flow control
+          - Develop test suites for robust applications
+        projects: Verify AI-generated code with controlled error handling and test suites that validate expected behavior.
+        orientation: vertical
+        icon: IconCode
+      - title: Cybersecurity in AI Applications
+        duration: Infrastructure for AI
+        objectives:
+          - Identify and fix OWASP Top 10 vulnerabilities in web applications
+          - Implement security practices specific to AI integrations
+          - Use LLMs as a cybersecurity auditing tool
+        projects: Identify critical vulnerabilities in AI applications and implement safe practices in model integration.
+        orientation: vertical
+        icon: IconCode
+      - title: AI-Transformed Company
+        duration: Capstone
+        objectives:
+          - AI-generated frontend
+          - API with full authentication
+          - Telemetry and reporting pipeline
+          - Agent-generated automated workflows
+          - RAG knowledge layer
+          - Agents with tool calling
+          - Real-time communication
+        projects: Integrate everything you have learned into a working, deployed system — a full transformation of a company through AI.
+        orientation: horizontal
+        icon: IconCode
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: md
+    section_id: syllabus-yfaek6
+    showOnLocations:
+      - chicago-usa
+meta:
+  page_title: example

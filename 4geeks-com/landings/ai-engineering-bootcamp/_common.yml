@@ -1,0 +1,10 @@
+slug: ai-engineering-bootcamp
+title: ai-engineering-bootcamp
+locale: en
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering

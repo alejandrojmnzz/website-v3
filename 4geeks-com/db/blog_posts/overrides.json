@@ -1,0 +1,20 @@
+{
+  "lookup_key": "slug",
+  "entries": {
+    "geekforce-the-career-launch-engine": {
+      "preview_image": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-launch-your-career-png-0ee32b0a-736x491.webp"
+    },
+    "the-600000-job-crisis": {
+      "preview_image": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-600000-png-f6968952-736x491.webp"
+    },
+    "how-geekforce-prepares-you-in-the-age-of-ai": {
+      "preview_image": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-geekforce-human-ai-png-71b45072-736x479.webp"
+    },
+    "global-innovators-at-the-america-business-forum-miami": {
+      "preview_image": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-4geeks-at-america-business-forum-png-7ebaecf6-736x491.webp"
+    },
+    "los-5-frameworks-fundamentales-para-frontend": {
+      "preview_image": "https://storage.googleapis.com/4geeks-academy-website/media/group_original-736x491-q85.webp"
+    }
+  }
+}

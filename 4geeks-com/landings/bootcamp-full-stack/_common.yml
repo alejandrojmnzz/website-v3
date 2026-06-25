@@ -1,0 +1,24 @@
+# Common properties shared across all variants
+slug: "bootcamp-full-stack"
+bc_slug: "bootcamp-full-stack"
+title: "bootcamp full stack"
+job_role: Full Stack Developer
+meta:
+  og_image: /images/programs/full-stack-og.jpg
+
+# AI Content Adaptation Context
+# Used by the AI system to adapt component examples to this specific content
+context:
+  when_to_use: "For visitors interested in becoming web developers, learning both frontend and backend technologies, or transitioning into software development careers."
+  target_audience: "Career changers, recent graduates, and professionals looking to break into tech with comprehensive web development skills."
+  goals:
+    - "Highlight the practical, project-based learning approach"
+    - "Emphasize job-ready skills and career outcomes"
+    - "Showcase the full-stack technology coverage (HTML, CSS, JavaScript, React, Python, SQL)"
+    - "Address concerns about learning curve and time commitment"
+
+schema:
+  include:
+    - organization
+    - website
+    - courses:full-stack

@@ -13,7 +13,7 @@ const log = child({ module: "database" });
 
 
 
-const DB_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "db");
+const DB_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", "db");
 
 export interface VectorSearchConfig {
   enabled: boolean;

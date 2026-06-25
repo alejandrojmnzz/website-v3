@@ -1,0 +1,41 @@
+name: frequently asked questions
+source:
+  type: local
+  local:
+    filename: faqs.yml
+    results_path: faqs
+cache:
+  ttl_hours: 24
+field_mapping:
+  locale: locale
+  question: question
+  answer: answer
+  locations: locations
+  related_features: related_features
+  last_updated: last_updated
+  priority: priority
+vector_search:
+  enabled: true
+  fields:
+    - question
+search_fields:
+  - question
+editor:
+  related_features:
+    type: tags
+    populate_options: true
+    allow_custom_values: true
+  priority:
+    type: select
+    options:
+      - value: '1'
+        label: High
+      - value: '2'
+        label: Medium
+      - value: '3'
+        label: Low
+  locations:
+    type: tags
+    populate_options: true
+  answer:
+    type: textarea

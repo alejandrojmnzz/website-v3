@@ -1,0 +1,363 @@
+slug: anik-delemete
+title: Become an Agentic AI Engineer
+meta:
+  priority: 0.7
+  change_frequency: weekly
+  page_title: Agentic AI Engineering Program for Ages 17–22 | 4Geeks Academy
+  description: 12-month intensive program in agentic AI engineering for ages 17–22. Build AI agents, multi-agent systems, and production-ready workflows. $5,000 tuition with financing. 4Geeks Academy.
+  robots: noindex, nofollow
+  og_image: /images/programs/ai-engineering-og.jpg
+sections:
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: Become an Agentic AI Engineer
+    title_highlight: Agentic AI Engineer
+    subtitle: 12 months. Ages 17–22. From zero to building AI agents that think, act, and ship.
+    bullet_points:
+      - Build AI agents that reason, use tools, and operate autonomously.
+      - Design and deploy multi-agent systems and agentic workflows from scratch.
+      - Graduate with a production-grade portfolio that gets you hired.
+    description: No prior experience required. Just the drive to build the future.
+    media:
+      type: image
+      src: https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=450&fit=crop
+      alt: AI Engineering program for young builders
+    signup_card:
+      title: Get the Full Program Details
+      description: Enter your info and we'll send you the syllabus, schedule, tuition options, and everything you need to apply.
+      cta_button:
+        text: Send Me the Details
+        url: "#modal-lead"
+        variant: primary
+      features:
+        - icon: calendar
+          text: 12-Month Program
+        - icon: IconUsers
+          text: Ages 17–22
+        - icon: IconRobot
+          text: Focused on Agentic Engineering
+        - icon: IconUserCheck
+          text: Unlimited 1:1 Mentorship
+        - icon: IconBolt
+          text: $5,000 Tuition — Financing Available
+    section_id: hero-anik
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none
+  - type: awards_marquee
+    version: v1.0
+    section_id: awards-anik
+    speed: 60
+    gradient: true
+    gradientWidth: 400
+    items:
+      - id: switchup-2025
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        logoHeight: 64px
+      - id: course-report-2024
+        alt: Course Report - Best Coding Bootcamp 2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        logoHeight: 64px
+      - id: newsweek
+        alt: Newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        logoHeight: 64px
+      - id: forbes
+        alt: Forbes - Top Coding Bootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651.webp
+        logoHeight: 64px
+      - id: reviews-coursereport
+        alt: 4.9 on Course Report Reviews
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        logoHeight: 64px
+    paddingY:
+      desktop: none
+    marginY:
+      desktop: md
+  - description: Enter your details to receive the complete syllabus, program structure, schedule options, and tuition information.
+    form:
+      automations: soft
+      fields:
+        email:
+          required: true
+          visible: true
+        first_name:
+          required: true
+          visible: true
+        phone:
+          required: true
+          visible: true
+        program:
+          default: ai-engineering
+          visible: false
+      submit_label: Get the Full Overview
+      conversion_name: request_more_info
+      tags: request_more_info,anik-delemete
+      variant: stacked
+      success:
+        message: Thank you! A program advisor will reach out within 24 hours.
+    heading: Request Program Details
+    section_id: modal-lead
+    show_close: true
+    size: md
+    type: modal
+    version: "1.0"
+  - background: hsl(var(--secondary))
+    card_color: bg-background
+    description: This isn't a bootcamp. It's a 12-month deep dive into the engineering discipline that's reshaping every industry.
+    items:
+      - title: Program Duration
+        value: 12 Months
+      - title: Tuition
+        value: $5,000
+      - title: Ages
+        value: 17–22
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: md
+    section_id: stats-anik
+    subtitle: Built for the next generation of AI engineers.
+    title: Program at a Glance
+    type: features_grid
+    variant: stats-cards
+    version: "1.0"
+  - marginY:
+      desktop: md none
+    module_cards:
+      - duration: Months 1–2
+        icon: IconCode
+        objectives:
+          - Learn Python from scratch with hands-on exercises
+          - Build your first web APIs with FastAPI
+          - Work with Git, terminal, and modern dev tools
+        projects: Build and deploy a working API from scratch — no prior coding experience needed.
+        orientation: vertical
+        title: "Foundations: Python & Backend Development"
+      - duration: Months 3–4
+        icon: IconRobot
+        objectives:
+          - Configure and extend an AI agent as a personal assistant
+          - Develop custom skills and integrate external apps
+          - Implement contextual memory (episodic, semantic, procedural)
+        projects: Deploy a self-hosted AI assistant that handles real tasks autonomously.
+        orientation: vertical
+        title: AI Agents with OpenClaw
+      - duration: Months 5–6
+        icon: IconDatabase
+        objectives:
+          - Understand how LLMs work under the hood
+          - Implement RAG on proprietary knowledge bases
+          - Work with vector databases (Qdrant) and embedding models
+        projects: Build a RAG system so your agent answers with real, proprietary knowledge.
+        orientation: vertical
+        title: LLMs, Embeddings & RAG
+      - duration: Months 7–8
+        icon: IconBolt
+        objectives:
+          - Build agents with tool calling and real function execution
+          - Implement guardrails for safety and control
+          - Extend agent capabilities with MCP and persistent memory
+        projects: Build agents that call tools, access external systems, and operate with persistent memory.
+        orientation: vertical
+        title: Agentic Engineering
+      - duration: Months 9–10
+        icon: IconLayoutKanban
+        objectives:
+          - Design multi-agent systems with routing and arbitration
+          - Implement shared memory across agents
+          - Build agentic workflows with LangGraph
+        projects: Design systems where multiple agents collaborate, distribute tasks, and run autonomously.
+        orientation: vertical
+        title: Agentic Workflows & Multi-Agent Systems
+      - duration: Months 11–12
+        icon: IconRocket
+        objectives:
+          - AI-generated frontend
+          - API with full authentication
+          - RAG knowledge layer + agents with tool calling
+          - Telemetry, real-time communication, automated workflows
+        projects: Integrate everything into a working, deployed system — a full AI-transformed company.
+        orientation: horizontal
+        title: "Capstone: AI-Transformed Company"
+    paddingY:
+      desktop: md
+    program_description: Go from zero coding experience to building production-grade agentic AI systems in 12 months. Two tracks — Foundations and Agentic AI — converge in a capstone that proves you can ship.
+    program_title: Agentic AI Engineering — 12-Month Curriculum
+    section_id: syllabus-anik
+    tech_logos:
+      - icon: python
+        name: Python
+      - icon: openai
+        name: OpenAI
+      - icon: n8n
+        name: n8n
+      - icon: docker
+        name: Docker
+      - icon: react
+        name: React
+    type: syllabus
+    variant: program-modules
+  - background: hsl(var(--secondary))
+    cta:
+      text: Get More Info
+      url: "#modal-lead"
+      variant: primary
+    discount_text: "Full Payment Discount: Save 10% when you pay upfront ($4,500)."
+    features:
+      - icon: IconCheck
+        text: Pay upfront and save 10%, or split into 6 interest-free monthly installments.
+      - icon: IconCheck
+        text: Finance over 12 months with our lending partners — starting at $450/month.
+      - icon: IconCheck
+        text: Merit-based partial scholarships available for qualifying applicants.
+    features_title: Choose the option that fits you best.
+    financing_amount: $450
+    financing_text: Monthly financing starting at
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: md
+    section_id: pricing-anik
+    subtitle: A $5,000 investment in a career that pays $95K–$135K. Multiple ways to make it work.
+    tech_icons:
+      - python
+      - openai
+      - n8n
+      - docker
+      - react
+      - api
+      - robot
+      - settings
+    title: Tuition & Financing Options
+    type: pricing
+    variant: product
+    version: "1.0"
+  - background: bg-muted/30
+    description: No complicated admissions process. No prerequisites. Just three steps between you and your AI career.
+    section_id: steps-anik
+    steps:
+      - icon: School
+        text: Fill out the application form — it takes 2 minutes.
+      - icon: Headset
+        text: Chat with an advisor to choose your schedule and financing option.
+      - icon: Rocket
+        text: Start building AI agents from day one.
+    title: How to Get Started
+    type: numbered_steps
+    version: "1.0"
+    paddingY:
+      desktop: md
+    marginY:
+      desktop: none md
+  - marginY:
+      desktop: md
+    paddingY:
+      desktop: md
+    rating_summary:
+      average: "4.9"
+      count: "700"
+    related_features:
+      - content-and-syllabus
+      - career-support
+    section_id: testimonials-anik
+    subtitle: "Different backgrounds. One outcome: a career in tech."
+    title: What Our Graduates Say
+    type: testimonials
+  - background: hsl(var(--muted))
+    cta:
+      button:
+        label: Talk to an Advisor
+        url: "#modal-lead"
+      text: Still have questions?
+    items:
+      - answer: No. This program starts from zero. You'll learn Python and backend fundamentals in the first two months before moving into AI and agentic systems. All you need is curiosity and commitment.
+        question: Do I need prior coding or AI experience?
+      - answer: The program runs 12 months. It's designed to be intensive but manageable, with a mix of live sessions, hands-on projects, and 1:1 mentorship throughout.
+        question: How long is the program?
+      - answer: This program is designed for people aged 17 to 22 who want to build a career in AI engineering. Whether you're in high school, college, or taking a gap year, this is for you.
+        question: Who is this program for?
+      - answer: Tuition is $5,000. We offer flexible financing options including monthly installments and payment plans up to 12 months. Financial aid may be available depending on your location.
+        question: How much does it cost?
+      - answer: You'll build AI agents, RAG systems, multi-agent workflows, and a full capstone project — an AI-transformed company. Everything you build goes into a production-grade portfolio employers can see.
+        question: What will I build during the program?
+      - answer: Agentic engineering is the discipline of building AI systems that can reason, use tools, collaborate with other agents, and operate autonomously. It's the fastest-growing specialization in AI right now.
+        question: What is agentic engineering?
+      - answer: You get unlimited 1:1 mentorship for life — not just during the program. Plus AI-powered feedback from Rigobot 24/7, weekly check-ins, and a dedicated Slack community.
+        question: What kind of support do I get?
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+    section_id: faq-anik
+    title: Frequently Asked Questions
+    type: faq
+  - background: hsl(var(--primary))
+    form:
+      fields:
+        email:
+          placeholder: Your email address
+          required: true
+          visible: true
+        first_name:
+          placeholder: First name
+          required: true
+          visible: true
+        phone:
+          placeholder: Phone number
+          required: true
+          visible: true
+        program:
+          default: ai-engineering
+          required: true
+          visible: false
+      submit_label: Start Your Application
+      success:
+        message: Check your inbox. Our admissions team will be in touch shortly.
+      conversion_name: student_application
+      tags: website-lead,anik-delemete
+      variant: stacked
+    form_background: hsl(var(--card))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+    section_id: cta-anik
+    subtitle: 12 months. $5,000. A career in AI. This is your window.
+    title: Ready to Start Building the Future?
+    type: cta_banner
+    variant: form
+    version: "1.0"
+    items: "[{\"question\": \"Do I need prior coding or AI experience?\", \"answer\": \"No. This program starts from zero. You'll learn Python and backend fundamentals in the first two months before moving into AI and agentic systems. You'll have 24/7 AI-powered feedback from Rigobot plus unlimited 1:1 mentorship, so you're never stuck.\"}, {\"question\": \"How long is the program?\", \"answer\": \"The program runs 12 months. It's designed to be intensive but manageable, with a mix of live sessions, hands-on projects, and 1:1 mentorship throughout.\"}, {\"question\": \"Who is this program for?\", \"answer\": \"This program is designed for people aged 17 to 22 who want to build a career in AI engineering. Whether you're in high school, college, or taking a gap year, this is for you.\"}, {\"question\": \"Is the program online, in-person, or hybrid?\", \"answer\": \"The program is available both online and in-person depending on your location. The online experience includes live sessions, real-time mentorship, and collaborative projects — same curriculum, same support, accessible from anywhere.\"}, {\"question\": \"How much does it cost?\", \"answer\": \"Tuition is $5,000. You can pay upfront and save 10% ($4,500), split into 6 interest-free installments, or finance over 12 months starting at $450/month. Merit-based partial scholarships are also available.\"}, {\"question\": \"What will I build during the program?\", \"answer\": \"You'll build AI agents, RAG systems, multi-agent workflows, and a full capstone project — an AI-transformed company. Everything you build goes into a production-grade portfolio employers can see.\"}, {\"question\": \"What is agentic engineering?\", \"answer\": \"Agentic engineering is the discipline of building AI systems that can reason, use tools, collaborate with other agents, and operate autonomously. It's the fastest-growing specialization in AI right now.\"}, {\"question\": \"What kind of support do I get?\", \"answer\": \"You get unlimited 1:1 mentorship for life — not just during the program. Plus AI-powered feedback from Rigobot 24/7, weekly check-ins, and a dedicated Slack community.\"}]"
+  - button_label: Apply Now
+    form:
+      automations: strong
+      fields:
+        email:
+          required: true
+          visible: true
+        first_name:
+          required: true
+          visible: true
+        phone:
+          required: true
+          visible: true
+        program:
+          default: ai-engineering
+          required: true
+          visible: false
+      submit_label: Submit Application
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+      conversion_name: student_application
+      tags: website-lead,anik-delemete
+      variant: inline
+    heading: Ready to start your AI career?
+    load: eager
+    section_id: sticky-anik
+    show_dismiss: false
+    type: sticky_cta
+    version: "1.0"

@@ -1,0 +1,240 @@
+slug: graduates-and-projects
+template: default
+title: Graduates and Projects
+meta:
+  robots: index, follow
+  priority: 0.9
+  change_frequency: weekly
+  page_title: Graduate Projects & Alumni | 4Geeks
+  description: "See what 4Geeks graduates build: AI systems, full-stack apps, data pipelines and more. Production-ready projects that prove the skills employers are hiring for."
+  redirects:
+    - /graduates-and-projects
+    - /us/graduates
+    - /us/students-and-projects
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-s6n3ah
+    version: "1.0"
+    variant: singleColumn
+    title: See What Our Students Build
+    subtitle: Explore final projects from 4Geeks Academy graduates. Real apps and solutions that showcase the skills, creativity, and career-ready talent of our bootcamp alumni.
+    badge: Career program
+    cta_buttons:
+      - text: Apply Now
+        url: "#bottom"
+        variant: primary
+        icon: Rocket
+      - text: Get Program Details
+        url: "#apply-modal"
+        variant: outline
+        icon: Book
+    trust_bar:
+      rating: {{ global.global_review_rating | 4.9 }}/5
+      rating_count: 2,500+
+      trusted_text: Trusted by {{ global.global_total_alumni | 10,000 }}+ students
+    award_badges:
+      - name: Best Coding Bootcamp
+        source: Forbes
+        year: "2024"
+      - name: Top Tech School
+        source: Course Report
+  - type: modal
+    version: "1.0"
+    section_id: apply-modal
+    heading: Request Program Details
+    description: Enter your details to receive the complete syllabus, program structure, schedule options, tuition information, and support framework.
+    show_close: true
+    size: md
+    form:
+      variant: stacked
+      submit_label: Get the Full Overview
+      conversion_name: request_more_info
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: true
+          required: true
+          default: null
+      success:
+        message: Thank you. A program advisor will reach out with the details within 24 hours.
+  - type: project_showcase
+    section_id: project_showcase-upoo68
+    version: "1.0"
+    items:
+      - project_title: Raspberry Sky
+        project_url: https://sattelite-beta.vercel.app/
+        description: A platform capable of receiving information (wind, temperature, geolocation, etc) from rockets being launched to outer space. The platform also lets you make arrangements to send your own rocket, track it and receive messages from it.
+        creators:
+          - name: Luis Rivera
+            role: QA Analyst
+            github_url: https://github.com/Luis846
+            linkedin_url: https://linkedin.com/in/luis-rivera-68779714b/
+          - name: Naila Kaliyeva
+            role: Web Developer
+            github_url: https://github.com/nailakaliyeva
+            linkedin_url: https://www.linkedin.com/in/naila-kaliyeva-a8863a181/
+        media:
+          - type: image
+            src: https://storage.googleapis.com/4geeks-academy-website/media/image_1765318479754.png
+            alt: Raspberry Sky - Satellite access for everyone
+          - type: video
+            src: OZfv9kYl0_o
+      - project_title: "IMS: Inventory Tracking"
+        project_url: https://ims-frontend.vercel.app/react-hello-webapp/private/dashboard
+        description: IMS is a Pharmacy Inventory and logistics tracking system built using Python, Javascript, React, and integration with Barcode Readers, SMS, the Twillio API, and GPS Tracking Systems. IMS holds stock quantities of all products stored and sold by the Drug Store and then tracks the vehicles that deliver those sells.
+        creators:
+          - name: Jonathan Perez
+            role: Business Administration
+            github_url: https://github.com/Jphendrix51
+          - name: Sebastian Pinto
+            role: Pharmacy Owner
+            github_url: https://github.com/sebastianpd1
+          - name: Paola Castro
+            role: Fuel Industry
+            github_url: https://github.com/paocastrob
+        media:
+          - type: image
+            src: https://storage.googleapis.com/4geeks-academy-website/media/image_1765318521904.png
+            alt: IMS Dashboard
+          - type: video
+            src: TTjSZ2Lud2E
+      - project_title: WonderTracker
+        project_url: https://wandertrackerfront-end-gmihov001.vercel.app/
+        description: A platform capable of keeping your travel information and documents saved in an absolute secure system. It also lets you track places where you have been, and gather information that you thought was important to save for as long as you want - all in just one place.
+        creators:
+          - name: Fernando Funes
+            role: Web Developer
+            github_url: https://github.com/ferfunes
+          - name: George Mihov
+            role: Web Developer and Mentor
+            github_url: https://github.com/gmihov001
+            linkedin_url: https://www.linkedin.com/in/gmihov/
+        media:
+          - type: image
+            src: https://storage.googleapis.com/4geeks-academy-website/media/image_1765318556862.png
+            alt: WonderTracker - Plan Travel, Save Memories
+          - type: image
+            src: https://storage.googleapis.com/4geeks-academy-website/media/fernando-funez_1765315920677.jpg
+            alt: WonderTracker team member
+      - project_title: reMindful
+        project_url: https://re-mindful.vercel.app/
+        description: Generating awareness about recycling and considering all the steps that need to be covered. They have created an application that integrates both software and hardware that allows to weigh the amount of plastic, glass or garbage there is within a container and how much it will affect both the recycling process as well as the environment.
+        creators:
+          - name: Jordan Aguiriano
+            role: Web Developer
+            github_url: https://github.com/JordanAguiriano
+          - name: Gabriela Rodriguez
+            role: Web Developer
+            github_url: https://github.com/gabsssrod
+        media:
+          - type: image
+            src: https://storage.googleapis.com/4geeks-academy-website/media/image_1765318600261.png
+            alt: reMindful - Reduce, Reuse, Recycle
+          - type: video
+            src: cKcZD0_1IKk
+    background: hsl(210 100% 50% / 0.05)
+  - type: about
+    section_id: about-4uyzlk
+    version: "1.0"
+    height: 420px
+    title: More About 4Geeks
+    description: 4Geeks Academy was founded in 2015. What started as an internal project to train more developers has now become our full-time passion. 4Geeks is today a USA based Coding Bootcamp pursuing to build a new framework for Coding Education, because coding is becoming an essentials part of our society. 4Geeks Academy has now Locations in 12 cities, 13 on-going campus, and more than 600 graduates.
+    link_text: Read More
+    link_url: /en/the-academy
+    image_src: https://storage.googleapis.com/4geeks-academy-website/media/our-story_1765323971104.webp
+    image_alt: 4Geeks Academy Founders
+    marginY:
+      desktop: none lg
+    background: hsl(210 100% 50% / 0.05)
+  - type: faq
+    section_id: faq-60p6ip
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - content-and-syllabus
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: none md
+  - type: cta_banner
+    section_id: cta_banner-8vt1ih
+    version: "1.0"
+    title: Take the Next Step Toward Your Tech Career
+    subtitle: Get pricing, program details, and personalized guidance.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the details
+      conversion_name: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+      success:
+        message: Thank you! We'll be in touch soon.
+      button_className: bg-white text-primary hover:bg-white/90 border-white
+      terms_className: text-white/80
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    section_id: sticky_cta-xnj64l
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

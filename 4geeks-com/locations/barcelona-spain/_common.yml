@@ -1,0 +1,43 @@
+slug: barcelona-spain
+name: Barcelona
+city: Barcelona
+country: Spain
+country_code: ES
+latitude: 41.3851
+longitude: 2.1734
+region: europe
+default_language: es
+timezone: Europe/Madrid
+phone: +34 932 20 80 80
+address: Carrer de Balmes 200, 08006 Barcelona
+available_programs:
+  - "full-stack"
+context:
+  when_to_use: For Barcelona and Catalonia visitors or those interested in tech opportunities in Southern Europe's leading startup hub.
+  target_audience: Local Barcelona residents, international tech professionals, and career changers seeking roles in a dynamic tech ecosystem.
+  goals:
+    - Highlight Barcelona's dynamic tech ecosystem and leading startup hub status
+    - Emphasize immersive, hands-on coding education and talent cultivation
+    - Showcase connections to the city's flourishing tech landscape
+catalog:
+  admission_advisors:
+    - name: "Admissions Team"
+      email: "admissions@4geeks.com"
+      calendar_url: "https://calendly.com/4geeks-admissions"
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website
+  overrides:
+    organization:
+      address:
+        "@type": PostalAddress
+        streetAddress: Carrer de Balmes 200
+        addressLocality: Barcelona
+        addressRegion: Catalonia
+        postalCode: "08006"
+        addressCountry: ES

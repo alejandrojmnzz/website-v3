@@ -1,0 +1,207 @@
+slug: guia-de-js
+title: guia de js
+meta:
+  page_title: "Guía de JavaScript | 4Geeks Academy"
+  description: Aprende a programar con nuestra guía de JavaScript y potencia tu carrera en desarrollo web con 4Geeks Academy, la mejor escuela de coding en línea.
+sections:
+  - type: hero
+    version: "1.0"
+    variant: course
+    title: ¡Descarga gratis la Guía de JavaScript!
+    title_highlight: ""
+    subtitle: Aprende lo esencial para empezar a programar en la web
+    description: JavaScript es el lenguaje clave para crear experiencias web interactivas. Con esta guía gratuita de 4Geeks Academy, aprenderás los fundamentos y tendrás una ruta clara para empezar a construir proyectos.
+    signup_card:
+      title: Descargar Guía
+      description: Completa el formulario y en unos minutos recibirás en tu correo la Guía de JavaScript con los conceptos básicos para empezar a aprender programación web.
+      form:
+        variant: stacked
+        submit_label: Descargar la Guía Gratis
+        conversion_name: financing_guide_download
+        tags: request_downloadable
+        fields:
+          first_name:
+            visible: true
+            required: true
+            placeholder: Nombre completo
+          email:
+            visible: true
+            required: true
+            placeholder: Correo electrónico
+          phone:
+            visible: true
+            required: true
+            placeholder: Número de teléfono
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    marginY:
+      desktop: md none
+    paddingY:
+      desktop: none
+  - type: two_column
+    proportions:
+      - 7
+      - 5
+    alignment: center
+    left:
+      image: https://storage.googleapis.com/4geeks-academy-website/media/unsplash_workspace-700x467-q65.webp
+      image_alt: Student coding on laptop
+      justify: end
+    right:
+      heading: Guía de JavaScript, descubre por qué JS es una Habilidad indispensable para un programador web
+      sub_heading: ""
+      description: JavaScript es un lenguaje de programación versátil que se utiliza para crear una amplia gama de aplicaciones web, desde interfaces interactivas hasta juegos en línea y aplicaciones web complejas.
+      text_align: left
+    gap: "12"
+    background: hsl(210 100% 50% / 0.05)
+    paddingY:
+      desktop: lg
+  - type: awards_marquee
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: switchup-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logoHeight: 56px
+      - id: course-report-2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        alt: Course Report - Best Coding Bootcamp 2024
+        logoHeight: 56px
+      - id: tech-hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        alt: South Florida Tech Hub
+        logoHeight: 56px
+      - id: ebootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        alt: eBootcamp Top
+        logoHeight: 56px
+      - id: premios-tecnologia
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        alt: Premios Tecnologia Siglo XXI
+        logoHeight: 56px
+      - id: newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        alt: Newsweek
+        logoHeight: 56px
+      - id: reviews-coursereport
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        alt: 4.9 on Course Report Reviews
+        logoHeight: 56px
+      - id: excelencia-educativa
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        alt: Excelencia Educativa - Institutional Quality
+        logoHeight: 56px
+    paddingY:
+      desktop: lg
+  - type: two_column
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      heading: La guía de Javascript te ayudará a dar tus primeros pasos hacía la programación.
+      sub_heading: Desde los conceptos básicos hasta tener una idea más clara de como aprender Javascript
+      description: Empieza aprendiendo a incluir un script de JavaScript en HTML, luego continua con los conceptos básicos, variables, tipos de datos, funciones, eventos y muchos más con nuestra guía
+      button:
+        text: Descargar la guía
+        url: "#cta_banner"
+        variant: primary
+        icon: Rocket
+    right:
+      image: https://storage.googleapis.com/4geeks-academy-website/media/image_1765300905942.png
+      justify: center
+    gap: "8"
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: none
+  - type: two_column
+    proportions:
+      - 6
+      - 6
+    alignment: center
+    left:
+      video: https://www.youtube.com/watch?v=OtJvrNwQw9E&t=1s
+      justify: center
+    right:
+      heading: Descubre por qué 4Geeks Academy es tu mejor opción para aprender JavaScript
+      sub_heading: ""
+      description: La guía de JavaScript que te ofrecemos es solo una pequeña muestra de todo lo que nuestro Bootcamp de Programación tiene para ofrecer. Con nuestro programa completo, podrás aprender a desarrollar aplicaciones web complejas, analizar datos y convertirte en un profesional altamente capacitado en el mundo de la tecnología. Ya sea que aspires a convertirte en un Full Stack Developer o un Data Analyst, 4Geeks está listo para llevarte de la mano para que puedas convertirte en un profesional de la programación.
+      button:
+        text: Descarga la Guía Gratis
+        url: "#cta_banner"
+        variant: primary
+        icon: Rocket
+    gap: "8"
+    marginY:
+      desktop: none lg
+    paddingY:
+      desktop: lg sm
+  - type: whos_hiring
+    variant: carousel
+    pretitle: ""
+    title: ¡Las oportunidades te esperan!
+    subtitle: Muchas de las empresas líderes en el mundo buscan programadores web
+    logos:
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png
+        alt: Microsoft
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_google_developers-300x68-q70.webp
+        alt: Google Developers
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/boats_1764719939123.jpg
+        alt: Boats Group
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70.webp
+        alt: Meta
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_ebay-400x160-q70.webp
+        alt: eBay
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/natgeo_1764719975443.png
+        alt: National Geographic
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/evernote_1764719981901.png
+        alt: Evernote
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_telefonica-300x73-q70.webp
+        alt: Telefonica
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_twilio-684x200-q70.webp
+        alt: Twilio
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/uber_1764719999685.png
+        alt: Uber
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_neo9-500x200-q70.webp
+        alt: Neo9
+      - src: https://storage.googleapis.com/4geeks-academy-website/media/logo_jooble-200x167-q70.webp
+        alt: Jooble
+    background: hsl(210 100% 50% / 0.05)
+  - type: cta_banner
+    version: "1.0"
+    title: Descargar Guía
+    subtitle: En breves minutos, después de haber completado el formulario, en tu correo electrónico habrás recibido la guía de JavaScript, donde tendrás los conceptos básicos para empezar a aprender programación web.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Descargar la Guía Gratis
+      conversion_name: financing_guide_download
+      tags: request_downloadable
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre Completo
+        phone:
+          visible: true
+          required: true
+          placeholder: Phone number
+      success:
+        message: ¡Gracias! En unos minutos recibirás la guía.
+      button_className: bg-primary
+      terms_className: text-white/80
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    section_id: cta_banner-afj5t3
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md

@@ -9,7 +9,7 @@ function getOverlaysFile(contentRoot: string): string {
 }
 
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
 }
 
 function readOverlays(contentRoot: string): unknown {

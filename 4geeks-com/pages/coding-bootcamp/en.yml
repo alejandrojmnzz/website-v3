@@ -1,0 +1,109 @@
+slug: coding-bootcamp
+template: default
+title: coding bootcamp
+meta:
+  page_title: Coding Bootcamp - Learn to Code | 4Geeks
+  description: Transform your career with 4Geeks Academy's immersive coding bootcamp programs, expert guidance, and job support.
+  redirects:
+    - /coding-bootcamp
+sections:
+  - type: hero
+    section_id: hero-mipim9
+    version: "1.0"
+    variant: simpleTwoColumn
+    title: AI-Native Career Programs for High-Demand Tech Roles
+    subtitle: 4Geeks Academy is a U.S.-based coding bootcamp delivering structured, career-focused training in AI Engineering, Data Science and Machine Learning, Software Development, and Cybersecurity. Learn online or in person with hands-on projects, 1:1 mentorship, and long-term career support.
+    image: https://storage.googleapis.com/4geeks-academy-website/media/Rectangle_5_1766029737050.png
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    marginY:
+      desktop: none
+    paddingY:
+      desktop: md
+  - type: article
+    section_id: article-ogaixm
+    content: |
+      # What Is the 4Geeks Academy Coding Bootcamp?
+
+      The 4Geeks Academy Coding Bootcamp is an intensive, career-focused training program designed to help beginners transition into technology roles in months, not years.
+
+      Unlike traditional computer science degrees, this program prioritizes practical skills, real-world application, and employability from day one.
+
+      Students learn how to build production-ready applications, integrate AI tools, and develop portfolio projects that demonstrate real technical capability.
+
+      ## What Makes Our Program Different
+
+      We combine structured curriculum, live mentorship, AI-powered learning tools, and long-term career support.
+
+      Our methodology focuses on:
+
+      - Project-based learning  
+      - Hands-on coding from the first weeks  
+      - AI-integrated workflows  
+      - 1:1 mentorship and support  
+      - Career preparation built into the program  
+
+      The goal is not just to teach syntax. The goal is to build problem-solvers who can ship real solutions.
+
+      ## Programs Available
+
+      Our Coding Bootcamp includes specialized tracks aligned with today’s technology market:
+
+      **Full Stack Development with AI**  
+      Learn front-end and back-end development, database design, API integration, and AI-powered feature implementation.
+
+      **Data Science and Machine Learning with AI**  
+      Develop skills in Python, statistics, predictive modeling, and data-driven decision-making.
+
+      **Cybersecurity**  
+      Learn system protection, vulnerability detection, and modern security best practices.
+
+      **AI Engineering**  
+      Build real-world AI systems using large language models, automation tools, and intelligent agents. Learn how to integrate AI into production environments and design AI-powered applications.
+
+      ## What You Will Learn
+
+      Across all programs, students develop:
+
+      - Programming logic and problem-solving skills  
+      - Software architecture fundamentals  
+      - Database management  
+      - Git workflows and collaboration practices  
+      - API integration  
+      - AI implementation strategies  
+      - Portfolio-ready technical projects  
+
+      Every graduate leaves with real projects that can be presented to employers.
+
+      ## Career Support
+
+      Career preparation is integrated into the program, not added at the end.
+
+      Students receive:
+
+      - Resume optimization  
+      - LinkedIn profile guidance  
+      - Technical interview preparation  
+      - Portfolio reviews  
+      - Ongoing mentorship  
+
+      Our objective is clear: help students become employable in today’s AI-driven tech market.
+
+      ## Who This Program Is For
+
+      This bootcamp is designed for:
+
+      - Beginners with no prior coding experience  
+      - Career changers  
+      - Recent graduates  
+      - Professionals transitioning into AI  
+      - Entrepreneurs building tech products  
+
+      No previous technical background is required to start.
+
+      ## Final Takeaway
+
+      The 4Geeks Academy Coding Bootcamp is a structured, AI-integrated pathway into technology careers.
+
+      It combines practical learning, mentorship, real-world projects, and career support to help students transition into roles in software development, data science, cybersecurity, and AI Engineering.
+    show_toc: true
+    max_width: xl

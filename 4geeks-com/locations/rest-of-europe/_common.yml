@@ -1,0 +1,36 @@
+slug: rest-of-europe
+name: Rest of Europe
+city: Rest of Europe
+country: Unknown
+country_code: XX
+latitude: 0
+longitude: 0
+region: europe
+default_language: en
+timezone: UTC
+phone: ""
+address: ""
+available_programs:
+  - "full-stack"
+
+context:
+  when_to_use: For visitors in Europe interested in learning to code from home; Europe-focused online/remote audience.
+  target_audience: Learners across Europe who want live instruction, unlimited mentorship, and lifetime career support; European community and global locations access.
+  goals:
+    - Emphasize coding bootcamp remoto Europa (all programs online, hybrid, or in person)
+    - Highlight community, mentoría, and job support for life in Europe
+    - Communicate access to all 4Geeks locations worldwide when learning online
+
+catalog:
+  admission_advisors:
+    - name: Admissions Team
+      email: europe@4geeks.com
+      calendar_url: https://calendly.com/4geeks-admissions
+      languages:
+        - "en"
+        - "es"
+
+schema:
+  include:
+    - organization
+    - website

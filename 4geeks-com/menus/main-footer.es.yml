@@ -1,0 +1,68 @@
+footer:
+  columns:
+    - title: Empresa
+      items:
+        - label: Academia
+          href: /es/sobre-la-academia
+        - label: Alianzas
+          href: /es/alianzas
+        - label: Precios
+          href: /es/financiaciones
+        - label: Próximas Fechas
+          href: /es/proximas-fechas
+        - label: Preguntas Frecuentes
+          href: /es/faq
+        - label: Contáctanos
+          href: /es/contactanos
+    - title: Programas
+      items:
+        - label: Ingeniería en IA
+          href: /es/programas-de-carrera/ingenieria-ia
+        - label: Ciencia de Datos y Machine Learning con IA
+          href: /en/career-programs/ai-engineering
+        - label: Ciberseguridad
+          href: /es/programas-de-carrera/ciberseguridad
+        - label: Full Stack con IA
+          href: /es/programas-de-carrera/desarrollo-full-stack
+    - title: Ubicaciones
+      items:
+        - label: Miami
+          href: /es/ubicacion/miami-usa
+        - label: Orlando
+          href: /es/ubicacion/orlando-usa
+        - label: Madrid
+          href: /es/ubicacion/madrid-spain
+        - label: Santiago de Chile
+          href: /es/ubicacion/santiago-chile
+        - label: Costa Rica
+          href: /es/ubicacion/costa-rica
+        - label: Venezuela
+          href: /es/ubicacion/caracas-venezuela
+    - title: Para Empresas
+      items:
+        - label: 4Geeks para Empresas
+          href: /es/alianzas
+        - label: Talento
+          href: https://www.notion.so/4geeksacademy/Talent-Pipeline-4Geeks-Academy-ef91aba17f9c4964bf7972396d190bdf
+  socials:
+    - name: Linkedin
+      icon: linkedin
+      link: https://www.linkedin.com/company/79678753/admin/feed/posts/
+    - name: Facebook
+      icon: facebook
+      link: https://www.facebook.com/4geeksacademyve
+    - name: Twitter
+      icon: x-logo
+      link: https://twitter.com/4geeksacademyES
+    - name: Instagram
+      icon: instagram
+      link: https://www.instagram.com/4geeksacademylatam/
+  legal_links:
+    - label: Política de Privacidad
+      href: /es/politica-de-privacidad
+    - label: Cookies
+      href: /es/cookies
+    - label: Términos y Condiciones
+      href: /es/terminos-y-condiciones
+  subscribe_text: Suscríbete para más
+  copyright_text: 4Geeks Academy. Todos los derechos reservados.

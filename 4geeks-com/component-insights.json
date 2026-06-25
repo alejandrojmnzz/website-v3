@@ -1,0 +1,6935 @@
+{
+  "generatedAt": "2026-05-26T21:55:09.723Z",
+  "meta": {
+    "totalPagesScanned": 131,
+    "totalWeight": 131,
+    "weightedPagesCount": 0,
+    "intents": [
+      "content_seo",
+      "product_service",
+      "lead_generation",
+      "sales_conversion",
+      "brand_corporate",
+      "outcome",
+      "research_awareness"
+    ],
+    "pageIntents": [
+      {
+        "id": "content_seo",
+        "what_for": "Educational, long-form content designed to rank on Google. Examples: guides, how-to articles, pillar pages."
+      },
+      {
+        "id": "product_service",
+        "what_for": "Showcases what you sell or offer. Examples: product pages, feature pages, pricing pages."
+      },
+      {
+        "id": "lead_generation",
+        "what_for": "Tries to capture email or contact info. Examples: landing pages, webinars, free downloads."
+      },
+      {
+        "id": "sales_conversion",
+        "what_for": "Pushes for purchase or sign-up. Examples: checkout pages, sales pages, order forms."
+      },
+      {
+        "id": "brand_corporate",
+        "what_for": "About the company and trust building. Examples: about us, homepage, press, careers."
+      },
+      {
+        "id": "outcome",
+        "what_for": "Demonstrates results and impact. Examples: outcome reports, case studies, success stories."
+      },
+      {
+        "id": "research_awareness",
+        "what_for": "Introduces a brand or problem to attract new cold traffic. Examples: viral content, infographics, awareness blogs."
+      }
+    ]
+  },
+  "global": {
+    "pairings": [
+      {
+        "from": "cta_banner",
+        "to": "sticky_cta",
+        "count": 70,
+        "frequency": 0.729,
+        "pmi": 2.315,
+        "distance": 0.432
+      },
+      {
+        "from": "faq",
+        "to": "cta_banner",
+        "count": 66,
+        "frequency": 0.943,
+        "pmi": 2.461,
+        "distance": 0.406
+      },
+      {
+        "from": "hero",
+        "to": "awards_marquee",
+        "count": 40,
+        "frequency": 0.305,
+        "pmi": 1.896,
+        "distance": 0.528
+      },
+      {
+        "from": "testimonials",
+        "to": "faq",
+        "count": 38,
+        "frequency": 0.717,
+        "pmi": 2.675,
+        "distance": 0.374
+      },
+      {
+        "from": "two_column",
+        "to": "course_selector",
+        "count": 36,
+        "frequency": 0.5,
+        "pmi": 2.556,
+        "distance": 0.391
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "mentorship",
+        "count": 36,
+        "frequency": 0.706,
+        "pmi": 2.604,
+        "distance": 0.384
+      },
+      {
+        "from": "awards_marquee",
+        "to": "banner",
+        "count": 35,
+        "frequency": 0.538,
+        "pmi": 2.948,
+        "distance": 0.339
+      },
+      {
+        "from": "banner",
+        "to": "two_column",
+        "count": 35,
+        "frequency": 0.875,
+        "pmi": 2.86,
+        "distance": 0.35
+      },
+      {
+        "from": "course_selector",
+        "to": "two_column_accordion_card",
+        "count": 35,
+        "frequency": 0.636,
+        "pmi": 3.067,
+        "distance": 0.326
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "testimonials_slide",
+        "count": 35,
+        "frequency": 0.833,
+        "pmi": 2.756,
+        "distance": 0.363
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "split_cards",
+        "count": 35,
+        "frequency": 0.467,
+        "pmi": 2.831,
+        "distance": 0.353
+      },
+      {
+        "from": "split_cards",
+        "to": "why_learn_ai",
+        "count": 35,
+        "frequency": 0.897,
+        "pmi": 3.216,
+        "distance": 0.311
+      },
+      {
+        "from": "mentorship",
+        "to": "testimonials",
+        "count": 35,
+        "frequency": 0.473,
+        "pmi": 2.537,
+        "distance": 0.394
+      },
+      {
+        "from": "features_grid",
+        "to": "syllabus",
+        "count": 34,
+        "frequency": 0.523,
+        "pmi": 2.847,
+        "distance": 0.351
+      },
+      {
+        "from": "mentorship",
+        "to": "mentorship",
+        "count": 32,
+        "frequency": 0.432,
+        "pmi": 2.114,
+        "distance": 0.473
+      },
+      {
+        "from": "ai_learning",
+        "to": "certificate",
+        "count": 27,
+        "frequency": 0.692,
+        "pmi": 3.521,
+        "distance": 0.284
+      },
+      {
+        "from": "hero",
+        "to": "sticky_cta",
+        "count": 25,
+        "frequency": 0.191,
+        "pmi": 0.975,
+        "distance": 1.026
+      },
+      {
+        "from": "cta_banner",
+        "to": "footer",
+        "count": 24,
+        "frequency": 0.25,
+        "pmi": 2.538,
+        "distance": 0.394
+      },
+      {
+        "from": "graduates_stats",
+        "to": "features_grid",
+        "count": 16,
+        "frequency": 0.4,
+        "pmi": 2.166,
+        "distance": 0.462
+      },
+      {
+        "from": "whos_hiring",
+        "to": "cta_banner",
+        "count": 16,
+        "frequency": 0.39,
+        "pmi": 1.579,
+        "distance": 0.633
+      },
+      {
+        "from": "certificate",
+        "to": "testimonials_slide",
+        "count": 16,
+        "frequency": 0.552,
+        "pmi": 2.344,
+        "distance": 0.427
+      },
+      {
+        "from": "graduates_stats",
+        "to": "trust_cards",
+        "count": 14,
+        "frequency": 0.35,
+        "pmi": 2.651,
+        "distance": 0.377
+      },
+      {
+        "from": "sticky_cta",
+        "to": "graduates_stats",
+        "count": 14,
+        "frequency": 0.519,
+        "pmi": 2.911,
+        "distance": 0.344
+      },
+      {
+        "from": "numbered_steps",
+        "to": "cta_banner",
+        "count": 13,
+        "frequency": 0.448,
+        "pmi": 1.718,
+        "distance": 0.582
+      },
+      {
+        "from": "syllabus",
+        "to": "ai_learning",
+        "count": 12,
+        "frequency": 0.279,
+        "pmi": 2.316,
+        "distance": 0.432
+      },
+      {
+        "from": "hero",
+        "to": "modal",
+        "count": 10,
+        "frequency": 0.076,
+        "pmi": 2.286,
+        "distance": 0.437
+      },
+      {
+        "from": "trust_cards",
+        "to": "ai_learning",
+        "count": 10,
+        "frequency": 0.286,
+        "pmi": 2.34,
+        "distance": 0.427
+      },
+      {
+        "from": "awards_marquee",
+        "to": "features_grid",
+        "count": 9,
+        "frequency": 0.138,
+        "pmi": 1.105,
+        "distance": 0.905
+      },
+      {
+        "from": "hero",
+        "to": "graduates_stats",
+        "count": 9,
+        "frequency": 0.069,
+        "pmi": 0.889,
+        "distance": 1.124
+      },
+      {
+        "from": "syllabus",
+        "to": "two_column",
+        "count": 9,
+        "frequency": 0.209,
+        "pmi": 1.43,
+        "distance": 0.699
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "numbered_steps",
+        "count": 9,
+        "frequency": 0.12,
+        "pmi": 1.769,
+        "distance": 0.565
+      },
+      {
+        "from": "awards_marquee",
+        "to": "graduates_stats",
+        "count": 8,
+        "frequency": 0.123,
+        "pmi": 1.472,
+        "distance": 0.679
+      },
+      {
+        "from": "whos_hiring",
+        "to": "faq",
+        "count": 8,
+        "frequency": 0.195,
+        "pmi": 1.374,
+        "distance": 0.728
+      },
+      {
+        "from": "syllabus",
+        "to": "projects",
+        "count": 8,
+        "frequency": 0.186,
+        "pmi": 3.377,
+        "distance": 0.296
+      },
+      {
+        "from": "two_column",
+        "to": "trust_cards",
+        "count": 8,
+        "frequency": 0.111,
+        "pmi": 1.504,
+        "distance": 0.665
+      },
+      {
+        "from": "sticky_cta",
+        "to": "awards_marquee",
+        "count": 8,
+        "frequency": 0.296,
+        "pmi": 1.866,
+        "distance": 0.536
+      },
+      {
+        "from": "trust_cards",
+        "to": "features_grid",
+        "count": 7,
+        "frequency": 0.2,
+        "pmi": 1.472,
+        "distance": 0.679
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "faq",
+        "count": 7,
+        "frequency": 0.093,
+        "pmi": 0.636,
+        "distance": 1.572
+      },
+      {
+        "from": "whos_hiring",
+        "to": "testimonials",
+        "count": 7,
+        "frequency": 0.171,
+        "pmi": 1.518,
+        "distance": 0.659
+      },
+      {
+        "from": "modal",
+        "to": "awards_marquee",
+        "count": 6,
+        "frequency": 0.545,
+        "pmi": 2.476,
+        "distance": 0.404
+      },
+      {
+        "from": "pricing",
+        "to": "numbered_steps",
+        "count": 6,
+        "frequency": 0.273,
+        "pmi": 2.59,
+        "distance": 0.386
+      },
+      {
+        "from": "pricing",
+        "to": "whos_hiring",
+        "count": 6,
+        "frequency": 0.273,
+        "pmi": 2.243,
+        "distance": 0.446
+      },
+      {
+        "from": "cards_deck",
+        "to": "whos_hiring",
+        "count": 6,
+        "frequency": 0.353,
+        "pmi": 2.501,
+        "distance": 0.4
+      },
+      {
+        "from": "hero",
+        "to": "features_grid",
+        "count": 6,
+        "frequency": 0.046,
+        "pmi": -0.002,
+        "distance": 100
+      },
+      {
+        "from": "projects",
+        "to": "ai_learning",
+        "count": 6,
+        "frequency": 0.667,
+        "pmi": 3.187,
+        "distance": 0.314
+      },
+      {
+        "from": "trust_cards",
+        "to": "two_column",
+        "count": 6,
+        "frequency": 0.171,
+        "pmi": 1.23,
+        "distance": 0.813
+      },
+      {
+        "from": "pricing",
+        "to": "pricing",
+        "count": 5,
+        "frequency": 0.227,
+        "pmi": 2.684,
+        "distance": 0.373
+      },
+      {
+        "from": "numbered_steps",
+        "to": "testimonials",
+        "count": 5,
+        "frequency": 0.172,
+        "pmi": 1.528,
+        "distance": 0.654
+      },
+      {
+        "from": "testimonials",
+        "to": "whos_hiring",
+        "count": 5,
+        "frequency": 0.094,
+        "pmi": 1.182,
+        "distance": 0.846
+      },
+      {
+        "from": "list_press_mentions",
+        "to": "why_learn_ai",
+        "count": 5,
+        "frequency": 0.5,
+        "pmi": 2.631,
+        "distance": 0.38
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "testimonials_slide",
+        "count": 5,
+        "frequency": 0.098,
+        "pmi": 0.616,
+        "distance": 1.622
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "whos_hiring",
+        "count": 5,
+        "frequency": 0.067,
+        "pmi": 0.835,
+        "distance": 1.198
+      },
+      {
+        "from": "testimonials",
+        "to": "cta_banner",
+        "count": 5,
+        "frequency": 0.094,
+        "pmi": 0.159,
+        "distance": 6.28
+      },
+      {
+        "from": "image_row",
+        "to": "features_grid",
+        "count": 5,
+        "frequency": 0.625,
+        "pmi": 2.612,
+        "distance": 0.383
+      },
+      {
+        "from": "features_grid",
+        "to": "features_grid",
+        "count": 5,
+        "frequency": 0.077,
+        "pmi": 0.517,
+        "distance": 1.934
+      },
+      {
+        "from": "features_grid",
+        "to": "career_support_explain",
+        "count": 5,
+        "frequency": 0.077,
+        "pmi": 1.919,
+        "distance": 0.521
+      },
+      {
+        "from": "features_grid",
+        "to": "pricing",
+        "count": 4,
+        "frequency": 0.062,
+        "pmi": 1.377,
+        "distance": 0.726
+      },
+      {
+        "from": "career_support_explain",
+        "to": "human_and_ai_duo",
+        "count": 4,
+        "frequency": 0.25,
+        "pmi": 3.305,
+        "distance": 0.303
+      },
+      {
+        "from": "mentorship",
+        "to": "pricing",
+        "count": 4,
+        "frequency": 0.054,
+        "pmi": 1.247,
+        "distance": 0.802
+      },
+      {
+        "from": "hero",
+        "to": "two_column",
+        "count": 4,
+        "frequency": 0.031,
+        "pmi": -0.495,
+        "distance": 100
+      },
+      {
+        "from": "syllabus",
+        "to": "award_badges",
+        "count": 4,
+        "frequency": 0.093,
+        "pmi": 2.802,
+        "distance": 0.357
+      },
+      {
+        "from": "award_badges",
+        "to": "ai_learning",
+        "count": 4,
+        "frequency": 0.571,
+        "pmi": 3.033,
+        "distance": 0.33
+      },
+      {
+        "from": "certificate",
+        "to": "bullet_tabs_showcase",
+        "count": 4,
+        "frequency": 0.138,
+        "pmi": 3.484,
+        "distance": 0.287
+      },
+      {
+        "from": "bullet_tabs_showcase",
+        "to": "whos_hiring",
+        "count": 4,
+        "frequency": 0.667,
+        "pmi": 3.137,
+        "distance": 0.319
+      },
+      {
+        "from": "testimonials",
+        "to": "numbered_steps",
+        "count": 4,
+        "frequency": 0.075,
+        "pmi": 1.305,
+        "distance": 0.766
+      },
+      {
+        "from": "hero",
+        "to": "trust_cards",
+        "count": 4,
+        "frequency": 0.031,
+        "pmi": 0.212,
+        "distance": 4.716
+      },
+      {
+        "from": "whos_hiring",
+        "to": "cards_deck",
+        "count": 4,
+        "frequency": 0.098,
+        "pmi": 2.096,
+        "distance": 0.477
+      },
+      {
+        "from": "two_column",
+        "to": "features_grid",
+        "count": 4,
+        "frequency": 0.056,
+        "pmi": 0.192,
+        "distance": 5.221
+      },
+      {
+        "from": "hero",
+        "to": "article",
+        "count": 4,
+        "frequency": 0.031,
+        "pmi": 2.381,
+        "distance": 0.42
+      },
+      {
+        "from": "course_selector",
+        "to": "course_selector",
+        "count": 4,
+        "frequency": 0.073,
+        "pmi": 0.628,
+        "distance": 1.593
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "faq",
+        "count": 4,
+        "frequency": 0.078,
+        "pmi": 0.462,
+        "distance": 2.163
+      },
+      {
+        "from": "ai_learning",
+        "to": "features_grid",
+        "count": 3,
+        "frequency": 0.077,
+        "pmi": 0.517,
+        "distance": 1.934
+      },
+      {
+        "from": "numbered_steps",
+        "to": "whos_hiring",
+        "count": 3,
+        "frequency": 0.103,
+        "pmi": 1.274,
+        "distance": 0.785
+      },
+      {
+        "from": "certificate",
+        "to": "pricing",
+        "count": 3,
+        "frequency": 0.103,
+        "pmi": 1.897,
+        "distance": 0.527
+      },
+      {
+        "from": "features_grid",
+        "to": "testimonials_slide",
+        "count": 3,
+        "frequency": 0.046,
+        "pmi": -0.137,
+        "distance": 100
+      },
+      {
+        "from": "pricing",
+        "to": "why_learn_ai",
+        "count": 3,
+        "frequency": 0.136,
+        "pmi": 1.332,
+        "distance": 0.751
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "cta_banner",
+        "count": 3,
+        "frequency": 0.04,
+        "pmi": -0.699,
+        "distance": 100
+      },
+      {
+        "from": "sticky_cta",
+        "to": "two_column",
+        "count": 3,
+        "frequency": 0.111,
+        "pmi": 0.796,
+        "distance": 1.256
+      },
+      {
+        "from": "two_column",
+        "to": "graduates_stats",
+        "count": 3,
+        "frequency": 0.042,
+        "pmi": 0.389,
+        "distance": 2.568
+      },
+      {
+        "from": "numbered_steps",
+        "to": "testimonials_slide",
+        "count": 3,
+        "frequency": 0.103,
+        "pmi": 0.67,
+        "distance": 1.492
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "pricing",
+        "count": 3,
+        "frequency": 0.04,
+        "pmi": 0.946,
+        "distance": 1.057
+      },
+      {
+        "from": "graduates_stats",
+        "to": "awards_marquee",
+        "count": 3,
+        "frequency": 0.075,
+        "pmi": 0.492,
+        "distance": 2.034
+      },
+      {
+        "from": "hero",
+        "to": "award_badges",
+        "count": 3,
+        "frequency": 0.023,
+        "pmi": 1.4,
+        "distance": 0.714
+      },
+      {
+        "from": "two_column",
+        "to": "ai_learning",
+        "count": 3,
+        "frequency": 0.042,
+        "pmi": 0.415,
+        "distance": 2.411
+      },
+      {
+        "from": "cards_deck",
+        "to": "cta_banner",
+        "count": 3,
+        "frequency": 0.176,
+        "pmi": 0.785,
+        "distance": 1.273
+      },
+      {
+        "from": "features_grid",
+        "to": "image_row",
+        "count": 3,
+        "frequency": 0.046,
+        "pmi": 2.101,
+        "distance": 0.476
+      },
+      {
+        "from": "features_quad",
+        "to": "numbered_steps",
+        "count": 3,
+        "frequency": 0.188,
+        "pmi": 2.215,
+        "distance": 0.451
+      },
+      {
+        "from": "article",
+        "to": "sticky_cta",
+        "count": 3,
+        "frequency": 0.5,
+        "pmi": 1.938,
+        "distance": 0.516
+      },
+      {
+        "from": "hero",
+        "to": "banner",
+        "count": 3,
+        "frequency": 0.023,
+        "pmi": -0.209,
+        "distance": 100
+      },
+      {
+        "from": "banner",
+        "to": "human_and_ai_duo",
+        "count": 3,
+        "frequency": 0.075,
+        "pmi": 2.101,
+        "distance": 0.476
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "community_support",
+        "count": 3,
+        "frequency": 0.231,
+        "pmi": 4.404,
+        "distance": 0.227
+      },
+      {
+        "from": "community_support",
+        "to": "two_column",
+        "count": 3,
+        "frequency": 0.75,
+        "pmi": 2.706,
+        "distance": 0.37
+      },
+      {
+        "from": "two_column",
+        "to": "testimonials_slide",
+        "count": 3,
+        "frequency": 0.042,
+        "pmi": -0.239,
+        "distance": 100
+      },
+      {
+        "from": "hero",
+        "to": "comparison_table",
+        "count": 3,
+        "frequency": 0.023,
+        "pmi": 1.688,
+        "distance": 0.592
+      },
+      {
+        "from": "career_support_explain",
+        "to": "trust_cards",
+        "count": 3,
+        "frequency": 0.188,
+        "pmi": 2.027,
+        "distance": 0.493
+      },
+      {
+        "from": "trust_cards",
+        "to": "testimonials_slide",
+        "count": 3,
+        "frequency": 0.086,
+        "pmi": 0.482,
+        "distance": 2.074
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "course_selector",
+        "count": 3,
+        "frequency": 0.04,
+        "pmi": 0.03,
+        "distance": 33.236
+      },
+      {
+        "from": "course_selector",
+        "to": "list_press_mentions",
+        "count": 3,
+        "frequency": 0.055,
+        "pmi": 2.15,
+        "distance": 0.465
+      },
+      {
+        "from": "article",
+        "to": "faq",
+        "count": 3,
+        "frequency": 0.5,
+        "pmi": 2.315,
+        "distance": 0.432
+      },
+      {
+        "from": "two_column",
+        "to": "awards_marquee",
+        "count": 3,
+        "frequency": 0.042,
+        "pmi": -0.096,
+        "distance": 100
+      },
+      {
+        "from": "syllabus",
+        "to": "trust_cards",
+        "count": 2,
+        "frequency": 0.047,
+        "pmi": 0.633,
+        "distance": 1.58
+      },
+      {
+        "from": "hero",
+        "to": "hero",
+        "count": 2,
+        "frequency": 0.015,
+        "pmi": 0.509,
+        "distance": 1.963
+      },
+      {
+        "from": "projects",
+        "to": "trust_cards",
+        "count": 2,
+        "frequency": 0.222,
+        "pmi": 2.197,
+        "distance": 0.455
+      },
+      {
+        "from": "trust_cards",
+        "to": "geeks_vs_others_comparison",
+        "count": 2,
+        "frequency": 0.057,
+        "pmi": 3.295,
+        "distance": 0.303
+      },
+      {
+        "from": "geeks_vs_others_comparison",
+        "to": "career_support_explain",
+        "count": 2,
+        "frequency": 0.667,
+        "pmi": 4.078,
+        "distance": 0.245
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "course_selector",
+        "count": 2,
+        "frequency": 0.154,
+        "pmi": 1.377,
+        "distance": 0.726
+      },
+      {
+        "from": "course_selector",
+        "to": "cards_deck",
+        "count": 2,
+        "frequency": 0.036,
+        "pmi": 1.109,
+        "distance": 0.902
+      },
+      {
+        "from": "cards_deck",
+        "to": "list_press_mentions",
+        "count": 2,
+        "frequency": 0.118,
+        "pmi": 2.919,
+        "distance": 0.343
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "testimonials_slide",
+        "count": 2,
+        "frequency": 0.154,
+        "pmi": 1.067,
+        "distance": 0.937
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "mentorship",
+        "count": 2,
+        "frequency": 0.027,
+        "pmi": -0.672,
+        "distance": 100
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "cards_deck",
+        "count": 2,
+        "frequency": 0.039,
+        "pmi": 1.184,
+        "distance": 0.844
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "features_quad",
+        "count": 2,
+        "frequency": 0.027,
+        "pmi": 0.859,
+        "distance": 1.164
+      },
+      {
+        "from": "features_quad",
+        "to": "mentorship",
+        "count": 2,
+        "frequency": 0.125,
+        "pmi": 0.873,
+        "distance": 1.146
+      },
+      {
+        "from": "syllabus",
+        "to": "cards_deck",
+        "count": 2,
+        "frequency": 0.047,
+        "pmi": 1.355,
+        "distance": 0.738
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "career_support_explain",
+        "count": 2,
+        "frequency": 0.154,
+        "pmi": 2.612,
+        "distance": 0.383
+      },
+      {
+        "from": "career_support_explain",
+        "to": "testimonials_slide",
+        "count": 2,
+        "frequency": 0.125,
+        "pmi": 0.859,
+        "distance": 1.164
+      },
+      {
+        "from": "award_badges",
+        "to": "syllabus",
+        "count": 2,
+        "frequency": 0.286,
+        "pmi": 2.242,
+        "distance": 0.446
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "cards_deck",
+        "count": 2,
+        "frequency": 0.027,
+        "pmi": 0.799,
+        "distance": 1.252
+      },
+      {
+        "from": "awards_marquee",
+        "to": "two_column_accordion_card",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": 0.037,
+        "distance": 26.747
+      },
+      {
+        "from": "trust_cards",
+        "to": "syllabus",
+        "count": 2,
+        "frequency": 0.057,
+        "pmi": 0.633,
+        "distance": 1.58
+      },
+      {
+        "from": "certificate",
+        "to": "whos_hiring",
+        "count": 2,
+        "frequency": 0.069,
+        "pmi": 0.869,
+        "distance": 1.151
+      },
+      {
+        "from": "trust_cards",
+        "to": "course_selector",
+        "count": 2,
+        "frequency": 0.057,
+        "pmi": 0.387,
+        "distance": 2.586
+      },
+      {
+        "from": "course_selector",
+        "to": "graduates_stats",
+        "count": 2,
+        "frequency": 0.036,
+        "pmi": 0.253,
+        "distance": 3.949
+      },
+      {
+        "from": "ai_learning",
+        "to": "testimonials_slide",
+        "count": 2,
+        "frequency": 0.051,
+        "pmi": -0.032,
+        "distance": 100
+      },
+      {
+        "from": "hero",
+        "to": "course_selector",
+        "count": 2,
+        "frequency": 0.015,
+        "pmi": -0.933,
+        "distance": 100
+      },
+      {
+        "from": "cards_deck",
+        "to": "cards_deck",
+        "count": 2,
+        "frequency": 0.118,
+        "pmi": 2.283,
+        "distance": 0.438
+      },
+      {
+        "from": "double_cta",
+        "to": "profiles_carousel",
+        "count": 2,
+        "frequency": 0.667,
+        "pmi": 4.548,
+        "distance": 0.22
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "profiles_carousel",
+        "count": 2,
+        "frequency": 0.222,
+        "pmi": 3.45,
+        "distance": 0.29
+      },
+      {
+        "from": "features_grid",
+        "to": "two_column_accordion_card",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": 0.037,
+        "distance": 26.747
+      },
+      {
+        "from": "features_grid",
+        "to": "stats",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": 2.389,
+        "distance": 0.419
+      },
+      {
+        "from": "features_quad",
+        "to": "whos_hiring",
+        "count": 2,
+        "frequency": 0.125,
+        "pmi": 1.463,
+        "distance": 0.683
+      },
+      {
+        "from": "course_selector",
+        "to": "features_quad",
+        "count": 2,
+        "frequency": 0.036,
+        "pmi": 1.17,
+        "distance": 0.855
+      },
+      {
+        "from": "numbered_steps",
+        "to": "features_grid",
+        "count": 2,
+        "frequency": 0.069,
+        "pmi": 0.408,
+        "distance": 2.452
+      },
+      {
+        "from": "hero",
+        "to": "human_and_ai_duo",
+        "count": 2,
+        "frequency": 0.015,
+        "pmi": 0.509,
+        "distance": 1.963
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "awards_marquee",
+        "count": 2,
+        "frequency": 0.154,
+        "pmi": 1.21,
+        "distance": 0.826
+      },
+      {
+        "from": "awards_marquee",
+        "to": "profiles_carousel",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": 1.472,
+        "distance": 0.679
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "banner",
+        "count": 2,
+        "frequency": 0.222,
+        "pmi": 2.063,
+        "distance": 0.485
+      },
+      {
+        "from": "banner",
+        "to": "mentorship",
+        "count": 2,
+        "frequency": 0.05,
+        "pmi": -0.044,
+        "distance": 100
+      },
+      {
+        "from": "mentorship",
+        "to": "faq",
+        "count": 2,
+        "frequency": 0.027,
+        "pmi": -0.603,
+        "distance": 100
+      },
+      {
+        "from": "faq",
+        "to": "whos_hiring",
+        "count": 2,
+        "frequency": 0.029,
+        "pmi": -0.013,
+        "distance": 100
+      },
+      {
+        "from": "whos_hiring",
+        "to": "footer",
+        "count": 2,
+        "frequency": 0.049,
+        "pmi": 0.904,
+        "distance": 1.107
+      },
+      {
+        "from": "hero",
+        "to": "list_press_mentions",
+        "count": 2,
+        "frequency": 0.015,
+        "pmi": 0.877,
+        "distance": 1.14
+      },
+      {
+        "from": "hero",
+        "to": "split_cards",
+        "count": 2,
+        "frequency": 0.015,
+        "pmi": -0.589,
+        "distance": 100
+      },
+      {
+        "from": "syllabus",
+        "to": "syllabus",
+        "count": 2,
+        "frequency": 0.047,
+        "pmi": 0.427,
+        "distance": 2.342
+      },
+      {
+        "from": "comparison_table",
+        "to": "course_selector",
+        "count": 2,
+        "frequency": 0.286,
+        "pmi": 1.996,
+        "distance": 0.501
+      },
+      {
+        "from": "course_selector",
+        "to": "why_learn_ai",
+        "count": 2,
+        "frequency": 0.036,
+        "pmi": 0.01,
+        "distance": 97.223
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "features_grid",
+        "count": 2,
+        "frequency": 0.048,
+        "pmi": 0.037,
+        "distance": 26.747
+      },
+      {
+        "from": "graduates_stats",
+        "to": "image_row",
+        "count": 2,
+        "frequency": 0.05,
+        "pmi": 2.181,
+        "distance": 0.458
+      },
+      {
+        "from": "features_grid",
+        "to": "graduates_stats",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": 0.086,
+        "distance": 11.604
+      },
+      {
+        "from": "value_proof_panel",
+        "to": "awards_marquee",
+        "count": 2,
+        "frequency": 0.5,
+        "pmi": 2.389,
+        "distance": 0.419
+      },
+      {
+        "from": "features_grid",
+        "to": "partnership_carousel",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": 1.829,
+        "distance": 0.547
+      },
+      {
+        "from": "partnership_carousel",
+        "to": "partnership_carousel",
+        "count": 2,
+        "frequency": 0.286,
+        "pmi": 4.058,
+        "distance": 0.246
+      },
+      {
+        "from": "awards_marquee",
+        "to": "two_column",
+        "count": 2,
+        "frequency": 0.031,
+        "pmi": -0.488,
+        "distance": 100
+      },
+      {
+        "from": "two_column",
+        "to": "two_column",
+        "count": 2,
+        "frequency": 0.028,
+        "pmi": -0.59,
+        "distance": 100
+      },
+      {
+        "from": "two_column",
+        "to": "whos_hiring",
+        "count": 2,
+        "frequency": 0.028,
+        "pmi": -0.041,
+        "distance": 100
+      },
+      {
+        "from": "features_grid",
+        "to": "ai_learning",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": -0.582,
+        "distance": 100
+      },
+      {
+        "from": "ai_learning",
+        "to": "testimonials",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": -0.378,
+        "distance": 100
+      },
+      {
+        "from": "testimonials",
+        "to": "pricing",
+        "count": 1,
+        "frequency": 0.019,
+        "pmi": 0.195,
+        "distance": 5.129
+      },
+      {
+        "from": "breadcrumb",
+        "to": "hero",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 4.691,
+        "distance": 0.213
+      },
+      {
+        "from": "ai_learning",
+        "to": "trust_cards",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 0.037,
+        "distance": 26.747
+      },
+      {
+        "from": "syllabus",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.023,
+        "pmi": 0.723,
+        "distance": 1.384
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "why_learn_ai",
+        "count": 1,
+        "frequency": 0.013,
+        "pmi": -0.993,
+        "distance": 100
+      },
+      {
+        "from": "mentorship",
+        "to": "cards_deck",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 0.119,
+        "distance": 8.402
+      },
+      {
+        "from": "graduates_stats",
+        "to": "list_press_mentions",
+        "count": 1,
+        "frequency": 0.025,
+        "pmi": 1.37,
+        "distance": 0.73
+      },
+      {
+        "from": "list_press_mentions",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.1,
+        "pmi": 2.181,
+        "distance": 0.458
+      },
+      {
+        "from": "features_quad",
+        "to": "syllabus",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.723,
+        "distance": 1.384
+      },
+      {
+        "from": "ai_learning",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 0.82,
+        "distance": 1.219
+      },
+      {
+        "from": "career_support_explain",
+        "to": "features_grid",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.309,
+        "distance": 3.233
+      },
+      {
+        "from": "two_column",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 0.415,
+        "distance": 2.411
+      },
+      {
+        "from": "sticky_cta",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.037,
+        "pmi": 1.396,
+        "distance": 0.717
+      },
+      {
+        "from": "ai_learning",
+        "to": "human_and_ai_duo",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 1.028,
+        "distance": 0.973
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "certificate",
+        "count": 1,
+        "frequency": 0.077,
+        "pmi": 1.324,
+        "distance": 0.755
+      },
+      {
+        "from": "certificate",
+        "to": "why_learn_ai",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": -0.043,
+        "distance": 100
+      },
+      {
+        "from": "certificate",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": 0.522,
+        "distance": 1.917
+      },
+      {
+        "from": "cards_deck",
+        "to": "human_and_ai_duo",
+        "count": 1,
+        "frequency": 0.059,
+        "pmi": 1.858,
+        "distance": 0.538
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "whos_hiring",
+        "count": 1,
+        "frequency": 0.02,
+        "pmi": -0.389,
+        "distance": 100
+      },
+      {
+        "from": "awards_marquee",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": 0.517,
+        "distance": 1.934
+      },
+      {
+        "from": "whos_hiring",
+        "to": "bento_cards",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": 3.543,
+        "distance": 0.282
+      },
+      {
+        "from": "bento_cards",
+        "to": "testimonials",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 3.286,
+        "distance": 0.304
+      },
+      {
+        "from": "awards_marquee",
+        "to": "modal",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": 0.684,
+        "distance": 1.462
+      },
+      {
+        "from": "modal",
+        "to": "features_grid",
+        "count": 1,
+        "frequency": 0.091,
+        "pmi": 0.684,
+        "distance": 1.462
+      },
+      {
+        "from": "syllabus",
+        "to": "pricing",
+        "count": 1,
+        "frequency": 0.023,
+        "pmi": 0.404,
+        "distance": 2.475
+      },
+      {
+        "from": "trust_cards",
+        "to": "why_learn_ai",
+        "count": 1,
+        "frequency": 0.029,
+        "pmi": -0.231,
+        "distance": 100
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "syllabus",
+        "count": 1,
+        "frequency": 0.02,
+        "pmi": -0.437,
+        "distance": 100
+      },
+      {
+        "from": "modal",
+        "to": "sticky_cta",
+        "count": 1,
+        "frequency": 0.091,
+        "pmi": 0.233,
+        "distance": 4.284
+      },
+      {
+        "from": "trust_cards",
+        "to": "programs_showcase",
+        "count": 1,
+        "frequency": 0.029,
+        "pmi": 2.092,
+        "distance": 0.478
+      },
+      {
+        "from": "programs_showcase",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.2,
+        "pmi": 1.384,
+        "distance": 0.722
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "syllabus",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": -0.243,
+        "distance": 100
+      },
+      {
+        "from": "syllabus",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.023,
+        "pmi": 0.723,
+        "distance": 1.384
+      },
+      {
+        "from": "features_quad",
+        "to": "trust_cards",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.928,
+        "distance": 1.077
+      },
+      {
+        "from": "two_column",
+        "to": "geeks_vs_others_comparison",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 1.881,
+        "distance": 0.532
+      },
+      {
+        "from": "geeks_vs_others_comparison",
+        "to": "cards_deck",
+        "count": 1,
+        "frequency": 0.333,
+        "pmi": 3.324,
+        "distance": 0.301
+      },
+      {
+        "from": "cards_deck",
+        "to": "testimonials",
+        "count": 1,
+        "frequency": 0.059,
+        "pmi": 0.453,
+        "distance": 2.209
+      },
+      {
+        "from": "modal",
+        "to": "graduates_stats",
+        "count": 1,
+        "frequency": 0.091,
+        "pmi": 1.17,
+        "distance": 0.855
+      },
+      {
+        "from": "graduates_stats",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.025,
+        "pmi": -0.695,
+        "distance": 100
+      },
+      {
+        "from": "list_press_mentions",
+        "to": "course_selector",
+        "count": 1,
+        "frequency": 0.1,
+        "pmi": 0.946,
+        "distance": 1.057
+      },
+      {
+        "from": "course_selector",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.018,
+        "pmi": 0.684,
+        "distance": 1.462
+      },
+      {
+        "from": "course_selector",
+        "to": "programs_showcase",
+        "count": 1,
+        "frequency": 0.018,
+        "pmi": 1.64,
+        "distance": 0.61
+      },
+      {
+        "from": "programs_showcase",
+        "to": "credibility_strip",
+        "count": 1,
+        "frequency": 0.2,
+        "pmi": 5.647,
+        "distance": 0.177
+      },
+      {
+        "from": "credibility_strip",
+        "to": "list_single_press_mention",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 7.256,
+        "distance": 0.138
+      },
+      {
+        "from": "list_single_press_mention",
+        "to": "list_press_mentions",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 5.059,
+        "distance": 0.198
+      },
+      {
+        "from": "list_press_mentions",
+        "to": "programs_showcase",
+        "count": 1,
+        "frequency": 0.1,
+        "pmi": 3.344,
+        "distance": 0.299
+      },
+      {
+        "from": "programs_showcase",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.2,
+        "pmi": 2.874,
+        "distance": 0.348
+      },
+      {
+        "from": "career_support_explain",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 1.919,
+        "distance": 0.521
+      },
+      {
+        "from": "hero",
+        "to": "image_row",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": 0.302,
+        "distance": 3.315
+      },
+      {
+        "from": "image_row",
+        "to": "testimonials_grid",
+        "count": 1,
+        "frequency": 0.125,
+        "pmi": 4.484,
+        "distance": 0.223
+      },
+      {
+        "from": "testimonials_grid",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 3.998,
+        "distance": 0.25
+      },
+      {
+        "from": "hero",
+        "to": "cards_deck",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": -0.452,
+        "distance": 100
+      },
+      {
+        "from": "cards_deck",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.059,
+        "pmi": 1.858,
+        "distance": 0.538
+      },
+      {
+        "from": "hero",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": -2.355,
+        "distance": 100
+      },
+      {
+        "from": "cta_banner",
+        "to": "double_cta",
+        "count": 1,
+        "frequency": 0.01,
+        "pmi": 1.593,
+        "distance": 0.628
+      },
+      {
+        "from": "double_cta",
+        "to": "double_cta",
+        "count": 1,
+        "frequency": 0.333,
+        "pmi": 5.059,
+        "distance": 0.198
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.111,
+        "pmi": 2.494,
+        "distance": 0.401
+      },
+      {
+        "from": "course_selector",
+        "to": "partnership_carousel",
+        "count": 1,
+        "frequency": 0.018,
+        "pmi": 1.303,
+        "distance": 0.767
+      },
+      {
+        "from": "partnership_carousel",
+        "to": "projects",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 3.113,
+        "distance": 0.321
+      },
+      {
+        "from": "projects",
+        "to": "project_showcase",
+        "count": 1,
+        "frequency": 0.111,
+        "pmi": 4.366,
+        "distance": 0.229
+      },
+      {
+        "from": "project_showcase",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 3.791,
+        "distance": 0.264
+      },
+      {
+        "from": "career_support_explain",
+        "to": "profiles_carousel",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 2.181,
+        "distance": 0.458
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "partnership_carousel",
+        "count": 1,
+        "frequency": 0.111,
+        "pmi": 3.113,
+        "distance": 0.321
+      },
+      {
+        "from": "partnership_carousel",
+        "to": "profiles_carousel",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 3.008,
+        "distance": 0.332
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "human_and_ai_duo",
+        "count": 1,
+        "frequency": 0.111,
+        "pmi": 2.494,
+        "distance": 0.401
+      },
+      {
+        "from": "human_and_ai_duo",
+        "to": "bullet_tabs_showcase",
+        "count": 1,
+        "frequency": 0.077,
+        "pmi": 2.9,
+        "distance": 0.345
+      },
+      {
+        "from": "bullet_tabs_showcase",
+        "to": "features_grid",
+        "count": 1,
+        "frequency": 0.167,
+        "pmi": 1.29,
+        "distance": 0.775
+      },
+      {
+        "from": "features_grid",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": 0.309,
+        "distance": 3.233
+      },
+      {
+        "from": "features_quad",
+        "to": "two_column_accordion_card",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.746,
+        "distance": 1.34
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "value_proof_panel",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": 2.132,
+        "distance": 0.469
+      },
+      {
+        "from": "value_proof_panel",
+        "to": "ai_learning",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 2.206,
+        "distance": 0.453
+      },
+      {
+        "from": "ai_learning",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": -0.67,
+        "distance": 100
+      },
+      {
+        "from": "two_column",
+        "to": "community_support",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 1.593,
+        "distance": 0.628
+      },
+      {
+        "from": "community_support",
+        "to": "ai_learning",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 2.206,
+        "distance": 0.453
+      },
+      {
+        "from": "certificate",
+        "to": "awards_marquee",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": -0.285,
+        "distance": 100
+      },
+      {
+        "from": "awards_marquee",
+        "to": "comparison_table",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": 1.29,
+        "distance": 0.775
+      },
+      {
+        "from": "comparison_table",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 1.062,
+        "distance": 0.942
+      },
+      {
+        "from": "faq",
+        "to": "sticky_cta",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": -1.617,
+        "distance": 100
+      },
+      {
+        "from": "sticky_cta",
+        "to": "features_grid",
+        "count": 1,
+        "frequency": 0.037,
+        "pmi": -0.214,
+        "distance": 100
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "pricing",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": 0.428,
+        "distance": 2.339
+      },
+      {
+        "from": "pricing",
+        "to": "features_grid",
+        "count": 1,
+        "frequency": 0.045,
+        "pmi": -0.009,
+        "distance": 100
+      },
+      {
+        "from": "stats",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 1.134,
+        "distance": 0.882
+      },
+      {
+        "from": "whos_hiring",
+        "to": "bullet_tabs_showcase",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": 1.751,
+        "distance": 0.571
+      },
+      {
+        "from": "bullet_tabs_showcase",
+        "to": "testimonials",
+        "count": 1,
+        "frequency": 0.167,
+        "pmi": 1.494,
+        "distance": 0.669
+      },
+      {
+        "from": "two_column",
+        "to": "human_and_ai_duo",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 0.415,
+        "distance": 2.411
+      },
+      {
+        "from": "pricing",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.045,
+        "pmi": 1.393,
+        "distance": 0.718
+      },
+      {
+        "from": "stats",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 1.622,
+        "distance": 0.617
+      },
+      {
+        "from": "features_quad",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.221,
+        "distance": 4.524
+      },
+      {
+        "from": "two_column",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 0.207,
+        "distance": 4.83
+      },
+      {
+        "from": "cards_deck",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.059,
+        "pmi": 1.65,
+        "distance": 0.606
+      },
+      {
+        "from": "features_quad",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": -0.252,
+        "distance": 100
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "programs_showcase",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": 1.909,
+        "distance": 0.524
+      },
+      {
+        "from": "programs_showcase",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.2,
+        "pmi": 2.874,
+        "distance": 0.348
+      },
+      {
+        "from": "numbered_steps",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": 0.522,
+        "distance": 1.917
+      },
+      {
+        "from": "numbered_steps",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": 1.116,
+        "distance": 0.896
+      },
+      {
+        "from": "two_column",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": -0.388,
+        "distance": 100
+      },
+      {
+        "from": "numbered_steps",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": -0.374,
+        "distance": 100
+      },
+      {
+        "from": "trust_cards",
+        "to": "footer",
+        "count": 1,
+        "frequency": 0.029,
+        "pmi": 0.369,
+        "distance": 2.712
+      },
+      {
+        "from": "course_selector",
+        "to": "ai_learning",
+        "count": 1,
+        "frequency": 0.018,
+        "pmi": -0.415,
+        "distance": 100
+      },
+      {
+        "from": "ai_learning",
+        "to": "dynamic_table",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 3.593,
+        "distance": 0.278
+      },
+      {
+        "from": "awards_marquee",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": 0.309,
+        "distance": 3.233
+      },
+      {
+        "from": "features_quad",
+        "to": "course_selector",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.476,
+        "distance": 2.099
+      },
+      {
+        "from": "graduates_stats",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.025,
+        "pmi": 0.795,
+        "distance": 1.258
+      },
+      {
+        "from": "hero",
+        "to": "apply_form",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": 1.688,
+        "distance": 0.592
+      },
+      {
+        "from": "apply_form",
+        "to": "breadcrumb",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 6.563,
+        "distance": 0.152
+      },
+      {
+        "from": "list_press_mentions",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 0.1,
+        "pmi": 0.218,
+        "distance": 4.597
+      },
+      {
+        "from": "split_cards",
+        "to": "split_cards",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": -0.071,
+        "distance": 100
+      },
+      {
+        "from": "split_cards",
+        "to": "partnership_carousel",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 1.647,
+        "distance": 0.607
+      },
+      {
+        "from": "partnership_carousel",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 2.538,
+        "distance": 0.394
+      },
+      {
+        "from": "career_support_explain",
+        "to": "double_cta",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 3.385,
+        "distance": 0.295
+      },
+      {
+        "from": "hero",
+        "to": "contact_us_info",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": 2.381,
+        "distance": 0.42
+      },
+      {
+        "from": "contact_us_info",
+        "to": "sticky_cta",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 2.631,
+        "distance": 0.38
+      },
+      {
+        "from": "faq_editor",
+        "to": "sticky_cta",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 2.631,
+        "distance": 0.38
+      },
+      {
+        "from": "syllabus",
+        "to": "comparison_table",
+        "count": 1,
+        "frequency": 0.023,
+        "pmi": 1.703,
+        "distance": 0.587
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "testimonials",
+        "count": 1,
+        "frequency": 0.02,
+        "pmi": -0.646,
+        "distance": 100
+      },
+      {
+        "from": "hero",
+        "to": "career_support_explain",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": -0.391,
+        "distance": 100
+      },
+      {
+        "from": "career_support_explain",
+        "to": "graduates_stats",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.795,
+        "distance": 1.258
+      },
+      {
+        "from": "graduates_stats",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.025,
+        "pmi": 0.2,
+        "distance": 4.997
+      },
+      {
+        "from": "whos_hiring",
+        "to": "why_learn_ai",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": -0.389,
+        "distance": 100
+      },
+      {
+        "from": "comparison_table",
+        "to": "two_column_accordion_card",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 1.573,
+        "distance": 0.636
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "value_proof_panel",
+        "count": 1,
+        "frequency": 0.013,
+        "pmi": 1.553,
+        "distance": 0.644
+      },
+      {
+        "from": "value_proof_panel",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 3.097,
+        "distance": 0.323
+      },
+      {
+        "from": "features_quad",
+        "to": "split_cards",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.82,
+        "distance": 1.219
+      },
+      {
+        "from": "split_cards",
+        "to": "whos_hiring",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": -0.121,
+        "distance": 100
+      },
+      {
+        "from": "modal",
+        "to": "project_showcase",
+        "count": 1,
+        "frequency": 0.091,
+        "pmi": 4.165,
+        "distance": 0.24
+      },
+      {
+        "from": "project_showcase",
+        "to": "about",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 6.563,
+        "distance": 0.152
+      },
+      {
+        "from": "about",
+        "to": "faq",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 3.008,
+        "distance": 0.332
+      },
+      {
+        "from": "why_learn_ai",
+        "to": "why_learn_ai",
+        "count": 1,
+        "frequency": 0.02,
+        "pmi": -0.607,
+        "distance": 100
+      },
+      {
+        "from": "cta_banner",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.01,
+        "pmi": 0.127,
+        "distance": 7.874
+      },
+      {
+        "from": "hero",
+        "to": "hero_single_column",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": 2.381,
+        "distance": 0.42
+      },
+      {
+        "from": "career_support_explain",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 1.116,
+        "distance": 0.896
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "programs_showcase",
+        "count": 1,
+        "frequency": 0.013,
+        "pmi": 1.329,
+        "distance": 0.752
+      },
+      {
+        "from": "programs_showcase",
+        "to": "why_learn_ai",
+        "count": 1,
+        "frequency": 0.2,
+        "pmi": 1.715,
+        "distance": 0.583
+      },
+      {
+        "from": "award_badges",
+        "to": "image_row",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 3.231,
+        "distance": 0.31
+      },
+      {
+        "from": "image_row",
+        "to": "two_column_accordion_card",
+        "count": 1,
+        "frequency": 0.125,
+        "pmi": 1.439,
+        "distance": 0.695
+      },
+      {
+        "from": "career_support_explain",
+        "to": "course_selector",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.476,
+        "distance": 2.099
+      },
+      {
+        "from": "graduates_stats",
+        "to": "course_selector",
+        "count": 1,
+        "frequency": 0.025,
+        "pmi": -0.44,
+        "distance": 100
+      },
+      {
+        "from": "ai_learning",
+        "to": "apply_form",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 2.9,
+        "distance": 0.345
+      },
+      {
+        "from": "apply_form",
+        "to": "award_badges",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 4.484,
+        "distance": 0.223
+      },
+      {
+        "from": "hero",
+        "to": "vertical_bars_cards",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": 1.688,
+        "distance": 0.592
+      },
+      {
+        "from": "vertical_bars_cards",
+        "to": "vertical_bars_cards",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 5.87,
+        "distance": 0.17
+      },
+      {
+        "from": "vertical_bars_cards",
+        "to": "stats",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 5.177,
+        "distance": 0.193
+      },
+      {
+        "from": "stats",
+        "to": "pie_charts",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 5.87,
+        "distance": 0.17
+      },
+      {
+        "from": "pie_charts",
+        "to": "value_proof_panel",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 5.87,
+        "distance": 0.17
+      },
+      {
+        "from": "two_column_accordion_card",
+        "to": "testimonials",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": -0.452,
+        "distance": 100
+      },
+      {
+        "from": "modal",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.091,
+        "pmi": 2.086,
+        "distance": 0.479
+      },
+      {
+        "from": "features_quad",
+        "to": "features_grid",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 0.309,
+        "distance": 3.233
+      },
+      {
+        "from": "partnership_carousel",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 1.048,
+        "distance": 0.954
+      },
+      {
+        "from": "two_column",
+        "to": "profiles_carousel",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": 0.677,
+        "distance": 1.477
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.111,
+        "pmi": 0.811,
+        "distance": 1.234
+      },
+      {
+        "from": "list_press_mentions",
+        "to": "value_proof_panel",
+        "count": 1,
+        "frequency": 0.1,
+        "pmi": 3.567,
+        "distance": 0.28
+      },
+      {
+        "from": "awards_marquee",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": -1.167,
+        "distance": 100
+      },
+      {
+        "from": "comparison_table",
+        "to": "hero",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 2.745,
+        "distance": 0.364
+      },
+      {
+        "from": "comparison_table",
+        "to": "comparison_table",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 3.519,
+        "distance": 0.284
+      },
+      {
+        "from": "course_selector",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 0.018,
+        "pmi": -1.487,
+        "distance": 100
+      },
+      {
+        "from": "comparison_table",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 1.943,
+        "distance": 0.515
+      },
+      {
+        "from": "features_grid",
+        "to": "numbered_steps",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": -0.285,
+        "distance": 100
+      },
+      {
+        "from": "hero",
+        "to": "certificate",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": -0.986,
+        "distance": 100
+      },
+      {
+        "from": "certificate",
+        "to": "image_row",
+        "count": 1,
+        "frequency": 0.034,
+        "pmi": 1.81,
+        "distance": 0.553
+      },
+      {
+        "from": "image_row",
+        "to": "footer",
+        "count": 1,
+        "frequency": 0.125,
+        "pmi": 1.845,
+        "distance": 0.542
+      },
+      {
+        "from": "partnership_carousel",
+        "to": "testimonials_slide",
+        "count": 1,
+        "frequency": 0.143,
+        "pmi": 0.993,
+        "distance": 1.007
+      },
+      {
+        "from": "testimonials_slide",
+        "to": "horizontal_bars",
+        "count": 1,
+        "frequency": 0.013,
+        "pmi": 2.939,
+        "distance": 0.34
+      },
+      {
+        "from": "horizontal_bars",
+        "to": "whos_hiring",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 3.543,
+        "distance": 0.282
+      },
+      {
+        "from": "faq",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": -1.241,
+        "distance": 100
+      },
+      {
+        "from": "awards_marquee",
+        "to": "testimonials_grid",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": 2.389,
+        "distance": 0.419
+      },
+      {
+        "from": "testimonials_grid",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.5,
+        "pmi": 2.315,
+        "distance": 0.432
+      },
+      {
+        "from": "split_cards",
+        "to": "features_quad",
+        "count": 1,
+        "frequency": 0.026,
+        "pmi": 0.82,
+        "distance": 1.219
+      },
+      {
+        "from": "features_quad",
+        "to": "stats",
+        "count": 1,
+        "frequency": 0.063,
+        "pmi": 3.097,
+        "distance": 0.323
+      },
+      {
+        "from": "stats",
+        "to": "two_column",
+        "count": 1,
+        "frequency": 0.25,
+        "pmi": 1.607,
+        "distance": 0.622
+      },
+      {
+        "from": "awards_marquee",
+        "to": "whos_hiring",
+        "count": 1,
+        "frequency": 0.015,
+        "pmi": -0.632,
+        "distance": 100
+      },
+      {
+        "from": "whos_hiring",
+        "to": "profiles_carousel",
+        "count": 1,
+        "frequency": 0.024,
+        "pmi": 1.24,
+        "distance": 0.806
+      },
+      {
+        "from": "profiles_carousel",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 0.111,
+        "pmi": 0.323,
+        "distance": 3.097
+      },
+      {
+        "from": "dynamic_table",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 2.52,
+        "distance": 0.397
+      },
+      {
+        "from": "two_column",
+        "to": "faq",
+        "count": 1,
+        "frequency": 0.014,
+        "pmi": -1.269,
+        "distance": 100
+      },
+      {
+        "from": "hero",
+        "to": "press_mentions",
+        "count": 1,
+        "frequency": 0.008,
+        "pmi": 2.381,
+        "distance": 0.42
+      },
+      {
+        "from": "press_mentions",
+        "to": "cta_banner",
+        "count": 1,
+        "frequency": 1,
+        "pmi": 2.52,
+        "distance": 0.397
+      }
+    ],
+    "topSequences": [
+      {
+        "sequence": [
+          "hero",
+          "awards_marquee",
+          "banner",
+          "two_column",
+          "course_selector",
+          "two_column_accordion_card",
+          "testimonials_slide",
+          "split_cards",
+          "why_learn_ai",
+          "mentorship",
+          "mentorship",
+          "testimonials",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 32
+      },
+      {
+        "sequence": [
+          "hero",
+          "awards_marquee",
+          "banner",
+          "two_column",
+          "course_selector",
+          "two_column_accordion_card",
+          "testimonials_slide",
+          "split_cards",
+          "why_learn_ai",
+          "mentorship",
+          "testimonials",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 3
+      },
+      {
+        "sequence": [
+          "hero",
+          "sticky_cta",
+          "graduates_stats",
+          "awards_marquee",
+          "features_grid",
+          "syllabus",
+          "two_column",
+          "trust_cards",
+          "ai_learning",
+          "certificate",
+          "testimonials_slide",
+          "numbered_steps",
+          "cta_banner",
+          "footer"
+        ],
+        "count": 3
+      },
+      {
+        "sequence": [
+          "hero",
+          "sticky_cta",
+          "awards_marquee",
+          "features_grid",
+          "syllabus",
+          "award_badges",
+          "ai_learning",
+          "certificate",
+          "bullet_tabs_showcase",
+          "whos_hiring",
+          "testimonials",
+          "numbered_steps",
+          "cta_banner",
+          "footer"
+        ],
+        "count": 3
+      },
+      {
+        "sequence": [
+          "article",
+          "sticky_cta"
+        ],
+        "count": 3
+      },
+      {
+        "sequence": [
+          "hero",
+          "banner",
+          "human_and_ai_duo",
+          "community_support",
+          "two_column",
+          "testimonials_slide",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 3
+      },
+      {
+        "sequence": [
+          "hero",
+          "article",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 3
+      },
+      {
+        "sequence": [
+          "hero",
+          "modal",
+          "awards_marquee",
+          "graduates_stats",
+          "features_grid",
+          "syllabus",
+          "projects",
+          "trust_cards",
+          "ai_learning",
+          "features_grid",
+          "pricing",
+          "pricing",
+          "numbered_steps",
+          "testimonials",
+          "whos_hiring",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "graduates_stats",
+          "trust_cards",
+          "geeks_vs_others_comparison",
+          "career_support_explain",
+          "human_and_ai_duo",
+          "course_selector",
+          "cards_deck",
+          "list_press_mentions",
+          "why_learn_ai",
+          "testimonials_slide",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "award_badges",
+          "syllabus",
+          "projects",
+          "ai_learning"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "trust_cards",
+          "syllabus",
+          "projects",
+          "ai_learning",
+          "certificate",
+          "whos_hiring",
+          "testimonials",
+          "cta_banner"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "sticky_cta",
+          "awards_marquee",
+          "graduates_stats",
+          "features_grid",
+          "syllabus",
+          "ai_learning",
+          "certificate",
+          "testimonials_slide",
+          "pricing",
+          "whos_hiring",
+          "cta_banner",
+          "footer"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "human_and_ai_duo",
+          "awards_marquee",
+          "profiles_carousel",
+          "banner",
+          "mentorship",
+          "faq",
+          "whos_hiring",
+          "footer"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "two_column",
+          "awards_marquee",
+          "two_column",
+          "two_column",
+          "whos_hiring",
+          "cta_banner"
+        ],
+        "count": 2
+      },
+      {
+        "sequence": [
+          "hero",
+          "modal",
+          "awards_marquee",
+          "graduates_stats",
+          "features_grid",
+          "syllabus",
+          "trust_cards",
+          "ai_learning",
+          "features_grid",
+          "pricing",
+          "pricing",
+          "numbered_steps",
+          "testimonials",
+          "whos_hiring",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 1
+      },
+      {
+        "sequence": [
+          "hero",
+          "hero",
+          "modal",
+          "awards_marquee",
+          "graduates_stats",
+          "features_grid",
+          "syllabus",
+          "trust_cards",
+          "features_grid",
+          "ai_learning",
+          "testimonials",
+          "pricing",
+          "pricing",
+          "numbered_steps",
+          "whos_hiring",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 1
+      },
+      {
+        "sequence": [
+          "breadcrumb",
+          "hero",
+          "modal",
+          "awards_marquee",
+          "features_grid",
+          "syllabus",
+          "ai_learning",
+          "certificate",
+          "pricing",
+          "whos_hiring",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 1
+      },
+      {
+        "sequence": [
+          "hero",
+          "modal",
+          "awards_marquee",
+          "graduates_stats",
+          "features_grid",
+          "syllabus",
+          "ai_learning",
+          "trust_cards",
+          "features_grid",
+          "pricing",
+          "pricing",
+          "numbered_steps",
+          "testimonials",
+          "whos_hiring",
+          "faq",
+          "cta_banner",
+          "sticky_cta"
+        ],
+        "count": 1
+      },
+      {
+        "sequence": [
+          "hero",
+          "sticky_cta",
+          "graduates_stats",
+          "trust_cards",
+          "features_grid",
+          "syllabus",
+          "career_support_explain",
+          "human_and_ai_duo",
+          "testimonials_slide",
+          "why_learn_ai",
+          "mentorship",
+          "cards_deck",
+          "whos_hiring",
+          "cta_banner"
+        ],
+        "count": 1
+      },
+      {
+        "sequence": [
+          "hero",
+          "sticky_cta",
+          "graduates_stats",
+          "list_press_mentions",
+          "features_quad",
+          "syllabus",
+          "ai_learning",
+          "career_support_explain",
+          "features_grid",
+          "testimonials_slide",
+          "mentorship",
+          "pricing",
+          "why_learn_ai",
+          "cards_deck",
+          "whos_hiring",
+          "cta_banner",
+          "footer"
+        ],
+        "count": 1
+      }
+    ],
+    "pageCount": 131
+  },
+  "byIntent": {
+    "product_service": {
+      "pairings": [
+        {
+          "from": "hero",
+          "to": "modal",
+          "count": 6,
+          "frequency": 0.857,
+          "pmi": 2.608,
+          "distance": 0.383
+        },
+        {
+          "from": "modal",
+          "to": "awards_marquee",
+          "count": 6,
+          "frequency": 1,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "features_grid",
+          "to": "syllabus",
+          "count": 6,
+          "frequency": 0.545,
+          "pmi": 2.156,
+          "distance": 0.464
+        },
+        {
+          "from": "whos_hiring",
+          "to": "faq",
+          "count": 6,
+          "frequency": 1,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "faq",
+          "to": "cta_banner",
+          "count": 6,
+          "frequency": 1,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "cta_banner",
+          "to": "sticky_cta",
+          "count": 6,
+          "frequency": 1,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "awards_marquee",
+          "to": "graduates_stats",
+          "count": 5,
+          "frequency": 0.833,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "graduates_stats",
+          "to": "features_grid",
+          "count": 5,
+          "frequency": 1,
+          "pmi": 2.156,
+          "distance": 0.464
+        },
+        {
+          "from": "pricing",
+          "to": "pricing",
+          "count": 5,
+          "frequency": 0.455,
+          "pmi": 1.368,
+          "distance": 0.731
+        },
+        {
+          "from": "pricing",
+          "to": "numbered_steps",
+          "count": 5,
+          "frequency": 0.455,
+          "pmi": 2.156,
+          "distance": 0.464
+        },
+        {
+          "from": "features_grid",
+          "to": "pricing",
+          "count": 4,
+          "frequency": 0.364,
+          "pmi": 1.144,
+          "distance": 0.874
+        },
+        {
+          "from": "numbered_steps",
+          "to": "testimonials",
+          "count": 4,
+          "frequency": 0.8,
+          "pmi": 2.721,
+          "distance": 0.367
+        },
+        {
+          "from": "testimonials",
+          "to": "whos_hiring",
+          "count": 4,
+          "frequency": 0.8,
+          "pmi": 2.539,
+          "distance": 0.394
+        },
+        {
+          "from": "trust_cards",
+          "to": "ai_learning",
+          "count": 3,
+          "frequency": 0.6,
+          "pmi": 2.251,
+          "distance": 0.444
+        },
+        {
+          "from": "ai_learning",
+          "to": "features_grid",
+          "count": 3,
+          "frequency": 0.5,
+          "pmi": 1.463,
+          "distance": 0.684
+        },
+        {
+          "from": "syllabus",
+          "to": "trust_cards",
+          "count": 2,
+          "frequency": 0.333,
+          "pmi": 1.846,
+          "distance": 0.542
+        },
+        {
+          "from": "trust_cards",
+          "to": "features_grid",
+          "count": 2,
+          "frequency": 0.4,
+          "pmi": 1.24,
+          "distance": 0.807
+        },
+        {
+          "from": "syllabus",
+          "to": "ai_learning",
+          "count": 2,
+          "frequency": 0.333,
+          "pmi": 1.664,
+          "distance": 0.601
+        },
+        {
+          "from": "syllabus",
+          "to": "projects",
+          "count": 2,
+          "frequency": 0.333,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "projects",
+          "to": "trust_cards",
+          "count": 2,
+          "frequency": 1,
+          "pmi": 2.944,
+          "distance": 0.34
+        },
+        {
+          "from": "hero",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 1.915,
+          "distance": 0.522
+        },
+        {
+          "from": "features_grid",
+          "to": "ai_learning",
+          "count": 1,
+          "frequency": 0.091,
+          "pmi": 0.364,
+          "distance": 2.746
+        },
+        {
+          "from": "ai_learning",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 1.153,
+          "distance": 0.868
+        },
+        {
+          "from": "testimonials",
+          "to": "pricing",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 0.547,
+          "distance": 1.83
+        },
+        {
+          "from": "numbered_steps",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 1.153,
+          "distance": 0.868
+        },
+        {
+          "from": "breadcrumb",
+          "to": "hero",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 3.861,
+          "distance": 0.259
+        },
+        {
+          "from": "awards_marquee",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 0.364,
+          "distance": 2.746
+        },
+        {
+          "from": "ai_learning",
+          "to": "certificate",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 2.762,
+          "distance": 0.362
+        },
+        {
+          "from": "certificate",
+          "to": "pricing",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.156,
+          "distance": 0.464
+        },
+        {
+          "from": "pricing",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.091,
+          "pmi": 0.364,
+          "distance": 2.746
+        },
+        {
+          "from": "ai_learning",
+          "to": "trust_cards",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 1.153,
+          "distance": 0.868
+        }
+      ],
+      "topSequences": [
+        {
+          "sequence": [
+            "hero",
+            "modal",
+            "awards_marquee",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "projects",
+            "trust_cards",
+            "ai_learning",
+            "features_grid",
+            "pricing",
+            "pricing",
+            "numbered_steps",
+            "testimonials",
+            "whos_hiring",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 2
+        },
+        {
+          "sequence": [
+            "hero",
+            "modal",
+            "awards_marquee",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "trust_cards",
+            "ai_learning",
+            "features_grid",
+            "pricing",
+            "pricing",
+            "numbered_steps",
+            "testimonials",
+            "whos_hiring",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "hero",
+            "modal",
+            "awards_marquee",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "trust_cards",
+            "features_grid",
+            "ai_learning",
+            "testimonials",
+            "pricing",
+            "pricing",
+            "numbered_steps",
+            "whos_hiring",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "breadcrumb",
+            "hero",
+            "modal",
+            "awards_marquee",
+            "features_grid",
+            "syllabus",
+            "ai_learning",
+            "certificate",
+            "pricing",
+            "whos_hiring",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "modal",
+            "awards_marquee",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "ai_learning",
+            "trust_cards",
+            "features_grid",
+            "pricing",
+            "pricing",
+            "numbered_steps",
+            "testimonials",
+            "whos_hiring",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        }
+      ],
+      "pageCount": 6
+    },
+    "brand_corporate": {
+      "pairings": [
+        {
+          "from": "faq",
+          "to": "cta_banner",
+          "count": 56,
+          "frequency": 0.982,
+          "pmi": 2.442,
+          "distance": 0.41
+        },
+        {
+          "from": "cta_banner",
+          "to": "sticky_cta",
+          "count": 56,
+          "frequency": 0.966,
+          "pmi": 2.44,
+          "distance": 0.41
+        },
+        {
+          "from": "hero",
+          "to": "awards_marquee",
+          "count": 37,
+          "frequency": 0.544,
+          "pmi": 2.28,
+          "distance": 0.439
+        },
+        {
+          "from": "testimonials",
+          "to": "faq",
+          "count": 37,
+          "frequency": 1,
+          "pmi": 2.56,
+          "distance": 0.391
+        },
+        {
+          "from": "awards_marquee",
+          "to": "banner",
+          "count": 35,
+          "frequency": 0.854,
+          "pmi": 2.807,
+          "distance": 0.356
+        },
+        {
+          "from": "banner",
+          "to": "two_column",
+          "count": 35,
+          "frequency": 0.921,
+          "pmi": 2.807,
+          "distance": 0.356
+        },
+        {
+          "from": "two_column",
+          "to": "course_selector",
+          "count": 35,
+          "frequency": 0.854,
+          "pmi": 2.616,
+          "distance": 0.382
+        },
+        {
+          "from": "course_selector",
+          "to": "two_column_accordion_card",
+          "count": 35,
+          "frequency": 0.761,
+          "pmi": 2.692,
+          "distance": 0.372
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "testimonials_slide",
+          "count": 35,
+          "frequency": 0.921,
+          "pmi": 2.67,
+          "distance": 0.375
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "split_cards",
+          "count": 35,
+          "frequency": 0.745,
+          "pmi": 2.644,
+          "distance": 0.378
+        },
+        {
+          "from": "split_cards",
+          "to": "why_learn_ai",
+          "count": 35,
+          "frequency": 0.897,
+          "pmi": 2.733,
+          "distance": 0.366
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "mentorship",
+          "count": 35,
+          "frequency": 0.814,
+          "pmi": 2.192,
+          "distance": 0.456
+        },
+        {
+          "from": "mentorship",
+          "to": "testimonials",
+          "count": 35,
+          "frequency": 0.522,
+          "pmi": 2.342,
+          "distance": 0.427
+        },
+        {
+          "from": "mentorship",
+          "to": "mentorship",
+          "count": 32,
+          "frequency": 0.478,
+          "pmi": 1.659,
+          "distance": 0.603
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "faq",
+          "count": 5,
+          "frequency": 0.106,
+          "pmi": 0.319,
+          "distance": 3.136
+        },
+        {
+          "from": "features_grid",
+          "to": "career_support_explain",
+          "count": 5,
+          "frequency": 0.294,
+          "pmi": 3.433,
+          "distance": 0.291
+        },
+        {
+          "from": "hero",
+          "to": "article",
+          "count": 4,
+          "frequency": 0.059,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "course_selector",
+          "to": "course_selector",
+          "count": 4,
+          "frequency": 0.087,
+          "pmi": 0.332,
+          "distance": 3.016
+        },
+        {
+          "from": "graduates_stats",
+          "to": "features_grid",
+          "count": 4,
+          "frequency": 0.5,
+          "pmi": 3.076,
+          "distance": 0.325
+        },
+        {
+          "from": "image_row",
+          "to": "features_grid",
+          "count": 4,
+          "frequency": 0.667,
+          "pmi": 3.364,
+          "distance": 0.297
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "faq",
+          "count": 4,
+          "frequency": 0.093,
+          "pmi": 0.185,
+          "distance": 5.416
+        },
+        {
+          "from": "article",
+          "to": "sticky_cta",
+          "count": 3,
+          "frequency": 0.5,
+          "pmi": 1.782,
+          "distance": 0.561
+        },
+        {
+          "from": "hero",
+          "to": "features_grid",
+          "count": 3,
+          "frequency": 0.044,
+          "pmi": 0.648,
+          "distance": 1.542
+        },
+        {
+          "from": "hero",
+          "to": "banner",
+          "count": 3,
+          "frequency": 0.044,
+          "pmi": -0.156,
+          "distance": 100
+        },
+        {
+          "from": "banner",
+          "to": "human_and_ai_duo",
+          "count": 3,
+          "frequency": 0.079,
+          "pmi": 2.965,
+          "distance": 0.337
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "community_support",
+          "count": 3,
+          "frequency": 1,
+          "pmi": 5.504,
+          "distance": 0.182
+        },
+        {
+          "from": "community_support",
+          "to": "two_column",
+          "count": 3,
+          "frequency": 1,
+          "pmi": 2.889,
+          "distance": 0.346
+        },
+        {
+          "from": "two_column",
+          "to": "testimonials_slide",
+          "count": 3,
+          "frequency": 0.073,
+          "pmi": 0.137,
+          "distance": 7.274
+        },
+        {
+          "from": "hero",
+          "to": "comparison_table",
+          "count": 3,
+          "frequency": 0.044,
+          "pmi": 1.872,
+          "distance": 0.534
+        },
+        {
+          "from": "hero",
+          "to": "graduates_stats",
+          "count": 3,
+          "frequency": 0.044,
+          "pmi": 1.402,
+          "distance": 0.713
+        },
+        {
+          "from": "career_support_explain",
+          "to": "trust_cards",
+          "count": 3,
+          "frequency": 0.429,
+          "pmi": 4.657,
+          "distance": 0.215
+        },
+        {
+          "from": "trust_cards",
+          "to": "testimonials_slide",
+          "count": 3,
+          "frequency": 1,
+          "pmi": 2.752,
+          "distance": 0.363
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "course_selector",
+          "count": 3,
+          "frequency": 0.064,
+          "pmi": 0.022,
+          "distance": 44.621
+        },
+        {
+          "from": "course_selector",
+          "to": "list_press_mentions",
+          "count": 3,
+          "frequency": 0.065,
+          "pmi": 2.263,
+          "distance": 0.442
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "why_learn_ai",
+          "count": 3,
+          "frequency": 0.6,
+          "pmi": 2.331,
+          "distance": 0.429
+        },
+        {
+          "from": "article",
+          "to": "faq",
+          "count": 3,
+          "frequency": 0.5,
+          "pmi": 1.866,
+          "distance": 0.536
+        },
+        {
+          "from": "hero",
+          "to": "list_press_mentions",
+          "count": 2,
+          "frequency": 0.029,
+          "pmi": 1.467,
+          "distance": 0.682
+        },
+        {
+          "from": "hero",
+          "to": "split_cards",
+          "count": 2,
+          "frequency": 0.029,
+          "pmi": -0.587,
+          "distance": 100
+        },
+        {
+          "from": "features_grid",
+          "to": "syllabus",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 3.076,
+          "distance": 0.325
+        },
+        {
+          "from": "syllabus",
+          "to": "syllabus",
+          "count": 2,
+          "frequency": 0.5,
+          "pmi": 4.523,
+          "distance": 0.221
+        },
+        {
+          "from": "comparison_table",
+          "to": "course_selector",
+          "count": 2,
+          "frequency": 0.333,
+          "pmi": 1.675,
+          "distance": 0.597
+        },
+        {
+          "from": "course_selector",
+          "to": "why_learn_ai",
+          "count": 2,
+          "frequency": 0.043,
+          "pmi": -0.294,
+          "distance": 100
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "testimonials_slide",
+          "count": 2,
+          "frequency": 0.047,
+          "pmi": -0.316,
+          "distance": 100
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "features_grid",
+          "count": 2,
+          "frequency": 0.053,
+          "pmi": 0.825,
+          "distance": 1.212
+        },
+        {
+          "from": "whos_hiring",
+          "to": "faq",
+          "count": 2,
+          "frequency": 0.4,
+          "pmi": 1.643,
+          "distance": 0.609
+        },
+        {
+          "from": "hero",
+          "to": "modal",
+          "count": 2,
+          "frequency": 0.029,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "features_grid",
+          "to": "image_row",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 2.671,
+          "distance": 0.374
+        },
+        {
+          "from": "awards_marquee",
+          "to": "graduates_stats",
+          "count": 2,
+          "frequency": 0.049,
+          "pmi": 1.503,
+          "distance": 0.665
+        },
+        {
+          "from": "graduates_stats",
+          "to": "image_row",
+          "count": 2,
+          "frequency": 0.25,
+          "pmi": 3.425,
+          "distance": 0.292
+        },
+        {
+          "from": "features_grid",
+          "to": "features_grid",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 1.629,
+          "distance": 0.614
+        },
+        {
+          "from": "features_grid",
+          "to": "graduates_stats",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "numbered_steps",
+          "to": "cta_banner",
+          "count": 2,
+          "frequency": 0.4,
+          "pmi": 1.543,
+          "distance": 0.648
+        },
+        {
+          "from": "value_proof_panel",
+          "to": "awards_marquee",
+          "count": 2,
+          "frequency": 0.667,
+          "pmi": 2.484,
+          "distance": 0.403
+        },
+        {
+          "from": "features_grid",
+          "to": "partnership_carousel",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 2.853,
+          "distance": 0.35
+        },
+        {
+          "from": "partnership_carousel",
+          "to": "partnership_carousel",
+          "count": 2,
+          "frequency": 0.4,
+          "pmi": 4.077,
+          "distance": 0.245
+        },
+        {
+          "from": "hero",
+          "to": "apply_form",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 1.69,
+          "distance": 0.592
+        },
+        {
+          "from": "apply_form",
+          "to": "breadcrumb",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.909,
+          "distance": 0.169
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 0.85,
+          "distance": 1.176
+        },
+        {
+          "from": "split_cards",
+          "to": "split_cards",
+          "count": 1,
+          "frequency": 0.026,
+          "pmi": -0.725,
+          "distance": 100
+        },
+        {
+          "from": "split_cards",
+          "to": "partnership_carousel",
+          "count": 1,
+          "frequency": 0.026,
+          "pmi": 1.33,
+          "distance": 0.752
+        },
+        {
+          "from": "partnership_carousel",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 3.047,
+          "distance": 0.328
+        },
+        {
+          "from": "career_support_explain",
+          "to": "double_cta",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 4.657,
+          "distance": 0.215
+        },
+        {
+          "from": "double_cta",
+          "to": "profiles_carousel",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 5.504,
+          "distance": 0.182
+        },
+        {
+          "from": "hero",
+          "to": "contact_us_info",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "contact_us_info",
+          "to": "sticky_cta",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.475,
+          "distance": 0.404
+        },
+        {
+          "from": "faq_editor",
+          "to": "sticky_cta",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.475,
+          "distance": 0.404
+        },
+        {
+          "from": "syllabus",
+          "to": "comparison_table",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 3.607,
+          "distance": 0.277
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 0.023,
+          "pmi": -0.77,
+          "distance": 100
+        },
+        {
+          "from": "hero",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 0.437,
+          "distance": 2.287
+        },
+        {
+          "from": "career_support_explain",
+          "to": "graduates_stats",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 2.577,
+          "distance": 0.388
+        },
+        {
+          "from": "graduates_stats",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.125,
+          "pmi": 2.914,
+          "distance": 0.343
+        },
+        {
+          "from": "numbered_steps",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 3.384,
+          "distance": 0.296
+        },
+        {
+          "from": "whos_hiring",
+          "to": "why_learn_ai",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 1.232,
+          "distance": 0.812
+        },
+        {
+          "from": "comparison_table",
+          "to": "two_column_accordion_card",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 1.173,
+          "distance": 0.852
+        },
+        {
+          "from": "features_grid",
+          "to": "testimonials_slide",
+          "count": 1,
+          "frequency": 0.059,
+          "pmi": -0.081,
+          "distance": 100
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "value_proof_panel",
+          "count": 1,
+          "frequency": 0.021,
+          "pmi": 1.654,
+          "distance": 0.605
+        },
+        {
+          "from": "value_proof_panel",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.333,
+          "pmi": 4.118,
+          "distance": 0.243
+        },
+        {
+          "from": "features_quad",
+          "to": "split_cards",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 1.553,
+          "distance": 0.644
+        },
+        {
+          "from": "split_cards",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.026,
+          "pmi": 1.33,
+          "distance": 0.752
+        },
+        {
+          "from": "modal",
+          "to": "project_showcase",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.909,
+          "distance": 0.169
+        },
+        {
+          "from": "project_showcase",
+          "to": "about",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 6.603,
+          "distance": 0.151
+        },
+        {
+          "from": "about",
+          "to": "faq",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.56,
+          "distance": 0.391
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "why_learn_ai",
+          "count": 1,
+          "frequency": 0.023,
+          "pmi": -0.92,
+          "distance": 100
+        },
+        {
+          "from": "cta_banner",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.017,
+          "pmi": 1.849,
+          "distance": 0.541
+        },
+        {
+          "from": "hero",
+          "to": "hero_single_column",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "career_support_explain",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 3.047,
+          "distance": 0.328
+        },
+        {
+          "from": "numbered_steps",
+          "to": "testimonials_slide",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 1.143,
+          "distance": 0.875
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "programs_showcase",
+          "count": 1,
+          "frequency": 0.021,
+          "pmi": 2.752,
+          "distance": 0.363
+        },
+        {
+          "from": "programs_showcase",
+          "to": "why_learn_ai",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.841,
+          "distance": 0.352
+        },
+        {
+          "from": "hero",
+          "to": "award_badges",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 1.69,
+          "distance": 0.592
+        },
+        {
+          "from": "award_badges",
+          "to": "image_row",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.811,
+          "distance": 0.208
+        },
+        {
+          "from": "image_row",
+          "to": "two_column_accordion_card",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 1.173,
+          "distance": 0.852
+        },
+        {
+          "from": "career_support_explain",
+          "to": "course_selector",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 0.828,
+          "distance": 1.208
+        },
+        {
+          "from": "graduates_stats",
+          "to": "course_selector",
+          "count": 1,
+          "frequency": 0.125,
+          "pmi": 0.695,
+          "distance": 1.44
+        },
+        {
+          "from": "course_selector",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.022,
+          "pmi": 1.388,
+          "distance": 0.721
+        },
+        {
+          "from": "features_quad",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 3.607,
+          "distance": 0.277
+        },
+        {
+          "from": "ai_learning",
+          "to": "apply_form",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.216,
+          "distance": 0.192
+        },
+        {
+          "from": "apply_form",
+          "to": "award_badges",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.216,
+          "distance": 0.192
+        },
+        {
+          "from": "hero",
+          "to": "vertical_bars_cards",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 1.69,
+          "distance": 0.592
+        },
+        {
+          "from": "vertical_bars_cards",
+          "to": "vertical_bars_cards",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.216,
+          "distance": 0.192
+        },
+        {
+          "from": "vertical_bars_cards",
+          "to": "stats",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.216,
+          "distance": 0.192
+        },
+        {
+          "from": "stats",
+          "to": "pie_charts",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.909,
+          "distance": 0.169
+        },
+        {
+          "from": "pie_charts",
+          "to": "value_proof_panel",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 5.504,
+          "distance": 0.182
+        },
+        {
+          "from": "awards_marquee",
+          "to": "two_column_accordion_card",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": -0.749,
+          "distance": 100
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 0.026,
+          "pmi": -0.646,
+          "distance": 100
+        },
+        {
+          "from": "modal",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 4.523,
+          "distance": 0.221
+        },
+        {
+          "from": "features_quad",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "partnership_carousel",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 1.28,
+          "distance": 0.782
+        },
+        {
+          "from": "two_column",
+          "to": "profiles_carousel",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": 1.79,
+          "distance": 0.559
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "faq",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 1.866,
+          "distance": 0.536
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "value_proof_panel",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 3.895,
+          "distance": 0.257
+        },
+        {
+          "from": "awards_marquee",
+          "to": "faq",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": -1.154,
+          "distance": 100
+        },
+        {
+          "from": "comparison_table",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 4.118,
+          "distance": 0.243
+        },
+        {
+          "from": "comparison_table",
+          "to": "comparison_table",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 3.201,
+          "distance": 0.312
+        },
+        {
+          "from": "course_selector",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.022,
+          "pmi": -1.369,
+          "distance": 100
+        },
+        {
+          "from": "comparison_table",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 3.201,
+          "distance": 0.312
+        },
+        {
+          "from": "numbered_steps",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 2.16,
+          "distance": 0.463
+        },
+        {
+          "from": "features_grid",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.059,
+          "pmi": 2.16,
+          "distance": 0.463
+        },
+        {
+          "from": "hero",
+          "to": "sticky_cta",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": -1.744,
+          "distance": 100
+        },
+        {
+          "from": "sticky_cta",
+          "to": "awards_marquee",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.889,
+          "distance": 0.346
+        },
+        {
+          "from": "syllabus",
+          "to": "ai_learning",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 5.216,
+          "distance": 0.192
+        },
+        {
+          "from": "ai_learning",
+          "to": "certificate",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.216,
+          "distance": 0.192
+        },
+        {
+          "from": "certificate",
+          "to": "testimonials_slide",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 2.059,
+          "distance": 0.486
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "pricing",
+          "count": 1,
+          "frequency": 0.021,
+          "pmi": 2.752,
+          "distance": 0.363
+        },
+        {
+          "from": "pricing",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.993,
+          "distance": 0.2
+        },
+        {
+          "from": "whos_hiring",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 0.85,
+          "distance": 1.176
+        },
+        {
+          "from": "cta_banner",
+          "to": "footer",
+          "count": 1,
+          "frequency": 0.017,
+          "pmi": 1.849,
+          "distance": 0.541
+        },
+        {
+          "from": "hero",
+          "to": "certificate",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": 1.69,
+          "distance": 0.592
+        },
+        {
+          "from": "certificate",
+          "to": "image_row",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 4.118,
+          "distance": 0.243
+        },
+        {
+          "from": "image_row",
+          "to": "footer",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 4.118,
+          "distance": 0.243
+        },
+        {
+          "from": "partnership_carousel",
+          "to": "testimonials_slide",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 1.143,
+          "distance": 0.875
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "horizontal_bars",
+          "count": 1,
+          "frequency": 0.021,
+          "pmi": 2.752,
+          "distance": 0.363
+        },
+        {
+          "from": "horizontal_bars",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.993,
+          "distance": 0.2
+        },
+        {
+          "from": "faq",
+          "to": "faq",
+          "count": 1,
+          "frequency": 0.018,
+          "pmi": -1.484,
+          "distance": 100
+        },
+        {
+          "from": "awards_marquee",
+          "to": "testimonials_grid",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": 2.889,
+          "distance": 0.346
+        },
+        {
+          "from": "testimonials_grid",
+          "to": "faq",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.56,
+          "distance": 0.391
+        },
+        {
+          "from": "split_cards",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.026,
+          "pmi": 1.553,
+          "distance": 0.644
+        },
+        {
+          "from": "features_quad",
+          "to": "stats",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 4.523,
+          "distance": 0.221
+        },
+        {
+          "from": "stats",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 2.196,
+          "distance": 0.455
+        },
+        {
+          "from": "two_column",
+          "to": "awards_marquee",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": -0.825,
+          "distance": 100
+        },
+        {
+          "from": "awards_marquee",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": 1.28,
+          "distance": 0.782
+        },
+        {
+          "from": "whos_hiring",
+          "to": "profiles_carousel",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 3.895,
+          "distance": 0.257
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 1.766,
+          "distance": 0.566
+        },
+        {
+          "from": "dynamic_table",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.459,
+          "distance": 0.407
+        },
+        {
+          "from": "hero",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.015,
+          "pmi": -1.33,
+          "distance": 100
+        },
+        {
+          "from": "two_column",
+          "to": "faq",
+          "count": 1,
+          "frequency": 0.024,
+          "pmi": -1.154,
+          "distance": 100
+        }
+      ],
+      "topSequences": [
+        {
+          "sequence": [
+            "hero",
+            "awards_marquee",
+            "banner",
+            "two_column",
+            "course_selector",
+            "two_column_accordion_card",
+            "testimonials_slide",
+            "split_cards",
+            "why_learn_ai",
+            "mentorship",
+            "mentorship",
+            "testimonials",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 32
+        },
+        {
+          "sequence": [
+            "hero",
+            "awards_marquee",
+            "banner",
+            "two_column",
+            "course_selector",
+            "two_column_accordion_card",
+            "testimonials_slide",
+            "split_cards",
+            "why_learn_ai",
+            "mentorship",
+            "testimonials",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 3
+        },
+        {
+          "sequence": [
+            "article",
+            "sticky_cta"
+          ],
+          "count": 3
+        },
+        {
+          "sequence": [
+            "hero",
+            "banner",
+            "human_and_ai_duo",
+            "community_support",
+            "two_column",
+            "testimonials_slide",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 3
+        },
+        {
+          "sequence": [
+            "hero",
+            "article",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 3
+        },
+        {
+          "sequence": [
+            "hero",
+            "apply_form",
+            "breadcrumb"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "list_press_mentions",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "article"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "split_cards",
+            "split_cards",
+            "partnership_carousel",
+            "career_support_explain",
+            "double_cta",
+            "profiles_carousel"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "contact_us_info",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "faq_editor",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "features_grid",
+            "syllabus",
+            "syllabus",
+            "syllabus",
+            "comparison_table",
+            "course_selector",
+            "course_selector",
+            "course_selector",
+            "why_learn_ai",
+            "testimonials",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "career_support_explain",
+            "graduates_stats",
+            "numbered_steps",
+            "whos_hiring",
+            "why_learn_ai",
+            "testimonials_slide",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "comparison_table",
+            "two_column_accordion_card",
+            "features_grid",
+            "testimonials_slide",
+            "value_proof_panel",
+            "features_quad",
+            "split_cards",
+            "whos_hiring",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "modal",
+            "project_showcase",
+            "about",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "graduates_stats",
+            "features_grid",
+            "image_row",
+            "features_grid",
+            "career_support_explain",
+            "trust_cards",
+            "testimonials_slide",
+            "course_selector",
+            "list_press_mentions",
+            "why_learn_ai",
+            "why_learn_ai",
+            "faq",
+            "cta_banner",
+            "hero",
+            "hero_single_column"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "awards_marquee",
+            "graduates_stats",
+            "image_row",
+            "features_grid",
+            "features_grid",
+            "career_support_explain",
+            "numbered_steps",
+            "testimonials_slide",
+            "programs_showcase",
+            "why_learn_ai",
+            "faq",
+            "cta_banner"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "award_badges",
+            "image_row",
+            "two_column_accordion_card",
+            "features_grid",
+            "career_support_explain",
+            "course_selector",
+            "why_learn_ai",
+            "testimonials_slide",
+            "faq",
+            "cta_banner"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "graduates_stats",
+            "features_grid",
+            "graduates_stats",
+            "image_row",
+            "features_grid",
+            "career_support_explain",
+            "trust_cards",
+            "testimonials_slide",
+            "course_selector",
+            "list_press_mentions",
+            "why_learn_ai",
+            "faq",
+            "cta_banner"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "features_grid",
+            "graduates_stats",
+            "course_selector",
+            "features_quad",
+            "numbered_steps",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        }
+      ],
+      "pageCount": 75
+    },
+    "lead_generation": {
+      "pairings": [
+        {
+          "from": "features_grid",
+          "to": "syllabus",
+          "count": 26,
+          "frequency": 0.703,
+          "pmi": 2.522,
+          "distance": 0.396
+        },
+        {
+          "from": "ai_learning",
+          "to": "certificate",
+          "count": 25,
+          "frequency": 0.806,
+          "pmi": 2.898,
+          "distance": 0.345
+        },
+        {
+          "from": "hero",
+          "to": "sticky_cta",
+          "count": 24,
+          "frequency": 0.429,
+          "pmi": 1.998,
+          "distance": 0.501
+        },
+        {
+          "from": "cta_banner",
+          "to": "footer",
+          "count": 23,
+          "frequency": 0.719,
+          "pmi": 2.783,
+          "distance": 0.359
+        },
+        {
+          "from": "whos_hiring",
+          "to": "cta_banner",
+          "count": 15,
+          "frequency": 0.5,
+          "pmi": 1.872,
+          "distance": 0.534
+        },
+        {
+          "from": "certificate",
+          "to": "testimonials_slide",
+          "count": 15,
+          "frequency": 0.577,
+          "pmi": 2.489,
+          "distance": 0.402
+        },
+        {
+          "from": "graduates_stats",
+          "to": "trust_cards",
+          "count": 14,
+          "frequency": 0.519,
+          "pmi": 2.419,
+          "distance": 0.413
+        },
+        {
+          "from": "sticky_cta",
+          "to": "graduates_stats",
+          "count": 14,
+          "frequency": 0.538,
+          "pmi": 2.457,
+          "distance": 0.407
+        },
+        {
+          "from": "numbered_steps",
+          "to": "cta_banner",
+          "count": 11,
+          "frequency": 0.579,
+          "pmi": 2.018,
+          "distance": 0.495
+        },
+        {
+          "from": "syllabus",
+          "to": "ai_learning",
+          "count": 9,
+          "frequency": 0.273,
+          "pmi": 1.607,
+          "distance": 0.622
+        },
+        {
+          "from": "syllabus",
+          "to": "two_column",
+          "count": 9,
+          "frequency": 0.273,
+          "pmi": 1.671,
+          "distance": 0.598
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "numbered_steps",
+          "count": 9,
+          "frequency": 0.321,
+          "pmi": 2.292,
+          "distance": 0.436
+        },
+        {
+          "from": "cta_banner",
+          "to": "sticky_cta",
+          "count": 8,
+          "frequency": 0.25,
+          "pmi": 1.459,
+          "distance": 0.685
+        },
+        {
+          "from": "two_column",
+          "to": "trust_cards",
+          "count": 8,
+          "frequency": 0.258,
+          "pmi": 1.721,
+          "distance": 0.581
+        },
+        {
+          "from": "awards_marquee",
+          "to": "features_grid",
+          "count": 8,
+          "frequency": 0.444,
+          "pmi": 1.95,
+          "distance": 0.513
+        },
+        {
+          "from": "graduates_stats",
+          "to": "features_grid",
+          "count": 7,
+          "frequency": 0.259,
+          "pmi": 1.411,
+          "distance": 0.709
+        },
+        {
+          "from": "trust_cards",
+          "to": "ai_learning",
+          "count": 7,
+          "frequency": 0.259,
+          "pmi": 1.556,
+          "distance": 0.643
+        },
+        {
+          "from": "sticky_cta",
+          "to": "awards_marquee",
+          "count": 7,
+          "frequency": 0.269,
+          "pmi": 2.169,
+          "distance": 0.461
+        },
+        {
+          "from": "whos_hiring",
+          "to": "testimonials",
+          "count": 7,
+          "frequency": 0.233,
+          "pmi": 2.518,
+          "distance": 0.397
+        },
+        {
+          "from": "hero",
+          "to": "graduates_stats",
+          "count": 6,
+          "frequency": 0.107,
+          "pmi": 0.842,
+          "distance": 1.187
+        },
+        {
+          "from": "cards_deck",
+          "to": "whos_hiring",
+          "count": 6,
+          "frequency": 0.353,
+          "pmi": 1.929,
+          "distance": 0.518
+        },
+        {
+          "from": "syllabus",
+          "to": "projects",
+          "count": 6,
+          "frequency": 0.182,
+          "pmi": 2.721,
+          "distance": 0.368
+        },
+        {
+          "from": "projects",
+          "to": "ai_learning",
+          "count": 6,
+          "frequency": 0.857,
+          "pmi": 2.752,
+          "distance": 0.363
+        },
+        {
+          "from": "trust_cards",
+          "to": "two_column",
+          "count": 6,
+          "frequency": 0.222,
+          "pmi": 1.466,
+          "distance": 0.682
+        },
+        {
+          "from": "trust_cards",
+          "to": "features_grid",
+          "count": 5,
+          "frequency": 0.185,
+          "pmi": 1.074,
+          "distance": 0.931
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "whos_hiring",
+          "count": 5,
+          "frequency": 0.179,
+          "pmi": 1.248,
+          "distance": 0.802
+        },
+        {
+          "from": "testimonials",
+          "to": "cta_banner",
+          "count": 5,
+          "frequency": 0.455,
+          "pmi": 1.776,
+          "distance": 0.563
+        },
+        {
+          "from": "career_support_explain",
+          "to": "human_and_ai_duo",
+          "count": 4,
+          "frequency": 0.444,
+          "pmi": 3.258,
+          "distance": 0.307
+        },
+        {
+          "from": "faq",
+          "to": "cta_banner",
+          "count": 4,
+          "frequency": 0.571,
+          "pmi": 2.005,
+          "distance": 0.499
+        },
+        {
+          "from": "mentorship",
+          "to": "pricing",
+          "count": 4,
+          "frequency": 0.571,
+          "pmi": 3.509,
+          "distance": 0.285
+        },
+        {
+          "from": "syllabus",
+          "to": "award_badges",
+          "count": 4,
+          "frequency": 0.121,
+          "pmi": 2.47,
+          "distance": 0.405
+        },
+        {
+          "from": "award_badges",
+          "to": "ai_learning",
+          "count": 4,
+          "frequency": 0.667,
+          "pmi": 2.5,
+          "distance": 0.4
+        },
+        {
+          "from": "certificate",
+          "to": "bullet_tabs_showcase",
+          "count": 4,
+          "frequency": 0.154,
+          "pmi": 2.708,
+          "distance": 0.369
+        },
+        {
+          "from": "bullet_tabs_showcase",
+          "to": "whos_hiring",
+          "count": 4,
+          "frequency": 0.667,
+          "pmi": 2.565,
+          "distance": 0.39
+        },
+        {
+          "from": "testimonials",
+          "to": "numbered_steps",
+          "count": 4,
+          "frequency": 0.364,
+          "pmi": 2.416,
+          "distance": 0.414
+        },
+        {
+          "from": "pricing",
+          "to": "whos_hiring",
+          "count": 4,
+          "frequency": 0.4,
+          "pmi": 2.054,
+          "distance": 0.487
+        },
+        {
+          "from": "hero",
+          "to": "trust_cards",
+          "count": 4,
+          "frequency": 0.071,
+          "pmi": 0.437,
+          "distance": 2.29
+        },
+        {
+          "from": "whos_hiring",
+          "to": "cards_deck",
+          "count": 4,
+          "frequency": 0.133,
+          "pmi": 1.523,
+          "distance": 0.656
+        },
+        {
+          "from": "two_column",
+          "to": "features_grid",
+          "count": 4,
+          "frequency": 0.129,
+          "pmi": 0.713,
+          "distance": 1.403
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "testimonials_slide",
+          "count": 3,
+          "frequency": 0.375,
+          "pmi": 2.059,
+          "distance": 0.486
+        },
+        {
+          "from": "pricing",
+          "to": "why_learn_ai",
+          "count": 3,
+          "frequency": 0.3,
+          "pmi": 3.088,
+          "distance": 0.324
+        },
+        {
+          "from": "hero",
+          "to": "two_column",
+          "count": 3,
+          "frequency": 0.054,
+          "pmi": 0.044,
+          "distance": 22.896
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "cta_banner",
+          "count": 3,
+          "frequency": 0.107,
+          "pmi": 0.331,
+          "distance": 3.018
+        },
+        {
+          "from": "sticky_cta",
+          "to": "two_column",
+          "count": 3,
+          "frequency": 0.115,
+          "pmi": 0.811,
+          "distance": 1.233
+        },
+        {
+          "from": "two_column",
+          "to": "graduates_stats",
+          "count": 3,
+          "frequency": 0.097,
+          "pmi": 0.74,
+          "distance": 1.351
+        },
+        {
+          "from": "hero",
+          "to": "features_grid",
+          "count": 3,
+          "frequency": 0.054,
+          "pmi": -0.166,
+          "distance": 100
+        },
+        {
+          "from": "graduates_stats",
+          "to": "awards_marquee",
+          "count": 3,
+          "frequency": 0.111,
+          "pmi": 1.284,
+          "distance": 0.779
+        },
+        {
+          "from": "hero",
+          "to": "awards_marquee",
+          "count": 3,
+          "frequency": 0.054,
+          "pmi": 0.555,
+          "distance": 1.803
+        },
+        {
+          "from": "two_column",
+          "to": "ai_learning",
+          "count": 3,
+          "frequency": 0.097,
+          "pmi": 0.571,
+          "distance": 1.753
+        },
+        {
+          "from": "cards_deck",
+          "to": "cta_banner",
+          "count": 3,
+          "frequency": 0.176,
+          "pmi": 0.83,
+          "distance": 1.204
+        },
+        {
+          "from": "features_grid",
+          "to": "features_grid",
+          "count": 3,
+          "frequency": 0.081,
+          "pmi": 0.248,
+          "distance": 4.026
+        },
+        {
+          "from": "trust_cards",
+          "to": "geeks_vs_others_comparison",
+          "count": 2,
+          "frequency": 0.074,
+          "pmi": 2.67,
+          "distance": 0.374
+        },
+        {
+          "from": "geeks_vs_others_comparison",
+          "to": "career_support_explain",
+          "count": 2,
+          "frequency": 0.667,
+          "pmi": 3.769,
+          "distance": 0.265
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "course_selector",
+          "count": 2,
+          "frequency": 0.2,
+          "pmi": 2.565,
+          "distance": 0.39
+        },
+        {
+          "from": "course_selector",
+          "to": "cards_deck",
+          "count": 2,
+          "frequency": 0.222,
+          "pmi": 2.034,
+          "distance": 0.492
+        },
+        {
+          "from": "cards_deck",
+          "to": "list_press_mentions",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 2.845,
+          "distance": 0.351
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "why_learn_ai",
+          "count": 2,
+          "frequency": 0.4,
+          "pmi": 3.376,
+          "distance": 0.296
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "faq",
+          "count": 2,
+          "frequency": 0.071,
+          "pmi": 1.787,
+          "distance": 0.56
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "testimonials_slide",
+          "count": 2,
+          "frequency": 0.2,
+          "pmi": 1.43,
+          "distance": 0.699
+        },
+        {
+          "from": "features_grid",
+          "to": "testimonials_slide",
+          "count": 2,
+          "frequency": 0.054,
+          "pmi": 0.122,
+          "distance": 8.221
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "mentorship",
+          "count": 2,
+          "frequency": 0.071,
+          "pmi": 1.787,
+          "distance": 0.56
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "cards_deck",
+          "count": 2,
+          "frequency": 0.25,
+          "pmi": 2.152,
+          "distance": 0.465
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "features_quad",
+          "count": 2,
+          "frequency": 0.071,
+          "pmi": 1.248,
+          "distance": 0.802
+        },
+        {
+          "from": "features_quad",
+          "to": "mentorship",
+          "count": 2,
+          "frequency": 0.167,
+          "pmi": 2.634,
+          "distance": 0.38
+        },
+        {
+          "from": "numbered_steps",
+          "to": "testimonials_slide",
+          "count": 2,
+          "frequency": 0.105,
+          "pmi": 0.788,
+          "distance": 1.269
+        },
+        {
+          "from": "syllabus",
+          "to": "cards_deck",
+          "count": 2,
+          "frequency": 0.061,
+          "pmi": 0.735,
+          "distance": 1.36
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "career_support_explain",
+          "count": 2,
+          "frequency": 0.2,
+          "pmi": 2.565,
+          "distance": 0.39
+        },
+        {
+          "from": "career_support_explain",
+          "to": "testimonials_slide",
+          "count": 2,
+          "frequency": 0.222,
+          "pmi": 1.535,
+          "distance": 0.651
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "pricing",
+          "count": 2,
+          "frequency": 0.071,
+          "pmi": 1.43,
+          "distance": 0.699
+        },
+        {
+          "from": "certificate",
+          "to": "pricing",
+          "count": 2,
+          "frequency": 0.077,
+          "pmi": 1.504,
+          "distance": 0.665
+        },
+        {
+          "from": "hero",
+          "to": "award_badges",
+          "count": 2,
+          "frequency": 0.036,
+          "pmi": 1.248,
+          "distance": 0.802
+        },
+        {
+          "from": "award_badges",
+          "to": "syllabus",
+          "count": 2,
+          "frequency": 0.333,
+          "pmi": 1.776,
+          "distance": 0.563
+        },
+        {
+          "from": "hero",
+          "to": "modal",
+          "count": 2,
+          "frequency": 0.036,
+          "pmi": 1.941,
+          "distance": 0.515
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "cards_deck",
+          "count": 2,
+          "frequency": 0.071,
+          "pmi": 0.899,
+          "distance": 1.112
+        },
+        {
+          "from": "trust_cards",
+          "to": "syllabus",
+          "count": 2,
+          "frequency": 0.074,
+          "pmi": 0.272,
+          "distance": 3.671
+        },
+        {
+          "from": "certificate",
+          "to": "whos_hiring",
+          "count": 2,
+          "frequency": 0.077,
+          "pmi": 0.405,
+          "distance": 2.466
+        },
+        {
+          "from": "trust_cards",
+          "to": "course_selector",
+          "count": 2,
+          "frequency": 0.074,
+          "pmi": 1.572,
+          "distance": 0.636
+        },
+        {
+          "from": "course_selector",
+          "to": "graduates_stats",
+          "count": 2,
+          "frequency": 0.222,
+          "pmi": 1.572,
+          "distance": 0.636
+        },
+        {
+          "from": "ai_learning",
+          "to": "testimonials_slide",
+          "count": 2,
+          "frequency": 0.065,
+          "pmi": 0.299,
+          "distance": 3.349
+        },
+        {
+          "from": "hero",
+          "to": "course_selector",
+          "count": 2,
+          "frequency": 0.036,
+          "pmi": 0.842,
+          "distance": 1.187
+        },
+        {
+          "from": "cards_deck",
+          "to": "cards_deck",
+          "count": 2,
+          "frequency": 0.118,
+          "pmi": 1.398,
+          "distance": 0.715
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "profiles_carousel",
+          "count": 2,
+          "frequency": 0.286,
+          "pmi": 3.173,
+          "distance": 0.315
+        },
+        {
+          "from": "features_grid",
+          "to": "two_column_accordion_card",
+          "count": 2,
+          "frequency": 0.054,
+          "pmi": 2.068,
+          "distance": 0.484
+        },
+        {
+          "from": "features_grid",
+          "to": "stats",
+          "count": 2,
+          "frequency": 0.054,
+          "pmi": 2.761,
+          "distance": 0.362
+        },
+        {
+          "from": "features_quad",
+          "to": "whos_hiring",
+          "count": 2,
+          "frequency": 0.167,
+          "pmi": 1.179,
+          "distance": 0.848
+        },
+        {
+          "from": "features_quad",
+          "to": "numbered_steps",
+          "count": 2,
+          "frequency": 0.167,
+          "pmi": 1.635,
+          "distance": 0.611
+        },
+        {
+          "from": "hero",
+          "to": "human_and_ai_duo",
+          "count": 2,
+          "frequency": 0.036,
+          "pmi": 0.737,
+          "distance": 1.357
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "awards_marquee",
+          "count": 2,
+          "frequency": 0.2,
+          "pmi": 1.872,
+          "distance": 0.534
+        },
+        {
+          "from": "awards_marquee",
+          "to": "profiles_carousel",
+          "count": 2,
+          "frequency": 0.111,
+          "pmi": 2.228,
+          "distance": 0.449
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "banner",
+          "count": 2,
+          "frequency": 0.286,
+          "pmi": 4.426,
+          "distance": 0.226
+        },
+        {
+          "from": "banner",
+          "to": "mentorship",
+          "count": 2,
+          "frequency": 1,
+          "pmi": 4.426,
+          "distance": 0.226
+        },
+        {
+          "from": "mentorship",
+          "to": "faq",
+          "count": 2,
+          "frequency": 0.286,
+          "pmi": 3.173,
+          "distance": 0.315
+        },
+        {
+          "from": "faq",
+          "to": "whos_hiring",
+          "count": 2,
+          "frequency": 0.286,
+          "pmi": 1.718,
+          "distance": 0.582
+        },
+        {
+          "from": "whos_hiring",
+          "to": "footer",
+          "count": 2,
+          "frequency": 0.067,
+          "pmi": 0.405,
+          "distance": 2.466
+        },
+        {
+          "from": "two_column",
+          "to": "awards_marquee",
+          "count": 2,
+          "frequency": 0.065,
+          "pmi": 0.74,
+          "distance": 1.351
+        },
+        {
+          "from": "awards_marquee",
+          "to": "two_column",
+          "count": 2,
+          "frequency": 0.111,
+          "pmi": 0.773,
+          "distance": 1.293
+        },
+        {
+          "from": "two_column",
+          "to": "two_column",
+          "count": 2,
+          "frequency": 0.065,
+          "pmi": 0.23,
+          "distance": 4.356
+        },
+        {
+          "from": "two_column",
+          "to": "whos_hiring",
+          "count": 2,
+          "frequency": 0.065,
+          "pmi": 0.23,
+          "distance": 4.356
+        },
+        {
+          "from": "syllabus",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 0.03,
+          "pmi": 0.678,
+          "distance": 1.475
+        },
+        {
+          "from": "testimonials_slide",
+          "to": "why_learn_ai",
+          "count": 1,
+          "frequency": 0.036,
+          "pmi": 0.96,
+          "distance": 1.042
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "mentorship",
+          "count": 1,
+          "frequency": 0.125,
+          "pmi": 2.346,
+          "distance": 0.426
+        },
+        {
+          "from": "mentorship",
+          "to": "cards_deck",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 1.592,
+          "distance": 0.628
+        },
+        {
+          "from": "graduates_stats",
+          "to": "list_press_mentions",
+          "count": 1,
+          "frequency": 0.037,
+          "pmi": 1.689,
+          "distance": 0.592
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 2.277,
+          "distance": 0.439
+        },
+        {
+          "from": "features_quad",
+          "to": "syllabus",
+          "count": 1,
+          "frequency": 0.083,
+          "pmi": 0.39,
+          "distance": 2.563
+        },
+        {
+          "from": "ai_learning",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 0.74,
+          "distance": 1.351
+        },
+        {
+          "from": "career_support_explain",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 0.563,
+          "distance": 1.775
+        },
+        {
+          "from": "two_column",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 0.74,
+          "distance": 1.351
+        },
+        {
+          "from": "sticky_cta",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.038,
+          "pmi": 0.916,
+          "distance": 1.091
+        },
+        {
+          "from": "ai_learning",
+          "to": "human_and_ai_duo",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 0.635,
+          "distance": 1.575
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "certificate",
+          "count": 1,
+          "frequency": 0.1,
+          "pmi": 0.811,
+          "distance": 1.233
+        },
+        {
+          "from": "certificate",
+          "to": "why_learn_ai",
+          "count": 1,
+          "frequency": 0.038,
+          "pmi": 1.034,
+          "distance": 0.967
+        },
+        {
+          "from": "certificate",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.038,
+          "pmi": 0.169,
+          "distance": 5.914
+        },
+        {
+          "from": "cards_deck",
+          "to": "human_and_ai_duo",
+          "count": 1,
+          "frequency": 0.059,
+          "pmi": 1.236,
+          "distance": 0.809
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.125,
+          "pmi": 0.891,
+          "distance": 1.122
+        },
+        {
+          "from": "awards_marquee",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.056,
+          "pmi": 1.284,
+          "distance": 0.779
+        },
+        {
+          "from": "whos_hiring",
+          "to": "bento_cards",
+          "count": 1,
+          "frequency": 0.033,
+          "pmi": 2.97,
+          "distance": 0.337
+        },
+        {
+          "from": "bento_cards",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 3.974,
+          "distance": 0.252
+        },
+        {
+          "from": "awards_marquee",
+          "to": "modal",
+          "count": 1,
+          "frequency": 0.056,
+          "pmi": 2.383,
+          "distance": 0.42
+        },
+        {
+          "from": "modal",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.333,
+          "pmi": 1.662,
+          "distance": 0.602
+        },
+        {
+          "from": "syllabus",
+          "to": "pricing",
+          "count": 1,
+          "frequency": 0.03,
+          "pmi": 0.573,
+          "distance": 1.747
+        },
+        {
+          "from": "pricing",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.1,
+          "pmi": 1.125,
+          "distance": 0.889
+        },
+        {
+          "from": "numbered_steps",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 0.053,
+          "pmi": 1.029,
+          "distance": 0.972
+        },
+        {
+          "from": "testimonials",
+          "to": "faq",
+          "count": 1,
+          "frequency": 0.091,
+          "pmi": 2.028,
+          "distance": 0.493
+        },
+        {
+          "from": "trust_cards",
+          "to": "why_learn_ai",
+          "count": 1,
+          "frequency": 0.037,
+          "pmi": 0.996,
+          "distance": 1.004
+        },
+        {
+          "from": "why_learn_ai",
+          "to": "syllabus",
+          "count": 1,
+          "frequency": 0.125,
+          "pmi": 0.796,
+          "distance": 1.257
+        },
+        {
+          "from": "modal",
+          "to": "sticky_cta",
+          "count": 1,
+          "frequency": 0.333,
+          "pmi": 1.747,
+          "distance": 0.573
+        },
+        {
+          "from": "trust_cards",
+          "to": "programs_showcase",
+          "count": 1,
+          "frequency": 0.037,
+          "pmi": 1.689,
+          "distance": 0.592
+        },
+        {
+          "from": "programs_showcase",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 1.584,
+          "distance": 0.631
+        },
+        {
+          "from": "awards_marquee",
+          "to": "two_column_accordion_card",
+          "count": 1,
+          "frequency": 0.056,
+          "pmi": 2.095,
+          "distance": 0.477
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "syllabus",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 1.489,
+          "distance": 0.672
+        },
+        {
+          "from": "syllabus",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.03,
+          "pmi": 0.39,
+          "distance": 2.563
+        },
+        {
+          "from": "features_quad",
+          "to": "trust_cards",
+          "count": 1,
+          "frequency": 0.083,
+          "pmi": 0.591,
+          "distance": 1.692
+        },
+        {
+          "from": "two_column",
+          "to": "geeks_vs_others_comparison",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 1.839,
+          "distance": 0.544
+        },
+        {
+          "from": "geeks_vs_others_comparison",
+          "to": "cards_deck",
+          "count": 1,
+          "frequency": 0.333,
+          "pmi": 2.44,
+          "distance": 0.41
+        },
+        {
+          "from": "cards_deck",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 0.059,
+          "pmi": 1.141,
+          "distance": 0.877
+        },
+        {
+          "from": "testimonials",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.091,
+          "pmi": 0.573,
+          "distance": 1.747
+        },
+        {
+          "from": "modal",
+          "to": "graduates_stats",
+          "count": 1,
+          "frequency": 0.333,
+          "pmi": 1.977,
+          "distance": 0.506
+        },
+        {
+          "from": "graduates_stats",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.037,
+          "pmi": -0.325,
+          "distance": 100
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "course_selector",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 2.565,
+          "distance": 0.39
+        },
+        {
+          "from": "course_selector",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 1.977,
+          "distance": 0.506
+        },
+        {
+          "from": "course_selector",
+          "to": "programs_showcase",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 2.788,
+          "distance": 0.359
+        },
+        {
+          "from": "programs_showcase",
+          "to": "credibility_strip",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 4.985,
+          "distance": 0.201
+        },
+        {
+          "from": "credibility_strip",
+          "to": "list_single_press_mention",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 6.372,
+          "distance": 0.157
+        },
+        {
+          "from": "list_single_press_mention",
+          "to": "list_press_mentions",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.985,
+          "distance": 0.201
+        },
+        {
+          "from": "list_press_mentions",
+          "to": "programs_showcase",
+          "count": 1,
+          "frequency": 0.2,
+          "pmi": 3.376,
+          "distance": 0.296
+        },
+        {
+          "from": "programs_showcase",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 2.788,
+          "distance": 0.359
+        },
+        {
+          "from": "career_support_explain",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 1.977,
+          "distance": 0.506
+        },
+        {
+          "from": "hero",
+          "to": "image_row",
+          "count": 1,
+          "frequency": 0.018,
+          "pmi": 1.653,
+          "distance": 0.605
+        },
+        {
+          "from": "image_row",
+          "to": "testimonials_grid",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 5.678,
+          "distance": 0.176
+        },
+        {
+          "from": "testimonials_grid",
+          "to": "hero",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.174,
+          "distance": 0.24
+        },
+        {
+          "from": "hero",
+          "to": "cards_deck",
+          "count": 1,
+          "frequency": 0.018,
+          "pmi": -0.487,
+          "distance": 100
+        },
+        {
+          "from": "cards_deck",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.059,
+          "pmi": 1.341,
+          "distance": 0.746
+        },
+        {
+          "from": "hero",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.018,
+          "pmi": 0.149,
+          "distance": 6.71
+        },
+        {
+          "from": "hero",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.018,
+          "pmi": -1.46,
+          "distance": 100
+        },
+        {
+          "from": "cta_banner",
+          "to": "double_cta",
+          "count": 1,
+          "frequency": 0.031,
+          "pmi": 2.213,
+          "distance": 0.452
+        },
+        {
+          "from": "double_cta",
+          "to": "double_cta",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 4.985,
+          "distance": 0.201
+        },
+        {
+          "from": "double_cta",
+          "to": "profiles_carousel",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 3.733,
+          "distance": 0.268
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "hero",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 2.228,
+          "distance": 0.449
+        },
+        {
+          "from": "course_selector",
+          "to": "partnership_carousel",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 3.481,
+          "distance": 0.287
+        },
+        {
+          "from": "partnership_carousel",
+          "to": "projects",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 3.733,
+          "distance": 0.268
+        },
+        {
+          "from": "projects",
+          "to": "project_showcase",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 4.426,
+          "distance": 0.226
+        },
+        {
+          "from": "project_showcase",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.174,
+          "distance": 0.24
+        },
+        {
+          "from": "career_support_explain",
+          "to": "profiles_carousel",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 2.228,
+          "distance": 0.449
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "partnership_carousel",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 3.733,
+          "distance": 0.268
+        },
+        {
+          "from": "partnership_carousel",
+          "to": "profiles_carousel",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 3.733,
+          "distance": 0.268
+        },
+        {
+          "from": "profiles_carousel",
+          "to": "human_and_ai_duo",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 2.123,
+          "distance": 0.471
+        },
+        {
+          "from": "human_and_ai_duo",
+          "to": "bullet_tabs_showcase",
+          "count": 1,
+          "frequency": 0.1,
+          "pmi": 2.277,
+          "distance": 0.439
+        },
+        {
+          "from": "bullet_tabs_showcase",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 0.969,
+          "distance": 1.032
+        },
+        {
+          "from": "features_grid",
+          "to": "image_row",
+          "count": 1,
+          "frequency": 0.027,
+          "pmi": 2.068,
+          "distance": 0.484
+        },
+        {
+          "from": "image_row",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 2.068,
+          "distance": 0.484
+        },
+        {
+          "from": "features_grid",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.027,
+          "pmi": 0.276,
+          "distance": 3.626
+        },
+        {
+          "from": "features_quad",
+          "to": "two_column_accordion_card",
+          "count": 1,
+          "frequency": 0.083,
+          "pmi": 2.5,
+          "distance": 0.4
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "value_proof_panel",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 4.985,
+          "distance": 0.201
+        },
+        {
+          "from": "value_proof_panel",
+          "to": "ai_learning",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.906,
+          "distance": 0.344
+        },
+        {
+          "from": "ai_learning",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": -0.464,
+          "distance": 100
+        },
+        {
+          "from": "two_column",
+          "to": "community_support",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 2.938,
+          "distance": 0.34
+        },
+        {
+          "from": "community_support",
+          "to": "ai_learning",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.906,
+          "distance": 0.344
+        },
+        {
+          "from": "certificate",
+          "to": "awards_marquee",
+          "count": 1,
+          "frequency": 0.038,
+          "pmi": 0.223,
+          "distance": 4.481
+        },
+        {
+          "from": "awards_marquee",
+          "to": "comparison_table",
+          "count": 1,
+          "frequency": 0.056,
+          "pmi": 3.481,
+          "distance": 0.287
+        },
+        {
+          "from": "comparison_table",
+          "to": "faq",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 4.426,
+          "distance": 0.226
+        },
+        {
+          "from": "faq",
+          "to": "sticky_cta",
+          "count": 1,
+          "frequency": 0.143,
+          "pmi": 0.899,
+          "distance": 1.112
+        },
+        {
+          "from": "sticky_cta",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.038,
+          "pmi": -0.497,
+          "distance": 100
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "pricing",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 2.683,
+          "distance": 0.373
+        },
+        {
+          "from": "pricing",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.1,
+          "pmi": 0.458,
+          "distance": 2.183
+        },
+        {
+          "from": "stats",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 1.872,
+          "distance": 0.534
+        },
+        {
+          "from": "whos_hiring",
+          "to": "bullet_tabs_showcase",
+          "count": 1,
+          "frequency": 0.033,
+          "pmi": 1.179,
+          "distance": 0.848
+        },
+        {
+          "from": "bullet_tabs_showcase",
+          "to": "testimonials",
+          "count": 1,
+          "frequency": 0.167,
+          "pmi": 2.182,
+          "distance": 0.458
+        },
+        {
+          "from": "two_column",
+          "to": "human_and_ai_duo",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 0.635,
+          "distance": 1.575
+        },
+        {
+          "from": "pricing",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.1,
+          "pmi": 1.584,
+          "distance": 0.631
+        },
+        {
+          "from": "stats",
+          "to": "faq",
+          "count": 1,
+          "frequency": 0.5,
+          "pmi": 3.733,
+          "distance": 0.268
+        },
+        {
+          "from": "course_selector",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 1.689,
+          "distance": 0.592
+        },
+        {
+          "from": "features_quad",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.083,
+          "pmi": 0.486,
+          "distance": 2.06
+        },
+        {
+          "from": "two_column",
+          "to": "career_support_explain",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 0.74,
+          "distance": 1.351
+        },
+        {
+          "from": "numbered_steps",
+          "to": "whos_hiring",
+          "count": 1,
+          "frequency": 0.053,
+          "pmi": 0.026,
+          "distance": 38.498
+        },
+        {
+          "from": "cards_deck",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.059,
+          "pmi": 1.053,
+          "distance": 0.949
+        },
+        {
+          "from": "features_quad",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 0.083,
+          "pmi": 0.08,
+          "distance": 12.493
+        },
+        {
+          "from": "two_column_accordion_card",
+          "to": "programs_showcase",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 3.599,
+          "distance": 0.278
+        },
+        {
+          "from": "programs_showcase",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.25,
+          "pmi": 2.5,
+          "distance": 0.4
+        },
+        {
+          "from": "numbered_steps",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.053,
+          "pmi": 0.483,
+          "distance": 2.072
+        },
+        {
+          "from": "numbered_steps",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.053,
+          "pmi": 0.942,
+          "distance": 1.061
+        },
+        {
+          "from": "two_column",
+          "to": "numbered_steps",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": -0.007,
+          "distance": 100
+        },
+        {
+          "from": "numbered_steps",
+          "to": "two_column",
+          "count": 1,
+          "frequency": 0.053,
+          "pmi": 0.026,
+          "distance": 38.498
+        },
+        {
+          "from": "trust_cards",
+          "to": "footer",
+          "count": 1,
+          "frequency": 0.037,
+          "pmi": -0.182,
+          "distance": 100
+        },
+        {
+          "from": "awards_marquee",
+          "to": "graduates_stats",
+          "count": 1,
+          "frequency": 0.056,
+          "pmi": 0.185,
+          "distance": 5.394
+        },
+        {
+          "from": "two_column",
+          "to": "course_selector",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 0.74,
+          "distance": 1.351
+        },
+        {
+          "from": "course_selector",
+          "to": "ai_learning",
+          "count": 1,
+          "frequency": 0.111,
+          "pmi": 0.709,
+          "distance": 1.411
+        },
+        {
+          "from": "ai_learning",
+          "to": "dynamic_table",
+          "count": 1,
+          "frequency": 0.032,
+          "pmi": 2.938,
+          "distance": 0.34
+        },
+        {
+          "from": "awards_marquee",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.056,
+          "pmi": 0.996,
+          "distance": 1.004
+        },
+        {
+          "from": "features_quad",
+          "to": "course_selector",
+          "count": 1,
+          "frequency": 0.083,
+          "pmi": 1.689,
+          "distance": 0.592
+        },
+        {
+          "from": "graduates_stats",
+          "to": "features_quad",
+          "count": 1,
+          "frequency": 0.037,
+          "pmi": 0.591,
+          "distance": 1.692
+        },
+        {
+          "from": "numbered_steps",
+          "to": "features_grid",
+          "count": 1,
+          "frequency": 0.053,
+          "pmi": -0.184,
+          "distance": 100
+        },
+        {
+          "from": "hero",
+          "to": "press_mentions",
+          "count": 1,
+          "frequency": 0.018,
+          "pmi": 2.346,
+          "distance": 0.426
+        },
+        {
+          "from": "press_mentions",
+          "to": "cta_banner",
+          "count": 1,
+          "frequency": 1,
+          "pmi": 2.565,
+          "distance": 0.39
+        }
+      ],
+      "topSequences": [
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "graduates_stats",
+            "awards_marquee",
+            "features_grid",
+            "syllabus",
+            "two_column",
+            "trust_cards",
+            "ai_learning",
+            "certificate",
+            "testimonials_slide",
+            "numbered_steps",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 3
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "awards_marquee",
+            "features_grid",
+            "syllabus",
+            "award_badges",
+            "ai_learning",
+            "certificate",
+            "bullet_tabs_showcase",
+            "whos_hiring",
+            "testimonials",
+            "numbered_steps",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 3
+        },
+        {
+          "sequence": [
+            "hero",
+            "graduates_stats",
+            "trust_cards",
+            "geeks_vs_others_comparison",
+            "career_support_explain",
+            "human_and_ai_duo",
+            "course_selector",
+            "cards_deck",
+            "list_press_mentions",
+            "why_learn_ai",
+            "testimonials_slide",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 2
+        },
+        {
+          "sequence": [
+            "hero",
+            "award_badges",
+            "syllabus",
+            "projects",
+            "ai_learning"
+          ],
+          "count": 2
+        },
+        {
+          "sequence": [
+            "hero",
+            "trust_cards",
+            "syllabus",
+            "projects",
+            "ai_learning",
+            "certificate",
+            "whos_hiring",
+            "testimonials",
+            "cta_banner"
+          ],
+          "count": 2
+        },
+        {
+          "sequence": [
+            "hero",
+            "human_and_ai_duo",
+            "awards_marquee",
+            "profiles_carousel",
+            "banner",
+            "mentorship",
+            "faq",
+            "whos_hiring",
+            "footer"
+          ],
+          "count": 2
+        },
+        {
+          "sequence": [
+            "hero",
+            "two_column",
+            "awards_marquee",
+            "two_column",
+            "two_column",
+            "whos_hiring",
+            "cta_banner"
+          ],
+          "count": 2
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "graduates_stats",
+            "trust_cards",
+            "features_grid",
+            "syllabus",
+            "career_support_explain",
+            "human_and_ai_duo",
+            "testimonials_slide",
+            "why_learn_ai",
+            "mentorship",
+            "cards_deck",
+            "whos_hiring",
+            "cta_banner"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "graduates_stats",
+            "list_press_mentions",
+            "features_quad",
+            "syllabus",
+            "ai_learning",
+            "career_support_explain",
+            "features_grid",
+            "testimonials_slide",
+            "mentorship",
+            "pricing",
+            "why_learn_ai",
+            "cards_deck",
+            "whos_hiring",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "two_column",
+            "hero",
+            "sticky_cta",
+            "hero",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "two_column",
+            "trust_cards",
+            "ai_learning",
+            "certificate",
+            "testimonials_slide",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "graduates_stats",
+            "trust_cards",
+            "features_grid",
+            "syllabus",
+            "ai_learning",
+            "human_and_ai_duo",
+            "certificate",
+            "why_learn_ai",
+            "testimonials_slide",
+            "whos_hiring",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "ai_learning",
+            "certificate",
+            "testimonials_slide",
+            "features_quad",
+            "mentorship",
+            "pricing",
+            "why_learn_ai",
+            "cards_deck",
+            "whos_hiring",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "two_column",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "two_column",
+            "trust_cards",
+            "ai_learning",
+            "certificate",
+            "numbered_steps",
+            "testimonials_slide",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "graduates_stats",
+            "trust_cards",
+            "features_grid",
+            "syllabus",
+            "cards_deck",
+            "human_and_ai_duo",
+            "career_support_explain",
+            "testimonials_slide",
+            "pricing",
+            "why_learn_ai",
+            "whos_hiring",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "awards_marquee",
+            "hero",
+            "features_grid",
+            "syllabus",
+            "award_badges",
+            "ai_learning",
+            "certificate",
+            "bullet_tabs_showcase",
+            "whos_hiring",
+            "testimonials",
+            "numbered_steps",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "awards_marquee",
+            "features_grid",
+            "syllabus",
+            "ai_learning",
+            "certificate",
+            "pricing",
+            "whos_hiring",
+            "bento_cards",
+            "testimonials",
+            "cta_banner",
+            "footer"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "sticky_cta",
+            "two_column",
+            "graduates_stats",
+            "features_grid",
+            "syllabus",
+            "two_column",
+            "trust_cards",
+            "ai_learning",
+            "certificate",
+            "testimonials_slide",
+            "numbered_steps",
+            "cta_banner"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "awards_marquee",
+            "modal",
+            "features_grid",
+            "syllabus",
+            "pricing",
+            "numbered_steps",
+            "testimonials",
+            "faq",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "trust_cards",
+            "why_learn_ai",
+            "syllabus",
+            "cards_deck",
+            "whos_hiring",
+            "testimonials",
+            "cta_banner",
+            "sticky_cta"
+          ],
+          "count": 1
+        },
+        {
+          "sequence": [
+            "hero",
+            "modal",
+            "sticky_cta",
+            "graduates_stats",
+            "trust_cards",
+            "programs_showcase",
+            "two_column",
+            "ai_learning",
+            "certificate",
+            "testimonials_slide",
+            "cards_deck",
+            "whos_hiring",
+            "cta_banner"
+          ],
+          "count": 1
+        }
+      ],
+      "pageCount": 50
+    }
+  }
+}

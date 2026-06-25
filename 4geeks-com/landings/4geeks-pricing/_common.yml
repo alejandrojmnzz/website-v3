@@ -1,0 +1,10 @@
+slug: 4geeks-pricing
+title: 4Geeks-pricing
+locale: en
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering

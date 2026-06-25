@@ -1,0 +1,231 @@
+slug: prensa
+template: default
+title: press
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: "Prensa y Medios en 4Geeks Academy"
+  description: "Lee las últimas noticias y apariciones en medios sobre 4Geeks Academy. Cobertura de prensa, entrevistas y menciones destacadas."
+  redirects: []
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-u9x8y8
+    version: "1.0"
+    variant: singleColumn
+    title: Nuestra Historia, en las noticias
+    badge: Prensa y medios
+    trust_bar:
+      rating: {{ global.global_review_rating | 4.8 }}/5
+      rating_count: 2,500+
+      trusted_text: Más de {{ global.global_total_alumni | 10,000 }} estudiantes confían en nosotros
+    award_badges:
+      - name: Mejor Bootcamp de Programación
+        source: Forbes
+        year: "2024"
+      - name: Mejor Escuela Tech
+        source: Course Report
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+    paddingY:
+      desktop: md none
+  - type: list_press_mentions
+    section_id: list_press_mentions-b266eb
+    version: v1.0
+    title: Destacados en prensa
+    columns: 3
+    items:
+      - logo: global-miami-logo
+        title: El Futuro del Trabajo
+        excerpt: Los bootcamps de tecnología ofrecen una formación rápida y práctica, enfocada en habilidades específicas. Esto los convierte en una opción atractiva para trabajadores que quieren actualizar sus conocimientos o cambiar de carrera sin necesidad de invertir años en un título universitario.
+        link_text: Leer Artículo
+        link_url: https://issuu.com/coralgablesmagazine.com/docs/gm_jan-feb_2024_fullissue/74?ff
+      - logo: forbes_logo_award
+        title: Mejores Bootcamps de Ciencia de Datos en 2024
+        excerpt: Los profesionales actuales y futuros de la tecnología pueden completar un bootcamp de ciencia de datos para perfeccionar sus habilidades existentes para cambiar de campo o avanzar en sus carreras actuales...
+        link_text: Leer Artículo
+        link_url: https://www.forbes.com/advisor/education/bootcamps/best-data-science-bootcamps/
+      - logo: the-miami-herald-logo
+        title: Becas para aprender a programar
+        excerpt: Después de mucho trabajo hemos logrado aliarnos con United Way para ofrecer 100 becas en poblaciones minorias para convertirse en desarrollador de software
+        link_text: Leer Artículo
+        link_url: https://www.miamiherald.com/news/business/article263937731.html
+      - logo: forbes_logo_award
+        title: Coding Bootcamps para aprender a programar
+        excerpt: En un estudio publicado por Forbes donde se especifica todas las maneras en las que puedes convertirte en un desarrollador web en los EEUU
+        link_text: Leer Artículo
+        link_url: https://www.forbes.com/advisor/education/what-is-web-development
+      - logo: forbes_logo_award
+        title: 5 Mejores Bootcamps Full-Stack en Línea para este 2024
+        excerpt: Los desarrolladores full-stack crean y solucionan problemas para la web y software, habilidades muy demandadas actualmente para diversas industrias.
+        link_text: Leer Artículo
+        link_url: https://www.forbes.com/advisor/education/bootcamps/best-full-stack-developer-bootcamp/
+      - logo: cnn-logo
+        title: Entrevista / 4Geeks en CNN Chile
+        excerpt: "Gracias a nuestros amigos de CNN Chile por haber estado presentes en nuestro evento y publicar tan buen material sobre el futuro en educación que ofrecemos a la comunidad de Santiago a través de nuestro programa de #Bootcamp de #Programación."
+        link_text: Ver Entrevista
+        link_url: https://www.facebook.com/4GeeksAcademyCL/videos/492034597993382/
+      - logo: https://storage.googleapis.com/4geeks-academy-website/media/economista-logo.png
+        title: 4Geeks lanza un millón en becas para la formación de futuros programadores
+        excerpt: La escuela de programadores 4Geeks Academy apuesta por acercar el mundo de la programación a todos los públicos. La compañía lanza más de 300 becas con un valor de un millón de euros en todo el mundo a través del Marketplace Landing.Jobs.
+        link_text: Ver Entrevista
+        link_url: https://www.eleconomista.es/ecoaula/noticias/11389106/09/21/4Geeks-Academy-lanza-un-millon-en-becas-para-la-formacion-de-futuros-programadores.html
+        alt: "Image: economista-logo"
+        id: economista-logo
+    paddingY:
+      desktop: none md
+  - type: value_proof_panel
+    section_id: value_proof_panel-z4hasv
+    title: Reconocidos globalmente por la excelencia
+    subtitle: No solo decimos que cumplimos, el reconocimiento de fuentes confiables lo demuestra.
+    evidence_items:
+      - icon: Trophy
+        title: Top 5 bootcamps de programación a nivel mundial
+        source: Newsweek, Forbes, SwitchUp, Course Report
+      - icon: Award
+        title: Mejor soporte al estudiante y mejor valor
+        source: Course Report, SwitchUp
+      - icon: Users
+        title: 35,000+ graduados en más de 20 países
+        description: Una comunidad global de profesionales de tecnología exitosos
+    media:
+      type: image
+      src: https://storage.googleapis.com/4geeks-academy-website/media/caracas_graduates-1000x668-q74.webp
+      alt: Estudiantes colaborando en el aula
+      aspect_ratio: "4:3"
+      style: rounded
+    background: hsl(210 100% 50% / 0.05)
+    stacked_header: true
+    marginY:
+      desktop: none lg
+    paddingY:
+      desktop: md
+  - type: awards_marquee
+    section_id: awards_marquee-fbu2lq
+    version: v1.0
+    speed: 60
+    gradient: true
+    gradientWidth: 100
+    items:
+      - id: switchup-2025
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/switchup_1765590146414.webp
+        alt: SwitchUp - Best Coding Bootcamps 2025
+        logoHeight: 56px
+      - id: course-report-2024
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/course-report_1765590146414.webp
+        alt: Course Report - Best Coding Bootcamp 2024
+        logoHeight: 56px
+      - id: tech-hub
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/south_florida_tech_hub-512x288-q70.webp
+        alt: South Florida Tech Hub
+        logoHeight: 56px
+      - id: ebootcamp
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/ebootcamp_top-601x488-q70.webp
+        alt: eBootcamp Top
+        logoHeight: 56px
+      - id: premios-tecnologia
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnologia_sigloxxi_1765549146476.png
+        alt: Premios Tecnologia Siglo XXI
+        logoHeight: 56px
+      - id: newsweek
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/newsweek_badge-800x550-q55.webp
+        alt: Newsweek
+        logoHeight: 56px
+      - id: reviews-coursereport
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/reviews_1765549549051.png
+        alt: 4.9 on Course Report Reviews
+        logoHeight: 56px
+      - id: excelencia-educativa
+        logo: https://storage.googleapis.com/4geeks-academy-website/media/exelencia_educativa-544x226-q70.webp
+        alt: Excelencia Educativa - Institutional Quality
+        logoHeight: 56px
+    marginY:
+      desktop: none lg
+  - type: faq
+    section_id: faq-fb7ppw
+    title: Preguntas frecuentes
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - outcomes
+            - scholarships
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: none md
+  - type: cta_banner
+    section_id: cta_banner-otp2ha
+    version: "1.0"
+    title: Da el siguiente paso hacia tu carrera en tecnología
+    subtitle: Recibe información personalizada del programa y los próximos pasos.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Obtener los detalles
+      conversion_name: student_application
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Tu correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        phone:
+          visible: true
+          required: true
+          placeholder: Número de teléfono
+        program:
+          visible: true
+          required: true
+          default: auto
+      success:
+        message: ¡Gracias! Nos pondremos en contacto contigo pronto.
+      button_className: bg-primary
+    form_background: hsl(var(--card))
+    terms_color: hsl(var(--primary))
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md
+  - type: sticky_cta
+    version: "1.0"
+    heading: ¿Listo para empezar tu carrera en tech?
+    button_label: Aplicar ahora
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Enviar solicitud
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Correo electrónico
+        first_name:
+          visible: true
+          required: true
+          placeholder: Nombre
+        last_name:
+          visible: true
+          required: true
+          placeholder: Apellido
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: ¡Gracias! Nos pondremos en contacto en 24 horas.
+    load: eager
+    section_id: sticky_cta-uh331m

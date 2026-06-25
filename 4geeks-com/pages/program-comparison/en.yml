@@ -1,0 +1,231 @@
+slug: program-comparison
+template: default
+title: program comparison
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Program Comparison | 4Geeks
+  description: "Compare all 4Geeks Academy programs: AI Engineering, AI Fluent for Professionals, and AI Flex. Find the one that's right for you."
+  redirects:
+    - /program-comparison
+    - /compare-programs
+    - /us/programs
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    version: v1.0
+    variant: orbit
+    eyebrow: NO MATTER WHAT YOU'RE SEEKING
+    title: "<span style=\"font-size: 3.75rem;\">All roads lead to <em>AI.</em></span><em></em>"
+    body: Cybersecurity, Full Stack, Data Science. The market absorbed them, and today all those roles are built on AI. These are the three paths forward, depending on where you're starting from today.
+    stat: <strong>1.3M</strong> new AI roles opening. Every industry now hires for AI fluency.
+    cta_buttons:
+      - text: Start your application
+        url: /en/apply
+        variant: primary
+        icon: ChevronRight
+      - text: Explore our programs
+        url: /en/home#course_selector-4m5sh4
+        variant: outline
+    orbit_diagram:
+      center_label: AI
+      legend_start: Where you started
+      legend_highlight: Where 4Geeks is now
+      badges:
+        inner:
+          - label: Full Stack with AI
+            highlight: false
+          - label: AI Flex
+            highlight: true
+        middle:
+          - label: Data Science & ML
+            highlight: false
+          - label: AI Fluency
+            highlight: true
+        outer:
+          - label: AI Engineering
+            highlight: true
+          - label: Cybersecurity
+            highlight: false
+    section_id: hero-1v86vv
+    paddingY:
+      desktop: lg sm
+    maxWidth:
+      mobile: xl
+      desktop: xl
+    background: linear-gradient(to bottom left, hsl(var(--primary) / 0.14), transparent 60%)
+    marginY:
+      desktop: none xl
+  - type: comparison_table
+    section_id: comparison_table-9ssv52
+    version: "2.0"
+    columns:
+      - name: Category
+        highlight: true
+      - name: AI Engineering
+      - name: AI Fluent for Professionals
+      - name: AI Flex
+    rows:
+      - feature: Who It's For
+        values:
+          - For anyone who wants to change careers and build AI systems. No prior technical experience required. Ideal for developers, career switchers, and technical professionals.
+          - For marketers, lawyers, consultants, executives, and any professional with cognitive work who still does manually what AI can do better. No coding required.
+          - For anyone who wants to explore before committing. Choose up to 4 courses from the catalog, at your own pace, with the option to credit what you've learned if you later decide on the full bootcamp.
+      - feature: Why Now
+        values:
+          - 73% of Fortune 500 companies are hiring AI Engineers today. Salaries grew 40% in two years. This isn't a trend — it's the new backbone of software, and Cybersecurity, Full Stack, and Data Science roles today are all built on this foundation.
+          - Professionals who use AI productively complete tasks 40–60% faster (MIT, BCG). A productivity gap between colleagues already exists. Those who don't adapt aren't competing on equal footing.
+          - The catalog runs from Prompt Engineering to Data Science and ML. Each course comes with its own certificate — and they all count if you later decide to do the full AI Engineering Bootcamp.
+      - feature: What You'll Build
+        values:
+          - Agents with tool calling, RAG pipelines, multi-agent systems with LangGraph, APIs with FastAPI, automated workflows with n8n, and a full capstone that transforms a real company with AI.
+          - A personal prompt library for your actual work, a working automation in n8n, and elimination of your 3 most repetitive tasks. All in 4 weeks, no code.
+          - Something real in an area you care about. Choose Vibe Coding and you build an app. Choose Prompt Engineering and you leave with a library ready to use tomorrow. Choose No-Code and you have an active workflow. Each course has its own project. We recommend 4 courses based on your profile, but you have access to the full catalog.
+      - feature: Target Roles
+        values:
+          - AI Engineer, Forward-Deployed Engineer, AI Systems Engineer, Automation Engineer, AI Software Engineer
+          - N/A. Designed to enhance the role you already have, not to change it.
+          - Varies based on courses chosen. Can be a path toward AI Engineering or a complement to any technical career.
+      - feature: Average U.S. Salary
+        values:
+          - $100K to $160K
+          - Productivity gain in your current role — not an immediate change in base salary.
+          - As you complete more courses, you strengthen your current field. If you later decide to pursue AI Engineering, you'll already have a solid foundation and an average salary backed by market demand of $100K to $160K in the U.S.
+      - feature: Duration
+        values:
+          - Part-Time 24 weeks or 15-week intensive
+          - 4 weeks, 1 live class per week plus self-paced modules
+          - No fixed end date — progress at your own pace. Each course has its own estimated hours (6 to 22 hrs).
+      - feature: Cost
+        values:
+          - $14,999 (discounts and scholarships available)
+          - {{ global.ai.fluency.price | $900 }} (Discounts and installment payments available)
+          - $49.99/month. 3, 6, or 12-month plans. 25% off the annual plan. 7-day free trial.
+      - feature: Payment Plans
+        values:
+          - Monthly plans, upfront payment discount, loans and ISA available.
+          - Pay in full with 10% off or in 4 interest-free installments.
+          - Quarterly, semi-annual, or annual. Annual plan includes 25% off. No contracts — cancel anytime.
+      - feature: Job Guarantee
+        values:
+          - Available for an additional $2,000.
+          - N/A.
+          - N/A — not a career-change program.
+      - feature: Best For You If
+        values:
+          - You want a new job in tech, with engineering-level pay, building the systems others simply use. Works even if you don't know how to code today.
+          - You already have a job and want to be the most productive person on your team using AI. You don't want to learn code — you want results this week.
+          - You're not sure what you want to learn. You prefer to try before committing, or you need a specific skill without doing a full bootcamp.
+      - feature: Were You Looking for Another Program?
+        values:
+          - Cybersecurity, Data Science, and Full Stack modules live inside AI Engineering. The market absorbed them — today they're built on the same foundation of agents, LLMs, and automation.
+          - If you were looking for Cybersecurity or Data Science for your current job, AI Fluent gives you the tools to use AI in your professional context without changing careers.
+          - Fullstack Dev, Data Science and ML, and No-Code are available as individual courses in the AI Flex catalog. Explore them before committing to a bootcamp.
+      - feature: Ready to Get Started?
+        values:
+          - cta:
+              - text: Apply Now
+                url: /en/apply
+                variant: primary
+              - text: View full program
+                url: /en/career-programs/ai-engineering
+                variant: outline
+          - cta:
+              - text: Learn more
+                url: /en/career-programs/ai-fluency
+                variant: primary
+          - cta:
+              - text: Start free — 7 days
+                url: /en/ai-flex
+                variant: primary
+              - text: View catalog
+                url: /en/ai-flex/catalog
+                variant: outline
+    footer_note: "* Some programs are subject to regional availability. Discounts and scholarships available for all career programs."
+    other_programs_note:
+      title: Were You Looking for Cybersecurity, Full Stack, or Data Science?
+      message: These programs are still available. The market is absorbing them into AI. A Cybersecurity expert today uses LLMs for auditing. A Data Scientist today works with AI pipelines. A Full Stack Developer today builds with agents. If you're interested in any of them, let us know and we'll help you find the path that makes the most sense for you.
+      programs:
+        - name: Full Stack Development with AI
+          url: /en/career-programs/full-stack
+        - name: Data Science & Machine Learning with AI
+          url: /en/career-programs/data-science-ml
+        - name: Cybersecurity
+          url: /en/career-programs/cybersecurity
+  - type: sticky_cta
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Email
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        last_name:
+          visible: true
+          required: true
+          placeholder: Last name
+        phone:
+          visible: true
+          required: true
+        program:
+          visible: true
+          required: true
+      success:
+        message: Thanks! We'll be in touch within 24 hours.
+    load: eager
+    section_id: sticky_cta-kjqv4c
+  - type: cta_banner
+    section_id: cta_banner-uhjj0i
+    version: "1.0"
+    title: Take the next step toward your tech career
+    subtitle: Get pricing, program details, and personalized guidance.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get the details
+      conversion_name: request_more_info
+      tags: request_more_info
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        phone:
+          visible: true
+          required: false
+          placeholder: Phone number
+        program:
+          visible: true
+          required: true
+      success:
+        message: Thank you! We'll be in touch soon.
+      consent:
+        email: true
+        marketing: true
+      show_terms: true
+      button_className: bg-white text-primary hover:bg-white/90 border-white
+      terms_className: text-white/80
+    marginY:
+      desktop: lg none
+    paddingY:
+      desktop: md

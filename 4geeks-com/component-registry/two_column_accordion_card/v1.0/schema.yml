@@ -1,0 +1,96 @@
+name: Two Column Accordion Card
+description: A card-based section with two columns - one side has a title, description, and expandable accordion items, the other side displays an image. Great for detailed feature explanations or FAQ-style content.
+when_to_use: |
+  Use when you need to pair visual media (image or video) with an expandable list of features,
+  FAQs, or step-by-step details. The accordion keeps the section compact while letting users
+  drill into specifics. Better than a plain two_column when the text content is long enough to
+  benefit from progressive disclosure. Use the image_background variant for a warmer, branded feel.
+version: "1.0"
+
+image_sizes:
+  image_background.image: "(min-width: 768px) 500px, 100vw"
+
+variants:
+  default:
+    description: Image displayed in a plain container beside the accordion content
+    best_for: Feature explanations, FAQ sections, step-by-step guides
+  image_background:
+    description: Smaller image displayed on a colored background beside the accordion content
+    best_for: Sections needing a warmer branded feel, product feature callouts
+
+schema:
+  type: object
+  required:
+    - type
+  properties:
+    type:
+      type: string
+      const: two_column_accordion_card
+      description: Section type identifier
+    variant:
+      type: string
+      enum:
+        - default
+        - image_background
+      description: Visual style variant. "default" shows image in plain container, "image_background" shows smaller image on colored background
+      default: default
+    version:
+      type: string
+      description: Schema version
+    title:
+      type: string
+      description: Main heading for the section
+    description:
+      type: string
+      description: Introductory text below the title
+    bullets:
+      type: array
+      description: Accordion items that expand to show content
+      items:
+        type: object
+        required:
+          - heading
+          - text
+        properties:
+          heading:
+            type: string
+            description: The clickable accordion header
+          text:
+            type: string
+            description: The expandable content text
+    footer:
+      type: string
+      description: Optional footer text displayed below the accordion
+    image:
+      type: string
+      description: URL or path to the image displayed in the second column (also used as video poster/preview)
+    image_alt:
+      type: string
+      description: Alt text for the image
+    video:
+      type: object
+      description: Optional video that plays behind the image. The image acts as a preview poster and fades out once the video loads.
+      properties:
+        url:
+          type: string
+          description: Video URL - can be a local file path (.mp4, .webm), YouTube, or Vimeo link
+        ratio:
+          type: string
+          description: Aspect ratio (e.g. "16:9", "4:3"). Defaults to 16:9
+          default: "16:9"
+        autoplay:
+          type: boolean
+          description: Whether to start playing automatically
+          default: false
+        loop:
+          type: boolean
+          description: Whether to loop the video
+          default: false
+        muted:
+          type: boolean
+          description: Whether to mute the video (auto-set to true when autoplay is on)
+          default: false
+    reverse:
+      type: boolean
+      description: When true, image appears on the left instead of right
+      default: false

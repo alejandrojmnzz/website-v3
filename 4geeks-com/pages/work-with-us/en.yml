@@ -1,0 +1,137 @@
+slug: work-with-us
+template: default
+title: work-with-us
+meta:
+  robots: index, follow
+  priority: 0.8
+  change_frequency: weekly
+  page_title: Career Opportunities at 4Geeks
+  description: Discover career opportunities and job openings at 4Geeks Academy, a top coding bootcamp for AI, Cybersecurity, Data Science and Full Stack Development.
+  redirects:
+    - /work-with-us
+schema:
+  include:
+    - organization
+    - website
+sections:
+  - type: hero
+    section_id: hero-9s8pqz
+    version: "1.0"
+    variant: singleColumn
+    title: Careers at 4Geeks
+    subtitle: Join a global coding academy recognized for quality, impact, and innovation. Be part of a dynamic global team and help thousands of students worldwide launch tech careers in AI engineering, data science, and cybersecurity.
+    badge: Job Opportunities
+    image:
+      src: https://storage.googleapis.com/4geeks-academy-website/media/academy_header_coding-1000x247-q90.webp
+      alt: Students coding at computers in a classroom
+    image_full_width: false
+    marginY:
+      desktop: none xl
+  - type: two_column
+    section_id: two_column-r3vh2m
+    proportions:
+      - 5
+      - 7
+    background: hsl(210 100% 50% / 0.05)
+    alignment: center
+    left:
+      image: https://storage.googleapis.com/4geeks-academy-website/media/community_1764717588840.png
+      image_alt: Team collaborating on a project
+      justify: center
+    right:
+      heading: Why Work at 4Geeks
+      bullets:
+        - text: Remote-first, flexible roles across the U.S., Europe, and LATAM.
+        - text: Make a measurable impact on tech education and the future workforce.
+        - text: Collaborate with a global, mission-driven team recognized by Forbes and trusted by institutions like IDB, UTEC, and United Way.
+      bullet_icon: Check
+      font_size: base
+    reverse_on_mobile: true
+    gap: "12"
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg
+  - type: faq
+    section_id: faq-pxkb2c
+    title: Frequently Asked Questions
+    dynamic_entries:
+      database: frequently_asked_questions
+      limit: 9
+      permanent_filters:
+        - item_property_slug: related_features
+          value:
+            - mentors-and-teachers
+        - item_property_slug: locations
+          value: all
+    marginY:
+      desktop: none md
+    paddingY:
+      desktop: lg none
+  - type: cta_banner
+    section_id: cta_banner-tni4bz
+    version: "1.0"
+    title: Contact Us
+    subtitle: Fill out the form to find out about our open positions.
+    background: hsl(var(--primary))
+    variant: form
+    form:
+      variant: stacked
+      submit_label: Get Started
+      conversion_name: contact_us
+      automations: soft
+      fields:
+        email:
+          visible: true
+          required: true
+          placeholder: Your email address
+        first_name:
+          visible: true
+          required: true
+          placeholder: First name
+        last_name:
+          visible: true
+          required: true
+          placeholder: Last name
+        client_comments:
+          visible: true
+          required: true
+          placeholder: Comments
+      success:
+        message: Thank you! We'll be in touch soon.
+      button_className: bg-white text-primary hover:bg-white/90 border-white
+      terms_className: text-white/80
+    marginY:
+      desktop: md
+    paddingY:
+      desktop: lg
+  - type: sticky_cta
+    section_id: sticky_cta-nkaeq8
+    version: "1.0"
+    heading: Ready to start your tech career?
+    button_label: Apply Now
+    show_dismiss: false
+    form:
+      variant: inline
+      conversion_name: student_application
+      submit_label: Submit Application
+      automations: strong
+      fields:
+        email:
+          visible: true
+          required: true
+        first_name:
+          visible: true
+          required: true
+        last_name:
+          visible: true
+          required: false
+        phone:
+          visible: true
+          required: false
+        program:
+          visible: false
+          required: false
+          default: ai-engineering
+      success:
+        message: Thanks! We'll be in touch within 24 hours.

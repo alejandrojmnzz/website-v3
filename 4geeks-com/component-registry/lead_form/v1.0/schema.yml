@@ -1,0 +1,316 @@
+name: Lead Form
+version: "1.0"
+component: LeadForm
+file: client/src/components/LeadForm.tsx
+description: >-
+  Lead capture form with configurable fields, auto-detection from session, and consent checkboxes. Submits to marketing
+  API.
+when_to_use: |
+  Use this component when you need to collect user information for lead generation:
+  - Program signup pages
+  - Landing pages with contact forms
+  - Request information sections
+  - Newsletter signups with extended data collection
+
+variants:
+  stacked:
+    description: Labeled fields stacked vertically with full-width inputs
+    best_for: Standalone form sections, multi-field forms requiring clear labels
+  inline:
+    description: Compact email + submit button on one line
+    best_for: Hero sections, banners, or any placement where vertical space is limited
+
+props:
+  variant:
+    type: string
+    required: false
+    options:
+      - stacked
+      - inline
+    description: Layout variant to use
+    example: stacked
+  title:
+    type: string
+    required: false
+    description: Form heading
+    example: Start Your Tech Career Today
+  subtitle:
+    type: string
+    required: false
+    description: Supporting text below title
+    example: Get free information about our programs
+  submit_label:
+    type: string
+    required: false
+    description: Text for the submit button
+    example: Request Info
+  tags:
+    type: string
+    required: false
+    description: Tags to associate with the lead
+    example: website-lead,landing-page
+  automations:
+    type: string
+    required: false
+    description: Automation level for the lead
+    example: strong
+  fields:
+    type: object
+    required: false
+    properties:
+      email:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+            description: Use 'auto' for auto-detection or a static value
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: Email field (always required when visible)
+      first_name:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: First name field
+      last_name:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: Last name field
+      phone:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: Phone number field
+      program:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+            description: Use 'auto' for page context detection or program slug. When visible is true, pre-selects that slug in the dropdown.
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+          slugs:
+            type: array
+            required: false
+            description: Limits the dropdown to only these program slugs, in the given order. When absent, all valid programs are shown.
+            example:
+              - full-stack-developer
+              - data-science
+        description: Program selection dropdown
+      region:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: Region dropdown (auto-detected from session)
+      location:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: Campus location dropdown (auto-detected from session)
+      coupon:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+        description: Coupon code field (can be pre-filled from URL)
+      client_comments:
+        type: object
+        required: false
+        properties:
+          visible:
+            type: boolean
+            required: false
+          required:
+            type: boolean
+            required: false
+          default:
+            type: string
+            required: false
+          helper_text:
+            type: string
+            required: false
+          placeholder:
+            type: string
+            required: false
+          show_label:
+            type: boolean
+            required: false
+            description: Whether to show the field label above the input (default false)
+          label:
+            type: string
+            required: false
+            description: Custom label text (used when show_label is true)
+        description: Free-form comments textarea
+    description: Configuration for each form field. Each field can have visible, required, and default properties.
+  success:
+    type: object
+    required: false
+    properties:
+      url:
+        type: string
+        required: false
+        description: Redirect URL after success
+        example: /thank-you
+      message:
+        type: string
+        required: false
+        description: Success message to display (if no url)
+        example: Thanks! We'll contact you within 24 hours.
+    description: What happens after successful submission
+  consent:
+    type: object
+    required: false
+    description: Granular consent options for different communication channels
+    properties:
+      email:
+        type: boolean
+        required: false
+        description: Show email marketing consent checkbox
+      sms:
+        type: boolean
+        required: false
+        description: Show SMS consent checkbox (recommended when phone is visible)
+      whatsapp:
+        type: boolean
+        required: false
+        description: Show WhatsApp consent checkbox (recommended when phone is visible)
+  show_terms:
+    type: boolean
+    required: false
+  webhook:
+    type: object
+    required: false
+    description: >-
+      Form-level webhook — highest priority in the three-level chain (form > per-event > global).
+      When set, this webhook is always used for this form regardless of tracking settings.
+    properties:
+      url:
+        type: string
+        required: true
+        description: Destination URL to POST/GET the conversion payload
+        example: https://hooks.zapier.com/hooks/catch/xxxxx/yyyyy/
+      method:
+        type: string
+        required: false
+        options:
+          - POST
+          - GET
+        description: HTTP method (default POST)
+        example: POST
+  className:
+    type: string
+    required: false

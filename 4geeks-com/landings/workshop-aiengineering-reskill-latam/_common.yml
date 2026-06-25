@@ -1,0 +1,27 @@
+slug: workshop-aiengineering-reskill-latam
+title: workshop-aiengineering-reskill-latam
+locale: es
+meta:
+  og_image: /images/programs/ai-engineering-og.jpg
+  robots: noindex
+  priority: 0.9
+  change_frequency: weekly
+  page_title: Ingeniería AI con 4Geeks
+  description: Desarrolla soluciones de IA con mentoría y comunidad profesional en 4Geeks Academy, mejora tu carrera
+schema:
+  include:
+    - organization
+    - website
+    - courses:ai-engineering
+locations:
+  - caracas-venezuela
+  - buenosaires-argentina
+  - costa-rica
+  - lapaz-bolivia
+  - lima-peru
+  - mexicocity-mexico
+  - montevideo-uruguay
+  - panamacity-panama
+  - quito-ecuador
+  - santiago-chile
+  - bogota-colombia

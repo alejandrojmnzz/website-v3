@@ -1,0 +1,10 @@
+name: Partnership Carousel
+description: A dual-column carousel for showcasing partnerships. Left side displays a full image, right side shows title, subtitle, description, stats, institution logos, press references, and a CTA button. Navigation arrows appear below the carousel.
+when_to_use: |
+  Use when showcasing multiple institutional partnerships or collaborations, each with its own
+  image, description, statistics, and supporting logos. Better than a static logo strip when
+  each partnership deserves its own narrative and calls for a dedicated CTA. Best for
+  partnerships or accreditations pages with 2–6 partner entries.
+version: "1.0"
+type: partnership_carousel
+category: social-proof
