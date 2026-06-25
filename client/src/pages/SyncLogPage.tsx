@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, ChevronDown, Filter, Github, Loader2, RefreshCw, Search, Server, Trash2, User, Webhook, X } from "lucide-react";
+import { IconCloudUpload, IconCloudDownload } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
@@ -230,6 +231,21 @@ export default function SyncLogPage() {
     },
   });
 
+  const [forcePushOpen, setForcePushOpen] = useState(false);
+  const [forcePullOpen, setForcePullOpen] = useState(false);
+  const [pushResult, setPushResult] = useState<{ committed: string[]; skipped: string[]; errors: string[] } | null>(null);
+
+  const pushAllMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/github/content/push-all").then(r => r.json()),
+    onSuccess: (data) => {
+      setPushResult(data);
+      qc.invalidateQueries({ queryKey: ["/api/github/sync-log"] });
+    },
+    onError: (err: any) => {
+      setPushResult({ committed: [], skipped: [], errors: [err.message || "Push failed"] });
+    },
+  });
+
   const {
     data: logData,
     isLoading: logLoading,
@@ -381,6 +397,35 @@ export default function SyncLogPage() {
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logLoading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-sync-github"
+                >
+                  <IconCloudUpload className="h-3.5 w-3.5 mr-1.5" />
+                  Push / Pull
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => { setPushResult(null); setForcePushOpen(true); }}
+                  data-testid="button-force-push"
+                >
+                  <IconCloudUpload className="h-4 w-4 mr-2" />
+                  Force Push
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setForcePullOpen(true)}
+                  data-testid="button-force-pull"
+                >
+                  <IconCloudDownload className="h-4 w-4 mr-2" />
+                  Force Pull
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -601,6 +646,104 @@ export default function SyncLogPage() {
         </Card>
       </div>
     </div>
+
+    {/* Force Push Modal */}
+    <Dialog open={forcePushOpen} onOpenChange={(open) => { if (!open) { setForcePushOpen(false); setPushResult(null); } }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <IconCloudUpload className="h-5 w-5" />
+            Force Push to GitHub
+          </DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p>This will sync all local content files to the GitHub repository.</p>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                <li><span className="font-medium text-foreground">Local always wins</span> — if a file differs, the local version overwrites GitHub.</li>
+                <li><span className="font-medium text-foreground">Skips unchanged files</span> — only files with a different SHA are uploaded.</li>
+                <li><span className="font-medium text-foreground">Single commit</span> — all changes land in one commit using the Git Trees API.</li>
+                <li>Files deleted locally are <span className="font-medium text-foreground">not</span> removed from GitHub.</li>
+              </ul>
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+
+        {pushResult && (
+          <div className="space-y-2 text-sm">
+            {pushResult.errors.length > 0 ? (
+              <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                <X className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-medium text-destructive">Push encountered errors</p>
+                  {pushResult.errors.slice(0, 3).map((e, i) => (
+                    <p key={i} className="text-xs text-destructive/80">{e}</p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 p-3 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
+                <Check className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-green-700 dark:text-green-300">Push complete</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                    {pushResult.committed.length} file{pushResult.committed.length !== 1 ? "s" : ""} committed · {pushResult.skipped.length} already in sync
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            onClick={() => { setForcePushOpen(false); setPushResult(null); }}
+            data-testid="button-cancel-force-push"
+          >
+            {pushResult ? "Close" : "Cancel"}
+          </Button>
+          {!pushResult && (
+            <Button
+              onClick={() => pushAllMutation.mutate()}
+              disabled={pushAllMutation.isPending}
+              data-testid="button-start-force-push"
+            >
+              {pushAllMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Pushing…</>
+                : <><IconCloudUpload className="h-4 w-4 mr-2" />Start Push</>
+              }
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Force Pull Modal */}
+    <Dialog open={forcePullOpen} onOpenChange={setForcePullOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <IconCloudDownload className="h-5 w-5" />
+            Force Pull from GitHub
+          </DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p>This would overwrite local content files with whatever is currently on GitHub.</p>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed to GitHub will be lost.</li>
+                <li>Use this to recover from a corrupted local state or after manual GitHub edits.</li>
+              </ul>
+              <p className="text-muted-foreground italic">Force Pull is not yet implemented. Use the auto-pull webhook or contact the platform team.</p>
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setForcePullOpen(false)} data-testid="button-close-force-pull">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog open={webhookRetryOpen} onOpenChange={(open) => { if (!open) { setWebhookRetryOpen(false); setWebhookRetryResult(null); setCleanupResult(null); } }}>
       <DialogContent className="sm:max-w-md">
