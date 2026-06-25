@@ -7,7 +7,7 @@ const log = child({ module: "image-queue-state" });
 
 const QUEUE_STATE_PATH = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "content",
+  process.env.CONTENT_FOLDER || "default-site-content",
   ".image-queue-state.json"
 );
 

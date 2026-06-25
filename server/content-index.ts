@@ -14,7 +14,7 @@ const log = child({ module: "content-index" });
 
 
 /** Backward-compat: resolves from CONTENT_FOLDER env var or falls back to the canonical content folder name. */
-export const MARKETING_CONTENT_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+export const MARKETING_CONTENT_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 
 function stripNullValues<T>(obj: T): T {
   if (obj === null) {
@@ -121,7 +121,7 @@ export class ContentIndex {
   readonly contentRootName: string;
 
   constructor(contentFolder?: string) {
-    const folder = contentFolder || process.env.CONTENT_FOLDER || "content";
+    const folder = contentFolder || process.env.CONTENT_FOLDER || "default-site-content";
     this.contentRoot = path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);
     this.contentRootName = path.relative(process.cwd(), this.contentRoot);
   }

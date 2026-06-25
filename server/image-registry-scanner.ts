@@ -5,7 +5,7 @@ import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import { markFileAsModified } from "./sync-state";
 
 const ATTACHED_ASSETS_DIR = path.join(process.cwd(), "attached_assets");
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 const MARKETING_IMAGES_DIR = path.join(MARKETING_CONTENT_DIR, "images");
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 
@@ -331,7 +331,7 @@ export function applyRegistryChanges(scanResult: ScanResult): {
   }
 
   fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n", "utf8");
-  markFileAsModified(`${process.env.CONTENT_FOLDER || "content"}/image-registry.json`);
+  markFileAsModified(`${process.env.CONTENT_FOLDER || "default-site-content"}/image-registry.json`);
 
   return {
     added: scanResult.newImages.length,

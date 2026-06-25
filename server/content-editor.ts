@@ -642,7 +642,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
 }): { success: boolean; error?: string } {
   const { contentType, slug, locale, operations, author } = opts;
   try {
-    const perEntryDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", getFolder(contentType), slug);
+    const perEntryDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", getFolder(contentType), slug);
     const perEntryPath = path.join(perEntryDir, `${locale}.yml`);
 
     if (!fs.existsSync(perEntryDir)) {
@@ -1015,7 +1015,7 @@ export async function renameContentSlug(
 
   const contentFolder = getFolder(contentType);
   const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", contentFolder, resolvedFolderSlug);
+  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", contentFolder, resolvedFolderSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content folder not found: ${folderSlug} (resolved: ${resolvedFolderSlug})` };
@@ -1098,14 +1098,14 @@ export async function deleteContentEntry(
 
   const typeFolder = getFolder(type);
   const resolvedSlug = contentIndex.resolveBaseSlug(slug, typeFolder);
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", typeFolder, resolvedSlug);
+  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", typeFolder, resolvedSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content "${slug}" of type "${type}" not found` };
   }
 
   const realPath = fs.realpathSync(path.resolve(folderPath));
-  const allowedBase = fs.realpathSync(path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", typeFolder));
+  const allowedBase = fs.realpathSync(path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", typeFolder));
   if (!realPath.startsWith(allowedBase + path.sep)) {
     return { success: false, statusCode: 400, error: "Invalid path" };
   }
@@ -1232,7 +1232,7 @@ export async function createContentEntry(
     return { success: false, statusCode: 409, error: `A ${type} with slug "${folderSlug}" already exists` };
   }
 
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content", getFolder(type), folderSlug);
+  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", getFolder(type), folderSlug);
   if (fs.existsSync(folderPath)) {
     return { success: false, statusCode: 409, error: `A ${type} with slug "${folderSlug}" already exists` };
   }

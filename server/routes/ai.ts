@@ -503,7 +503,7 @@ export function registerAiRoutes(app: Express): void {
   }
 
   function getContentRoot(res: Response): string {
-    return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+    return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
   }
 
   function loadLLMConfig(contentRoot: string): ParsedLLMConfig {

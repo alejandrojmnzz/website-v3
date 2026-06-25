@@ -13,7 +13,7 @@ const log = child({ module: "ssr-schema" });
 
 
 
-const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 
 const DEFAULT_IMAGE_DIMENSIONS = { width: 1200, height: 630 };
 const imageRegistryByRoot = new Map<string, Record<string, { src?: string; width?: number; height?: number }>>();

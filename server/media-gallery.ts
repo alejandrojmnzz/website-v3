@@ -14,7 +14,7 @@ const log = child({ module: "media-gallery" });
 
 
 
-const CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "content";
+const CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "default-site-content";
 const MARKETING_CONTENT_DIR = path.join(process.cwd(), CONTENT_FOLDER_NAME);
 const MARKETING_IMAGES_DIR = path.join(MARKETING_CONTENT_DIR, "images");
 const MARKETING_IMAGES_URL_PREFIX = `/${CONTENT_FOLDER_NAME}/images/`;

@@ -28,7 +28,7 @@ export { SCOPED_CAPABILITIES, GLOBAL_CAPABILITIES, ALL_CAPABILITIES, CAPABILITY_
 
 const LOCAL_PATH = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "content",
+  process.env.CONTENT_FOLDER || "default-site-content",
   ".users-state.json"
 );
 const GCS_KEY = "sync/users-state.json";

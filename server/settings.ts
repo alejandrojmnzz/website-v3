@@ -6,7 +6,7 @@ const log = child({ module: "settings" });
 
 
 
-const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 
 function resolveSettingsRoot(contentRoot?: string): string {
   return contentRoot ?? DEFAULT_CONTENT_ROOT;

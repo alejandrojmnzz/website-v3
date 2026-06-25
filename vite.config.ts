@@ -45,7 +45,7 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 const isSsrBuild = process.argv.includes("--ssr");
 
 /**
- * Warns at build time when 4geeks-com/component-registry is absent.
+ * Warns at build time when 4geeks-com-content/component-registry is absent.
  * The build still succeeds — only shared /client components will be bundled.
  */
 function componentRegistryGuardPlugin(): Plugin {
@@ -56,7 +56,7 @@ function componentRegistryGuardPlugin(): Plugin {
       const registryPath = path.resolve(import.meta.dirname, "4geeks-com", "component-registry");
       if (!fs.existsSync(registryPath)) {
         this.warn(
-          "4geeks-com/component-registry not found — registry TSX files will not be bundled. " +
+          "4geeks-com-content/component-registry not found — registry TSX files will not be bundled. " +
           "Build continues with shared /client components only.",
         );
       }
@@ -64,7 +64,7 @@ function componentRegistryGuardPlugin(): Plugin {
   };
 }
 
-/** Runs on `vite build` (client pass only), writes 4geeks-com/navigation-eager-manifest.json */
+/** Runs on `vite build` (client pass only), writes 4geeks-com-content/navigation-eager-manifest.json */
 function navigationEagerManifestPlugin(isSsr: boolean): Plugin {
   return {
     name: "navigation-eager-manifest",

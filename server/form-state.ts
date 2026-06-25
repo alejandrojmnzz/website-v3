@@ -18,11 +18,11 @@ const log = child({ module: "form-state" });
 
 const LOCAL_PATH = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "content",
+  process.env.CONTENT_FOLDER || "default-site-content",
   ".form-state.json"
 );
 const GCS_KEY = "sync/form-state.json";
-const CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "content");
+const CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export interface FormStateEntry {

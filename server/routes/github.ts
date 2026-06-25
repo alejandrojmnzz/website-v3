@@ -348,7 +348,7 @@ export function registerGithubRoutes(app: Express): void {
         ""
       ).replace(/\.git$/, "").toLowerCase();
 
-      let contentFolderPrefix = process.env.CONTENT_FOLDER || "content";
+      let contentFolderPrefix = process.env.CONTENT_FOLDER || "default-site-content";
       if (pushRepoUrl) {
         for (const ctx of Array.from(getSiteContextMap().values())) {
           const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
