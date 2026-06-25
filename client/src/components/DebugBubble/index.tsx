@@ -54,6 +54,7 @@ import { CreateContentModal } from "./components/CreateContentModal";
 import { PageErrorsModal } from "./components/PageErrorsModal";
 import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
+import { SwitchSiteModal } from "./components/SwitchSiteModal";
 const componentIconMap: Record<string, typeof Blocks> = {
   hero: Rocket,
   two_column: Columns2,
@@ -180,6 +181,7 @@ export function DebugBubble() {
   const [selectedLocationSlug, setSelectedLocationSlug] = useState<string>("");
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
   const [siteManagerModalOpen, setSiteManagerModalOpen] = useState(false);
+  const [switchSiteModalOpen, setSwitchSiteModalOpen] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
   
   // Versioning state
@@ -1811,6 +1813,7 @@ export function DebugBubble() {
     handleCheckSession,
     setSessionModalOpen,
     onOpenSiteManager: () => setSiteManagerModalOpen(true),
+    onOpenSwitchSite: () => setSwitchSiteModalOpen(true),
     publicPageUrl: (() => {
       if (!pathname.startsWith('/private/preview/') || !contentInfo.type || !contentInfo.slug) return null;
       const searchParams = new URLSearchParams(window.location.search);
@@ -1969,6 +1972,12 @@ export function DebugBubble() {
         open={siteManagerModalOpen}
         onOpenChange={setSiteManagerModalOpen}
         siteInfo={siteInfo}
+      />
+      <SwitchSiteModal
+        open={switchSiteModalOpen}
+        onOpenChange={setSwitchSiteModalOpen}
+        activeDomain={siteInfo?.domain ?? ""}
+        isDevOverride={siteInfo?.isDevOverride ?? false}
       />
       <SessionModal
         open={sessionModalOpen}

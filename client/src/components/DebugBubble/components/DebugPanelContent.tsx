@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, CloudDownload, Cookie, Database, Github, GitBranch, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
-import { IconLogout, IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect } from "@tabler/icons-react";
+import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
 import { badgeVariants } from "@/components/ui/badge";
@@ -88,6 +88,7 @@ export interface DebugPanelContentProps {
   componentIconMap: Record<string, unknown>;
   siteInfo?: { domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean; githubRepoUrl?: string } | null;
   onOpenSiteManager: () => void;
+  onOpenSwitchSite: () => void;
 
   versioningLoading: boolean;
   versioningData: unknown;
@@ -965,14 +966,26 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 <IconServer className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Site</span>
               </div>
-              <button
-                className="p-1 rounded hover-elevate"
-                onClick={props.onOpenSiteManager}
-                data-testid="button-site-manager"
-                title="Open Site Manager"
-              >
-                <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
+              <div className="flex items-center gap-1">
+                {props.siteInfo?.isMultiSite && (
+                  <button
+                    className="p-1 rounded hover-elevate"
+                    onClick={props.onOpenSwitchSite}
+                    data-testid="button-switch-site"
+                    title="Switch Site"
+                  >
+                    <IconSwitchHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                )}
+                <button
+                  className="p-1 rounded hover-elevate"
+                  onClick={props.onOpenSiteManager}
+                  data-testid="button-site-manager"
+                  title="Open Site Manager"
+                >
+                  <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
             </div>
             {props.siteInfo && (
               <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground">

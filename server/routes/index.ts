@@ -253,6 +253,7 @@ import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
 import { getSiteInfo, getSiteContextMap } from "../site-manager";
+import { getSiteConfigs } from "../site-config";
 
 const routesLogger = loggerChild({ module: "routes" });
 
@@ -324,6 +325,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/site/info", (req, res) => {
     const info = getSiteInfo(req, res);
     res.json(info);
+  });
+
+  // List all configured sites (dev use only, no auth required — read-only)
+  app.get("/api/sites", (_req, res) => {
+    const configs = getSiteConfigs();
+    res.json(configs.map(({ domain, contentFolder, githubRepoUrl }) => ({ domain, contentFolder, githubRepoUrl })));
   });
 
   const httpServer = createServer(app);

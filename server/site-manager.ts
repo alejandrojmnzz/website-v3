@@ -70,6 +70,9 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   if (process.env.NODE_ENV !== "production" && req.query.__site) {
     domain = req.query.__site as string;
     isDevOverride = true;
+  } else if (process.env.NODE_ENV !== "production" && req.cookies?.__dev_site) {
+    domain = req.cookies.__dev_site as string;
+    isDevOverride = true;
   }
 
   let ctx = sites.get(domain);
