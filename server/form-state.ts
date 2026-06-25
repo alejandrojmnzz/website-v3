@@ -1,7 +1,7 @@
 /**
  * FormState — registry of form sections found across content YAMLs.
  *
- * Local file at marketing-content/.form-state.json, synced to GCS
+ * Local file at 4geeks-com/.form-state.json, synced to GCS
  * at sync/form-state.json on every write (production only).
  *
  * Follows the same pattern as server/user-store.ts.
@@ -18,11 +18,11 @@ const log = child({ module: "form-state" });
 
 const LOCAL_PATH = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "marketing-content",
+  process.env.CONTENT_FOLDER || "4geeks-com",
   ".form-state.json"
 );
 const GCS_KEY = "sync/form-state.json";
-const CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+const CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export interface FormStateEntry {
@@ -86,7 +86,7 @@ function save(): void {
 
 // ─── YAML scanning ───────────────────────────────────────────────────────────
 
-/** Walk every non-hidden .yml file under marketing-content/ */
+/** Walk every non-hidden .yml file under 4geeks-com/ */
 function collectYmlFiles(dir: string, result: string[] = []): string[] {
   let entries: fs.Dirent[];
   try {
@@ -263,7 +263,7 @@ function rebuildIndex(): void {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-/** Full rebuild by scanning all .yml files under marketing-content/. */
+/** Full rebuild by scanning all .yml files under 4geeks-com/. */
 export function buildFormState(): void {
   const allFiles = collectYmlFiles(CONTENT_DIR);
   const forms: FormStateEntry[] = [];
@@ -291,9 +291,9 @@ export function buildFormState(): void {
  * re-scans just that file, and saves.
  */
 export function updateFormStateForFile(relPath: string): void {
-  if (!relPath.startsWith("marketing-content/")) return;
+  if (!relPath.startsWith("4geeks-com/")) return;
 
-  const fileRelToContent = relPath.slice("marketing-content/".length);
+  const fileRelToContent = relPath.slice("4geeks-com/".length);
   const absPath = path.join(CONTENT_DIR, fileRelToContent);
 
   // Remove existing entries for this file

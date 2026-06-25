@@ -1,12 +1,12 @@
 /**
  * Ecommerce Index — startup scanner.
  *
- * Reads marketing-content/ecommerce-settings.yml for global config and plan
+ * Reads 4geeks-com/ecommerce-settings.yml for global config and plan
  * definitions. Discovers co-located _ecommerce.yml files by walking content-type
- * directories under marketing-content/:
+ * directories under 4geeks-com/:
  *
- *   marketing-content/<content-type>/_ecommerce.yml          — type-level defaults
- *   marketing-content/<content-type>/<slug>/_ecommerce.yml   — entry-level config
+ *   4geeks-com/<content-type>/_ecommerce.yml          — type-level defaults
+ *   4geeks-com/<content-type>/<slug>/_ecommerce.yml   — entry-level config
  *
  * Entry-level files are deep-merged with type-level defaults to build an
  * EcommerceProduct. Only entries with purchasable: true become products.
@@ -25,7 +25,7 @@ const log = child({ module: "ecommerce/ecommerce-index" });
 
 
 
-export const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+export const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
 export const ECOMMERCE_SETTINGS_PATH = path.join(MARKETING_CONTENT_DIR, "ecommerce-settings.yml");
 const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_DIR, "content-types.yml");
 
@@ -239,7 +239,7 @@ export function startEcommerceWatcher(): void {
   if (watcherStarted || !fs.existsSync(MARKETING_CONTENT_DIR)) return;
   watcherStarted = true;
 
-  // Watch the full marketing-content/ tree; filter on _ecommerce.yml / ecommerce-settings.yml
+  // Watch the full 4geeks-com/ tree; filter on _ecommerce.yml / ecommerce-settings.yml
   fs.watch(MARKETING_CONTENT_DIR, { recursive: true }, (event, filename) => {
     if (!filename) return;
     const isSettingsFile = filename === "ecommerce-settings.yml";

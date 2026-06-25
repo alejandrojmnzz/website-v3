@@ -9,7 +9,7 @@ import type {
 
 const REGISTRY_PATH = path.join(
   process.cwd(),
-  "marketing-content",
+  "4geeks-com",
   "image-registry.json",
 );
 
@@ -57,7 +57,7 @@ export const imageTagsValidator: Validator = {
         message: `Failed to load image registry: ${err instanceof Error ? err.message : String(err)}`,
         file: REGISTRY_PATH,
         suggestion:
-          "Ensure marketing-content/image-registry.json exists and is valid JSON",
+          "Ensure 4geeks-com/image-registry.json exists and is valid JSON",
       });
       return {
         name: this.name,

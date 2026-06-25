@@ -69,7 +69,7 @@ function resolveImageStorage(): string {
     const presetNames = presets ? Object.keys(presets) : [];
 
     const lines: string[] = [
-      "**New images:** `marketing-content/images/` (served at `/marketing-content/images/`)",
+      "**New images:** `4geeks-com/images/` (served at `/4geeks-com/images/`)",
       "",
       "**Legacy images:** `attached_assets/` (served at `/attached_assets/`). The `attached_assets/` folder also contains conversation screenshots which are excluded from the registry scanner.",
       "",

@@ -82,7 +82,7 @@ interface ValidationResult {
 
 function stripContentPath(text: string): string {
   return text.replace(
-    /(?:\/home\/runner\/workspace\/)?marketing-content\//g,
+    /(?:\/home\/runner\/workspace\/)?4geeks-com\//g,
     "",
   );
 }
@@ -518,7 +518,7 @@ export default function PrivateRedirects() {
 
   const handleReorderCustomRedirect = async (fromIndex: number, toIndex: number) => {
     const allCustomRedirects = redirects.filter(
-      (r) => r.source === "marketing-content/custom-redirects.yml",
+      (r) => r.source === "4geeks-com/custom-redirects.yml",
     );
     const reordered = [...allCustomRedirects];
     const [moved] = reordered.splice(fromIndex, 1);
@@ -1075,10 +1075,10 @@ export default function PrivateRedirects() {
                     <div className="ml-4 mt-1 border rounded-lg divide-y overflow-hidden">
                       {(() => {
                         const allCustomRedirects = redirects.filter(
-                          (r) => r.source === "marketing-content/custom-redirects.yml",
+                          (r) => r.source === "4geeks-com/custom-redirects.yml",
                         );
                         return typeRedirects.map((redirect, index) => {
-                        const isCustom = redirect.source === "marketing-content/custom-redirects.yml";
+                        const isCustom = redirect.source === "4geeks-com/custom-redirects.yml";
                         const globalCustomIndex = isCustom
                           ? allCustomRedirects.findIndex((r) => r.from === redirect.from && r.to === redirect.to)
                           : -1;

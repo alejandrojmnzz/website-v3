@@ -13,7 +13,7 @@ interface CompiledContext {
   globalSummary: string;
 }
 
-const MARKETING_CONTENT_PATH = path.resolve(process.env.CONTENT_FOLDER || "marketing-content");
+const MARKETING_CONTENT_PATH = path.resolve(process.env.CONTENT_FOLDER || "4geeks-com");
 
 function loadYamlFile(filePath: string): Record<string, unknown> | null {
   try {

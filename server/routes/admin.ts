@@ -214,7 +214,7 @@ function getCI(res: Response): typeof contentIndex {
 }
 
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
 }
 
 export function registerAdminRoutes(app: Express): void {
@@ -467,7 +467,7 @@ export function registerAdminRoutes(app: Express): void {
         res.json({
           success: true,
           message: `Custom redirect added: ${normalizedFrom} -> ${destUrl}`,
-          file: "marketing-content/custom-redirects.yml",
+          file: "4geeks-com/custom-redirects.yml",
         });
         return;
       }
@@ -1327,7 +1327,7 @@ export function registerAdminRoutes(app: Express): void {
 
       const hasLlmUpdates = updates.agent_tools || updates.chat_bubble || updates.empty_conversation_grace_minutes !== undefined || updates.model_default !== undefined || updates.model_chat !== undefined;
       if (hasLlmUpdates) {
-        const llmPath = path.resolve("marketing-content/llm.yml");
+        const llmPath = path.resolve("4geeks-com/llm.yml");
         if (fs.existsSync(llmPath)) {
           const llmConfig = loadLLMConfig();
           const mutableConfig: Record<string, unknown> = { ...llmConfig };
@@ -1606,7 +1606,7 @@ export function registerAdminRoutes(app: Express): void {
     if (
       url.startsWith("/api/") ||
       url.startsWith("/attached_assets/") ||
-      url.startsWith("/marketing-content/") ||
+      url.startsWith("/4geeks-com/") ||
       /\.\w+$/.test(url)
     ) {
       return next();

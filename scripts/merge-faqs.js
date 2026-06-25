@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Merges marketing-content/faqs/en.yml and marketing-content/faqs/es.yml
- * into marketing-content/frequently_asked_question/faqs.yml
+ * Merges 4geeks-com/faqs/en.yml and 4geeks-com/faqs/es.yml
+ * into 4geeks-com/frequently_asked_question/faqs.yml
  *
  * Each FAQ entry in the output gets a `locale` field ("en" or "es").
  * Entries from en.yml appear first, followed by entries from es.yml.
@@ -14,7 +14,7 @@ import yaml from "js-yaml";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const ROOT = path.join(__dirname, "..", "marketing-content");
+const ROOT = path.join(__dirname, "..", "4geeks-com");
 const EN_FILE = path.join(ROOT, "faqs", "en.yml");
 const ES_FILE = path.join(ROOT, "faqs", "es.yml");
 const OUT_DIR = path.join(ROOT, "frequently_asked_question");

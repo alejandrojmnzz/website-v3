@@ -13,7 +13,7 @@ const log = child({ module: "database" });
 
 
 
-const DB_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "db");
+const DB_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "db");
 
 export interface VectorSearchConfig {
   enabled: boolean;
@@ -159,7 +159,7 @@ async function fetchFromLocal(
   const filePath = path.join(DB_DIR, dbSlug, localConfig.filename);
   if (!fs.existsSync(filePath)) {
     throw new Error(
-      `Local file not found: marketing-content/db/${dbSlug}/${localConfig.filename}`
+      `Local file not found: 4geeks-com/db/${dbSlug}/${localConfig.filename}`
     );
   }
   const content = fs.readFileSync(filePath, "utf-8");
@@ -979,7 +979,7 @@ export class DatabaseManager {
         ...dbKeyedOverrides,
       };
       this.saveOverridesFile(dbName, overridesFile);
-      markFileAsModified(`marketing-content/db/${dbName}/overrides.json`, author);
+      markFileAsModified(`4geeks-com/db/${dbName}/overrides.json`, author);
 
       this.memoryCache.delete(dbName);
       return patchedIdx !== -1;
@@ -1033,7 +1033,7 @@ export class DatabaseManager {
       }
 
       this.saveOverridesFile(dbName, overridesFile);
-      markFileAsModified(`marketing-content/db/${dbName}/overrides.json`, author);
+      markFileAsModified(`4geeks-com/db/${dbName}/overrides.json`, author);
 
       this.memoryCache.delete(dbName);
       this.cache.clear(dbName);

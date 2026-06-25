@@ -737,7 +737,7 @@ export function ImagePickerDialog({
                           )}
                           {!hasCloudProvider && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              Saving to marketing-content/images/
+                              Saving to 4geeks-com/images/
                             </p>
                           )}
                         </div>
@@ -751,7 +751,7 @@ export function ImagePickerDialog({
                     <p className="text-sm text-muted-foreground">
                       Drop images directly into the{" "}
                       <code className="bg-muted px-1 rounded text-xs">
-                        marketing-content/images/
+                        4geeks-com/images/
                       </code>{" "}
                       folder, then scan the registry to include them.
                     </p>

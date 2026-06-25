@@ -1083,7 +1083,7 @@ export function CreateContentModal({
                         </button>
                         {showFiles && (
                           <div className="space-y-0.5 font-mono text-xs text-muted-foreground pl-4 pt-1">
-                            <div>marketing-content/{contentTypesMap?.[createContentType]?.directory || createContentType}/{createContentSlugEn || createContentSlugEs}/</div>
+                            <div>4geeks-com/{contentTypesMap?.[createContentType]?.directory || createContentType}/{createContentSlugEn || createContentSlugEs}/</div>
                             <div className="pl-4">├── _common.yml</div>
                             {activeLocales.map((loc, i) => (
                               <div key={loc} className="pl-4">

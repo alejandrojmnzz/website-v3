@@ -7,7 +7,7 @@ import {
   resolveRegistryReference,
 } from "../validation/shared/imageRegistrySrc";
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 
 export async function removeUnusedImages(options: {

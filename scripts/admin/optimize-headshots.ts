@@ -2,7 +2,7 @@
  * Admin script: optimize-headshots
  *
  * Generates WebP srcset variants for the 4 profile headshot images that were
- * moved from attached_assets/ to marketing-content/images/.
+ * moved from attached_assets/ to 4geeks-com/images/.
  *
  * Usage:
  *   npx tsx scripts/admin/optimize-headshots.ts [--dry-run]

@@ -269,8 +269,8 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
 
         // Forward any template-owned ops to the shared template file.
         if (templateOps.length > 0) {
-          // The per-entry file is at marketing-content/{type}/{slug}/{locale}.yml
-          // Two levels up is marketing-content/{type}/ where single.{locale}.yml lives.
+          // The per-entry file is at 4geeks-com/{type}/{slug}/{locale}.yml
+          // Two levels up is 4geeks-com/{type}/ where single.{locale}.yml lives.
           const templateFilePath = path.join(
             path.dirname(path.dirname(filePath)),
             `single.${locale}.yml`,
@@ -642,7 +642,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
 }): { success: boolean; error?: string } {
   const { contentType, slug, locale, operations, author } = opts;
   try {
-    const perEntryDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", getFolder(contentType), slug);
+    const perEntryDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", getFolder(contentType), slug);
     const perEntryPath = path.join(perEntryDir, `${locale}.yml`);
 
     if (!fs.existsSync(perEntryDir)) {
@@ -1015,7 +1015,7 @@ export async function renameContentSlug(
 
   const contentFolder = getFolder(contentType);
   const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", contentFolder, resolvedFolderSlug);
+  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", contentFolder, resolvedFolderSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content folder not found: ${folderSlug} (resolved: ${resolvedFolderSlug})` };
@@ -1057,7 +1057,7 @@ export async function renameContentSlug(
 
   const updated = safeYamlDump(parsed, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(localeFilePath, updated, "utf-8");
-  markFileAsModified(`marketing-content/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
+  markFileAsModified(`4geeks-com/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
   contentIndex.refresh();
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();
@@ -1098,14 +1098,14 @@ export async function deleteContentEntry(
 
   const typeFolder = getFolder(type);
   const resolvedSlug = contentIndex.resolveBaseSlug(slug, typeFolder);
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", typeFolder, resolvedSlug);
+  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", typeFolder, resolvedSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content "${slug}" of type "${type}" not found` };
   }
 
   const realPath = fs.realpathSync(path.resolve(folderPath));
-  const allowedBase = fs.realpathSync(path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", typeFolder));
+  const allowedBase = fs.realpathSync(path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", typeFolder));
   if (!realPath.startsWith(allowedBase + path.sep)) {
     return { success: false, statusCode: 400, error: "Invalid path" };
   }
@@ -1117,7 +1117,7 @@ export async function deleteContentEntry(
       if (fs.existsSync(localeFile)) {
         fs.unlinkSync(localeFile);
         deletedFiles.push(`${locale}.yml`);
-        markFileAsModified(`marketing-content/${typeFolder}/${resolvedSlug}/${locale}.yml`, author);
+        markFileAsModified(`4geeks-com/${typeFolder}/${resolvedSlug}/${locale}.yml`, author);
       }
     }
 
@@ -1126,7 +1126,7 @@ export async function deleteContentEntry(
     if (remainingFiles.length === 0) {
       const allFiles = fs.existsSync(folderPath) ? fs.readdirSync(folderPath) : [];
       for (const file of allFiles) {
-        markFileAsModified(`marketing-content/${typeFolder}/${resolvedSlug}/${file}`, author);
+        markFileAsModified(`4geeks-com/${typeFolder}/${resolvedSlug}/${file}`, author);
       }
       fs.rmSync(folderPath, { recursive: true, force: true });
       log.info(`[Content] Deleted ${type}/${slug} (all locales removed, folder cleaned up)`);
@@ -1164,7 +1164,7 @@ export async function deleteContentEntry(
   // Full folder delete
   const allFiles = fs.readdirSync(folderPath);
   for (const file of allFiles) {
-    markFileAsModified(`marketing-content/${typeFolder}/${resolvedSlug}/${file}`, author);
+    markFileAsModified(`4geeks-com/${typeFolder}/${resolvedSlug}/${file}`, author);
   }
   fs.rmSync(folderPath, { recursive: true, force: true });
   log.info(`[Content] Deleted ${type}/${slug}`);
@@ -1232,7 +1232,7 @@ export async function createContentEntry(
     return { success: false, statusCode: 409, error: `A ${type} with slug "${folderSlug}" already exists` };
   }
 
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", getFolder(type), folderSlug);
+  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", getFolder(type), folderSlug);
   if (fs.existsSync(folderPath)) {
     return { success: false, statusCode: 409, error: `A ${type} with slug "${folderSlug}" already exists` };
   }
@@ -1260,7 +1260,7 @@ export async function createContentEntry(
             localeTitles,
           });
           for (const file of result.copiedFiles) {
-            markFileAsModified(`marketing-content/${getFolder(type)}/${folderSlug}/${file}`, author);
+            markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
           }
           refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
           contentIndex.refresh();
@@ -1281,7 +1281,7 @@ export async function createContentEntry(
             success: true,
             data: {
               success: true, slugEn: enSlug, slugEs: esSlug, type,
-              directory: `marketing-content/${getFolder(type)}/${folderSlug}`,
+              directory: `4geeks-com/${getFolder(type)}/${folderSlug}`,
               duplicatedFrom: sourceUrl, typeChanged: true,
               conversion: { from: resolved.contentType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
             },
@@ -1309,14 +1309,14 @@ export async function createContentEntry(
 
           if (!isContentFile) {
             fs.writeFileSync(path.join(folderPath, file), rawContent);
-            markFileAsModified(`marketing-content/${getFolder(type)}/${folderSlug}/${file}`, author);
+            markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
             continue;
           }
 
           const parsed = contentIndex.safeYamlLoad(rawContent) as Record<string, unknown> | null;
           if (!parsed) {
             fs.writeFileSync(path.join(folderPath, file), rawContent);
-            markFileAsModified(`marketing-content/${getFolder(type)}/${folderSlug}/${file}`, author);
+            markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
             continue;
           }
 
@@ -1374,7 +1374,7 @@ export async function createContentEntry(
           const { file } = parsedDupFiles[i];
           const content = safeYamlDump(regeneratedDup[i], { lineWidth: 120, noRefs: true, sortKeys: false });
           fs.writeFileSync(path.join(folderPath, file), content);
-          markFileAsModified(`marketing-content/${getFolder(type)}/${folderSlug}/${file}`, author);
+          markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
         }
 
         refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
@@ -1397,7 +1397,7 @@ export async function createContentEntry(
           success: true,
           data: {
             success: true, slugEn: enSlug, slugEs: esSlug, type,
-            directory: `marketing-content/${getFolder(type)}/${folderSlug}`,
+            directory: `4geeks-com/${getFolder(type)}/${folderSlug}`,
             duplicatedFrom: sourceUrl,
           },
         };
@@ -1440,7 +1440,7 @@ export async function createContentEntry(
   const esYml = yaml.dump(makeLocaleObj(esSlug || folderSlug, "es"), { lineWidth: 120, noRefs: true, sortKeys: false });
 
   const createdFiles: string[] = [];
-  const relFolder = `marketing-content/${getFolder(type)}/${folderSlug}`;
+  const relFolder = `4geeks-com/${getFolder(type)}/${folderSlug}`;
   if (!fs.existsSync(path.join(folderPath, "_common.yml"))) {
     fs.writeFileSync(path.join(folderPath, "_common.yml"), commonYml);
     createdFiles.push("_common.yml");
@@ -1475,7 +1475,7 @@ export async function createContentEntry(
     success: true,
     data: {
       success: true, slugEn: enSlug, slugEs: esSlug, type,
-      directory: `marketing-content/${getFolder(type)}/${folderSlug}`,
+      directory: `4geeks-com/${getFolder(type)}/${folderSlug}`,
       files: createdFiles,
       skippedLocales: skipLocales.length > 0 ? skipLocales : undefined,
     },

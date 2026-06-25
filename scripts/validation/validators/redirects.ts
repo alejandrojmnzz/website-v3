@@ -36,7 +36,7 @@ function getStaticPrefix(pattern: string): string {
 }
 
 function loadCustomRedirects(): CustomRedirectEntry[] {
-  const filePath = path.join(process.cwd(), "marketing-content", "custom-redirects.yml");
+  const filePath = path.join(process.cwd(), "4geeks-com", "custom-redirects.yml");
   if (!fs.existsSync(filePath)) return [];
 
   try {
@@ -147,7 +147,7 @@ export const redirectValidator: Validator = {
     }
 
     const customRedirects = loadCustomRedirects();
-    const customFile = "marketing-content/custom-redirects.yml";
+    const customFile = "4geeks-com/custom-redirects.yml";
 
     const customSource = {
       slug: "_custom",

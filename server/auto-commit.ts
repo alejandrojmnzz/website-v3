@@ -1,7 +1,7 @@
 /**
  * Auto-Commit Queue
  * 
- * Automatically commits marketing-content file changes to GitHub using a
+ * Automatically commits 4geeks-com file changes to GitHub using a
  * configurable throttled queue. Uses setTimeout-based debouncing — the timer
  * only runs when there are pending changes.
  * 
@@ -131,7 +131,7 @@ export function isAutoCommitEnabled(): boolean {
 
 function isContentTypeFile(filePath: string): boolean {
   const folders = getAllFolders();
-  const withoutPrefix = filePath.replace('marketing-content/', '');
+  const withoutPrefix = filePath.replace('4geeks-com/', '');
   const topFolder = withoutPrefix.split('/')[0];
   return folders.includes(topFolder);
 }
@@ -151,10 +151,10 @@ export function queueFileChange(filePath: string, author?: string, allowedExcept
     relativePath = filePath.startsWith(cwd)
       ? filePath.slice(cwd.length + 1)
       : filePath;
-  } else if (filePath.startsWith('marketing-content/') || filePath.startsWith('client/')) {
+  } else if (filePath.startsWith('4geeks-com/') || filePath.startsWith('client/')) {
     relativePath = filePath;
   } else {
-    relativePath = `marketing-content/${filePath}`;
+    relativePath = `4geeks-com/${filePath}`;
   }
 
   if (!shouldTrackFile(relativePath, allowedExceptions)) return;
@@ -307,7 +307,7 @@ async function commitBatch(config: GitHubConfig, author: string, files: string[]
 
   if (existingFiles.length === 0 && deletedFiles.length === 0) return;
 
-  const fileNames = files.map(f => f.replace('marketing-content/', '')).join(', ');
+  const fileNames = files.map(f => f.replace('4geeks-com/', '')).join(', ');
   const message = `[Auto-sync] ${author} updated ${fileNames}`;
 
   const result = await commitFilesViaTreeAPI(config, message, existingFiles, deletedFiles);
@@ -347,7 +347,7 @@ async function retryIndividualFiles(
   deletedFiles: string[]
 ): Promise<void> {
   for (const file of existingFiles) {
-    const fileName = file.path.replace('marketing-content/', '');
+    const fileName = file.path.replace('4geeks-com/', '');
     const message = `[Auto-sync] ${author} updated ${fileName}`;
 
     const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message);
@@ -370,7 +370,7 @@ async function retryIndividualFiles(
     conflictedFiles.add(filePath);
     log.warn(`[AutoCommit] Skipping delete for conflicted file: ${filePath}`);
     const { logSync } = await import("./sync-log");
-    logSync('CONFLICT', `Conflict on deleted file ${filePath.replace('marketing-content/', '')} by ${author}: push rejected`, author);
+    logSync('CONFLICT', `Conflict on deleted file ${filePath.replace('4geeks-com/', '')} by ${author}: push rejected`, author);
   }
 }
 

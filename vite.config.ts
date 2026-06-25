@@ -45,7 +45,7 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 const isSsrBuild = process.argv.includes("--ssr");
 
 /**
- * Warns at build time when marketing-content/component-registry is absent.
+ * Warns at build time when 4geeks-com/component-registry is absent.
  * The build still succeeds — only shared /client components will be bundled.
  */
 function componentRegistryGuardPlugin(): Plugin {
@@ -53,10 +53,10 @@ function componentRegistryGuardPlugin(): Plugin {
     name: "component-registry-guard",
     apply: "build",
     buildStart() {
-      const registryPath = path.resolve(import.meta.dirname, "marketing-content", "component-registry");
+      const registryPath = path.resolve(import.meta.dirname, "4geeks-com", "component-registry");
       if (!fs.existsSync(registryPath)) {
         this.warn(
-          "marketing-content/component-registry not found — registry TSX files will not be bundled. " +
+          "4geeks-com/component-registry not found — registry TSX files will not be bundled. " +
           "Build continues with shared /client components only.",
         );
       }
@@ -64,7 +64,7 @@ function componentRegistryGuardPlugin(): Plugin {
   };
 }
 
-/** Runs on `vite build` (client pass only), writes marketing-content/navigation-eager-manifest.json */
+/** Runs on `vite build` (client pass only), writes 4geeks-com/navigation-eager-manifest.json */
 function navigationEagerManifestPlugin(isSsr: boolean): Plugin {
   return {
     name: "navigation-eager-manifest",
@@ -195,7 +195,7 @@ export default defineConfig(async () => ({
       // so we must include it here via searchForWorkspaceRoot().
       allow: [
         searchForWorkspaceRoot(process.cwd()),
-        path.resolve(import.meta.dirname, "marketing-content", "component-registry"),
+        path.resolve(import.meta.dirname, "4geeks-com", "component-registry"),
       ],
     },
     warmup: {

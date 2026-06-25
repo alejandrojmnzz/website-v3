@@ -117,7 +117,7 @@ export class ContentIndex {
 
   /** Absolute path to the content root folder (e.g. /home/user/project/content). */
   readonly contentRoot: string;
-  /** Relative path from process.cwd() (e.g. "content" or "marketing-content"). */
+  /** Relative path from process.cwd() (e.g. "content" or "4geeks-com"). */
   readonly contentRootName: string;
 
   constructor(contentFolder?: string) {
@@ -543,7 +543,7 @@ export class ContentIndex {
           this.addImageRef(value, filePath);
         } else if (
           (key === "image" || key === "src" || key === "background_image" || key === "logo" || key === "icon_image") &&
-          (value.startsWith("/attached_assets/") || value.startsWith(`/${this.contentRootName}/images/`) || value.startsWith("/marketing-content/images/") || value.startsWith("http://") || value.startsWith("https://"))
+          (value.startsWith("/attached_assets/") || value.startsWith(`/${this.contentRootName}/images/`) || value.startsWith("/4geeks-com/images/") || value.startsWith("http://") || value.startsWith("https://"))
         ) {
           this.addImageRef(value, filePath);
         }
@@ -1782,6 +1782,6 @@ export { stripNullValues };
 
 /**
  * Default singleton instance — used by code that hasn't migrated to per-site
- * routing yet. Reads contentRoot from CONTENT_FOLDER env var (default: "marketing-content").
+ * routing yet. Reads contentRoot from CONTENT_FOLDER env var (default: "4geeks-com").
  */
 export const contentIndex = new ContentIndex();

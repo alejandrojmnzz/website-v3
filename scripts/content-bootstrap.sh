@@ -2,7 +2,7 @@
 # content-bootstrap.sh
 #
 # Trigger a full bootstrap pull from the configured content GitHub repo.
-# Downloads every marketing-content/ file from the remote branch and writes
+# Downloads every 4geeks-com/ file from the remote branch and writes
 # it to the local filesystem.
 #
 # Usage:

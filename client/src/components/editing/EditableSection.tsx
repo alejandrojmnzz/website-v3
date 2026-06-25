@@ -1284,7 +1284,7 @@ export function EditableSection({ children, section, index, sectionType, content
                     if (historyEntries.length === 0) {
                       setHistoryLoading(true);
                       const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-                      const filePath = `marketing-content/${contentDir}/${slug}/${locale}.yml`;
+                      const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
                       fetch(`/api/git/file-history?file=${encodeURIComponent(filePath)}&limit=20`)
                         .then(r => r.json())
                         .then(data => { setHistoryEntries(data.entries || []); })
@@ -1308,7 +1308,7 @@ export function EditableSection({ children, section, index, sectionType, content
             if (open && historyEntries.length === 0) {
               setHistoryLoading(true);
               const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-              const filePath = `marketing-content/${contentDir}/${slug}/${locale}.yml`;
+              const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
               fetch(`/api/git/file-history?file=${encodeURIComponent(filePath)}&limit=20`)
                 .then(r => r.json())
                 .then(data => { setHistoryEntries(data.entries || []); })
@@ -1404,7 +1404,7 @@ export function EditableSection({ children, section, index, sectionType, content
                             setHistoryPreviewLoading(true);
                             try {
                               const contentDir = contentTypesMap ? getFolderFromType(contentTypesMap, contentType) : contentType;
-                              const filePath = `marketing-content/${contentDir}/${slug}/${locale}.yml`;
+                              const filePath = `4geeks-com/${contentDir}/${slug}/${locale}.yml`;
                               const res = await fetch(`/api/git/file-at?file=${encodeURIComponent(filePath)}&sha=${entry.sha}`);
                               if (!res.ok) throw new Error("not found");
                               const text = await res.text();

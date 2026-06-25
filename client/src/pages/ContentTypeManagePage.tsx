@@ -3774,7 +3774,7 @@ export default function ContentTypeManagePage() {
                 <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pt-1">
                   <span>
                     <span className="font-medium text-foreground">{dryRunResult.static_entry_count}</span> content file{dryRunResult.static_entry_count !== 1 ? "s" : ""} in{" "}
-                    <span className="font-mono">marketing-content/{dryRunResult.directory}/</span>
+                    <span className="font-mono">4geeks-com/{dryRunResult.directory}/</span>
                   </span>
                   {dryRunResult.has_database && (
                     <span className="inline-flex items-center gap-1">

@@ -213,7 +213,7 @@ function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
 }
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
@@ -778,7 +778,7 @@ export function registerComponentsRoutes(app: Express): void {
         return;
       }
 
-      // Derive contentType from filePath (e.g. marketing-content/courses/... → "courses").
+      // Derive contentType from filePath (e.g. 4geeks-com/courses/... → "courses").
       // Reject when content type cannot be determined — unscoped writes are not allowed.
       const contentRootPrefix = getContentRootName(res);
       const derivedContentType: string | undefined = (() => {

@@ -8,7 +8,7 @@
  *
  * Examples:
  *   npx tsx scripts/admin/migrate-to-cloud.ts local gcs --dry-run
- *   npx tsx scripts/admin/migrate-to-cloud.ts local gcs --prefix=marketing-content/images
+ *   npx tsx scripts/admin/migrate-to-cloud.ts local gcs --prefix=4geeks-com/images
  *   npx tsx scripts/admin/migrate-to-cloud.ts gcs local
  *
  * Available providers: local, gcs
@@ -117,7 +117,7 @@ if (process.argv[1] === __filename) {
     console.log("");
     console.log("Examples:");
     console.log("  npx tsx scripts/admin/migrate-to-cloud.ts local gcs --dry-run");
-    console.log("  npx tsx scripts/admin/migrate-to-cloud.ts local gcs --prefix=marketing-content/images");
+    console.log("  npx tsx scripts/admin/migrate-to-cloud.ts local gcs --prefix=4geeks-com/images");
     console.log("  npx tsx scripts/admin/migrate-to-cloud.ts gcs local");
     console.log("");
     console.log("Available providers: local, gcs");

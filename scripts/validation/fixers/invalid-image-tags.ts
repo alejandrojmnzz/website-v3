@@ -12,7 +12,7 @@ import * as path from "path";
 import type { Fixer, FixerContext, FixerResult } from "./types";
 import { mediaGallery } from "../../../server/media-gallery";
 
-const REGISTRY_PATH = path.join(process.cwd(), "marketing-content", "image-registry.json");
+const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "image-registry.json");
 
 export const invalidImageTagsFixer: Fixer = {
   name: "invalid-image-tags",

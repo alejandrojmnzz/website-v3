@@ -2,7 +2,7 @@
  * Lazy-load registry for section components.
  *
  * Resolution priority (highest wins):
- *   1. marketing-content/component-registry/{type}/variants/*.tsx  (site-specific)
+ *   1. 4geeks-com/component-registry/{type}/variants/*.tsx  (site-specific)
  *   2. client/src/components/{type}/variants/*.tsx                 (shared platform)
  *   3. null → SectionRenderer renders UnknownSection fallback
  *
@@ -24,12 +24,12 @@ const clientLoaders = import.meta.glob("./*/variants/*.tsx") as Record<string, S
 
 /**
  * Site-specific components co-located with their schema inside component-registry.
- * Path pattern (relative to this file): ../../../marketing-content/component-registry/{type}/variants/*.tsx
+ * Path pattern (relative to this file): ../../../4geeks-com/component-registry/{type}/variants/*.tsx
  * These win over clientLoaders when both define the same type+variant key.
  * The folder may be absent in some environments — the glob simply returns {} in that case.
  */
 const registryLoaders = import.meta.glob(
-  "../../../marketing-content/component-registry/*/variants/*.tsx",
+  "../../../4geeks-com/component-registry/*/variants/*.tsx",
 ) as Record<string, SectionLoader>;
 
 /** Combined map used by loadSectionComponent — registry paths and client paths share the same namespace. */

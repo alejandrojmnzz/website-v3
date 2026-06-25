@@ -10,7 +10,7 @@ interface SeoConfig {
 }
 
 function loadSeoConfig(): SeoConfig | null {
-  const configPath = path.join(process.cwd(), "marketing-content", "seo-config.yml");
+  const configPath = path.join(process.cwd(), "4geeks-com", "seo-config.yml");
   if (!fs.existsSync(configPath)) return null;
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
@@ -43,7 +43,7 @@ export const seoIntentValidator: Validator = {
         errors: [{
           type: "error",
           code: "CONFIG_MISSING",
-          message: "marketing-content/seo-config.yml not found",
+          message: "4geeks-com/seo-config.yml not found",
           suggestion: "Create the seo-config.yml file with intents, intent_defaults, and focus_features",
         }],
         warnings: [],

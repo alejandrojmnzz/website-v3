@@ -1456,9 +1456,9 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
             if (ctEntry) {
               const dir = ctEntry.directory;
               if (singleEntry) {
-                pageContext.yamlFile = `marketing-content/${dir}/single.${locale}.yml`;
+                pageContext.yamlFile = `4geeks-com/${dir}/single.${locale}.yml`;
               } else {
-                pageContext.yamlFile = `marketing-content/${dir}/${slug}/_common.yml`;
+                pageContext.yamlFile = `4geeks-com/${dir}/${slug}/_common.yml`;
               }
             }
           }

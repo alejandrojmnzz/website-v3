@@ -563,7 +563,7 @@ export function VariableDetailModal({
 
       for (const filePath of data.updatedFiles) {
         const match = filePath.match(
-          /^marketing-content\/([^/]+)\/([^/]+)\/([^/]+)\.\w+$/,
+          /^4geeks-com\/([^/]+)\/([^/]+)\/([^/]+)\.\w+$/,
         );
         if (match) {
           const ct = normalizeContentType(match[1]);

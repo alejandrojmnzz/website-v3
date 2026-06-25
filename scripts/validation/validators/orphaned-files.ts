@@ -2,7 +2,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import * as fs from "fs";
 import * as path from "path";
 
-const CONTENT_ROOT = path.resolve("marketing-content");
+const CONTENT_ROOT = path.resolve("4geeks-com");
 
 const KNOWN_ORPHANED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   {
@@ -45,8 +45,8 @@ export const orphanedFilesValidator: Validator = {
           errors.push({
             type: "error",
             code: "ORPHANED_FILE",
-            message: `Orphaned file: marketing-content/${relative}`,
-            file: `marketing-content/${relative}`,
+            message: `Orphaned file: 4geeks-com/${relative}`,
+            file: `4geeks-com/${relative}`,
             suggestion: `Delete this file. ${reason}`,
           });
         }

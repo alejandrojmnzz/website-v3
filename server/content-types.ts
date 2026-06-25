@@ -52,7 +52,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 # Each entry defines a content type with its URL routing, field mapping, and optional database connection.
 #
 # Required fields:
-#   directory: folder inside marketing-content/ where YAML entries live
+#   directory: folder inside 4geeks-com/ where YAML entries live
 #   url_pattern: URL routing pattern (must include :slug for unique entry URLs)
 #     - Per-locale object: { en: /en/path/:slug, es: /es/ruta/:slug }
 #     - Shorthand: { default: /landing/:slug } (same path for all locales)
@@ -70,7 +70,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Fields for filtering when listing entries. Works for DB and non-DB types.
 #
 # database (optional):
-#   slug: database name (matches a db config in marketing-content/db/)
+#   slug: database name (matches a db config in 4geeks-com/db/)
 #
 # layout (optional):
 #   menu:

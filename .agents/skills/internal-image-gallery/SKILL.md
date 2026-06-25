@@ -17,7 +17,7 @@ Processing Layer  server/image-optimizer.ts        sharp-based responsive image 
 Intelligence Layer server/image-auto-tagger.ts     AI vision + heuristic tag assignment
 Scanner Layer     server/image-registry-scanner.ts Legacy scanner (superseded by MediaGallery.scan())
 UI Layer          client/src/pages/MediaGallery.tsx Admin dashboard
-Registry file     marketing-content/image-registry.json  Persisted source of truth (JSON)
+Registry file     4geeks-com/image-registry.json  Persisted source of truth (JSON)
 ```
 
 ## Singletons — Always Import, Never Instantiate
@@ -48,7 +48,7 @@ import type { ImageRegistry, ImageEntry, ImagePreset } from "@shared/schema";
 ### `ImageEntry` fields
 | Field | Type | Notes |
 |-------|------|-------|
-| `src` | `string` | URL path (`/marketing-content/images/...`, `/attached_assets/...`, or GCS URL) |
+| `src` | `string` | URL path (`/4geeks-com/images/...`, `/attached_assets/...`, or GCS URL) |
 | `alt` | `string` | **Required**. Never leave as empty string or placeholder ("TODO") |
 | `focal_point` | enum (optional) | `center` \| `top` \| `bottom` \| `left` \| `right` \| corner variants |
 | `tags` | `string[]` (optional) | Drives preset selection (see Tag→Preset mapping) |
@@ -64,7 +64,7 @@ import type { ImageRegistry, ImageEntry, ImagePreset } from "@shared/schema";
 ```json
 {
   "presets": { "hero-wide": { "aspect_ratio": "16:9", "widths": [640,1280,1920], "quality": 85, "description": "..." } },
-  "images":  { "my-image": { "src": "/marketing-content/images/my-image.png", "alt": "...", "tags": ["hero"] } }
+  "images":  { "my-image": { "src": "/4geeks-com/images/my-image.png", "alt": "...", "tags": ["hero"] } }
 }
 ```
 
@@ -171,7 +171,7 @@ Output format: non-avif → webp; avif → avif. SVGs are never processed (not r
 ### Strategy (in order)
 1. **YAML context heuristics** — inspects field names where the image is referenced (e.g., `hero_image` field → `hero` tag)
 2. **Filename patterns** — regex against the image filename
-3. **AI vision** — `LLMService.getInstance()` with the vision model from `marketing-content/llm.yml` (`model.vision` key; defaults to `meta-llama/llama-4-scout-17b-16e-instruct`)
+3. **AI vision** — `LLMService.getInstance()` with the vision model from `4geeks-com/llm.yml` (`model.vision` key; defaults to `meta-llama/llama-4-scout-17b-16e-instruct`)
 
 ### Key export
 ```ts
@@ -338,5 +338,5 @@ Standalone stats reporter. Reads registry and walks YAML independently (does not
 - `scripts/admin/migrate-to-cloud.ts`
 - `scripts/admin/remove-unused-images.ts`
 - `scripts/stats/image-usage.ts`
-- `marketing-content/image-registry.json`
+- `4geeks-com/image-registry.json`
 - `client/src/pages/MediaGallery.tsx`

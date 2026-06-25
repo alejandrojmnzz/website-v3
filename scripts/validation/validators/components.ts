@@ -12,7 +12,7 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 
-const REGISTRY_PATH = path.join(process.cwd(), "marketing-content", "component-registry");
+const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "component-registry");
 
 interface SchemaData {
   name?: string;
@@ -45,7 +45,7 @@ export const componentsValidator: Validator = {
         type: "warning",
         code: "NO_COMPONENT_REGISTRY",
         message: "Component registry directory not found",
-        suggestion: "Create marketing-content/component-registry directory",
+        suggestion: "Create 4geeks-com/component-registry directory",
       });
 
       return {

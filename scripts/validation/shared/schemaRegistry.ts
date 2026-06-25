@@ -8,7 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 
-const SCHEMA_ORG_PATH = path.join(process.cwd(), "marketing-content", "schema-org.yml");
+const SCHEMA_ORG_PATH = path.join(process.cwd(), "4geeks-com", "schema-org.yml");
 
 export function getAvailableSchemaKeys(): Set<string> {
   const keys = new Set<string>();

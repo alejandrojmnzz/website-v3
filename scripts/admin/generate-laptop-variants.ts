@@ -5,10 +5,10 @@ import crypto from "crypto";
 
 const WIDTHS = [640, 960, 1280, 1920];
 const QUALITY = 85;
-const IMAGES_DIR = path.resolve(process.cwd(), "marketing-content/images");
+const IMAGES_DIR = path.resolve(process.cwd(), "4geeks-com/images");
 const SOURCE_INPUT = path.join(IMAGES_DIR, "laptop.webp");
 const WEBP_OUTPUT = path.join(IMAGES_DIR, "laptop.webp");
-const REGISTRY_PATH = path.resolve(process.cwd(), "marketing-content/image-registry.json");
+const REGISTRY_PATH = path.resolve(process.cwd(), "4geeks-com/image-registry.json");
 
 async function main() {
   if (!fs.existsSync(SOURCE_INPUT)) {
@@ -51,7 +51,7 @@ async function main() {
 
     const outFilename = `laptop-${w}w.webp`;
     const outPath = path.join(IMAGES_DIR, outFilename);
-    const outUrl = `/marketing-content/images/${outFilename}`;
+    const outUrl = `/4geeks-com/images/${outFilename}`;
 
     const { data, info } = await sharp(sourceBuffer)
       .resize({ width: w, withoutEnlargement: true })
@@ -74,7 +74,7 @@ async function main() {
   if (!registry.images.laptop) registry.images.laptop = {};
 
   const laptopEntry = registry.images.laptop;
-  laptopEntry.src = "/marketing-content/images/laptop.webp";
+  laptopEntry.src = "/4geeks-com/images/laptop.webp";
   laptopEntry.alt = laptopEntry.alt || "Code editor on a laptop";
   laptopEntry.focal_point = laptopEntry.focal_point || "center";
   laptopEntry.tags = laptopEntry.tags || ["illustration"];

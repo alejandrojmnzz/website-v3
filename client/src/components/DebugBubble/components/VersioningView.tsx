@@ -302,7 +302,7 @@ export function VersioningView({
     setRestoreHistoryLoading(true);
     const { type, slug } = contentInfo;
     if (!type || !slug) { setRestoreHistoryLoading(false); return; }
-    const folder = `marketing-content/${type}/${slug}`;
+    const folder = `4geeks-com/${type}/${slug}`;
     try {
       const data = await fetch(`/api/git/folder-history?folder=${encodeURIComponent(folder)}&limit=30`).then(r => r.json());
       setRestoreHistory(data.entries || []);
@@ -317,7 +317,7 @@ export function VersioningView({
   const handleRestore = async () => {
     if (!restoreTarget || !contentInfo.type || !contentInfo.slug) return;
     setIsRestoring(true);
-    const folder = `marketing-content/${contentInfo.type}/${contentInfo.slug}`;
+    const folder = `4geeks-com/${contentInfo.type}/${contentInfo.slug}`;
     try {
       const token = getDebugToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -426,7 +426,7 @@ export function VersioningView({
                     return `${Math.floor(hrs / 24)}d ago`;
                   })();
                   const githubUrl = repoUrl
-                    ? `${repoUrl}/tree/${entry.sha}/marketing-content/${contentInfo.type}/${contentInfo.slug}`
+                    ? `${repoUrl}/tree/${entry.sha}/4geeks-com/${contentInfo.type}/${contentInfo.slug}`
                     : null;
                   return (
                     <div key={entry.sha} className="flex items-start justify-between gap-2 px-2 py-1.5 rounded-md hover-elevate">
@@ -967,7 +967,7 @@ export function VersioningView({
             <DialogDescription>
               This will overwrite every file in{" "}
               <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                marketing-content/{contentInfo.type}/{contentInfo.slug}/
+                4geeks-com/{contentInfo.type}/{contentInfo.slug}/
               </code>{" "}
               with the versions from commit{" "}
               <code className="text-xs bg-muted px-1 py-0.5 rounded">{restoreTarget?.slice(0, 7)}</code>.

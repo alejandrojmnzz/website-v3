@@ -4,7 +4,7 @@
  *
  * One-off fixer: removes legacy `marketing_text:` and `sms_text:` keys (and
  * any block-scalar continuation lines) from `consent:` blocks in YAML content
- * files under marketing-content/.
+ * files under 4geeks-com/.
  *
  * These keys are silently ignored by the lead form's three-level priority
  * resolution (which always falls back to `reserved.consent_general` /
@@ -27,7 +27,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { glob } from "glob";
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 const DRY_RUN = !process.argv.includes("--write");
 
 const LEGACY_KEY_RE = /^(\s+)(marketing_text|sms_text)\s*:/;

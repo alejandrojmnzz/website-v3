@@ -48,7 +48,7 @@ export function ConfirmPullFileModal(props: ConfirmPullFileModalProps) {
               className="font-mono text-sm truncate" 
               title={confirmPullFile || ''}
             >
-              {confirmPullFile?.replace('marketing-content/', '')}
+              {confirmPullFile?.replace('4geeks-com/', '')}
             </span>
           </div>
           

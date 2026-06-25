@@ -213,7 +213,7 @@ function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
 }
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
@@ -763,7 +763,7 @@ export function registerSectionsRoutes(app: Express): void {
 
   /**
    * Update a section for a specific DB entry only (per-entry override).
-   * Writes the section data as a patch in `marketing-content/{folder}/{slug}/{locale}.yml`.
+   * Writes the section data as a patch in `4geeks-com/{folder}/{slug}/{locale}.yml`.
    * If the section has no id, auto-generates one and patches the shared template first.
    * The loader's applyPerEntryLayer deep-merges the patch on render.
    */

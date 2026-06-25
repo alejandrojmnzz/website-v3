@@ -32,7 +32,7 @@ After the user approves the mockup, build the component into the codebase. Every
 
 ### File Checklist
 
-#### 1. Component Registry — `marketing-content/component-registry/<component_name>/v1.0/`
+#### 1. Component Registry — `4geeks-com/component-registry/<component_name>/v1.0/`
 
 Create the following files inside a new versioned folder:
 
@@ -116,7 +116,7 @@ Add a re-export block so the rest of the app can import the schema and types:
 export {
   myComponentSectionSchema,
   type MyComponentSection,
-} from "../marketing-content/component-registry/my_component/v1.0/schema";
+} from "../4geeks-com/component-registry/my_component/v1.0/schema";
 ```
 
 Also add the new section schema to the `Section` union type if one exists, or ensure it is included in the validation pipeline.
@@ -165,7 +165,7 @@ import { IconMyIcon } from "@tabler/icons-react"; // add to existing imports
 
 #### 6. ComponentPickerModal (Automatic)
 
-The "Add Component" modal (`client/src/components/editing/ComponentPickerModal.tsx`) reads from the `/api/component-registry` API endpoint, which scans the `marketing-content/component-registry/` folder automatically. As long as the component registry folder (step 1) exists with a valid `schema.yml`, the component will appear in the modal with no extra code changes.
+The "Add Component" modal (`client/src/components/editing/ComponentPickerModal.tsx`) reads from the `/api/component-registry` API endpoint, which scans the `4geeks-com/component-registry/` folder automatically. As long as the component registry folder (step 1) exists with a valid `schema.yml`, the component will appear in the modal with no extra code changes.
 
 #### 7. YAML Content Example
 
@@ -234,11 +234,11 @@ Use `shadow-card` for cards. Shadows are disabled in dark mode.
 ### Icons
 
 - **Library**: `@tabler/icons-react` — NEVER use `lucide-react`.
-- **Allowed icons**: See `marketing-content/theme.json` `icons` array for the full approved list.
+- **Allowed icons**: See `4geeks-com/theme.json` `icons` array for the full approved list.
 
 ### Allowed Backgrounds
 
-`marketing-content/theme.json` is the **single source of truth** for all allowed background colors. Never use a background color that is not in this file — not even a color that "looks like" a brand color.
+`4geeks-com/theme.json` is the **single source of truth** for all allowed background colors. Never use a background color that is not in this file — not even a color that "looks like" a brand color.
 
 | ID | CSS Variable / Value | Hex equivalent (for mockup sandbox) |
 |---|---|---|
@@ -364,7 +364,7 @@ Use the shadcn `<Button>` component. The actual `variant` prop values are: `defa
 
 - **Component type** (YAML `type` field): `snake_case` (e.g., `graduates_stats`, `cta_banner`)
 - **Component name** (React): `PascalCase` (e.g., `GraduatesStats`, `CtaBanner`)
-- **Registry folder**: matches the `type` value in `snake_case` (e.g., `marketing-content/component-registry/graduates_stats/`)
+- **Registry folder**: matches the `type` value in `snake_case` (e.g., `4geeks-com/component-registry/graduates_stats/`)
 - **Schema exports**: `camelCase` with `Schema` suffix (e.g., `graduatesStatsSectionSchema`)
 - **Type exports**: `PascalCase` with `Section` suffix (e.g., `GraduatesStatsSection`)
 
@@ -382,7 +382,7 @@ When a component supports multiple layout variants:
 
 **Reference implementation**: See `graduates_stats` component for the complete pattern:
 - `client/src/components/graduates_stats/` — folder with index, main component, and variant files
-- `marketing-content/component-registry/graduates_stats/v1.0/` — schema.yml, schema.ts, field-editors.ts, examples/
+- `4geeks-com/component-registry/graduates_stats/v1.0/` — schema.yml, schema.ts, field-editors.ts, examples/
 
 ---
 

@@ -5,7 +5,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import { escapeTemplateVars } from "../../../shared/templateVars";
 import { getAllDirectories } from "../../../server/content-types";
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 
 const CONTENT_DIRS = getAllDirectories().map(dir => path.join(MARKETING_CONTENT_DIR, dir));
@@ -153,7 +153,7 @@ export const heroImageTagsValidator: Validator = {
         code: "REGISTRY_LOAD_ERROR",
         message: `Failed to load image registry: ${err instanceof Error ? err.message : String(err)}`,
         file: REGISTRY_PATH,
-        suggestion: "Ensure marketing-content/image-registry.json exists and is valid JSON",
+        suggestion: "Ensure 4geeks-com/image-registry.json exists and is valid JSON",
       });
       return {
         name: this.name,

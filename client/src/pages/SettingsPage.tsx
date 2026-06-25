@@ -627,7 +627,7 @@ export default function SettingsPage() {
                         Used as the fallback <code className="font-mono">og:image</code> on pages that don't have a specific social image. Recommended size: 1200×630 px.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Saved to <code className="font-mono">marketing-content/schema-org.yml</code> under <code className="font-mono">website.default_social_image</code>.
+                        Saved to <code className="font-mono">4geeks-com/schema-org.yml</code> under <code className="font-mono">website.default_social_image</code>.
                       </p>
                     </div>
 
@@ -685,7 +685,7 @@ export default function SettingsPage() {
                       <div className="space-y-1">
                         <p className="text-sm font-medium">Twitter / X Handle</p>
                         <p className="text-xs text-muted-foreground">
-                          Saved to <code className="font-mono">marketing-content/schema-org.yml</code> under <code className="font-mono">organization.same_as</code>.
+                          Saved to <code className="font-mono">4geeks-com/schema-org.yml</code> under <code className="font-mono">organization.same_as</code>.
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

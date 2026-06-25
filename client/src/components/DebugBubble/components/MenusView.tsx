@@ -101,7 +101,7 @@ export function MenusView() {
           <p className="text-sm text-muted-foreground mb-2">No menus found</p>
           <p className="text-xs text-muted-foreground">
             Add <code className="bg-muted px-1 rounded">.yml</code> files to{" "}
-            <code className="bg-muted px-1 rounded">marketing-content/menus/</code>{" "}
+            <code className="bg-muted px-1 rounded">4geeks-com/menus/</code>{" "}
             or use the + button above.
           </p>
         </div>

@@ -18,7 +18,7 @@ import OpenAI from "openai";
 import { globSync } from "glob";
 
 const DRY_RUN = !process.argv.includes("--write");
-const CONTENT_ROOT = path.join(process.cwd(), "marketing-content");
+const CONTENT_ROOT = path.join(process.cwd(), "4geeks-com");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "dummy",

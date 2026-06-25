@@ -86,7 +86,7 @@ interface Validator extends ValidatorMetadata {
 
 ### 1.3 Schema.org Infrastructure
 
-- **`server/schema-org.ts`**: Loads `marketing-content/schema-org.yml`, resolves locale-specific schemas, merges overrides
+- **`server/schema-org.ts`**: Loads `4geeks-com/schema-org.yml`, resolves locale-specific schemas, merges overrides
 - **`server/ssr-schema.ts`**: Server-side JSON-LD injection into HTML responses
   - Parses routes to resolve content type, slug, locale
   - Loads raw YAML (merging `_common.yml` + locale file)
@@ -95,7 +95,7 @@ interface Validator extends ValidatorMetadata {
 
 ### 1.4 Content Index Singleton (`server/content-index.ts`)
 
-- Indexes all `marketing-content/` YAML on startup
+- Indexes all `4geeks-com/` YAML on startup
 - Tracks image usage via `imageUsage` Map (by image_id and src)
 - `getImageUsage(imageId, imageSrc)` -> O(1) lookup returning files that use the image
 - Auto-refreshes on file changes

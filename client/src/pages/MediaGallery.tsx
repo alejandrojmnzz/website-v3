@@ -2106,11 +2106,11 @@ export default function MediaGallery() {
                     <p className="text-sm font-medium">Local Filesystem</p>
                   </div>
                   <div className="text-xs text-muted-foreground space-y-2">
-                    <p>Images stored locally are served from the <code className="bg-muted px-1 rounded text-foreground">marketing-content/images/</code> folder.</p>
+                    <p>Images stored locally are served from the <code className="bg-muted px-1 rounded text-foreground">4geeks-com/images/</code> folder.</p>
                     <div className="space-y-1.5">
                       <p className="font-medium text-foreground text-xs">How to add images:</p>
                       <ol className="list-decimal list-inside space-y-1">
-                        <li>Place image files (PNG, JPG, WebP, SVG, AVIF, GIF) into <code className="bg-muted px-1 rounded text-foreground">marketing-content/images/</code></li>
+                        <li>Place image files (PNG, JPG, WebP, SVG, AVIF, GIF) into <code className="bg-muted px-1 rounded text-foreground">4geeks-com/images/</code></li>
                         <li>Click the scan button in the gallery toolbar to detect new files</li>
                         <li>Review the scan results and click Apply to register them</li>
                       </ol>

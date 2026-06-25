@@ -676,7 +676,7 @@ export function listLocationPages(locale: string, ci: typeof contentIndex = cont
   return locations;
 }
 
-// Template Pages (marketing-content/pages/)
+// Template Pages (4geeks-com/pages/)
 export function loadTemplatePage(slug: string, locale: string, ci: typeof contentIndex = contentIndex): TemplatePage | null {
   const result = ci.loadContent<TemplatePage>({
     contentType: "page",

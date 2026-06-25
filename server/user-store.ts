@@ -2,7 +2,7 @@
  * UserStore — configurable role-based authorization singleton.
  *
  * Stores roles and user assignments in users-state.json, following the same
- * pattern as sync-state.ts. Local file at marketing-content/.users-state.json,
+ * pattern as sync-state.ts. Local file at 4geeks-com/.users-state.json,
  * synced to sync/users-state.json in GCS on every write.
  */
 
@@ -28,7 +28,7 @@ export { SCOPED_CAPABILITIES, GLOBAL_CAPABILITIES, ALL_CAPABILITIES, CAPABILITY_
 
 const LOCAL_PATH = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "marketing-content",
+  process.env.CONTENT_FOLDER || "4geeks-com",
   ".users-state.json"
 );
 const GCS_KEY = "sync/users-state.json";

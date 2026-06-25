@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # content-push-all.sh
 #
-# Push every local marketing-content/ file to the configured content GitHub repo.
+# Push every local 4geeks-com/ file to the configured content GitHub repo.
 # Use this once to seed a new (empty) content repository from an existing folder.
 #
 # Usage:
@@ -18,7 +18,7 @@ set -euo pipefail
 BASE_URL="${SITE_URL:-http://localhost:5000}"
 ENDPOINT="${BASE_URL}/api/github/content/push-all"
 
-echo "Pushing all local marketing-content/ files to remote via ${ENDPOINT} ..."
+echo "Pushing all local 4geeks-com/ files to remote via ${ENDPOINT} ..."
 response=$(curl -s -w "\n%{http_code}" -X POST \
   -H "Content-Type: application/json" \
   "${ENDPOINT}")

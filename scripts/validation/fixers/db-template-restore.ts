@@ -27,7 +27,7 @@ import type { Fixer, FixerContext, FixerResult } from "./types";
 import { escapeTemplateVars, unescapeStringVars } from "../../../shared/templateVars";
 import { getAllConfigs, getFieldMapping, getDatabaseName } from "../../../server/content-types";
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 
 const PLACEHOLDER_RE = /__TPL_\d+__/;
 

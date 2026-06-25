@@ -5,7 +5,7 @@ import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import { markFileAsModified } from "./sync-state";
 
 const ATTACHED_ASSETS_DIR = path.join(process.cwd(), "attached_assets");
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
 const MARKETING_IMAGES_DIR = path.join(MARKETING_CONTENT_DIR, "images");
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 
@@ -101,7 +101,7 @@ function scanImageDirectory(baseDir: string, urlPrefix: string, skipScreenshots:
 
 function scanAllImageDirectories(): Map<string, string> {
   const attachedAssets = scanImageDirectory(ATTACHED_ASSETS_DIR, "/attached_assets/", true);
-  const marketingImages = scanImageDirectory(MARKETING_IMAGES_DIR, "/marketing-content/images/", false);
+  const marketingImages = scanImageDirectory(MARKETING_IMAGES_DIR, "/4geeks-com/images/", false);
   const combined = new Map<string, string>();
   attachedAssets.forEach((src, key) => combined.set(key, src));
   marketingImages.forEach((src, key) => combined.set(key, src));
@@ -124,7 +124,7 @@ function findImageRefsInValue(
 ): void {
   if (typeof value === "string") {
     if (value.startsWith("/attached_assets/") || value.startsWith("attached_assets/") ||
-        value.startsWith("/marketing-content/images/") || value.startsWith("marketing-content/images/")) {
+        value.startsWith("/4geeks-com/images/") || value.startsWith("4geeks-com/images/")) {
       results.push({ field: currentPath, src: value });
     }
   } else if (Array.isArray(value)) {
@@ -176,7 +176,7 @@ function scanYamlFiles(): Array<{ yamlFile: string; field: string; src: string }
 export function scanImageRegistry(): ScanResult {
   const registry = loadRegistry();
   const allImages = scanAllImageDirectories();
-  const marketingOnly = scanImageDirectory(MARKETING_IMAGES_DIR, "/marketing-content/images/", false);
+  const marketingOnly = scanImageDirectory(MARKETING_IMAGES_DIR, "/4geeks-com/images/", false);
   const yamlRefs = scanYamlFiles();
 
   const existingSrcSet = new Set<string>();
@@ -198,7 +198,7 @@ export function scanImageRegistry(): ScanResult {
   const newImages: ScanNewImage[] = [];
   const updatedImages: ScanUpdatedImage[] = [];
 
-  // Only flag images from marketing-content/images/ as new/unregistered
+  // Only flag images from 4geeks-com/images/ as new/unregistered
   // attached_assets/ is legacy and should not produce new registration suggestions
   marketingOnly.forEach((src, filename) => {
     if (existingSrcSet.has(src)) return;
@@ -331,7 +331,7 @@ export function applyRegistryChanges(scanResult: ScanResult): {
   }
 
   fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n", "utf8");
-  markFileAsModified(`${process.env.CONTENT_FOLDER || "marketing-content"}/image-registry.json`);
+  markFileAsModified(`${process.env.CONTENT_FOLDER || "4geeks-com"}/image-registry.json`);
 
   return {
     added: scanResult.newImages.length,

@@ -228,7 +228,7 @@ function conflictError(opts: {
 // ── Validation cache reader ──────────────────────────────────────────────────
 
 const VALIDATION_CACHE_PATH = path.join(
-  process.cwd(), "marketing-content", "validation-cache.json"
+  process.cwd(), "4geeks-com", "validation-cache.json"
 );
 
 
@@ -242,7 +242,7 @@ interface MappedValidationIssue {
 }
 
 /**
- * Read cached validation issues for a page URL from marketing-content/validation-cache.json.
+ * Read cached validation issues for a page URL from 4geeks-com/validation-cache.json.
  * Optionally filter to specific categories (e.g. ["seo"]).
  * Returns an empty array if the cache is missing or the URL has no entry.
  */
@@ -705,7 +705,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
       }
 
-      const relativePath = `marketing-content/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `4geeks-com/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
       const conflictErr = await getConflictError(filePath, relativePath, [[fieldPath, value]], { fieldPath, value });
       if (conflictErr) return conflictErr;
       const apiErr = await callEditSectionsApi(
@@ -814,7 +814,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
       }
 
-      const relativePath = `marketing-content/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `4geeks-com/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
       const fieldEntries = Object.entries(fields);
       const conflictErr = await getConflictError(filePath, relativePath, fieldEntries, { fields });
       if (conflictErr) return conflictErr;
@@ -943,7 +943,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!isCommon && !fs.existsSync(filePath)) {
           return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
         }
-        const relativePath = `marketing-content/${ctDir}/${slug}/${fileName}`;
+        const relativePath = `4geeks-com/${ctDir}/${slug}/${fileName}`;
         const conflictErrF = await getConflictError(filePath, relativePath, [[`meta.${field}`, value]], { field, value });
         if (conflictErrF) return conflictErrF;
         const metaOp = { action: "update_field", path: `meta.${field}`, value };
@@ -967,7 +967,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
         }
         const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
-        const relativePath = `marketing-content/${ctDir}/${slug}/${fileName}`;
+        const relativePath = `4geeks-com/${ctDir}/${slug}/${fileName}`;
         const conflictErrC = await getConflictError(filePath, relativePath, entries, { custom_fields, target });
         if (conflictErrC) return conflictErrC;
         const ops = entries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
@@ -1104,7 +1104,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           try { assertWithinBase(filePath, MARKETING_CONTENT_PATH); } catch (e) {
             return { content: [{ type: "text", text: (e as Error).message }], isError: true };
           }
-          const relativePath = `marketing-content/${ctDir}/${slug}/_common.yml`;
+          const relativePath = `4geeks-com/${ctDir}/${slug}/_common.yml`;
           const conflictErrCE = await getConflictError(filePath, relativePath, commonEntries, { fields: Object.fromEntries(commonEntries) });
           if (conflictErrCE) return conflictErrCE;
           const apiErrCE = await callEditCommonApi(
@@ -1124,7 +1124,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           if (!fs.existsSync(filePath)) {
             return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
           }
-          const relativePath = `marketing-content/${ctDir}/${slug}/${fileName}`;
+          const relativePath = `4geeks-com/${ctDir}/${slug}/${fileName}`;
           const conflictErrLE = await getConflictError(filePath, relativePath, localeEntries, { fields: Object.fromEntries(localeEntries) });
           if (conflictErrLE) return conflictErrLE;
           const apiErrLE = await callEditSectionsApi(
@@ -1146,7 +1146,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
         }
         const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
-        const relativePath = `marketing-content/${ctDir}/${slug}/${fileName}`;
+        const relativePath = `4geeks-com/${ctDir}/${slug}/${fileName}`;
         const conflictErrMF = await getConflictError(filePath, relativePath, entries, { custom_fields, target });
         if (conflictErrMF) return conflictErrMF;
         const opsMF = entries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
@@ -1389,8 +1389,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       // Commit all written files to GitHub and refresh cache
-      const commonRelPath = `marketing-content/${ctDir}/${slug}/_common.yml`;
-      const localeRelPaths = createdLocales.map(loc => `marketing-content/${ctDir}/${slug}/${loc}.yml`);
+      const commonRelPath = `4geeks-com/${ctDir}/${slug}/_common.yml`;
+      const localeRelPaths = createdLocales.map(loc => `4geeks-com/${ctDir}/${slug}/${loc}.yml`);
       const allPaths = [commonRelPath, ...localeRelPaths];
       const commitMsg = `Create page ${contentType}/${slug}`;
       const [commitResults] = await Promise.all([
@@ -1420,7 +1420,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const entry = {
         slug,
         contentType,
-        directory: `marketing-content/${ctDir}/${slug}`,
+        directory: `4geeks-com/${ctDir}/${slug}`,
         locales: createdLocales,
         ...(common.title ? { title: common.title } : {}),
         ...(urls ? { urls } : {}),
@@ -1625,7 +1625,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const removed = sections.splice(index, 1)[0] as Record<string, unknown>;
       const intendedContent = safeDump(localeData);
 
-      const relativePath = `marketing-content/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `4geeks-com/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
       const conflictCheck = await checkRemoteConflict(relativePath);
       if (conflictCheck.conflict) {
         return conflictError({
@@ -1738,7 +1738,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const reorderedSections = order.map(i => sections[i]);
       const intendedContent = safeDump({ ...localeData, sections: reorderedSections });
 
-      const relativePath = `marketing-content/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `4geeks-com/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
       const conflictCheck = await checkRemoteConflict(relativePath);
       if (conflictCheck.conflict) {
         return conflictError({
@@ -1845,7 +1845,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
       }
 
-      const relativePath = `marketing-content/${ctDir}/${slug}/${fileName}`;
+      const relativePath = `4geeks-com/${ctDir}/${slug}/${fileName}`;
 
       // Compute intended content for conflict check
       const currentData = safeLoad(fs.readFileSync(filePath, "utf-8")) || {};
@@ -2001,8 +2001,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const localeRelPath = `marketing-content/${ctDir}/${slug}/${fileName}`;
-      const commonRelPath = `marketing-content/${ctDir}/${slug}/_common.yml`;
+      const localeRelPath = `4geeks-com/${ctDir}/${slug}/${fileName}`;
+      const commonRelPath = `4geeks-com/${ctDir}/${slug}/_common.yml`;
 
       // Validate file existence before any writes
       if (localeEntries.length > 0 && !fs.existsSync(localeFilePath)) {
@@ -2116,7 +2116,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
 
-      const targetRelPath = `marketing-content/${ctDir}/${slug}/${targetFileName}`;
+      const targetRelPath = `4geeks-com/${ctDir}/${slug}/${targetFileName}`;
 
       // Build the full locale file content
       const localeData: Record<string, unknown> = { slug, sections: content.sections };

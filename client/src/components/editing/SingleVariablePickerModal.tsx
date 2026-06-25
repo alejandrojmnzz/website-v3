@@ -417,7 +417,7 @@ export function SingleVariablePickerModal({
                         <span className="font-medium">{entry.slug}/</span>
                         {" "}
                         <span className="font-mono text-muted-foreground">
-                          {entry.files.map((f) => f.replace(/^marketing-content\//, "")).join(" or ")}
+                          {entry.files.map((f) => f.replace(/^4geeks-com\//, "")).join(" or ")}
                         </span>
                       </li>
                     ))}

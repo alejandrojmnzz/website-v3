@@ -7,7 +7,7 @@ import { child as loggerChild } from './logger';
 
 const syncLogLogger = loggerChild({ module: "SyncLog", worker: "SyncLog" });
 
-const SYNC_LOG_PATH = path.join(process.cwd(), 'marketing-content', '.sync-log-state.txt');
+const SYNC_LOG_PATH = path.join(process.cwd(), '4geeks-com', '.sync-log-state.txt');
 const GCS_SYNC_LOG_KEY = 'sync/sync-log-state.txt';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const MAX_LOG_LINES = 500;

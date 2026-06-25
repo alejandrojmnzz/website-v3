@@ -2,7 +2,7 @@
  * Atomic read/write helpers for `_section_anchors.json` sidecar files.
  *
  * Each DB content type can have a sidecar file at:
- *   marketing-content/db/{contentType}/_section_anchors.json
+ *   4geeks-com/db/{contentType}/_section_anchors.json
  *
  * Shape:
  * {
@@ -31,7 +31,7 @@ export interface SectionAnchors {
 
 function getSidecarPath(contentType: string): string {
   const folder = getFolder(contentType);
-  return path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", folder, "_section_anchors.json");
+  return path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", folder, "_section_anchors.json");
 }
 
 /**

@@ -2,7 +2,7 @@
  * Validation Cache Service
  *
  * Singleton that persists per-page validation results to
- * marketing-content/validation-cache.json and optionally auto-commits
+ * 4geeks-com/validation-cache.json and optionally auto-commits
  * the file to GitHub using the existing queue mechanism.
  *
  * Concurrent flush writes are serialized via a Promise chain (write queue).
@@ -15,7 +15,7 @@ import { child } from "../logger";
 
 const log = child({ module: "validationCacheService" });
 
-const CACHE_FILE = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "validation-cache.json");
+const CACHE_FILE = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "validation-cache.json");
 const CACHE_VERSION = 2;
 
 function emptyCache(): ValidationCacheFile {
@@ -104,7 +104,7 @@ class ValidationCacheService {
     try {
       const { queueFileChange, isAutoCommitEnabled } = await import("../auto-commit");
       if (isAutoCommitEnabled()) {
-        queueFileChange("marketing-content/validation-cache.json", "System");
+        queueFileChange("4geeks-com/validation-cache.json", "System");
       }
     } catch (err) {
       log.warn({ err }, "[ValidationCache] Could not queue auto-commit (non-fatal)");

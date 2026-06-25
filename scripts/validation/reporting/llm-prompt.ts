@@ -17,7 +17,7 @@ interface SeoConfig {
 }
 
 function loadSeoConfig(): SeoConfig | null {
-  const configPath = path.join(process.cwd(), "marketing-content", "seo-config.yml");
+  const configPath = path.join(process.cwd(), "4geeks-com", "seo-config.yml");
   if (!fs.existsSync(configPath)) return null;
   try {
     return yaml.load(fs.readFileSync(configPath, "utf-8")) as SeoConfig;
@@ -50,7 +50,7 @@ function getPersona(validatorNames: string[]): string {
 }
 
 const REPO_CONTEXT = `## Repository context
-- Content root: /home/runner/workspace/marketing-content/
+- Content root: /home/runner/workspace/4geeks-com/
 - Files use YAML format (.yml)
 - Merge chain (each level overrides the parent):
     _common.single.yml  →  {slug}/_common.yml  →  {slug}/{locale}.yml

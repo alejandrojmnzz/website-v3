@@ -84,10 +84,10 @@ Variables are listed by category. "Required" means the feature that depends on t
 
 ### AI / LLM
 
-The platform uses an OpenAI-compatible API client. Which API key and base URL it reads is controlled by `marketing-content/llm.yml` via the `provider.api_key_env` and `provider.base_url_env` fields. The current default configuration routes calls through Groq, so the variables you need to set in practice are `GROQ_API_KEY` and `GROQ_BASE_URL`.
+The platform uses an OpenAI-compatible API client. Which API key and base URL it reads is controlled by `4geeks-com/llm.yml` via the `provider.api_key_env` and `provider.base_url_env` fields. The current default configuration routes calls through Groq, so the variables you need to set in practice are `GROQ_API_KEY` and `GROQ_BASE_URL`.
 
 ```yaml
-# marketing-content/llm.yml (current defaults)
+# 4geeks-com/llm.yml (current defaults)
 provider:
   api_key_env: GROQ_API_KEY
   base_url_env: GROQ_BASE_URL
@@ -100,18 +100,18 @@ If you change `api_key_env` or `base_url_env` in `llm.yml`, the server reads the
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
-| `GROQ_API_KEY` | No* | — | API key for the Groq inference API. This is the variable currently named in `marketing-content/llm.yml` under `provider.api_key_env`. Required if `llm.yml` has not been changed to point at a different env name. | AI meta-tag generation, chat assistant, content adaptation | Groq account at console.groq.com |
+| `GROQ_API_KEY` | No* | — | API key for the Groq inference API. This is the variable currently named in `4geeks-com/llm.yml` under `provider.api_key_env`. Required if `llm.yml` has not been changed to point at a different env name. | AI meta-tag generation, chat assistant, content adaptation | Groq account at console.groq.com |
 | `GROQ_BASE_URL` | No | Groq default | Base URL for the Groq API. Currently named in `llm.yml` under `provider.base_url_env`. Only needed if you need to override the default endpoint. | Routing LLM calls to a custom Groq-compatible endpoint | None |
 | `OPENAI_API_KEY` | No* | — | OpenAI API key. Checked as a hard-coded fallback in the LLM service when the env var named by `provider.api_key_env` is not set. Also read by the `seo-ai-meta-fix` admin script. | AI features when `llm.yml` is changed to use OpenAI | None if key is valid |
 | `OPENAI_BASE_URL` | No | OpenAI default | Base URL override for the OpenAI client. Used when `provider.base_url_env` resolves to this variable or when `OPENAI_API_KEY` is the active key. | Routing LLM calls to an alternative OpenAI-compatible provider | Provider must be OpenAI-API-compatible |
 | `AI_INTEGRATIONS_OPENAI_API_KEY` | No* | — | API key injected by the Replit AI Integrations connector. The `seo-ai-meta-fix` script reads this as an alternative to `OPENAI_API_KEY`. | AI features via Replit AI integration | Requires the Replit AI integration to be configured |
 | `AI_INTEGRATIONS_OPENAI_BASE_URL` | No | — | Base URL injected by the Replit AI Integrations connector alongside `AI_INTEGRATIONS_OPENAI_API_KEY`. | Routing LLM calls via the Replit integration endpoint | Requires the Replit AI integration to be configured |
-| `LLM_MODEL` | No | Value from `marketing-content/llm.yml` (`model.default`), currently `llama-3.3-70b-versatile` | Overrides the default LLM model for all non-chat completions. Env var takes precedence over `llm.yml`. | Model selection for meta generation and content adaptation | None |
+| `LLM_MODEL` | No | Value from `4geeks-com/llm.yml` (`model.default`), currently `llama-3.3-70b-versatile` | Overrides the default LLM model for all non-chat completions. Env var takes precedence over `llm.yml`. | Model selection for meta generation and content adaptation | None |
 | `LLM_CHAT_MODEL` | No | Falls back to `LLM_MODEL` | Overrides the LLM model used specifically for the chat assistant. Env var takes precedence over `llm.yml` (`model.chat`). | Model selection for the chat assistant | None |
 
 *At least one valid API key must be set for the LLM provider named in `llm.yml`. With the default configuration that means `GROQ_API_KEY`.
 
-Environment variables always take precedence over `marketing-content/llm.yml`. Changing the provider, model, temperature, or token limit in `llm.yml` does not require a server restart — the file is reloaded on the next request when its modification time changes.
+Environment variables always take precedence over `4geeks-com/llm.yml`. Changing the provider, model, temperature, or token limit in `llm.yml` does not require a server restart — the file is reloaded on the next request when its modification time changes.
 
 ### GitHub Sync
 
@@ -128,7 +128,7 @@ GitHub sync lets content editors commit YAML edits back to the repository automa
 
 ### Google Cloud Storage
 
-When GCS is configured, uploaded media is stored in a GCS bucket instead of the local `marketing-content/images/` directory. `GCS_BUCKET_NAME` is the only variable that activates GCS; the rest refine how the client authenticates.
+When GCS is configured, uploaded media is stored in a GCS bucket instead of the local `4geeks-com/images/` directory. `GCS_BUCKET_NAME` is the only variable that activates GCS; the rest refine how the client authenticates.
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|

@@ -259,7 +259,7 @@ function DatasetPickerDialog({
                     <p className="text-sm text-muted-foreground">No dataset files found</p>
                     <p className="text-xs text-muted-foreground">
                       Switch to Upload to add a new file, or place files in{" "}
-                      <code className="bg-muted px-1 rounded">marketing-content/db/</code>
+                      <code className="bg-muted px-1 rounded">4geeks-com/db/</code>
                     </p>
                   </div>
                 ) : (
@@ -331,7 +331,7 @@ function DatasetPickerDialog({
                     <p className="text-sm font-medium">Drop a file here or click to browse</p>
                     <p className="text-xs text-muted-foreground">JSON, CSV, YAML (max 50 MB)</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Saves to marketing-content/db/{slug || "<slug>"}/
+                      Saves to 4geeks-com/db/{slug || "<slug>"}/
                     </p>
                   </div>
                 )}
@@ -788,7 +788,7 @@ function CreateDatabaseDialog({
                     <p>
                       Put your file at{" "}
                       <code className="bg-muted px-1 rounded">
-                        marketing-content/db/{slug || "<slug>"}/<span className="text-foreground">{localFilename || "your-file.json"}</span>
+                        4geeks-com/db/{slug || "<slug>"}/<span className="text-foreground">{localFilename || "your-file.json"}</span>
                       </code>{" "}
                       before syncing.
                     </p>
@@ -1681,7 +1681,7 @@ function DatabaseConfigEditor({
               <p>
                 Put your file at{" "}
                 <code className="bg-muted px-1 rounded">
-                  marketing-content/db/{dbName}/{localFilename || "your-file.json"}
+                  4geeks-com/db/{dbName}/{localFilename || "your-file.json"}
                 </code>{" "}
                 before syncing.
               </p>

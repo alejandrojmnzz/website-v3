@@ -13,7 +13,7 @@ The application starts an Express backend and Vite frontend on port 5000.
 
 ## Media Storage (Google Cloud Storage)
 
-The platform supports a pluggable media storage system. By default, images are stored locally in `marketing-content/images/`. You can optionally configure Google Cloud Storage (GCS) for cloud-based hosting.
+The platform supports a pluggable media storage system. By default, images are stored locally in `4geeks-com/images/`. You can optionally configure Google Cloud Storage (GCS) for cloud-based hosting.
 
 ### Prerequisites
 

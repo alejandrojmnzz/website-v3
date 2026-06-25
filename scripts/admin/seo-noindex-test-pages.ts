@@ -2,7 +2,7 @@
 /**
  * SEO Noindex Script for Test/Demo Pages
  *
- * Scans all YAML files in marketing-content/, identifies test/demo pages
+ * Scans all YAML files in 4geeks-com/, identifies test/demo pages
  * by slug patterns, and adds robots: noindex, nofollow to their meta blocks.
  *
  * Test patterns: prueba, copia, sample, testing, lumi, anik, lorena, jt
@@ -29,7 +29,7 @@ const TEST_PATTERNS = [
   /\bjt$/i,
 ];
 
-const CONTENT_ROOT = path.join(process.cwd(), "marketing-content");
+const CONTENT_ROOT = path.join(process.cwd(), "4geeks-com");
 const DRY_RUN = !process.argv.includes("--write");
 
 function isTestSlug(slug: string): boolean {

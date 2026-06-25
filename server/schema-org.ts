@@ -36,7 +36,7 @@ function loadSchemaConfig(): SchemaOrgConfig {
     return schemaCache;
   }
 
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "schema-org.yml");
   
   if (!fs.existsSync(schemaPath)) {
     log.warn("[SchemaOrg] schema-org.yml not found");
@@ -330,7 +330,7 @@ export function getOrganizationSameAsUrl(platform: string): string | null {
 }
 
 export function updateOrganizationSameAsUrl(platform: string, url: string): void {
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {
@@ -375,7 +375,7 @@ export function getWebsiteDefaultSocialImage(): string | null {
 }
 
 export function updateOrganizationTwitterHandle(handle: string): void {
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {
@@ -416,7 +416,7 @@ export function updateOrganizationTwitterHandle(handle: string): void {
 }
 
 export function updateWebsiteDefaultSocialImage(imageUrl: string): void {
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com", "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {

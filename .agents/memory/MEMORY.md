@@ -1,1 +1,1 @@
-- [Multi-site subdomain routing](multi-site-routing.md) — per-domain ContentIndex, siteResolutionMiddleware, default content folder is "content" (existing deploys set CONTENT_FOLDER=marketing-content in dev env)
+- [Multi-site subdomain routing](multi-site-routing.md) — per-domain ContentIndex, siteResolutionMiddleware, default content folder is "content" (existing deploys set CONTENT_FOLDER=4geeks-com in dev env)

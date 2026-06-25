@@ -1,7 +1,7 @@
 /**
  * Consent Legacy Keys Validator
  *
- * Flags any YAML file under `marketing-content/` that contains `marketing_text:`
+ * Flags any YAML file under `4geeks-com/` that contains `marketing_text:`
  * or `sms_text:` under a `consent:` key.
  *
  * These keys are obsolete — the lead form always resolves consent text through
@@ -20,7 +20,7 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { findObsoleteConsentKeys } from "../../../shared/consentLegacyKeys";
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 
 function walkYamlFiles(dir: string): string[] {
   const results: string[] = [];

@@ -17,7 +17,7 @@ import { processImageFromSrc } from "../../../server/image-optimizer";
 import type { Preset } from "../../../server/image-optimizer";
 import { getAllDirectories } from "../../../server/content-types";
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_DIR = path.join(process.cwd(), "4geeks-com");
 const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 
 const CONTENT_DIRS = getAllDirectories().map(dir => path.join(MARKETING_CONTENT_DIR, dir));

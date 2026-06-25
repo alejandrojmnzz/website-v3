@@ -442,7 +442,7 @@ function ComponentCard({
     }
   };
 
-  const examplePath = `marketing-content/component-registry/${componentType}/${selectedVersion}/examples/`;
+  const examplePath = `4geeks-com/component-registry/${componentType}/${selectedVersion}/examples/`;
 
   if (!schema) {
     return null;

@@ -8,7 +8,7 @@ import {
 } from "../shared/imageRegistrySrc";
 import { mediaGallery } from "../../../server/media-gallery";
 
-const REGISTRY_PATH = path.join(process.cwd(), "marketing-content", "image-registry.json");
+const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "image-registry.json");
 
 interface ImageRegistryEntry {
   src: string;
@@ -49,7 +49,7 @@ export const imagesValidator: Validator = {
         code: "REGISTRY_LOAD_ERROR",
         message: `Failed to load image registry: ${err instanceof Error ? err.message : String(err)}`,
         file: REGISTRY_PATH,
-        suggestion: "Ensure marketing-content/image-registry.json exists and is valid JSON",
+        suggestion: "Ensure 4geeks-com/image-registry.json exists and is valid JSON",
       });
 
       return {
@@ -94,7 +94,7 @@ export const imagesValidator: Validator = {
           type: "error",
           code: "IMAGE_REFERENCE_NOT_IN_REGISTRY",
           message: `Referenced image "${ref}" not found in image registry (no matching id or src)`,
-          suggestion: "Add this image to marketing-content/image-registry.json or fix the reference",
+          suggestion: "Add this image to 4geeks-com/image-registry.json or fix the reference",
           fix: {
             type: "manual",
             label: "Fix manually",

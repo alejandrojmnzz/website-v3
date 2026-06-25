@@ -1,6 +1,6 @@
 /**
  * @migration 001_add_section_ids
- * @description Adds a stable `section_id` to every section in marketing-content that is missing one. Idempotent — safe to re-run, existing IDs are never overwritten.
+ * @description Adds a stable `section_id` to every section in 4geeks-com that is missing one. Idempotent — safe to re-run, existing IDs are never overwritten.
  *
  * IMPORTANT: This migration uses pure text injection — it never does a full YAML round-trip.
  * This preserves template variables like {{ global.x | default }} which would otherwise be
@@ -78,7 +78,7 @@ function addMissingSectionIds(rawText: string): { patched: string; idsAdded: num
   return { patched: result.join("\n"), idsAdded };
 }
 
-const MARKETING_CONTENT = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT = path.join(process.cwd(), "4geeks-com");
 const files = walkDir(MARKETING_CONTENT).filter(f => !f.includes("/component-registry/"));
 
 let totalFilesChanged = 0;

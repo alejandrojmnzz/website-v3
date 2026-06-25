@@ -2,7 +2,7 @@
  * Type definitions for AI Content Adaptation System
  */
 
-// Brand context from marketing-content/brand-context.yml
+// Brand context from 4geeks-com/brand-context.yml
 export interface BrandContext {
   brand: {
     name: string;

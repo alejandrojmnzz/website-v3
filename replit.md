@@ -16,7 +16,7 @@ _Populate as you build_
 ## Where things live
 - `/client/`: Frontend source code
 - `/server/`: Backend source code
-- `/marketing-content/`: All content-related files (YAML, JSON)
+- `/4geeks-com/`: All content-related files (YAML, JSON)
     - `content-types.yml`: Single source of truth for content type definitions
     - `settings.yml`: Site-wide settings (e.g., i18n locales)
     - `image-registry.json`: Centralized image metadata
@@ -28,7 +28,7 @@ _Populate as you build_
 - `/scripts/validation/`: Content validation scripts
 
 ## Architecture decisions
-- **Content-Driven Architecture**: Uses a YAML-based CMS (`marketing-content/`) rendered dynamically by a `SectionRenderer`. Content types, settings, and menus are defined in YAML/JSON.
+- **Content-Driven Architecture**: Uses a YAML-based CMS (`4geeks-com/`) rendered dynamically by a `SectionRenderer`. Content types, settings, and menus are defined in YAML/JSON.
 - **Dynamic Content Type & Routing**: `content-types.yml` defines all content types, which automatically generate frontend routes, API endpoints, and sitemap entries without code changes.
 - **Universal Components**: `UniversalVideo` and `UniversalImage` are mandatory for all video and image content, enforcing consistent behavior, performance, and referencing a centralized image registry.
 - **Hybrid Data Management**: Supports both static YAML-based content and dynamic database-backed content, with a unified field mapping and templating system (`{{ single.* }}` variables).
@@ -48,8 +48,8 @@ _Populate as you build_
 - Font system: Noto Color Emoji for consistent emoji rendering across all operating systems
 - Colors: ONLY semantic tokens - NEVER use hardcoded colors like `bg-blue-500`, `text-red-600`, or arbitrary hex values. Only use semantic classes: `bg-primary`, `text-foreground`, `bg-muted`, etc.
 - Video: ALWAYS use the `UniversalVideo` component (`client/src/components/UniversalVideo.tsx`) for ALL video content. NEVER use raw `<video>` tags, `<iframe>` embeds, or other video libraries directly.
-- Images: ALWAYS use the `UniversalImage` component (`client/src/components/UniversalImage.tsx`) for ALL image content. Reference images by ID from the centralized registry (`marketing-content/image-registry.json`). NEVER use hardcoded image paths in components. Exception: `HeroSingleColumn` uses `image: { src, alt }` object syntax (not `image_id`) — renders a direct `<img>` tag, with backward compatibility fallback to `UniversalImage` for legacy `image_id` data.
-- Image Storage: New images go in `marketing-content/images/` (served at `/marketing-content/images/`). Legacy images remain in `attached_assets/` (served at `/attached_assets/`). The `attached_assets/` folder also contains conversation screenshots which are excluded from the registry scanner and gitignored.
+- Images: ALWAYS use the `UniversalImage` component (`client/src/components/UniversalImage.tsx`) for ALL image content. Reference images by ID from the centralized registry (`4geeks-com/image-registry.json`). NEVER use hardcoded image paths in components. Exception: `HeroSingleColumn` uses `image: { src, alt }` object syntax (not `image_id`) — renders a direct `<img>` tag, with backward compatibility fallback to `UniversalImage` for legacy `image_id` data.
+- Image Storage: New images go in `4geeks-com/images/` (served at `/4geeks-com/images/`). Legacy images remain in `attached_assets/` (served at `/attached_assets/`). The `attached_assets/` folder also contains conversation screenshots which are excluded from the registry scanner and gitignored.
 - URL Routing: Use `/en/` prefix for English pages and `/es/` prefix for Spanish pages. NEVER use `/us/` - this is incorrect. Example: `/en/geekforce-career-support` (correct), `/us/geekforce-career-support` (wrong).
 - Agent Skills: All project-specific agent skills use the `internal-` prefix (e.g., `internal-image-gallery`). They live in `.agents/skills/` and are automatically loaded when working on related subsystems.
 
@@ -65,5 +65,5 @@ _Populate as you build_
 - **i18n**: `react-i18next` documentation for internationalization.
 - **UI Components**: shadcn UI and Tailwind CSS documentation for styling.
 - **Data Fetching**: TanStack Query documentation for client-side data management.
-- **Content Schema**: Refer to `marketing-content/content-types.yml` for all content type definitions.
+- **Content Schema**: Refer to `4geeks-com/content-types.yml` for all content type definitions.
 - **Image Registry Schema**: Refer to `shared/schema.ts` for the `image-registry.json` schema.

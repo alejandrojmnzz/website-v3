@@ -21,7 +21,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 /**
  * Returns the relative content folder name for a given contentRoot.
- * Falls back to CONTENT_FOLDER env var (or 'marketing-content') when no contentRoot provided.
+ * Falls back to CONTENT_FOLDER env var (or '4geeks-com') when no contentRoot provided.
  */
 export function getContentFolder(contentRoot?: string): string {
   if (!contentRoot) return DEFAULT_CONTENT_FOLDER;
@@ -124,7 +124,7 @@ async function saveSyncStateToBucket(state: SyncStateWithConfig, contentRoot?: s
 
 /**
  * Check if a file should be tracked by the sync system.
- * Tracks YAML and JSON files in marketing-content directory.
+ * Tracks YAML and JSON files in 4geeks-com directory.
  * Excludes component-registry, dot-prefixed state files, and image directories.
  */
 export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string>, contentRoot?: string): boolean {
@@ -316,7 +316,7 @@ const fileModifiedListeners: Set<(filePath: string) => void> = new Set();
 
 /**
  * Register a listener that fires whenever any content file is marked modified.
- * Listeners receive the relative file path (e.g. "marketing-content/landings/my-page/test.en.yml").
+ * Listeners receive the relative file path (e.g. "4geeks-com/landings/my-page/test.en.yml").
  */
 export function addFileModifiedListener(cb: (filePath: string) => void): void {
   fileModifiedListeners.add(cb);
@@ -325,7 +325,7 @@ export function addFileModifiedListener(cb: (filePath: string) => void): void {
 
 /**
  * Mark a file as modified (dirty) after an edit.
- * Tracks YAML and JSON files in marketing-content directory.
+ * Tracks YAML and JSON files in 4geeks-com directory.
  * Also queues the file for auto-commit if enabled.
  * @param filePath - The file path to mark as modified
  * @param author - Optional author name who made the modification

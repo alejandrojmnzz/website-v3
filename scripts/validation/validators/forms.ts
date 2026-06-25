@@ -14,7 +14,7 @@ import { validateFormSection } from "../../../shared/validateFormSection";
 import { getAllDirectories } from "../../../server/content-types";
 import { getTrackingSettings } from "../../../server/settings";
 
-const CONTENT_DIRS = getAllDirectories().map((dir) => `marketing-content/${dir}`);
+const CONTENT_DIRS = getAllDirectories().map((dir) => `4geeks-com/${dir}`);
 
 function walkYamlFiles(dir: string): string[] {
   const results: string[] = [];

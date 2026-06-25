@@ -12,7 +12,7 @@ const log = child({ module: "versioning/VersioningManager" });
 
 
 
-const DEFAULT_CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "marketing-content";
+const DEFAULT_CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "4geeks-com";
 const CONTENT_DIR = path.join(process.cwd(), DEFAULT_CONTENT_FOLDER_NAME);
 const STATE_FILE = path.join(CONTENT_DIR, ".versioning-state.json");
 const GCS_STATE_KEY = "sync/versioning-state.json";
@@ -52,7 +52,7 @@ export class VersioningManager {
 
   /**
    * Parse a relative file path and return variant coordinates if it is a
-   * variant content file (e.g. "marketing-content/landings/my-page/test.en.yml").
+   * variant content file (e.g. "4geeks-com/landings/my-page/test.en.yml").
    * Returns null for regular locale files, shared templates, or internal files.
    */
   private parseVariantFilePath(relativePath: string): {
@@ -551,7 +551,7 @@ export class VersioningManager {
         variants,
         contentType,
         slug,
-        folderPath: `marketing-content/${getFolder(contentType)}/${slug}`,
+        folderPath: `4geeks-com/${getFolder(contentType)}/${slug}`,
       };
     } catch (error) {
       log.error({ err: error }, `[Versioning] Error getting variants for ${contentType}/${slug}:`);

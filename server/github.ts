@@ -209,7 +209,7 @@ export function isGitHubConfigured(repoUrl?: string): boolean {
 /**
  * Fetch all content-folder files from a commit tree.
  * Used when there's no lastSyncedCommit to compare against.
- * @param contentFolder - relative content folder name (e.g. "marketing-content"); defaults to CONTENT_FOLDER env var
+ * @param contentFolder - relative content folder name (e.g. "4geeks-com"); defaults to CONTENT_FOLDER env var
  */
 async function fetchFilesFromTree(config: GitHubConfig, commitSha: string, contentFolder?: string): Promise<string[]> {
   const folder = contentFolder || process.env.CONTENT_FOLDER || 'content';
@@ -284,7 +284,7 @@ export interface GitHubSyncStatus {
 }
 
 /**
- * Get list of pending changes in marketing-content directory
+ * Get list of pending changes in 4geeks-com directory
  * Uses file hash comparison instead of git status
  */
 export async function getPendingChanges(): Promise<PendingChange[]> {
@@ -2040,7 +2040,7 @@ export function writeBootstrapCompleteFlag(contentRoot?: string): void {
 }
 
 /**
- * Walk the local marketing-content/ directory and commit every file to the
+ * Walk the local 4geeks-com/ directory and commit every file to the
  * configured remote GitHub repo using commitToGitHub (one file at a time).
  *
  * Intended as a one-time seed operation when creating a fresh content repo

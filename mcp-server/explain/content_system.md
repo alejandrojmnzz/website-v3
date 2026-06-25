@@ -1,11 +1,11 @@
 # Content System
 
-All marketing content lives under `marketing-content/`. Pages are YAML files grouped by content type directory.
+All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by content type directory.
 
 ## Directory layout
 
 ```
-marketing-content/
+4geeks-com/
   content-types.yml       # single source of truth for all content types
   settings.yml            # site-wide settings (locales, tag manager, etc.)
   image-registry.json     # centralized image metadata
@@ -34,7 +34,7 @@ On the MCP server side, use the `safeLoad()` helper from `mcp-server/lib/content
 
 Types are declared in `content-types.yml`. Each entry specifies:
 
-- `directory` — subfolder inside `marketing-content/`
+- `directory` — subfolder inside `4geeks-com/`
 - `url_pattern` — per-locale URL templates with `:slug` placeholder
 - `field_mapping` — which YAML keys are exposed as `{{ single.* }}` template variables
 - `database.slug` — if present, the type is DB-backed (blog posts); YAML editing tools skip these

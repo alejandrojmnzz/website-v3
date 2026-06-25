@@ -4,7 +4,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } f
 import { mergeWidths } from "../../../server/image-optimizer";
 import type { Preset } from "../../../server/image-optimizer";
 
-const REGISTRY_PATH = path.join(process.cwd(), "marketing-content", "image-registry.json");
+const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com", "image-registry.json");
 
 const SKIP_EXTENSIONS = new Set([".svg", ".gif"]);
 const RASTER_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif"]);
@@ -66,7 +66,7 @@ export const imageOptimizationValidator: Validator = {
         code: "REGISTRY_LOAD_ERROR",
         message: `Failed to load image registry: ${err instanceof Error ? err.message : String(err)}`,
         file: REGISTRY_PATH,
-        suggestion: "Ensure marketing-content/image-registry.json exists and is valid JSON",
+        suggestion: "Ensure 4geeks-com/image-registry.json exists and is valid JSON",
       });
       return {
         name: this.name,

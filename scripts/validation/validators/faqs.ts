@@ -151,7 +151,7 @@ export const faqsValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
 
-    const faqDir = path.resolve(process.cwd(), "marketing-content/faqs");
+    const faqDir = path.resolve(process.cwd(), "4geeks-com/faqs");
     const enFile = path.join(faqDir, "en.yml");
     const esFile = path.join(faqDir, "es.yml");
 

@@ -777,7 +777,7 @@ export function registerMediaRoutes(app: Express): void {
       let newSrc: string;
 
       if (defaultProvider.name === "local") {
-        const contentRoot: string = (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "marketing-content");
+        const contentRoot: string = (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "4geeks-com");
         const contentRootName = path.basename(contentRoot);
         const imagesDir = path.join(contentRoot, "images");
         if (!fs.existsSync(imagesDir)) {

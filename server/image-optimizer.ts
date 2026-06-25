@@ -73,7 +73,7 @@ export function gcsKeyFromSrc(src: string): string | null {
 }
 
 export function localKeyFromSrc(src: string): string | null {
-  if (src.startsWith("/marketing-content/images/")) {
+  if (src.startsWith("/4geeks-com/images/")) {
     return src.slice(1);
   }
   return null;
@@ -108,7 +108,7 @@ export async function downloadImage(src: string): Promise<Buffer | null> {
   if (key) {
     return gcs.download(key);
   }
-  if (src.startsWith("/marketing-content/images/")) {
+  if (src.startsWith("/4geeks-com/images/")) {
     const localPath = path.resolve(process.cwd(), src.slice(1));
     try {
       return fs.readFileSync(localPath);

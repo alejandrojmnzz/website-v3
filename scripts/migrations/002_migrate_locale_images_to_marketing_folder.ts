@@ -1,7 +1,7 @@
 /**
  * @migration 002_migrate_locale_images_to_marketing_folder
  * @description Copies images referenced as /attached_assets/* in the image registry
- * and YAML content files to marketing-content/images/ and updates all paths.
+ * and YAML content files to 4geeks-com/images/ and updates all paths.
  * Idempotent — safe to re-run; files already at the destination are skipped.
  *
  * Usage:
@@ -13,9 +13,9 @@ import * as path from "path";
 
 const ROOT = path.resolve(__dirname, "../..");
 const ATTACHED_ASSETS_DIR = path.join(ROOT, "attached_assets");
-const MARKETING_IMAGES_DIR = path.join(ROOT, "marketing-content", "images");
-const REGISTRY_PATH = path.join(ROOT, "marketing-content", "image-registry.json");
-const MARKETING_CONTENT_DIR = path.join(ROOT, "marketing-content");
+const MARKETING_IMAGES_DIR = path.join(ROOT, "4geeks-com", "images");
+const REGISTRY_PATH = path.join(ROOT, "4geeks-com", "image-registry.json");
+const MARKETING_CONTENT_DIR = path.join(ROOT, "4geeks-com");
 
 interface MigrationResult {
   copied: string[];
@@ -60,7 +60,7 @@ function run(dryRun: boolean): MigrationResult {
     const filename = src.replace("/attached_assets/", "");
     const sourcePath = path.join(ATTACHED_ASSETS_DIR, filename);
     const destPath = path.join(MARKETING_IMAGES_DIR, filename);
-    const newSrc = `/marketing-content/images/${filename}`;
+    const newSrc = `/4geeks-com/images/${filename}`;
 
     if (!fs.existsSync(sourcePath)) {
       const destExists = fs.existsSync(destPath);
@@ -120,7 +120,7 @@ function run(dryRun: boolean): MigrationResult {
           }
         }
 
-        const newPath = `/marketing-content/images/${filename}`;
+        const newPath = `/4geeks-com/images/${filename}`;
         content = content.split(match).join(newPath);
         changed = true;
       }
@@ -142,7 +142,7 @@ const mode = dryRun ? "DRY RUN" : "LIVE";
 
 console.log(`\n=== [Migration 002] Image Migration (${mode}) ===\n`);
 console.log(`Source:      attached_assets/`);
-console.log(`Destination: marketing-content/images/\n`);
+console.log(`Destination: 4geeks-com/images/\n`);
 
 const result = run(dryRun);
 

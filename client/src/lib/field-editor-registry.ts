@@ -2,7 +2,7 @@
  * Field Editor Registry - Type Definitions
  * 
  * Field editor configurations are now managed in the component registry:
- * marketing-content/component-registry/{component}/v{x.y}/field-editors.ts
+ * 4geeks-com/component-registry/{component}/v{x.y}/field-editors.ts
  * 
  * The server aggregates all field-editors.ts files and serves them via:
  * GET /api/component-registry/field-editors

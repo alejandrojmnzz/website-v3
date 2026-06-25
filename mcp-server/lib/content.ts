@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 
-export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "marketing-content");
+export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
 export const COMPONENT_REGISTRY_PATH = path.join(MARKETING_CONTENT_PATH, "component-registry");
 export const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_PATH, "content-types.yml");
 
@@ -239,7 +239,7 @@ export function scanPages(): PageEntry[] {
       pages.push({
         slug: entry.name,
         contentType,
-        directory: `marketing-content/${getDirectory(contentType, config)}/${entry.name}`,
+        directory: `4geeks-com/${getDirectory(contentType, config)}/${entry.name}`,
         locales,
         title,
         ...(urls ? { urls } : {}),
@@ -304,7 +304,7 @@ export function setValueAtPath(obj: Record<string, unknown>, pathStr: string, va
 
 // ─── Component registry helpers ───────────────────────────────────────────────
 // Kept in lib/content.ts alongside page helpers because both operate on the
-// same marketing-content/ tree and share safeLoad/safeDump. Tools that need
+// same 4geeks-com/ tree and share safeLoad/safeDump. Tools that need
 // them import from here rather than from tools/components.ts to avoid cycles.
 
 export interface ComponentVariantInfo {

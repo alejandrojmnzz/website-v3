@@ -15,7 +15,7 @@ pattern = re.compile(
     re.DOTALL
 )
 
-roots = ["client/src", "server", "marketing-content"]
+roots = ["client/src", "server", "4geeks-com"]
 extensions = {".ts", ".tsx", ".js", ".json", ".yml", ".yaml"}
 
 total_files = 0

@@ -39,7 +39,7 @@ export interface ValidatorIssue {
 }
 
 function normalizeFilePath(p: string): string {
-  const idx = p.indexOf("marketing-content/");
+  const idx = p.indexOf("4geeks-com/");
   return idx >= 0 ? p.substring(idx) : p;
 }
 
@@ -53,7 +53,7 @@ export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictIn
   if (issue.code === "REDIRECT_CONFLICT" || issue.code === "REDIRECT_OVERLAP") {
     const urlMatch = issue.message.match(/"([^"]+)"/);
     if (urlMatch) redirectUrl = urlMatch[1];
-    const fileMatches = issue.message.match(/"([^"]*marketing-content\/[^"]+\.yml)"/g);
+    const fileMatches = issue.message.match(/"([^"]*4geeks-com\/[^"]+\.yml)"/g);
     if (fileMatches) {
       for (const m of fileMatches) {
         files.push(normalizeFilePath(m.replace(/"/g, "")));
@@ -94,7 +94,7 @@ function getConflictTitle(code: string): string {
 }
 
 function formatFilePath(f: string): string {
-  return f.replace("marketing-content/", "").split("/").join(" / ");
+  return f.replace("4geeks-com/", "").split("/").join(" / ");
 }
 
 function getConflictDescription(info: RedirectConflictInfo): string {

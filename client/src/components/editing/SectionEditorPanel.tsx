@@ -7342,7 +7342,7 @@ export function SectionEditorPanel({
                           )}
                           {!hasCloudProvider && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              Saving to marketing-content/images/
+                              Saving to 4geeks-com/images/
                             </p>
                           )}
                         </div>
@@ -7355,7 +7355,7 @@ export function SectionEditorPanel({
                     <p className="text-sm font-medium">No storage provider configured</p>
                     <p className="text-sm text-muted-foreground">
                       Configure a cloud provider in the Media Gallery settings, or place video files directly in the{" "}
-                      <code className="bg-muted px-1 rounded text-xs">marketing-content/images/</code> folder.
+                      <code className="bg-muted px-1 rounded text-xs">4geeks-com/images/</code> folder.
                     </p>
                   </div>
                 )}
@@ -7625,7 +7625,7 @@ export function SectionEditorPanel({
                           )}
                           {!hasCloudProvider && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              Saving to marketing-content/images/
+                              Saving to 4geeks-com/images/
                             </p>
                           )}
                         </div>
@@ -7641,7 +7641,7 @@ export function SectionEditorPanel({
                     <p className="text-sm text-muted-foreground">
                       Drop images directly into the{" "}
                       <code className="bg-muted px-1 rounded text-xs">
-                        marketing-content/images/
+                        4geeks-com/images/
                       </code>{" "}
                       folder, then scan the registry to include them. Or
                       configure a cloud provider in the Media Gallery settings.

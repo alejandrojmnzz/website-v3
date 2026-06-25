@@ -7,7 +7,7 @@ import yaml from "yaml";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MARKETING_CONTENT_DIR = path.resolve(__dirname, "../../marketing-content");
+const MARKETING_CONTENT_DIR = path.resolve(__dirname, "../../4geeks-com");
 const IMAGE_REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 
 interface ImageEntry {

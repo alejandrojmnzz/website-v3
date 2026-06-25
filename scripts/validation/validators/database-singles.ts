@@ -4,7 +4,7 @@ import type { Validator, ValidationContext, ValidatorResult, ValidationIssue } f
 import { getAllConfigs } from "../../../server/content-types";
 import { databaseManager } from "../../../server/database";
 
-const MARKETING_CONTENT_PATH = path.join(process.cwd(), "marketing-content");
+const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
 const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*[^}]*?)?\s*\}\}/g;
 
 function extractSingleVarNames(content: string): string[] {
@@ -85,7 +85,7 @@ export const databaseSinglesValidator: Validator = {
             type: "error",
             code: "MISSING_SINGLE_TEMPLATE",
             message: `Missing single template: ${folder}/single.${locale}.yml`,
-            file: `marketing-content/${folder}/single.${locale}.yml`,
+            file: `4geeks-com/${folder}/single.${locale}.yml`,
             suggestion: `Create the template file or ensure auto-creation runs on startup`,
           });
         }
@@ -96,7 +96,7 @@ export const databaseSinglesValidator: Validator = {
           type: "error",
           code: "DATABASE_UNREACHABLE",
           message: `Database "${dbName}" not found for content type "${contentType}"`,
-          suggestion: `Add a database configuration at marketing-content/db/${dbName}/config.yml`,
+          suggestion: `Add a database configuration at 4geeks-com/db/${dbName}/config.yml`,
         });
         continue;
       }
@@ -221,7 +221,7 @@ export const databaseSinglesValidator: Validator = {
             type: "warning",
             code: "DISK_OVERRIDES_DATABASE",
             message: `Disk folder "${folder}/${diskSlug}" overrides database item with ${lookupKey}="${diskSlug}"`,
-            file: `marketing-content/${folder}/${diskSlug}/`,
+            file: `4geeks-com/${folder}/${diskSlug}/`,
             suggestion: `The disk-based YAML files take priority. Remove the disk folder to use the database item instead.`,
           });
         }
@@ -245,7 +245,7 @@ export const databaseSinglesValidator: Validator = {
                   type: "warning",
                   code: "UNRESOLVED_SINGLE_VARS",
                   message: `Template variable "{{ single.${varName} }}" in ${folder}/single.${locale}.yml has no matching field in database items`,
-                  file: `marketing-content/${folder}/single.${locale}.yml`,
+                  file: `4geeks-com/${folder}/single.${locale}.yml`,
                   suggestion: `Available fields: ${Array.from(availableFields).slice(0, 15).join(", ")}${availableFields.size > 15 ? "..." : ""}`,
                 });
               }

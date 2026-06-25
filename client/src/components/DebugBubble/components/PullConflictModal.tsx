@@ -54,7 +54,7 @@ export function PullConflictModal(props: PullConflictModalProps) {
                     className="font-mono text-xs truncate" 
                     title={file}
                   >
-                    {file.replace('marketing-content/', '')}
+                    {file.replace('4geeks-com/', '')}
                   </span>
                 </div>
               ))}

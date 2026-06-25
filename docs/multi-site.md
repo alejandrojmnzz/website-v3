@@ -29,13 +29,13 @@ Append `?__site=app.example.com` to any URL to force a specific site without edi
 
 | Variable | Description |
 |---|---|
-| `CONTENT_FOLDER` | Content folder for single-site mode (default: `content`). Set to `marketing-content` for existing deployments that haven't migrated. |
+| `CONTENT_FOLDER` | Content folder for single-site mode (default: `content`). Set to `4geeks-com` for existing deployments that haven't migrated. |
 
 ---
 
 This platform supports running the **same code** across multiple sites, each with its
-own `marketing-content/` stored in a dedicated GitHub repository.  The platform code
-repo does **not** contain any content — `marketing-content/` is gitignored (except for
+own `4geeks-com/` stored in a dedicated GitHub repository.  The platform code
+repo does **not** contain any content — `4geeks-com/` is gitignored (except for
 `.gitkeep` and `README.md`).
 
 ---
@@ -44,13 +44,13 @@ repo does **not** contain any content — `marketing-content/` is gitignored (ex
 
 ```
 platform-repo (shared across all sites)
-└── marketing-content/   ← gitignored; populated at runtime from GITHUB_REPO_URL
+└── 4geeks-com/   ← gitignored; populated at runtime from GITHUB_REPO_URL
 
 site-a-content-repo      ← GITHUB_REPO_URL for site A
-└── marketing-content/
+└── 4geeks-com/
 
 site-b-content-repo      ← GITHUB_REPO_URL for site B
-└── marketing-content/
+└── 4geeks-com/
 ```
 
 ---
@@ -63,7 +63,7 @@ Create a new Replit project from the platform repo.  No content files are includ
 
 ### 2. Create a content-only GitHub repository
 
-Create a new GitHub repository that will hold only `marketing-content/` for this site.
+Create a new GitHub repository that will hold only `4geeks-com/` for this site.
 You can seed it from an existing folder — see **Seeding a new content repo** below.
 
 ### 3. Configure environment variables
@@ -81,7 +81,7 @@ Set the following secrets in the new Replit project:
 
 ### 4. Start the server
 
-On the first start the server detects that `marketing-content/` contains no YAML files
+On the first start the server detects that `4geeks-com/` contains no YAML files
 and automatically runs a **bootstrap pull** — downloading every file from the content
 repo before the normal reconcile/auto-pull logic starts.  No manual step is required.
 
@@ -101,7 +101,7 @@ curl -X POST http://localhost:5000/api/github/content/bootstrap
 
 ## Seeding a new content repo
 
-If you have an existing `marketing-content/` folder and want to copy it into a fresh
+If you have an existing `4geeks-com/` folder and want to copy it into a fresh
 GitHub repo, run the push-all helper **while the server is running** with
 `GITHUB_SYNC_ENABLED=true` pointing at the new (empty) repo:
 

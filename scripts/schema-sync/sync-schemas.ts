@@ -13,7 +13,7 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import { z, ZodObject, ZodType, ZodOptional, ZodArray, ZodEnum, ZodLiteral, ZodUnion, ZodString, ZodNumber, ZodBoolean, ZodRecord, ZodTuple, ZodEffects } from "zod";
 
-const REGISTRY_PATH = path.join(process.cwd(), "marketing-content/component-registry");
+const REGISTRY_PATH = path.join(process.cwd(), "4geeks-com/component-registry");
 
 interface PropDef {
   type: string;

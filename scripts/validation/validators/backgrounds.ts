@@ -15,8 +15,8 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidationContext, ValidatorResult, ValidationIssue } from "../shared/types";
 import { getAllDirectories } from "../../../server/content-types";
 
-const THEME_PATH = path.join(process.cwd(), "marketing-content", "theme.json");
-const CONTENT_DIRS = getAllDirectories().map(dir => `marketing-content/${dir}`);
+const THEME_PATH = path.join(process.cwd(), "4geeks-com", "theme.json");
+const CONTENT_DIRS = getAllDirectories().map(dir => `4geeks-com/${dir}`);
 
 interface ThemeColor {
   id: string;
@@ -191,7 +191,7 @@ export const backgroundsValidator: Validator = {
       warnings.push({
         type: "warning",
         code: "NO_THEME_CONFIG",
-        message: "Theme configuration not found at marketing-content/theme.json",
+        message: "Theme configuration not found at 4geeks-com/theme.json",
         suggestion: "Create a theme.json file to define allowed background colors",
       });
       

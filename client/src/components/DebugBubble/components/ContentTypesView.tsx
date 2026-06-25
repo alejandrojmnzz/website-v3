@@ -135,7 +135,7 @@ function DeleteContentTypeDialog({
                 <span>
                   <span className="font-medium text-foreground">{dryRunResult.static_entry_count}</span>{" "}
                   content file{dryRunResult.static_entry_count !== 1 ? "s" : ""} in{" "}
-                  <span className="font-mono">marketing-content/{dryRunResult.directory}/</span>
+                  <span className="font-mono">4geeks-com/{dryRunResult.directory}/</span>
                 </span>
                 {dryRunResult.has_database && (
                   <span className="inline-flex items-center gap-1">
@@ -239,8 +239,8 @@ function CreateContentTypeDialog({ open, onOpenChange }: { open: boolean; onOpen
       ? [defaultLocale]
       : defaultLocales.map(l => l.code);
     return {
-      ymlEntry: `marketing-content/content-types.yml`,
-      directory: `marketing-content/${dir}/`,
+      ymlEntry: `4geeks-com/content-types.yml`,
+      directory: `4geeks-com/${dir}/`,
       sampleDir: `sample-${name}/`,
       sampleFiles: ["_common.yml", ...localeFiles.map(l => `${l}.yml`)],
     };
@@ -466,7 +466,7 @@ function CreateContentTypeDialog({ open, onOpenChange }: { open: boolean; onOpen
                   data-testid="input-content-type-directory"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Your new content type will be located at: <span className="font-mono">marketing-content/{directory || name || "folder_name"}</span>, you will find all content and YAML files inside.
+                  Your new content type will be located at: <span className="font-mono">4geeks-com/{directory || name || "folder_name"}</span>, you will find all content and YAML files inside.
                 </p>
               </div>
             )}

@@ -4,11 +4,11 @@ const jsyaml = require('/home/runner/workspace/node_modules/js-yaml');
 
 // ===== STEP 1: Create _common.single.yml files =====
 const newFiles = {
-  'marketing-content/pages/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.8\n  change_frequency: monthly\nschema:\n  include:\n    - organization\n    - website\n',
-  'marketing-content/programs/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.9\n  change_frequency: weekly\nschema:\n  include:\n    - organization\n    - website\n',
-  'marketing-content/locations/_common.single.yml': 'visibility: listed\n',
-  'marketing-content/landings/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.9\n  change_frequency: weekly\nschema:\n  include:\n    - organization\n    - website\n',
-  'marketing-content/downloadable/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.9\n  change_frequency: weekly\nschema:\n  include:\n    - organization\n    - website\n',
+  '4geeks-com/pages/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.8\n  change_frequency: monthly\nschema:\n  include:\n    - organization\n    - website\n',
+  '4geeks-com/programs/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.9\n  change_frequency: weekly\nschema:\n  include:\n    - organization\n    - website\n',
+  '4geeks-com/locations/_common.single.yml': 'visibility: listed\n',
+  '4geeks-com/landings/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.9\n  change_frequency: weekly\nschema:\n  include:\n    - organization\n    - website\n',
+  '4geeks-com/downloadable/_common.single.yml': 'meta:\n  robots: "index, follow"\n  priority: 0.9\n  change_frequency: weekly\nschema:\n  include:\n    - organization\n    - website\n',
 };
 
 for (const [fp, content] of Object.entries(newFiles)) {
@@ -17,7 +17,7 @@ for (const [fp, content] of Object.entries(newFiles)) {
 }
 
 // Blog - update existing
-const blogPath = 'marketing-content/blog/_common.single.yml';
+const blogPath = '4geeks-com/blog/_common.single.yml';
 let blogRaw = fs.readFileSync(blogPath, 'utf8');
 const blogData = jsyaml.load(blogRaw);
 if (!blogData.meta) {
@@ -173,26 +173,26 @@ function processFiles(dir, defaultMeta, defaultSchemaInclude, extraKey) {
 }
 
 console.log('\nProcessing pages...');
-processFiles('marketing-content/pages',
+processFiles('4geeks-com/pages',
   { robots: 'index, follow', priority: 0.8, change_frequency: 'monthly' },
   ['organization', 'website'], null);
 
 console.log('\nProcessing programs...');
-processFiles('marketing-content/programs',
+processFiles('4geeks-com/programs',
   { robots: 'index, follow', priority: 0.9, change_frequency: 'weekly' },
   ['organization', 'website'], null);
 
 console.log('\nProcessing locations...');
-processFiles('marketing-content/locations', null, null,
+processFiles('4geeks-com/locations', null, null,
   { key: 'visibility', value: 'listed' });
 
 console.log('\nProcessing landings...');
-processFiles('marketing-content/landings',
+processFiles('4geeks-com/landings',
   { robots: 'index, follow', priority: 0.9, change_frequency: 'weekly' },
   ['organization', 'website'], null);
 
 console.log('\nProcessing downloadable...');
-processFiles('marketing-content/downloadable',
+processFiles('4geeks-com/downloadable',
   { robots: 'index, follow', priority: 0.9, change_frequency: 'weekly' },
   ['organization', 'website'], null);
 

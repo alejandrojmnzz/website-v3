@@ -1,7 +1,7 @@
 /**
  * Fixer: image-registry-sync
  *
- * Scans attached_assets/ and marketing-content/images/ for images that are new
+ * Scans attached_assets/ and 4geeks-com/images/ for images that are new
  * or have changed extensions, then applies those changes to the registry.
  * Equivalent to POST /api/image-registry/apply.
  */
