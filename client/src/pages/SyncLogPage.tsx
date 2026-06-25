@@ -324,131 +324,118 @@ export default function SyncLogPage() {
     <>
     <div className="min-h-screen bg-background">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <Link href="/private/diagnostics">
-            <Button variant="ghost" size="icon" data-testid="button-back-from-sync-log">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div className="flex items-center gap-2">
-            <Github className="h-5 w-5" />
-            <h1 className="text-xl font-semibold" data-testid="text-sync-log-title">
-              GitHub Sync Log
-            </h1>
+        <div className="space-y-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Link href="/private/diagnostics">
+              <Button variant="ghost" size="icon" data-testid="button-back-from-sync-log">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </Link>
+            <div className="flex items-center gap-2">
+              <Github className="h-5 w-5" />
+              <h1 className="text-xl font-semibold" data-testid="text-sync-log-title">
+                GitHub Sync Log
+              </h1>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchLog()}
+                disabled={logLoading}
+                data-testid="button-refresh-sync-log"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" data-testid="button-sync-github">
+                    <IconCloudUpload className="h-3.5 w-3.5 mr-1.5" />
+                    Push / Pull
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { setPushResult(null); setForcePushOpen(true); }} data-testid="button-force-push">
+                    <IconCloudUpload className="h-4 w-4 mr-2" />
+                    Force Push
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setForcePullOpen(true)} data-testid="button-force-pull">
+                    <IconCloudDownload className="h-4 w-4 mr-2" />
+                    Force Pull
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={clearMutation.isPending} data-testid="button-clear-sync-log">
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Clear
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => clearMutation.mutate("2days")} data-testid="button-clear-2days">
+                    Clear older than 2 days
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => clearMutation.mutate("all")} className="text-destructive" data-testid="button-clear-all">
+                    Clear all
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            {syncInfo && (
-              <div className="flex items-center gap-3 text-sm text-muted-foreground mr-2">
-                <span className="flex items-center gap-1.5">
-                  <Server className="h-3.5 w-3.5" />
-                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded" data-testid="text-instance-id">
-                    {syncInfo.instanceId} · checkpoint {syncInfo.replitCheckpoint}
-                    {syncInfo.githubCommit && (
-                      <>
-                        {" · "}
-                        {syncInfo.repoUrl ? (
-                          <a
-                            href={`${syncInfo.repoUrl}/commit/${syncInfo.githubCommit}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline hover:text-foreground"
-                            data-testid="link-github-commit"
-                          >
-                            gh:{syncInfo.githubCommit}
-                          </a>
-                        ) : (
-                          <>gh:{syncInfo.githubCommit}</>
-                        )}
-                      </>
-                    )}
-                  </code>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Webhook className="h-3.5 w-3.5" />
-                  {syncInfo.webhook.active ? (
-                    <button
-                      className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline"
-                      onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
-                      data-testid="button-webhook-active"
-                    >
-                      <Check className="h-3 w-3" />
-                      Active
-                    </button>
-                  ) : (
-                    <button
-                      className="flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline"
-                      onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
-                      data-testid="button-webhook-inactive"
-                    >
-                      <X className="h-3 w-3" />
-                      Inactive
-                    </button>
+          {syncInfo && (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground pl-1">
+              <span className="flex items-center gap-1.5">
+                <Server className="h-3.5 w-3.5" />
+                <code className="text-xs bg-muted px-1.5 py-0.5 rounded" data-testid="text-instance-id">
+                  {syncInfo.instanceId} · checkpoint {syncInfo.replitCheckpoint}
+                  {syncInfo.githubCommit && (
+                    <>
+                      {" · "}
+                      {syncInfo.repoUrl ? (
+                        <a
+                          href={`${syncInfo.repoUrl}/commit/${syncInfo.githubCommit}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-foreground"
+                          data-testid="link-github-commit"
+                        >
+                          gh:{syncInfo.githubCommit}
+                        </a>
+                      ) : (
+                        <>gh:{syncInfo.githubCommit}</>
+                      )}
+                    </>
                   )}
-                </span>
-              </div>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetchLog()}
-              disabled={logLoading}
-              data-testid="button-refresh-sync-log"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  data-testid="button-sync-github"
-                >
-                  <IconCloudUpload className="h-3.5 w-3.5 mr-1.5" />
-                  Push / Pull
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => { setPushResult(null); setForcePushOpen(true); }}
-                  data-testid="button-force-push"
-                >
-                  <IconCloudUpload className="h-4 w-4 mr-2" />
-                  Force Push
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setForcePullOpen(true)}
-                  data-testid="button-force-pull"
-                >
-                  <IconCloudDownload className="h-4 w-4 mr-2" />
-                  Force Pull
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={clearMutation.isPending}
-                  data-testid="button-clear-sync-log"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  Clear
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => clearMutation.mutate("2days")} data-testid="button-clear-2days">
-                  Clear older than 2 days
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => clearMutation.mutate("all")} className="text-destructive" data-testid="button-clear-all">
-                  Clear all
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                </code>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Webhook className="h-3.5 w-3.5" />
+                {syncInfo.webhook.active ? (
+                  <button
+                    className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline"
+                    onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
+                    data-testid="button-webhook-active"
+                  >
+                    <Check className="h-3 w-3" />
+                    Active
+                  </button>
+                ) : (
+                  <button
+                    className="flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline"
+                    onClick={() => { setWebhookRetryResult(null); setWebhookRetryOpen(true); }}
+                    data-testid="button-webhook-inactive"
+                  >
+                    <X className="h-3 w-3" />
+                    Inactive
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         <Card>
