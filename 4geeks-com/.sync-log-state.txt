@@ -452,3 +452,23 @@
 {"ts":"2026-06-25T18:09:21.166Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
 {"ts":"2026-06-25T18:09:25.629Z","category":"WEBHOOK","message":"Push 2365d36 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
 {"ts":"2026-06-25T18:09:25.629Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:10:56.998Z","category":"AUTO-PULL","message":"Push-all: uploading 723 local files as a single commit..."}
+{"ts":"2026-06-25T18:11:14.511Z","category":"AUTO-PULL","message":"Push-all: 1 commit (180 files), 543 blob errors"}
+{"ts":"2026-06-25T18:11:15.335Z","category":"WEBHOOK","message":"Push 668ddc4 by alesanchezr: no site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:12:28.222Z","category":"RESTART","message":"Server started (instance=000f, checkpoint=d0c802751, env=development, pid=66203)"}
+{"ts":"2026-06-25T18:12:33.120Z","category":"RECONCILE","message":"Local 50a572d ≠ remote 668ddc4, checking file hashes..."}
+{"ts":"2026-06-25T18:12:34.361Z","category":"RECONCILE","message":"No tracked files changed, updated to 668ddc4"}
+{"ts":"2026-06-25T18:12:34.361Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:12:34.634Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T18:13:13.832Z","category":"AUTO-PULL","message":"Push-all: 723 local files, 222 remote files — diffing..."}
+{"ts":"2026-06-25T18:13:35.187Z","category":"AUTO-PULL","message":"Push-all: commit 1d30dc1 — 180 synced, 222 skipped, 321 errors"}
+{"ts":"2026-06-25T18:13:36.555Z","category":"WEBHOOK","message":"Push 1d30dc1 by alesanchezr: 180 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:13:36.556Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:14:05.031Z","category":"AUTO-PULL","message":"Push-all: 723 local files, 402 remote files — diffing..."}
+{"ts":"2026-06-25T18:14:22.910Z","category":"AUTO-PULL","message":"Push-all: commit 58f1d7d — 180 synced, 402 skipped, 141 errors"}
+{"ts":"2026-06-25T18:14:23.907Z","category":"WEBHOOK","message":"Push 58f1d7d by alesanchezr: 180 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:14:23.908Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:14:58.529Z","category":"AUTO-PULL","message":"Push-all: 723 local files, 582 remote files — diffing..."}
+{"ts":"2026-06-25T18:15:15.998Z","category":"AUTO-PULL","message":"Push-all: commit 9c1b697 — 141 synced, 582 skipped, 0 errors"}
+{"ts":"2026-06-25T18:15:17.072Z","category":"WEBHOOK","message":"Push 9c1b697 by alesanchezr: 141 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:15:17.072Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}

@@ -2154,7 +2154,10 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   // ── Step 2: diff — only upload blobs for new/changed files ──
   const errors: string[] = [];
   const skipped: string[] = [];
-  const CONCURRENCY = 10;
+  // GitHub secondary rate limit kicks in with too many concurrent writes.
+  // 3 parallel blob uploads + a short pause between batches stays well under it.
+  const CONCURRENCY = 3;
+  const BATCH_PAUSE_MS = 300;
   const blobEntries: Array<{ path: string; blobSha: string }> = [];
 
   // Separate files that need uploading from those already in sync
@@ -2224,6 +2227,10 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
     log.info(
       `Push-all: blobs uploaded ${Math.min(i + CONCURRENCY, filesToUpload.length)}/${filesToUpload.length}`
     );
+    // Pause between batches to avoid GitHub secondary rate limits
+    if (i + CONCURRENCY < filesToUpload.length) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_PAUSE_MS));
+    }
   }
 
   const changedEntries = blobEntries.filter(e => !skipped.includes(e.path));
