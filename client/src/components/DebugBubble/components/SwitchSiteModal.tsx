@@ -24,6 +24,8 @@ interface SwitchSiteModalProps {
   isDevOverride: boolean;
 }
 
+const IS_PROD = import.meta.env.PROD;
+
 function setDevSiteCookie(domain: string) {
   document.cookie = `__dev_site=${encodeURIComponent(domain)}; path=/; SameSite=Lax`;
 }
@@ -40,8 +42,13 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
   });
 
   const handleSelect = (domain: string) => {
-    setDevSiteCookie(domain);
-    window.location.reload();
+    if (IS_PROD) {
+      const path = window.location.pathname + window.location.search;
+      window.location.href = `https://${domain}${path}`;
+    } else {
+      setDevSiteCookie(domain);
+      window.location.reload();
+    }
   };
 
   const handleClearOverride = () => {
@@ -58,11 +65,13 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
             Switch Site
           </DialogTitle>
           <DialogDescription>
-            Overrides the active site for your browser session. Only affects your browser — other visitors see their normal site.
+            {IS_PROD
+              ? "Navigates to the selected site's domain. Other visitors are unaffected."
+              : "Overrides the active site for your browser session via a cookie. Only affects your browser — other visitors see their normal site."}
           </DialogDescription>
         </DialogHeader>
 
-        {isDevOverride && (
+        {!IS_PROD && isDevOverride && (
           <div className="flex items-center justify-between rounded-md border px-3 py-2 bg-muted/50">
             <span className="text-xs text-muted-foreground">Dev override active</span>
             <Button
