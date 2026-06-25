@@ -7,7 +7,9 @@ import { child as loggerChild } from './logger';
 
 const syncLogLogger = loggerChild({ module: "SyncLog", worker: "SyncLog" });
 
-const SYNC_LOG_PATH = path.join(process.cwd(), '4geeks-com', '.sync-log-state.txt');
+const CONTENT_FOLDER = process.env.CONTENT_FOLDER || 'content';
+const SYNC_LOG_PATH = path.join(process.cwd(), CONTENT_FOLDER, '.sync-log-state.txt');
+const LEGACY_SYNC_LOG_PATH = path.join(process.cwd(), '4geeks-com', '.sync-log-state.txt');
 const GCS_SYNC_LOG_KEY = 'sync/sync-log-state.txt';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const MAX_LOG_LINES = 500;
@@ -94,8 +96,14 @@ function parseOldTextLine(line: string): SyncLogEntry | null {
 
 function loadLocal(): void {
   try {
-    if (fs.existsSync(SYNC_LOG_PATH)) {
-      const raw = fs.readFileSync(SYNC_LOG_PATH, 'utf-8');
+    const pathToRead = fs.existsSync(SYNC_LOG_PATH)
+      ? SYNC_LOG_PATH
+      : fs.existsSync(LEGACY_SYNC_LOG_PATH)
+        ? LEGACY_SYNC_LOG_PATH
+        : null;
+
+    if (pathToRead) {
+      const raw = fs.readFileSync(pathToRead, 'utf-8');
       logEntries = raw
         .split('\n')
         .filter(l => l.trim() !== '')
