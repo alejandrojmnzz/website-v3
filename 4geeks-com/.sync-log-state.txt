@@ -1,0 +1,4 @@
+{"ts":"2026-06-25T20:20:48.106Z","category":"RESTART","message":"Server started (instance=3342, checkpoint=75c54dbf6, env=development, pid=81404)"}
+{"ts":"2026-06-25T20:20:55.494Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
+{"ts":"2026-06-25T20:20:55.495Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:20:55.881Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
