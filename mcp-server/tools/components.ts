@@ -6,6 +6,7 @@ import {
   listComponents,
   getComponentSchema,
   getComponentVariant,
+  resolveSiteContext,
 } from "../lib/content.js";
 import { assertSafeSegment, assertWithinBase } from "../lib/sanitize.js";
 import { getTokenUsername } from "../lib/oauth.js";
@@ -25,14 +26,21 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
   return headers;
 }
 
+const SITE_PARAM_DESC = 'Domain of the target site, e.g. "fl.4geeks.com" (required in multi-site mode; ignored in single-site mode)';
+
 export function registerComponentTools(mcp: McpServer, mcpToken?: string): void {
   // list_components
   mcp.tool(
     "list_components",
     "List all available section component types from the component registry, with version and variant options.",
-    {},
-    async () => {
-      const components = listComponents();
+    {
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      const { contentPath } = siteResult;
+      const components = listComponents(contentPath);
       return { content: [{ type: "text", text: JSON.stringify(components, null, 2) }] };
     }
   );
@@ -43,18 +51,25 @@ export function registerComponentTools(mcp: McpServer, mcpToken?: string): void 
     "Get the top-level schema info for a component: name, description, when_to_use, and the list of variants (each with name, description, best_for). Use this to understand which variant fits your use case. Call get_component_variant next to get the field definitions and a worked YAML example for your chosen variant.",
     {
       componentType: z.string().describe("Component type name, e.g. 'faq', 'hero', 'two_column'"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ componentType }) => {
+    async ({ componentType, site }) => {
       try {
         assertSafeSegment(componentType, "componentType");
       } catch (e) {
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
-      const componentPath = path.join(COMPONENT_REGISTRY_PATH, componentType);
-      try { assertWithinBase(componentPath, COMPONENT_REGISTRY_PATH); } catch (e) {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      const { contentPath } = siteResult;
+      const registryPath = contentPath
+        ? path.join(contentPath, "component-registry")
+        : COMPONENT_REGISTRY_PATH;
+      const componentPath = path.join(registryPath, componentType);
+      try { assertWithinBase(componentPath, registryPath); } catch (e) {
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
-      const schema = getComponentSchema(componentType);
+      const schema = getComponentSchema(componentType, contentPath);
       if (!schema) {
         return { content: [{ type: "text", text: `Component '${componentType}' not found in registry.` }], isError: true };
       }
@@ -69,19 +84,26 @@ export function registerComponentTools(mcp: McpServer, mcpToken?: string): void 
     {
       componentType: z.string().describe("Component type name, e.g. 'hero', 'faq', 'two_column'"),
       variant: z.string().describe("Variant name as listed by get_component_schema, e.g. 'singleColumn', 'showcase'"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ componentType, variant }) => {
+    async ({ componentType, variant, site }) => {
       try {
         assertSafeSegment(componentType, "componentType");
         assertSafeSegment(variant, "variant");
       } catch (e) {
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
-      const componentPath = path.join(COMPONENT_REGISTRY_PATH, componentType);
-      try { assertWithinBase(componentPath, COMPONENT_REGISTRY_PATH); } catch (e) {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      const { contentPath } = siteResult;
+      const registryPath = contentPath
+        ? path.join(contentPath, "component-registry")
+        : COMPONENT_REGISTRY_PATH;
+      const componentPath = path.join(registryPath, componentType);
+      try { assertWithinBase(componentPath, registryPath); } catch (e) {
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
-      const detail = getComponentVariant(componentType, variant);
+      const detail = getComponentVariant(componentType, variant, contentPath);
       if (!detail) {
         return { content: [{ type: "text", text: `Variant '${variant}' not found for component '${componentType}'.` }], isError: true };
       }
@@ -97,17 +119,23 @@ export function registerComponentTools(mcp: McpServer, mcpToken?: string): void 
       componentType: z.string().describe("Component type name, e.g. 'hero', 'faq', 'two_column'"),
       intent: z.string().optional().describe("Filter to pages with this intent slug (e.g. 'bootcamp'). Either intent or contentType is required."),
       contentType: z.string().optional().describe("Filter to pages of this content type (e.g. 'landing-page'). Either intent or contentType is required."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ componentType, intent, contentType }) => {
+    async ({ componentType, intent, contentType, site }) => {
       try {
         assertSafeSegment(componentType, "componentType");
       } catch (e) {
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
 
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      const { domain } = siteResult;
+
       const params = new URLSearchParams();
       if (intent) params.set("intent", intent);
       if (contentType) params.set("contentType", contentType);
+      params.set("__site", domain);
 
       const url = `http://localhost:${MAIN_SERVER_PORT}/api/private/component-insights/component/${encodeURIComponent(componentType)}?${params}`;
       try {

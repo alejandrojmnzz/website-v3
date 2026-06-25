@@ -6,6 +6,114 @@ export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
 export const COMPONENT_REGISTRY_PATH = path.join(MARKETING_CONTENT_PATH, "component-registry");
 export const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_PATH, "content-types.yml");
 
+// ─── Multi-site helpers ───────────────────────────────────────────────────────
+
+interface SiteConfigMcp {
+  domain: string;
+  contentFolder: string;
+}
+
+let _mcpSiteConfigsCache: SiteConfigMcp[] | null = null;
+
+function getMcpSiteConfigs(): SiteConfigMcp[] {
+  if (_mcpSiteConfigsCache) return _mcpSiteConfigsCache;
+
+  const sitesYml = path.join(process.cwd(), "sites.yml");
+
+  if (fs.existsSync(sitesYml)) {
+    try {
+      const raw = fs.readFileSync(sitesYml, "utf-8");
+      const parsed = yaml.load(raw) as Record<string, unknown> | null;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const configs: SiteConfigMcp[] = [];
+        for (const [domain, config] of Object.entries(parsed)) {
+          if (config && typeof config === "object") {
+            const c = config as Record<string, unknown>;
+            configs.push({
+              domain,
+              contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
+            });
+          }
+        }
+        if (configs.length > 0) {
+          _mcpSiteConfigsCache = configs;
+          return _mcpSiteConfigsCache;
+        }
+      }
+    } catch {
+      // Fall through to single-site
+    }
+  }
+
+  // Single-site fallback
+  const contentFolder = process.env.CONTENT_FOLDER || "4geeks-com";
+  let domain = "localhost";
+  if (process.env.SITE_URL) {
+    try { domain = new URL(process.env.SITE_URL).hostname; } catch { /* ignore */ }
+  }
+  _mcpSiteConfigsCache = [{ domain, contentFolder }];
+  return _mcpSiteConfigsCache;
+}
+
+export function isMultiSiteMode(): boolean {
+  return getMcpSiteConfigs().length > 1;
+}
+
+export type SiteContextResult =
+  | { ok: true; contentPath: string; contentFolder: string; domain: string }
+  | { ok: false; error: string };
+
+/**
+ * Resolve a site domain to its absolute content path.
+ * In single-site mode: domain is ignored and the single config is used.
+ * In multi-site mode: domain is required; omitting it returns an error listing available domains.
+ */
+export function resolveSiteContext(domain?: string): SiteContextResult {
+  const configs = getMcpSiteConfigs();
+
+  if (configs.length === 1) {
+    const cfg = configs[0];
+    return {
+      ok: true,
+      contentPath: path.join(process.cwd(), cfg.contentFolder),
+      contentFolder: cfg.contentFolder,
+      domain: cfg.domain,
+    };
+  }
+
+  // Multi-site mode
+  if (!domain) {
+    return {
+      ok: false,
+      error: JSON.stringify({
+        error: "multi_site_domain_required",
+        message:
+          "This server manages multiple sites. You must supply the 'site' parameter (domain) to target the correct content folder.",
+        available_sites: configs.map(c => c.domain),
+      }),
+    };
+  }
+
+  const cfg = configs.find(c => c.domain === domain);
+  if (!cfg) {
+    return {
+      ok: false,
+      error: JSON.stringify({
+        error: "unknown_site",
+        message: `Unknown site '${domain}'. See available_sites for valid options.`,
+        available_sites: configs.map(c => c.domain),
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    contentPath: path.join(process.cwd(), cfg.contentFolder),
+    contentFolder: cfg.contentFolder,
+    domain: cfg.domain,
+  };
+}
+
 // ─── YAML helpers ─────────────────────────────────────────────────────────────
 
 export function safeLoad(raw: string): Record<string, unknown> | null {
@@ -77,9 +185,12 @@ export interface ContentTypeConfig {
   layout?: unknown;
 }
 
-export function loadContentTypes(): Record<string, ContentTypeConfig> {
-  if (!fs.existsSync(CONTENT_TYPES_PATH)) return {};
-  const raw = fs.readFileSync(CONTENT_TYPES_PATH, "utf-8");
+export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {
+  const ctPath = contentPath
+    ? path.join(contentPath, "content-types.yml")
+    : CONTENT_TYPES_PATH;
+  if (!fs.existsSync(ctPath)) return {};
+  const raw = fs.readFileSync(ctPath, "utf-8");
   return (safeLoad(raw) as Record<string, ContentTypeConfig>) || {};
 }
 
@@ -94,18 +205,20 @@ export function getDirectory(contentType: string, config: ContentTypeConfig): st
 export function resolveContentType(
   slug: string,
   hintContentType?: string,
+  contentPath?: string,
 ): { contentType: string; config: ContentTypeConfig } | null {
-  const configs = loadContentTypes();
+  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const configs = loadContentTypes(contentPath);
   if (hintContentType) {
     const config = configs[hintContentType];
     if (!config || isDbBacked(config)) return null;
-    const dir = path.join(MARKETING_CONTENT_PATH, getDirectory(hintContentType, config), slug);
+    const dir = path.join(basePath, getDirectory(hintContentType, config), slug);
     if (fs.existsSync(dir)) return { contentType: hintContentType, config };
     return null;
   }
   for (const [ct, config] of Object.entries(configs)) {
     if (isDbBacked(config)) continue;
-    const dir = path.join(MARKETING_CONTENT_PATH, getDirectory(ct, config), slug);
+    const dir = path.join(basePath, getDirectory(ct, config), slug);
     if (fs.existsSync(dir)) return { contentType: ct, config };
   }
   return null;
@@ -124,11 +237,12 @@ export interface VersioningLocale {
 
 export type VersioningData = Record<string, VersioningLocale>;
 
-export function loadVersioning(contentType: string, slug: string): VersioningData | null {
-  const configs = loadContentTypes();
+export function loadVersioning(contentType: string, slug: string, contentPath?: string): VersioningData | null {
+  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const configs = loadContentTypes(contentPath);
   const config = configs[contentType];
   if (!config || isDbBacked(config)) return null;
-  const dir = path.join(MARKETING_CONTENT_PATH, getDirectory(contentType, config), slug);
+  const dir = path.join(basePath, getDirectory(contentType, config), slug);
   const versioningPath = path.join(dir, "versioning.yml");
   if (!fs.existsSync(versioningPath)) return null;
   const parsed = safeLoad(fs.readFileSync(versioningPath, "utf-8"));
@@ -141,12 +255,14 @@ export function loadVariantPage(
   slug: string,
   locale: string,
   variantSlug: string,
+  contentPath?: string,
 ): { data: Record<string, unknown>; filePath: string } | null {
-  const configs = loadContentTypes();
+  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const configs = loadContentTypes(contentPath);
   const config = configs[contentType];
   if (!config || isDbBacked(config)) return null;
 
-  const dir = path.join(MARKETING_CONTENT_PATH, getDirectory(contentType, config), slug);
+  const dir = path.join(basePath, getDirectory(contentType, config), slug);
   if (!fs.existsSync(dir)) return null;
 
   const commonPath = path.join(dir, "_common.yml");
@@ -176,14 +292,16 @@ export interface PageEntry {
   variants?: Array<{ locale: string; slug: string; allocation: number }>;
 }
 
-export function scanPages(): PageEntry[] {
-  const configs = loadContentTypes();
+export function scanPages(contentPath?: string): PageEntry[] {
+  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const contentFolder = path.basename(basePath);
+  const configs = loadContentTypes(contentPath);
   const pages: PageEntry[] = [];
 
   for (const [contentType, config] of Object.entries(configs)) {
     if (isDbBacked(config)) continue;
 
-    const dir = path.join(MARKETING_CONTENT_PATH, getDirectory(contentType, config));
+    const dir = path.join(basePath, getDirectory(contentType, config));
     if (!fs.existsSync(dir)) continue;
 
     const entries = fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory());
@@ -203,7 +321,7 @@ export function scanPages(): PageEntry[] {
             const parsed = safeLoad(fs.readFileSync(path.join(entryPath, candidate), "utf-8"));
             if (parsed?.title && typeof parsed.title === "string") { title = parsed.title; break; }
             if (parsed?.name && typeof parsed.name === "string") { title = parsed.name; break; }
-          } catch {}
+          } catch { /* ignore */ }
         }
       }
 
@@ -212,11 +330,9 @@ export function scanPages(): PageEntry[] {
         const pattern = config.url_pattern;
         const resolved: Record<string, string> = {};
         if (pattern["default"]) {
-          // Shorthand: same path for all locales
           const path_ = pattern["default"].replace(":slug", entry.name);
           for (const locale of locales) resolved[locale] = path_;
         } else {
-          // Per-locale paths — only include locales that have a pattern defined
           for (const locale of locales) {
             if (pattern[locale]) resolved[locale] = pattern[locale].replace(":slug", entry.name);
           }
@@ -224,7 +340,7 @@ export function scanPages(): PageEntry[] {
         if (Object.keys(resolved).length > 0) urls = resolved;
       }
 
-      const versioning = loadVersioning(contentType, entry.name);
+      const versioning = loadVersioning(contentType, entry.name, contentPath);
       let variants: Array<{ locale: string; slug: string; allocation: number }> | undefined;
       if (versioning) {
         const variantList: Array<{ locale: string; slug: string; allocation: number }> = [];
@@ -239,7 +355,7 @@ export function scanPages(): PageEntry[] {
       pages.push({
         slug: entry.name,
         contentType,
-        directory: `4geeks-com/${getDirectory(contentType, config)}/${entry.name}`,
+        directory: `${contentFolder}/${getDirectory(contentType, config)}/${entry.name}`,
         locales,
         title,
         ...(urls ? { urls } : {}),
@@ -254,12 +370,14 @@ export function loadPage(
   contentType: string,
   slug: string,
   locale: string,
+  contentPath?: string,
 ): { data: Record<string, unknown>; filePath: string } | null {
-  const configs = loadContentTypes();
+  const basePath = contentPath || MARKETING_CONTENT_PATH;
+  const configs = loadContentTypes(contentPath);
   const config = configs[contentType];
   if (!config || isDbBacked(config)) return null;
 
-  const dir = path.join(MARKETING_CONTENT_PATH, getDirectory(contentType, config), slug);
+  const dir = path.join(basePath, getDirectory(contentType, config), slug);
   if (!fs.existsSync(dir)) return null;
 
   const commonPath = path.join(dir, "_common.yml");
@@ -304,7 +422,7 @@ export function setValueAtPath(obj: Record<string, unknown>, pathStr: string, va
 
 // ─── Component registry helpers ───────────────────────────────────────────────
 // Kept in lib/content.ts alongside page helpers because both operate on the
-// same 4geeks-com/ tree and share safeLoad/safeDump. Tools that need
+// same content tree and share safeLoad/safeDump. Tools that need
 // them import from here rather than from tools/components.ts to avoid cycles.
 
 export interface ComponentVariantInfo {
@@ -319,16 +437,19 @@ export interface ComponentInfo {
   variants?: ComponentVariantInfo[];
 }
 
-export function listComponents(): ComponentInfo[] {
-  if (!fs.existsSync(COMPONENT_REGISTRY_PATH)) return [];
+export function listComponents(contentPath?: string): ComponentInfo[] {
+  const registryPath = contentPath
+    ? path.join(contentPath, "component-registry")
+    : COMPONENT_REGISTRY_PATH;
+  if (!fs.existsSync(registryPath)) return [];
   const components: ComponentInfo[] = [];
 
   const entries = fs
-    .readdirSync(COMPONENT_REGISTRY_PATH, { withFileTypes: true })
+    .readdirSync(registryPath, { withFileTypes: true })
     .filter(d => d.isDirectory() && !d.name.startsWith("_"));
 
   for (const entry of entries) {
-    const componentPath = path.join(COMPONENT_REGISTRY_PATH, entry.name);
+    const componentPath = path.join(registryPath, entry.name);
     const versionDirs = fs
       .readdirSync(componentPath, { withFileTypes: true })
       .filter(d => d.isDirectory() && /^v\d/.test(d.name));
@@ -373,8 +494,11 @@ export interface ComponentSchemaSlim {
   variants: ComponentVariantSummary[];
 }
 
-export function getComponentSchema(componentType: string): ComponentSchemaSlim | null {
-  const componentPath = path.join(COMPONENT_REGISTRY_PATH, componentType);
+export function getComponentSchema(componentType: string, contentPath?: string): ComponentSchemaSlim | null {
+  const registryPath = contentPath
+    ? path.join(contentPath, "component-registry")
+    : COMPONENT_REGISTRY_PATH;
+  const componentPath = path.join(registryPath, componentType);
   if (!fs.existsSync(componentPath)) return null;
 
   const versionDirs = fs
@@ -440,8 +564,12 @@ export interface ComponentVariantDetail {
 export function getComponentVariant(
   componentType: string,
   variant: string,
+  contentPath?: string,
 ): ComponentVariantDetail | null {
-  const componentPath = path.join(COMPONENT_REGISTRY_PATH, componentType);
+  const registryPath = contentPath
+    ? path.join(contentPath, "component-registry")
+    : COMPONENT_REGISTRY_PATH;
+  const componentPath = path.join(registryPath, componentType);
   if (!fs.existsSync(componentPath)) return null;
 
   const versionDirs = fs
@@ -469,7 +597,6 @@ export function getComponentVariant(
   const variantsDef = parsed.variants;
   let variantExists = false;
   if (!variantsDef) {
-    // No variants declared → single-variant component; always accept
     variantExists = true;
   } else if (typeof variantsDef === "object" && !Array.isArray(variantsDef)) {
     variantExists = variant in (variantsDef as Record<string, unknown>);
@@ -483,8 +610,6 @@ export function getComponentVariant(
   if (!variantExists) return null;
 
   // Extract variant_props for this specific variant.
-  // Object-map schemas define a `variant_props` block keyed by variant name.
-  // Array-style schemas use a flat `props` or `properties` block shared across variants.
   let variant_props: Record<string, unknown> | null = null;
   if (
     parsed.variant_props &&
@@ -496,7 +621,6 @@ export function getComponentVariant(
       variant_props = propsMap[variant] as Record<string, unknown>;
     }
   }
-  // Fallback: use top-level `props` or `properties` (common in array-style schemas)
   if (
     variant_props === null &&
     parsed.props &&
@@ -515,12 +639,6 @@ export function getComponentVariant(
   }
 
   // Find an example that uses this variant.
-  // Strategy:
-  // 1. Regex-match `variant: <name>` (unquoted or quoted) across example files.
-  // 2. If no match found, fall back to the first available example file.
-  //    This ensures single-variant components (no `variants` key in schema, synthetic
-  //    "default" variant) always return an example even though their example files
-  //    do not contain a `variant:` field at all.
   const variantPattern = new RegExp(`variant:\\s*["']?${variant}["']?(?:\\s|$)`);
   let example: string | null = null;
   const examplesPath = path.join(versionPath, "examples");
@@ -537,7 +655,6 @@ export function getComponentVariant(
       } catch { return null; }
     };
 
-    // Pass 1: prefer an example that explicitly references this variant
     for (const exFile of exampleFiles) {
       const yamlContent = extractYaml(exFile);
       if (yamlContent && variantPattern.test(yamlContent)) {
@@ -546,7 +663,6 @@ export function getComponentVariant(
       }
     }
 
-    // Pass 2: fallback — return the first readable example when no tagged match found
     if (example === null && exampleFiles.length > 0) {
       example = extractYaml(exampleFiles[0]);
     }
