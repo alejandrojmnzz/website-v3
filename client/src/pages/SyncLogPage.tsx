@@ -243,6 +243,7 @@ export default function SyncLogPage() {
   const [forcePushOpen, setForcePushOpen] = useState(false);
   const [forcePullOpen, setForcePullOpen] = useState(false);
   const [pushStarted, setPushStarted] = useState(false);
+  const [pullStarted, setPullStarted] = useState(false);
 
   const startPushMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/github/content/push-all").then(r => r.json()),
@@ -250,6 +251,41 @@ export default function SyncLogPage() {
       setPushStarted(true);
       qc.invalidateQueries({ queryKey: ["/api/github/push-all-status"] });
     },
+  });
+
+  const startPullMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/github/content/pull-all").then(r => r.json()),
+    onSuccess: () => {
+      setPullStarted(true);
+      qc.invalidateQueries({ queryKey: ["/api/github/pull-all-status"] });
+    },
+  });
+
+  const { data: pullStatus } = useQuery<{
+    running: boolean;
+    total: number;
+    pulled: number;
+    errors: string[];
+    startedAt: number | null;
+    doneAt: number | null;
+    success: boolean | null;
+    commitSha: string | null;
+  } | null>({
+    queryKey: ["/api/github/pull-all-status"],
+    enabled: forcePullOpen || pullStarted,
+    queryFn: async () => {
+      const res = await fetch("/api/github/pull-all-status");
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Status check failed");
+      return res.json();
+    },
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      if (!d) return 800;
+      if (d.running) return 800;
+      return false;
+    },
+    staleTime: 0,
   });
 
   const { data: pushStatus } = useQuery<{
@@ -834,28 +870,128 @@ export default function SyncLogPage() {
     </Dialog>
 
     {/* Force Pull Modal */}
-    <Dialog open={forcePullOpen} onOpenChange={setForcePullOpen}>
+    <Dialog open={forcePullOpen} onOpenChange={(open) => { if (!open && !pullStatus?.running) { setForcePullOpen(false); } }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <IconCloudDownload className="h-5 w-5" />
-            Force Pull from GitHub
+            {pullStatus?.doneAt != null ? (
+              (pullStatus.errors?.length ?? 0) > 0
+                ? <IconAlertTriangle className="h-5 w-5 text-destructive" />
+                : <IconCheck className="h-5 w-5 text-primary" />
+            ) : pullStatus?.running ? (
+              <IconCloudDownload className="h-5 w-5 animate-pulse" />
+            ) : (
+              <IconCloudDownload className="h-5 w-5" />
+            )}
+            {pullStatus?.doneAt != null
+              ? (pullStatus.errors?.length ?? 0) > 0 ? "Pull completed with errors" : "Pull complete"
+              : pullStatus?.running ? "Pulling from GitHub…"
+              : "Force Pull from GitHub"}
           </DialogTitle>
-          <DialogDescription asChild>
-            <div className="space-y-2 text-sm">
-              <p>This would overwrite local content files with whatever is currently on GitHub.</p>
-              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed to GitHub will be lost.</li>
-                <li>Use this to recover from a corrupted local state or after manual GitHub edits.</li>
-              </ul>
-              <p className="text-muted-foreground italic">Force Pull is not yet implemented. Use the auto-pull webhook or contact the platform team.</p>
-            </div>
-          </DialogDescription>
+
+          {/* Pre-start description — only shown before a pull is running */}
+          {!pullStatus?.running && pullStatus?.doneAt == null && (
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>This will overwrite local content files with whatever is currently on GitHub.</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed to GitHub will be lost.</li>
+                  <li><span className="font-medium text-foreground">Downloads all files</span> — every file in the content folder is re-fetched from the remote.</li>
+                  <li>Use this to recover from a corrupted local state or after manual GitHub edits.</li>
+                </ul>
+              </div>
+            </DialogDescription>
+          )}
         </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setForcePullOpen(false)} data-testid="button-close-force-pull">
-            Close
+
+        {/* Live progress — shown while running */}
+        {pullStatus?.running && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {pullStatus.total > 0
+                ? `Downloading files… ${pullStatus.pulled} of ${pullStatus.total}`
+                : "Fetching file list from GitHub…"}
+            </p>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{
+                  width: pullStatus.total > 0
+                    ? `${Math.round((pullStatus.pulled / pullStatus.total) * 100)}%`
+                    : "10%",
+                }}
+              />
+            </div>
+            {pullStatus.total > 0 && (
+              <p className="text-xs text-muted-foreground text-right">
+                {pullStatus.pulled} / {pullStatus.total} files
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Completion stat grid */}
+        {pullStatus?.doneAt != null && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
+                <IconCloudDownload size={16} className="text-primary shrink-0" />
+                <div>
+                  <p className="font-medium">{pullStatus.pulled}</p>
+                  <p className="text-xs text-muted-foreground">Downloaded</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
+                <IconMinus size={16} className="text-muted-foreground shrink-0" />
+                <div>
+                  <p className="font-medium">{(pullStatus.total ?? 0) - (pullStatus.pulled ?? 0) - (pullStatus.errors?.length ?? 0)}</p>
+                  <p className="text-xs text-muted-foreground">Skipped</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50 col-span-2">
+                <IconAlertTriangle size={16} className={(pullStatus.errors?.length ?? 0) > 0 ? "text-destructive shrink-0" : "text-muted-foreground shrink-0"} />
+                <div>
+                  <p className={`font-medium ${(pullStatus.errors?.length ?? 0) > 0 ? "text-destructive" : ""}`}>{pullStatus.errors?.length ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">Errors</p>
+                </div>
+              </div>
+            </div>
+
+            {(pullStatus.errors?.length ?? 0) > 0 && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2.5 space-y-1 max-h-28 overflow-y-auto">
+                {(pullStatus.errors ?? []).slice(0, 5).map((e, i) => (
+                  <p key={i} className="text-xs font-mono text-destructive break-all">{e}</p>
+                ))}
+                {(pullStatus.errors?.length ?? 0) > 5 && (
+                  <p className="text-xs text-muted-foreground">…and {(pullStatus.errors?.length ?? 0) - 5} more</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            onClick={() => setForcePullOpen(false)}
+            disabled={pullStatus?.running}
+            data-testid="button-close-force-pull"
+          >
+            {pullStatus?.doneAt != null ? "Close" : pullStatus?.running ? "Running…" : "Cancel"}
           </Button>
+          {(!pullStatus || pullStatus.doneAt != null) && !pullStatus?.running && (
+            <Button
+              variant="destructive"
+              onClick={() => startPullMutation.mutate()}
+              disabled={startPullMutation.isPending || pullStatus?.running}
+              data-testid="button-start-force-pull"
+            >
+              {startPullMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
+                : <><IconCloudDownload className="h-4 w-4 mr-2" />{pullStatus?.doneAt != null ? "Pull Again" : "Start Pull"}</>
+              }
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

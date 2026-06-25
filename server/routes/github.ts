@@ -1147,5 +1147,36 @@ export function registerGithubRoutes(app: Express): void {
     res.json(currentPushAllRun);
   });
 
+  // Pull all remote content files to local (force-overwrite).
+  // Returns immediately with { ok: true } — poll /api/github/pull-all-status for progress.
+  app.post("/api/github/content/pull-all", async (_req, res) => {
+    const { getBootstrapState } = await import("../github");
+    if (getBootstrapState().running) {
+      return res.json({ ok: true, alreadyRunning: true });
+    }
+
+    // Fire-and-forget
+    (async () => {
+      try {
+        const { bootstrapContentFromRemote } = await import("../github");
+        await bootstrapContentFromRemote();
+      } catch (error) {
+        log.error({ err: error }, "Error running pull-all:");
+      }
+    })();
+
+    res.json({ ok: true });
+  });
+
+  // Get the live pull-all (bootstrap) progress state for polling
+  app.get("/api/github/pull-all-status", async (_req, res) => {
+    const { getBootstrapState } = await import("../github");
+    const state = getBootstrapState();
+    if (state.startedAt === null) {
+      return res.status(404).json({ error: "No pull-all run has started yet" });
+    }
+    res.json(state);
+  });
+
   // Get available variants for a content type and slug (reads versioning.yml)
 }
