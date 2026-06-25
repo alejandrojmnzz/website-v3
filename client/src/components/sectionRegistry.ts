@@ -1,5 +1,10 @@
 /**
- * Lazy-load registry for section components under components/{type}/variants/.
+ * Lazy-load registry for section components.
+ *
+ * Resolution priority (highest wins):
+ *   1. marketing-content/component-registry/{type}/variants/*.tsx  (site-specific)
+ *   2. client/src/components/{type}/variants/*.tsx                 (shared platform)
+ *   3. null → SectionRenderer renders UnknownSection fallback
  *
  * Used before hydration/SSR render so Suspense fallbacks do not blank the page:
  * - main.tsx and entry-server.tsx call preloadSectionsFromInitialData()
@@ -14,8 +19,21 @@ import type { ComponentType } from "react";
 
 type SectionLoader = () => Promise<{ default: ComponentType<unknown> }>;
 
-/** All components/{type}/variants/{Component}.tsx modules (code-split, not eager). */
-const sectionLoaders = import.meta.glob("./*/variants/*.tsx") as Record<string, SectionLoader>;
+/** Shared platform components under client/src/components/{type}/variants/ (code-split). */
+const clientLoaders = import.meta.glob("./*/variants/*.tsx") as Record<string, SectionLoader>;
+
+/**
+ * Site-specific components co-located with their schema inside component-registry.
+ * Path pattern (relative to this file): ../../../marketing-content/component-registry/{type}/variants/*.tsx
+ * These win over clientLoaders when both define the same type+variant key.
+ * The folder may be absent in some environments — the glob simply returns {} in that case.
+ */
+const registryLoaders = import.meta.glob(
+  "../../../marketing-content/component-registry/*/variants/*.tsx",
+) as Record<string, SectionLoader>;
+
+/** Combined map used by loadSectionComponent — registry paths and client paths share the same namespace. */
+const allLoaders: Record<string, SectionLoader> = { ...clientLoaders, ...registryLoaders };
 
 function snakeToPascal(str: string): string {
   return str.split("_").map((s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()).join("");
@@ -33,11 +51,24 @@ export function normalizeSectionVariant(v: string): string {
   return v.replace(/[-_]/g, "").replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
-/** type -> normalizedVariant -> module path (e.g. ./hero/variants/HeroShowcase.tsx) */
+/** type -> normalizedVariant -> module path */
 const pathIndex: Record<string, Record<string, string>> = {};
 
-for (const filePath of Object.keys(sectionLoaders)) {
+// First pass: shared client components (lower priority).
+for (const filePath of Object.keys(clientLoaders)) {
   const match = filePath.match(/^\.\/([^/]+)\/variants\/([^/]+)\.tsx$/);
+  if (!match) continue;
+  const type = match[1];
+  const filenameBase = match[2];
+  const variantName = normalizeSectionVariant(deriveVariant(type, filenameBase));
+  if (!pathIndex[type]) pathIndex[type] = {};
+  pathIndex[type][variantName] = filePath;
+}
+
+// Second pass: registry components (higher priority — overlay on collision).
+for (const filePath of Object.keys(registryLoaders)) {
+  // Matches paths like: .../component-registry/{type}/variants/{Component}.tsx
+  const match = filePath.match(/\/component-registry\/([^/]+)\/variants\/([^/]+)\.tsx$/);
   if (!match) continue;
   const type = match[1];
   const filenameBase = match[2];
@@ -71,6 +102,7 @@ export function getCachedSectionComponent(
 /**
  * Dynamically imports a section variant and caches the default export.
  * Falls back to the default variant when the requested variant is missing.
+ * Resolves from registry (site-specific) first, then shared client components.
  */
 export async function loadSectionComponent(
   type: string,
@@ -83,7 +115,7 @@ export async function loadSectionComponent(
   const modulePath = resolveModulePath(type, variant ?? "default");
   if (!modulePath) return null;
 
-  const loader = sectionLoaders[modulePath];
+  const loader = allLoaders[modulePath];
   if (!loader) return null;
 
   const mod = await loader();

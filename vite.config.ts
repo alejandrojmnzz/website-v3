@@ -34,14 +34,35 @@
 //   Terser minification of 9 662 modules takes >5 min in Vite 8 / Rolldown,
 //   blocking CI/CD. esbuild minification completes in ~30 s and is the Vite 8
 //   default. console/debugger stripping is handled via build.esbuildOptions.
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Plugin, searchForWorkspaceRoot } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import fs from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 // Vite 6+ removed isSsrBuild from the defineConfig callback.
 // Detect SSR build by checking the CLI arguments instead.
 const isSsrBuild = process.argv.includes("--ssr");
+
+/**
+ * Warns at build time when marketing-content/component-registry is absent.
+ * The build still succeeds — only shared /client components will be bundled.
+ */
+function componentRegistryGuardPlugin(): Plugin {
+  return {
+    name: "component-registry-guard",
+    apply: "build",
+    buildStart() {
+      const registryPath = path.resolve(import.meta.dirname, "marketing-content", "component-registry");
+      if (!fs.existsSync(registryPath)) {
+        this.warn(
+          "marketing-content/component-registry not found — registry TSX files will not be bundled. " +
+          "Build continues with shared /client components only.",
+        );
+      }
+    },
+  };
+}
 
 /** Runs on `vite build` (client pass only), writes marketing-content/navigation-eager-manifest.json */
 function navigationEagerManifestPlugin(isSsr: boolean): Plugin {
@@ -60,6 +81,7 @@ function navigationEagerManifestPlugin(isSsr: boolean): Plugin {
 
 export default defineConfig(async () => ({
   plugins: [
+    componentRegistryGuardPlugin(),
     navigationEagerManifestPlugin(isSsrBuild),
     react({
       babel: {
@@ -166,6 +188,15 @@ export default defineConfig(async () => ({
     fs: {
       strict: true,
       deny: ["**/.*"],
+      // Preserve Vite's default workspace-root access (required for @shared/* imports and
+      // any other out-of-root paths the app already depends on), then extend with the
+      // component-registry folder so that registry-sourced TSX files are served in dev.
+      // Note: explicitly setting `allow` replaces Vite's auto-detected workspace root,
+      // so we must include it here via searchForWorkspaceRoot().
+      allow: [
+        searchForWorkspaceRoot(process.cwd()),
+        path.resolve(import.meta.dirname, "marketing-content", "component-registry"),
+      ],
     },
     warmup: {
       clientFiles: [
