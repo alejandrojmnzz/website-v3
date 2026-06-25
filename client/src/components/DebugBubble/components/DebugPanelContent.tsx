@@ -499,18 +499,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
 
       {props.menuView === "main" ? (
         <>
-          {props.siteInfo && (
-            <div className="px-3 py-1.5 border-b border-border flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-mono text-foreground">{props.siteInfo.contentFolder}</span>
-              {props.siteInfo.isMultiSite && (
-                <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">multi-site</span>
-              )}
-              {props.siteInfo.isDevOverride && (
-                <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium">dev override</span>
-              )}
-              <span className="ml-auto text-muted-foreground/60 truncate max-w-[140px]">{props.siteInfo.domain}</span>
-            </div>
-          )}
           <div className="p-2 space-y-1">
             <ExpandableMenuItem
               icon={Map}
@@ -968,6 +956,18 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   )}
                 </div>
               </div>
+              {props.siteInfo && (
+                <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground">
+                  <span className="font-mono">{props.siteInfo.contentFolder}</span>
+                  {props.siteInfo.isMultiSite && (
+                    <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">multi-site</span>
+                  )}
+                  {props.siteInfo.isDevOverride && (
+                    <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium">dev override</span>
+                  )}
+                  <span className="ml-auto text-muted-foreground/60 truncate max-w-[140px]">{props.siteInfo.domain}</span>
+                </div>
+              )}
           </div>
         </>
       ) : props.menuView === "components" ? (
