@@ -3,6 +3,12 @@ dist
 .DS_Store
 artifacts
 
+# Marketing content is managed via a separate content GitHub repo (GITHUB_REPO_URL).
+# Each site has its own content repo; the platform code repo does not contain content.
+marketing-content/*
+!marketing-content/.gitkeep
+!marketing-content/README.md
+
 # MCP server — generated OAuth client registry (contains secrets)
 mcp-server/data/
 
