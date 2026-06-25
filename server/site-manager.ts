@@ -84,12 +84,13 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   next();
 }
 
-export function getSiteInfo(req: Request, res: Response): { domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean } {
+export function getSiteInfo(req: Request, res: Response): { domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean; githubRepoUrl?: string } {
   const site = res.locals.site ?? getDefaultSite();
   return {
     domain: site.config.domain,
     contentFolder: site.config.contentFolder,
     isMultiSite: isMultiSiteMode(),
     isDevOverride: site.isDevOverride ?? false,
+    githubRepoUrl: site.config.githubRepoUrl,
   };
 }

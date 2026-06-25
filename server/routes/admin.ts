@@ -2016,4 +2016,126 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  // ============================================================
+  // Site Manager — create new site scaffold
+  // ============================================================
+  app.post("/api/admin/sites/create", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "webmaster");
+      if (!auth.authorized) return;
+
+      const { name, domain, githubRepoUrl, includeSampleContent } = req.body as {
+        name?: string;
+        domain?: string;
+        githubRepoUrl?: string;
+        includeSampleContent?: boolean;
+      };
+
+      if (!name || typeof name !== "string") {
+        return res.status(400).json({ error: "Missing required field: name" });
+      }
+      if (!domain || typeof domain !== "string") {
+        return res.status(400).json({ error: "Missing required field: domain" });
+      }
+
+      // Validate name: only lowercase alphanumeric + hyphens, no path traversal
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+        return res.status(400).json({ error: "Folder name must be lowercase alphanumeric with hyphens only (e.g. my-site)" });
+      }
+      if (name.length > 64) {
+        return res.status(400).json({ error: "Folder name too long (max 64 chars)" });
+      }
+
+      const folderName = `site_${name}`;
+      const folderPath = path.join(process.cwd(), folderName);
+
+      if (fs.existsSync(folderPath)) {
+        return res.status(409).json({ error: `Folder "${folderName}" already exists` });
+      }
+
+      // Create directory structure
+      fs.mkdirSync(folderPath, { recursive: true });
+      fs.mkdirSync(path.join(folderPath, "images"), { recursive: true });
+      fs.mkdirSync(path.join(folderPath, "menus"), { recursive: true });
+      fs.mkdirSync(path.join(folderPath, "pages"), { recursive: true });
+
+      // Write .gitkeep for images dir
+      fs.writeFileSync(path.join(folderPath, "images", ".gitkeep"), "");
+
+      // settings.yml
+      const settingsYml = `# Site settings for ${folderName}\ni18n:\n  defaultLocale: en\n  locales:\n    - en\n`;
+      fs.writeFileSync(path.join(folderPath, "settings.yml"), settingsYml);
+
+      // content-types.yml
+      const contentTypesYml = `# Content types for ${folderName}\npages:\n  label: Pages\n  folder: pages\n  url_pattern:\n    en: "/en/:slug"\n`;
+      fs.writeFileSync(path.join(folderPath, "content-types.yml"), contentTypesYml);
+
+      // image-registry.json
+      fs.writeFileSync(path.join(folderPath, "image-registry.json"), JSON.stringify({ images: [], presets: [] }, null, 2));
+
+      // custom-redirects.yml
+      fs.writeFileSync(path.join(folderPath, "custom-redirects.yml"), "redirects: []\n");
+
+      // menus/main-navbar.yml
+      fs.writeFileSync(
+        path.join(folderPath, "menus", "main-navbar.yml"),
+        `logo:\n  text: "${name}"\n  url: /en\nlinks:\n  - label: Home\n    url: /en\n  - label: About\n    url: /en/about\n`,
+      );
+
+      // menus/main-footer.yml
+      fs.writeFileSync(
+        path.join(folderPath, "menus", "main-footer.yml"),
+        `copyright: "© ${new Date().getFullYear()} ${name}. All rights reserved."\n`,
+      );
+
+      // pages/home.en.yml
+      fs.writeFileSync(
+        path.join(folderPath, "pages", "home.en.yml"),
+        `meta:\n  title: "Welcome to ${name}"\n  description: "Home page for ${name}"\nsections:\n  - type: hero_single_column\n    title: "Welcome to ${name}"\n    subtitle: "Your new site is ready. Start editing this page to get started."\n    button_label: Get Started\n    button_url: /en/about\n`,
+      );
+
+      // Sample content (optional)
+      if (includeSampleContent) {
+        // pages/about.en.yml
+        fs.writeFileSync(
+          path.join(folderPath, "pages", "about.en.yml"),
+          `meta:\n  title: "About - ${name}"\n  description: "Learn more about ${name}"\nsections:\n  - type: two_column_text\n    title: "About Us"\n    left_body: |\n      We are a team passionate about building great products.\n      This is the about page for ${name}.\n    right_body: |\n      Feel free to edit this page with your own content.\n      Replace images, update the text, and make it yours.\n`,
+        );
+
+        // blog/ directory
+        fs.mkdirSync(path.join(folderPath, "blog"), { recursive: true });
+
+        // blog/_common.single.yml
+        fs.writeFileSync(
+          path.join(folderPath, "blog", "_common.single.yml"),
+          `sections:\n  - type: hero_single_column\n    title: "{{ single.title }}"\n    subtitle: "{{ single.excerpt }}"\n  - type: markdown_body\n    body: "{{ single.body }}"\n`,
+        );
+
+        // blog/sample-post.en.yml
+        fs.writeFileSync(
+          path.join(folderPath, "blog", "sample-post.en.yml"),
+          `title: "Sample Blog Post"\nexcerpt: "This is a sample blog post to get you started."\nbody: |\n  ## Hello World\n\n  This is a sample blog post for **${name}**. You can edit or delete this file\n  and create your own posts in this folder.\n`,
+        );
+      }
+
+      // Append to sites.yml
+      const sitesYmlPath = path.join(process.cwd(), "sites.yml");
+      let sitesContent = "";
+      if (fs.existsSync(sitesYmlPath)) {
+        sitesContent = fs.readFileSync(sitesYmlPath, "utf-8");
+        if (!sitesContent.endsWith("\n")) sitesContent += "\n";
+      }
+      const newEntry = `${domain}:\n  content_folder: ${folderName}\n${githubRepoUrl ? `  github_repo_url: ${githubRepoUrl}\n` : ""}`;
+      sitesContent += newEntry;
+      fs.writeFileSync(sitesYmlPath, sitesContent);
+
+      log.info(`[SiteManager] Created new site scaffold: ${folderName} for domain ${domain}`);
+
+      res.json({ folderName, created: true });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to create site:");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create site" });
+    }
+  });
+
 }

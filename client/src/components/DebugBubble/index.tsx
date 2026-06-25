@@ -53,6 +53,7 @@ import { DeletePageModal } from "./components/DeletePageModal";
 import { CreateContentModal } from "./components/CreateContentModal";
 import { PageErrorsModal } from "./components/PageErrorsModal";
 import { SeoModal } from "./components/SeoModal";
+import { SiteManagerModal } from "./components/SiteManagerModal";
 const componentIconMap: Record<string, typeof Blocks> = {
   hero: Rocket,
   two_column: Columns2,
@@ -153,7 +154,7 @@ export function DebugBubble() {
     staleTime: 60000,
   });
 
-  const { data: siteInfo } = useQuery<{ domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean }>({
+  const { data: siteInfo } = useQuery<{ domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean; githubRepoUrl?: string }>({
     queryKey: ["/api/site/info"],
     staleTime: 30000,
   });
@@ -178,6 +179,7 @@ export function DebugBubble() {
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState<string>("");
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
+  const [siteManagerModalOpen, setSiteManagerModalOpen] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
   
   // Versioning state
@@ -1808,6 +1810,7 @@ export function DebugBubble() {
     isCheckingSession,
     handleCheckSession,
     setSessionModalOpen,
+    onOpenSiteManager: () => setSiteManagerModalOpen(true),
     publicPageUrl: (() => {
       if (!pathname.startsWith('/private/preview/') || !contentInfo.type || !contentInfo.slug) return null;
       const searchParams = new URLSearchParams(window.location.search);
@@ -1961,6 +1964,11 @@ export function DebugBubble() {
         handleClearLocationOverride={handleClearLocationOverride}
         locationsByRegion={locationsByRegion}
         regionLabels={regionLabels}
+      />
+      <SiteManagerModal
+        open={siteManagerModalOpen}
+        onOpenChange={setSiteManagerModalOpen}
+        siteInfo={siteInfo}
       />
       <SessionModal
         open={sessionModalOpen}
