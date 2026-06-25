@@ -2106,32 +2106,150 @@ export async function pushAllContentToRemote(opts?: { contentRoot?: string; repo
   }
 
   const allFiles = walkDir(contentDir, contentFolderName);
-  logSync('AUTO-PULL', `Push-all: committing ${allFiles.length} local files to remote...`);
+  logSync('AUTO-PULL', `Push-all: uploading ${allFiles.length} local files as a single commit...`);
 
-  const committed: string[] = [];
   const errors: string[] = [];
 
-  for (const relPath of allFiles) {
-    try {
-      const fullPath = path.join(process.cwd(), relPath);
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      const result = await commitToGitHub({
-        filePath: relPath,
-        content,
-        message: `[push-all] seed: ${relPath}`,
-      });
-      if (result.success) {
-        committed.push(relPath);
-      } else {
-        errors.push(`${relPath}: ${result.error || 'unknown error'}`);
-      }
-    } catch (e) {
-      errors.push(`${relPath}: ${e instanceof Error ? e.message : String(e)}`);
+  // ── Step 1: create blobs in parallel (cap concurrency to avoid rate-limits) ──
+  const CONCURRENCY = 10;
+  const blobEntries: Array<{ path: string; blobSha: string }> = [];
+
+  for (let i = 0; i < allFiles.length; i += CONCURRENCY) {
+    const batch = allFiles.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (relPath) => {
+        try {
+          const fullPath = path.join(process.cwd(), relPath);
+          const content = fs.readFileSync(fullPath);
+          const response = await fetch(
+            `https://api.github.com/repos/${config.owner}/${config.repo}/git/blobs`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${config.token}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+                'X-GitHub-Api-Version': '2022-11-28',
+              },
+              body: JSON.stringify({
+                content: content.toString('base64'),
+                encoding: 'base64',
+              }),
+            }
+          );
+          if (!response.ok) {
+            const msg = await response.text();
+            errors.push(`${relPath}: blob creation failed (${response.status}): ${msg}`);
+            return null;
+          }
+          const data = await response.json() as { sha: string };
+          return { path: relPath, blobSha: data.sha };
+        } catch (e) {
+          errors.push(`${relPath}: ${e instanceof Error ? e.message : String(e)}`);
+          return null;
+        }
+      })
+    );
+    for (const r of results) {
+      if (r) blobEntries.push(r);
     }
+    log.info(`Push-all: blobs uploaded ${Math.min(i + CONCURRENCY, allFiles.length)}/${allFiles.length}`);
   }
 
-  logSync('AUTO-PULL', `Push-all: committed ${committed.length} files, ${errors.length} errors`);
-  log.info(`Push-all complete: committed=${committed.length}, errors=${errors.length}`);
+  if (blobEntries.length === 0) {
+    return { committed: [], errors: errors.length ? errors : ['No blobs created'] };
+  }
+
+  // ── Step 2: get current HEAD (may not exist for empty repos) ──
+  const headSha = await getBranchHeadSha(config);
+
+  let treeSha: string | null = null;
+  let parentShas: string[] = [];
+
+  if (headSha) {
+    treeSha = await getTreeSha(config, headSha);
+    parentShas = [headSha];
+  }
+
+  // ── Step 3: create a single tree with all blobs ──
+  const treePayload = blobEntries.map(e => ({
+    path: e.path,
+    mode: '100644' as const,
+    type: 'blob' as const,
+    sha: e.blobSha,
+  }));
+
+  const treeUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees`;
+  const treeBody: Record<string, unknown> = { tree: treePayload };
+  if (treeSha) treeBody.base_tree = treeSha;
+
+  const treeRes = await fetch(treeUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify(treeBody),
+  });
+
+  if (!treeRes.ok) {
+    const msg = await treeRes.text();
+    return { committed: [], errors: [`Tree creation failed (${treeRes.status}): ${msg}`, ...errors] };
+  }
+  const newTreeSha = ((await treeRes.json()) as { sha: string }).sha;
+
+  // ── Step 4: create commit ──
+  const commitUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/git/commits`;
+  const commitBody: Record<string, unknown> = {
+    message: `[push-all] seed ${blobEntries.length} files from ${contentFolderName}/`,
+    tree: newTreeSha,
+  };
+  if (parentShas.length) commitBody.parents = parentShas;
+
+  const commitRes = await fetch(commitUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify(commitBody),
+  });
+
+  if (!commitRes.ok) {
+    const msg = await commitRes.text();
+    return { committed: [], errors: [`Commit creation failed (${commitRes.status}): ${msg}`, ...errors] };
+  }
+  const newCommitSha = ((await commitRes.json()) as { sha: string }).sha;
+
+  // ── Step 5: update (or create) branch ref ──
+  const refUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/git/refs/heads/${config.branch}`;
+  const updateRes = await fetch(refUrl, {
+    method: headSha ? 'PATCH' : 'POST',
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify(
+      headSha
+        ? { sha: newCommitSha, force: true }
+        : { ref: `refs/heads/${config.branch}`, sha: newCommitSha }
+    ),
+  });
+
+  if (!updateRes.ok) {
+    const msg = await updateRes.text();
+    return { committed: [], errors: [`Ref update failed (${updateRes.status}): ${msg}`, ...errors] };
+  }
+
+  const committed = blobEntries.map(e => e.path);
+  logSync('AUTO-PULL', `Push-all: 1 commit (${committed.length} files), ${errors.length} blob errors`);
+  log.info(`Push-all complete: commit=${newCommitSha}, files=${committed.length}, errors=${errors.length}`);
 
   return { committed, errors };
 }

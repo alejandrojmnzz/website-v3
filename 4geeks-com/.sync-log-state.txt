@@ -237,3 +237,176 @@
 {"ts":"2026-06-25T18:00:52.051Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
 {"ts":"2026-06-25T18:00:52.772Z","category":"WEBHOOK","message":"Push d28d06d by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
 {"ts":"2026-06-25T18:00:52.772Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:00:53.893Z","category":"WEBHOOK","message":"Push a6e6c26 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:00:53.893Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:00:54.960Z","category":"WEBHOOK","message":"Push 88fd6dc by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:00:54.960Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:00:56.146Z","category":"WEBHOOK","message":"Push eb15a00 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:00:56.147Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:00:58.590Z","category":"WEBHOOK","message":"Push f7f589e by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:00:58.590Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:00:59.298Z","category":"WEBHOOK","message":"Push 4ffc865 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:00:59.298Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:00.268Z","category":"WEBHOOK","message":"Push 924ce0d by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:00.268Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:01.108Z","category":"WEBHOOK","message":"Push e061340 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:01.109Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:01.878Z","category":"WEBHOOK","message":"Push 52e1cb7 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:01.878Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:02.310Z","category":"WEBHOOK","message":"Push fe21a09 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:02.310Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:03.521Z","category":"WEBHOOK","message":"Push 06aa331 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:03.521Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:04.902Z","category":"WEBHOOK","message":"Push f87825c by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:04.902Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:05.950Z","category":"WEBHOOK","message":"Push 862ae3f by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:05.950Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:06.998Z","category":"WEBHOOK","message":"Push 0b6a85e by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:06.998Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:07.529Z","category":"WEBHOOK","message":"Push 7672a32 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:07.529Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:08.116Z","category":"WEBHOOK","message":"Push 1feff78 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:08.117Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:08.899Z","category":"WEBHOOK","message":"Push d90a6d8 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:08.899Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:12.008Z","category":"WEBHOOK","message":"Push 8a2ca68 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:12.008Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:15.652Z","category":"WEBHOOK","message":"Push f5b2f8a by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:15.652Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:16.007Z","category":"WEBHOOK","message":"Push 368b0ee by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:16.007Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:16.369Z","category":"WEBHOOK","message":"Push c67846f by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:16.369Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:17.498Z","category":"WEBHOOK","message":"Push 40bbe3d by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:17.498Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:18.902Z","category":"WEBHOOK","message":"Push ec41851 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:18.902Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:20.885Z","category":"WEBHOOK","message":"Push b31bb75 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:20.885Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:21.891Z","category":"WEBHOOK","message":"Push 9a3dd9c by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:21.892Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:22.630Z","category":"WEBHOOK","message":"Push f0b930e by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:22.630Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:24.007Z","category":"WEBHOOK","message":"Push dbbe8f0 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:24.007Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:26.152Z","category":"WEBHOOK","message":"Push d4dd96d by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:26.153Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:28.508Z","category":"WEBHOOK","message":"Push 149ff76 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:28.508Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:29.261Z","category":"WEBHOOK","message":"Push 31850a7 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:29.261Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:29.451Z","category":"WEBHOOK","message":"Push 004adff by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:29.451Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:30.503Z","category":"WEBHOOK","message":"Push dd47823 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:30.503Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:31.423Z","category":"WEBHOOK","message":"Push aa74a34 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:31.423Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:32.315Z","category":"WEBHOOK","message":"Push 7b6b05b by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:32.316Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:33.682Z","category":"WEBHOOK","message":"Push f46712a by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:33.682Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:34.696Z","category":"WEBHOOK","message":"Push 487abea by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:34.696Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:36.156Z","category":"WEBHOOK","message":"Push faede27 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:36.156Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:37.037Z","category":"WEBHOOK","message":"Push ab80ffc by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:37.037Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:38.006Z","category":"WEBHOOK","message":"Push 0f9d3f1 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:38.006Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:38.337Z","category":"WEBHOOK","message":"Push 977ccf6 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:38.337Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:39.394Z","category":"WEBHOOK","message":"Push 9f905fa by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:39.394Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:41.717Z","category":"WEBHOOK","message":"Push 529067d by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:41.717Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:42.776Z","category":"WEBHOOK","message":"Push 4b68b14 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:42.776Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:43.600Z","category":"WEBHOOK","message":"Push 9ae516c by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:43.601Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:45.083Z","category":"WEBHOOK","message":"Push 42a2290 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:45.083Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:46.231Z","category":"WEBHOOK","message":"Push 5722737 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:46.232Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:46.480Z","category":"WEBHOOK","message":"Push 1890d53 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:46.480Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:47.184Z","category":"WEBHOOK","message":"Push 86deebb by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:47.184Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:48.345Z","category":"WEBHOOK","message":"Push c8b76ec by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:48.346Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:50.533Z","category":"WEBHOOK","message":"Push 33168f8 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:50.533Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:53.192Z","category":"WEBHOOK","message":"Push 18ef98b by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:53.192Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:54.611Z","category":"WEBHOOK","message":"Push dde2b2c by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:54.611Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:57.053Z","category":"WEBHOOK","message":"Push 975fa64 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:57.054Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:01:58.723Z","category":"WEBHOOK","message":"Push 19a45c1 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:01:58.724Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:00.001Z","category":"WEBHOOK","message":"Push 222e544 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:00.001Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:01.556Z","category":"WEBHOOK","message":"Push 613cef7 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:01.556Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:02.374Z","category":"WEBHOOK","message":"Push 4f56fdc by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:02.374Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:03.227Z","category":"WEBHOOK","message":"Push 91c1e8c by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:03.227Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:05.472Z","category":"WEBHOOK","message":"Push b44371c by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:05.472Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:06.015Z","category":"WEBHOOK","message":"Push ddf3beb by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:06.015Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:06.522Z","category":"WEBHOOK","message":"Push 6e2e0c0 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:06.522Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:08.892Z","category":"WEBHOOK","message":"Push f4426f0 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:08.892Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:09.794Z","category":"WEBHOOK","message":"Push 7464be6 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:09.794Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:10.977Z","category":"WEBHOOK","message":"Push 0272c2a by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:10.977Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:10.980Z","category":"WEBHOOK","message":"Push f2443a8 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:10.980Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:11.559Z","category":"WEBHOOK","message":"Push 25e6100 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:11.559Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:12.819Z","category":"WEBHOOK","message":"Push 6dbd9dd by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:12.819Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:12.962Z","category":"WEBHOOK","message":"Push 0230e9a by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:12.962Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:14.316Z","category":"WEBHOOK","message":"Push f8834db by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:14.316Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:15.465Z","category":"WEBHOOK","message":"Push b9bd668 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:15.465Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:16.502Z","category":"WEBHOOK","message":"Push 848aac9 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:16.502Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:17.507Z","category":"WEBHOOK","message":"Push 1140685 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:17.507Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:18.464Z","category":"WEBHOOK","message":"Push 8a19220 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:18.464Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:19.388Z","category":"WEBHOOK","message":"Push 57e7af9 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:19.389Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:20.982Z","category":"WEBHOOK","message":"Push 0210a11 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:20.982Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:22.367Z","category":"WEBHOOK","message":"Push c34e806 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:22.367Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:27.970Z","category":"RESTART","message":"Server started (instance=3d2c, checkpoint=034f08274, env=development, pid=49309)"}
+{"ts":"2026-06-25T18:02:32.379Z","category":"WEBHOOK","message":"Push fde49e5 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:32.379Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:32.401Z","category":"RECONCILE","message":"Local 47c4e60 ≠ remote 50a572d, checking file hashes..."}
+{"ts":"2026-06-25T18:02:33.850Z","category":"RECONCILE","message":"No tracked files changed, updated to 50a572d"}
+{"ts":"2026-06-25T18:02:33.850Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:34.584Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T18:02:37.976Z","category":"WEBHOOK","message":"Push ae0b370 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:37.976Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:02:44.992Z","category":"WEBHOOK","message":"Push a1c7398 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:02:44.993Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:03:02.988Z","category":"WEBHOOK","message":"Push 090d9df by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:03:02.988Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:03:03.740Z","category":"WEBHOOK","message":"Push 4a226c5 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:03:03.740Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:03:14.667Z","category":"WEBHOOK","message":"Push e2c3935 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:03:14.667Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:03:15.324Z","category":"WEBHOOK","message":"Push eaf7808 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:03:15.324Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:03:44.548Z","category":"WEBHOOK","message":"Push ab34167 by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:03:44.548Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T18:03:45.312Z","category":"WEBHOOK","message":"Push 47fa8ed by alesanchezr: 1 site_4geeks-com files changed","person":"alesanchezr"}
+{"ts":"2026-06-25T18:03:45.312Z","category":"AUTO-PULL","message":"Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
