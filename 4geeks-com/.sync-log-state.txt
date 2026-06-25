@@ -2,3 +2,11 @@
 {"ts":"2026-06-25T20:20:55.494Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
 {"ts":"2026-06-25T20:20:55.495Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
 {"ts":"2026-06-25T20:20:55.881Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:23:01.796Z","category":"RESTART","message":"Server started (instance=2f03, checkpoint=f0bcd4c71, env=development, pid=82429)"}
+{"ts":"2026-06-25T20:23:08.226Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
+{"ts":"2026-06-25T20:23:08.226Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:23:08.519Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}
+{"ts":"2026-06-25T20:24:01.671Z","category":"RESTART","message":"Server started (instance=68d7, checkpoint=f0bcd4c71, env=development, pid=83124)"}
+{"ts":"2026-06-25T20:24:05.636Z","category":"RECONCILE","message":"Already in sync at 9c1b697"}
+{"ts":"2026-06-25T20:24:05.636Z","category":"AUTO-PULL","message":"Skipped startup pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'"}
+{"ts":"2026-06-25T20:24:06.091Z","category":"WEBHOOK","message":"Verified: webhook #646443114 is active at https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev/api/github/webhook"}

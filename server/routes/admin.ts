@@ -28,6 +28,8 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
+import { resetSiteConfigs } from "../site-config";
+import { resetSiteContextMap } from "../site-manager";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
@@ -2128,6 +2130,8 @@ export function registerAdminRoutes(app: Express): void {
       const newEntry = `${domain}:\n  content_folder: ${folderName}\n${githubRepoUrl ? `  github_repo_url: ${githubRepoUrl}\n` : ""}`;
       sitesContent += newEntry;
       fs.writeFileSync(sitesYmlPath, sitesContent);
+      resetSiteConfigs();
+      resetSiteContextMap();
 
       log.info(`[SiteManager] Created new site scaffold: ${folderName} for domain ${domain}`);
 

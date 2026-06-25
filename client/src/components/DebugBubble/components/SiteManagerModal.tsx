@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconServer } from "@tabler/icons-react";
 import { Check, Loader2 } from "lucide-react";
 import {
@@ -52,6 +52,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [includeSample, setIncludeSample] = useState(false);
   const [successResult, setSuccessResult] = useState<CreateSiteResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const createMutation = useMutation<CreateSiteResult, Error, { name: string; domain: string; githubRepoUrl?: string; includeSampleContent: boolean }>({
     mutationFn: async (body) => {
@@ -67,6 +68,8 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
     onSuccess: (data) => {
       setSuccessResult(data);
       setErrorMsg(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/site/info"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
     },
     onError: (err) => {
       setErrorMsg(err.message);
