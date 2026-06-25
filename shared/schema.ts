@@ -40,10 +40,10 @@ export {
   type CardItem,
   type StatItem,
   type LogoItem,
-} from "../4geeks-com-content/component-registry/_common/schema";
+} from "../site_4geeks-com/component-registry/_common/schema";
 
 // Alias for backward compatibility
-export { leadFormDataSchema as productShowcaseFormSchema } from "../4geeks-com-content/component-registry/_common/schema";
+export { leadFormDataSchema as productShowcaseFormSchema } from "../site_4geeks-com/component-registry/_common/schema";
 
 // ============================================
 // Re-export Hero Schemas from Component Registry
@@ -84,7 +84,7 @@ export {
   type HeroOrbitBadge,
   type HeroOrbitDiagram,
   type HeroOrbit,
-} from "../4geeks-com-content/component-registry/hero/v1.0/schema";
+} from "../site_4geeks-com/component-registry/hero/v1.0/schema";
 
 // Variant types for type narrowing (schemas are internal to component registry)
 export type {
@@ -96,7 +96,7 @@ export type {
   HeroTwoColumn,
   HeroCourse,
   HeroApplyFormProductShowcase,
-} from "../4geeks-com-content/component-registry/hero/v1.0/schema";
+} from "../site_4geeks-com/component-registry/hero/v1.0/schema";
 
 // HeroCredibility is already exported via the re-export block above
 
@@ -106,7 +106,7 @@ export type {
 export {
   aiFlexSelectorDefaultSchema,
   type AiFlexSelectorDefault,
-} from "../4geeks-com-content/component-registry/ai_flex_selector/v1.0/schema";
+} from "../site_4geeks-com/component-registry/ai_flex_selector/v1.0/schema";
 
 // ============================================
 // Re-export Survey Schemas from Component Registry
@@ -114,7 +114,7 @@ export {
 export {
   surveyDefaultSchema,
   type SurveyDefault,
-} from "../4geeks-com-content/component-registry/survey/v1.0/schema";
+} from "../site_4geeks-com/component-registry/survey/v1.0/schema";
 
 // ============================================
 // Re-export AiFlexPath Schemas from Component Registry
@@ -124,7 +124,7 @@ export {
   aiFlexPathDragAndDropSchema,
   type AiFlexPathDefault,
   type AiFlexPathDragAndDrop,
-} from "../4geeks-com-content/component-registry/ai_flex_path/v1.0/schema";
+} from "../site_4geeks-com/component-registry/ai_flex_path/v1.0/schema";
 
 // ============================================
 // Re-export AI Learning Schemas from Component Registry
@@ -140,10 +140,10 @@ export {
   type AiLearningFeatureTabsSection,
   type AiLearningHighlightSection,
   type AiLearningSection,
-} from "../4geeks-com-content/component-registry/ai_learning/v1.0/schema";
+} from "../site_4geeks-com/component-registry/ai_learning/v1.0/schema";
 
 // Type alias for backward compatibility
-export type AILearningSection = import("../4geeks-com-content/component-registry/ai_learning/v1.0/schema").AiLearningSection;
+export type AILearningSection = import("../site_4geeks-com/component-registry/ai_learning/v1.0/schema").AiLearningSection;
 
 // ============================================
 // Re-export Mentorship Schemas from Component Registry
@@ -151,7 +151,7 @@ export type AILearningSection = import("../4geeks-com-content/component-registry
 export {
   mentorshipSectionSchema,
   type MentorshipSection,
-} from "../4geeks-com-content/component-registry/mentorship/v1.0/schema";
+} from "../site_4geeks-com/component-registry/mentorship/v1.0/schema";
 
 // ============================================
 // Re-export Certificate Schemas from Component Registry
@@ -159,7 +159,7 @@ export {
 export {
   certificateSectionSchema,
   type CertificateSection,
-} from "../4geeks-com-content/component-registry/certificate/v1.0/schema";
+} from "../site_4geeks-com/component-registry/certificate/v1.0/schema";
 
 // ============================================
 // Re-export TextBlock Schemas from Component Registry
@@ -167,7 +167,7 @@ export {
 export {
   textBlockSectionSchema,
   type TextBlockSection,
-} from "../4geeks-com-content/component-registry/text_block/v1.0/schema";
+} from "../site_4geeks-com/component-registry/text_block/v1.0/schema";
 
 // ============================================
 // Re-export Why Learn AI Schemas from Component Registry
@@ -175,7 +175,7 @@ export {
 export {
   whyLearnAISectionSchema,
   type WhyLearnAISection,
-} from "../4geeks-com-content/component-registry/why_learn_ai/v1.0/schema";
+} from "../site_4geeks-com/component-registry/why_learn_ai/v1.0/schema";
 
 // ============================================
 // Re-export Pricing Schemas from Component Registry
@@ -200,7 +200,7 @@ export {
   type PricingPlanCardsPlanFeature,
   type PricingPlanCardsNewPlan,
   type PricingPlanCardsNewSection,
-} from "../4geeks-com-content/component-registry/pricing/v1.0/schema";
+} from "../site_4geeks-com/component-registry/pricing/v1.0/schema";
 
 // ============================================
 // Re-export FAQ Schemas from Component Registry
@@ -211,11 +211,11 @@ export {
   type FaqItem,
   type FaqSection,
   type FAQ,
-} from "../4geeks-com-content/component-registry/faq/v1.0/schema";
+} from "../site_4geeks-com/component-registry/faq/v1.0/schema";
 
 // Type alias for backward compatibility
-export type FAQItem = import("../4geeks-com-content/component-registry/faq/v1.0/schema").FaqItem;
-export type FAQSection = import("../4geeks-com-content/component-registry/faq/v1.0/schema").FaqSection;
+export type FAQItem = import("../site_4geeks-com/component-registry/faq/v1.0/schema").FaqItem;
+export type FAQSection = import("../site_4geeks-com/component-registry/faq/v1.0/schema").FaqSection;
 
 // ============================================
 // Re-export Testimonials Schemas from Component Registry
@@ -225,7 +225,7 @@ export {
   testimonialsSectionSchema,
   type TestimonialItem,
   type TestimonialsSection,
-} from "../4geeks-com-content/component-registry/testimonials/v1.0/schema";
+} from "../site_4geeks-com/component-registry/testimonials/v1.0/schema";
 
 // ============================================
 // Re-export Testimonials Grid Schemas from Component Registry
@@ -235,7 +235,7 @@ export {
   testimonialsGridSectionSchema,
   type TestimonialsGridItem,
   type TestimonialsGridSection,
-} from "../4geeks-com-content/component-registry/testimonials_grid/v1.0/schema";
+} from "../site_4geeks-com/component-registry/testimonials_grid/v1.0/schema";
 
 // ============================================
 // Re-export Who's Hiring Schemas from Component Registry
@@ -243,7 +243,7 @@ export {
 export {
   whosHiringSectionSchema,
   type WhosHiringSection,
-} from "../4geeks-com-content/component-registry/whos_hiring/v1.0/schema";
+} from "../site_4geeks-com/component-registry/whos_hiring/v1.0/schema";
 
 // ============================================
 // Re-export Footer Schemas from Component Registry
@@ -251,7 +251,7 @@ export {
 export {
   footerSectionSchema,
   type FooterSection,
-} from "../4geeks-com-content/component-registry/footer/v1.0/schema";
+} from "../site_4geeks-com/component-registry/footer/v1.0/schema";
 
 // ============================================
 // Re-export Two Column Schemas from Component Registry
@@ -267,7 +267,7 @@ export {
   type BenefitItem,
   type TwoColumnColumn,
   type TwoColumnSection,
-} from "../4geeks-com-content/component-registry/two_column/v1.0/schema";
+} from "../site_4geeks-com/component-registry/two_column/v1.0/schema";
 
 // ============================================
 // Re-export Value Proof Panel Schemas from Component Registry
@@ -279,7 +279,7 @@ export {
   type EvidenceItem,
   type ValueProofPanelMedia,
   type ValueProofPanelSection,
-} from "../4geeks-com-content/component-registry/value_proof_panel/v1.0/schema";
+} from "../site_4geeks-com/component-registry/value_proof_panel/v1.0/schema";
 
 // ============================================
 // Re-export Split Cards Schemas from Component Registry
@@ -291,7 +291,7 @@ export {
   type ToolIcon,
   type SplitCardsBenefit,
   type SplitCardsSection,
-} from "../4geeks-com-content/component-registry/split_cards/v1.0/schema";
+} from "../site_4geeks-com/component-registry/split_cards/v1.0/schema";
 
 // ============================================
 // Re-export Numbered Steps Schemas from Component Registry
@@ -301,14 +301,14 @@ export {
   numberedStepsSectionSchema,
   type NumberedStepsStep,
   type NumberedStepsSection,
-} from "../4geeks-com-content/component-registry/numbered_steps/v1.0/schema";
+} from "../site_4geeks-com/component-registry/numbered_steps/v1.0/schema";
 
 // Variant types for type narrowing
 export type {
   NumberedStepsDefaultSection,
   NumberedStepsBubbleTextSection,
   NumberedStepsVerticalCardsSection,
-} from "../4geeks-com-content/component-registry/numbered_steps/v1.0/schema";
+} from "../site_4geeks-com/component-registry/numbered_steps/v1.0/schema";
 
 // ============================================
 // Re-export Syllabus Schemas from Component Registry
@@ -330,7 +330,7 @@ export {
   type SyllabusLanding,
   type SyllabusProgramModules,
   type SyllabusSection,
-} from "../4geeks-com-content/component-registry/syllabus/v1.0/schema";
+} from "../site_4geeks-com/component-registry/syllabus/v1.0/schema";
 
 // ============================================
 // Re-export Projects Schemas from Component Registry
@@ -340,7 +340,7 @@ export {
   projectsSectionSchema,
   type ProjectItem,
   type ProjectsSection,
-} from "../4geeks-com-content/component-registry/projects/v1.0/schema";
+} from "../site_4geeks-com/component-registry/projects/v1.0/schema";
 
 // ============================================
 // Re-export Features Grid Schemas from Component Registry
@@ -355,7 +355,7 @@ export {
   type FeaturesGridDetailedItem,
   type FeaturesGridTextOnlyItem,
   type FeaturesGridSection,
-} from "../4geeks-com-content/component-registry/features_grid/v1.0/schema";
+} from "../site_4geeks-com/component-registry/features_grid/v1.0/schema";
 
 // Variant types for type narrowing (schemas are internal to component registry)
 export type {
@@ -373,7 +373,7 @@ export type {
   FeaturesGridStatsChartsCardBars,
   FeaturesGridStatsChartsCardGauge,
   FeaturesGridStatsChartsCardTrend,
-} from "../4geeks-com-content/component-registry/features_grid/v1.0/schema";
+} from "../site_4geeks-com/component-registry/features_grid/v1.0/schema";
 
 // ============================================
 // Re-export Testimonials Slide Schemas from Component Registry
@@ -383,7 +383,7 @@ export {
   testimonialsSlideSectionSchema,
   type TestimonialsSlideTestimonial,
   type TestimonialsSlideSection,
-} from "../4geeks-com-content/component-registry/testimonials_slide/v1.0/schema";
+} from "../site_4geeks-com/component-registry/testimonials_slide/v1.0/schema";
 
 // ============================================
 // Re-export CTA Banner Schemas from Component Registry
@@ -395,12 +395,12 @@ export {
   type CtaBannerSection,
   type CtaBannerDefault,
   type CtaBannerForm,
-} from "../4geeks-com-content/component-registry/cta_banner/v1.0/schema";
+} from "../site_4geeks-com/component-registry/cta_banner/v1.0/schema";
 
 // Type alias for backward compatibility
-export type CTABannerSection = import("../4geeks-com-content/component-registry/cta_banner/v1.0/schema").CtaBannerSection;
-export type CTAButton = import("../4geeks-com-content/component-registry/_common/schema").CtaButton;
-export type LeadFormFieldConfig = z.infer<typeof import("../4geeks-com-content/component-registry/_common/schema").leadFormFieldConfigSchema>;
+export type CTABannerSection = import("../site_4geeks-com/component-registry/cta_banner/v1.0/schema").CtaBannerSection;
+export type CTAButton = import("../site_4geeks-com/component-registry/_common/schema").CtaButton;
+export type LeadFormFieldConfig = z.infer<typeof import("../site_4geeks-com/component-registry/_common/schema").leadFormFieldConfigSchema>;
 
 // ============================================
 // Re-export Project Showcase Schemas from Component Registry
@@ -416,7 +416,7 @@ export {
   type ProjectShowcaseItem,
   type ProjectShowcaseSection,
   type ProjectsShowcaseSection,
-} from "../4geeks-com-content/component-registry/project_showcase/v1.0/schema";
+} from "../site_4geeks-com/component-registry/project_showcase/v1.0/schema";
 
 // ============================================
 // Re-export Comparison Table Schemas from Component Registry
@@ -434,7 +434,7 @@ export {
   type ComparisonTableColumn,
   type ComparisonTableRow,
   type ComparisonTableSection,
-} from "../4geeks-com-content/component-registry/comparison_table/v1.0/schema";
+} from "../site_4geeks-com/component-registry/comparison_table/v1.0/schema";
 
 // ============================================
 // Re-export Geeks vs Others Comparison Schemas from Component Registry
@@ -446,7 +446,7 @@ export {
   type GeeksVsOthersColumn,
   type GeeksVsOthersRow,
   type GeeksVsOthersComparisonSection,
-} from "../4geeks-com-content/component-registry/geeks_vs_others_comparison/v1.0/schema";
+} from "../site_4geeks-com/component-registry/geeks_vs_others_comparison/v1.0/schema";
 
 // ============================================
 // Re-export Bento Cards Schemas from Component Registry
@@ -456,7 +456,7 @@ export {
   bentoCardsSectionSchema,
   type BentoCardItem,
   type BentoCardsSection,
-} from "../4geeks-com-content/component-registry/bento_cards/v1.0/schema";
+} from "../site_4geeks-com/component-registry/bento_cards/v1.0/schema";
 
 // ============================================
 // Image Registry Schemas (not in component registry)
@@ -678,8 +678,8 @@ export const humanAndAIDuoBulletGroupSchema = z.object({
 });
 
 // Image with CSS styling properties - reuse from common schema
-export { imageWithStyleSchema } from "../4geeks-com-content/component-registry/_common/schema";
-export type ImageWithStyle = import("../4geeks-com-content/component-registry/_common/schema").ImageWithStyle;
+export { imageWithStyleSchema } from "../site_4geeks-com/component-registry/_common/schema";
+export type ImageWithStyle = import("../site_4geeks-com/component-registry/_common/schema").ImageWithStyle;
 
 export const humanAndAIDuoSectionSchema = z.object({
   type: z.literal("human_and_ai_duo"),
@@ -773,85 +773,85 @@ export type CommunitySupportSection = z.infer<typeof communitySupportSectionSche
 // ============================================
 // Two Column Accordion Card Section Schema
 // ============================================
-import { twoColumnAccordionCardSectionSchema, twoColumnAccordionCardBulletSchema, type TwoColumnAccordionCardSection, type TwoColumnAccordionCardBullet } from "../4geeks-com-content/component-registry/two_column_accordion_card/v1.0/schema";
+import { twoColumnAccordionCardSectionSchema, twoColumnAccordionCardBulletSchema, type TwoColumnAccordionCardSection, type TwoColumnAccordionCardBullet } from "../site_4geeks-com/component-registry/two_column_accordion_card/v1.0/schema";
 export { twoColumnAccordionCardSectionSchema, twoColumnAccordionCardBulletSchema, type TwoColumnAccordionCardSection, type TwoColumnAccordionCardBullet };
 
 // ============================================
 // Section Schema Union
 // Import unified section schemas for use in union
 // ============================================
-import { heroSectionSchema as heroSchema } from "../4geeks-com-content/component-registry/hero/v1.0/schema";
-import { aiLearningSectionSchema } from "../4geeks-com-content/component-registry/ai_learning/v1.0/schema";
-import { mentorshipSectionSchema } from "../4geeks-com-content/component-registry/mentorship/v1.0/schema";
-import { certificateSectionSchema } from "../4geeks-com-content/component-registry/certificate/v1.0/schema";
-import { whyLearnAISectionSchema } from "../4geeks-com-content/component-registry/why_learn_ai/v1.0/schema";
-import { pricingSectionSchema } from "../4geeks-com-content/component-registry/pricing/v1.0/schema";
-import { faqSectionSchema } from "../4geeks-com-content/component-registry/faq/v1.0/schema";
-import { testimonialsSectionSchema } from "../4geeks-com-content/component-registry/testimonials/v1.0/schema";
-import { whosHiringSectionSchema } from "../4geeks-com-content/component-registry/whos_hiring/v1.0/schema";
-import { footerSectionSchema } from "../4geeks-com-content/component-registry/footer/v1.0/schema";
-import { twoColumnSectionSchema } from "../4geeks-com-content/component-registry/two_column/v1.0/schema";
-import { numberedStepsSectionSchema } from "../4geeks-com-content/component-registry/numbered_steps/v1.0/schema";
-import { syllabusSectionSchema } from "../4geeks-com-content/component-registry/syllabus/v1.0/schema";
-import { projectsSectionSchema } from "../4geeks-com-content/component-registry/projects/v1.0/schema";
-import { featuresGridSectionSchema as featuresGridSchema } from "../4geeks-com-content/component-registry/features_grid/v1.0/schema";
-import { testimonialsSlideSectionSchema } from "../4geeks-com-content/component-registry/testimonials_slide/v1.0/schema";
-import { testimonialsGridSectionSchema } from "../4geeks-com-content/component-registry/testimonials_grid/v1.0/schema";
-import { ctaBannerSectionSchema } from "../4geeks-com-content/component-registry/cta_banner/v1.0/schema";
-import { projectShowcaseSectionSchema, projectsShowcaseSectionSchema } from "../4geeks-com-content/component-registry/project_showcase/v1.0/schema";
-import { comparisonTableSectionSchema } from "../4geeks-com-content/component-registry/comparison_table/v1.0/schema";
-import { geeksVsOthersComparisonSectionSchema } from "../4geeks-com-content/component-registry/geeks_vs_others_comparison/v1.0/schema";
-import { bulletTabsShowcaseSectionSchema, type BulletTabsShowcaseSection, type BulletTab } from "../4geeks-com-content/component-registry/bullet_tabs_showcase/v1.0/schema";
+import { heroSectionSchema as heroSchema } from "../site_4geeks-com/component-registry/hero/v1.0/schema";
+import { aiLearningSectionSchema } from "../site_4geeks-com/component-registry/ai_learning/v1.0/schema";
+import { mentorshipSectionSchema } from "../site_4geeks-com/component-registry/mentorship/v1.0/schema";
+import { certificateSectionSchema } from "../site_4geeks-com/component-registry/certificate/v1.0/schema";
+import { whyLearnAISectionSchema } from "../site_4geeks-com/component-registry/why_learn_ai/v1.0/schema";
+import { pricingSectionSchema } from "../site_4geeks-com/component-registry/pricing/v1.0/schema";
+import { faqSectionSchema } from "../site_4geeks-com/component-registry/faq/v1.0/schema";
+import { testimonialsSectionSchema } from "../site_4geeks-com/component-registry/testimonials/v1.0/schema";
+import { whosHiringSectionSchema } from "../site_4geeks-com/component-registry/whos_hiring/v1.0/schema";
+import { footerSectionSchema } from "../site_4geeks-com/component-registry/footer/v1.0/schema";
+import { twoColumnSectionSchema } from "../site_4geeks-com/component-registry/two_column/v1.0/schema";
+import { numberedStepsSectionSchema } from "../site_4geeks-com/component-registry/numbered_steps/v1.0/schema";
+import { syllabusSectionSchema } from "../site_4geeks-com/component-registry/syllabus/v1.0/schema";
+import { projectsSectionSchema } from "../site_4geeks-com/component-registry/projects/v1.0/schema";
+import { featuresGridSectionSchema as featuresGridSchema } from "../site_4geeks-com/component-registry/features_grid/v1.0/schema";
+import { testimonialsSlideSectionSchema } from "../site_4geeks-com/component-registry/testimonials_slide/v1.0/schema";
+import { testimonialsGridSectionSchema } from "../site_4geeks-com/component-registry/testimonials_grid/v1.0/schema";
+import { ctaBannerSectionSchema } from "../site_4geeks-com/component-registry/cta_banner/v1.0/schema";
+import { projectShowcaseSectionSchema, projectsShowcaseSectionSchema } from "../site_4geeks-com/component-registry/project_showcase/v1.0/schema";
+import { comparisonTableSectionSchema } from "../site_4geeks-com/component-registry/comparison_table/v1.0/schema";
+import { geeksVsOthersComparisonSectionSchema } from "../site_4geeks-com/component-registry/geeks_vs_others_comparison/v1.0/schema";
+import { bulletTabsShowcaseSectionSchema, type BulletTabsShowcaseSection, type BulletTab } from "../site_4geeks-com/component-registry/bullet_tabs_showcase/v1.0/schema";
 export { bulletTabsShowcaseSectionSchema, type BulletTabsShowcaseSection, type BulletTab };
-import { graduatesStatsSectionSchema, graduatesFeaturedImageSchema, type GraduatesStatsSection, type GraduatesStatItem, type GraduatesCollageImage, type GraduatesFeaturedImage, type GraduatesStatsAsymmetric } from "../4geeks-com-content/component-registry/graduates_stats/v1.0/schema";
-import { splitCardsSectionSchema } from "../4geeks-com-content/component-registry/split_cards/v1.0/schema";
+import { graduatesStatsSectionSchema, graduatesFeaturedImageSchema, type GraduatesStatsSection, type GraduatesStatItem, type GraduatesCollageImage, type GraduatesFeaturedImage, type GraduatesStatsAsymmetric } from "../site_4geeks-com/component-registry/graduates_stats/v1.0/schema";
+import { splitCardsSectionSchema } from "../site_4geeks-com/component-registry/split_cards/v1.0/schema";
 export { graduatesStatsSectionSchema, graduatesFeaturedImageSchema, type GraduatesStatsSection, type GraduatesStatItem, type GraduatesCollageImage, type GraduatesFeaturedImage, type GraduatesStatsAsymmetric };
-import { applyFormSectionSchema } from "../4geeks-com-content/component-registry/apply_form/v1.0/schema";
-import { awardBadgesSectionSchema } from "../4geeks-com-content/component-registry/award_badges/v1.0/schema";
-import { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqueeItem } from "../4geeks-com-content/component-registry/awards_marquee/v1.0/schema";
+import { applyFormSectionSchema } from "../site_4geeks-com/component-registry/apply_form/v1.0/schema";
+import { awardBadgesSectionSchema } from "../site_4geeks-com/component-registry/award_badges/v1.0/schema";
+import { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqueeItem } from "../site_4geeks-com/component-registry/awards_marquee/v1.0/schema";
 export { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqueeItem };
-import { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem, pressMentionsSectionSchema, type PressMentionsSection } from "../4geeks-com-content/component-registry/list_press_mentions/v1.0/schema";
+import { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem, pressMentionsSectionSchema, type PressMentionsSection } from "../site_4geeks-com/component-registry/list_press_mentions/v1.0/schema";
 export { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem };
 export { pressMentionsSectionSchema, type PressMentionsSection };
-export { listSinglePressMentionSectionSchema, type ListSinglePressMentionSection } from "../4geeks-com-content/component-registry/list_single_press_mention/v1.0/schema";
-import { valueProofPanelSectionSchema } from "../4geeks-com-content/component-registry/value_proof_panel/v1.0/schema";
-import { stickyCtaSectionSchema } from "../4geeks-com-content/component-registry/sticky_cta/v1.0/schema";
-export { stickyCtaSectionSchema, type StickyCtaSection } from "../4geeks-com-content/component-registry/sticky_cta/v1.0/schema";
-import { modalSectionSchema } from "../4geeks-com-content/component-registry/modal/v1.0/schema";
-export { modalSectionSchema, type ModalSection } from "../4geeks-com-content/component-registry/modal/v1.0/schema";
-import { bentoCardsSectionSchema } from "../4geeks-com-content/component-registry/bento_cards/v1.0/schema";
-import { bannerSchema, bannerSectionSchema, bannerMarqueeBadgesSchema, type BannerSection, type BannerMarqueeBadges } from "../4geeks-com-content/component-registry/banner/v1.0/schema";
+export { listSinglePressMentionSectionSchema, type ListSinglePressMentionSection } from "../site_4geeks-com/component-registry/list_single_press_mention/v1.0/schema";
+import { valueProofPanelSectionSchema } from "../site_4geeks-com/component-registry/value_proof_panel/v1.0/schema";
+import { stickyCtaSectionSchema } from "../site_4geeks-com/component-registry/sticky_cta/v1.0/schema";
+export { stickyCtaSectionSchema, type StickyCtaSection } from "../site_4geeks-com/component-registry/sticky_cta/v1.0/schema";
+import { modalSectionSchema } from "../site_4geeks-com/component-registry/modal/v1.0/schema";
+export { modalSectionSchema, type ModalSection } from "../site_4geeks-com/component-registry/modal/v1.0/schema";
+import { bentoCardsSectionSchema } from "../site_4geeks-com/component-registry/bento_cards/v1.0/schema";
+import { bannerSchema, bannerSectionSchema, bannerMarqueeBadgesSchema, type BannerSection, type BannerMarqueeBadges } from "../site_4geeks-com/component-registry/banner/v1.0/schema";
 export { bannerSectionSchema, bannerMarqueeBadgesSchema, type BannerSection, type BannerMarqueeBadges };
-import { imageRowSectionSchema, type ImageRowSection } from "../4geeks-com-content/component-registry/image_row/v1.0/schema";
+import { imageRowSectionSchema, type ImageRowSection } from "../site_4geeks-com/component-registry/image_row/v1.0/schema";
 export { imageRowSectionSchema, type ImageRowSection };
-import { courseSelectorSectionSchema, type CourseSelectorSection, type CourseItem, type CourseBadge, type CourseTag } from "../4geeks-com-content/component-registry/course_selector/v1.0/schema";
+import { courseSelectorSectionSchema, type CourseSelectorSection, type CourseItem, type CourseBadge, type CourseTag } from "../site_4geeks-com/component-registry/course_selector/v1.0/schema";
 export { courseSelectorSectionSchema, type CourseSelectorSection, type CourseItem, type CourseBadge, type CourseTag };
-import { articleSectionSchema, type ArticleSection } from "../4geeks-com-content/component-registry/article/v1.0/schema";
+import { articleSectionSchema, type ArticleSection } from "../site_4geeks-com/component-registry/article/v1.0/schema";
 export { articleSectionSchema, type ArticleSection };
-import { partnershipCarouselSectionSchema, type PartnershipCarouselSection, type PartnershipSlide } from "../4geeks-com-content/component-registry/partnership_carousel/v1.0/schema";
+import { partnershipCarouselSectionSchema, type PartnershipCarouselSection, type PartnershipSlide } from "../site_4geeks-com/component-registry/partnership_carousel/v1.0/schema";
 export { partnershipCarouselSectionSchema, type PartnershipCarouselSection, type PartnershipSlide };
-import { careerSupportExplainSectionSchema, type CareerSupportExplainSection, type CareerSupportTab, type CareerSupportBox, type CareerSupportBullet, type CareerSupportStat, type CareerSupportLogo, type CareerSupportTestimonial, type CareerSupportTestimonialLogo } from "../4geeks-com-content/component-registry/career_support_explain/v1.0/schema";
+import { careerSupportExplainSectionSchema, type CareerSupportExplainSection, type CareerSupportTab, type CareerSupportBox, type CareerSupportBullet, type CareerSupportStat, type CareerSupportLogo, type CareerSupportTestimonial, type CareerSupportTestimonialLogo } from "../site_4geeks-com/component-registry/career_support_explain/v1.0/schema";
 export { careerSupportExplainSectionSchema, type CareerSupportExplainSection, type CareerSupportTab, type CareerSupportBox, type CareerSupportBullet, type CareerSupportStat, type CareerSupportLogo, type CareerSupportTestimonial, type CareerSupportTestimonialLogo };
 
-import { profilesCarouselSectionSchema, type ProfilesCarouselSection, type ProfileCard } from "../4geeks-com-content/component-registry/profiles_carousel/v1.0/schema";
+import { profilesCarouselSectionSchema, type ProfilesCarouselSection, type ProfileCard } from "../site_4geeks-com/component-registry/profiles_carousel/v1.0/schema";
 export { profilesCarouselSectionSchema, type ProfilesCarouselSection, type ProfileCard };
 
-import { dynamicTableSectionSchema, type DynamicTableSection, type DynamicTableColumn, type DynamicTableAction } from "../4geeks-com-content/component-registry/dynamic_table/v1.0/schema";
+import { dynamicTableSectionSchema, type DynamicTableSection, type DynamicTableColumn, type DynamicTableAction } from "../site_4geeks-com/component-registry/dynamic_table/v1.0/schema";
 export { dynamicTableSectionSchema, type DynamicTableSection, type DynamicTableColumn, type DynamicTableAction };
 
-import { doubleCTASectionSchema, type DoubleCTASection, type DoubleCTABox, type DoubleCTABullet } from "../4geeks-com-content/component-registry/double_cta/v1.0/schema";
+import { doubleCTASectionSchema, type DoubleCTASection, type DoubleCTABox, type DoubleCTABullet } from "../site_4geeks-com/component-registry/double_cta/v1.0/schema";
 export { doubleCTASectionSchema, type DoubleCTASection, type DoubleCTABox, type DoubleCTABullet };
 
-import { contactUsInfoSectionSchema, type ContactUsInfoSection, type ContactLocation } from "../4geeks-com-content/component-registry/contact_us_info/v1.0/schema";
+import { contactUsInfoSectionSchema, type ContactUsInfoSection, type ContactLocation } from "../site_4geeks-com/component-registry/contact_us_info/v1.0/schema";
 export { contactUsInfoSectionSchema, type ContactUsInfoSection, type ContactLocation };
 
-import { trustCardsSectionSchema, type TrustCardsSection, type TrustCardItem } from "../4geeks-com-content/component-registry/trust_cards/v1.0/schema";
+import { trustCardsSectionSchema, type TrustCardsSection, type TrustCardItem } from "../site_4geeks-com/component-registry/trust_cards/v1.0/schema";
 export { trustCardsSectionSchema, type TrustCardsSection, type TrustCardItem };
 
-import { programsShowcaseSectionSchema, type ProgramsShowcaseSection, type ProgramItem } from "../4geeks-com-content/component-registry/programs_showcase/v1.0/schema";
+import { programsShowcaseSectionSchema, type ProgramsShowcaseSection, type ProgramItem } from "../site_4geeks-com/component-registry/programs_showcase/v1.0/schema";
 export { programsShowcaseSectionSchema, type ProgramsShowcaseSection, type ProgramItem };
 
-import { credibilityStripSectionSchema, type CredibilityStripSection, type CredibilityStripItem, type CredibilityStripLogo } from "../4geeks-com-content/component-registry/credibility_strip/v1.0/schema";
+import { credibilityStripSectionSchema, type CredibilityStripSection, type CredibilityStripItem, type CredibilityStripLogo } from "../site_4geeks-com/component-registry/credibility_strip/v1.0/schema";
 export { credibilityStripSectionSchema, type CredibilityStripSection, type CredibilityStripItem, type CredibilityStripLogo };
 
 // Responsive spacing schema - separate values for mobile and desktop

@@ -1,9 +1,0 @@
-# Common properties shared across all variants
-# For landings, locale is defined here (not in filenames)
-
-slug: "example-landing"
-title: "Example Landing Page"
-locale: "en"
-
-meta:
-  og_image: "/images/landing-og.jpg"

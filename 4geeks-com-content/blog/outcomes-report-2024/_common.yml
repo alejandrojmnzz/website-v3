@@ -1,5 +1,0 @@
-inschema:
-  include:
-    - organization
-    - website
-    - courses:data-science

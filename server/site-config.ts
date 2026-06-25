@@ -29,7 +29,7 @@ export function getSiteConfigs(): SiteConfig[] {
             const c = config as Record<string, unknown>;
             configs.push({
               domain,
-              contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "default-site-content",
+              contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
               githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
             });
           }
@@ -45,7 +45,7 @@ export function getSiteConfigs(): SiteConfig[] {
     }
   }
 
-  const contentFolder = process.env.CONTENT_FOLDER || "default-site-content";
+  const contentFolder = process.env.CONTENT_FOLDER || "site_default";
   const githubRepoUrl = process.env.GITHUB_REPO_URL || undefined;
   let domain = "localhost";
   if (process.env.SITE_URL) {

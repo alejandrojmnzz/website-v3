@@ -1,9 +1,0 @@
-name: Cards Deck
-version: "1.0"
-component: CardsDeck
-file: client/src/components/cards-deck/CardsDeck.tsx
-description: A row of 3 cards, each with optional video, brand image, author name, title, and description.
-when_to_use: |
-  Use when you want to feature exactly 3 items side-by-side — such as instructor profiles,
-  program highlights, or media features. Each card supports a video embed or brand image plus
-  author credit. Best for mid-page trust sections or course instructor showcases.
