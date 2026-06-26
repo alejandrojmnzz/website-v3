@@ -333,6 +333,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(configs.map(({ domain, contentFolder, githubRepoUrl }) => ({ domain, contentFolder, githubRepoUrl })));
   });
 
+  // Dev-only: set/clear the __dev_site cookie server-side so browser cookie restrictions
+  // in the Replit iframe never block the override. Only active in non-production.
+  if (process.env.NODE_ENV !== "production") {
+    app.get("/api/dev/set-site", (req, res) => {
+      const domain = req.query.domain as string;
+      if (!domain) { res.status(400).json({ error: "domain required" }); return; }
+      res.cookie("__dev_site", domain, { path: "/", sameSite: "lax", httpOnly: false });
+      res.json({ ok: true, domain });
+    });
+    app.get("/api/dev/clear-site", (_req, res) => {
+      res.clearCookie("__dev_site", { path: "/" });
+      res.json({ ok: true });
+    });
+  }
+
   const httpServer = createServer(app);
 
   // Start the background image queue worker

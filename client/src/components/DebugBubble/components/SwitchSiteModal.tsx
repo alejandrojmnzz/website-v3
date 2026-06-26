@@ -34,7 +34,7 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
     staleTime: 30000,
   });
 
-  const handleSelect = (domain: string) => {
+  const handleSelect = async (domain: string) => {
     if (IS_PROD) {
       const path = window.location.pathname + window.location.search;
       window.location.href = `https://${domain}${path}`;
@@ -44,17 +44,17 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
         return;
       }
       if (domain === activeDomain && isDevOverride) {
-        clearDevSiteOverride();
+        await clearDevSiteOverride();
         window.location.reload();
         return;
       }
-      setDevSiteOverride(domain);
+      await setDevSiteOverride(domain);
       window.location.reload();
     }
   };
 
-  const handleClearOverride = () => {
-    clearDevSiteOverride();
+  const handleClearOverride = async () => {
+    await clearDevSiteOverride();
     window.location.reload();
   };
 

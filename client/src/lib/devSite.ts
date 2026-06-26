@@ -38,14 +38,22 @@ export function getDevSiteOverride(): string | null {
   } catch { return null; }
 }
 
-/** Sets the active dev-site override. Always use a cookie — see file header. */
-export function setDevSiteOverride(domain: string): void {
-  try { document.cookie = `__dev_site=${encodeURIComponent(domain)};path=/;SameSite=Lax`; } catch {}
+/**
+ * Sets the active dev-site override.
+ * Uses a server-side endpoint so Set-Cookie headers bypass any browser
+ * restrictions on document.cookie writes in iframe environments (e.g. Replit
+ * workspace preview). Returns a promise that resolves when the cookie is set.
+ */
+export async function setDevSiteOverride(domain: string): Promise<void> {
+  await fetch(`/api/dev/set-site?domain=${encodeURIComponent(domain)}`);
 }
 
-/** Clears the active dev-site override cookie. */
-export function clearDevSiteOverride(): void {
-  try { document.cookie = `__dev_site=;path=/;max-age=0;SameSite=Lax`; } catch {}
+/**
+ * Clears the active dev-site override cookie.
+ * Server-side, same reason as setDevSiteOverride.
+ */
+export async function clearDevSiteOverride(): Promise<void> {
+  await fetch("/api/dev/clear-site");
 }
 
 /**
