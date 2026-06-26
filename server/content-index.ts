@@ -543,7 +543,7 @@ export class ContentIndex {
           this.addImageRef(value, filePath);
         } else if (
           (key === "image" || key === "src" || key === "background_image" || key === "logo" || key === "icon_image") &&
-          (value.startsWith("/attached_assets/") || value.startsWith(`/${this.contentRootName}/images/`) || value.startsWith("/4geeks-com/images/") || value.startsWith("http://") || value.startsWith("https://"))
+          (value.startsWith("/attached_assets/") || (() => { try { const { getSiteConfigs } = require('./site-config') as typeof import('./site-config'); return getSiteConfigs().some((s: import('./site-config').SiteConfig) => value.startsWith(`/${s.contentFolder}/images/`)); } catch { return value.startsWith(`/${this.contentRootName}/images/`); } })() || value.startsWith("http://") || value.startsWith("https://"))
         ) {
           this.addImageRef(value, filePath);
         }

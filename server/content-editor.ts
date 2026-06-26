@@ -7,6 +7,15 @@ import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import { getTrackingSettings } from "./settings";
 import { generateSectionId } from "./utils/generateSectionId";
 
+function getDefaultContentRootName(): string {
+  try {
+    const { getDefaultSite } = require("./site-manager") as typeof import("./site-manager");
+    return getDefaultSite().contentRootName;
+  } catch {
+    return process.env.CONTENT_FOLDER || "default-site-content";
+  }
+}
+
 function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
   const { escaped, map } = escapeObjectVars(obj);
   const dumped = yaml.dump(escaped, opts);
@@ -15,11 +24,11 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 import type { EditOperation } from "@shared/schema";
 import { normalizeLocale, getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
-import { contentIndex } from "./content-index";
+import { contentIndex, ContentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
 import { mergeSingleTemplate, extractVariableFields, TEMPLATE_EXPR_RE } from "./database-single-loader";
 import { getDatabaseName, getLookupKey, getFieldMapping, isValidType, getAllTypes, getFolder, getContentTypeConfig } from "./content-types";
-import { databaseManager } from "./database";
+import { databaseManager, DatabaseManager } from "./database";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import {
   refreshSitemapEntry,
@@ -43,6 +52,8 @@ interface ContentEditRequest {
   version?: number;
   author?: string;
   contentRoot?: string;
+  database?: DatabaseManager;
+  ci?: ContentIndex;
 }
 
 function getValueAtPath(obj: Record<string, unknown>, pathStr: string): unknown {
@@ -185,6 +196,8 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
 
 export async function editContent(request: ContentEditRequest): Promise<{ success: boolean; error?: string; warning?: string; updatedSections?: unknown[] }> {
   const { contentType, slug, locale: rawLocale, operations, variant, version, contentRoot } = request;
+  // Use per-site ContentIndex when provided (avoids resolving files against default site)
+  const ci = request.ci ?? contentIndex;
   
   // Normalize locale to prevent es-ES, en-US etc from causing file lookup failures
   const locale = normalizeLocale(rawLocale);
@@ -197,7 +210,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
   }
   
   try {
-    const { data: localeData, filePath, error: loadError, isSharedTemplate } = contentIndex.loadLocaleData(contentType, slug, locale, variant, version);
+    const { data: localeData, filePath, error: loadError, isSharedTemplate } = ci.loadLocaleData(contentType, slug, locale, variant, version);
     if (!localeData || loadError) {
       return { success: false, error: loadError || `Content file not found` };
     }
@@ -215,7 +228,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       if (allTopLevelFields) {
         return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author });
       }
-      return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author });
+      return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author, contentRoot, database: request.database, ci });
     }
 
     // For DB-backed entries that have their own per-entry file (isSharedTemplate=false),
@@ -223,7 +236,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     // Translate update_section indices from the merged view to the per-entry local indices
     // before applying, so we write to the correct section in the per-entry file.
     let resolvedOperations = operations;
-    if (contentIndex.isDatabaseBacked(contentType) && operations.some(op => op.action === "update_section")) {
+    if (ci.isDatabaseBacked(contentType) && operations.some(op => op.action === "update_section")) {
       const mergedTemplate = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedTemplate?.sections)
         ? (mergedTemplate!.sections as Record<string, unknown>[])
@@ -277,7 +290,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
           );
           if (fs.existsSync(templateFilePath)) {
             const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
-            const templateLocaleData = contentIndex.safeYamlLoad(rawTemplate) as Record<string, unknown>;
+            const templateLocaleData = ci.safeYamlLoad(rawTemplate) as Record<string, unknown>;
             const templateResult = handleSharedTemplateEdit({
               contentType,
               slug,
@@ -286,6 +299,9 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
               localeData: templateLocaleData,
               filePath: templateFilePath,
               author: request.author,
+              contentRoot,
+              database: request.database,
+              ci,
             });
             if (!templateResult.success) {
               return { success: false, error: templateResult.error };
@@ -303,7 +319,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     //                                and apply the reorder directly to localeData.
     //   • Boundary (mixed)         → explicit error; moving across template/per-entry
     //                                boundary is not supported.
-    if (contentIndex.isDatabaseBacked(contentType) && resolvedOperations.some(op => op.action === "reorder_sections")) {
+    if (ci.isDatabaseBacked(contentType) && resolvedOperations.some(op => op.action === "reorder_sections")) {
       const mergedView = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedView?.sections)
         ? (mergedView!.sections as Record<string, unknown>[])
@@ -372,7 +388,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
             forceQuotes: false,
           });
           fs.writeFileSync(templateFilePath, updatedYaml, "utf-8");
-          markFileAsModified(templateFilePath, request.author);
+          markFileAsModified(templateFilePath, request.author, undefined, contentRoot);
 
           // Swap _insertAfterSectionId anchors that pointed to either moved section,
           // so per-entry sections keep their intended visual position relative to neighbours.
@@ -511,12 +527,12 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     // Track who modified this file for sync purposes.
     // markFileAsModified fires fileModifiedListeners, which includes the
     // VersioningManager listener that invalidates the variant content cache.
-    markFileAsModified(filePath, request.author);
+    markFileAsModified(filePath, request.author, undefined, contentRoot);
     
     // Note: GitHub commits are now handled manually via /api/github/commit endpoint
     // Changes are saved locally and users commit when ready
     
-    const commonData = contentIndex.loadCommonData(contentType, slug);
+    const commonData = ci.loadCommonData(contentType, slug);
     const mergedContent = commonData
       ? deepMerge(commonData, localeData)
       : localeData;
@@ -695,8 +711,13 @@ function handleSharedTemplateEdit(opts: {
   localeData: Record<string, unknown>;
   filePath: string;
   author?: string;
+  contentRoot?: string;
+  database?: DatabaseManager;
+  ci?: ContentIndex;
 }): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
-  const { contentType, slug, locale, operations, localeData, filePath, author } = opts;
+  const { contentType, slug, locale, operations, localeData, filePath, author, contentRoot } = opts;
+  const ci = opts.ci ?? contentIndex;
+  const db = opts.database ?? databaseManager;
 
   // update_section ops always write directly to the shared template YAML.
   // This function is only reached when the user explicitly chose "Update shared
@@ -768,7 +789,7 @@ function handleSharedTemplateEdit(opts: {
   }
 
   if (Object.keys(dbUpdates).length > 0 && dbName) {
-    const patched = databaseManager.patchDbEntry(dbName, lookupKey, slug, dbUpdates, fieldMapping, author);
+    const patched = db.patchDbEntry(dbName, lookupKey, slug, dbUpdates, fieldMapping, author, contentRoot);
     if (!patched) {
       log.warn(`[editContent] patchDbEntry found no matching entry for ${dbName}/${slug}`);
     }
@@ -780,7 +801,7 @@ function handleSharedTemplateEdit(opts: {
   // stripped or replaced with resolved values.
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    const templateData = (contentIndex.safeYamlLoad(raw) as Record<string, unknown>) || {};
+    const templateData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
 
     let templateDirty = false;
 
@@ -832,7 +853,7 @@ function handleSharedTemplateEdit(opts: {
         forceQuotes: false,
       });
       fs.writeFileSync(filePath, updatedYaml, "utf-8");
-      markFileAsModified(filePath, author);
+      markFileAsModified(filePath, author, undefined, contentRoot);
     }
   } catch (err) {
     log.error("[editContent] Failed to write non-DB field changes to shared template:", err instanceof Error ? err.message : err);
@@ -993,6 +1014,7 @@ export interface RenameContentSlugInput {
   newSlug: string;
   createRedirect?: boolean;
   author?: string;
+  contentRootName?: string;
 }
 
 export async function renameContentSlug(
@@ -1002,6 +1024,7 @@ export async function renameContentSlug(
   oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean;
 }>> {
   const { contentType, folderSlug, locale, newSlug, createRedirect = false, author } = input;
+  const rootName = input.contentRootName ?? getDefaultContentRootName();
 
   if (!contentType || !folderSlug || !locale || !newSlug) {
     return { success: false, statusCode: 400, error: "Missing required fields: contentType, folderSlug, locale, newSlug" };
@@ -1015,7 +1038,7 @@ export async function renameContentSlug(
 
   const contentFolder = getFolder(contentType);
   const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", contentFolder, resolvedFolderSlug);
+  const folderPath = path.join(process.cwd(), rootName, contentFolder, resolvedFolderSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content folder not found: ${folderSlug} (resolved: ${resolvedFolderSlug})` };
@@ -1057,7 +1080,7 @@ export async function renameContentSlug(
 
   const updated = safeYamlDump(parsed, { lineWidth: -1, noRefs: true });
   fs.writeFileSync(localeFilePath, updated, "utf-8");
-  markFileAsModified(`4geeks-com/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
+  markFileAsModified(`${rootName}/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
   contentIndex.refresh();
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();
@@ -1079,12 +1102,14 @@ export interface DeleteContentEntryInput {
   slug: string;
   author?: string;
   localesToDelete?: string[];
+  contentRootName?: string;
 }
 
 export async function deleteContentEntry(
   input: DeleteContentEntryInput,
 ): Promise<ContentLifecycleResult<{ success: boolean; message: string; deletedFiles?: string[]; folderRemoved?: boolean }>> {
   const { type, slug, author, localesToDelete = [] } = input;
+  const rootName = input.contentRootName ?? getDefaultContentRootName();
 
   if (!type || !slug) {
     return { success: false, statusCode: 400, error: "Missing required fields: type, slug" };
@@ -1098,14 +1123,14 @@ export async function deleteContentEntry(
 
   const typeFolder = getFolder(type);
   const resolvedSlug = contentIndex.resolveBaseSlug(slug, typeFolder);
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", typeFolder, resolvedSlug);
+  const folderPath = path.join(process.cwd(), rootName, typeFolder, resolvedSlug);
 
   if (!fs.existsSync(folderPath)) {
     return { success: false, statusCode: 404, error: `Content "${slug}" of type "${type}" not found` };
   }
 
   const realPath = fs.realpathSync(path.resolve(folderPath));
-  const allowedBase = fs.realpathSync(path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", typeFolder));
+  const allowedBase = fs.realpathSync(path.join(process.cwd(), rootName, typeFolder));
   if (!realPath.startsWith(allowedBase + path.sep)) {
     return { success: false, statusCode: 400, error: "Invalid path" };
   }
@@ -1117,7 +1142,7 @@ export async function deleteContentEntry(
       if (fs.existsSync(localeFile)) {
         fs.unlinkSync(localeFile);
         deletedFiles.push(`${locale}.yml`);
-        markFileAsModified(`4geeks-com/${typeFolder}/${resolvedSlug}/${locale}.yml`, author);
+        markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${locale}.yml`, author);
       }
     }
 
@@ -1126,7 +1151,7 @@ export async function deleteContentEntry(
     if (remainingFiles.length === 0) {
       const allFiles = fs.existsSync(folderPath) ? fs.readdirSync(folderPath) : [];
       for (const file of allFiles) {
-        markFileAsModified(`4geeks-com/${typeFolder}/${resolvedSlug}/${file}`, author);
+        markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
       }
       fs.rmSync(folderPath, { recursive: true, force: true });
       log.info(`[Content] Deleted ${type}/${slug} (all locales removed, folder cleaned up)`);
@@ -1164,7 +1189,7 @@ export async function deleteContentEntry(
   // Full folder delete
   const allFiles = fs.readdirSync(folderPath);
   for (const file of allFiles) {
-    markFileAsModified(`4geeks-com/${typeFolder}/${resolvedSlug}/${file}`, author);
+    markFileAsModified(`${rootName}/${typeFolder}/${resolvedSlug}/${file}`, author);
   }
   fs.rmSync(folderPath, { recursive: true, force: true });
   log.info(`[Content] Deleted ${type}/${slug}`);
@@ -1193,6 +1218,7 @@ export interface CreateContentEntryInput {
   uniqueFieldValues?: Record<string, string | boolean>;
   localeTitles?: Record<string, string>;
   author?: string;
+  contentRootName?: string;
 }
 
 export async function createContentEntry(
@@ -1202,6 +1228,7 @@ export async function createContentEntry(
     type, title, sourceUrl, changeContentType = false,
     skipLocales = [], uniqueFieldValues = {}, localeTitles = {}, author,
   } = input;
+  const rootName = input.contentRootName ?? getDefaultContentRootName();
 
   if (!type || !title) {
     return { success: false, statusCode: 400, error: "Missing required fields: type, title" };
@@ -1232,7 +1259,7 @@ export async function createContentEntry(
     return { success: false, statusCode: 409, error: `A ${type} with slug "${folderSlug}" already exists` };
   }
 
-  const folderPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", getFolder(type), folderSlug);
+  const folderPath = path.join(process.cwd(), rootName, getFolder(type), folderSlug);
   if (fs.existsSync(folderPath)) {
     return { success: false, statusCode: 409, error: `A ${type} with slug "${folderSlug}" already exists` };
   }
@@ -1260,7 +1287,7 @@ export async function createContentEntry(
             localeTitles,
           });
           for (const file of result.copiedFiles) {
-            markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
+            markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
           }
           refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
           contentIndex.refresh();
@@ -1281,7 +1308,7 @@ export async function createContentEntry(
             success: true,
             data: {
               success: true, slugEn: enSlug, slugEs: esSlug, type,
-              directory: `4geeks-com/${getFolder(type)}/${folderSlug}`,
+              directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
               duplicatedFrom: sourceUrl, typeChanged: true,
               conversion: { from: resolved.contentType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
             },
@@ -1309,14 +1336,14 @@ export async function createContentEntry(
 
           if (!isContentFile) {
             fs.writeFileSync(path.join(folderPath, file), rawContent);
-            markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
+            markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
             continue;
           }
 
           const parsed = contentIndex.safeYamlLoad(rawContent) as Record<string, unknown> | null;
           if (!parsed) {
             fs.writeFileSync(path.join(folderPath, file), rawContent);
-            markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
+            markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
             continue;
           }
 
@@ -1374,7 +1401,7 @@ export async function createContentEntry(
           const { file } = parsedDupFiles[i];
           const content = safeYamlDump(regeneratedDup[i], { lineWidth: 120, noRefs: true, sortKeys: false });
           fs.writeFileSync(path.join(folderPath, file), content);
-          markFileAsModified(`4geeks-com/${getFolder(type)}/${folderSlug}/${file}`, author);
+          markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
         }
 
         refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
@@ -1397,7 +1424,7 @@ export async function createContentEntry(
           success: true,
           data: {
             success: true, slugEn: enSlug, slugEs: esSlug, type,
-            directory: `4geeks-com/${getFolder(type)}/${folderSlug}`,
+            directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
             duplicatedFrom: sourceUrl,
           },
         };
@@ -1440,7 +1467,7 @@ export async function createContentEntry(
   const esYml = yaml.dump(makeLocaleObj(esSlug || folderSlug, "es"), { lineWidth: 120, noRefs: true, sortKeys: false });
 
   const createdFiles: string[] = [];
-  const relFolder = `4geeks-com/${getFolder(type)}/${folderSlug}`;
+  const relFolder = `${rootName}/${getFolder(type)}/${folderSlug}`;
   if (!fs.existsSync(path.join(folderPath, "_common.yml"))) {
     fs.writeFileSync(path.join(folderPath, "_common.yml"), commonYml);
     createdFiles.push("_common.yml");
@@ -1475,7 +1502,7 @@ export async function createContentEntry(
     success: true,
     data: {
       success: true, slugEn: enSlug, slugEs: esSlug, type,
-      directory: `4geeks-com/${getFolder(type)}/${folderSlug}`,
+      directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
       files: createdFiles,
       skippedLocales: skipLocales.length > 0 ? skipLocales : undefined,
     },

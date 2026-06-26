@@ -31,7 +31,14 @@ export interface SectionAnchors {
 
 function getSidecarPath(contentType: string): string {
   const folder = getFolder(contentType);
-  return path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", folder, "_section_anchors.json");
+  let contentFolder: string;
+  try {
+    const { getDefaultSite } = require("../site-manager") as typeof import("../site-manager");
+    contentFolder = getDefaultSite().contentRootName;
+  } catch {
+    contentFolder = process.env.CONTENT_FOLDER || "default-site-content";
+  }
+  return path.join(process.cwd(), contentFolder, folder, "_section_anchors.json");
 }
 
 /**

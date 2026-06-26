@@ -12,11 +12,36 @@ const log = child({ module: "versioning/VersioningManager" });
 
 
 
-const DEFAULT_CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "default-site-content";
-const CONTENT_DIR = path.join(process.cwd(), DEFAULT_CONTENT_FOLDER_NAME);
-const STATE_FILE = path.join(CONTENT_DIR, ".versioning-state.json");
-const GCS_STATE_KEY = "sync/versioning-state.json";
+// Module-level fallback GCS key (single-site compatibility only).
+// Per-site instances use gcsStateKey() instance method instead.
+const GCS_STATE_KEY_LEGACY = "sync/versioning-state.json";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+function getDefaultContentFolderName(): string {
+  try {
+    const { getDefaultSite } = require('../site-manager') as typeof import('../site-manager');
+    return getDefaultSite().contentRootName;
+  } catch {
+    return process.env.CONTENT_FOLDER || "default-site-content";
+  }
+}
+
+function isKnownSiteContentFolder(folderName: string): boolean {
+  try {
+    const { getSiteConfigs } = require('../site-config') as typeof import('../site-config');
+    return getSiteConfigs().some((s: import('../site-config').SiteConfig) => s.contentFolder === folderName);
+  } catch {
+    return folderName === (process.env.CONTENT_FOLDER || "default-site-content");
+  }
+}
+
+function getContentDir(): string {
+  return path.join(process.cwd(), getDefaultContentFolderName());
+}
+
+function getStateFile(): string {
+  return path.join(getContentDir(), ".versioning-state.json");
+}
 
 export interface VersioningVariant {
   slug: string;
@@ -43,11 +68,21 @@ export class VersioningManager {
   private configCache: Map<string, VersioningFile> = new Map();
   private contentCache: Map<string, unknown> = new Map();
   private state: VersioningState = { counts: {}, visitors: {}, lastFlushed: Date.now() };
+  private readonly contentRoot: string;
 
-  constructor() {
+  constructor(contentRoot?: string) {
+    this.contentRoot = contentRoot ?? getContentDir();
     this.loadState();
     this.loadStateFromBucket();
     this.registerFileModifiedListener();
+  }
+
+  private contentDir(): string {
+    return this.contentRoot;
+  }
+
+  private contentFolderName(): string {
+    return path.relative(process.cwd(), this.contentRoot);
   }
 
   /**
@@ -63,7 +98,7 @@ export class VersioningManager {
   } | null {
     const parts = relativePath.replace(/\\/g, "/").split("/");
     // Expected structure: {content-folder} / {folder} / {slug} / {file}.yml
-    if (parts.length !== 4 || parts[0] !== DEFAULT_CONTENT_FOLDER_NAME) return null;
+    if (parts.length !== 4 || !isKnownSiteContentFolder(parts[0])) return null;
     if (!parts[3].endsWith(".yml")) return null;
 
     const base = parts[3].slice(0, -4); // strip .yml
@@ -95,10 +130,18 @@ export class VersioningManager {
     });
   }
 
+  private stateFile(): string {
+    return path.join(this.contentDir(), ".versioning-state.json");
+  }
+
+  private gcsStateKey(): string {
+    return `sync/${this.contentFolderName()}/versioning-state.json`;
+  }
+
   private loadState(): void {
     try {
-      if (fs.existsSync(STATE_FILE)) {
-        const data = fs.readFileSync(STATE_FILE, "utf-8");
+      if (fs.existsSync(this.stateFile())) {
+        const data = fs.readFileSync(this.stateFile(), "utf-8");
         this.applyLoadedState(JSON.parse(data));
       }
     } catch (error) {
@@ -128,13 +171,14 @@ export class VersioningManager {
     }
 
     try {
-      const exists = await gcs.exists(GCS_STATE_KEY);
+      const key = this.gcsStateKey();
+      const exists = await gcs.exists(key);
       if (!exists) {
         log.info("[Versioning] No state found in bucket, using local file");
         return;
       }
 
-      const data = await gcs.download(GCS_STATE_KEY);
+      const data = await gcs.download(key);
       if (!data) {
         log.info("[Versioning] Empty download from bucket, using local file");
         return;
@@ -152,7 +196,7 @@ export class VersioningManager {
   private saveStateLocal(): void {
     try {
       this.state.lastFlushed = Date.now();
-      fs.writeFileSync(STATE_FILE, JSON.stringify(this.state, null, 2));
+      fs.writeFileSync(this.stateFile(), JSON.stringify(this.state, null, 2));
     } catch (error) {
       log.error({ err: error }, "[Versioning] Error saving state locally:");
     }
@@ -162,7 +206,7 @@ export class VersioningManager {
     if (!IS_PRODUCTION || !gcs.available) return;
 
     const content = JSON.stringify(this.state, null, 2);
-    gcs.debouncedUpload(GCS_STATE_KEY, Buffer.from(content, "utf-8"), "application/json", 30_000);
+    gcs.debouncedUpload(this.gcsStateKey(), Buffer.from(content, "utf-8"), "application/json", 30_000);
   }
 
   private saveState(): void {
@@ -176,7 +220,7 @@ export class VersioningManager {
       await gcs.flushPending();
       try {
         const content = JSON.stringify(this.state, null, 2);
-        await gcs.upload(GCS_STATE_KEY, Buffer.from(content, "utf-8"), "application/json");
+        await gcs.upload(this.gcsStateKey(), Buffer.from(content, "utf-8"), "application/json");
       } catch (error) {
         log.error({ err: error }, "[Versioning] Error saving to bucket on shutdown:");
       }
@@ -190,7 +234,7 @@ export class VersioningManager {
       return this.configCache.get(cacheKey)!;
     }
 
-    const configPath = path.join(CONTENT_DIR, getFolder(contentType), slug, "versioning.yml");
+    const configPath = path.join(this.contentDir(), getFolder(contentType), slug, "versioning.yml");
 
     if (!fs.existsSync(configPath)) {
       return null;
@@ -244,7 +288,7 @@ export class VersioningManager {
       return this.contentCache.get(cacheKey);
     }
 
-    const contentDir = path.join(CONTENT_DIR, getFolder(contentType), slug);
+    const contentDir = path.join(this.contentDir(), getFolder(contentType), slug);
     const commonPath = path.join(contentDir, "_common.yml");
     const filePath = this.findVariantFile(contentDir, variantSlug, locale);
 
@@ -392,7 +436,7 @@ export class VersioningManager {
     contentType: string,
     slug: string
   ): VersioningFile | null {
-    const configPath = path.join(CONTENT_DIR, getFolder(contentType), slug, "versioning.yml");
+    const configPath = path.join(this.contentDir(), getFolder(contentType), slug, "versioning.yml");
     if (!fs.existsSync(configPath)) return null;
 
     try {
@@ -407,7 +451,7 @@ export class VersioningManager {
   }
 
   public getVersioningFilePath(contentType: string, slug: string): string {
-    return path.join(CONTENT_DIR, getFolder(contentType), slug, "versioning.yml");
+    return path.join(this.contentDir(), getFolder(contentType), slug, "versioning.yml");
   }
 
   /**
@@ -480,7 +524,7 @@ export class VersioningManager {
     slug: string;
     folderPath: string;
   } | null {
-    const contentDir = path.join(CONTENT_DIR, getFolder(contentType), slug);
+    const contentDir = path.join(this.contentDir(), getFolder(contentType), slug);
 
     if (!fs.existsSync(contentDir)) {
       return null;
@@ -551,7 +595,7 @@ export class VersioningManager {
         variants,
         contentType,
         slug,
-        folderPath: `4geeks-com/${getFolder(contentType)}/${slug}`,
+        folderPath: `${this.contentFolderName()}/${getFolder(contentType)}/${slug}`,
       };
     } catch (error) {
       log.error({ err: error }, `[Versioning] Error getting variants for ${contentType}/${slug}:`);

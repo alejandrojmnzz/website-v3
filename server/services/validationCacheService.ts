@@ -1,8 +1,8 @@
 /**
  * Validation Cache Service
  *
- * Singleton that persists per-page validation results to
- * 4geeks-com/validation-cache.json and optionally auto-commits
+ * Per-site class that persists page validation results to
+ * <contentRoot>/validation-cache.json and optionally auto-commits
  * the file to GitHub using the existing queue mechanism.
  *
  * Concurrent flush writes are serialized via a Promise chain (write queue).
@@ -15,7 +15,6 @@ import { child } from "../logger";
 
 const log = child({ module: "validationCacheService" });
 
-const CACHE_FILE = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "validation-cache.json");
 const CACHE_VERSION = 2;
 
 function emptyCache(): ValidationCacheFile {
@@ -25,10 +24,10 @@ function emptyCache(): ValidationCacheFile {
   };
 }
 
-function readFromDisk(): ValidationCacheFile {
+function readFromDisk(cacheFile: string): ValidationCacheFile {
   try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, "utf-8");
+    if (fs.existsSync(cacheFile)) {
+      const raw = fs.readFileSync(cacheFile, "utf-8");
       const parsed = JSON.parse(raw) as ValidationCacheFile;
       if (parsed && typeof parsed === "object" && parsed.pages) {
         if ((parsed.meta?.version ?? 0) < CACHE_VERSION) {
@@ -44,17 +43,21 @@ function readFromDisk(): ValidationCacheFile {
   return emptyCache();
 }
 
-class ValidationCacheService {
+export class ValidationCacheService {
   private map: Map<string, PageCacheEntry> = new Map();
   private lastFullRunAt: string | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
+  private cacheFile: string;
+  private contentRootRelative: string;
 
-  constructor() {
+  constructor(contentRoot: string) {
+    this.cacheFile = path.join(contentRoot, "validation-cache.json");
+    this.contentRootRelative = path.relative(process.cwd(), contentRoot);
     this.loadFromDisk();
   }
 
   private loadFromDisk(): void {
-    const data = readFromDisk();
+    const data = readFromDisk(this.cacheFile);
     this.lastFullRunAt = data.meta?.lastFullRunAt ?? null;
     this.map = new Map(Object.entries(data.pages ?? {}));
     log.info(`[ValidationCache] Loaded ${this.map.size} page entries from disk`);
@@ -94,7 +97,7 @@ class ValidationCacheService {
     };
 
     try {
-      fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2) + "\n", "utf-8");
+      fs.writeFileSync(this.cacheFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
       log.info(`[ValidationCache] Flushed ${this.map.size} page entries to disk`);
     } catch (err) {
       log.error({ err }, "[ValidationCache] Failed to write cache file");
@@ -104,7 +107,7 @@ class ValidationCacheService {
     try {
       const { queueFileChange, isAutoCommitEnabled } = await import("../auto-commit");
       if (isAutoCommitEnabled()) {
-        queueFileChange("4geeks-com/validation-cache.json", "System");
+        queueFileChange(`${this.contentRootRelative}/validation-cache.json`, "System");
       }
     } catch (err) {
       log.warn({ err }, "[ValidationCache] Could not queue auto-commit (non-fatal)");
@@ -112,11 +115,13 @@ class ValidationCacheService {
   }
 }
 
-let instance: ValidationCacheService | null = null;
+let _defaultInstance: ValidationCacheService | null = null;
 
+/** Returns the ValidationCacheService for the default site. */
 export function getValidationCacheService(): ValidationCacheService {
-  if (!instance) {
-    instance = new ValidationCacheService();
+  if (!_defaultInstance) {
+    const contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+    _defaultInstance = new ValidationCacheService(contentRoot);
   }
-  return instance;
+  return _defaultInstance;
 }

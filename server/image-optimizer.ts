@@ -73,8 +73,20 @@ export function gcsKeyFromSrc(src: string): string | null {
 }
 
 export function localKeyFromSrc(src: string): string | null {
-  if (src.startsWith("/4geeks-com/images/")) {
-    return src.slice(1);
+  if (src.startsWith("/attached_assets/")) return null;
+  if (src.startsWith("http://") || src.startsWith("https://")) return null;
+  const { getSiteContextMap } = require("./site-manager") as typeof import("./site-manager");
+  try {
+    for (const [, site] of getSiteContextMap()) {
+      const prefix = `/${site.contentRootName}/images/`;
+      if (src.startsWith(prefix)) {
+        return src.slice(1);
+      }
+    }
+  } catch {
+    // fallback: treat any /<folder>/images/ path as local
+    const match = src.match(/^\/([^/]+)\/images\//);
+    if (match) return src.slice(1);
   }
   return null;
 }
@@ -108,7 +120,7 @@ export async function downloadImage(src: string): Promise<Buffer | null> {
   if (key) {
     return gcs.download(key);
   }
-  if (src.startsWith("/4geeks-com/images/")) {
+  if (localKeyFromSrc(src)) {
     const localPath = path.resolve(process.cwd(), src.slice(1));
     try {
       return fs.readFileSync(localPath);

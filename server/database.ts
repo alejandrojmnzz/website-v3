@@ -13,6 +13,15 @@ const log = child({ module: "database" });
 
 
 
+function getDbDir(contentRoot?: string): string {
+  if (contentRoot) return path.join(contentRoot, "db");
+  try {
+    const { getDefaultSite } = require('./site-manager') as typeof import('./site-manager');
+    return path.join(getDefaultSite().contentRoot, "db");
+  } catch {
+    return path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "db");
+  }
+}
 const DB_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "db");
 
 export interface VectorSearchConfig {
@@ -154,12 +163,13 @@ function parseFileContent(content: string, ext: string, resultsPath?: string): u
 
 async function fetchFromLocal(
   dbSlug: string,
-  localConfig: NonNullable<DatabaseConfig["source"]["local"]>
+  localConfig: NonNullable<DatabaseConfig["source"]["local"]>,
+  dbDir: string = DB_DIR
 ): Promise<unknown[]> {
-  const filePath = path.join(DB_DIR, dbSlug, localConfig.filename);
+  const filePath = path.join(dbDir, dbSlug, localConfig.filename);
   if (!fs.existsSync(filePath)) {
     throw new Error(
-      `Local file not found: 4geeks-com/db/${dbSlug}/${localConfig.filename}`
+      `Local file not found: ${path.relative(process.cwd(), filePath)}`
     );
   }
   const content = fs.readFileSync(filePath, "utf-8");
@@ -403,7 +413,7 @@ export class DatabaseManager {
   private cache: IDatabaseCache = new SqliteCache();
 
   private overridesPath(dbName: string): string {
-    return path.join(DB_DIR, dbName, "overrides.json");
+    return path.join(this.dbDir, dbName, "overrides.json");
   }
 
   private loadOverridesFile(dbName: string): OverridesFile | null {
@@ -444,7 +454,10 @@ export class DatabaseManager {
     });
   }
 
-  constructor() {
+  private readonly dbDir: string;
+
+  constructor(contentRoot?: string) {
+    this.dbDir = getDbDir(contentRoot);
     this.reload();
     this.migrateJsonCaches();
   }
@@ -466,10 +479,10 @@ export class DatabaseManager {
 
   reload(): void {
     this.configs.clear();
-    if (!fs.existsSync(DB_DIR)) return;
+    if (!fs.existsSync(this.dbDir)) return;
 
-    const folders = fs.readdirSync(DB_DIR).filter((f) => {
-      const full = path.join(DB_DIR, f);
+    const folders = fs.readdirSync(this.dbDir).filter((f) => {
+      const full = path.join(this.dbDir, f);
       return (
         fs.statSync(full).isDirectory() &&
         fs.existsSync(path.join(full, "config.yml"))
@@ -478,7 +491,7 @@ export class DatabaseManager {
 
     for (const folder of folders) {
       try {
-        const configPath = path.join(DB_DIR, folder, "config.yml");
+        const configPath = path.join(this.dbDir, folder, "config.yml");
         const raw = fs.readFileSync(configPath, "utf-8");
         this.configs.set(folder, yaml.load(raw) as DatabaseConfig);
       } catch (err) {
@@ -535,7 +548,7 @@ export class DatabaseManager {
 
   delete(name: string): void {
     this.validateName(name);
-    const dir = path.join(DB_DIR, name);
+    const dir = path.join(this.dbDir, name);
     if (fs.existsSync(dir)) {
       fs.rmSync(dir, { recursive: true });
     }
@@ -600,7 +613,7 @@ export class DatabaseManager {
       rawItems = await fetchFromApi(config.source.api, name);
     } else if (config.source.type === "local") {
       if (!config.source.local) throw new Error("Local source config missing");
-      rawItems = await fetchFromLocal(name, config.source.local);
+      rawItems = await fetchFromLocal(name, config.source.local, this.dbDir);
     } else if (config.source.type === "remote") {
       if (!config.source.remote) throw new Error("Remote source config missing");
       rawItems = await fetchFromRemote(config.source.remote);
@@ -728,7 +741,7 @@ export class DatabaseManager {
       } else if (sourceConfig.type === "local") {
         if (!sourceConfig.local) throw new Error("Local source config missing");
         if (!dbSlug) throw new Error("Database slug required for local source testing");
-        items = await fetchFromLocal(dbSlug, sourceConfig.local);
+        items = await fetchFromLocal(dbSlug, sourceConfig.local, this.dbDir);
       } else if (sourceConfig.type === "remote") {
         if (!sourceConfig.remote) throw new Error("Remote source config missing");
         items = await fetchFromRemote(sourceConfig.remote);
@@ -752,7 +765,7 @@ export class DatabaseManager {
   }
 
   private writeToDisk(name: string, config: DatabaseConfig): void {
-    const configPath = path.join(DB_DIR, name, "config.yml");
+    const configPath = path.join(this.dbDir, name, "config.yml");
     const dir = path.dirname(configPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -925,7 +938,8 @@ export class DatabaseManager {
     slugValue: string,
     mappedUpdates: Record<string, unknown>,
     fieldMapping: Record<string, string> | null = null,
-    author?: string
+    author?: string,
+    contentRoot?: string
   ): boolean {
     try {
       const dbKeyedOverrides: Record<string, unknown> = {};
@@ -979,7 +993,7 @@ export class DatabaseManager {
         ...dbKeyedOverrides,
       };
       this.saveOverridesFile(dbName, overridesFile);
-      markFileAsModified(`4geeks-com/db/${dbName}/overrides.json`, author);
+      markFileAsModified(path.relative(process.cwd(), path.join(this.dbDir, dbName, "overrides.json")), author);
 
       this.memoryCache.delete(dbName);
       return patchedIdx !== -1;
@@ -1014,7 +1028,8 @@ export class DatabaseManager {
     dbName: string,
     slugValue: string,
     fieldKey?: string,
-    author?: string
+    author?: string,
+    contentRoot?: string
   ): boolean {
     try {
       this.validateName(dbName);
@@ -1033,7 +1048,7 @@ export class DatabaseManager {
       }
 
       this.saveOverridesFile(dbName, overridesFile);
-      markFileAsModified(`4geeks-com/db/${dbName}/overrides.json`, author);
+      markFileAsModified(path.relative(process.cwd(), path.join(this.dbDir, dbName, "overrides.json")), author);
 
       this.memoryCache.delete(dbName);
       this.cache.clear(dbName);

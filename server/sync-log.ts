@@ -9,7 +9,17 @@ const syncLogLogger = loggerChild({ module: "SyncLog", worker: "SyncLog" });
 
 const CONTENT_FOLDER = process.env.CONTENT_FOLDER || 'content';
 const SYNC_LOG_PATH = path.join(process.cwd(), CONTENT_FOLDER, '.sync-log-state.txt');
-const LEGACY_SYNC_LOG_PATH = path.join(process.cwd(), '4geeks-com', '.sync-log-state.txt');
+// Legacy migration: look for old sync-log-state in any registered site folder
+function findLegacySyncLogPath(): string | null {
+  try {
+    const { getSiteConfigs } = require('./site-config') as typeof import('./site-config');
+    for (const site of getSiteConfigs()) {
+      const candidatePath = path.join(process.cwd(), site.contentFolder, '.sync-log-state.txt');
+      if (candidatePath !== SYNC_LOG_PATH && fs.existsSync(candidatePath)) return candidatePath;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
 const GCS_SYNC_LOG_KEY = 'sync/sync-log-state.txt';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const MAX_LOG_LINES = 500;
@@ -98,9 +108,7 @@ function loadLocal(): void {
   try {
     const pathToRead = fs.existsSync(SYNC_LOG_PATH)
       ? SYNC_LOG_PATH
-      : fs.existsSync(LEGACY_SYNC_LOG_PATH)
-        ? LEGACY_SYNC_LOG_PATH
-        : null;
+      : findLegacySyncLogPath();
 
     if (pathToRead) {
       const raw = fs.readFileSync(pathToRead, 'utf-8');

@@ -82,7 +82,14 @@ export class ContextManager {
    * Load brand context from 4geeks-com/brand-context.yml
    */
   async getBrandContext(): Promise<BrandContext> {
-    const filePath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "brand-context.yml");
+    let contentFolder: string;
+    try {
+      const { getDefaultSite } = require("../site-manager") as typeof import("../site-manager");
+      contentFolder = getDefaultSite().contentRootName;
+    } catch {
+      contentFolder = process.env.CONTENT_FOLDER || "default-site-content";
+    }
+    const filePath = path.join(process.cwd(), contentFolder, "brand-context.yml");
     const cacheKey = "brand-context";
     const currentMtime = this.getFileMtime(filePath);
 

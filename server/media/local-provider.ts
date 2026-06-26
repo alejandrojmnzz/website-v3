@@ -2,7 +2,19 @@ import * as fs from "fs";
 import * as path from "path";
 import type { StorageProvider } from "./types";
 
-const LOCAL_PREFIXES = [`/${process.env.CONTENT_FOLDER || "default-site-content"}/images/`, "/attached_assets/"];
+function getLocalPrefixes(): string[] {
+  const prefixes = ["/attached_assets/"];
+  try {
+    const { getSiteContextMap } = require("../site-manager") as typeof import("../site-manager");
+    for (const [, site] of getSiteContextMap()) {
+      prefixes.push(`/${site.contentRootName}/images/`);
+    }
+  } catch {
+    const folder = process.env.CONTENT_FOLDER || "default-site-content";
+    prefixes.push(`/${folder}/images/`);
+  }
+  return prefixes;
+}
 
 export class LocalProvider implements StorageProvider {
   readonly name = "local";
@@ -13,11 +25,11 @@ export class LocalProvider implements StorageProvider {
   }
 
   owns(src: string): boolean {
-    return LOCAL_PREFIXES.some(p => src.startsWith(p));
+    return getLocalPrefixes().some(p => src.startsWith(p));
   }
 
   extractKey(src: string): string | null {
-    for (const prefix of LOCAL_PREFIXES) {
+    for (const prefix of getLocalPrefixes()) {
       if (src.startsWith(prefix)) {
         return src;
       }

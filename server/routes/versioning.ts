@@ -218,7 +218,7 @@ function getContentRootName(res: Response): string {
 
 export function registerVersioningRoutes(app: Express): void {
   app.get("/api/debug/versioning", (req, res) => {
-    const versioningManager = getVersioningManager();
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const stats = versioningManager.getStats();
     res.json({
       stats,
@@ -229,7 +229,7 @@ export function registerVersioningRoutes(app: Express): void {
   app.post("/api/debug/clear-versioning-cache", async (req, res) => {
     const auth = await requireCapability(req, res, "content_allocate_traffic");
     if (!auth.authorized) return;
-    const versioningManager = getVersioningManager();
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     versioningManager.clearCache();
     res.json({ success: true, message: "Versioning cache cleared" });
   });
@@ -243,7 +243,7 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
-    const versioningManager = getVersioningManager();
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const result = versioningManager.getAvailableVariants(contentType, slug);
 
     if (!result) {
@@ -266,7 +266,7 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
-    const versioningManager = getVersioningManager();
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const versioning = versioningManager.getVersioningForContent(contentType, contentSlug);
     const filePath = path.join(
       getContentRoot(res),
@@ -323,7 +323,7 @@ export function registerVersioningRoutes(app: Express): void {
         return;
       }
 
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       try {
         const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
         const updated = { ...existing, [locale]: { variants: parseResult.data.variants } };
@@ -391,7 +391,7 @@ export function registerVersioningRoutes(app: Express): void {
       fs.writeFileSync(variantFilePath, sourceContent, "utf-8");
       markFileAsModified(`${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
 
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
       const localeData = existing[locale]
         ? { variants: [...(existing[locale].variants || [])] }
@@ -462,7 +462,7 @@ export function registerVersioningRoutes(app: Express): void {
       const variantContent = fs.readFileSync(variantFilePath, "utf-8");
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
       const localeData = existing[locale];
       if (localeData) {
@@ -534,7 +534,7 @@ export function registerVersioningRoutes(app: Express): void {
       fs.unlinkSync(variantFilePath);
       markFileAsModified(`${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
 
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
       const localeData = existing[locale];
       if (localeData) {

@@ -24,7 +24,7 @@ import {
   shouldTrackFile,
 } from './sync-state';
 import { getAllFolders } from './content-types';
-import { getSiteConfigs } from './site-config';
+import { getSiteConfigs, type SiteConfig } from './site-config';
 import { child } from "./logger";
 const log = child({ module: "auto-commit" });
 
@@ -129,9 +129,41 @@ export function isAutoCommitEnabled(): boolean {
   return process.env.GITHUB_SYNC_ENABLED === 'true' && process.env.GITHUB_AUTO_COMMIT_ENABLED === 'true';
 }
 
+/**
+ * Per-site auto-commit queue wrapper.
+ * Enqueues changes using this site's content folder prefix so commits are
+ * routed to the correct GitHub repository and never cross site boundaries.
+ */
+export class AutoCommitQueue {
+  constructor(private readonly contentRootName: string) {}
+
+  /** Queue a relative-to-content-root path for auto-commit. */
+  queue(relPath: string, author?: string, allowedExceptions?: Set<string>): void {
+    const fullPath = relPath.startsWith(this.contentRootName + '/')
+      ? relPath
+      : `${this.contentRootName}/${relPath}`;
+    queueFileChange(fullPath, author, allowedExceptions);
+  }
+
+  get folderPrefix(): string {
+    return this.contentRootName;
+  }
+}
+
+function stripContentFolderPrefix(filePath: string): string {
+  const sites = getSiteConfigs();
+  for (const site of sites) {
+    const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+    if (filePath.startsWith(prefix)) {
+      return filePath.slice(prefix.length);
+    }
+  }
+  return filePath;
+}
+
 function isContentTypeFile(filePath: string): boolean {
   const folders = getAllFolders();
-  const withoutPrefix = filePath.replace('4geeks-com/', '');
+  const withoutPrefix = stripContentFolderPrefix(filePath);
   const topFolder = withoutPrefix.split('/')[0];
   return folders.includes(topFolder);
 }
@@ -145,19 +177,27 @@ export function queueFileChange(filePath: string, author?: string, allowedExcept
   if (!isAutoCommitEnabled()) return;
 
   const cwd = process.cwd();
+  const sites = getSiteConfigs();
   let relativePath: string;
 
   if (path.isAbsolute(filePath)) {
     relativePath = filePath.startsWith(cwd)
       ? filePath.slice(cwd.length + 1)
       : filePath;
-  } else if (filePath.startsWith('4geeks-com/') || filePath.startsWith('client/')) {
+  } else if (filePath.startsWith('client/')) {
     relativePath = filePath;
   } else {
-    relativePath = `4geeks-com/${filePath}`;
+    const knownPrefix = sites.some(s => filePath.startsWith(s.contentFolder.replace(/\/$/, '') + '/'));
+    if (knownPrefix) {
+      relativePath = filePath;
+    } else {
+      const defaultFolder = sites[0]?.contentFolder || 'default-site-content';
+      relativePath = `${defaultFolder.replace(/\/$/, '')}/${filePath}`;
+    }
   }
 
-  if (!shouldTrackFile(relativePath, allowedExceptions)) return;
+  const matchedSite = sites.find(s => relativePath.startsWith(s.contentFolder.replace(/\/$/, '') + '/'));
+  if (!shouldTrackFile(relativePath, allowedExceptions, matchedSite?.contentFolder)) return;
 
   const resolvedAuthor = author || (isContentTypeFile(relativePath) ? 'Unknown' : 'System');
 
@@ -307,7 +347,7 @@ async function commitBatch(config: GitHubConfig, author: string, files: string[]
 
   if (existingFiles.length === 0 && deletedFiles.length === 0) return;
 
-  const fileNames = files.map(f => f.replace('4geeks-com/', '')).join(', ');
+  const fileNames = files.map(f => stripContentFolderPrefix(f)).join(', ');
   const message = `[Auto-sync] ${author} updated ${fileNames}`;
 
   const result = await commitFilesViaTreeAPI(config, message, existingFiles, deletedFiles);
@@ -347,7 +387,7 @@ async function retryIndividualFiles(
   deletedFiles: string[]
 ): Promise<void> {
   for (const file of existingFiles) {
-    const fileName = file.path.replace('4geeks-com/', '');
+    const fileName = stripContentFolderPrefix(file.path);
     const message = `[Auto-sync] ${author} updated ${fileName}`;
 
     const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message);
@@ -370,7 +410,7 @@ async function retryIndividualFiles(
     conflictedFiles.add(filePath);
     log.warn(`[AutoCommit] Skipping delete for conflicted file: ${filePath}`);
     const { logSync } = await import("./sync-log");
-    logSync('CONFLICT', `Conflict on deleted file ${filePath.replace('4geeks-com/', '')} by ${author}: push rejected`, author);
+    logSync('CONFLICT', `Conflict on deleted file ${stripContentFolderPrefix(filePath)} by ${author}: push rejected`, author);
   }
 }
 
@@ -566,7 +606,8 @@ export function getAutoCommitStatus(): AutoCommitStatus {
   const state = loadSyncState();
   const autoCommitEligibleFiles = Object.entries(state.files)
     .filter(([filePath, info]) => {
-      if (!shouldTrackFile(filePath)) return false;
+      const fileSite = getSiteConfigs().find(s => filePath.startsWith(s.contentFolder.replace(/\/$/, '') + '/'));
+      if (!shouldTrackFile(filePath, undefined, fileSite?.contentFolder)) return false;
       // Locally modified = local SHA differs from remote SHA, or file has no remote SHA at all
       return info.sha && info.sha !== info.remoteSha;
     })

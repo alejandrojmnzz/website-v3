@@ -55,9 +55,11 @@ interface AgentResponse {
   trace: AgentTrace;
 }
 
-function loadConfig(): LLMConfig {
+function loadConfig(contentRoot?: string): LLMConfig {
   try {
-    const configPath = path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
+    const configPath = contentRoot
+      ? path.join(contentRoot, "llm.yml")
+      : path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, "utf-8");
       return yaml.load(raw) as LLMConfig;

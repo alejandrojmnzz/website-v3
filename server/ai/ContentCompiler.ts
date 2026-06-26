@@ -13,7 +13,12 @@ interface CompiledContext {
   globalSummary: string;
 }
 
-const MARKETING_CONTENT_PATH = path.resolve(process.env.CONTENT_FOLDER || "default-site-content");
+function getMarketingContentPath(contentRoot?: string): string {
+  return contentRoot ?? path.resolve(process.env.CONTENT_FOLDER || "default-site-content");
+}
+
+// Keep module-level constant for backward-compat callers that don't pass contentRoot
+const MARKETING_CONTENT_PATH = getMarketingContentPath();
 
 function loadYamlFile(filePath: string): Record<string, unknown> | null {
   try {
@@ -178,11 +183,12 @@ export class ContentCompiler {
     return lines.join("\n");
   }
 
-  compileFaqContext(programSlug?: string, locale?: string): string {
+  compileFaqContext(programSlug?: string, locale?: string, contentRoot?: string): string {
     const effectiveLocale = locale || getDefaultLocale();
     const lines: string[] = ["# Frequently Asked Questions", ""];
+    const contentPath = getMarketingContentPath(contentRoot);
 
-    const faqFilePath = path.join(MARKETING_CONTENT_PATH, "faqs", `${effectiveLocale}.yml`);
+    const faqFilePath = path.join(contentPath, "faqs", `${effectiveLocale}.yml`);
     const faqData = loadYamlFile(faqFilePath);
     if (faqData && Array.isArray(faqData.faqs)) {
       lines.push("## General FAQs");

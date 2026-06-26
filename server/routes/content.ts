@@ -30,7 +30,11 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager } from "../database";
+import { databaseManager, DatabaseManager } from "../database";
+
+function getDB(res: import("express").Response): DatabaseManager {
+  return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
+}
 import {
   redirectMiddleware,
   getRedirects,
@@ -240,7 +244,7 @@ export function registerContentRoutes(app: Express): void {
 
     // If force_variant is provided, load that variant directly (for preview)
     if (forceVariant) {
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const forcedContent = versioningManager.getVariantContent("program", slug, forceVariant, locale);
       if (forcedContent) {
         program = forcedContent as unknown as CareerProgram;
@@ -321,7 +325,7 @@ export function registerContentRoutes(app: Express): void {
 
     // If force_variant is provided, load that variant directly (for preview)
     if (forceVariant) {
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const forcedContent = versioningManager.getVariantContent("landing", baseSlug, forceVariant, locale);
       if (forcedContent) {
         landing = forcedContent as LandingPage;
@@ -390,7 +394,7 @@ export function registerContentRoutes(app: Express): void {
     let location = null;
 
     if (forceVariant) {
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const forcedContent = versioningManager.getVariantContent("location", slug, forceVariant, locale);
       if (forcedContent) {
         location = forcedContent as ReturnType<typeof loadLocationPage>;
@@ -465,7 +469,7 @@ export function registerContentRoutes(app: Express): void {
     let page = null;
 
     if (forceVariant) {
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const forcedContent = versioningManager.getVariantContent("page", "apply", forceVariant, locale);
       if (forcedContent) {
         page = forcedContent as ReturnType<typeof loadTemplatePage>;
@@ -512,7 +516,7 @@ export function registerContentRoutes(app: Express): void {
     let page = null;
 
     if (forceVariant) {
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const forcedContent = versioningManager.getVariantContent("page", slug, forceVariant, locale);
       if (forcedContent) {
         page = forcedContent as ReturnType<typeof loadTemplatePage>;
@@ -593,7 +597,7 @@ export function registerContentRoutes(app: Express): void {
     let variantPage: Record<string, unknown> | null = null;
 
     if (forceVariant) {
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const forcedContent = versioningManager.getVariantContent(contentType, slug, forceVariant, locale);
       if (forcedContent) {
         variantPage = forcedContent as Record<string, unknown>;
@@ -669,7 +673,7 @@ export function registerContentRoutes(app: Express): void {
         parseInt(req.query.limit as string, 10) || 12,
         100,
       );
-      const posts = await databaseManager.fetchMappedItems("blog");
+      const posts = await getDB(res).fetchMappedItems("blog");
       const localeKey = getLocaleKey("blog") || "lang";
       let filtered = locale
         ? posts.filter((p) => (p as any)[localeKey] === normalizeLocale(locale))
@@ -732,7 +736,7 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { slug } = req.params;
       const locale = req.query.locale as string | undefined;
-      const posts = await databaseManager.fetchMappedItems("blog");
+      const posts = await getDB(res).fetchMappedItems("blog");
       const localeKey = getLocaleKey("blog") || "lang";
       const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
       const post = normalizedLocale
@@ -766,7 +770,7 @@ export function registerContentRoutes(app: Express): void {
       res.json({ exists: false, age_hours: null, post_count: null });
       return;
     }
-    const info = databaseManager.getCacheInfo(dbName);
+    const info = getDB(res).getCacheInfo(dbName);
     res.json({
       exists: !!info,
       age_hours: info
@@ -783,7 +787,7 @@ export function registerContentRoutes(app: Express): void {
   app.delete("/api/blog/cache/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
-      const posts = await databaseManager.fetchMappedItems("blog");
+      const posts = await getDB(res).fetchMappedItems("blog");
       const post = posts.find((p) => p.slug === slug);
       if ((post as any)?.readme_url) {
         clearMarkdownCacheByUrl((post as any).readme_url);
@@ -798,8 +802,8 @@ export function registerContentRoutes(app: Express): void {
 
   app.post("/api/debug/clear-blog-cache", async (_req, res) => {
     const dbName = getDatabaseName("blog");
-    if (dbName && databaseManager.exists(dbName)) {
-      await databaseManager.fetchItems(dbName, true).catch(() => {});
+    if (dbName && getDB(res).exists(dbName)) {
+      await getDB(res).fetchItems(dbName, true).catch(() => {});
     }
     clearMarkdownCache();
     res.json({
@@ -1345,14 +1349,14 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       const dbName = config.database.slug;
-      if (!databaseManager.exists(dbName)) {
+      if (!getDB(res).exists(dbName)) {
         res.status(404).json({ error: `Database "${dbName}" not found` });
         return;
       }
 
       const locale = req.query.locale as string | undefined;
 
-      const result = await databaseManager.fetchItems(dbName);
+      const result = await getDB(res).fetchItems(dbName);
       let items = result.items as Record<string, unknown>[];
 
       const mapping = config.field_mapping;
@@ -1374,7 +1378,7 @@ export function registerContentRoutes(app: Express): void {
 
       let rawItems: Record<string, unknown>[] | null = null;
       if (Object.keys(rawFieldRefs).length > 0) {
-        rawItems = databaseManager.getRawItems(dbName);
+        rawItems = getDB(res).getRawItems(dbName);
       }
 
       const localeFieldKey = getLocaleKey(type);
@@ -1451,7 +1455,7 @@ export function registerContentRoutes(app: Express): void {
 
       let facets = result.facets;
       if (!facets) {
-        const dbConfig = databaseManager.get(dbName);
+        const dbConfig = getDB(res).get(dbName);
         if (dbConfig.editor) {
           const computed: Record<string, string[]> = {};
           for (const [field, hint] of Object.entries(dbConfig.editor)) {
@@ -1487,7 +1491,7 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type } = req.params;
       const entries = getCI(res).findByType(type);
-      const versioningManager = getVersioningManager();
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       const results = entries.map((entry) => {
         const urls = getCI(res).getLocaleUrls(entry.slug, type);
         const versionCounts = versioningManager.getVersionCounts(type, entry.slug);
@@ -1556,7 +1560,7 @@ export function registerContentRoutes(app: Express): void {
       // ── DB-backed ────────────────────────────────────────────────────────────
       if (config.database?.slug) {
         const dbName = config.database.slug;
-        if (!databaseManager.exists(dbName)) {
+        if (!getDB(res).exists(dbName)) {
           res.status(404).json({ error: `Database "${dbName}" not found` });
           return;
         }
@@ -1566,9 +1570,9 @@ export function registerContentRoutes(app: Express): void {
           res.json({ contentType: type, source: "db", cache_missing: true, count: 0, entries: [] });
           return;
         }
-        const items = await databaseManager.fetchMappedItems(type);
+        const items = await getDB(res).fetchMappedItems(type);
         const localeKey = getLocaleKey(type) || "lang";
-        const cacheInfo = databaseManager.getCacheInfo(dbName);
+        const cacheInfo = getDB(res).getCacheInfo(dbName);
         const cacheAgeHours = cacheInfo?.fetched_at
           ? Math.round((Date.now() - new Date(cacheInfo.fetched_at).getTime()) / (60 * 60 * 1000) * 10) / 10
           : null;
@@ -1703,8 +1707,8 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       const dbName = config.database.slug;
-      if (databaseManager.exists(dbName)) {
-        await databaseManager.fetchItems(dbName, true);
+      if (getDB(res).exists(dbName)) {
+        await getDB(res).fetchItems(dbName, true);
       }
       clearMarkdownCache();
       res.json({
@@ -1742,11 +1746,11 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       const dbName = config.database.slug;
-      if (!databaseManager.exists(dbName)) {
+      if (!getDB(res).exists(dbName)) {
         res.status(404).json({ error: `Database "${dbName}" not found` });
         return;
       }
-      const rawOverrides = databaseManager.getDbOverridesForEntry(dbName, slug);
+      const rawOverrides = getDB(res).getDbOverridesForEntry(dbName, slug);
       if (!rawOverrides) {
         res.json({ overrides: {}, originals: {} });
         return;
@@ -1771,7 +1775,7 @@ export function registerContentRoutes(app: Express): void {
       // The fm (content-types registry field mapping) maps templateKey → dbConfigFieldName,
       // which is the key that exists in the DB-config-mapped item from getOriginalMappedItem.
       const lookupKey = getLookupKey(type) || "slug";
-      const originalItem = databaseManager.getOriginalMappedItem(dbName, slug, lookupKey);
+      const originalItem = getDB(res).getOriginalMappedItem(dbName, slug, lookupKey);
       const originals: Record<string, unknown> = {};
       if (originalItem) {
         for (const templateKey of Object.keys(overrides)) {
@@ -1795,7 +1799,7 @@ export function registerContentRoutes(app: Express): void {
       for (const [contentType, config] of Object.entries(allConfigs)) {
         const dbName = config.database?.slug;
         if (!dbName) continue;
-        const overrides = databaseManager.listOverrides(dbName);
+        const overrides = getDB(res).listOverrides(dbName);
         for (const { slug, fields } of overrides) {
           const imageFields: Record<string, unknown> = {};
           for (const [key, value] of Object.entries(fields)) {
@@ -1826,7 +1830,7 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       const dbName = config.database.slug;
-      if (!databaseManager.exists(dbName)) {
+      if (!getDB(res).exists(dbName)) {
         res.status(404).json({ error: `Database "${dbName}" not found` });
         return;
       }
@@ -1838,7 +1842,7 @@ export function registerContentRoutes(app: Express): void {
           fieldKey = mappedPath;
         }
       }
-      const cleared = databaseManager.clearDbOverride(dbName, slug, fieldKey, authorName);
+      const cleared = getDB(res).clearDbOverride(dbName, slug, fieldKey, authorName, getContentRoot(res));
       res.json({
         success: true,
         cleared,

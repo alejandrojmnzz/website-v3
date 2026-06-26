@@ -5,9 +5,44 @@ import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import { markFileAsModified } from "./sync-state";
 
 const ATTACHED_ASSETS_DIR = path.join(process.cwd(), "attached_assets");
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
-const MARKETING_IMAGES_DIR = path.join(MARKETING_CONTENT_DIR, "images");
-const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
+
+interface SiteRoot {
+  contentDir: string;
+  contentFolderName: string;
+  imagesDir: string;
+  registryPath: string;
+}
+
+function getAllSiteRoots(): SiteRoot[] {
+  try {
+    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
+    const sites = getSiteConfigs();
+    if (sites.length > 0) {
+      return sites.map(s => {
+        const contentDir = path.join(process.cwd(), s.contentFolder);
+        return {
+          contentDir,
+          contentFolderName: s.contentFolder.replace(/\/$/, ""),
+          imagesDir: path.join(contentDir, "images"),
+          registryPath: path.join(contentDir, "image-registry.json"),
+        };
+      });
+    }
+  } catch { /* fall through */ }
+  const fallbackFolder = process.env.CONTENT_FOLDER || "default-site-content";
+  const contentDir = path.join(process.cwd(), fallbackFolder);
+  return [{
+    contentDir,
+    contentFolderName: fallbackFolder,
+    imagesDir: path.join(contentDir, "images"),
+    registryPath: path.join(contentDir, "image-registry.json"),
+  }];
+}
+
+function getDefaultSiteRoot(): SiteRoot {
+  const all = getAllSiteRoots();
+  return all[0];
+}
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg", ".avif", ".gif"]);
 
@@ -100,17 +135,20 @@ function scanImageDirectory(baseDir: string, urlPrefix: string, skipScreenshots:
 }
 
 function scanAllImageDirectories(): Map<string, string> {
-  const attachedAssets = scanImageDirectory(ATTACHED_ASSETS_DIR, "/attached_assets/", true);
-  const marketingImages = scanImageDirectory(MARKETING_IMAGES_DIR, "/4geeks-com/images/", false);
   const combined = new Map<string, string>();
+  const attachedAssets = scanImageDirectory(ATTACHED_ASSETS_DIR, "/attached_assets/", true);
   attachedAssets.forEach((src, key) => combined.set(key, src));
-  marketingImages.forEach((src, key) => combined.set(key, src));
+  for (const site of getAllSiteRoots()) {
+    const siteImages = scanImageDirectory(site.imagesDir, `/${site.contentFolderName}/images/`, false);
+    siteImages.forEach((src, key) => combined.set(key, src));
+  }
   return combined;
 }
 
-function loadRegistry(): { presets: Record<string, any>; images: Record<string, any> } {
+function loadRegistry(registryPath?: string): { presets: Record<string, any>; images: Record<string, any> } {
+  const target = registryPath ?? getDefaultSiteRoot().registryPath;
   try {
-    const content = fs.readFileSync(REGISTRY_PATH, "utf8");
+    const content = fs.readFileSync(target, "utf8");
     return JSON.parse(content);
   } catch {
     return { presets: {}, images: {} };
@@ -123,8 +161,13 @@ function findImageRefsInValue(
   results: Array<{ field: string; src: string }>
 ): void {
   if (typeof value === "string") {
-    if (value.startsWith("/attached_assets/") || value.startsWith("attached_assets/") ||
-        value.startsWith("/4geeks-com/images/") || value.startsWith("4geeks-com/images/")) {
+    const siteImagePrefixes = getAllSiteRoots().flatMap(site => [
+      `/${site.contentFolderName}/images/`,
+      `${site.contentFolderName}/images/`,
+    ]);
+    const isImageRef = value.startsWith("/attached_assets/") || value.startsWith("attached_assets/") ||
+      siteImagePrefixes.some(prefix => value.startsWith(prefix));
+    if (isImageRef) {
       results.push({ field: currentPath, src: value });
     }
   } else if (Array.isArray(value)) {
@@ -169,14 +212,22 @@ function scanYamlFiles(): Array<{ yamlFile: string; field: string; src: string }
     }
   }
 
-  walkDir(MARKETING_CONTENT_DIR);
+  for (const site of getAllSiteRoots()) {
+    walkDir(site.contentDir);
+  }
   return refs;
 }
 
 export function scanImageRegistry(): ScanResult {
-  const registry = loadRegistry();
+  const defaultSite = getDefaultSiteRoot();
+  const registry = loadRegistry(defaultSite.registryPath);
   const allImages = scanAllImageDirectories();
-  const marketingOnly = scanImageDirectory(MARKETING_IMAGES_DIR, "/4geeks-com/images/", false);
+  // Combine all site image dirs for new/updated detection
+  const marketingOnly = new Map<string, string>();
+  for (const site of getAllSiteRoots()) {
+    const siteImages = scanImageDirectory(site.imagesDir, `/${site.contentFolderName}/images/`, false);
+    siteImages.forEach((src, key) => marketingOnly.set(key, src));
+  }
   const yamlRefs = scanYamlFiles();
 
   const existingSrcSet = new Set<string>();
@@ -300,7 +351,9 @@ function replacePathsInYamlFiles(
     }
   }
 
-  walkDir(MARKETING_CONTENT_DIR);
+  for (const site of getAllSiteRoots()) {
+    walkDir(site.contentDir);
+  }
   return updatedFiles;
 }
 
@@ -330,8 +383,9 @@ export function applyRegistryChanges(scanResult: ScanResult): {
     allYamlFilesUpdated.push(...files);
   }
 
-  fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n", "utf8");
-  markFileAsModified(`${process.env.CONTENT_FOLDER || "default-site-content"}/image-registry.json`);
+  const defaultSite = getDefaultSiteRoot();
+  fs.writeFileSync(defaultSite.registryPath, JSON.stringify(registry, null, 2) + "\n", "utf8");
+  markFileAsModified(`${defaultSite.contentFolderName}/image-registry.json`);
 
   return {
     added: scanResult.newImages.length,

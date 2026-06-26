@@ -32,7 +32,11 @@ import { resetSiteConfigs } from "../site-config";
 import { resetSiteContextMap } from "../site-manager";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager } from "../database";
+import { databaseManager, DatabaseManager } from "../database";
+
+function getDB(res: import("express").Response): DatabaseManager {
+  return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
+}
 import {
   redirectMiddleware,
   getRedirects,
@@ -217,6 +221,22 @@ function getCI(res: Response): typeof contentIndex {
 
 function getContentRoot(res: Response): string {
   return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+}
+
+function getContentRootName(res: Response): string {
+  return (res.locals.site as any)?.contentRootName ?? (process.env.CONTENT_FOLDER || "default-site-content");
+}
+
+/** Load llm.yml from the per-site content root for this request. Falls back gracefully when not present. */
+function loadSiteLLMConfig(res: Response): Record<string, unknown> {
+  try {
+    const llmPath = path.join(getContentRoot(res), "llm.yml");
+    if (fs.existsSync(llmPath)) {
+      const raw = yaml.load(fs.readFileSync(llmPath, "utf-8"));
+      if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+    }
+  } catch { /* ignore */ }
+  return {};
 }
 
 export function registerAdminRoutes(app: Express): void {
@@ -469,7 +489,7 @@ export function registerAdminRoutes(app: Express): void {
         res.json({
           success: true,
           message: `Custom redirect added: ${normalizedFrom} -> ${destUrl}`,
-          file: "4geeks-com/custom-redirects.yml",
+          file: `${getContentRootName(res)}/custom-redirects.yml`,
         });
         return;
       }
@@ -805,7 +825,7 @@ export function registerAdminRoutes(app: Express): void {
         result.destinationExists = false;
       } else if (resolved.fromDatabase) {
         try {
-          const items = await databaseManager.fetchMappedItems(
+          const items = await getDB(res).fetchMappedItems(
             resolved.contentType,
           );
           const exists = items.some(
@@ -1241,7 +1261,7 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const llmConfig = loadLLMConfig();
+      const llmConfig = loadSiteLLMConfig(res);
       res.json({ question_tags: llmConfig.question_tags || [] });
     } catch (err) {
       log.error({ err: err }, "[AI Question Tags] Error:");
@@ -1260,9 +1280,9 @@ export function registerAdminRoutes(app: Express): void {
       const { conversationStore } = await import("../ai/ConversationStore");
       const knowledge = await conversationStore.getAllKnowledge();
 
-      const llmConfig = loadLLMConfig();
+      const llmConfig = loadSiteLLMConfig(res);
 
-      const modelDefault = typeof llmConfig.model === "object" ? llmConfig.model?.default || "" : llmConfig.model || "";
+      const modelDefault = typeof llmConfig.model === "object" ? (llmConfig.model as Record<string, string>)?.default || "" : (llmConfig.model as string) || "";
       const modelChat = typeof llmConfig.model === "object" ? llmConfig.model?.chat || "" : "";
 
       res.json({
@@ -1329,9 +1349,9 @@ export function registerAdminRoutes(app: Express): void {
 
       const hasLlmUpdates = updates.agent_tools || updates.chat_bubble || updates.empty_conversation_grace_minutes !== undefined || updates.model_default !== undefined || updates.model_chat !== undefined;
       if (hasLlmUpdates) {
-        const llmPath = path.resolve("4geeks-com/llm.yml");
+        const llmPath = path.join(getContentRoot(res), "llm.yml");
         if (fs.existsSync(llmPath)) {
-          const llmConfig = loadLLMConfig();
+          const llmConfig = loadSiteLLMConfig(res);
           const mutableConfig: Record<string, unknown> = { ...llmConfig };
           if (updates.agent_tools) mutableConfig.agent_tools = updates.agent_tools;
           if (updates.chat_bubble) mutableConfig.chat_bubble = updates.chat_bubble;
@@ -1436,7 +1456,7 @@ export function registerAdminRoutes(app: Express): void {
 
       const recentMessages = await conversationStore.getRecentUserMessages(200);
 
-      const llmConfig = loadLLMConfig();
+      const llmConfig = loadSiteLLMConfig(res);
       const tags = llmConfig.question_tags || [];
 
       const agent = getAgentService();
@@ -1608,7 +1628,7 @@ export function registerAdminRoutes(app: Express): void {
     if (
       url.startsWith("/api/") ||
       url.startsWith("/attached_assets/") ||
-      url.startsWith("/4geeks-com/") ||
+      (() => { try { const { getSiteContextMap } = require("../site-manager") as typeof import("../site-manager"); return [...getSiteContextMap().values()].some(s => url.startsWith(`/${s.contentRootName}/`)); } catch { return url.startsWith(`/${process.env.CONTENT_FOLDER || "default-site-content"}/`); } })() ||
       /\.\w+$/.test(url)
     ) {
       return next();
@@ -1633,7 +1653,7 @@ export function registerAdminRoutes(app: Express): void {
 
     if (isDatabaseRoute && resolved) {
       try {
-        const posts = await databaseManager.fetchMappedItems(
+        const posts = await getDB(res).fetchMappedItems(
           resolved.contentType,
         );
         const localeKey = getLocaleKey(resolved.contentType) || "lang";
@@ -1670,7 +1690,7 @@ export function registerAdminRoutes(app: Express): void {
       try {
         const locale = blogUrlMatch[1];
         const slug = blogUrlMatch[2];
-        const posts = await databaseManager.fetchMappedItems("blog");
+        const posts = await getDB(res).fetchMappedItems("blog");
         const localeKey = getLocaleKey("blog") || "lang";
         const post =
           posts.find((p) => p.slug === slug && (p as any)[localeKey] === locale) ||

@@ -29,9 +29,13 @@ const INITIAL_BACKOFF_MS = 1000;
 let instance: LLMService | null = null;
 let cachedConfigMtime: number | null = null;
 
-function loadYamlConfig(): LLMYamlConfig | null {
+function getDefaultLLMPath(): string {
+  return path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
+}
+
+function loadYamlConfig(contentRoot?: string): LLMYamlConfig | null {
   try {
-    const configPath = path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
+    const configPath = contentRoot ? path.join(contentRoot, "llm.yml") : getDefaultLLMPath();
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, "utf-8");
       return yaml.load(raw) as LLMYamlConfig;
@@ -42,9 +46,9 @@ function loadYamlConfig(): LLMYamlConfig | null {
   return null;
 }
 
-function getConfigMtime(): number | null {
+function getConfigMtime(contentRoot?: string): number | null {
   try {
-    const configPath = path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
+    const configPath = contentRoot ? path.join(contentRoot, "llm.yml") : getDefaultLLMPath();
     if (fs.existsSync(configPath)) {
       return fs.statSync(configPath).mtimeMs;
     }

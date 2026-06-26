@@ -42,6 +42,10 @@ function getContentRoot(res: Response): string {
   return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 }
 
+function getValidationCache(res: Response) {
+  return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
+}
+
 export function registerValidationRoutes(app: Express): void {
   // ============================================
   // Validation API Endpoints
@@ -76,7 +80,7 @@ export function registerValidationRoutes(app: Express): void {
       // Post-process: flush cache before responding so any immediate re-fetch
       // sees the updated results (no race condition).
       try {
-        const cache = getValidationCacheService();
+        const cache = getValidationCache(res);
         const context = service.getContext();
         if (context) {
           const nowIso = new Date().toISOString();
@@ -180,7 +184,7 @@ export function registerValidationRoutes(app: Express): void {
 
       // Update only this page's cache entry; leave all other entries untouched
       try {
-        const cache = getValidationCacheService();
+        const cache = getValidationCache(res);
         const nowIso = new Date().toISOString();
 
         const byFile = new Map<string, { errors: typeof result.validators[0]["errors"]; warnings: typeof result.validators[0]["warnings"] }>();
@@ -522,7 +526,7 @@ export function registerValidationRoutes(app: Express): void {
   });
 
   app.get("/api/validation/cache-summary", (_req, res) => {
-    const cache = getValidationCacheService();
+    const cache = getValidationCache(res);
     const all = cache.getAll();
     const summary: Record<string, { errorCount: number; warningCount: number }> = {};
     for (const [url, entry] of all) {
@@ -983,7 +987,7 @@ export function registerValidationRoutes(app: Express): void {
         (seoPercent + schemaPercent + contentPercent) / 3,
       );
 
-      const cachedEntry = getValidationCacheService().getByUrl(url) ?? null;
+      const cachedEntry = getValidationCache(res).getByUrl(url) ?? null;
 
       res.json({
         url,

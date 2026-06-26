@@ -999,6 +999,8 @@ export function registerSectionsRoutes(app: Express): void {
         version: effectiveVersion,
         author: authorName,
         contentRoot: getContentRoot(res),
+        database: (res.locals.site as import("../site-manager").SiteContext)?.database,
+        ci: getCI(res),
       });
 
       if (result.success) {
@@ -1174,7 +1176,7 @@ export function registerSectionsRoutes(app: Express): void {
       if (!auth.authorized) return;
       const { contentType, folderSlug, locale, newSlug, createRedirect, author: rawAuthor } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
-      const result = await renameContentSlug({ contentType, folderSlug, locale, newSlug, createRedirect: !!createRedirect, author });
+      const result = await renameContentSlug({ contentType, folderSlug, locale, newSlug, createRedirect: !!createRedirect, author, contentRootName: getContentRootName(res) });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {
@@ -1329,6 +1331,7 @@ export function registerSectionsRoutes(app: Express): void {
         type, title, sourceUrl, changeContentType: !!changeContentType,
         slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
         skipLocales, uniqueFieldValues, localeTitles, author,
+        contentRootName: getContentRootName(res),
       });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
@@ -1351,7 +1354,7 @@ export function registerSectionsRoutes(app: Express): void {
       if (slug !== confirmSlug) {
         res.status(400).json({ error: "Confirmation slug does not match. Deletion cancelled." }); return;
       }
-      const result = await deleteContentEntry({ type, slug, author, localesToDelete });
+      const result = await deleteContentEntry({ type, slug, author, localesToDelete, contentRootName: getContentRootName(res) });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
       res.json(result.data);
     } catch (error) {

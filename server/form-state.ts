@@ -186,9 +186,12 @@ function extractFormBlocks(
 }
 
 /** Scan a single YAML file and return all FormStateEntries found in it. */
-function scanFile(absPath: string): FormStateEntry[] {
-  const relPath = path.relative(CONTENT_DIR, absPath);
-  const parsed = parseRelativePath(relPath);
+function scanFile(absPath: string, contentDir: string = CONTENT_DIR): FormStateEntry[] {
+  // Key `file` relative to cwd (includes site folder prefix) to avoid cross-site collisions.
+  const relPath = path.relative(process.cwd(), absPath);
+  // Content-type parsing still needs the path relative to the site's content dir.
+  const relToContent = path.relative(contentDir, absPath);
+  const parsed = parseRelativePath(relToContent);
   if (!parsed) return [];
 
   let doc: unknown;
@@ -263,14 +266,25 @@ function rebuildIndex(): void {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-/** Full rebuild by scanning all .yml files under 4geeks-com/. */
+/** Full rebuild by scanning all .yml files under all site content dirs. */
 export function buildFormState(): void {
-  const allFiles = collectYmlFiles(CONTENT_DIR);
+  let siteDirs: string[] = [];
+  try {
+    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
+    siteDirs = getSiteConfigs().map((s) => path.join(process.cwd(), s.contentFolder));
+  } catch {
+    siteDirs = [CONTENT_DIR];
+  }
+  if (siteDirs.length === 0) siteDirs = [CONTENT_DIR];
+
   const forms: FormStateEntry[] = [];
 
-  for (const absPath of allFiles) {
-    const entries = scanFile(absPath);
-    forms.push(...entries);
+  for (const siteDir of siteDirs) {
+    const allFiles = collectYmlFiles(siteDir);
+    for (const absPath of allFiles) {
+      const entries = scanFile(absPath, siteDir);
+      forms.push(...entries);
+    }
   }
 
   state = {
@@ -291,17 +305,42 @@ export function buildFormState(): void {
  * re-scans just that file, and saves.
  */
 export function updateFormStateForFile(relPath: string): void {
-  if (!relPath.startsWith("4geeks-com/")) return;
+  let fileRelToContent: string | null = null;
+  let absPath: string | null = null;
 
-  const fileRelToContent = relPath.slice("4geeks-com/".length);
-  const absPath = path.join(CONTENT_DIR, fileRelToContent);
+  try {
+    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
+    for (const site of getSiteConfigs()) {
+      const prefix = site.contentFolder.replace(/\/$/, "") + "/";
+      if (relPath.startsWith(prefix)) {
+        fileRelToContent = relPath.slice(prefix.length);
+        absPath = path.join(process.cwd(), site.contentFolder, fileRelToContent);
+        break;
+      }
+    }
+  } catch {
+    // not a content file
+  }
 
-  // Remove existing entries for this file
-  state.forms = state.forms.filter((e) => e.file !== fileRelToContent);
+  if (!fileRelToContent || !absPath) return;
 
-  // Re-scan if file still exists
+  // Remove existing entries for this file (entries now keyed by cwd-relative path)
+  state.forms = state.forms.filter((e) => e.file !== relPath);
+
+  // Re-scan if file still exists — pass the site-correct contentDir so relPath is correct
   if (fs.existsSync(absPath)) {
-    const newEntries = scanFile(absPath);
+    let siteContentDir = CONTENT_DIR;
+    try {
+      const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
+      for (const site of getSiteConfigs()) {
+        const prefix = site.contentFolder.replace(/\/$/, "") + "/";
+        if (relPath.startsWith(prefix)) {
+          siteContentDir = path.join(process.cwd(), site.contentFolder);
+          break;
+        }
+      }
+    } catch { /* fallback to default */ }
+    const newEntries = scanFile(absPath, siteContentDir);
     state.forms.push(...newEntries);
   }
 
@@ -416,12 +455,29 @@ export function partialReplaceConversionNameBySection(
   newName: string
 ): number {
   // Group target section_ids by file, with path validation
+  // Build a map of known site content dirs (all registered sites + default fallback)
+  let siteDirs: string[] = [CONTENT_DIR];
+  try {
+    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
+    const cfgs = getSiteConfigs();
+    if (cfgs.length > 0) siteDirs = cfgs.map((s) => path.join(process.cwd(), s.contentFolder));
+  } catch { /* fallback to default */ }
+
+  /** Resolve a cwd-relative file path to (absPath, contentDir) across all known site dirs. */
+  function resolveFilePath(file: string): { abs: string; contentDir: string } | null {
+    // file is cwd-relative (includes site folder prefix e.g. "site_4geeks-florida/landings/...")
+    const abs = path.resolve(process.cwd(), file);
+    for (const dir of siteDirs) {
+      if (abs.startsWith(dir + path.sep)) return { abs, contentDir: dir };
+    }
+    return null;
+  }
+
   const byFile = new Map<string, Set<string>>();
   for (const { file, section_id } of targets) {
     if (path.isAbsolute(file) || file.includes("..")) continue;
     if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
-    const abs = path.resolve(path.join(CONTENT_DIR, file));
-    if (!abs.startsWith(CONTENT_DIR + path.sep)) continue;
+    if (!resolveFilePath(file)) continue;
     if (!byFile.has(file)) byFile.set(file, new Set());
     byFile.get(file)!.add(section_id);
   }
@@ -429,7 +485,9 @@ export function partialReplaceConversionNameBySection(
   let filesChanged = 0;
 
   for (const [relPath, sectionIds] of byFile.entries()) {
-    const absPath = path.join(CONTENT_DIR, relPath);
+    const resolved = resolveFilePath(relPath);
+    if (!resolved) continue;
+    const absPath = resolved.abs;
     let raw: string;
     try {
       raw = fs.readFileSync(absPath, "utf-8");
