@@ -333,9 +333,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(configs.map(({ domain, contentFolder, githubRepoUrl }) => ({ domain, contentFolder, githubRepoUrl })));
   });
 
-  // Dev-only site switcher — writes/deletes .local/dev-site-override on disk.
-  // The file is the single source of truth: siteResolutionMiddleware reads it
-  // synchronously on every request. No cookies are involved.
+  // -------------------------------------------------------------------------
+  // DEV-ONLY: site switcher endpoints (non-production only)
+  //
+  // These write/delete the .local/dev-site-override file on disk.
+  // siteResolutionMiddleware reads that file synchronously on every request
+  // to determine which site context to use.
+  //
+  // ⚠️  DO NOT switch this to a cookie-based approach.
+  //
+  //   Cookies fail silently in the Replit workspace because the app runs in a
+  //   cross-origin iframe (worf.replit.dev embedded inside replit.com).
+  //   Chrome 115+ blocks third-party cookies in this context — both
+  //   document.cookie writes on the client AND Set-Cookie response headers
+  //   from the server are ignored. SameSite=Lax and SameSite=None; Secure
+  //   were both tested and both fail. The file-based approach is the only
+  //   mechanism that works reliably.
+  //
+  // The client (devSite.ts) mirrors the value in localStorage so that
+  // injectDevSite() can also append ?__site= to TanStack Query API calls
+  // as belt-and-suspenders — but the file is the authoritative truth.
+  // -------------------------------------------------------------------------
   if (process.env.NODE_ENV !== "production") {
     app.get("/api/dev/set-site", (req, res) => {
       const domain = req.query.domain as string;

@@ -75,12 +75,54 @@ export function resetSiteContextMap(): void {
   _defaultSite = null;
 }
 
-// Path to the dev-site override file. Written by /api/dev/set-site and read
-// here synchronously on every request. This is the single source of truth for
-// the active site in the dev environment — no cookies, no query-param guessing.
+// =============================================================================
+// DEV SITE OVERRIDE — FILE-BASED APPROACH
+// =============================================================================
+//
+// The active dev site is stored in a plain text file on disk:
+//   .local/dev-site-override
+//
+// ⚠️  DO NOT REPLACE THIS WITH COOKIES — EVER.
+//
+// We tried cookies. They do not work reliably in the Replit dev environment.
+// Here is exactly why:
+//
+//   Replit's workspace embeds the app (worf.replit.dev) inside an iframe on
+//   replit.com. Modern browsers treat the embedded domain as a THIRD-PARTY
+//   context relative to the top-level page (replit.com). This means:
+//
+//   • document.cookie writes from the app are silently ignored by Chrome/Edge
+//     when third-party cookie blocking is active (Chrome 115+).
+//
+//   • Set-Cookie response headers from the server (even with SameSite=None;
+//     Secure) are also blocked — the browser receives the header but does NOT
+//     store the cookie for future requests.
+//
+//   • The result: the server calls /api/dev/set-site, gets {"ok":true}, but
+//     the cookie is never sent on the next request. The site never switches.
+//
+//   We tested SameSite=Lax, SameSite=None; Secure, and server-side Set-Cookie.
+//   All three fail silently in the Replit iframe context.
+//
+// The file-based approach bypasses all of this:
+//   • The file is written by the server (no browser involved).
+//   • The file is read by the server synchronously on every request.
+//   • No cookies, no iframe restrictions, no browser policy issues.
+//
+// localStorage is used as a CLIENT-SIDE MIRROR only — written in lockstep
+// with the file so injectDevSite() can append ?__site= to API calls. The file
+// is still the canonical server-side truth; localStorage is never the source
+// of truth for site resolution.
+//
+// =============================================================================
+
 const DEV_SITE_FILE = path.join(process.cwd(), ".local", "dev-site-override");
 
-/** Read the active dev-site override from disk. Returns null when not set. */
+/**
+ * Read the active dev-site override from disk.
+ * Returns null when the file is absent (no override active).
+ * DO NOT replace this with a cookie read — see the warning block above.
+ */
 export function readDevSiteFile(): string | null {
   try {
     const value = fs.readFileSync(DEV_SITE_FILE, "utf8").trim();
@@ -90,13 +132,19 @@ export function readDevSiteFile(): string | null {
   }
 }
 
-/** Write the active dev-site override to disk. */
+/**
+ * Write the active dev-site override to disk.
+ * Called by GET /api/dev/set-site. Creates .local/ if needed.
+ */
 export function writeDevSiteFile(domain: string): void {
   fs.mkdirSync(path.dirname(DEV_SITE_FILE), { recursive: true });
   fs.writeFileSync(DEV_SITE_FILE, domain, "utf8");
 }
 
-/** Delete the dev-site override file. */
+/**
+ * Delete the dev-site override file (reverts to req.hostname resolution).
+ * Called by GET /api/dev/clear-site.
+ */
 export function clearDevSiteFile(): void {
   try { fs.unlinkSync(DEV_SITE_FILE); } catch {}
 }
@@ -106,15 +154,17 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   let domain = req.hostname;
   let isDevOverride = false;
 
-  // DEV SITE OVERRIDE (non-production only)
+  // DEV SITE OVERRIDE — reads .local/dev-site-override (non-production only).
   //
-  // Single source of truth: .local/dev-site-override file on disk.
-  // Written by POST /api/dev/set-site, deleted by POST /api/dev/clear-site.
-  // The client mirrors the value in localStorage so injectDevSite() can also
-  // append ?__site= to API calls — but the file is what drives SSR and every
-  // server-side resolution. No cookies are used.
+  // In PRODUCTION this block is skipped entirely. Site resolution is driven
+  // by req.hostname (the actual subdomain/domain of the incoming request).
+  // There is no override mechanism in production — and there should never be.
   //
-  // In production req.hostname is always used (no override possible).
+  // In DEVELOPMENT the file is the single source of truth. If absent, falls
+  // through to req.hostname (which on Replit dev URLs is the worf.replit.dev
+  // hostname, not a real site domain, so the default site is used instead).
+  //
+  // ⚠️  DO NOT add a cookie-based fallback here. See the warning block above.
   if (process.env.NODE_ENV !== "production") {
     const fileSite = readDevSiteFile();
     if (fileSite) {
