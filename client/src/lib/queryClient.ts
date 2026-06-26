@@ -68,7 +68,8 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(injectDevSite(queryKey[0] as string), {
+    const url = Array.isArray(queryKey) ? (queryKey as string[]).join("/") : (queryKey as string);
+    const res = await fetch(injectDevSite(url), {
       credentials: "include",
       headers: getSessionHeaders(),
     });

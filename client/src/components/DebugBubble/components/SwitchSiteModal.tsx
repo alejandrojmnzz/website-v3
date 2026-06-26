@@ -39,6 +39,15 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
       const path = window.location.pathname + window.location.search;
       window.location.href = `https://${domain}${path}`;
     } else {
+      if (domain === activeDomain && !isDevOverride) {
+        onOpenChange(false);
+        return;
+      }
+      if (domain === activeDomain && isDevOverride) {
+        clearDevSiteOverride();
+        window.location.reload();
+        return;
+      }
       setDevSiteOverride(domain);
       window.location.reload();
     }
