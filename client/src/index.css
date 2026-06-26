@@ -1,6 +1,3 @@
-/* Hide SSR content before first paint when dev-site override is active */
-html.dev-site-pending #root { visibility: hidden; }
-
 /* =============================================================================
    4GEEKS BRAND DESIGN SYSTEM
    Typography: Lato (headings), Archivo (body)

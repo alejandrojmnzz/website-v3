@@ -75,7 +75,6 @@ const rootEl = document.getElementById("root")!;
     hydrateRoot(rootEl, <App />);
 
     requestAnimationFrame(() => {
-      document.documentElement.classList.remove('dev-site-pending');
       if (typeof requestIdleCallback !== "undefined") {
         requestIdleCallback(() => clearSSRHydration());
       } else {
@@ -85,8 +84,5 @@ const rootEl = document.getElementById("root")!;
   } else {
     clearSSRHydration();
     createRoot(rootEl).render(<App />);
-    requestAnimationFrame(() => {
-      document.documentElement.classList.remove('dev-site-pending');
-    });
   }
 })();

@@ -7,10 +7,12 @@ export function getDevSiteOverride(): string | null {
 
 export function setDevSiteOverride(domain: string): void {
   try { localStorage.setItem("__dev_site", domain); } catch {}
+  try { document.cookie = `__dev_site=${encodeURIComponent(domain)};path=/;SameSite=Lax`; } catch {}
 }
 
 export function clearDevSiteOverride(): void {
   try { localStorage.removeItem("__dev_site"); } catch {}
+  try { document.cookie = `__dev_site=;path=/;max-age=0;SameSite=Lax`; } catch {}
 }
 
 export function injectDevSite(url: string): string {

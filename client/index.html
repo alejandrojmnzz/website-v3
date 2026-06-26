@@ -7,15 +7,6 @@
       content="width=device-width, initial-scale=1.0"
     />
 
-    <!-- Prevent SSR flash when dev-site override is active: hide #root before first paint -->
-    <script>
-      try {
-        if (localStorage.getItem('__dev_site')) {
-          document.documentElement.classList.add('dev-site-pending');
-        }
-      } catch(e) {}
-    </script>
-
     <!-- Google Tag Manager - Initialize dataLayer early so pushes before GTM loads are queued -->
     <script>
       window.dataLayer = window.dataLayer || [];
