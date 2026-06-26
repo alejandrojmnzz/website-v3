@@ -1,1 +1,2 @@
 - [Multi-site subdomain routing](multi-site-routing.md) — per-domain ContentIndex, siteResolutionMiddleware, default content folder is "content" (existing deploys set CONTENT_FOLDER=4geeks-com in dev env)
+- [Dev-site override must use cookie](dev-site-cookie.md) — localStorage breaks SSR; cookie is the only mechanism visible to the server on initial GET.

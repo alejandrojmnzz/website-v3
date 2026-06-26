@@ -79,6 +79,22 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   let domain = req.hostname;
   let isDevOverride = false;
 
+  // DEV SITE OVERRIDE — resolution priority (non-production only):
+  //
+  // 1. ?__site= query param  — set by injectDevSite() on individual API calls
+  //                             as belt-and-suspenders; takes priority so ad-hoc
+  //                             curl/Postman requests can also target a specific site.
+  //
+  // 2. __dev_site cookie     — THE canonical source of truth for the active dev
+  //                             override. Set by setDevSiteOverride() in
+  //                             client/src/lib/devSite.ts. Sent automatically on
+  //                             every HTTP request, including the initial HTML GET
+  //                             that produces SSR output. This is why the override
+  //                             MUST be a cookie — localStorage is invisible here.
+  //
+  //                             DO NOT remove the cookie check or replace it with
+  //                             a session/header approach without also updating the
+  //                             client devSite.ts and verifying SSR still works.
   if (process.env.NODE_ENV !== "production" && req.query.__site) {
     domain = req.query.__site as string;
     isDevOverride = true;
