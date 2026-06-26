@@ -144,7 +144,16 @@ app.use((req, res, next) => {
   if (['js', 'css', 'woff2', 'woff', 'ttf', 'png', 'jpg', 'jpeg', 'webp', 'svg', 'ico'].includes(ext || '')) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   } else if (req.path.endsWith('.html') || req.path === '/') {
-    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    // In dev mode: no-store prevents the browser from caching the SSR HTML.
+    // This is critical for the site switcher — without it, location.reload()
+    // sends a conditional GET and the browser may get a 304 and serve the old
+    // site's HTML (e.g. 4geeks.com) even after the server file override has
+    // been updated to fl.4geeks.com.
+    if (process.env.NODE_ENV !== 'production') {
+      res.setHeader('Cache-Control', 'no-store');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    }
   }
   next();
 });
