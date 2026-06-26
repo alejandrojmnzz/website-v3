@@ -733,11 +733,9 @@ export function initialDataMiddleware(
           try {
             const html =
               typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-            if (html.includes('id="__INITIAL_DATA__"')) {
-              originalEnd.call(this, chunk, ...args);
-              return;
-            }
-            let injected = html;
+            let injected = html.includes('id="__INITIAL_DATA__"')
+              ? html.replace(/<script id="__INITIAL_DATA__" type="application\/json">[\s\S]*?<\/script>/, '')
+              : html;
 
             if (!injected.includes('storage.googleapis.com')) {
               const gcsHints =

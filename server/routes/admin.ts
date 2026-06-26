@@ -327,11 +327,23 @@ export function registerAdminRoutes(app: Express): void {
 
   // Get active redirects (for debug tools)
   app.get("/api/debug/redirects", (req, res) => {
-    const redirects = getRedirects();
-    res.json({
-      count: redirects.length,
-      redirects,
-    });
+    const ci = getCI(res);
+    const isSiteSpecific = ci !== contentIndex;
+    if (isSiteSpecific) {
+      const siteEntries = ci.getRedirects();
+      const redirects = siteEntries.map(e => ({
+        from: e.from,
+        to: e.to,
+        type: e.type || "redirect",
+        status: e.status || 301,
+        source: e.source || ci.contentRoot,
+        priority: e.priority,
+      }));
+      res.json({ count: redirects.length, redirects });
+    } else {
+      const redirects = getRedirects();
+      res.json({ count: redirects.length, redirects });
+    }
   });
 
   app.get("/api/locale-urls", (req, res) => {

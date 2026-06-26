@@ -1,4 +1,5 @@
 import { queryClient } from "./queryClient";
+import { getDevSiteOverride } from "./devSite";
 
 export const IS_SERVER = typeof document === 'undefined';
 
@@ -28,6 +29,11 @@ export function hydrateInitialData() {
   const script = document.getElementById("__INITIAL_DATA__");
   const payload = readInitialDataPayload();
   if (!payload || !script) return;
+
+  if (getDevSiteOverride()) {
+    script.remove();
+    return;
+  }
 
   try {
 

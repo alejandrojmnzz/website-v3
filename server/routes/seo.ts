@@ -289,13 +289,26 @@ Sitemap: ${baseUrl}/sitemap.xml
 
   // Sitemap cache status (for debug tools)
   app.get("/api/debug/sitemap-cache-status", (req, res) => {
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      : undefined;
     const status = getSitemapCacheStatus();
-    res.json(status);
+    if (siteCtx) {
+      const urls = getSitemapUrls(siteCtx);
+      res.json({ ...status, entryCount: urls.length });
+    } else {
+      res.json(status);
+    }
   });
 
   // Sitemap URLs as JSON (for debug tools)
   app.get("/api/debug/sitemap-urls", (req, res) => {
-    const urls = getSitemapUrls();
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      : undefined;
+    const urls = getSitemapUrls(siteCtx);
     res.json(urls);
   });
 

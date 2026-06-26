@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense, useRef } from "react";
 import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, MessageSquare, PanelBottom, Rocket, Sparkles, Table, Users, X } from "lucide-react";
 import { IconGitFork } from "@tabler/icons-react";
 import { subscribeToContentUpdates, subscribeToVariantCreated, subscribeToVariantDeleted, subscribeToVariantPromoted } from "@/lib/contentEvents";
+import { injectDevSite } from "@/lib/devSite";
 import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { useInternalNav } from "@/hooks/useInternalNav";
@@ -453,7 +454,7 @@ export function DebugBubble() {
 
   // Fetch sitemap URL count on mount
   useEffect(() => {
-    fetch("/api/debug/sitemap-cache-status")
+    fetch(injectDevSite("/api/debug/sitemap-cache-status"))
       .then((res) => res.json())
       .then((data) => {
         if (data.entryCount !== null && data.entryCount !== undefined) {
@@ -467,7 +468,7 @@ export function DebugBubble() {
   useEffect(() => {
     if (menuView === "sitemap" && sitemapUrls.length === 0) {
       setSitemapLoading(true);
-      fetch("/api/debug/sitemap-urls")
+      fetch(injectDevSite("/api/debug/sitemap-urls"))
         .then((res) => res.json())
         .then((data) => {
           setSitemapUrls(data);
@@ -477,7 +478,7 @@ export function DebugBubble() {
         .catch(() => setSitemapLoading(false));
     }
     if (menuView !== "databases" && menuView !== "content-types") {
-      fetch("/api/validation/cache-summary")
+      fetch(injectDevSite("/api/validation/cache-summary"))
         .then((res) => res.json())
         .then((data) => setValidationSummary(data))
         .catch(() => {});
@@ -487,7 +488,7 @@ export function DebugBubble() {
   // Fetch redirects count on mount
   useEffect(() => {
     if (redirectsList.length === 0) {
-      fetch("/api/debug/redirects")
+      fetch(injectDevSite("/api/debug/redirects"))
         .then((res) => res.json())
         .then((data) => {
           setRedirectsList(data.redirects || []);
@@ -498,7 +499,7 @@ export function DebugBubble() {
 
   // Fetch Breathecode host on mount
   useEffect(() => {
-    fetch("/api/debug/breathecode-host")
+    fetch(injectDevSite("/api/debug/breathecode-host"))
       .then((res) => res.json())
       .then((data) => {
         setBreathecodeHost(data);
@@ -627,7 +628,7 @@ export function DebugBubble() {
   useEffect(() => {
     if (open && menuView === "main" && !githubSyncStatus && !syncStatusLoading) {
       setSyncStatusLoading(true);
-      fetch("/api/github/sync-status")
+      fetch(injectDevSite("/api/github/sync-status"))
         .then((res) => res.json())
         .then((data: GitHubSyncStatus) => {
           setGithubSyncStatus(data);
@@ -697,7 +698,7 @@ export function DebugBubble() {
   const refreshSyncStatus = () => {
     setSyncStatusLoading(true);
     setGithubSyncStatus(null);
-    fetch("/api/github/sync-status")
+    fetch(injectDevSite("/api/github/sync-status"))
       .then((res) => res.json())
       .then((data: GitHubSyncStatus) => {
         setGithubSyncStatus(data);
@@ -845,7 +846,7 @@ export function DebugBubble() {
       if (!res.ok) throw new Error("Failed to fetch SEO data");
       const [data, schemaKeysRes] = await Promise.all([
         res.json(),
-        fetch("/api/schema").then(r => r.ok ? r.json() : { available: [] }),
+        fetch(injectDevSite("/api/schema")).then(r => r.ok ? r.json() : { available: [] }),
       ]);
       setSeoData(data);
       setSeoMeta({
@@ -1158,7 +1159,7 @@ export function DebugBubble() {
       // Refresh pending changes when any content is updated
       if (!githubSyncStatus) {
         // Fetch sync status first, which will trigger pending changes fetch
-        fetch("/api/github/sync-status")
+        fetch(injectDevSite("/api/github/sync-status"))
           .then((res) => res.json())
           .then((data: GitHubSyncStatus) => {
             setGithubSyncStatus(data);
@@ -1556,7 +1557,7 @@ export function DebugBubble() {
       const token = getDebugToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Token ${token}`;
-      const res = await fetch("/api/debug/clear-page-cache", {
+      const res = await fetch(injectDevSite("/api/debug/clear-page-cache"), {
         method: "POST",
         headers,
         body: JSON.stringify({ url: url.loc }),
@@ -1645,7 +1646,7 @@ export function DebugBubble() {
         setDeletePageModalOpen(false);
         setDeletingPage(null);
         setDeleteConfirmInput("");
-        const sitemapRes = await fetch("/api/debug/sitemap-urls");
+        const sitemapRes = await fetch(injectDevSite("/api/debug/sitemap-urls"));
         if (sitemapRes.ok) {
           const sitemapData = await sitemapRes.json();
           setSitemapUrls(sitemapData);
@@ -1671,7 +1672,7 @@ export function DebugBubble() {
         headers["Authorization"] = `Token ${token}`;
       }
 
-      const response = await fetch("/api/debug/clear-sitemap-cache", {
+      const response = await fetch(injectDevSite("/api/debug/clear-sitemap-cache"), {
         method: "POST",
         headers,
       });
@@ -1679,7 +1680,7 @@ export function DebugBubble() {
       if (response.ok) {
         setCacheClearStatus("success");
         setTimeout(() => setCacheClearStatus("idle"), 2000);
-        const freshRes = await fetch("/api/debug/sitemap-urls");
+        const freshRes = await fetch(injectDevSite("/api/debug/sitemap-urls"));
         if (freshRes.ok) {
           const freshData = await freshRes.json();
           setSitemapUrls(freshData);
