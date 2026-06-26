@@ -336,14 +336,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dev-only: set/clear the __dev_site cookie server-side so browser cookie restrictions
   // in the Replit iframe never block the override. Only active in non-production.
   if (process.env.NODE_ENV !== "production") {
+    // Use SameSite=None; Secure so the cookie survives cross-origin iframe
+    // reloads (Replit workspace embeds the app at worf.replit.dev inside
+    // replit.com — SameSite=Lax strips the cookie on those sub-frame requests).
+    const devCookieOpts = { path: "/", sameSite: "none" as const, secure: true, httpOnly: false };
     app.get("/api/dev/set-site", (req, res) => {
       const domain = req.query.domain as string;
       if (!domain) { res.status(400).json({ error: "domain required" }); return; }
-      res.cookie("__dev_site", domain, { path: "/", sameSite: "lax", httpOnly: false });
+      res.cookie("__dev_site", domain, devCookieOpts);
       res.json({ ok: true, domain });
     });
     app.get("/api/dev/clear-site", (_req, res) => {
-      res.clearCookie("__dev_site", { path: "/" });
+      res.clearCookie("__dev_site", { path: "/", sameSite: "none", secure: true });
       res.json({ ok: true });
     });
   }
