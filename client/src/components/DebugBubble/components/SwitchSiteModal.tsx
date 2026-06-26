@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { setDevSiteOverride, clearDevSiteOverride } from "@/lib/devSite";
 
 interface SiteConfig {
   domain: string;
@@ -26,14 +27,6 @@ interface SwitchSiteModalProps {
 
 const IS_PROD = import.meta.env.PROD;
 
-function setDevSiteCookie(domain: string) {
-  document.cookie = `__dev_site=${encodeURIComponent(domain)}; path=/; SameSite=Lax`;
-}
-
-function clearDevSiteCookie() {
-  document.cookie = `__dev_site=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
-}
-
 export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverride }: SwitchSiteModalProps) {
   const { data: sites, isLoading } = useQuery<SiteConfig[]>({
     queryKey: ["/api/sites"],
@@ -46,13 +39,13 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
       const path = window.location.pathname + window.location.search;
       window.location.href = `https://${domain}${path}`;
     } else {
-      setDevSiteCookie(domain);
+      setDevSiteOverride(domain);
       window.location.reload();
     }
   };
 
   const handleClearOverride = () => {
-    clearDevSiteCookie();
+    clearDevSiteOverride();
     window.location.reload();
   };
 

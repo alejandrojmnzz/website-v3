@@ -1,6 +1,9 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getSessionHeaders } from "./sessionHeaders";
 import { getDebugToken } from "@/hooks/useDebugAuth";
+import { injectDevSite } from "./devSite";
+
+export { getDevSiteOverride, setDevSiteOverride, clearDevSiteOverride } from "./devSite";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -10,7 +13,7 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export function apiFetch(url: string, init?: RequestInit): Promise<Response> {
-  return fetch(url, {
+  return fetch(injectDevSite(url), {
     ...init,
     headers: {
       ...(init?.headers || {}),
@@ -24,7 +27,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await fetch(injectDevSite(url), {
     method,
     headers: {
       ...(data ? { "Content-Type": "application/json" } : {}),
@@ -44,7 +47,7 @@ export async function apiRequestWithAuth(
   data?: unknown,
 ): Promise<Response> {
   const token = getDebugToken();
-  const res = await fetch(url, {
+  const res = await fetch(injectDevSite(url), {
     method,
     headers: {
       ...(data ? { "Content-Type": "application/json" } : {}),
@@ -65,7 +68,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetch(injectDevSite(queryKey[0] as string), {
       credentials: "include",
       headers: getSessionHeaders(),
     });
