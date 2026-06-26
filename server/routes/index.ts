@@ -252,7 +252,7 @@ import { registerEcommerceRoutes } from "./ecommerce";
 import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
-import { getSiteInfo, getSiteContextMap } from "../site-manager";
+import { getSiteInfo, getSiteContextMap, writeDevSiteFile, clearDevSiteFile } from "../site-manager";
 import { getSiteConfigs } from "../site-config";
 
 const routesLogger = loggerChild({ module: "routes" });
@@ -333,21 +333,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(configs.map(({ domain, contentFolder, githubRepoUrl }) => ({ domain, contentFolder, githubRepoUrl })));
   });
 
-  // Dev-only: set/clear the __dev_site cookie server-side so browser cookie restrictions
-  // in the Replit iframe never block the override. Only active in non-production.
+  // Dev-only site switcher — writes/deletes .local/dev-site-override on disk.
+  // The file is the single source of truth: siteResolutionMiddleware reads it
+  // synchronously on every request. No cookies are involved.
   if (process.env.NODE_ENV !== "production") {
-    // Use SameSite=None; Secure so the cookie survives cross-origin iframe
-    // reloads (Replit workspace embeds the app at worf.replit.dev inside
-    // replit.com — SameSite=Lax strips the cookie on those sub-frame requests).
-    const devCookieOpts = { path: "/", sameSite: "none" as const, secure: true, httpOnly: false };
     app.get("/api/dev/set-site", (req, res) => {
       const domain = req.query.domain as string;
       if (!domain) { res.status(400).json({ error: "domain required" }); return; }
-      res.cookie("__dev_site", domain, devCookieOpts);
+      writeDevSiteFile(domain);
       res.json({ ok: true, domain });
     });
     app.get("/api/dev/clear-site", (_req, res) => {
-      res.clearCookie("__dev_site", { path: "/", sameSite: "none", secure: true });
+      clearDevSiteFile();
       res.json({ ok: true });
     });
   }

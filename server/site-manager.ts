@@ -1,4 +1,5 @@
 import path from "path";
+import fs from "fs";
 import type { Request, Response, NextFunction } from "express";
 import { getSiteConfigs, isMultiSiteMode, type SiteConfig } from "./site-config";
 import { ContentIndex } from "./content-index";
@@ -74,33 +75,52 @@ export function resetSiteContextMap(): void {
   _defaultSite = null;
 }
 
+// Path to the dev-site override file. Written by /api/dev/set-site and read
+// here synchronously on every request. This is the single source of truth for
+// the active site in the dev environment — no cookies, no query-param guessing.
+const DEV_SITE_FILE = path.join(process.cwd(), ".local", "dev-site-override");
+
+/** Read the active dev-site override from disk. Returns null when not set. */
+export function readDevSiteFile(): string | null {
+  try {
+    const value = fs.readFileSync(DEV_SITE_FILE, "utf8").trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write the active dev-site override to disk. */
+export function writeDevSiteFile(domain: string): void {
+  fs.mkdirSync(path.dirname(DEV_SITE_FILE), { recursive: true });
+  fs.writeFileSync(DEV_SITE_FILE, domain, "utf8");
+}
+
+/** Delete the dev-site override file. */
+export function clearDevSiteFile(): void {
+  try { fs.unlinkSync(DEV_SITE_FILE); } catch {}
+}
+
 export function siteResolutionMiddleware(req: Request, res: Response, next: NextFunction): void {
   const sites = getSiteContextMap();
   let domain = req.hostname;
   let isDevOverride = false;
 
-  // DEV SITE OVERRIDE — resolution priority (non-production only):
+  // DEV SITE OVERRIDE (non-production only)
   //
-  // 1. ?__site= query param  — set by injectDevSite() on individual API calls
-  //                             as belt-and-suspenders; takes priority so ad-hoc
-  //                             curl/Postman requests can also target a specific site.
+  // Single source of truth: .local/dev-site-override file on disk.
+  // Written by POST /api/dev/set-site, deleted by POST /api/dev/clear-site.
+  // The client mirrors the value in localStorage so injectDevSite() can also
+  // append ?__site= to API calls — but the file is what drives SSR and every
+  // server-side resolution. No cookies are used.
   //
-  // 2. __dev_site cookie     — THE canonical source of truth for the active dev
-  //                             override. Set by setDevSiteOverride() in
-  //                             client/src/lib/devSite.ts. Sent automatically on
-  //                             every HTTP request, including the initial HTML GET
-  //                             that produces SSR output. This is why the override
-  //                             MUST be a cookie — localStorage is invisible here.
-  //
-  //                             DO NOT remove the cookie check or replace it with
-  //                             a session/header approach without also updating the
-  //                             client devSite.ts and verifying SSR still works.
-  if (process.env.NODE_ENV !== "production" && req.query.__site) {
-    domain = req.query.__site as string;
-    isDevOverride = true;
-  } else if (process.env.NODE_ENV !== "production" && req.cookies?.__dev_site) {
-    domain = req.cookies.__dev_site as string;
-    isDevOverride = true;
+  // In production req.hostname is always used (no override possible).
+  if (process.env.NODE_ENV !== "production") {
+    const fileSite = readDevSiteFile();
+    if (fileSite) {
+      domain = fileSite;
+      isDevOverride = true;
+    }
   }
 
   let ctx = sites.get(domain);

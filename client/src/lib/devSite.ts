@@ -1,39 +1,18 @@
 /**
  * DEV SITE OVERRIDE
  *
- * Storage strategy in the Replit dev environment:
+ * Single source of truth: .local/dev-site-override file on the server.
+ * Written by setDevSiteOverride() via /api/dev/set-site (server writes the file).
+ * Deleted by clearDevSiteOverride() via /api/dev/clear-site.
+ * Read by siteResolutionMiddleware on every request — drives SSR + all API routing.
  *
- *   localStorage  — primary storage for the active override domain.
- *                   localStorage is NOT affected by cross-origin iframe cookie
- *                   restrictions (the Replit workspace embeds the app at
- *                   worf.replit.dev inside replit.com). Cookies set by both
- *                   document.cookie and server Set-Cookie headers are blocked
- *                   by the browser's third-party cookie policy in this context.
+ * localStorage mirror: written in lockstep with the server file so that
+ * injectDevSite() can append ?__site= to API calls as belt-and-suspenders
+ * (e.g. after HMR when TanStack Query re-fetches before a full reload clears
+ * the cache). Both are always written together before window.location.reload().
  *
- *   __dev_site    — server-side cookie set by /api/dev/set-site as
- *   cookie          belt-and-suspenders for environments where cookies DO work
- *                   (e.g. non-iframe opens of the dev URL, local dev without
- *                   Replit workspace). The server reads it in
- *                   siteResolutionMiddleware for SSR site resolution.
- *
- * HOW SITE SWITCHING WORKS IN THE REPLIT IFRAME:
- *   1. User selects a site in SwitchSiteModal
- *   2. setDevSiteOverride(domain) → localStorage.setItem + /api/dev/set-site
- *   3. window.location.reload()
- *   4. On reload, getDevSiteOverride() → reads localStorage → "4geeks.com"
- *   5. injectDevSite() appends ?__site=4geeks.com to ALL API fetches (via
- *      queryClient default fetcher)
- *   6. /api/site/info?__site=4geeks.com → {domain:"4geeks.com",isDevOverride:true}
- *   7. DebugBubble shows correct site ✅
- *
- * NOTE: SSR will still render the default site (fl.4geeks.com) on first load
- * because the initial HTML GET doesn't carry the override (cookies are blocked).
- * This is acceptable for a dev-only tool — the content loaded via client API
- * calls will be from the correct site.
- *
- * PRODUCTION:
- *   getDevSiteOverride() returns null when import.meta.env.DEV is false,
- *   so none of this runs in production builds.
+ * In production: getDevSiteOverride() always returns null — no override possible.
+ * Production site resolution is driven entirely by req.hostname (subdomain/domain).
  */
 
 const IS_DEV = import.meta.env.DEV;
@@ -49,26 +28,31 @@ export function getDevSiteOverride(): string | null {
 
 /**
  * Sets the active dev-site override.
- * Writes to localStorage (primary, works in iframe) and calls the server
- * endpoint to also set a cookie (belt-and-suspenders for non-iframe contexts).
+ * 1. Writes to localStorage immediately (synchronous).
+ * 2. Calls /api/dev/set-site so the server writes .local/dev-site-override.
+ * Both must complete before the caller reloads the page.
  */
 export async function setDevSiteOverride(domain: string): Promise<void> {
   try { localStorage.setItem(LS_KEY, domain); } catch {}
-  try { await fetch(`/api/dev/set-site?domain=${encodeURIComponent(domain)}`); } catch {}
+  await fetch(`/api/dev/set-site?domain=${encodeURIComponent(domain)}`);
 }
 
 /**
  * Clears the active dev-site override.
+ * 1. Removes from localStorage immediately (synchronous).
+ * 2. Calls /api/dev/clear-site so the server deletes .local/dev-site-override.
+ * Both must complete before the caller reloads the page.
  */
 export async function clearDevSiteOverride(): Promise<void> {
   try { localStorage.removeItem(LS_KEY); } catch {}
-  try { await fetch("/api/dev/clear-site"); } catch {}
+  await fetch("/api/dev/clear-site");
 }
 
 /**
  * Appends ?__site=<domain> to a URL when a dev-site override is active.
  * Called by the queryClient default fetcher on every API request so the
- * server resolves the correct site regardless of cookie availability.
+ * server resolves the correct site even if a cached query fires before
+ * the next full page reload.
  */
 export function injectDevSite(url: string): string {
   const site = getDevSiteOverride();
