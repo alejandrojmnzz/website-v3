@@ -226,7 +226,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
         op => op.action === "update_field" && !op.path.startsWith("sections.")
       );
       if (allTopLevelFields) {
-        return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author });
+        return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot });
       }
       return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author, contentRoot, database: request.database, ci });
     }
@@ -585,12 +585,15 @@ function writeStructuralChangesToTemplate(opts: {
   filePath: string;
   localeData: Record<string, unknown>;
   author?: string;
+  contentRoot?: string;
+  ci?: ContentIndex;
 }): { success: boolean; error?: string; updatedSections?: unknown[] } {
-  const { operations, filePath, localeData, author } = opts;
+  const { operations, filePath, localeData, author, contentRoot } = opts;
+  const ci = opts.ci ?? contentIndex;
 
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    const templateData = (contentIndex.safeYamlLoad(raw) as Record<string, unknown>) || {};
+    const templateData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
 
     for (const op of operations) {
       if (op.action === "update_section" && (op as { structural?: boolean }).structural) {
@@ -628,7 +631,7 @@ function writeStructuralChangesToTemplate(opts: {
       forceQuotes: false,
     });
     fs.writeFileSync(filePath, updatedYaml, "utf-8");
-    markFileAsModified(filePath, author);
+    markFileAsModified(filePath, author, undefined, contentRoot);
 
     // Apply to localeData in-memory for immediate client-side update
     for (const op of operations) {
@@ -655,10 +658,13 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
   locale: string;
   operations: EditOperation[];
   author?: string;
+  contentRoot?: string;
 }): { success: boolean; error?: string } {
   const { contentType, slug, locale, operations, author } = opts;
+  const rawRoot = opts.contentRoot ?? getDefaultContentRootName();
+  const rootPath = path.isAbsolute(rawRoot) ? rawRoot : path.join(process.cwd(), rawRoot);
   try {
-    const perEntryDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", getFolder(contentType), slug);
+    const perEntryDir = path.join(rootPath, getFolder(contentType), slug);
     const perEntryPath = path.join(perEntryDir, `${locale}.yml`);
 
     if (!fs.existsSync(perEntryDir)) {
@@ -687,7 +693,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
 
     const dumped = safeYamlDump(entryData, { lineWidth: -1, noRefs: true });
     fs.writeFileSync(perEntryPath, dumped, "utf-8");
-    markFileAsModified(perEntryPath, author);
+    markFileAsModified(perEntryPath, author, undefined, opts.contentRoot);
     return { success: true };
   } catch (err) {
     log.error({ err: err }, "[writeTopLevelFieldsToPerEntryFile] Error:");
@@ -727,7 +733,7 @@ function handleSharedTemplateEdit(opts: {
     op => isStructuralOp(op) || op.action === "update_section",
   );
   if (structuralOps.length > 0) {
-    return writeStructuralChangesToTemplate({ operations: structuralOps, filePath, localeData, author });
+    return writeStructuralChangesToTemplate({ operations: structuralOps, filePath, localeData, author, contentRoot, ci });
   }
 
   const dbName = getDatabaseName(contentType);
@@ -891,13 +897,17 @@ interface CommonEditRequest {
   slug: string;
   operations: Array<{ action: "update_field"; path: string; value: unknown }>;
   author?: string;
+  ci?: ContentIndex;
+  contentRootName?: string;
 }
 
 export function editCommonContent(request: CommonEditRequest): { success: boolean; error?: string } {
   const { contentType, slug, operations, author } = request;
+  const ci = request.ci ?? contentIndex;
+  const contentRootName = request.contentRootName;
 
   try {
-    const commonPath = contentIndex.getCommonFilePath(contentType, slug);
+    const commonPath = ci.getCommonFilePath(contentType, slug);
     if (!fs.existsSync(commonPath)) {
       fs.mkdirSync(path.dirname(commonPath), { recursive: true });
       fs.writeFileSync(commonPath, "{}\n", "utf-8");
@@ -925,7 +935,7 @@ export function editCommonContent(request: CommonEditRequest): { success: boolea
     });
 
     fs.writeFileSync(commonPath, updatedYaml, "utf-8");
-    markFileAsModified(commonPath, author);
+    markFileAsModified(commonPath, author, undefined, contentRootName);
 
     return { success: true };
   } catch (error) {
@@ -939,9 +949,11 @@ export function getContentForEdit(
   slug: string,
   rawLocale: string,
   variant?: string,
-  version?: number
+  version?: number,
+  ci?: ContentIndex
 ): { content: Record<string, unknown> | null; error?: string } {
   const locale = normalizeLocale(rawLocale);
+  const index = ci ?? contentIndex;
   
   const hasVariant = variant !== undefined && variant !== null && variant !== "";
   const hasValidVersion = version !== undefined && version !== null && Number.isFinite(version);
@@ -950,12 +962,12 @@ export function getContentForEdit(
   }
   
   try {
-    const { data: localeData, error: loadError } = contentIndex.loadLocaleData(contentType, slug, locale, variant, version);
+    const { data: localeData, error: loadError } = index.loadLocaleData(contentType, slug, locale, variant, version);
     if (!localeData || loadError) {
       return { content: null, error: loadError || `Content file not found` };
     }
 
-    const commonData = contentIndex.loadCommonData(contentType, slug);
+    const commonData = index.loadCommonData(contentType, slug);
     const content = commonData
       ? deepMerge(commonData, localeData)
       : localeData;

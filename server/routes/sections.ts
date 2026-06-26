@@ -1153,6 +1153,8 @@ export function registerSectionsRoutes(app: Express): void {
         slug,
         operations,
         author: authorName,
+        ci: getCI(res),
+        contentRootName: getContentRootName(res),
       });
 
       if (result.success) {
@@ -1401,6 +1403,9 @@ export function registerSectionsRoutes(app: Express): void {
       contentType as string,
       slug,
       locale,
+      undefined,
+      undefined,
+      getCI(res),
     );
 
     if (result.content) {
