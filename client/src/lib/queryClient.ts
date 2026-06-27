@@ -80,22 +80,40 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      queryKeyHashFn: (queryKey) => {
-        const site = getDevSiteOverride();
-        if (site) return hashKey([`__site:${site}`, ...queryKey]);
-        return hashKey(queryKey);
+function makeQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        queryFn: getQueryFn({ on401: "throw" }),
+        queryKeyHashFn: (queryKey) => {
+          const site = getDevSiteOverride();
+          if (site) return hashKey([`__site:${site}`, ...queryKey]);
+          return hashKey(queryKey);
+        },
+        refetchInterval: false,
+        refetchOnWindowFocus: false,
+        staleTime: Infinity,
+        retry: false,
       },
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      mutations: {
+        retry: false,
+      },
     },
-    mutations: {
-      retry: false,
-    },
-  },
-});
+  });
+}
+
+// Preserve the QueryClient singleton across Vite HMR hot reloads.
+// Without this guard, every HMR cycle re-evaluates this module and creates a
+// fresh QueryClient — dropping the queryKeyHashFn and the in-memory cache,
+// which can cause cross-site data leaks or unnecessary re-fetches in dev.
+// import.meta.hot.data persists across module re-evaluations for the same module.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const hotData = (import.meta as any).hot?.data as { queryClient?: QueryClient } | undefined;
+
+export const queryClient: QueryClient =
+  (hotData?.queryClient) ?? makeQueryClient();
+
+if ((import.meta as any).hot) {
+  (import.meta as any).hot.data.queryClient = queryClient;
+}
