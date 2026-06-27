@@ -10,11 +10,11 @@
  * (schema, meta, etc.). Now it reuses the same merge logic used at serve-time.
  */
 
-import { contentIndex } from "../../../server/content-index";
+import { contentIndex as defaultContentIndex } from "../../../server/content-index";
 import type { ContentFile } from "./types";
 
-export function loadAllContent(): ContentFile[] {
-  const index = contentIndex;
+export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
+  const index = ci ?? defaultContentIndex;
   const entries = index.listAll();
   const files: ContentFile[] = [];
 

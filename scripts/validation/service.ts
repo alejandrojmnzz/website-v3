@@ -13,6 +13,7 @@ import type {
   SitemapEntry,
 } from "./shared/types";
 import { loadAllContent } from "./shared/contentLoader";
+import { contentIndex as defaultContentIndex } from "../../server/content-index";
 import { buildValidUrlSet } from "./shared/canonicalUrls";
 import { getAvailableSchemaKeys } from "./shared/schemaRegistry";
 import { validators, allValidators, getValidator, listValidators } from "./validators";
@@ -21,8 +22,8 @@ import { getSitemap } from "../../server/sitemap";
 export class ValidationService {
   private context: ValidationContext | null = null;
 
-  async buildContext(options: { contentRoot?: string } = {}): Promise<ValidationContext> {
-    const contentFiles = loadAllContent();
+  async buildContext(options: { contentRoot?: string; ci?: typeof defaultContentIndex } = {}): Promise<ValidationContext> {
+    const contentFiles = loadAllContent(options.ci);
     const validUrls = buildValidUrlSet(contentFiles);
     const availableSchemas = getAvailableSchemaKeys();
 

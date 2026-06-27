@@ -373,7 +373,7 @@ export function registerValidationRoutes(app: Express): void {
 
       // Clear previous context to get fresh data
       service.clearContext();
-      await service.buildContext({ contentRoot });
+      await service.buildContext({ contentRoot, ci: getCI(res) });
 
       const result = await service.runSingleValidator(
         name,
