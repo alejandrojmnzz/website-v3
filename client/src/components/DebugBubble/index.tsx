@@ -507,6 +507,105 @@ export function DebugBubble() {
       .catch(() => {});
   }, []);
 
+  // ─── Site-switch cache invalidation ────────────────────────────────────────
+  // When the active site changes, reset all site-scoped local state and
+  // immediately re-fetch fresh data for the new site.
+  //
+  // WHY this is needed: several panels use direct fetch() + local state instead
+  // of TanStack Query. queryClient.clear() (called in setDevSiteOverride /
+  // clearDevSiteOverride) only flushes the TanStack Query cache. Guards like
+  // `sitemapUrls.length === 0` and `!githubSyncStatus` prevent re-fetching
+  // unless the state is explicitly reset here.
+  //
+  // DOMAIN TRACKING STRATEGY — track the last *defined* domain, not every
+  // transition. queryClient.clear() causes siteInfo?.domain to pass through
+  // `undefined` before the new domain resolves (oldDomain → undefined → newDomain).
+  // Tracking every value (including undefined) would set the ref to undefined on
+  // the middle step, then skip the reset when newDomain arrives because
+  // prevDomain === undefined. Tracking only defined domains avoids this trap.
+  const lastDefinedDomainRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const newDomain = siteInfo?.domain;
+
+    // Ignore transitional undefined states — they are caused by queryClient.clear()
+    // and will be followed by the real new domain momentarily.
+    if (newDomain === undefined) return;
+
+    const prevDefinedDomain = lastDefinedDomainRef.current;
+    lastDefinedDomainRef.current = newDomain;
+
+    // Skip initial load (no previous defined domain) — mount effects already
+    // fetched the correct data. Only act on real site switches.
+    if (prevDefinedDomain === undefined || newDomain === prevDefinedDomain) return;
+
+    // Reset all site-scoped local state.
+    setSitemapUrlCount(null);
+    setSitemapUrls([]);
+    setSitemapSearch("");
+    setRedirectsList([]);
+    setBreathecodeHost(null);
+    setGithubSyncStatus(null);
+    setValidationSummary({});
+
+    // Use a single AbortController so any in-flight responses from the previous
+    // site are cancelled when the effect re-runs or when the component unmounts.
+    // This prevents stale cross-site responses from overwriting fresh state.
+    const ac = new AbortController();
+    const { signal } = ac;
+
+    // Re-fetch data that is always shown regardless of active view.
+    fetch("/api/debug/sitemap-cache-status", { signal })
+      .then((r) => r.json())
+      .then((d) => { if (d.entryCount != null) setSitemapUrlCount(d.entryCount); })
+      .catch(() => {});
+
+    fetch("/api/debug/redirects", { signal })
+      .then((r) => r.json())
+      .then((d) => setRedirectsList(d.redirects || []))
+      .catch(() => {});
+
+    fetch("/api/debug/breathecode-host", { signal })
+      .then((r) => r.json())
+      .then((d) => setBreathecodeHost(d))
+      .catch(() => {});
+
+    // Re-fetch validation cache summary when it is visible.
+    if (menuView !== "databases" && menuView !== "content-types") {
+      fetch("/api/validation/cache-summary", { signal })
+        .then((r) => r.json())
+        .then((d) => setValidationSummary(d))
+        .catch(() => {});
+    }
+
+    // Re-fetch sitemap URLs if the sitemap view is currently active.
+    if (menuView === "sitemap") {
+      setSitemapLoading(true);
+      fetch("/api/debug/sitemap-urls", { signal })
+        .then((r) => r.json())
+        .then((d) => {
+          setSitemapUrls(d);
+          setSitemapUrlCount(d.length);
+          setSitemapLoading(false);
+        })
+        .catch(() => setSitemapLoading(false));
+    }
+
+    // Re-fetch GitHub sync status if the main panel is currently open.
+    if (open && menuView === "main") {
+      setSyncStatusLoading(true);
+      fetch("/api/github/sync-status", { signal })
+        .then((r) => r.json())
+        .then((d: GitHubSyncStatus) => {
+          setGithubSyncStatus(d);
+          setSyncStatusLoading(false);
+        })
+        .catch(() => setSyncStatusLoading(false));
+    }
+
+    return () => ac.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteInfo?.domain]);
+
   // Listen for open-sync-modal event from SyncConflictBanner
   useEffect(() => {
     const handleOpenSyncModal = () => {
