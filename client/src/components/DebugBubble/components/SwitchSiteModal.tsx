@@ -45,17 +45,17 @@ export function SwitchSiteModal({ open, onOpenChange, activeDomain, isDevOverrid
       }
       if (domain === activeDomain && isDevOverride) {
         await clearDevSiteOverride();
-        window.location.reload();
+        onOpenChange(false);
         return;
       }
       await setDevSiteOverride(domain);
-      window.location.reload();
+      onOpenChange(false);
     }
   };
 
   const handleClearOverride = async () => {
     await clearDevSiteOverride();
-    window.location.reload();
+    onOpenChange(false);
   };
 
   return (

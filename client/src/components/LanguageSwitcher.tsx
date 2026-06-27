@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 import { Globe } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { injectDevSite } from "@/lib/devSite";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +27,7 @@ export default function LanguageSwitcher() {
   const { data: localeSettings } = useQuery<LocaleSettings>({
     queryKey: ["/api/settings/locales"],
     queryFn: async () => {
-      const res = await fetch(injectDevSite("/api/settings/locales"));
+      const res = await fetch("/api/settings/locales");
       if (!res.ok) {
         return {
           default_locale: "en",
@@ -45,7 +44,7 @@ export default function LanguageSwitcher() {
     queryKey: ["/api/locale-urls", location],
     queryFn: async () => {
       if (!location || location === "/" || location === "/en" || location === "/es" || location === "/en/" || location === "/es/") return null;
-      const res = await fetch(injectDevSite(`/api/locale-urls?url=${encodeURIComponent(location)}`));
+      const res = await fetch(`/api/locale-urls?url=${encodeURIComponent(location)}`);
       if (!res.ok) return null;
       return res.json();
     },

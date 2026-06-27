@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import type { NavbarConfig } from "@/components/menus";
-import { injectDevSite } from "@/lib/devSite";
 
 interface MenuResponse {
   name: string;
@@ -73,7 +72,7 @@ export function useMenuConfig(
   const query = useQuery<MenuResponse>({
     queryKey: ["/api/menus", topMenuId, normalized.locale],
     queryFn: async () => {
-      const response = await fetch(injectDevSite(`/api/menus/${topMenuId}?locale=${normalized.locale}`));
+      const response = await fetch(`/api/menus/${topMenuId}?locale=${normalized.locale}`);
       if (!response.ok) throw new Error("Failed to load menu");
       return response.json();
     },

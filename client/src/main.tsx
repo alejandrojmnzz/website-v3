@@ -6,6 +6,33 @@ import {
   readInitialDataPayload,
 } from "./lib/initialData";
 import { preloadSectionsFromInitialData } from "@/components/sectionRegistry";
+import { injectDevSite } from "./lib/devSite";
+
+// ─── Global fetch interceptor ────────────────────────────────────────────────
+// Injects ?__site=<domain> into every relative /api/ fetch call so that direct
+// fetch() calls anywhere in the codebase (DebugBubble, edit-mode hooks, future
+// code) automatically target the active dev-site without each call site needing
+// an explicit injectDevSite() wrapper.
+//
+// Guards:
+//   • Only active in dev builds (injectDevSite() is a no-op in production).
+//   • Only applied to relative /api/ URLs to avoid touching external requests.
+//   • Skips URLs that already carry __site= (no double-injection).
+if (typeof window !== "undefined") {
+  const _nativeFetch = window.fetch.bind(window);
+  window.fetch = function patchedFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    if (typeof input === "string" && input.startsWith("/api/")) {
+      input = injectDevSite(input);
+    } else if (input instanceof URL && input.pathname.startsWith("/api/")) {
+      const injected = injectDevSite(input.toString());
+      if (injected !== input.toString()) input = new URL(injected);
+    }
+    return _nativeFetch(input, init);
+  };
+}
 
 const initialDataPayload = readInitialDataPayload();
 hydrateInitialData();

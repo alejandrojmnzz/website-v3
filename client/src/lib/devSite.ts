@@ -11,7 +11,7 @@
  * localStorage is a CLIENT-SIDE MIRROR only.
  * -----------------------------------------------------------------------
  * We keep a copy in localStorage so that injectDevSite() can append
- * ?__site=<domain> to all TanStack Query API fetches as belt-and-suspenders
+ * ?__site=<domain> to all API fetches as belt-and-suspenders
  * (useful e.g. after HMR before a full reload clears the in-memory cache).
  * localStorage is NEVER the source of truth for site resolution — that is
  * always the server file.
@@ -39,10 +39,11 @@
  *   scoped to the origin (worf.replit.dev) and always accessible from the
  *   app's own JavaScript, regardless of the iframe context.
  *
- * Write sequence (always in this order before window.location.reload()):
+ * Write sequence (always in this order):
  *   1. localStorage.setItem(...)   ← synchronous, instant
  *   2. await fetch("/api/dev/set-site?domain=X")  ← server writes the file
- *   3. window.location.reload()   ← server now reads file on every request
+ *   3. queryClient.clear()  ← flush all cached data so components re-fetch
+ *      for the new site (with ?__site= injected by the global fetch interceptor)
  *
  * In production:
  *   getDevSiteOverride() always returns null. Site resolution is driven by
@@ -69,43 +70,49 @@ export function getDevSiteOverride(): string | null {
 /**
  * Sets the active dev-site override.
  *
- * Writes to localStorage (synchronous, for injectDevSite) and awaits the
- * server file write (so siteResolutionMiddleware sees the new domain on the
- * very next request). Both complete before the caller reloads the page.
+ * Writes to localStorage (synchronous, for the global fetch interceptor),
+ * awaits the server file write (so siteResolutionMiddleware sees the new
+ * domain on the very next request), then clears the TanStack Query cache so
+ * every component re-fetches data for the new site automatically.
  *
  * ⚠️  DO NOT change this to set a cookie. See the warning block above.
  */
 export async function setDevSiteOverride(domain: string): Promise<void> {
   try { localStorage.setItem(LS_KEY, domain); } catch {}
   await fetch(`/api/dev/set-site?domain=${encodeURIComponent(domain)}`);
+  // Lazy import to avoid circular dependency (queryClient imports getDevSiteOverride from here).
+  const { queryClient } = await import("./queryClient");
+  queryClient.clear();
 }
 
 /**
  * Clears the active dev-site override.
  *
- * Removes from localStorage and awaits the server file deletion. Both
- * complete before the caller reloads the page.
+ * Removes from localStorage, awaits the server file deletion, then clears
+ * the TanStack Query cache so components re-fetch for the default site.
  *
  * ⚠️  DO NOT change this to clear a cookie. See the warning block above.
  */
 export async function clearDevSiteOverride(): Promise<void> {
   try { localStorage.removeItem(LS_KEY); } catch {}
   await fetch("/api/dev/clear-site");
+  const { queryClient } = await import("./queryClient");
+  queryClient.clear();
 }
 
 /**
  * Appends ?__site=<domain> to a URL when a dev-site override is active.
  *
- * Called by the queryClient default fetcher on every API request. This is
- * belt-and-suspenders: the server file already handles site resolution, but
- * the query param makes explicit overrides work even in edge cases (e.g.
- * after HMR before a full reload, or for manual curl/Postman testing).
+ * This is the single injection point — called only by the global fetch
+ * interceptor installed in main.tsx. All other direct injectDevSite() call
+ * sites have been removed; the interceptor covers them automatically.
  *
  * No-ops in production (getDevSiteOverride() returns null).
  */
 export function injectDevSite(url: string): string {
   const site = getDevSiteOverride();
   if (!site) return url;
+  if (url.includes("__site=")) return url;
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}__site=${encodeURIComponent(site)}`;
 }

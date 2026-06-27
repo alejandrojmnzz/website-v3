@@ -164,11 +164,22 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   // through to req.hostname (which on Replit dev URLs is the worf.replit.dev
   // hostname, not a real site domain, so the default site is used instead).
   //
+  // Additionally, ?__site=<domain> on individual requests acts as a per-request
+  // override so TanStack Query fetches with the injected param resolve to the
+  // correct site even before a full reload (belt-and-suspenders with the file).
+  //
   // ⚠️  DO NOT add a cookie-based fallback here. See the warning block above.
   if (process.env.NODE_ENV !== "production") {
     const fileSite = readDevSiteFile();
     if (fileSite) {
       domain = fileSite;
+      isDevOverride = true;
+    }
+    // Per-request override via query param — lets each API call resolve to the
+    // correct site immediately after a site switch (before the next full reload).
+    const querySite = typeof req.query.__site === "string" ? req.query.__site : null;
+    if (querySite && sites.has(querySite)) {
+      domain = querySite;
       isDevOverride = true;
     }
   }

@@ -3,7 +3,6 @@ import { Facebook, Instagram, Linkedin, Twitter } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { injectDevSite } from "@/lib/devSite";
 
 import { useImageRegistry } from "@/components/UniversalImage";
 
@@ -68,7 +67,7 @@ export default function Footer({ menuId = "main-footer" }: FooterProps) {
   }>({
     queryKey: ["/api/menus", menuId, locale],
     queryFn: async () => {
-      const response = await fetch(injectDevSite(`/api/menus/${menuId}?locale=${locale}`));
+      const response = await fetch(`/api/menus/${menuId}?locale=${locale}`);
       if (!response.ok) throw new Error("Failed to load footer menu");
       return response.json();
     },
