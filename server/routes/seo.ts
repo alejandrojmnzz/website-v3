@@ -315,7 +315,11 @@ Sitemap: ${baseUrl}/sitemap.xml
   // Public sitemap URLs endpoint for menu editor
   app.get("/api/sitemap-urls", (req, res) => {
     const locale = req.query.locale as string | undefined;
-    const urls = getSitemapUrls();
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      : undefined;
+    const urls = getSitemapUrls(siteCtx);
 
     if (locale) {
       const langPrefixes = ["/en/", "/es/", "/fr/", "/de/", "/pt/", "/it/"];
