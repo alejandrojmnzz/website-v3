@@ -68,7 +68,7 @@ export function detectContentInfo(
     });
 
     for (const [typeName, ct] of sortedTypes) {
-      for (const [locale, pattern] of Object.entries(ct.url_pattern)) {
+      for (const [locale, pattern] of Object.entries(ct.url_pattern ?? {})) {
         let slugGroupIndex = 1;
         let paramIndex = 0;
         const regexStr = '^' + pattern.replace(/:([a-zA-Z_]+)/g, (_m, name) => {
