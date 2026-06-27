@@ -586,7 +586,7 @@ Sitemap: ${baseUrl}/sitemap.xml
 
         let schemaOrg: Record<string, unknown>[] = [];
         if (schema?.include && schema.include.length > 0) {
-          schemaOrg = getMergedSchemas(schema, locale);
+          schemaOrg = getMergedSchemas(schema, locale, getContentRoot(res));
         }
 
         const schemaInclude = (schema?.include as string[]) || [];
@@ -650,7 +650,7 @@ Sitemap: ${baseUrl}/sitemap.xml
 
       let schemaOrg: Record<string, unknown>[] = [];
       if (schema?.include && schema.include.length > 0) {
-        schemaOrg = getMergedSchemas(schema, locale);
+        schemaOrg = getMergedSchemas(schema, locale, getContentRoot(res));
       }
 
       const schemaInclude = (schema?.include as string[]) || [];

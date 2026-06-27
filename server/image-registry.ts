@@ -101,9 +101,12 @@ export function resolveBySourceUrl(url: string): string | null {
   return null;
 }
 
-export function clearImageRegistryCache() {
-  registryCache = null;
-  lastModified = 0;
+export function clearImageRegistryCache(contentRoot?: string) {
+  if (contentRoot !== undefined) {
+    registryCache.delete(getRegistryPath(contentRoot));
+  } else {
+    registryCache.clear();
+  }
 }
 
 // ─── Queue helpers ────────────────────────────────────────────────────────────

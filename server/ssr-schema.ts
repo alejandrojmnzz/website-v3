@@ -333,7 +333,7 @@ export function generateDatabaseSsrHtml(
 
   const robots = typeof record.robots === "string" ? record.robots : "index, follow";
   const ogType = contentType === "blog" ? "article" : "website";
-  const twitterHandle = getOrganizationTwitterHandle();
+  const twitterHandle = getOrganizationTwitterHandle(contentRoot);
   const imageDimensions = image ? getImageDimensions(image, contentRoot) : null;
   const metaTags = [
     `<title>${title} | 4Geeks Academy</title>`,
@@ -377,8 +377,8 @@ export function generateListingSsrHtml(contentType: string, locale: string, cont
     ? `Explora nuestro contenido de ${label.toLowerCase()} en 4Geeks Academy.`
     : `Explore our ${label.toLowerCase()} content at 4Geeks Academy.`;
 
-  const twitterHandle = getOrganizationTwitterHandle();
-  const defaultSocialImage = getWebsiteDefaultSocialImage();
+  const twitterHandle = getOrganizationTwitterHandle(contentRoot);
+  const defaultSocialImage = getWebsiteDefaultSocialImage(contentRoot);
   const defaultImageDimensions = defaultSocialImage ? getImageDimensions(defaultSocialImage, contentRoot) : null;
   const metaTags = [
     `<title>${title}</title>`,
@@ -429,7 +429,7 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
 
     const schemaRef = pageData.schema as SchemaReference | undefined;
     if (schemaRef?.include && schemaRef.include.length > 0) {
-      const schemas = getMergedSchemas(schemaRef, route.locale);
+      const schemas = getMergedSchemas(schemaRef, route.locale, contentRoot);
       for (const schema of schemas) {
         scripts.push(
           `<script type="application/ld+json" data-ssr="true">${JSON.stringify(schema)}</script>`
@@ -470,8 +470,8 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
     const robotsTag = `<meta name="robots" content="${robots}" />`;
 
     const ogImage = typeof meta?.og_image === "string" ? meta.og_image : null;
-    const twitterHandle = getOrganizationTwitterHandle();
-    const socialImageUrl = ogImage || getWebsiteDefaultSocialImage();
+    const twitterHandle = getOrganizationTwitterHandle(contentRoot);
+    const socialImageUrl = ogImage || getWebsiteDefaultSocialImage(contentRoot);
     const socialImageDimensions = socialImageUrl ? getImageDimensions(socialImageUrl, contentRoot) : null;
     const socialTags = [
       twitterHandle ? `<meta name="twitter:site" content="${twitterHandle}" />` : "",

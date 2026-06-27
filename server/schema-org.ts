@@ -217,8 +217,8 @@ function resolveSchemaRef(ref: string, config: SchemaOrgConfig, locale: string):
   return null;
 }
 
-export function getSchema(schemaKey: string, locale: string = "en"): Record<string, unknown> | null {
-  const config = loadSchemaConfig();
+export function getSchema(schemaKey: string, locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
+  const config = loadSchemaConfig(contentRoot);
   
   if (schemaKey === "organization" && config.organization) {
     return {
@@ -269,9 +269,10 @@ export function getSchema(schemaKey: string, locale: string = "en"): Record<stri
 
 export function getMergedSchemas(
   schemaRef: SchemaReference,
-  locale: string = "en"
+  locale: string = "en",
+  contentRoot?: string
 ): Record<string, unknown>[] {
-  const config = loadSchemaConfig();
+  const config = loadSchemaConfig(contentRoot);
   const result: Record<string, unknown>[] = [];
   
   if (!schemaRef.include || schemaRef.include.length === 0) {
@@ -279,7 +280,7 @@ export function getMergedSchemas(
   }
   
   for (const key of schemaRef.include) {
-    let schema = getSchema(key, locale);
+    let schema = getSchema(key, locale, contentRoot);
     
     if (schema) {
       // Apply overrides (Option A: full replace of properties)
@@ -314,8 +315,8 @@ function matchesPlatform(url: string, platform: string): boolean {
   return domains.some((d) => url.includes(d));
 }
 
-export function getOrganizationTwitterHandle(): string | null {
-  const config = loadSchemaConfig();
+export function getOrganizationTwitterHandle(contentRoot?: string): string | null {
+  const config = loadSchemaConfig(contentRoot);
   const sameAs = config.organization?.same_as;
   if (!Array.isArray(sameAs)) return null;
   for (const url of sameAs) {
@@ -328,8 +329,8 @@ export function getOrganizationTwitterHandle(): string | null {
   return null;
 }
 
-export function getOrganizationSameAsUrl(platform: string): string | null {
-  const config = loadSchemaConfig();
+export function getOrganizationSameAsUrl(platform: string, contentRoot?: string): string | null {
+  const config = loadSchemaConfig(contentRoot);
   const sameAs = config.organization?.same_as;
   if (!Array.isArray(sameAs)) return null;
   for (const url of sameAs) {
@@ -379,8 +380,8 @@ export function updateOrganizationSameAsUrl(platform: string, url: string): void
   clearSchemaCache();
 }
 
-export function getWebsiteDefaultSocialImage(): string | null {
-  const config = loadSchemaConfig();
+export function getWebsiteDefaultSocialImage(contentRoot?: string): string | null {
+  const config = loadSchemaConfig(contentRoot);
   const img = (config.website as Record<string, unknown> | undefined)?.default_social_image;
   return typeof img === "string" && img.trim() !== "" ? img.trim() : null;
 }
@@ -444,8 +445,8 @@ export function updateWebsiteDefaultSocialImage(imageUrl: string): void {
   clearSchemaCache();
 }
 
-export function getAvailableSchemaKeys(): string[] {
-  const config = loadSchemaConfig();
+export function getAvailableSchemaKeys(contentRoot?: string): string[] {
+  const config = loadSchemaConfig(contentRoot);
   const keys: string[] = [];
   
   if (config.organization) keys.push("organization");

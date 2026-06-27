@@ -946,14 +946,15 @@ export function registerAdminRoutes(app: Express): void {
         (u) => typeof u === "string" && !knownDomains.some((d) => u.includes(d))
       );
 
+      const cr = getContentRoot(res);
       res.json({
-        default_social_image: getWebsiteDefaultSocialImage() ?? "",
-        twitter_handle: getOrganizationTwitterHandle() ?? "",
-        linkedin: getOrganizationSameAsUrl("linkedin") ?? "",
-        facebook: getOrganizationSameAsUrl("facebook") ?? "",
-        youtube: getOrganizationSameAsUrl("youtube") ?? "",
-        instagram: getOrganizationSameAsUrl("instagram") ?? "",
-        github: getOrganizationSameAsUrl("github") ?? "",
+        default_social_image: getWebsiteDefaultSocialImage(cr) ?? "",
+        twitter_handle: getOrganizationTwitterHandle(cr) ?? "",
+        linkedin: getOrganizationSameAsUrl("linkedin", cr) ?? "",
+        facebook: getOrganizationSameAsUrl("facebook", cr) ?? "",
+        youtube: getOrganizationSameAsUrl("youtube", cr) ?? "",
+        instagram: getOrganizationSameAsUrl("instagram", cr) ?? "",
+        github: getOrganizationSameAsUrl("github", cr) ?? "",
         unknown_same_as: unknownSameAs,
       });
     } catch (err: any) {
@@ -1027,15 +1028,16 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       clearSsrSchemaCache();
+      const cr2 = getContentRoot(res);
       res.json({
         success: true,
-        default_social_image: getWebsiteDefaultSocialImage() ?? "",
-        twitter_handle: getOrganizationTwitterHandle() ?? "",
-        linkedin: getOrganizationSameAsUrl("linkedin") ?? "",
-        facebook: getOrganizationSameAsUrl("facebook") ?? "",
-        youtube: getOrganizationSameAsUrl("youtube") ?? "",
-        instagram: getOrganizationSameAsUrl("instagram") ?? "",
-        github: getOrganizationSameAsUrl("github") ?? "",
+        default_social_image: getWebsiteDefaultSocialImage(cr2) ?? "",
+        twitter_handle: getOrganizationTwitterHandle(cr2) ?? "",
+        linkedin: getOrganizationSameAsUrl("linkedin", cr2) ?? "",
+        facebook: getOrganizationSameAsUrl("facebook", cr2) ?? "",
+        youtube: getOrganizationSameAsUrl("youtube", cr2) ?? "",
+        instagram: getOrganizationSameAsUrl("instagram", cr2) ?? "",
+        github: getOrganizationSameAsUrl("github", cr2) ?? "",
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });
