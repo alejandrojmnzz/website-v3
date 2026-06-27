@@ -842,12 +842,13 @@ export function registerContentRoutes(app: Express): void {
 
   app.get("/api/content-types", (_req, res) => {
     try {
-      const configs = getAllConfigs();
+      const cr = getContentRoot(res);
+      const configs = getAllConfigs(cr);
       const result: Record<string, unknown>[] = [];
       for (const [type, config] of Object.entries(configs)) {
         result.push({
           name: type,
-          label: getLabel(type),
+          label: getLabel(type, cr),
           directory: config.directory,
           has_database: !!config.database?.slug,
           database_slug: config.database?.slug || null,
@@ -864,7 +865,7 @@ export function registerContentRoutes(app: Express): void {
           url_pattern: config.url_pattern,
           locale_key: config.field_mapping?._locale || null,
           static_entry_count: getCI(res).findByType(type).length,
-          layout: getLayout(type),
+          layout: getLayout(type, cr),
         });
       }
       res.json(result);
