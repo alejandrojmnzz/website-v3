@@ -529,6 +529,7 @@ export function ContentTypesView({ setMenuView }: ContentTypesViewProps) {
   const [deleteTarget, setDeleteTarget] = useState<ContentTypeSummary | null>(null);
   const { data, isLoading } = useQuery<ContentTypeSummary[]>({
     queryKey: ["/api/content-types"],
+    staleTime: 0,
   });
 
   return (
