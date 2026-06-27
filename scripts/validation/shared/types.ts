@@ -103,6 +103,11 @@ export interface ValidationContext {
   availableSchemas: Set<string>;
   sitemapEntries: SitemapEntry[];
   sitemapXml?: string;
+  /** Active site's content root (absolute path). Populated by the API route from
+   *  res.locals.site when a per-site override is active (dev or multi-site prod).
+   *  Validators that read content-folder files (e.g. custom-redirects.yml,
+   *  schema-org.yml) must use this instead of hardcoded folder names. */
+  contentRoot?: string;
 }
 
 export interface ValidationRunOptions {

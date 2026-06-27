@@ -9,28 +9,39 @@ import {
   getAllQueueState,
 } from "./image-queue-state";
 
-const REGISTRY_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "image-registry.json");
+const DEFAULT_REGISTRY_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "image-registry.json");
 
 const RETRY_FAILED_AFTER_MS = 24 * 60 * 60 * 1000;
 
-let registryCache: ImageRegistry | null = null;
-let lastModified: number = 0;
+function getRegistryPath(contentRoot?: string): string {
+  if (!contentRoot) return DEFAULT_REGISTRY_PATH;
+  return path.join(contentRoot, "image-registry.json");
+}
 
-export function loadImageRegistry(): ImageRegistry | null {
+interface RegistryCacheEntry {
+  registry: ImageRegistry;
+  mtime: number;
+}
+
+const registryCache = new Map<string, RegistryCacheEntry>();
+
+export function loadImageRegistry(contentRoot?: string): ImageRegistry | null {
+  const registryPath = getRegistryPath(contentRoot);
   try {
-    const stats = fs.statSync(REGISTRY_PATH);
+    const stats = fs.statSync(registryPath);
     const currentModified = stats.mtimeMs;
 
-    if (registryCache && currentModified === lastModified) {
-      return registryCache;
+    const cached = registryCache.get(registryPath);
+    if (cached && currentModified === cached.mtime) {
+      return cached.registry;
     }
 
-    const content = fs.readFileSync(REGISTRY_PATH, "utf8");
-    registryCache = JSON.parse(content) as ImageRegistry;
-    lastModified = currentModified;
+    const content = fs.readFileSync(registryPath, "utf8");
+    const registry = JSON.parse(content) as ImageRegistry;
+    registryCache.set(registryPath, { registry, mtime: currentModified });
 
-    log.info(`[Image Registry] Loaded ${Object.keys(registryCache.images).length} images, ${Object.keys(registryCache.presets).length} presets`);
-    return registryCache;
+    log.info(`[Image Registry] Loaded ${Object.keys(registry.images).length} images, ${Object.keys(registry.presets).length} presets`);
+    return registry;
   } catch (error) {
     log.error({ err: error }, "[Image Registry] Failed to load:");
     return null;

@@ -366,11 +366,14 @@ export function registerValidationRoutes(app: Express): void {
       const { name } = req.params;
       const { includeArtifacts } = req.body;
 
+      const contentRoot: string = (res.locals.site as any)?.contentRoot
+        ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+
       const service = getValidationService();
 
       // Clear previous context to get fresh data
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot });
 
       const result = await service.runSingleValidator(
         name,

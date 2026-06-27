@@ -29,15 +29,20 @@ interface SchemaReference {
   overrides?: Record<string, Record<string, unknown>>;
 }
 
-let schemaCache: SchemaOrgConfig | null = null;
+const schemaCache = new Map<string, SchemaOrgConfig>();
 
-function loadSchemaConfig(): SchemaOrgConfig {
-  if (schemaCache) {
-    return schemaCache;
+function resolveSchemaPath(contentRoot?: string): string {
+  const root = contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return path.join(root, "schema-org.yml");
+}
+
+function loadSchemaConfig(contentRoot?: string): SchemaOrgConfig {
+  const schemaPath = resolveSchemaPath(contentRoot);
+
+  if (schemaCache.has(schemaPath)) {
+    return schemaCache.get(schemaPath)!;
   }
 
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "schema-org.yml");
-  
   if (!fs.existsSync(schemaPath)) {
     log.warn("[SchemaOrg] schema-org.yml not found");
     return {};
@@ -45,16 +50,22 @@ function loadSchemaConfig(): SchemaOrgConfig {
 
   try {
     const content = fs.readFileSync(schemaPath, "utf-8");
-    schemaCache = yaml.load(content) as SchemaOrgConfig;
-    return schemaCache || {};
+    const config = (yaml.load(content) as SchemaOrgConfig) || {};
+    schemaCache.set(schemaPath, config);
+    return config;
   } catch (err) {
     log.error({ err: err }, "[SchemaOrg] Error loading schema-org.yml:");
     return {};
   }
 }
 
-export function clearSchemaCache(): void {
-  schemaCache = null;
+/** Clear the schema cache for a specific site (by contentRoot) or all sites if no arg given. */
+export function clearSchemaCache(contentRoot?: string): void {
+  if (contentRoot !== undefined) {
+    schemaCache.delete(resolveSchemaPath(contentRoot));
+  } else {
+    schemaCache.clear();
+  }
 }
 
 function camelToJsonLd(key: string): string {

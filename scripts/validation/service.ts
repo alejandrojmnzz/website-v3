@@ -21,7 +21,7 @@ import { getSitemap } from "../../server/sitemap";
 export class ValidationService {
   private context: ValidationContext | null = null;
 
-  async buildContext(): Promise<ValidationContext> {
+  async buildContext(options: { contentRoot?: string } = {}): Promise<ValidationContext> {
     const contentFiles = loadAllContent();
     const validUrls = buildValidUrlSet(contentFiles);
     const availableSchemas = getAvailableSchemaKeys();
@@ -42,6 +42,7 @@ export class ValidationService {
       availableSchemas,
       sitemapEntries,
       sitemapXml,
+      contentRoot: options.contentRoot,
     };
 
     return this.context;

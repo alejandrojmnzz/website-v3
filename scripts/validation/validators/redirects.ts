@@ -35,8 +35,9 @@ function getStaticPrefix(pattern: string): string {
   return prefix;
 }
 
-function loadCustomRedirects(): CustomRedirectEntry[] {
-  const filePath = path.join(process.cwd(), "4geeks-com", "custom-redirects.yml");
+function loadCustomRedirects(contentRoot?: string): CustomRedirectEntry[] {
+  const root = contentRoot ?? path.join(process.cwd(), process.env["CONTENT_FOLDER"] || "default-site-content");
+  const filePath = path.join(root, "custom-redirects.yml");
   if (!fs.existsSync(filePath)) return [];
 
   try {
@@ -146,8 +147,10 @@ export const redirectValidator: Validator = {
       }
     }
 
-    const customRedirects = loadCustomRedirects();
-    const customFile = "4geeks-com/custom-redirects.yml";
+    const customRedirects = loadCustomRedirects(context.contentRoot);
+    const customFile = context.contentRoot
+      ? `${path.basename(context.contentRoot)}/custom-redirects.yml`
+      : `${process.env["CONTENT_FOLDER"] || "default-site-content"}/custom-redirects.yml`;
 
     const customSource = {
       slug: "_custom",
