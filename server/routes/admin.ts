@@ -328,7 +328,7 @@ export function registerAdminRoutes(app: Express): void {
   // Get active redirects (for debug tools)
   app.get("/api/debug/redirects", (req, res) => {
     const ci = getCI(res);
-    const isSiteSpecific = ci !== contentIndex;
+    const isSiteSpecific = ci.contentRoot !== contentIndex.contentRoot;
     if (isSiteSpecific) {
       const siteEntries = ci.getRedirects();
       const redirects = siteEntries.map(e => ({
