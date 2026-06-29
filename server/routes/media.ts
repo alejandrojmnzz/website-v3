@@ -90,7 +90,7 @@ import {
   setVersioningCookie,
   buildUserContext,
 } from "../versioning";
-import { mediaGallery } from "../media-gallery";
+import { mediaGallery, MediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
@@ -208,11 +208,14 @@ import {
 import { child } from "../logger";
 const log = child({ module: "routes/media" });
 
+function getMediaGallery(res: Response): MediaGallery {
+  return (res.locals.site as any)?.mediaGallery ?? mediaGallery;
+}
 
 export function registerMediaRoutes(app: Express): void {
   app.get("/api/image-registry/stats", (req, res) => {
     const tag = req.query.tag as string | undefined;
-    const registry = mediaGallery.getRegistry();
+    const registry = getMediaGallery(res).getRegistry();
     if (!registry) {
       res.status(500).json({ error: "Failed to load image registry" });
       return;
@@ -240,7 +243,7 @@ export function registerMediaRoutes(app: Express): void {
   app.post("/api/image-registry/retry-failed", (req, res) => {
     const { tag } = req.body as { tag?: string };
     const count = retryFailedImages(tag);
-    if (count > 0) mediaGallery.persistRegistry();
+    if (count > 0) getMediaGallery(res).persistRegistry();
     res.json({ retried: count });
   });
 
@@ -253,13 +256,13 @@ export function registerMediaRoutes(app: Express): void {
     const dbName = tag || "manual";
     const id = enqueueExternalImage(url, dbName);
     if (id) {
-      mediaGallery.persistRegistry();
+      getMediaGallery(res).persistRegistry();
     }
     res.json({ queued: !!id, id: id ?? null });
   });
 
   app.get("/api/image-registry", (_req, res) => {
-    const registry = mediaGallery.getRegistry();
+    const registry = getMediaGallery(res).getRegistry();
     if (!registry) {
       res.status(500).json({ error: "Failed to load image registry" });
       return;
@@ -279,7 +282,7 @@ export function registerMediaRoutes(app: Express): void {
       return;
     }
     try {
-      const results = mediaGallery.getFamilyUsage(ids);
+      const results = getMediaGallery(res).getFamilyUsage(ids);
       const enriched = results.map(r => ({
         ...r,
         hasBinding: r.sectionId
@@ -295,7 +298,7 @@ export function registerMediaRoutes(app: Express): void {
   });
 
   app.post("/api/image-registry/clear-ref-cache", (_req, res) => {
-    mediaGallery.clearImageRefCache();
+    getMediaGallery(res).clearImageRefCache();
     res.json({ ok: true });
   });
 
@@ -308,8 +311,8 @@ export function registerMediaRoutes(app: Express): void {
       return;
     }
     try {
-      const result = mediaGallery.bulkReplaceUsage(fileReplacements);
-      mediaGallery.clearImageRefCache();
+      const result = getMediaGallery(res).bulkReplaceUsage(fileReplacements);
+      getMediaGallery(res).clearImageRefCache();
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Bulk replace failed" });
@@ -318,7 +321,7 @@ export function registerMediaRoutes(app: Express): void {
 
   app.delete("/api/image-registry/:id", async (req, res) => {
     try {
-      const result = await mediaGallery.unregister(req.params.id);
+      const result = await getMediaGallery(res).unregister(req.params.id);
       if (!result.success) {
         const status = result.usedIn ? 409 : 404;
         res.status(status).json({
@@ -345,7 +348,7 @@ export function registerMediaRoutes(app: Express): void {
         res.status(400).json({ error: "Missing or empty 'ids' array" });
         return;
       }
-      const { results, deletedCount } = await mediaGallery.bulkUnregister(ids);
+      const { results, deletedCount } = await getMediaGallery(res).bulkUnregister(ids);
       res.json({ results, deletedCount, totalRequested: ids.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Bulk delete failed" });
@@ -363,7 +366,7 @@ export function registerMediaRoutes(app: Express): void {
   // Image Registry Scanner Endpoints (delegated to MediaGallery singleton)
   app.post("/api/image-registry/scan", async (_req, res) => {
     try {
-      const result = await mediaGallery.scan();
+      const result = await getMediaGallery(res).scan();
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Scan failed" });
@@ -373,7 +376,7 @@ export function registerMediaRoutes(app: Express): void {
   app.post("/api/image-registry/apply", async (req, res) => {
     try {
       const action = req.query.action as string | undefined;
-      const scanResult = await mediaGallery.scan();
+      const scanResult = await getMediaGallery(res).scan();
       const filtered = {
         ...scanResult,
         newImages: action === "update" ? [] : scanResult.newImages,
@@ -386,7 +389,7 @@ export function registerMediaRoutes(app: Express): void {
         res.json({ message: "Nothing to apply", added: 0, updated: 0 });
         return;
       }
-      const applied = mediaGallery.applyChanges(filtered);
+      const applied = getMediaGallery(res).applyChanges(filtered);
       const yamlMsg =
         applied.yamlFilesUpdated.length > 0
           ? `. Updated paths in ${applied.yamlFilesUpdated.length} YAML file(s)`
@@ -402,7 +405,7 @@ export function registerMediaRoutes(app: Express): void {
 
   app.post("/api/image-registry/deduplicate", async (req, res) => {
     try {
-      const scanResult = await mediaGallery.scan();
+      const scanResult = await getMediaGallery(res).scan();
       if (scanResult.duplicates.length === 0) {
         res.json({
           message: "No duplicates found",
@@ -411,7 +414,7 @@ export function registerMediaRoutes(app: Express): void {
         });
         return;
       }
-      const result = mediaGallery.removeDuplicates(scanResult.duplicates);
+      const result = getMediaGallery(res).removeDuplicates(scanResult.duplicates);
       const yamlMsg =
         result.yamlFilesUpdated.length > 0
           ? `. Updated references in ${result.yamlFilesUpdated.length} YAML file(s)`
@@ -427,7 +430,7 @@ export function registerMediaRoutes(app: Express): void {
 
   app.get("/api/image-registry/redundant", (_req, res) => {
     try {
-      const images = mediaGallery.findRedundantImages();
+      const images = getMediaGallery(res).findRedundantImages();
       res.json({ count: images.length, images });
     } catch (error: any) {
       res
@@ -447,7 +450,7 @@ export function registerMediaRoutes(app: Express): void {
           });
         return;
       }
-      const result = await mediaGallery.resolveRedundancy(action, ids);
+      const result = await getMediaGallery(res).resolveRedundancy(action, ids);
       res.json(result);
     } catch (error: any) {
       res
@@ -470,7 +473,7 @@ export function registerMediaRoutes(app: Express): void {
           .json({ error: "Missing 'from' and/or 'to' provider name" });
         return;
       }
-      const results = await mediaGallery.migrate(from, to, { dryRun, prefix });
+      const results = await getMediaGallery(res).migrate(from, to, { dryRun, prefix });
       const migrated = results.filter((r) => r.status === "migrated").length;
       res.json({
         message: dryRun
@@ -500,13 +503,13 @@ export function registerMediaRoutes(app: Express): void {
     const BATCH_SIZE = 20;
 
     try {
-      const registry = mediaGallery.getRegistry();
+      const registry = getMediaGallery(res).getRegistry();
       if (!registry) {
         res.status(500).json({ error: "Failed to load image registry" });
         return;
       }
 
-      const { imageIds } = mediaGallery.collectImageReferences();
+      const { imageIds } = getMediaGallery(res).collectImageReferences();
       const srcToId = buildRegistrySrcToIdMap(registry.images);
       const resolvedReferencedIds = new Set<string>();
       imageIds.forEach((ref) => {
@@ -526,7 +529,7 @@ export function registerMediaRoutes(app: Express): void {
           continue;
         }
         const srcsetUrls = Array.isArray(entry.srcset) ? entry.srcset.map((s) => s.url) : [];
-        const usage = mediaGallery.getUsage(id, entry.src, srcsetUrls);
+        const usage = getMediaGallery(res).getUsage(id, entry.src, srcsetUrls);
         const isUsed = usage.length > 0 || resolvedReferencedIds.has(id);
         if (!isUsed) {
           unusedItems.push({ id, src: entry.src });
@@ -560,7 +563,7 @@ export function registerMediaRoutes(app: Express): void {
 
           for (const item of batchItems) {
             try {
-              const result = await mediaGallery.unregister(item.id);
+              const result = await getMediaGallery(res).unregister(item.id);
               if (result.success) {
                 if (result.cleanupErrors && result.cleanupErrors.length > 0) {
                   batchResults.push({
@@ -650,7 +653,7 @@ export function registerMediaRoutes(app: Express): void {
         }
         const alt = (req.body?.alt as string) || undefined;
         const tags = req.body?.tags ? JSON.parse(req.body.tags) : undefined;
-        const result = await mediaGallery.uploadAndRegister(
+        const result = await getMediaGallery(res).uploadAndRegister(
           file.originalname,
           file.buffer,
           file.mimetype,
@@ -693,7 +696,7 @@ export function registerMediaRoutes(app: Express): void {
 
       const { imageId, crop, targetWidth, targetHeight, quality } = parsed.data;
 
-      const registry = mediaGallery.getRegistry();
+      const registry = getMediaGallery(res).getRegistry();
       if (!registry) {
         res.status(500).json({ error: "Failed to load image registry" });
         return;
@@ -790,7 +793,7 @@ export function registerMediaRoutes(app: Express): void {
         newSrc = await defaultProvider.upload(derivedFilename, processedBuffer, "image/webp");
       }
 
-      mediaGallery.register(uniqueId, {
+      getMediaGallery(res).register(uniqueId, {
         src: newSrc,
         alt: entry.alt,
         tags: parentTags,
@@ -806,7 +809,7 @@ export function registerMediaRoutes(app: Express): void {
       (async () => {
         try {
           const { processImageFromSrc } = await import("../image-optimizer");
-          const registry2 = mediaGallery.getRegistry();
+          const registry2 = getMediaGallery(res).getRegistry();
           if (!registry2) return;
           const newEntry = registry2.images[uniqueId];
           if (!newEntry) return;
@@ -816,7 +819,7 @@ export function registerMediaRoutes(app: Express): void {
             newEntry.preset = result.preset;
             newEntry.widths_generated = result.widths_generated;
             newEntry.srcset = result.srcset;
-            mediaGallery.persistRegistry();
+            getMediaGallery(res).persistRegistry();
             log.info(`[CropResize] Optimization complete for "${uniqueId}"`);
           }
         } catch (err) {
@@ -834,7 +837,7 @@ export function registerMediaRoutes(app: Express): void {
   app.post("/api/image-registry/optimize-batch", async (req, res) => {
     try {
       const { ids } = req.body as { ids?: string[] };
-      const registry = mediaGallery.getRegistry();
+      const registry = getMediaGallery(res).getRegistry();
       if (!registry) {
         res.status(500).json({ error: "Failed to load image registry" });
         return;
@@ -874,7 +877,7 @@ export function registerMediaRoutes(app: Express): void {
       for (const id of targetIds) {
         enqueueOptimization(id);
       }
-      mediaGallery.persistRegistry();
+      getMediaGallery(res).persistRegistry();
 
       resetOptimizeSession(targetIds.length);
       triggerWorkerRunNow();

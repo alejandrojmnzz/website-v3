@@ -3,6 +3,7 @@ import fs from "fs";
 import type { Request, Response, NextFunction } from "express";
 import { getSiteConfigs, isMultiSiteMode, type SiteConfig } from "./site-config";
 import { ContentIndex } from "./content-index";
+import { MediaGallery } from "./media-gallery";
 import { ValidationCacheService } from "./services/validationCacheService";
 import { AutoCommitQueue } from "./auto-commit";
 import { VersioningManager } from "./versioning/VersioningManager";
@@ -14,6 +15,7 @@ const log = child({ module: "site-manager" });
 export interface SiteContext {
   config: SiteConfig;
   contentIndex: ContentIndex;
+  mediaGallery: MediaGallery;
   contentRoot: string;
   contentRootName: string;
   validationCache: ValidationCacheService;
@@ -46,11 +48,12 @@ export function buildSiteContextMap(): Map<string, SiteContext> {
       : path.join(process.cwd(), config.contentFolder);
     const contentRootName = path.relative(process.cwd(), contentRoot);
     const ci = new ContentIndex(config.contentFolder);
+    const mg = new MediaGallery(config.contentFolder);
     const validationCache = new ValidationCacheService(contentRoot);
     const autoCommitQueue = new AutoCommitQueue(contentRootName);
     const versioningManager = new VersioningManager(contentRoot);
     const database = new DatabaseManager(contentRoot);
-    const ctx: SiteContext = { config, contentIndex: ci, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database };
+    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database };
     map.set(config.domain, ctx);
     log.info(`[SiteManager] Registered site domain="${config.domain}" contentFolder="${config.contentFolder}"`);
   }

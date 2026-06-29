@@ -14,11 +14,6 @@ const log = child({ module: "media-gallery" });
 
 
 
-const CONTENT_FOLDER_NAME = process.env.CONTENT_FOLDER || "default-site-content";
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), CONTENT_FOLDER_NAME);
-const MARKETING_IMAGES_DIR = path.join(MARKETING_CONTENT_DIR, "images");
-const MARKETING_IMAGES_URL_PREFIX = `/${CONTENT_FOLDER_NAME}/images/`;
-const REGISTRY_PATH = path.join(MARKETING_CONTENT_DIR, "image-registry.json");
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg", ".avif", ".gif"]);
 const OPTIMIZABLE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".ogg", ".m4v"]);
@@ -119,22 +114,38 @@ export interface ImageReferenceScan {
   imageIdLocations: Map<string, ImageRefLocation[]>;
 }
 
-class MediaGallery {
+export class MediaGallery {
+  private readonly contentFolderName: string;
+  private readonly contentDir: string;
+  private readonly imagesDir: string;
+  private readonly imagesUrlPrefix: string;
+  private readonly registryPath: string;
+
   private registryCache: ImageRegistry | null = null;
   private lastModified: number = 0;
   private existenceCache: Map<string, ExistenceCache> = new Map();
   private imageRefCache: ImageReferenceScan | null = null;
 
+  constructor(contentFolder?: string) {
+    this.contentFolderName = contentFolder || process.env.CONTENT_FOLDER || "default-site-content";
+    this.contentDir = path.isAbsolute(this.contentFolderName)
+      ? this.contentFolderName
+      : path.join(process.cwd(), this.contentFolderName);
+    this.imagesDir = path.join(this.contentDir, "images");
+    this.imagesUrlPrefix = `/${path.relative(process.cwd(), this.contentDir)}/images/`;
+    this.registryPath = path.join(this.contentDir, "image-registry.json");
+  }
+
   getRegistry(): ImageRegistry | null {
     try {
-      const stats = fs.statSync(REGISTRY_PATH);
+      const stats = fs.statSync(this.registryPath);
       const currentModified = stats.mtimeMs;
 
       if (this.registryCache && currentModified === this.lastModified) {
         return this.registryCache;
       }
 
-      const content = fs.readFileSync(REGISTRY_PATH, "utf8");
+      const content = fs.readFileSync(this.registryPath, "utf8");
       const raw = JSON.parse(content) as ImageRegistry;
 
       // Migrate any legacy failed_at / queued_at still present in the JSON
@@ -155,12 +166,12 @@ class MediaGallery {
         log.info(`[MediaGallery] Migrated queue state for ${Object.keys(toMigrate).length} entries to .image-queue-state.json`);
         // Write the cleaned registry back to disk immediately so the fields
         // are never committed to version control again.
-        fs.writeFileSync(REGISTRY_PATH, JSON.stringify(raw, null, 2) + "\n", "utf8");
-        markFileAsModified(`${CONTENT_FOLDER_NAME}/image-registry.json`);
+        fs.writeFileSync(this.registryPath, JSON.stringify(raw, null, 2) + "\n", "utf8");
+        markFileAsModified(`${this.contentFolderName}/image-registry.json`);
       }
 
       this.registryCache = raw;
-      this.lastModified = fs.statSync(REGISTRY_PATH).mtimeMs;
+      this.lastModified = fs.statSync(this.registryPath).mtimeMs;
 
       log.info(`[MediaGallery] Loaded ${Object.keys(this.registryCache.images).length} images, ${Object.keys(this.registryCache.presets).length} presets`);
       return this.registryCache;
@@ -203,7 +214,7 @@ class MediaGallery {
       }
     };
 
-    const escapedPrefix = MARKETING_IMAGES_URL_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedPrefix = this.imagesUrlPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const URL_PATTERN = new RegExp(`(?:https?:\\/\\/[^\\s"']+|\\/attached_assets\\/[^\\s"']+|${escapedPrefix}[^\\s"']+)`, "g");
     const isLikelyRegistryId = (value: string): boolean =>
       /^[a-z0-9][a-z0-9-]{3,}$/.test(value) &&
@@ -246,7 +257,7 @@ class MediaGallery {
         srcValues.add(obj);
         if (
           obj.startsWith("/attached_assets/") || obj.startsWith("attached_assets/") ||
-          obj.startsWith(MARKETING_IMAGES_URL_PREFIX) || obj.startsWith(`${CONTENT_FOLDER_NAME}/images/`) ||
+          obj.startsWith(this.imagesUrlPrefix) || obj.startsWith(`${this.contentFolderName}/images/`) ||
           obj.startsWith("https://storage.googleapis.com/") ||
           obj.startsWith("http://") || obj.startsWith("https://")
         ) {
@@ -284,7 +295,7 @@ class MediaGallery {
     // Parse a YAML file's relative path into content type, slug and locale.
     // Expected pattern: {contentFolder}/{contentType}/{slug}/{locale}.yml
     const parseYamlFilePath = (relPath: string): { contentType: string; slug: string; locale: string } | null => {
-      const match = relPath.match(new RegExp(`^${CONTENT_FOLDER_NAME}\\/([^/]+)\\/([^/]+)\\/([^/.]+)\\.ya?ml$`));
+      const match = relPath.match(new RegExp(`^${this.contentFolderName}\\/([^/]+)\\/([^/]+)\\/([^/.]+)\\.ya?ml$`));
       if (!match) return null;
       return { contentType: match[1], slug: match[2], locale: match[3] };
     };
@@ -364,7 +375,7 @@ class MediaGallery {
       }
     };
 
-    walkDir(MARKETING_CONTENT_DIR);
+    walkDir(this.contentDir);
 
     const IMAGE_ID_PATTERN = /["']([a-z0-9]+-[a-z0-9-]+-[a-f0-9]{6,8})["']/g;
     const scanSourceDir = (dir: string) => {
@@ -461,7 +472,7 @@ class MediaGallery {
     const seen = new Set<string>();
 
     const parseYamlPath = (fp: string) => {
-      const m = fp.match(new RegExp(`^${CONTENT_FOLDER_NAME}\\/([^/]+)\\/([^/]+)\\/([^/.]+)\\.ya?ml$`));
+      const m = fp.match(new RegExp(`^${this.contentFolderName}\\/([^/]+)\\/([^/]+)\\/([^/.]+)\\.ya?ml$`));
       return m ? { contentType: m[1], slug: m[2], locale: m[3] } : null;
     };
 
@@ -571,7 +582,7 @@ class MediaGallery {
    */
   private resolveContentTypeField(variableName: string): { dbSlug: string; dbField: string } | null {
     try {
-      const contentTypesPath = path.join(MARKETING_CONTENT_DIR, "content-types.yml");
+      const contentTypesPath = path.join(this.contentDir, "content-types.yml");
       if (!fs.existsSync(contentTypesPath)) return null;
       const raw = yaml.load(fs.readFileSync(contentTypesPath, "utf8")) as Record<string, any>;
       // variableName is like "single.image" — the field key is the part after "single."
@@ -597,7 +608,7 @@ class MediaGallery {
    */
   private ensureCacheImagesEnabled(dbSlug: string, dbField: string): boolean {
     try {
-      const configPath = path.join(MARKETING_CONTENT_DIR, "db", dbSlug, "config.yml");
+      const configPath = path.join(this.contentDir, "db", dbSlug, "config.yml");
       if (!fs.existsSync(configPath)) return false;
       const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as Record<string, any>;
       if (!raw || typeof raw !== "object") return false;
@@ -606,7 +617,7 @@ class MediaGallery {
       if (raw.editor[dbField].cache_images === true) return true;
       raw.editor[dbField].cache_images = true;
       fs.writeFileSync(configPath, yaml.dump(raw, { lineWidth: -1 }), "utf8");
-      markFileAsModified(`${CONTENT_FOLDER_NAME}/db/${dbSlug}/config.yml`);
+      markFileAsModified(`${this.contentFolderName}/db/${dbSlug}/config.yml`);
       return true;
     } catch {}
     return false;
@@ -628,8 +639,8 @@ class MediaGallery {
         }
       }
       if (updated) {
-        fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n", "utf8");
-        markFileAsModified(`${CONTENT_FOLDER_NAME}/image-registry.json`);
+        fs.writeFileSync(this.registryPath, JSON.stringify(registry, null, 2) + "\n", "utf8");
+        markFileAsModified(`${this.contentFolderName}/image-registry.json`);
         this.registryCache = null;
         this.lastModified = 0;
       }
@@ -765,7 +776,7 @@ class MediaGallery {
     const attachedAssets = this.scanLocalImageDirectory(
       path.join(process.cwd(), "attached_assets"), "/attached_assets/", true
     );
-    const marketingImages = this.scanLocalImageDirectory(MARKETING_IMAGES_DIR, MARKETING_IMAGES_URL_PREFIX, false);
+    const marketingImages = this.scanLocalImageDirectory(this.imagesDir, this.imagesUrlPrefix, false);
     const combined = new Map<string, string>();
     attachedAssets.forEach((src, key) => combined.set(key, src));
     marketingImages.forEach((src, key) => combined.set(key, src));
@@ -779,7 +790,7 @@ class MediaGallery {
   ): void {
     if (typeof value === "string") {
       if (value.startsWith("/attached_assets/") || value.startsWith("attached_assets/") ||
-          value.startsWith(MARKETING_IMAGES_URL_PREFIX) || value.startsWith(`${CONTENT_FOLDER_NAME}/images/`) ||
+          value.startsWith(this.imagesUrlPrefix) || value.startsWith(`${this.contentFolderName}/images/`) ||
           value.startsWith("https://storage.googleapis.com/")) {
         results.push({ field: currentPath, src: value });
       }
@@ -825,7 +836,7 @@ class MediaGallery {
       }
     };
 
-    walkDir(MARKETING_CONTENT_DIR);
+    walkDir(this.contentDir);
     return refs;
   }
 
@@ -861,7 +872,7 @@ class MediaGallery {
   async scan(): Promise<ScanResult> {
     const registry = this.getRegistry() || { presets: {}, images: {} };
     const allImages = this.scanAllLocalImages();
-    const marketingOnly = this.scanLocalImageDirectory(MARKETING_IMAGES_DIR, MARKETING_IMAGES_URL_PREFIX, false);
+    const marketingOnly = this.scanLocalImageDirectory(this.imagesDir, this.imagesUrlPrefix, false);
     const yamlRefs = this.scanYamlFiles();
 
     const existingSrcSet = new Set<string>();
@@ -1021,7 +1032,7 @@ class MediaGallery {
       }
     }
 
-    walkDir(MARKETING_CONTENT_DIR);
+    walkDir(this.contentDir);
     return updatedFiles;
   }
 
@@ -1190,7 +1201,7 @@ class MediaGallery {
 
   private toDestKey(sourceKey: string, prefix?: string): string {
     let relative = sourceKey;
-    const localPrefixes = [MARKETING_IMAGES_URL_PREFIX, "/attached_assets/", `${CONTENT_FOLDER_NAME}/images/`, "attached_assets/"];
+    const localPrefixes = [this.imagesUrlPrefix, "/attached_assets/", `${this.contentFolderName}/images/`, "attached_assets/"];
     for (const p of localPrefixes) {
       if (relative.startsWith(p)) {
         relative = relative.slice(p.length);
@@ -1319,13 +1330,13 @@ class MediaGallery {
     let src: string;
 
     if (defaultProvider.name === "local") {
-      const destDir = MARKETING_IMAGES_DIR;
+      const destDir = this.imagesDir;
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
       }
       const destPath = path.join(destDir, sanitized);
       fs.writeFileSync(destPath, data);
-      src = `${MARKETING_IMAGES_URL_PREFIX}${sanitized}`;
+      src = `${this.imagesUrlPrefix}${sanitized}`;
     } else {
       const key = sanitized;
       src = await defaultProvider.upload(key, data, contentType);
@@ -1478,11 +1489,11 @@ class MediaGallery {
       const filename = entry.src.split("/").pop();
       if (!filename) continue;
 
-      const inImages = path.join(MARKETING_IMAGES_DIR, filename);
+      const inImages = path.join(this.imagesDir, filename);
       const inAssets = path.join(ATTACHED_ASSETS_DIR, filename);
 
       if (fs.existsSync(inImages)) {
-        redundant.push({ id, cloudUrl: entry.src, localPath: `${MARKETING_IMAGES_URL_PREFIX}${filename}` });
+        redundant.push({ id, cloudUrl: entry.src, localPath: `${this.imagesUrlPrefix}${filename}` });
       } else if (fs.existsSync(inAssets)) {
         redundant.push({ id, cloudUrl: entry.src, localPath: `/attached_assets/${filename}` });
       }
@@ -1564,8 +1575,8 @@ class MediaGallery {
       ),
     };
     const nextContent = JSON.stringify(clean, null, 2) + "\n";
-    const currentContent = fs.existsSync(REGISTRY_PATH)
-      ? fs.readFileSync(REGISTRY_PATH, "utf8")
+    const currentContent = fs.existsSync(this.registryPath)
+      ? fs.readFileSync(this.registryPath, "utf8")
       : null;
 
     // Avoid triggering auto-commit when persisted content is identical.
@@ -1574,8 +1585,8 @@ class MediaGallery {
       return;
     }
 
-    fs.writeFileSync(REGISTRY_PATH, nextContent, "utf8");
-    markFileAsModified(`${CONTENT_FOLDER_NAME}/image-registry.json`);
+    fs.writeFileSync(this.registryPath, nextContent, "utf8");
+    markFileAsModified(`${this.contentFolderName}/image-registry.json`);
     this.clearCache();
   }
 }

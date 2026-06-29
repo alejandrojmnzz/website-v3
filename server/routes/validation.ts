@@ -13,7 +13,7 @@ import type { ProgressEvent } from "../../scripts/validation/fixers/types";
 import { contentIndex } from "../content-index";
 import { getAvailableSchemaKeys } from "../schema-org";
 import { generateSsrSchemaHtml } from "../ssr-schema";
-import { mediaGallery } from "../media-gallery";
+import { mediaGallery, MediaGallery } from "../media-gallery";
 import {
 
   safeYamlLoad,
@@ -40,6 +40,10 @@ function getCI(res: Response): typeof contentIndex {
 
 function getContentRoot(res: Response): string {
   return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+}
+
+function getMediaGallery(res: Response): MediaGallery {
+  return (res.locals.site as any)?.mediaGallery ?? mediaGallery;
 }
 
 function getValidationCache(res: Response) {
@@ -733,7 +737,7 @@ export function registerValidationRoutes(app: Express): void {
 
       let registryImages: Record<string, any> = {};
       try {
-        const reg = mediaGallery.getRegistry();
+        const reg = getMediaGallery(res).getRegistry();
         if (reg) {
           registryImages = reg.images || {};
         }
