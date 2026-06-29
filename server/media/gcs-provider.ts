@@ -64,4 +64,23 @@ export class GCSProvider implements StorageProvider {
   async download(key: string): Promise<Buffer | null> {
     return gcs.download(this.fullKey(key));
   }
+
+  /**
+   * List all object keys under an optional sub-prefix (relative to this provider's basePath).
+   * Returns bare keys (without the basePath prefix), matching what upload/delete/exists expect.
+   */
+  async list(subPrefix?: string): Promise<string[]> {
+    const listPrefix = subPrefix
+      ? `${this.fullKey(subPrefix)}/`
+      : this.basePath
+        ? `${this.basePath}/`
+        : "";
+    const fullKeys = await gcs.list(listPrefix);
+    return fullKeys.map((k) => {
+      if (this.basePath && k.startsWith(this.basePath + "/")) {
+        return k.slice(this.basePath.length + 1);
+      }
+      return k;
+    });
+  }
 }

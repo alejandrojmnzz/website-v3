@@ -4,7 +4,7 @@ import * as crypto from "crypto";
 import * as yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import type { ImageRegistry, ImageEntry } from "@shared/schema";
-import { media } from "./media";
+import { media, GCSProvider, createSiteGCSProvider } from "./media";
 import { markFileAsModified } from "./sync-state";
 import { processImageBuffer } from "./image-optimizer";
 import type { Preset } from "./image-optimizer";
@@ -126,6 +126,12 @@ export class MediaGallery {
   private existenceCache: Map<string, ExistenceCache> = new Map();
   private imageRefCache: ImageReferenceScan | null = null;
 
+  /**
+   * Per-site GCS provider scoped to `{contentFolderName}/{GCS_BASE_PATH|media}/`.
+   * `undefined` = not yet resolved; `null` = GCS unavailable for this site.
+   */
+  private _siteGCSProvider: GCSProvider | null | undefined = undefined;
+
   constructor(contentFolder?: string) {
     this.contentFolderName = contentFolder || process.env.CONTENT_FOLDER || "default-site-content";
     this.contentDir = path.isAbsolute(this.contentFolderName)
@@ -134,6 +140,59 @@ export class MediaGallery {
     this.imagesDir = path.join(this.contentDir, "images");
     this.imagesUrlPrefix = `/${path.relative(process.cwd(), this.contentDir)}/images/`;
     this.registryPath = path.join(this.contentDir, "image-registry.json");
+    // Do NOT initialize siteGCSProvider here — GCS may not be initialized yet
+    // at module-load time. It is resolved lazily on first use.
+  }
+
+  /**
+   * Lazily resolves and caches the per-site GCS provider.
+   * Calling `media.getDefaultProvider()` first ensures the global GCS client
+   * has been initialized (via `media.ensureInit()` → `gcs.initFromEnv()`).
+   */
+  private getSiteGCSProvider(): GCSProvider | null {
+    if (this._siteGCSProvider === undefined) {
+      // Trigger media/gcs initialization if it hasn't happened yet.
+      media.getDefaultProvider();
+      this._siteGCSProvider = createSiteGCSProvider(this.contentFolderName);
+    }
+    return this._siteGCSProvider;
+  }
+
+  /**
+   * Returns the storage provider that should be used for new uploads for this site.
+   * Prefers the per-site GCS provider when GCS is available, otherwise falls back
+   * to the local provider.
+   */
+  getDefaultStorageProvider(): import("./media/types").StorageProvider {
+    const siteGCS = this.getSiteGCSProvider();
+    if (siteGCS) return siteGCS;
+    return media.getProvider("local") ?? media.getDefaultProvider();
+  }
+
+  /**
+   * List all object keys currently stored under this site's GCS media prefix.
+   * Returns an empty array when GCS is not available.
+   */
+  async listGCSObjects(): Promise<string[]> {
+    const siteGCS = this.getSiteGCSProvider();
+    if (!siteGCS) return [];
+    return siteGCS.list();
+  }
+
+  /**
+   * Delete a file by its public src URL, using the per-site GCS provider when
+   * the URL belongs to this site's prefix. Falls back to the global media helper
+   * for local files or legacy GCS URLs outside the site prefix.
+   */
+  private async deleteBySrc(src: string): Promise<void> {
+    const siteGCS = this.getSiteGCSProvider();
+    if (siteGCS && siteGCS.owns(src)) {
+      const key = siteGCS.extractKey(src);
+      if (key !== null) {
+        return siteGCS.delete(key);
+      }
+    }
+    return media.delete(src);
   }
 
   getRegistry(): ImageRegistry | null {
@@ -1093,7 +1152,7 @@ export class MediaGallery {
   private async deletePhysicalFiles(imageEntry: ImageEntry): Promise<string[]> {
     const errors: string[] = [];
     try {
-      await media.delete(imageEntry.src);
+      await this.deleteBySrc(imageEntry.src);
     } catch (err) {
       const msg = `Failed to delete primary file ${imageEntry.src}: ${err instanceof Error ? err.message : String(err)}`;
       log.warn(`[MediaGallery] ${msg}`);
@@ -1102,7 +1161,7 @@ export class MediaGallery {
     if (imageEntry.srcset) {
       for (const entry of imageEntry.srcset) {
         try {
-          await media.delete(entry.url);
+          await this.deleteBySrc(entry.url);
         } catch (err) {
           const msg = `Failed to delete srcset variant ${entry.url}: ${err instanceof Error ? err.message : String(err)}`;
           log.warn(`[MediaGallery] ${msg}`);
@@ -1326,10 +1385,10 @@ export class MediaGallery {
       counter++;
     }
 
-    const defaultProvider = media.getDefaultProvider();
+    const storageProvider = this.getDefaultStorageProvider();
     let src: string;
 
-    if (defaultProvider.name === "local") {
+    if (storageProvider.name === "local") {
       const destDir = this.imagesDir;
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
@@ -1339,7 +1398,7 @@ export class MediaGallery {
       src = `${this.imagesUrlPrefix}${sanitized}`;
     } else {
       const key = sanitized;
-      src = await defaultProvider.upload(key, data, contentType);
+      src = await storageProvider.upload(key, data, contentType);
     }
 
     const alt = opts?.alt || `Image: ${path.parse(filename).name}`;
@@ -1525,7 +1584,7 @@ export class MediaGallery {
           }
           resolved++;
         } else {
-          await media.delete(item.cloudUrl);
+          await this.deleteBySrc(item.cloudUrl);
           const localDiskPath = path.join(process.cwd(), item.localPath);
           const fileExists = fs.existsSync(localDiskPath);
           if (fileExists) {

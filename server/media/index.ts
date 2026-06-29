@@ -11,6 +11,20 @@ export type { StorageProvider, MediaConfig, ProviderName };
 export { LocalProvider } from "./local-provider";
 export { GCSProvider } from "./gcs-provider";
 
+/**
+ * Create a site-scoped GCSProvider for the given content folder.
+ * The basePath is `${contentFolderName}/${GCS_BASE_PATH || "media"}`,
+ * so all uploads, exists-checks, and deletes are scoped to that prefix.
+ * Returns null when GCS is not available.
+ */
+export function createSiteGCSProvider(contentFolderName: string): GCSProvider | null {
+  if (!gcs.available) return null;
+  const mediaSegment = process.env.GCS_BASE_PATH || "media";
+  const basePath = `${contentFolderName}/${mediaSegment}`;
+  log.info(`[Media] createSiteGCSProvider: basePath=${basePath}`);
+  return new GCSProvider({ basePath });
+}
+
 class Media {
   private providers: Map<string, StorageProvider> = new Map();
   private defaultProviderName: ProviderName = "local";
@@ -23,10 +37,14 @@ class Media {
     this.providers.set("local", local);
 
     if (gcs.available) {
-      const mediaBasePath = config?.gcs?.basePath || process.env.GCS_BASE_PATH || "media";
-      const gcsProvider = new GCSProvider({ basePath: mediaBasePath });
+      // The global GCS provider is intentionally bare (no basePath/prefix).
+      // Site-scoped uploads and deletes go through per-site GCSProvider instances
+      // created via createSiteGCSProvider(), owned by MediaGallery.
+      // This bare provider handles operations that don't go through MediaGallery
+      // and is used by resolveProvider() for backward-compat URL resolution.
+      const gcsProvider = new GCSProvider({ basePath: "" });
       this.providers.set("gcs", gcsProvider);
-      log.info(`[Media] GCS provider configured for bucket: ${gcs.getBucketName()} (basePath: ${mediaBasePath})`);
+      log.info(`[Media] GCS provider configured for bucket: ${gcs.getBucketName()} (bare, no basePath prefix)`);
     }
 
     this.defaultProviderName = config?.defaultProvider || "local";
@@ -44,7 +62,6 @@ class Media {
     if (gcs.available) {
       config.gcs = {
         bucketName: gcs.getBucketName(),
-        basePath: process.env.GCS_BASE_PATH || "media",
       };
     }
 
@@ -125,7 +142,7 @@ class Media {
     if (this.providers.has("gcs")) {
       status.gcs = {
         bucket: gcs.getBucketName(),
-        basePath: process.env.GCS_BASE_PATH || "media",
+        basePath: "(bare — site prefix set per-gallery)",
         projectId: process.env.GCS_PROJECT_ID,
       };
     }

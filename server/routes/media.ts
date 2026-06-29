@@ -776,10 +776,11 @@ export function registerMediaRoutes(app: Express): void {
 
       const uniqueId = baseId;
       const derivedFilename = `${uniqueId}.webp`;
-      const defaultProvider = media.getDefaultProvider();
+      const siteGallery = getMediaGallery(res);
+      const siteProvider = siteGallery.getDefaultStorageProvider();
       let newSrc: string;
 
-      if (defaultProvider.name === "local") {
+      if (siteProvider.name === "local") {
         const contentRoot: string = (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
         const contentRootName = path.basename(contentRoot);
         const imagesDir = path.join(contentRoot, "images");
@@ -790,7 +791,7 @@ export function registerMediaRoutes(app: Express): void {
         fs.writeFileSync(destPath, processedBuffer);
         newSrc = `/${contentRootName}/images/${derivedFilename}`;
       } else {
-        newSrc = await defaultProvider.upload(derivedFilename, processedBuffer, "image/webp");
+        newSrc = await siteProvider.upload(derivedFilename, processedBuffer, "image/webp");
       }
 
       getMediaGallery(res).register(uniqueId, {

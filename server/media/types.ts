@@ -6,6 +6,8 @@ export interface StorageProvider {
   getPublicUrl(key: string): string;
   extractKey(src: string): string | null;
   owns(src: string): boolean;
+  /** List keys under an optional sub-prefix (relative to this provider's own basePath). */
+  list?(subPrefix?: string): Promise<string[]>;
 }
 
 export type ProviderName = "local" | "gcs";
