@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { IconAlertTriangle, IconAlertCircle, IconServerBolt, IconBug, IconRefresh } from "@tabler/icons-react";
+import { IconAlertTriangle, IconAlertCircle, IconServerBolt, IconBug, IconRefresh, IconInfoCircle } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -98,6 +98,12 @@ export default function ErrorLogPage() {
           <IconRefresh className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
           Refresh
         </Button>
+      </div>
+
+      {/* Centralized log notice */}
+      <div className="flex items-start gap-3 rounded-md border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+        <IconInfoCircle className="h-4 w-4 mt-0.5 shrink-0 text-foreground/60" />
+        <span>This log is <strong className="text-foreground font-medium">centralized across all sites</strong>. It captures process-level errors and warnings from the entire server, not just the currently active site.</span>
       </div>
 
       {/* KPI Cards */}
