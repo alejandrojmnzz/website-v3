@@ -8,7 +8,7 @@ import { badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { normalizeLocale } from "@/lib/locale";
 import { SyncStatusPopover } from "./SyncStatusPopover";
 import { ComponentsView } from "./ComponentsView";
@@ -164,8 +164,8 @@ function MenuItem({ icon: Icon, label, onClick, href, testId, rightContent, indi
               <DialogContent className="max-w-sm" onClick={(e) => e.stopPropagation()}>
                 <DialogHeader>
                   <DialogTitle className="text-sm">{label}</DialogTitle>
+                  <DialogDescription>{infoTooltip}</DialogDescription>
                 </DialogHeader>
-                <p className="text-sm text-muted-foreground">{infoTooltip}</p>
               </DialogContent>
             </Dialog>
           </>

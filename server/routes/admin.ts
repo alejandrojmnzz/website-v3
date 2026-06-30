@@ -250,7 +250,6 @@ function loadSiteLLMConfig(res: Response): Record<string, unknown> {
 export function registerAdminRoutes(app: Express): void {
   // GCS bucket status — migrationRequired flag + bucket name
   app.get("/api/admin/gcs-status", (_req, res) => {
-    const { gcs } = require("../gcs") as typeof import("../gcs");
     res.json({
       migrationRequired: gcs.migrationRequired,
       bucketName: gcs.getBucketName() || null,
