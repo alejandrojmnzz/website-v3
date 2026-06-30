@@ -7,24 +7,10 @@ import { child as loggerChild } from './logger';
 
 const syncLogLogger = loggerChild({ module: "SyncLog", worker: "SyncLog" });
 
-const CONTENT_FOLDER = process.env.CONTENT_FOLDER || 'content';
-const SYNC_LOG_PATH = path.join(process.cwd(), CONTENT_FOLDER, '.sync-log-state.txt');
-// Legacy migration: look for old sync-log-state in any registered site folder
-function findLegacySyncLogPath(): string | null {
-  try {
-    const { getSiteConfigs } = require('./site-config') as typeof import('./site-config');
-    for (const site of getSiteConfigs()) {
-      const candidatePath = path.join(process.cwd(), site.contentFolder, '.sync-log-state.txt');
-      if (candidatePath !== SYNC_LOG_PATH && fs.existsSync(candidatePath)) return candidatePath;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-const GCS_SYNC_LOG_KEY = 'sync/sync-log-state.txt';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const MAX_LOG_LINES = 500;
 
-const INSTANCE_ID = crypto.randomBytes(2).toString('hex');
+export const INSTANCE_ID = crypto.randomBytes(2).toString('hex');
 
 let REPLIT_CHECKPOINT = '?';
 try {
@@ -38,7 +24,7 @@ let GITHUB_COMMIT: string | null = null;
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   try {
     const cleanUrl = url.replace(/\.git$/, '');
-    const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    const match = cleanUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
     if (match) return { owner: match[1], repo: match[2] };
     return null;
   } catch {
@@ -91,10 +77,6 @@ export type SyncLogEntry = {
   meta?: Record<string, unknown>;
 };
 
-let logEntries: SyncLogEntry[] = [];
-let loaded = false;
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
 function parseOldTextLine(line: string): SyncLogEntry | null {
   const m = line.match(/^(\S+) \[(\w[\w-]*)\] (.+)$/);
   if (!m) return null;
@@ -104,121 +86,242 @@ function parseOldTextLine(line: string): SyncLogEntry | null {
   return { ts, category: category as SyncLogCategory, message, ...(person ? { person } : {}) };
 }
 
-function loadLocal(): void {
-  try {
-    const pathToRead = fs.existsSync(SYNC_LOG_PATH)
-      ? SYNC_LOG_PATH
-      : findLegacySyncLogPath();
+// ─── SyncLog class ────────────────────────────────────────────────────────────
+//
+// Each site gets its own SyncLog instance, parameterised by contentRoot
+// (the absolute path to the site's content folder) and contentFolderName
+// (the relative path, used as part of the GCS key).
+//
+// The module-level exported functions below delegate to a shared default
+// instance for backward compatibility with startup code in routes/index.ts and
+// any callers that don't have access to res.locals.site.
 
-    if (pathToRead) {
-      const raw = fs.readFileSync(pathToRead, 'utf-8');
-      logEntries = raw
-        .split('\n')
-        .filter(l => l.trim() !== '')
-        .map(line => {
-          try {
-            return JSON.parse(line) as SyncLogEntry;
-          } catch {
-            return parseOldTextLine(line);
+export class SyncLog {
+  private readonly syncLogPath: string;
+  private readonly gcsKey: string;
+  private readonly migrateLegacy: boolean;
+  private logEntries: SyncLogEntry[] = [];
+  private loaded = false;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // migrateLegacy should be true only for the first/primary registered site.
+  // Secondary sites must pass false to prevent cross-site log contamination.
+  constructor(contentRoot: string, contentFolderName: string, migrateLegacy = false) {
+    this.syncLogPath = path.join(contentRoot, '.sync-log-state.txt');
+    // Per-site GCS key: sync/<contentFolderName>/sync-log-state.txt
+    // Sanitise the folder name so slashes don't create unexpected GCS prefixes.
+    const safeFolder = contentFolderName.replace(/\\/g, '/').replace(/^\/|\/$/g, '');
+    this.gcsKey = `sync/${safeFolder}/sync-log-state.txt`;
+    this.migrateLegacy = migrateLegacy;
+  }
+
+  // Legacy migration: resolve the canonical pre-multi-site sync log location —
+  // CONTENT_FOLDER env var directory or 'content' as a final fallback.
+  //
+  // Deliberately does NOT scan other registered site folders: importing another
+  // site's history would break per-site log isolation.  Only called when
+  // migrateLegacy=true (i.e. the primary/default site).
+  private findLegacySyncLogPath(): string | null {
+    const legacyFolder = process.env.CONTENT_FOLDER || 'content';
+    const legacyPath = path.join(process.cwd(), legacyFolder, '.sync-log-state.txt');
+    if (legacyPath !== this.syncLogPath && fs.existsSync(legacyPath)) return legacyPath;
+    return null;
+  }
+
+  private loadLocal(): void {
+    try {
+      const pathToRead = fs.existsSync(this.syncLogPath)
+        ? this.syncLogPath
+        : (this.migrateLegacy ? this.findLegacySyncLogPath() : null);
+
+      if (pathToRead) {
+        const raw = fs.readFileSync(pathToRead, 'utf-8');
+        this.logEntries = raw
+          .split('\n')
+          .filter(l => l.trim() !== '')
+          .map(line => {
+            try {
+              return JSON.parse(line) as SyncLogEntry;
+            } catch {
+              return parseOldTextLine(line);
+            }
+          })
+          .filter((e): e is SyncLogEntry => e !== null);
+      } else {
+        this.logEntries = [];
+      }
+    } catch {
+      this.logEntries = [];
+    }
+    this.loaded = true;
+  }
+
+  private saveLocal(): void {
+    try {
+      const dir = path.dirname(this.syncLogPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const content = this.logEntries.map(e => JSON.stringify(e)).join('\n') + '\n';
+      fs.writeFileSync(this.syncLogPath, content, 'utf-8');
+    } catch (error) {
+      syncLogLogger.error({ err: error }, "error saving local log");
+    }
+  }
+
+  private async saveToBucket(): Promise<void> {
+    if (!IS_PRODUCTION || !gcs.available) return;
+    try {
+      const content = this.logEntries.map(e => JSON.stringify(e)).join('\n') + '\n';
+      gcs.debouncedUpload(this.gcsKey, Buffer.from(content, 'utf-8'), 'text/plain', 2_000);
+    } catch (error) {
+      syncLogLogger.error({ err: error }, "error saving log to bucket");
+    }
+  }
+
+  private scheduleSave(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(async () => {
+      this.saveTimer = null;
+      this.saveLocal();
+      await this.saveToBucket();
+    }, 2000);
+  }
+
+  private trimLog(): void {
+    if (this.logEntries.length > MAX_LOG_LINES) {
+      this.logEntries = this.logEntries.slice(this.logEntries.length - MAX_LOG_LINES);
+    }
+  }
+
+  async load(): Promise<void> {
+    if (this.loaded) return;
+
+    if (IS_PRODUCTION && gcs.available) {
+      try {
+        const exists = await gcs.exists(this.gcsKey);
+        if (exists) {
+          const data = await gcs.download(this.gcsKey);
+          if (data) {
+            this.logEntries = data.toString('utf-8')
+              .split('\n')
+              .filter(l => l.trim() !== '')
+              .map(line => {
+                try {
+                  return JSON.parse(line) as SyncLogEntry;
+                } catch {
+                  return parseOldTextLine(line);
+                }
+              })
+              .filter((e): e is SyncLogEntry => e !== null);
+            this.loaded = true;
+            this.saveLocal();
+            return;
           }
-        })
-        .filter((e): e is SyncLogEntry => e !== null);
-    } else {
-      logEntries = [];
+        }
+      } catch (error) {
+        syncLogLogger.error({ err: error }, "error loading from bucket");
+      }
     }
-  } catch {
-    logEntries = [];
-  }
-  loaded = true;
-}
 
-function saveLocal(): void {
-  try {
-    const dir = path.dirname(SYNC_LOG_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    this.loadLocal();
+  }
+
+  log(category: SyncLogCategory, message: string, person?: string, meta?: Record<string, unknown>): void {
+    if (!this.loaded) this.loadLocal();
+
+    const entry: SyncLogEntry = {
+      ts: new Date().toISOString(),
+      category,
+      message,
+      ...(person ? { person } : {}),
+      ...(meta ? { meta } : {}),
+    };
+    this.logEntries.push(entry);
+    this.trimLog();
+    this.scheduleSave();
+
+    const legacyText = `${entry.ts} [${category}] ${message}`;
+    syncLogLogger.info({ category, person }, legacyText);
+  }
+
+  getEntries(): SyncLogEntry[] {
+    if (!this.loaded) this.loadLocal();
+    return [...this.logEntries];
+  }
+
+  getText(): string {
+    if (!this.loaded) this.loadLocal();
+    return this.logEntries.map(e => `${e.ts} [${e.category}] ${e.message}`).join('\n');
+  }
+
+  getRecent(count: number = 20): SyncLogEntry[] {
+    if (!this.loaded) this.loadLocal();
+    return this.logEntries.slice(-count);
+  }
+
+  async flush(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
     }
-    const content = logEntries.map(e => JSON.stringify(e)).join('\n') + '\n';
-    fs.writeFileSync(SYNC_LOG_PATH, content, 'utf-8');
-  } catch (error) {
-    syncLogLogger.error({ err: error }, "error saving local log");
+    this.saveLocal();
+    await this.saveToBucket();
+  }
+
+  async clear(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    this.logEntries = [];
+    this.saveLocal();
+    await this.saveToBucket();
+    this.log('RESTART', `Log cleared (instance=${INSTANCE_ID}, checkpoint=${REPLIT_CHECKPOINT})`);
+  }
+
+  async clearOlderThan(cutoffMs: number): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    const before = this.logEntries.length;
+    this.logEntries = this.logEntries.filter(e => new Date(e.ts).getTime() >= cutoffMs);
+    const removed = before - this.logEntries.length;
+    this.saveLocal();
+    await this.saveToBucket();
+    this.log('RESTART', `Cleared ${removed} log entr${removed !== 1 ? 'ies' : 'y'} older than ${new Date(cutoffMs).toISOString()} (instance=${INSTANCE_ID})`);
   }
 }
 
-async function saveToBucket(): Promise<void> {
-  if (!IS_PRODUCTION || !gcs.available) return;
-  try {
-    const content = logEntries.map(e => JSON.stringify(e)).join('\n') + '\n';
-    gcs.debouncedUpload(GCS_SYNC_LOG_KEY, Buffer.from(content, 'utf-8'), 'text/plain', 2_000);
-  } catch (error) {
-    syncLogLogger.error({ err: error }, "error saving log to bucket");
-  }
+// ─── Default module-level instance ───────────────────────────────────────────
+//
+// Used by startup code in routes/index.ts and any other callers that don't
+// have access to a per-site SyncLog.  Parameterised by CONTENT_FOLDER env var
+// (the same value the server uses for single-site deployments).
+
+const _defaultContentFolder = process.env.CONTENT_FOLDER || 'content';
+const _defaultContentRoot = path.join(process.cwd(), _defaultContentFolder);
+const _defaultSyncLog = new SyncLog(_defaultContentRoot, _defaultContentFolder);
+
+// ─── Per-request helper ───────────────────────────────────────────────────────
+//
+// Resolves the per-site SyncLog from res.locals.site (set by siteResolutionMiddleware)
+// falling back to the default instance when no site context is available.
+
+export function getSyncLogForResponse(res: { locals: Record<string, unknown> }): SyncLog {
+  const site = res.locals.site as { syncLog?: SyncLog } | undefined;
+  return site?.syncLog ?? _defaultSyncLog;
 }
 
-function scheduleSave(): void {
-  if (saveTimer) return;
-  saveTimer = setTimeout(async () => {
-    saveTimer = null;
-    saveLocal();
-    await saveToBucket();
-  }, 2000);
-}
-
-function trimLog(): void {
-  if (logEntries.length > MAX_LOG_LINES) {
-    logEntries = logEntries.slice(logEntries.length - MAX_LOG_LINES);
-  }
-}
+// ─── Module-level backward-compatible exports ─────────────────────────────────
 
 export async function loadSyncLog(): Promise<void> {
-  if (loaded) return;
-
-  if (IS_PRODUCTION && gcs.available) {
-    try {
-      const exists = await gcs.exists(GCS_SYNC_LOG_KEY);
-      if (exists) {
-        const data = await gcs.download(GCS_SYNC_LOG_KEY);
-        if (data) {
-          logEntries = data.toString('utf-8')
-            .split('\n')
-            .filter(l => l.trim() !== '')
-            .map(line => {
-              try {
-                return JSON.parse(line) as SyncLogEntry;
-              } catch {
-                return parseOldTextLine(line);
-              }
-            })
-            .filter((e): e is SyncLogEntry => e !== null);
-          loaded = true;
-          saveLocal();
-          return;
-        }
-      }
-    } catch (error) {
-      syncLogLogger.error({ err: error }, "error loading from bucket");
-    }
-  }
-
-  loadLocal();
+  return _defaultSyncLog.load();
 }
 
 export function logSync(category: SyncLogCategory, message: string, person?: string, meta?: Record<string, unknown>): void {
-  if (!loaded) loadLocal();
-
-  const entry: SyncLogEntry = {
-    ts: new Date().toISOString(),
-    category,
-    message,
-    ...(person ? { person } : {}),
-    ...(meta ? { meta } : {}),
-  };
-  logEntries.push(entry);
-  trimLog();
-  scheduleSave();
-
-  const legacyText = `${entry.ts} [${category}] ${message}`;
-  syncLogLogger.info({ category, person }, legacyText);
+  _defaultSyncLog.log(category, message, person, meta);
 }
 
 export function getInstanceId(): string {
@@ -230,49 +333,25 @@ export function getReplitCheckpoint(): string {
 }
 
 export function getSyncLogEntries(): SyncLogEntry[] {
-  if (!loaded) loadLocal();
-  return [...logEntries];
+  return _defaultSyncLog.getEntries();
 }
 
 export function getSyncLogText(): string {
-  if (!loaded) loadLocal();
-  return logEntries.map(e => `${e.ts} [${e.category}] ${e.message}`).join('\n');
+  return _defaultSyncLog.getText();
 }
 
 export function getRecentEntries(count: number = 20): SyncLogEntry[] {
-  if (!loaded) loadLocal();
-  return logEntries.slice(-count);
+  return _defaultSyncLog.getRecent(count);
 }
 
 export async function flushSyncLog(): Promise<void> {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  saveLocal();
-  await saveToBucket();
+  return _defaultSyncLog.flush();
 }
 
 export async function clearSyncLog(): Promise<void> {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  logEntries = [];
-  saveLocal();
-  await saveToBucket();
-  logSync('RESTART', `Log cleared (instance=${INSTANCE_ID}, checkpoint=${REPLIT_CHECKPOINT})`);
+  return _defaultSyncLog.clear();
 }
 
 export async function clearSyncLogOlderThan(cutoffMs: number): Promise<void> {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  const before = logEntries.length;
-  logEntries = logEntries.filter(e => new Date(e.ts).getTime() >= cutoffMs);
-  const removed = before - logEntries.length;
-  saveLocal();
-  await saveToBucket();
-  logSync('RESTART', `Cleared ${removed} log entr${removed !== 1 ? 'ies' : 'y'} older than ${new Date(cutoffMs).toISOString()} (instance=${INSTANCE_ID})`);
+  return _defaultSyncLog.clearOlderThan(cutoffMs);
 }

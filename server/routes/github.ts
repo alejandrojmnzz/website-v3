@@ -301,6 +301,35 @@ export function registerGithubRoutes(app: Express): void {
 
       const { getAutoCommitStatus } = await import("../auto-commit");
       const { lastCommitSha } = getAutoCommitStatus();
+
+      // Match this push to a site by comparing the payload's repo URL against
+      // registered sites' githubRepoUrl.  Falls back to the global GITHUB_REPO_URL
+      // env var (single-site mode or un-matched multi-site push).
+      const pushRepoUrl = (
+        pushPayload.repository?.html_url ||
+        pushPayload.repository?.clone_url ||
+        ""
+      ).replace(/\.git$/, "").toLowerCase();
+
+      let contentFolderPrefix = process.env.CONTENT_FOLDER || "default-site-content";
+      let matchedSiteCtx: import("../site-manager").SiteContext | null = null;
+      if (pushRepoUrl) {
+        for (const ctx of Array.from(getSiteContextMap().values())) {
+          const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
+          if (siteRepo && siteRepo === pushRepoUrl) {
+            contentFolderPrefix = ctx.contentRootName;
+            matchedSiteCtx = ctx;
+            break;
+          }
+        }
+      }
+
+      // Delegate to the matched site's SyncLog instance so sync events are
+      // stored in the correct per-site log file / GCS key.
+      const _sl = matchedSiteCtx?.syncLog;
+      const siteLogSync = (cat: import("../sync-log").SyncLogCategory, msg: string, person?: string, meta?: Record<string, unknown>) =>
+        _sl ? _sl.log(cat, msg, person, meta) : logSync(cat, msg, person, meta);
+
       if (
         lastCommitSha &&
         commitSha &&
@@ -308,7 +337,7 @@ export function registerGithubRoutes(app: Express): void {
           commitSha.startsWith(lastCommitSha) ||
           lastCommitSha.startsWith(commitSha))
       ) {
-        logSync(
+        siteLogSync(
           "WEBHOOK",
           `Push ${commitSha?.slice(0, 7)} by ${pusher}: skipping auto-pull — commit was pushed by this instance`,
           pusher,
@@ -342,32 +371,12 @@ export function registerGithubRoutes(app: Express): void {
         for (const f of commit.removed || []) changedFiles.add(f);
       }
 
-      // Match this push to a site by comparing the payload's repo URL against
-      // registered sites' githubRepoUrl.  Falls back to the global GITHUB_REPO_URL
-      // env var (single-site mode or un-matched multi-site push).
-      const pushRepoUrl = (
-        pushPayload.repository?.html_url ||
-        pushPayload.repository?.clone_url ||
-        ""
-      ).replace(/\.git$/, "").toLowerCase();
-
-      let contentFolderPrefix = process.env.CONTENT_FOLDER || "default-site-content";
-      if (pushRepoUrl) {
-        for (const ctx of Array.from(getSiteContextMap().values())) {
-          const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
-          if (siteRepo && siteRepo === pushRepoUrl) {
-            contentFolderPrefix = ctx.contentRootName;
-            break;
-          }
-        }
-      }
-
       const marketingFiles = Array.from(changedFiles).filter((f) =>
         f.startsWith(`${contentFolderPrefix}/`),
       );
 
       if (marketingFiles.length === 0) {
-        logSync(
+        siteLogSync(
           "WEBHOOK",
           `Push ${commitSha?.slice(0, 7)} by ${person}: no ${contentFolderPrefix} files changed`,
           person,
@@ -376,7 +385,7 @@ export function registerGithubRoutes(app: Express): void {
         return;
       }
 
-      logSync(
+      siteLogSync(
         "WEBHOOK",
         `Push ${commitSha?.slice(0, 7)} by ${person}: ${marketingFiles.length} ${contentFolderPrefix} files changed`,
         person,
@@ -386,7 +395,7 @@ export function registerGithubRoutes(app: Express): void {
         process.env.GITHUB_SYNC_ENABLED === "true" &&
         process.env.GITHUB_AUTO_PULL_ENABLED === "true";
       if (!isAutoPullEnabled) {
-        logSync(
+        siteLogSync(
           "AUTO-PULL",
           `Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'`,
         );
@@ -402,19 +411,19 @@ export function registerGithubRoutes(app: Express): void {
       const result = await autoPullNonConflicting(marketingFiles, commitSha, pullOpts);
 
       if (result.pulled.length > 0) {
-        logSync(
+        siteLogSync(
           "AUTO-PULL",
           `Webhook: pulled ${result.pulled.length} files from ${commitSha?.slice(0, 7)}: ${result.pulled.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
         );
       }
       if (result.conflicted.length > 0) {
-        logSync(
+        siteLogSync(
           "CONFLICT",
           `Webhook: ${result.conflicted.length} files have local edits: ${result.conflicted.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
         );
       }
       if (result.errors.length > 0) {
-        logSync("ERROR", `Webhook pull errors: ${result.errors.join("; ")}`);
+        siteLogSync("ERROR", `Webhook pull errors: ${result.errors.join("; ")}`);
       }
 
       res.json({
@@ -424,8 +433,8 @@ export function registerGithubRoutes(app: Express): void {
         errors: result.errors.length,
       });
     } catch (error) {
-      const { logSync } = await import("../sync-log");
-      logSync(
+      const { logSync: _logSyncErr } = await import("../sync-log");
+      _logSyncErr(
         "ERROR",
         `Webhook handler error: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -437,8 +446,8 @@ export function registerGithubRoutes(app: Express): void {
   // Get the full sync log text
   app.get("/api/github/sync-log", async (_req, res) => {
     try {
-      const { getSyncLogEntries } = await import("../sync-log");
-      const entries = getSyncLogEntries();
+      const { getSyncLogForResponse } = await import("../sync-log");
+      const entries = getSyncLogForResponse(res).getEntries();
       res.json({ entries });
       return;
     } catch (error) {
@@ -448,8 +457,8 @@ export function registerGithubRoutes(app: Express): void {
 
   app.get("/api/github/sync-log-text", async (_req, res) => {
     try {
-      const { getSyncLogText } = await import("../sync-log");
-      const text = getSyncLogText();
+      const { getSyncLogForResponse } = await import("../sync-log");
+      const text = getSyncLogForResponse(res).getText();
       res.type("text/plain").send(text);
     } catch (error) {
       res.status(500).send("Error reading sync log");
@@ -458,13 +467,13 @@ export function registerGithubRoutes(app: Express): void {
 
   app.delete("/api/github/sync-log", async (req, res) => {
     try {
+      const { getSyncLogForResponse } = await import("../sync-log");
+      const sl = getSyncLogForResponse(res);
       const mode = req.query.mode as string | undefined;
       if (mode === "2days") {
-        const { clearSyncLogOlderThan } = await import("../sync-log");
-        await clearSyncLogOlderThan(Date.now() - 2 * 24 * 60 * 60 * 1000);
+        await sl.clearOlderThan(Date.now() - 2 * 24 * 60 * 60 * 1000);
       } else {
-        const { clearSyncLog } = await import("../sync-log");
-        await clearSyncLog();
+        await sl.clear();
       }
       res.json({ success: true });
     } catch (error) {
@@ -818,7 +827,7 @@ export function registerGithubRoutes(app: Express): void {
         const { markFileAsModified, detectPendingChanges } = await import(
           "../sync-state"
         );
-        const { logSync } = await import("../sync-log");
+        const { getSyncLogForResponse } = await import("../sync-log");
         const { isAutoCommitEnabled } = await import("../auto-commit");
 
         if (!isAutoCommitEnabled()) {
@@ -862,7 +871,7 @@ export function registerGithubRoutes(app: Express): void {
         for (const filePath of filesToQueue) {
           markFileAsModified(filePath, effectiveAuthor);
           const shortPath = filePath.split('/').slice(1).join('/') || filePath;
-          logSync("EDIT", `MCP queued edit: ${shortPath}`, effectiveAuthor);
+          getSyncLogForResponse(res).log("EDIT", `MCP queued edit: ${shortPath}`, effectiveAuthor);
         }
 
         res

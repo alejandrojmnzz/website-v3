@@ -18,13 +18,7 @@ export const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
 
-sqlite.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL
-  );
-
+const CONVERSATION_SCHEMA = `
   CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     page_url TEXT,
@@ -35,22 +29,7 @@ sqlite.exec(`
     user_id TEXT,
     started_at INTEGER
   );
-`);
 
-// Migrate existing databases: rename visitor_id column to user_id if it exists
-try {
-  const cols = sqlite.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
-  const hasVisitorId = cols.some(c => c.name === "visitor_id");
-  const hasUserId = cols.some(c => c.name === "user_id");
-  if (hasVisitorId && !hasUserId) {
-    sqlite.exec("ALTER TABLE conversations RENAME COLUMN visitor_id TO user_id");
-    log.info("[DB] Migrated conversations.visitor_id → user_id");
-  }
-} catch (err) {
-  log.warn("[DB] Column migration check failed (non-fatal):", err);
-}
-
-sqlite.exec(`
   CREATE TABLE IF NOT EXISTS conversation_messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -73,7 +52,31 @@ sqlite.exec(`
     updated_at INTEGER,
     updated_by TEXT
   );
+`;
 
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL
+  );
+${CONVERSATION_SCHEMA}
+`);
+
+// Migrate existing databases: rename visitor_id column to user_id if it exists
+try {
+  const cols = sqlite.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  const hasVisitorId = cols.some(c => c.name === "visitor_id");
+  const hasUserId = cols.some(c => c.name === "user_id");
+  if (hasVisitorId && !hasUserId) {
+    sqlite.exec("ALTER TABLE conversations RENAME COLUMN visitor_id TO user_id");
+    log.info("[DB] Migrated conversations.visitor_id → user_id");
+  }
+} catch (err) {
+  log.warn("[DB] Column migration check failed (non-fatal):", err);
+}
+
+sqlite.exec(`
   CREATE TABLE IF NOT EXISTS error_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER NOT NULL,
@@ -123,3 +126,75 @@ registerLogSink((ts, level, module, message, errName, errStack) => {
 });
 
 export const db = drizzle(sqlite);
+
+// ─── Per-site SQLite factory ─────────────────────────────────────────────────
+//
+// Each site gets its own SQLite file at data/<contentFolderName>/app.db so
+// conversations, AI knowledge, etc. are isolated by site.
+//
+// On first access for a given contentFolderName, if the legacy shared
+// data/app.db exists and the site-specific file does not yet exist, we copy
+// the legacy file into the site-specific location so no existing data is lost.
+
+export type SiteDb = ReturnType<typeof drizzle>;
+
+const _siteDbCache = new Map<string, SiteDb>();
+
+// createSiteDb — returns (and caches) a drizzle instance for a site-specific
+// SQLite database at data/<contentFolderName>/app.db.
+//
+// When copyLegacyIfMissing=true (set only for the first/primary site), if the
+// site-specific DB does not yet exist but the legacy shared data/app.db does,
+// the legacy file is copied over so existing conversations remain visible in
+// the default site's admin UI.  Secondary sites always start with an empty DB
+// to prevent cross-site data leakage.
+export function createSiteDb(contentFolderName: string, copyLegacyIfMissing = false): SiteDb {
+  if (_siteDbCache.has(contentFolderName)) {
+    return _siteDbCache.get(contentFolderName)!;
+  }
+
+  // Sanitize to a safe directory component (replace slashes with dashes)
+  const safeName = contentFolderName.replace(/[/\\]/g, "-");
+  const siteDataDir = path.join(dataDir, safeName);
+
+  if (!fs.existsSync(siteDataDir)) {
+    fs.mkdirSync(siteDataDir, { recursive: true });
+  }
+
+  const siteDbPath = path.join(siteDataDir, "app.db");
+
+  // One-time legacy migration: copy data/app.db → site-specific location only
+  // for the primary/default site so that pre-multi-site conversations are
+  // preserved.  Secondary sites intentionally start fresh.
+  if (copyLegacyIfMissing && !fs.existsSync(siteDbPath) && fs.existsSync(dbPath)) {
+    try {
+      fs.copyFileSync(dbPath, siteDbPath);
+      log.info(`[DB] Migrated legacy data/app.db → ${siteDbPath}`);
+    } catch (err) {
+      log.warn({ err }, `[DB] Could not copy legacy DB to ${siteDbPath} (non-fatal)`);
+    }
+  }
+
+  const siteSqlite = new Database(siteDbPath);
+  siteSqlite.pragma("journal_mode = WAL");
+  siteSqlite.pragma("foreign_keys = ON");
+  siteSqlite.exec(CONVERSATION_SCHEMA);
+
+  // visitor_id → user_id migration for site-specific DBs
+  try {
+    const cols = siteSqlite.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+    const hasVisitorId = cols.some(c => c.name === "visitor_id");
+    const hasUserId = cols.some(c => c.name === "user_id");
+    if (hasVisitorId && !hasUserId) {
+      siteSqlite.exec("ALTER TABLE conversations RENAME COLUMN visitor_id TO user_id");
+      log.info(`[DB] Migrated ${safeName} conversations.visitor_id → user_id`);
+    }
+  } catch (err) {
+    log.warn({ err }, `[DB] Column migration check failed for ${safeName} (non-fatal)`);
+  }
+
+  const siteDb = drizzle(siteSqlite);
+  _siteDbCache.set(contentFolderName, siteDb);
+  log.info(`[DB] Site SQLite database: ${siteDbPath}`);
+  return siteDb;
+}

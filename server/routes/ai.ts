@@ -506,6 +506,13 @@ export function registerAiRoutes(app: Express): void {
     return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
   }
 
+  async function getConversationStore(res: Response) {
+    const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+    if (site?.conversationStore) return site.conversationStore;
+    const { conversationStore } = await import("../ai/ConversationStore");
+    return conversationStore;
+  }
+
   function loadLLMConfig(contentRoot: string): ParsedLLMConfig {
     const llmPath = path.join(contentRoot, "llm.yml");
     if (!fs.existsSync(llmPath)) return {};
@@ -592,7 +599,7 @@ export function registerAiRoutes(app: Express): void {
 
   app.post("/api/chat/start", async (req, res) => {
     try {
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
       const { page_url, content_type, content_slug, locale, user_id } = req.body || {};
 
       const allFeatureTags = loadFeatureTags(getContentRoot(res));
@@ -617,7 +624,7 @@ export function registerAiRoutes(app: Express): void {
   app.post("/api/chat/message", async (req, res) => {
     try {
       const { getAgentService } = await import("../ai/AgentService");
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
 
       const { conversation_id, message, content_type, content_slug, locale } = req.body || {};
 
@@ -637,7 +644,8 @@ export function registerAiRoutes(app: Express): void {
         message,
         content_type || null,
         content_slug || null,
-        locale || "en"
+        locale || "en",
+        conversationStore
       );
 
       const assistantMsg = await conversationStore.addMessage({

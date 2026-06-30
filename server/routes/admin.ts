@@ -227,6 +227,14 @@ function getContentRootName(res: Response): string {
   return (res.locals.site as any)?.contentRootName ?? (process.env.CONTENT_FOLDER || "default-site-content");
 }
 
+/** Return the per-site ConversationStore for the current request, falling back to the default singleton. */
+async function getConversationStore(res: Response) {
+  const site = (res.locals.site as import("../site-manager").SiteContext | undefined);
+  if (site?.conversationStore) return site.conversationStore;
+  const { conversationStore } = await import("../ai/ConversationStore");
+  return conversationStore;
+}
+
 /** Load llm.yml from the per-site content root for this request. Falls back gracefully when not present. */
 function loadSiteLLMConfig(res: Response): Record<string, unknown> {
   try {
@@ -1301,7 +1309,7 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
       const knowledge = await conversationStore.getAllKnowledge();
 
       const llmConfig = loadSiteLLMConfig(res);
@@ -1335,7 +1343,7 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
       const { key, value, updated_by } = req.body || {};
 
       if (!key || value === undefined) {
@@ -1355,7 +1363,7 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
       const updates = req.body || {};
 
       for (const [key, value] of Object.entries(updates)) {
@@ -1409,7 +1417,7 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
       const filters = {
         page: Number(req.query.page) || 1,
         limit: Number(req.query.limit) || 20,
@@ -1448,7 +1456,7 @@ export function registerAdminRoutes(app: Express): void {
         } catch {}
       }
 
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
       const { rating, override_content } = req.body || {};
 
       let msg = null;
@@ -1476,7 +1484,7 @@ export function registerAdminRoutes(app: Express): void {
       if (!auth.authorized) return;
 
       const { getAgentService } = await import("../ai/AgentService");
-      const { conversationStore } = await import("../ai/ConversationStore");
+      const conversationStore = await getConversationStore(res);
 
       const recentMessages = await conversationStore.getRecentUserMessages(200);
 

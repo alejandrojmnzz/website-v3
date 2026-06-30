@@ -1,3 +1,4 @@
 - [Multi-site subdomain routing](multi-site-routing.md) — per-domain ContentIndex, siteResolutionMiddleware, default content folder is "content" (existing deploys set CONTENT_FOLDER=4geeks-com in dev env)
 - [Dev-site override: file-based approach](dev-site-override.md) — cookies blocked in Replit iframe; use .local/dev-site-override file as server truth + localStorage as client mirror.
 - [GCS bucket migration architecture](gcs-bucket-migration.md) — sites.yml bucket_name → gcs.initFromEnv() → GCS_BUCKET_NAME fallback; checkArchitecture() blocks writes when old flat layout detected; migration script bypasses singleton.
+- [Per-site AI isolation](per-site-ai-isolation.md) — ConversationStore + SyncLog are per-site instances in SiteContext; use getConversationStore(res) / getSyncLogForResponse(res) in routes; legacy data copied only for primary site (isFirstSite flag) to prevent cross-site leakage.

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { contentCompiler } from "./ContentCompiler";
-import { conversationStore } from "./ConversationStore";
+import { conversationStore, ConversationStore } from "./ConversationStore";
 import { TOOL_DEFINITIONS, executeToolCall } from "./tools/index";
 import { child } from "../logger";
 const log = child({ module: "ai/AgentService" });
@@ -109,9 +109,10 @@ export class AgentService {
   private async buildSystemPrompt(
     pageContext: string,
     globalSummary: string,
-    questionTag: string | null = null
+    questionTag: string | null = null,
+    store: ConversationStore = conversationStore
   ): Promise<string> {
-    let systemPrompt = await conversationStore.getKnowledge("system_prompt") as string | null;
+    let systemPrompt = await store.getKnowledge("system_prompt") as string | null;
 
     if (!systemPrompt) {
       systemPrompt = `You are a helpful admissions assistant for 4Geeks Academy, a coding bootcamp that offers career-changing programs in software development, data science, and AI/ML.
@@ -137,7 +138,7 @@ Always respond in the same language as the user's message.`;
       parts.push(globalSummary);
     }
 
-    const pinnedQA = await conversationStore.getKnowledge("pinned_qa") as Array<{ question: string; answer: string; tag?: string }> | null;
+    const pinnedQA = await store.getKnowledge("pinned_qa") as Array<{ question: string; answer: string; tag?: string }> | null;
     if (pinnedQA && pinnedQA.length > 0) {
       parts.push("\n--- Pinned Q&A (always use these exact answers) ---");
       for (const qa of pinnedQA) {
@@ -145,7 +146,7 @@ Always respond in the same language as the user's message.`;
       }
     }
 
-    const knowledgeBlocks = await conversationStore.getKnowledge("custom_knowledge") as Array<{ content: string; tag?: string }> | null;
+    const knowledgeBlocks = await store.getKnowledge("custom_knowledge") as Array<{ content: string; tag?: string }> | null;
     if (knowledgeBlocks && knowledgeBlocks.length > 0) {
       const filtered = questionTag
         ? knowledgeBlocks.filter(block => !block.tag || block.tag === questionTag)
@@ -205,15 +206,16 @@ Respond with ONLY the category name, nothing else.`;
     userMessage: string,
     contentType: string | null,
     contentSlug: string | null,
-    locale: string
+    locale: string,
+    store: ConversationStore = conversationStore
   ): Promise<AgentResponse> {
     const { pageContext, globalSummary } = contentCompiler.compile(contentType, contentSlug, locale);
 
     const questionTag = await this.autoTagMessage(userMessage);
 
-    const systemPrompt = await this.buildSystemPrompt(pageContext, globalSummary, questionTag);
+    const systemPrompt = await this.buildSystemPrompt(pageContext, globalSummary, questionTag, store);
 
-    const previousMessages = await conversationStore.getMessages(conversationId);
+    const previousMessages = await store.getMessages(conversationId);
     const chatHistory: OpenAI.Chat.ChatCompletionMessageParam[] = previousMessages.map(m => ({
       role: m.role as "user" | "assistant",
       content: m.content,

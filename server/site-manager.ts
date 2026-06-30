@@ -8,6 +8,9 @@ import { ValidationCacheService } from "./services/validationCacheService";
 import { AutoCommitQueue } from "./auto-commit";
 import { VersioningManager } from "./versioning/VersioningManager";
 import { DatabaseManager } from "./database";
+import { ConversationStore } from "./ai/ConversationStore";
+import { SyncLog } from "./sync-log";
+import { createSiteDb } from "./db";
 import { child } from "./logger";
 
 const log = child({ module: "site-manager" });
@@ -22,6 +25,8 @@ export interface SiteContext {
   autoCommitQueue: AutoCommitQueue;
   versioningManager: VersioningManager;
   database: DatabaseManager;
+  conversationStore: ConversationStore;
+  syncLog: SyncLog;
   isDevOverride?: boolean;
 }
 
@@ -42,6 +47,12 @@ export function buildSiteContextMap(): Map<string, SiteContext> {
   const configs = getSiteConfigs();
   const map = new Map<string, SiteContext>();
 
+  // The first registered site is the primary/default site and inherits any
+  // legacy shared data/app.db so existing conversations are not lost on
+  // upgrade.  Secondary sites start with an empty DB to prevent cross-site
+  // data leakage.
+  let isFirstSite = true;
+
   for (const config of configs) {
     const contentRoot = path.isAbsolute(config.contentFolder)
       ? config.contentFolder
@@ -53,7 +64,11 @@ export function buildSiteContextMap(): Map<string, SiteContext> {
     const autoCommitQueue = new AutoCommitQueue(contentRootName);
     const versioningManager = new VersioningManager(contentRoot);
     const database = new DatabaseManager(contentRoot);
-    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database };
+    const siteDb = createSiteDb(contentRootName, isFirstSite);
+    const conversationStore = new ConversationStore(siteDb, contentRootName);
+    const syncLog = new SyncLog(contentRoot, contentRootName, isFirstSite);
+    isFirstSite = false;
+    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database, conversationStore, syncLog };
     map.set(config.domain, ctx);
     log.info(`[SiteManager] Registered site domain="${config.domain}" contentFolder="${config.contentFolder}"`);
   }

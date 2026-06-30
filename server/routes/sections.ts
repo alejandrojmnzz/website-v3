@@ -1050,7 +1050,7 @@ export function registerSectionsRoutes(app: Express): void {
 
             // Audit log: EDIT entry with section context
             try {
-              const { logSync: _logSyncEdit } = await import("../sync-log");
+              const { getSyncLogForResponse } = await import("../sync-log");
               const sectionType = (updatedSection as Record<string, unknown>).type as string || `section-${resolvedIdx}`;
               const affectedCount = propagation.updatedFiles.length;
               const editMsg = `${sectionType} section updated on ${slug}/${locale}${affectedCount > 0 ? ` → propagated to ${affectedCount} bound page(s)` : ""}`;
@@ -1058,7 +1058,7 @@ export function registerSectionsRoutes(app: Express): void {
               if (affectedCount > 0) {
                 editMeta.affectedPages = propagation.updatedFiles.map(f => f.replace(getContentRootName(res) + "/", ""));
               }
-              _logSyncEdit("EDIT", editMsg, authorName, editMeta);
+              getSyncLogForResponse(res).log("EDIT", editMsg, authorName, editMeta);
             } catch { /* non-fatal */ }
           }
         }
