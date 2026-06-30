@@ -1,4 +1,28 @@
-fl.4geeks.com:
+# sites.yml — Multi-site configuration
+#
+# Top-level fields (not site entries):
+#
+#   bucket_name: <string>  (optional)
+#     GCS bucket that stores uploaded media for ALL sites.
+#     Takes precedence over the GCS_BUCKET_NAME environment variable.
+#     Each site's files are stored under its own prefix: {content_folder}/media/
+#     Omit this key to fall back to the GCS_BUCKET_NAME env var.
+#
+# Site entries — one block per domain:
+#
+#   <domain>:               (required) — exact hostname the server matches against
+#                           req.hostname (e.g. "4geeks.com", "fl.4geeksacademy.com")
+#     content_folder:       (required) — folder under the project root that holds
+#                           this site's content (YAML pages, image-registry.json, etc.)
+#     github_repo_url:      (optional) — GitHub repo used by the auto-commit / sync
+#                           feature to push inline-editor changes back to Git
+#
+# Note: the first entry is treated as the default site and is served when
+# the incoming hostname doesn't match any listed domain.
+
+# bucket_name: my-gcs-bucket-name
+
+fl.4geeksacademy.com:
   content_folder: site_4geeks-florida
   github_repo_url: https://github.com/breatheco-de/website-4geeks-com
 
