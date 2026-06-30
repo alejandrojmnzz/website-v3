@@ -163,7 +163,7 @@ export async function setupVite(app: Express, server: Server) {
       const template = await fs.promises.readFile(clientTemplate, "utf-8");
       const page = await vite.transformIndexHtml(url, template);
 
-      const initialDataPayload = await resolveInitialData(url).catch(() => null);
+      const initialDataPayload = await resolveInitialData(url, (res.locals as any).site?.contentIndex).catch(() => null);
 
       let appHtml = "";
       const cleanUrlForSsr = url.split("?")[0].split("#")[0];
@@ -279,7 +279,7 @@ export function serveStatic(app: Express) {
       const render = !skipSsr ? await getSsrRender() : null;
       if (render) {
         const indexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
-        const initialDataPayload = await resolveInitialData(url).catch(() => null);
+        const initialDataPayload = await resolveInitialData(url, (res.locals as any).site?.contentIndex).catch(() => null);
         const appHtml = await render(url, initialDataPayload);
 
         let html = indexHtml.replace(
