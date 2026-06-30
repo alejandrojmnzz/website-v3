@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, CloudDownload, Cookie, Database, Github, GitBranch, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
-import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect } from "@tabler/icons-react";
+import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
 import { badgeVariants } from "@/components/ui/badge";
@@ -132,7 +132,8 @@ export interface DebugPanelContentProps {
   publicPageUrl: string | null;
 }
 
-function MenuItem({ icon: Icon, label, onClick, href, testId, rightContent, indicator = "none", disabled, className }: MenuItemProps) {
+function MenuItem({ icon: Icon, label, onClick, href, testId, rightContent, indicator = "none", disabled, className, infoTooltip }: MenuItemProps) {
+  const [infoOpen, setInfoOpen] = useState(false);
   const hasRightSide = rightContent || indicator !== "none";
   const baseClass = disabled
     ? "flex items-center justify-between w-full px-3 py-2 rounded-md text-sm text-muted-foreground cursor-default"
@@ -144,6 +145,37 @@ function MenuItem({ icon: Icon, label, onClick, href, testId, rightContent, indi
       <div className="flex items-center gap-3">
         <Icon className="h-4 w-4 text-muted-foreground" />
         <span>{label}</span>
+        {infoTooltip && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setInfoOpen((v) => !v);
+              }}
+              className="flex items-center text-muted-foreground hover:text-foreground transition-colors"
+              data-testid={`${testId}-info`}
+            >
+              <IconInfoCircle className="h-3.5 w-3.5" />
+            </button>
+            {infoOpen && (
+              <div
+                className="absolute left-0 top-5 z-50 w-56 rounded-md border bg-popover p-2.5 text-xs text-popover-foreground shadow-md"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {infoTooltip}
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setInfoOpen(false); }}
+                  className="absolute top-1.5 right-1.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {hasRightSide && (
         <div className="flex items-center gap-1.5">
@@ -733,6 +765,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 href="/private/error-log"
                 indicator="arrow"
                 testId="link-error-log"
+                infoTooltip="This log is centralized across all sites. It tracks process-level errors and warnings from the entire server, not just the active site."
                 rightContent={
                   errorLogCount > 0 ? (
                     <span

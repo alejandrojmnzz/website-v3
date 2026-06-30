@@ -161,6 +161,7 @@ export interface MenuItemProps {
   indicator?: "chevron" | "arrow" | "none";
   disabled?: boolean;
   className?: string;
+  infoTooltip?: string;
 }
 
 export interface ExpandableMenuItemProps {
