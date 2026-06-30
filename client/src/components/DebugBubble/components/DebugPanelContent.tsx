@@ -216,6 +216,17 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     staleTime: 30000,
   });
 
+  const { data: gcsStatus } = useQuery<{ migrationRequired: boolean; bucketName: string | null; available: boolean }>({
+    queryKey: ["/api/admin/gcs-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/gcs-status");
+      if (!res.ok) throw new Error("Failed to fetch GCS status");
+      return res.json();
+    },
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
   const errorLogCount = (errorLogData?.totalErrors ?? 0) + (errorLogData?.totalWarnings ?? 0);
 
   if (props.noTokenDetected) {
@@ -379,6 +390,25 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </p>
               <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
                 Production content edits may be overwritten
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gcsStatus?.migrationRequired && (
+        <div className="p-3 bg-amber-100 dark:bg-amber-900/50 border-b border-amber-200 dark:border-amber-800">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                GCS Migration Required
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                Bucket uses old flat layout. GCS writes are blocked.
+              </p>
+              <p className="text-xs font-mono text-amber-700 dark:text-amber-300 mt-1 break-all">
+                npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=&lt;new-bucket&gt;
               </p>
             </div>
           </div>

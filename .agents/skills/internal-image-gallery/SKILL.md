@@ -112,6 +112,74 @@ let lastModified: number = 0;
 - Use `clearImageRegistryCache()` if you need to force a reload from external code
 - **Prefer `mediaGallery` over `image-registry.ts`** for any code that also writes — the gallery singleton keeps both caches in sync
 
+## GCS Bucket Architecture & Migration
+
+### Bucket Name Resolution Chain
+All GCS consumers go through the `gcs` singleton (`server/gcs.ts`). The bucket name is resolved in this order:
+
+1. **`bucket_name`** — top-level field in `sites.yml` (new, post-migration)
+2. **`GCS_BUCKET_NAME`** env var — legacy fallback (pre-migration or no `sites.yml`)
+
+```yaml
+# sites.yml — new shared bucket field (added AFTER migration)
+bucket_name: my-new-multisite-bucket
+
+fl.4geeks.com:
+  content_folder: site_4geeks-florida
+  ...
+```
+
+`site-config.ts` exposes `getBucketName(): string | null` which reads this field. `gcs.initFromEnv()` calls `getBucketName()` first before falling back to the env var.
+
+### Architecture Terminology
+- **Old architecture**: objects stored at flat `media/…` (no site prefix).
+- **New architecture**: objects stored at `{site}/media/…` (per-site prefix). This is the only layout the codebase supports going forward.
+
+### Architecture Detection & Write-Block
+After `gcs.initFromEnv()`, `gcs.checkArchitecture()` is called once during server startup (in `server/routes/index.ts`). It:
+1. Lists objects with prefix `media/` (old flat layout).
+2. Checks whether any `{knownSite}/media/` objects exist (new layout).
+3. If old layout is found and no new layout exists → sets `gcs.migrationRequired = true`.
+
+When `migrationRequired` is true:
+- **Reads** (`download`, `exists`, `list`) work normally — content still served.
+- **Writes** (`upload`, `debouncedUpload`) are blocked with a warning log — no data lost.
+
+The DebugBubble admin panel polls `GET /api/admin/gcs-status` and shows a persistent banner with the migration CLI command.
+
+### Bucket Full Inventory
+
+| Prefix | What | Source |
+|--------|------|--------|
+| `{site}/media/…` | Images, videos, srcset variants | `server/media/gcs-provider.ts` |
+| `sync/sync-log-state.txt` | GitHub sync log | `server/sync-log.ts` |
+| `sync/{site}/sync-state.json` | Per-site GitHub sync state | `server/sync-state.ts` |
+| `sync/form-state.json` | Form submissions state | `server/form-state.ts` |
+| `sync/users-state.json` | User/auth store | `server/user-store.ts` |
+| `sync/versioning-state.json` | A/B test counts | `server/versioning/VersioningManager.ts` |
+| `reports/lighthouse/{date}/…` | Lighthouse audit results | `server/routes/admin.ts` |
+| `mcp-auth/…` | Encrypted MCP OAuth tokens | `mcp-server/lib/gcs-store.ts` |
+
+### Migration Script (`scripts/admin/migrate-to-new-bucket.ts`)
+One-time migration from old flat bucket to a new bucket with per-site prefixes.
+Bypasses the `gcs` singleton (uses two raw SDK clients) so the write-block doesn't interfere.
+
+```bash
+# Dry-run first
+npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=my-new-bucket --dry-run
+
+# Actual migration
+npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=my-new-bucket
+```
+
+After migration completes:
+1. Add `bucket_name: <new-bucket>` as the first line of `sites.yml`.
+2. Redeploy — server picks up the new bucket automatically.
+3. Verify media serving is correct.
+4. Archive (do not delete) the old bucket.
+
+The script also rewrites `image-registry.json` URLs from the old bucket to the new bucket for every registered site.
+
 ## Storage Layer — `server/media/`
 
 ### `StorageProvider` interface (`server/media/types.ts`)

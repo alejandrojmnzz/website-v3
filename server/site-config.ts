@@ -12,6 +12,7 @@ export interface SiteConfig {
 }
 
 let _cached: SiteConfig[] | null = null;
+let _bucketName: string | null | undefined = undefined;
 
 export function getSiteConfigs(): SiteConfig[] {
   if (_cached) return _cached;
@@ -24,7 +25,13 @@ export function getSiteConfigs(): SiteConfig[] {
       const parsed = yaml.load(raw) as Record<string, unknown> | null;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const configs: SiteConfig[] = [];
+
+        if (typeof parsed.bucket_name === "string" && parsed.bucket_name) {
+          _bucketName = parsed.bucket_name;
+        }
+
         for (const [domain, config] of Object.entries(parsed)) {
+          if (domain === "bucket_name") continue;
           if (config && typeof config === "object") {
             const c = config as Record<string, unknown>;
             configs.push({
@@ -59,6 +66,35 @@ export function getSiteConfigs(): SiteConfig[] {
   return _cached;
 }
 
+/**
+ * Returns the shared GCS bucket name from the top-level `bucket_name` field
+ * in `sites.yml`, or null if not set.
+ *
+ * Resolution chain (consumers should apply in this order):
+ *   1. getBucketName() — sites.yml top-level field (new, post-migration)
+ *   2. GCS_BUCKET_NAME env var — legacy fallback
+ */
+export function getBucketName(): string | null {
+  if (_bucketName !== undefined) return _bucketName;
+
+  const sitesYml = path.join(process.cwd(), "sites.yml");
+  if (fs.existsSync(sitesYml)) {
+    try {
+      const raw = fs.readFileSync(sitesYml, "utf-8");
+      const parsed = yaml.load(raw) as Record<string, unknown> | null;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        if (typeof parsed.bucket_name === "string" && parsed.bucket_name) {
+          _bucketName = parsed.bucket_name;
+          return _bucketName;
+        }
+      }
+    } catch {}
+  }
+
+  _bucketName = null;
+  return null;
+}
+
 export function isMultiSiteMode(): boolean {
   const configs = getSiteConfigs();
   return configs.length > 1;
@@ -66,4 +102,5 @@ export function isMultiSiteMode(): boolean {
 
 export function resetSiteConfigs(): void {
   _cached = null;
+  _bucketName = undefined;
 }

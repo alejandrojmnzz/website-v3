@@ -260,6 +260,10 @@ const routesLogger = loggerChild({ module: "routes" });
 export async function registerRoutes(app: Express): Promise<Server> {
   media.initFromEnv();
 
+  // Architecture check — runs async after init; sets gcs.migrationRequired if old flat layout detected.
+  const { gcs } = await import("../gcs");
+  gcs.checkArchitecture().catch(() => { /* non-fatal */ });
+
 
   const { loadSyncLog, logSync, getInstanceId } = await import("../sync-log");
   const { loadSyncStateFromBucket } = await import("../sync-state");
