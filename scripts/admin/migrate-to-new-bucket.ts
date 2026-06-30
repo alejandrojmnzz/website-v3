@@ -147,134 +147,155 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
-  if (sourceBucket === targetBucket) {
-    console.error("Error: source and target buckets must be different.");
-    process.exit(1);
-  }
+  const sameBucket = sourceBucket === targetBucket;
 
-  console.log(`GCS Bucket Migration${dryRun ? " [DRY RUN]" : ""}`);
+  console.log(`GCS Bucket Migration${dryRun ? " [DRY RUN]" : ""}${sameBucket ? " [IN-PLACE]" : ""}`);
   console.log(`  Source : gs://${sourceBucket}`);
   console.log(`  Target : gs://${targetBucket}`);
+  if (sameBucket) {
+    console.log("  Mode   : in-place (same bucket — file copy and URL rewrite skipped)");
+  }
   console.log("");
 
   const storageOpts = buildStorageOpts();
   const sourceStorage = new Storage(storageOpts);
   const targetStorage = new Storage(storageOpts);
 
-  // ── Step 1: List all objects in the source bucket ─────────────────────────
-  console.log("Step 1: Listing all objects in source bucket…");
-  let allFiles: string[] = [];
-  try {
-    const [files] = await sourceStorage.bucket(sourceBucket).getFiles({ versions: false });
-    allFiles = files.map((f) => f.name);
-  } catch (err) {
-    console.error("Failed to list source bucket:", err);
-    process.exit(1);
-  }
-  console.log(`  Found ${allFiles.length} object(s).`);
-  console.log("");
-
-  if (allFiles.length === 0) {
-    console.log("Source bucket is empty — nothing to migrate.");
-    process.exit(0);
-  }
-
-  // ── Step 2: Copy each object to the target bucket ─────────────────────────
-  console.log(`Step 2: Copying objects to gs://${targetBucket}…`);
+  // ── Step 1: List / copy objects ───────────────────────────────────────────
   let copied = 0;
   let failed = 0;
 
-  for (const key of allFiles) {
-    if (dryRun) {
-      console.log(`  [DRY-RUN] Would copy: ${key}`);
-      copied++;
-      continue;
+  if (sameBucket) {
+    console.log("Step 1: Skipped — source and target are the same bucket.");
+    console.log("  Existing files at media/… will coexist with new site-prefixed uploads.");
+    console.log("");
+  } else {
+    console.log("Step 1: Listing all objects in source bucket…");
+    let allFiles: string[] = [];
+    try {
+      const [files] = await sourceStorage.bucket(sourceBucket).getFiles({ versions: false });
+      allFiles = files.map((f) => f.name);
+    } catch (err) {
+      console.error("Failed to list source bucket:", err);
+      process.exit(1);
+    }
+    console.log(`  Found ${allFiles.length} object(s).`);
+    console.log("");
+
+    if (allFiles.length === 0) {
+      console.log("Source bucket is empty — nothing to migrate.");
+      process.exit(0);
     }
 
-    try {
-      const sourceFile = sourceStorage.bucket(sourceBucket).file(key);
-      const targetFile = targetStorage.bucket(targetBucket).file(key);
+    // ── Step 2: Copy each object to the target bucket ───────────────────────
+    console.log(`Step 2: Copying objects to gs://${targetBucket}…`);
+
+    for (const key of allFiles) {
+      if (dryRun) {
+        console.log(`  [DRY-RUN] Would copy: ${key}`);
+        copied++;
+        continue;
+      }
 
       try {
-        await sourceFile.copy(targetFile);
-        console.log(`  [OK] ${key}`);
-        copied++;
-      } catch (copyErr: any) {
-        // Cross-bucket rewrite may be unavailable; fall back to download → upload
-        if (copyErr?.code === 403 || copyErr?.code === 400) {
-          const [data] = await sourceFile.download();
-          const [meta] = await sourceFile.getMetadata();
-          const contentType = (meta as Record<string, unknown>).contentType as string || "application/octet-stream";
-          await targetFile.save(data, { contentType, resumable: false });
-          console.log(`  [OK (download→upload fallback)] ${key}`);
+        const sourceFile = sourceStorage.bucket(sourceBucket).file(key);
+        const targetFile = targetStorage.bucket(targetBucket).file(key);
+
+        try {
+          await sourceFile.copy(targetFile);
+          console.log(`  [OK] ${key}`);
           copied++;
-        } else {
-          throw copyErr;
+        } catch (copyErr: any) {
+          // Cross-bucket rewrite may be unavailable; fall back to download → upload
+          if (copyErr?.code === 403 || copyErr?.code === 400) {
+            const [data] = await sourceFile.download();
+            const [meta] = await sourceFile.getMetadata();
+            const contentType = (meta as Record<string, unknown>).contentType as string || "application/octet-stream";
+            await targetFile.save(data, { contentType, resumable: false });
+            console.log(`  [OK (download→upload fallback)] ${key}`);
+            copied++;
+          } else {
+            throw copyErr;
+          }
         }
+      } catch (err) {
+        console.error(`  [ERR] ${key}:`, err);
+        failed++;
       }
-    } catch (err) {
-      console.error(`  [ERR] ${key}:`, err);
-      failed++;
     }
+
+    console.log("");
+    console.log(`  Copied: ${copied}  Failed: ${failed}`);
+    console.log("");
   }
 
-  console.log("");
-  console.log(`  Copied: ${copied}  Failed: ${failed}`);
-  console.log("");
-
   // ── Step 3: Rewrite image-registry.json URLs ──────────────────────────────
-  console.log("Step 3: Rewriting image-registry.json URLs…");
+  if (sameBucket) {
+    console.log("Step 3: Skipped — bucket name unchanged, no URL rewrite needed.");
+    console.log("");
+  } else {
+    console.log("Step 3: Rewriting image-registry.json URLs…");
 
-  const cwd = process.cwd();
-  let siteContentFolders: string[] = [];
-  try {
-    const yaml = await import("js-yaml");
-    const sitesYmlPath = path.join(cwd, "sites.yml");
-    if (fs.existsSync(sitesYmlPath)) {
-      const raw = fs.readFileSync(sitesYmlPath, "utf-8");
-      const parsed = yaml.load(raw) as Record<string, unknown> | null;
-      if (parsed && typeof parsed === "object") {
-        for (const [key, val] of Object.entries(parsed)) {
-          if (key === "bucket_name") continue;
-          if (val && typeof val === "object") {
-            const cfg = val as Record<string, unknown>;
-            const folder = (cfg.content_folder ?? cfg.contentFolder) as string | undefined;
-            if (folder) siteContentFolders.push(folder);
+    const cwd = process.cwd();
+    let siteContentFolders: string[] = [];
+    try {
+      const yaml = await import("js-yaml");
+      const sitesYmlPath = path.join(cwd, "sites.yml");
+      if (fs.existsSync(sitesYmlPath)) {
+        const raw = fs.readFileSync(sitesYmlPath, "utf-8");
+        const parsed = yaml.load(raw) as Record<string, unknown> | null;
+        if (parsed && typeof parsed === "object") {
+          for (const [key, val] of Object.entries(parsed)) {
+            if (key === "bucket_name") continue;
+            if (val && typeof val === "object") {
+              const cfg = val as Record<string, unknown>;
+              const folder = (cfg.content_folder ?? cfg.contentFolder) as string | undefined;
+              if (folder) siteContentFolders.push(folder);
+            }
           }
         }
       }
+    } catch {}
+
+    if (siteContentFolders.length === 0) {
+      const envFolder = process.env.CONTENT_FOLDER;
+      if (envFolder) siteContentFolders = [envFolder];
     }
-  } catch {}
 
-  if (siteContentFolders.length === 0) {
-    const envFolder = process.env.CONTENT_FOLDER;
-    if (envFolder) siteContentFolders = [envFolder];
-  }
-
-  if (siteContentFolders.length === 0) {
-    console.log("  No site content folders found — skipping registry URL rewrite.");
-  } else {
-    let totalRewrites = 0;
-    for (const folder of siteContentFolders) {
-      const registryPath = path.join(cwd, folder, "image-registry.json");
-      const rewrites = rewriteRegistryUrls(registryPath, sourceBucket, targetBucket, dryRun);
-      if (rewrites > 0) {
-        console.log(`  ${dryRun ? "[DRY-RUN] Would rewrite" : "Rewrote"} ${rewrites} URL(s) in ${folder}/image-registry.json`);
-        totalRewrites += rewrites;
-      } else {
-        console.log(`  No GCS URLs to rewrite in ${folder}/image-registry.json`);
+    if (siteContentFolders.length === 0) {
+      console.log("  No site content folders found — skipping registry URL rewrite.");
+    } else {
+      let totalRewrites = 0;
+      for (const folder of siteContentFolders) {
+        const registryPath = path.join(cwd, folder, "image-registry.json");
+        const rewrites = rewriteRegistryUrls(registryPath, sourceBucket, targetBucket, dryRun);
+        if (rewrites > 0) {
+          console.log(`  ${dryRun ? "[DRY-RUN] Would rewrite" : "Rewrote"} ${rewrites} URL(s) in ${folder}/image-registry.json`);
+          totalRewrites += rewrites;
+        } else {
+          console.log(`  No GCS URLs to rewrite in ${folder}/image-registry.json`);
+        }
       }
+      console.log(`  Total URL rewrites: ${totalRewrites}`);
     }
-    console.log(`  Total URL rewrites: ${totalRewrites}`);
-  }
 
-  console.log("");
+    console.log("");
+  }
 
   // ── Summary & next steps ──────────────────────────────────────────────────
   console.log("═".repeat(60));
   if (dryRun) {
     console.log("DRY RUN complete — no files were written or copied.");
     console.log("Re-run without --dry-run to perform the actual migration.");
+  } else if (sameBucket) {
+    console.log("In-place migration ready.");
+    console.log("");
+    console.log("Next steps:");
+    console.log(`  1. Add the following line to the TOP of sites.yml:`);
+    console.log(`       bucket_name: ${targetBucket}`);
+    console.log("  2. Redeploy the server — new uploads will use site-prefixed paths automatically.");
+    console.log("  3. Old files at media/… remain in the bucket and continue to serve correctly.");
+    console.log("     They can be archived or deleted once all references have been updated.");
   } else {
     console.log(`Migration complete: ${copied} object(s) copied, ${failed} failed.`);
     console.log("");
