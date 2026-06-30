@@ -1,7 +1,7 @@
 import type { Express, Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
-import { getValidationService } from "../../scripts/validation/service";
+import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { getValidationCacheService } from "../services/validationCacheService";
 import {
@@ -58,7 +58,7 @@ function getValidationCache(res: Response) {
  * site — e.g. after a dev-site switch — it clears the stale context and
  * rebuilds with the correct ContentIndex and contentRoot.
  */
-async function ensureSiteContext(service: ReturnType<typeof getValidationService>, res: Response) {
+async function ensureSiteContext(service: ValidationService, res: Response) {
   const contentRoot = getContentRoot(res);
   const existing = service.getContext();
   if (existing && existing.contentRoot === contentRoot) {
@@ -75,7 +75,7 @@ export function registerValidationRoutes(app: Express): void {
 
   // List available validators
   app.get("/api/validation/validators", (_req, res) => {
-    const service = getValidationService();
+    const service = new ValidationService();
     const validators = service.getAvailableValidators();
     res.json({
       validators,
@@ -88,10 +88,7 @@ export function registerValidationRoutes(app: Express): void {
     try {
       const { validators: validatorNames, includeArtifacts } = req.body;
 
-      const service = getValidationService();
-
-      // Clear previous context to get fresh data
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
       const result = await service.runValidators({
@@ -168,8 +165,7 @@ export function registerValidationRoutes(app: Express): void {
       // on a single page — skip them for per-page runs.
       const SKIP_FOR_PER_PAGE = new Set(["lighthouse", "broken-anchors", "slug-conflicts"]);
 
-      const service = getValidationService();
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
       const context = service.getContext();
@@ -258,8 +254,7 @@ export function registerValidationRoutes(app: Express): void {
   app.post("/api/validation/run.json", async (req, res) => {
     try {
       const { validators: validatorNames, includeArtifacts } = req.body;
-      const service = getValidationService();
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
       const result = await service.runValidators({
         validators: validatorNames,
@@ -280,8 +275,7 @@ export function registerValidationRoutes(app: Express): void {
     try {
       const { validators: validatorNames, includeArtifacts } = req.body;
       const { formatAsLlmPrompt } = await import("../../scripts/validation/reporting/llm-prompt");
-      const service = getValidationService();
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
       const result = await service.runValidators({
         validators: validatorNames,
@@ -315,8 +309,7 @@ export function registerValidationRoutes(app: Express): void {
         validators?: string[];
       };
       const { formatAsLlmPrompt } = await import("../../scripts/validation/reporting/llm-prompt");
-      const service = getValidationService();
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
       const result = await service.runValidators({
         validators: validatorNames,
@@ -358,8 +351,7 @@ export function registerValidationRoutes(app: Express): void {
       const fs = await import("fs");
       const path = await import("path");
 
-      const service = getValidationService();
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
       const result = await service.runValidators({ includeArtifacts: true });
@@ -391,10 +383,7 @@ export function registerValidationRoutes(app: Express): void {
       const contentRoot: string = (res.locals.site as any)?.contentRoot
         ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 
-      const service = getValidationService();
-
-      // Clear previous context to get fresh data
-      service.clearContext();
+      const service = new ValidationService();
       await service.buildContext({ contentRoot, ci: getCI(res) });
 
       const result = await service.runSingleValidator(
@@ -415,7 +404,7 @@ export function registerValidationRoutes(app: Express): void {
   // Get validation context info (for debugging)
   app.get("/api/validation/context", async (_req, res) => {
     try {
-      const service = getValidationService();
+      const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
 
       if (!context) {
@@ -447,8 +436,6 @@ export function registerValidationRoutes(app: Express): void {
 
   // Clear validation cache
   app.post("/api/validation/clear-cache", (_req, res) => {
-    const service = getValidationService();
-    service.clearContext();
     res.json({ success: true, message: "Validation cache cleared" });
   });
 
@@ -564,7 +551,7 @@ export function registerValidationRoutes(app: Express): void {
 
   app.get("/api/diagnostics/pages", async (_req, res) => {
     try {
-      const service = getValidationService();
+      const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
 
       const pages = context.contentFiles.map((file) => {
@@ -596,7 +583,7 @@ export function registerValidationRoutes(app: Express): void {
         return;
       }
 
-      const service = getValidationService();
+      const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
 
       const matchingFiles = context.contentFiles.filter(
