@@ -8,6 +8,7 @@ import { badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { normalizeLocale } from "@/lib/locale";
 import { SyncStatusPopover } from "./SyncStatusPopover";
 import { ComponentsView } from "./ComponentsView";
@@ -146,35 +147,28 @@ function MenuItem({ icon: Icon, label, onClick, href, testId, rightContent, indi
         <Icon className="h-4 w-4 text-muted-foreground" />
         <span>{label}</span>
         {infoTooltip && (
-          <div className="relative">
+          <>
             <button
               type="button"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setInfoOpen((v) => !v);
+                setInfoOpen(true);
               }}
               className="flex items-center text-muted-foreground hover:text-foreground transition-colors"
               data-testid={`${testId}-info`}
             >
               <IconInfoCircle className="h-3.5 w-3.5" />
             </button>
-            {infoOpen && (
-              <div
-                className="absolute left-0 top-5 z-50 w-56 rounded-md border bg-popover p-2.5 text-xs text-popover-foreground shadow-md"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {infoTooltip}
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setInfoOpen(false); }}
-                  className="absolute top-1.5 right-1.5 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            )}
-          </div>
+            <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
+              <DialogContent className="max-w-sm" onClick={(e) => e.stopPropagation()}>
+                <DialogHeader>
+                  <DialogTitle className="text-sm">{label}</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-muted-foreground">{infoTooltip}</p>
+              </DialogContent>
+            </Dialog>
+          </>
         )}
       </div>
       {hasRightSide && (
