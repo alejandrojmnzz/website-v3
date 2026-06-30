@@ -166,8 +166,61 @@ async function run(): Promise<void> {
   let failed = 0;
 
   if (sameBucket) {
-    console.log("Step 1: Skipped — source and target are the same bucket.");
-    console.log("  Existing files at media/… will coexist with new site-prefixed uploads.");
+    // For in-place migration we don't copy files, but we DO need to plant a
+    // marker object at each site's new prefix so checkArchitecture() sees the
+    // new-style layout and lifts the write-block on the next server start.
+    console.log("Step 1: In-place — planting site-prefix marker objects…");
+
+    let sitePrefixes: string[] = [];
+    try {
+      const yaml = await import("js-yaml");
+      const sitesYmlPath = path.join(process.cwd(), "sites.yml");
+      if (fs.existsSync(sitesYmlPath)) {
+        const raw = fs.readFileSync(sitesYmlPath, "utf-8");
+        const parsed = yaml.load(raw) as Record<string, unknown> | null;
+        if (parsed && typeof parsed === "object") {
+          for (const [key, val] of Object.entries(parsed)) {
+            if (key === "bucket_name") continue;
+            if (val && typeof val === "object") {
+              const cfg = val as Record<string, unknown>;
+              const folder = (cfg.content_folder ?? cfg.contentFolder) as string | undefined;
+              if (folder) sitePrefixes.push(folder);
+            }
+          }
+        }
+      }
+    } catch {}
+
+    if (sitePrefixes.length === 0) {
+      const envFolder = process.env.CONTENT_FOLDER;
+      if (envFolder) sitePrefixes = [envFolder];
+    }
+
+    if (sitePrefixes.length === 0) {
+      console.warn("  [WARN] No site content folders found in sites.yml — cannot plant markers.");
+      console.warn("         Set CONTENT_FOLDER env var or add sites to sites.yml and re-run.");
+    } else {
+      const bucket = new Storage(buildStorageOpts()).bucket(sourceBucket);
+      for (const prefix of sitePrefixes) {
+        const markerKey = `${prefix}/media/.migrated`;
+        if (dryRun) {
+          console.log(`  [DRY-RUN] Would create marker: gs://${sourceBucket}/${markerKey}`);
+        } else {
+          try {
+            await bucket.file(markerKey).save(
+              Buffer.from(`migrated=${new Date().toISOString()}\n`),
+              { contentType: "text/plain", resumable: false }
+            );
+            console.log(`  [OK] gs://${sourceBucket}/${markerKey}`);
+            copied++;
+          } catch (err) {
+            console.error(`  [ERR] Failed to create marker ${markerKey}:`, err);
+            failed++;
+          }
+        }
+      }
+    }
+
     console.log("");
   } else {
     console.log("Step 1: Listing all objects in source bucket…");
