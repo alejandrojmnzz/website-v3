@@ -50,6 +50,24 @@ function getValidationCache(res: Response) {
   return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
 }
 
+/**
+ * Returns a valid ValidationContext for the current request's site.
+ *
+ * Reuses the cached context only when it was built for the same site
+ * (matched by contentRoot). If the cached context belongs to a different
+ * site — e.g. after a dev-site switch — it clears the stale context and
+ * rebuilds with the correct ContentIndex and contentRoot.
+ */
+async function ensureSiteContext(service: ReturnType<typeof getValidationService>, res: Response) {
+  const contentRoot = getContentRoot(res);
+  const existing = service.getContext();
+  if (existing && existing.contentRoot === contentRoot) {
+    return existing;
+  }
+  service.clearContext();
+  return service.buildContext({ contentRoot, ci: getCI(res) });
+}
+
 export function registerValidationRoutes(app: Express): void {
   // ============================================
   // Validation API Endpoints
@@ -74,7 +92,7 @@ export function registerValidationRoutes(app: Express): void {
 
       // Clear previous context to get fresh data
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
       const result = await service.runValidators({
         validators: validatorNames,
@@ -152,7 +170,7 @@ export function registerValidationRoutes(app: Express): void {
 
       const service = getValidationService();
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
       const context = service.getContext();
       if (!context) {
@@ -242,7 +260,7 @@ export function registerValidationRoutes(app: Express): void {
       const { validators: validatorNames, includeArtifacts } = req.body;
       const service = getValidationService();
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
       const result = await service.runValidators({
         validators: validatorNames,
         includeArtifacts: includeArtifacts ?? false,
@@ -264,7 +282,7 @@ export function registerValidationRoutes(app: Express): void {
       const { formatAsLlmPrompt } = await import("../../scripts/validation/reporting/llm-prompt");
       const service = getValidationService();
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
       const result = await service.runValidators({
         validators: validatorNames,
         includeArtifacts: includeArtifacts ?? false,
@@ -299,7 +317,7 @@ export function registerValidationRoutes(app: Express): void {
       const { formatAsLlmPrompt } = await import("../../scripts/validation/reporting/llm-prompt");
       const service = getValidationService();
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
       const result = await service.runValidators({
         validators: validatorNames,
         includeArtifacts: false,
@@ -342,7 +360,7 @@ export function registerValidationRoutes(app: Express): void {
 
       const service = getValidationService();
       service.clearContext();
-      await service.buildContext();
+      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
       const result = await service.runValidators({ includeArtifacts: true });
 
@@ -398,12 +416,7 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/validation/context", async (_req, res) => {
     try {
       const service = getValidationService();
-      let context = service.getContext();
-
-      if (!context) {
-        await service.buildContext();
-        context = service.getContext();
-      }
+      const context = await ensureSiteContext(service, res);
 
       if (!context) {
         res.status(500).json({ error: "Failed to build context" });
@@ -552,10 +565,7 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/diagnostics/pages", async (_req, res) => {
     try {
       const service = getValidationService();
-      let context = service.getContext();
-      if (!context) {
-        context = await service.buildContext();
-      }
+      const context = await ensureSiteContext(service, res);
 
       const pages = context.contentFiles.map((file) => {
         const url = getCanonicalUrl(file);
@@ -587,10 +597,7 @@ export function registerValidationRoutes(app: Express): void {
       }
 
       const service = getValidationService();
-      let context = service.getContext();
-      if (!context) {
-        context = await service.buildContext();
-      }
+      const context = await ensureSiteContext(service, res);
 
       const matchingFiles = context.contentFiles.filter(
         (f: any) => getCanonicalUrl(f) === url,
