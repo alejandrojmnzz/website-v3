@@ -2,17 +2,22 @@
  * Generates 4geeks-com/navigation-eager-manifest.json from content + menus.
  * Regenerated during `vite build` (client pass) via vite.config.ts plugin.
  * Server only reads the file (readNavigationEagerManifest) for SSR initial data.
+ *
+ * BUILD-TIME SAFETY:
+ * Vite 8 / Rolldown pre-bundles vite.config.ts into a .vite-temp/*.mjs bundle.
+ * Any code inlined into that bundle runs with import.meta.url pointing to the
+ * .vite-temp file, so relative imports like "./content-index" resolve to the
+ * wrong directory and fail. We detect this at runtime and fall back to spawning
+ * a tsx subprocess (navigation-eager-manifest-run.ts) that runs with full
+ * TypeScript support from the original source location.
  */
 
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { contentIndex } from "./content-index";
-import { resolvePageQuery } from "./initial-data-middleware";
 import { child } from "./logger";
+
 const log = child({ module: "navigation-eager-manifest" });
-
-
 
 const OUT_FILE = path.join(
   process.cwd(),
@@ -30,6 +35,13 @@ interface ManifestEntry {
   eager: EagerTuple[];
   leadForm?: boolean;
 }
+
+/** Minimal interface for the parts of ContentIndex used here. */
+export interface ContentIndexLike {
+  listAll(): Array<{ contentType: string; slug: string; locales: string[] }>;
+  loadMergedContent(contentType: string, slug: string, locale: string): { data: unknown } | null;
+}
+
 
 function normalizePath(href: string): string {
   const raw = href.split("?")[0].split("#")[0].trim();
@@ -78,19 +90,19 @@ function walkForPaths(obj: unknown, paths: Set<string>): void {
   }
 }
 
-function collectPathsFromContent(ci: typeof contentIndex = contentIndex): Set<string> {
+export function collectPathsFromContent(ci: ContentIndexLike): Set<string> {
   const paths = new Set<string>();
   for (const entry of ci.listAll()) {
     for (const locale of entry.locales) {
       if (locale.startsWith("_") || locale.includes(".")) continue;
       const merged = ci.loadMergedContent(entry.contentType, entry.slug, locale);
-      if (merged.data) walkForPaths(merged.data, paths);
+      if (merged?.data) walkForPaths(merged.data, paths);
     }
   }
   return paths;
 }
 
-function collectPathsFromMenus(
+export function collectPathsFromMenus(
   menusDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "menus"),
 ): Set<string> {
   const paths = new Set<string>();
@@ -108,7 +120,7 @@ function collectPathsFromMenus(
   return paths;
 }
 
-function collectAllInternalPaths(ci: typeof contentIndex = contentIndex, contentRoot?: string): Set<string> {
+export function collectAllInternalPaths(ci: ContentIndexLike, contentRoot?: string): Set<string> {
   const paths = new Set<string>();
   const menusDir = contentRoot ? path.join(contentRoot, "menus") : undefined;
   for (const p of Array.from(collectPathsFromContent(ci))) paths.add(p);
@@ -189,8 +201,17 @@ function buildManifestPayload(
   };
 }
 
-/** Writes navigation-eager-manifest.json for client hover prefetch. */
-export async function regenerateNavigationEagerManifest(ci: typeof contentIndex = contentIndex, contentRoot?: string): Promise<void> {
+export type ResolvePageQueryFn = (
+  pagePath: string,
+  ci: ContentIndexLike,
+) => Promise<{ data: unknown } | null>;
+
+/** Core generation logic, called directly when in a normal (non-bundled) context. */
+export async function runManifestGeneration(
+  ci: ContentIndexLike,
+  resolvePageQuery: ResolvePageQueryFn,
+  contentRoot?: string,
+): Promise<void> {
   const outFile = contentRoot
     ? path.join(contentRoot, "navigation-eager-manifest.json")
     : OUT_FILE;
@@ -226,6 +247,56 @@ export async function regenerateNavigationEagerManifest(ci: typeof contentIndex 
   );
 }
 
+/** Spawns a tsx subprocess to run manifest generation, used when inside a Vite config bundle. */
+async function runViaSubprocess(contentRoot?: string): Promise<void> {
+  const { spawnSync } = await import("child_process");
+  const tsx = path.join(process.cwd(), "node_modules", ".bin", "tsx");
+  const runner = path.join(process.cwd(), "server", "navigation-eager-manifest-run.ts");
+  const args = contentRoot ? [runner, contentRoot] : [runner];
+
+  log.info(`[NavigationManifest] Spawning subprocess: tsx ${runner}${contentRoot ? ` ${contentRoot}` : ""}`);
+  const result = spawnSync(tsx, args, {
+    stdio: "inherit",
+    cwd: process.cwd(),
+    env: { ...process.env },
+  });
+
+  if (result.status !== 0) {
+    throw new Error(
+      `[NavigationManifest] Subprocess exited with code ${result.status ?? "null"} (signal: ${result.signal ?? "none"})`,
+    );
+  }
+}
+
+/** Writes navigation-eager-manifest.json for client hover prefetch. */
+export async function regenerateNavigationEagerManifest(
+  ciArg?: ContentIndexLike,
+  contentRoot?: string,
+): Promise<void> {
+  // Computed (non-literal) paths prevent Rolldown from statically following these
+  // imports when pre-bundling vite.config.ts. They still resolve correctly at runtime.
+  //
+  // HOWEVER: when the bundled config runs from .vite-temp/*.mjs, Node.js resolves
+  // relative import() paths relative to that temp file, so "./content-index" would
+  // look for .vite-temp/content-index (not found). We catch that failure and fall
+  // back to a tsx subprocess that has proper TypeScript module resolution.
+  let ciMod: { contentIndex: ContentIndexLike } | undefined;
+  let idmMod: { resolvePageQuery: ResolvePageQueryFn } | undefined;
+
+  try {
+    ciMod = await import("./content" + "-index" as string);
+    idmMod = await import("./initial-data" + "-middleware" as string);
+  } catch {
+    // Import failed — we're running from the Vite pre-bundled config where relative
+    // TypeScript imports don't resolve. Delegate to a tsx subprocess instead.
+    await runViaSubprocess(contentRoot);
+    return;
+  }
+
+  const ci = ciArg ?? ciMod.contentIndex;
+  await runManifestGeneration(ci, idmMod.resolvePageQuery, contentRoot);
+}
+
 export type NavigationEagerManifestPayload = ReturnType<typeof buildManifestPayload>;
 
 /** Reads navigation-eager-manifest.json for the given site (server-side, like theme.json). */
@@ -240,4 +311,3 @@ export function readNavigationEagerManifest(contentRoot?: string): NavigationEag
     return null;
   }
 }
-
