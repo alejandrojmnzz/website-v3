@@ -2132,13 +2132,13 @@ export function registerAdminRoutes(app: Express): void {
       // menus/main-navbar.yml
       fs.writeFileSync(
         path.join(folderPath, "menus", "main-navbar.yml"),
-        `logo:\n  text: "${name}"\n  url: /en\nlinks:\n  - label: Home\n    url: /en\n  - label: About\n    url: /en/about\n`,
+        `navbar:\n  items:\n    - label: Logo\n      href: /en\n      component: Logo\n    - label: Home\n      href: /en\n    - label: About\n      href: /en/about\n    - label: Language\n      component: LanguageSwitcher\n`,
       );
 
       // menus/main-footer.yml
       fs.writeFileSync(
         path.join(folderPath, "menus", "main-footer.yml"),
-        `copyright: "© ${new Date().getFullYear()} ${name}. All rights reserved."\n`,
+        `footer:\n  columns: []\n  socials: []\n  copyright_text: "${name}. All rights reserved."\n`,
       );
 
       // pages/home.en.yml
