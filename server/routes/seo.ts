@@ -268,9 +268,9 @@ Sitemap: ${baseUrl}/sitemap.xml
   // Dynamic sitemap with caching
   app.get("/sitemap.xml", (req, res) => {
     // res.locals.site is a SiteContext; extract typed fields for per-site sitemap generation
-    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string; config?: { domain?: string } } | undefined;
     const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
-      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName, baseUrl: site.config?.domain ? `https://${site.config.domain}` : undefined }
       : undefined;
     const xml = getSitemap(siteCtx);
     res.set("Content-Type", "application/xml");
@@ -289,9 +289,9 @@ Sitemap: ${baseUrl}/sitemap.xml
 
   // Sitemap cache status (for debug tools)
   app.get("/api/debug/sitemap-cache-status", (req, res) => {
-    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string; config?: { domain?: string } } | undefined;
     const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
-      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName, baseUrl: site.config?.domain ? `https://${site.config.domain}` : undefined }
       : undefined;
     const status = getSitemapCacheStatus();
     if (siteCtx) {
@@ -304,9 +304,9 @@ Sitemap: ${baseUrl}/sitemap.xml
 
   // Sitemap URLs as JSON (for debug tools)
   app.get("/api/debug/sitemap-urls", (req, res) => {
-    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string; config?: { domain?: string } } | undefined;
     const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
-      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName, baseUrl: site.config?.domain ? `https://${site.config.domain}` : undefined }
       : undefined;
     const urls = getSitemapUrls(siteCtx);
     res.json(urls);
@@ -315,9 +315,9 @@ Sitemap: ${baseUrl}/sitemap.xml
   // Public sitemap URLs endpoint for menu editor
   app.get("/api/sitemap-urls", (req, res) => {
     const locale = req.query.locale as string | undefined;
-    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string } | undefined;
+    const site = res.locals.site as { contentIndex?: ActiveSiteCtx["contentIndex"]; contentRootName?: string; config?: { domain?: string } } | undefined;
     const siteCtx: ActiveSiteCtx | undefined = (site?.contentIndex && site?.contentRootName)
-      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName }
+      ? { contentIndex: site.contentIndex, contentRootName: site.contentRootName, baseUrl: site.config?.domain ? `https://${site.config.domain}` : undefined }
       : undefined;
     const urls = getSitemapUrls(siteCtx);
 

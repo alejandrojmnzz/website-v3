@@ -13,6 +13,7 @@ const log = child({ module: "sitemap" });
 export interface ActiveSiteCtx {
   contentIndex: typeof contentIndex;
   contentRootName: string;
+  baseUrl?: string;
 }
 let _activeSiteCtx: ActiveSiteCtx | null = null;
 function _ci(): typeof contentIndex { return _activeSiteCtx?.contentIndex ?? contentIndex; }
@@ -24,10 +25,15 @@ function _contentFolder(): string {
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-function getBaseUrl(): string {
+function getBaseUrl(ctx?: ActiveSiteCtx): string {
+  // Use per-site baseUrl when available (multi-site mode)
+  if (ctx?.baseUrl) {
+    return ctx.baseUrl.replace(/\/$/, "");
+  }
+
   // Use explicit SITE_URL if set
   if (process.env.SITE_URL) {
-    return process.env.SITE_URL.replace(/\/$/, ""); // Remove trailing slash
+    return process.env.SITE_URL.replace(/\/$/, "");
   }
 
   // Fall back to Replit's domain
@@ -276,7 +282,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
 
   for (const page of staticPages) {
     addEntry({
-      loc: `${getBaseUrl()}${page.path}`,
+      loc: `${getBaseUrl(ctx)}${page.path}`,
       lastmod: today,
       label: page.label,
       type: "static",
@@ -293,7 +299,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
       continue;
     }
 
-    const url = `${getBaseUrl()}${ci.buildUrl("program", program.locale, program.slug)}`;
+    const url = `${getBaseUrl(ctx)}${ci.buildUrl("program", program.locale, program.slug)}`;
 
     addEntry({
       loc: url,
@@ -315,7 +321,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
       continue;
     }
 
-    const url = `${getBaseUrl()}${ci.buildUrl("location", location.locale, location.slug)}`;
+    const url = `${getBaseUrl(ctx)}${ci.buildUrl("location", location.locale, location.slug)}`;
 
     addEntry({
       loc: url,
@@ -338,7 +344,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
     }
 
     addEntry({
-      loc: `${getBaseUrl()}${ci.buildUrl("page", page.locale, page.slug)}`,
+      loc: `${getBaseUrl(ctx)}${ci.buildUrl("page", page.locale, page.slug)}`,
       lastmod: getYmlFileLastmod("page", page.dirSlug, page.locale),
       label: `Page: ${page.title} (${formatLocaleLabel(page.locale)})`,
       type: "template_page",
@@ -374,7 +380,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         }
         const urlPattern = urlPatterns[locale] || urlPatterns["en"];
         if (!urlPattern) continue;
-        const itemUrl = `${getBaseUrl()}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping)}`;
+        const itemUrl = `${getBaseUrl(ctx)}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping)}`;
         const title = String(item.title || item.slug || item.id || "");
         const updatedAt = String(item.updated_at || "");
         const itemSlug = String(item.slug || item.id || "");
@@ -414,7 +420,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
             continue;
           }
 
-          const url = `${getBaseUrl()}${ci.buildUrl(typeName, locale, (merged.slug as string) || slug)}`;
+          const url = `${getBaseUrl(ctx)}${ci.buildUrl(typeName, locale, (merged.slug as string) || slug)}`;
           const title = meta.page_title || (merged.title as string) || slug;
           const typeLabel = typeName.charAt(0).toUpperCase() + typeName.slice(1);
 
@@ -668,7 +674,7 @@ function buildSingleEntry(type: string, dirSlug: string, locale: string): Canoni
   }
 
   const urlSlug = (merged.slug as string) || dirSlug;
-  const url = `${getBaseUrl()}${_ci().buildUrl(type, locale, urlSlug)}`;
+  const url = `${getBaseUrl(_activeSiteCtx ?? undefined)}${_ci().buildUrl(type, locale, urlSlug)}`;
   const title = meta.page_title || (merged.title as string) || (merged.name as string) || dirSlug;
 
   let entryType: EntryType = type;
