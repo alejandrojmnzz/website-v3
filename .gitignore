@@ -47,10 +47,10 @@ reports/lighthouse/**/*.json
 # Note: .cursor/rules/ should be committed if sharing team rules
 # .cursor/.cache/
 
-# Qdrant vector store — binary and storage data (local only)
+# Runtime cache (DB cache, ML models, Qdrant storage, migration checkpoints)
+.cache/
+
+# Qdrant binary (local only)
 .local/bin/qdrant
-.cache/qdrant-storage/
-.cache/gcs-migration-state.json
-.cache/gcs-multisite-migration-state.json
 .multisite-user-store.json
 4geeks-com/.sync-log-state.txt
