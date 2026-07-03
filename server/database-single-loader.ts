@@ -3,7 +3,7 @@ import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import { contentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
-import { databaseManager } from "./database";
+import { databaseManager, type DatabaseManager } from "./database";
 import {
   getDatabaseName,
   getFolder,
@@ -267,8 +267,8 @@ export function mergeSingleTemplate(
   accum?: PerEntryAccum,
   contentRoot?: string,
 ): Record<string, unknown> | null {
-  const folder = getFolder(contentType);
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
+  const folder = getFolder(contentType, resolvedRoot);
   const templateDir = path.join(resolvedRoot, folder);
   const singleCommonPath = path.join(templateDir, "_common.single.yml");
   const commonPath = path.join(templateDir, "_common.yml");
@@ -362,13 +362,15 @@ export async function loadDatabaseSinglePage(
   slug: string,
   locale: string,
   contentRoot?: string,
+  db: DatabaseManager = databaseManager,
 ): Promise<TemplatePage | null> {
-  const dbName = getDatabaseName(contentType);
+  const resolvedRoot = contentRoot ?? getDefaultContentRoot();
+  const dbName = getDatabaseName(contentType, resolvedRoot);
   if (!dbName) return null;
 
   // Collect per-entry metadata (removed sections, per-entry additions)
   const accum: PerEntryAccum = { removedSections: [] };
-  const merged = mergeSingleTemplate(contentType, locale, slug, accum, contentRoot);
+  const merged = mergeSingleTemplate(contentType, locale, slug, accum, resolvedRoot);
 
   if (!merged) {
     log.error(
@@ -386,15 +388,15 @@ export async function loadDatabaseSinglePage(
     perEntryRemovedSections = accum.removedSections;
   }
 
-  if (!databaseManager.exists(dbName)) {
+  if (!db.exists(dbName)) {
     log.error(`[DatabaseSingle] Database "${dbName}" not found`);
     return null;
   }
 
   try {
-    const result = await databaseManager.fetchItems(dbName);
-    const lookupKey = getLookupKey(contentType) || "slug";
-    const fieldMapping = getFieldMapping(contentType);
+    const result = await db.fetchItems(dbName);
+    const lookupKey = getLookupKey(contentType, resolvedRoot) || "slug";
+    const fieldMapping = getFieldMapping(contentType, resolvedRoot);
 
     let items = result.items as Record<string, unknown>[];
 
@@ -414,8 +416,8 @@ export async function loadDatabaseSinglePage(
       });
     }
 
-    const localeKey = getLocaleKey(contentType);
-    const localeSource = getLocaleSource(contentType);
+    const localeKey = getLocaleKey(contentType, resolvedRoot);
+    const localeSource = getLocaleSource(contentType, resolvedRoot);
     let matchItem: Record<string, unknown> | undefined;
 
     if (localeKey) {

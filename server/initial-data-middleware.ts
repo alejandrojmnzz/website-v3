@@ -11,7 +11,7 @@ import {
   applyComponentImageSizes,
   buildImageIdToSchemaSizesMap,
 } from "./component-registry";
-import { variableManager } from "./variable-manager";
+import { getVariableManager } from "./variable-manager";
 import { loadImageRegistry } from "./image-registry";
 import { readNavigationEagerManifest } from "./navigation-eager-manifest";
 import { getDefaultLocale, normalizeLocale } from "./settings";
@@ -46,10 +46,16 @@ export interface InitialDataPayload {
   locale?: string;
 }
 
-async function fetchBlogListingPage(locale: string, page: number, category: string): Promise<Record<string, unknown> | null> {
+async function fetchBlogListingPage(
+  locale: string,
+  page: number,
+  category: string,
+  dbm: DatabaseManager = databaseManager,
+  contentRoot?: string,
+): Promise<Record<string, unknown> | null> {
   try {
-    const posts = await databaseManager.fetchMappedItems("blog");
-    const localeKey = getLocaleKey("blog") || "lang";
+    const posts = await dbm.fetchMappedItems("blog");
+    const localeKey = getLocaleKey("blog", contentRoot) || "lang";
     const normalizedLocale = normalizeLocale(locale);
     let filtered = posts.filter((p) => (p as any)[localeKey] === normalizedLocale);
     if (category && category !== "all") {
@@ -87,9 +93,9 @@ async function fetchBlogListingPage(locale: string, page: number, category: stri
   }
 }
 
-function resolveBlogConfigQuery(): SingleQuery | null {
+function resolveBlogConfigQuery(contentRoot?: string): SingleQuery | null {
   try {
-    const config = getContentTypeConfig("blog");
+    const config = getContentTypeConfig("blog", contentRoot);
     if (!config) return null;
     return {
       queryKey: ["/api/blog/config"],
@@ -100,7 +106,11 @@ function resolveBlogConfigQuery(): SingleQuery | null {
   }
 }
 
-export async function resolvePageQuery(url: string, ci: ContentIndex = contentIndex): Promise<SingleQuery | null> {
+export async function resolvePageQuery(
+  url: string,
+  ci: ContentIndex = contentIndex,
+  dbm: DatabaseManager = databaseManager,
+): Promise<SingleQuery | null> {
   // Don't seed page data for force_variant requests — the SSR render would use
   // the default-page data while the client needs a different query key for the
   // variant, causing a hydration mismatch. Return null so SSR emits an empty
@@ -130,11 +140,12 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
         data.sections = (await resolveDynamicEntries(
           data.sections,
           locale,
+          { db: dbm, contentRoot: ci.contentRoot },
         )) as any;
         applyComponentImageSizes(data.sections);
       }
       const pageRaw = ci.loadMergedContent("page", slug, locale);
-      const layout = resolveLayout("page", pageRaw.data || {});
+      const layout = resolveLayout("page", pageRaw.data || {}, ci.contentRoot);
       data.layout = layout;
       return {
         queryKey: ["/api/pages", slug, locale],
@@ -158,10 +169,10 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
           locale = resolved.params.locale;
         }
         const normalizedLocale = normalizeLocale(locale);
-        const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale, ci.contentRoot);
+        const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale, ci.contentRoot, dbm);
         if (!page) return null;
         const dbSingleRaw = ci.loadMergedContent(contentType, slug, normalizedLocale);
-        const layout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>));
+        const layout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>), ci.contentRoot);
         const { layout: _strip, ...pageRest } = page as unknown as Record<string, unknown>;
         return {
           queryKey: ["/api/database-single", contentType, slug, normalizedLocale],
@@ -200,6 +211,7 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
         data.sections = (await resolveDynamicEntries(
           data.sections,
           locale,
+          { db: dbm, contentRoot: ci.contentRoot },
         )) as any;
         applyComponentImageSizes(data.sections);
       }
@@ -208,7 +220,7 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
         slug,
         locale,
       );
-      const layout = resolveLayout(contentType, rawContent.data || {});
+      const layout = resolveLayout(contentType, rawContent.data || {}, ci.contentRoot);
       data.layout = layout;
       data.locale = locale;
 
@@ -249,7 +261,7 @@ function resolveMenuQuery(menuId: string, locale: string, contentRoot = getDefau
     const content = fs.readFileSync(filePath, "utf-8");
     const data = yaml.load(content);
     const context = { locale };
-    const { data: resolved } = variableManager.resolveDeep(data, context);
+    const { data: resolved } = getVariableManager(contentRoot).resolveDeep(data, context);
 
     return {
       queryKey: ["/api/menus", menuId, locale],
@@ -522,12 +534,12 @@ export async function resolveInitialData(
     cleanUrl === "/es/blog" ||
     cleanUrl === "/es/blog/";
 
-  const pageQuery = await resolvePageQuery(url, ci);
+  const pageQuery = await resolvePageQuery(url, ci, dbm);
   const parsedUrl = ci.parseContentUrl(cleanUrl);
 
   const variablesQuery: SingleQuery = {
     queryKey: ["/api/variables"],
-    data: variableManager.getDefinitions(),
+    data: getVariableManager(ci.contentRoot).getDefinitions(),
   };
 
   const queries: SingleQuery[] = [];
@@ -566,14 +578,14 @@ export async function resolveInitialData(
 
   if (isBlogListing) {
     const locale = cleanUrl.startsWith("/es") ? "es" : "en";
-    const posts = await fetchBlogListingPage(locale, 1, "all");
+    const posts = await fetchBlogListingPage(locale, 1, "all", dbm, ci.contentRoot);
     if (posts) {
       queries.push({
         queryKey: ["/api/blog/posts", locale, 1, ""],
         data: posts,
       });
     }
-    const blogConfigQuery = resolveBlogConfigQuery();
+    const blogConfigQuery = resolveBlogConfigQuery(ci.contentRoot);
     if (blogConfigQuery) queries.push(blogConfigQuery);
   }
 

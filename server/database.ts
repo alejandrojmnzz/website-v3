@@ -545,10 +545,12 @@ export class DatabaseManager {
   }
 
   private readonly dbDir: string;
+  private readonly contentRoot: string;
   private readonly mediaGallery: MediaGallery | null;
 
   constructor(contentRoot?: string, mediaGallery?: MediaGallery) {
     this.dbDir = getDbDir(contentRoot);
+    this.contentRoot = path.dirname(this.dbDir);
     this.mediaGallery = mediaGallery ?? null;
     this.reload();
     this.migrateJsonCaches();
@@ -912,7 +914,7 @@ export class DatabaseManager {
     contentType: string,
     forceRefresh = false,
   ): Promise<Record<string, unknown>[]> {
-    const ctConfig = getContentTypeConfig(contentType);
+    const ctConfig = getContentTypeConfig(contentType, this.contentRoot);
     if (!ctConfig?.database?.slug) {
       log.warn(`[DatabaseManager] No database configured for content type "${contentType}"`);
       return [];
@@ -948,7 +950,7 @@ export class DatabaseManager {
         }
       }
 
-      const ctMapping = getFieldMapping(contentType);
+      const ctMapping = getFieldMapping(contentType, this.contentRoot);
       if (!ctMapping || Object.keys(ctMapping).length === 0) {
         return rawItems;
       }

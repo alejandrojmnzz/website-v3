@@ -1045,6 +1045,8 @@ export async function syncWithRemote(): Promise<{ success: boolean; error?: stri
  * Uses only 2 API calls: HEAD SHA + compare (no per-file fetches).
  */
 export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
+  const { withSyncLogContextAsync } = await import("./sync-log");
+  return withSyncLogContextAsync(opts?.contentRoot, async () => {
   const config = getGitHubConfig(opts?.repoUrl);
   if (!config) return;
 
@@ -1168,6 +1170,7 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
     logSync('ERROR', `Reconciliation error: ${error instanceof Error ? error.message : String(error)}`);
     log.error({ err: error }, '[SyncReconcile] Error during reconciliation:');
   }
+  });
 }
 
 /**
@@ -1319,6 +1322,8 @@ export function getWebhookSetupSkipReason(baseUrl?: string | null): string | nul
  * Auto-generates a random secret and stores webhookId + secret in sync state.
  */
 export async function ensureWebhook(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
+  const { withSyncLogContextAsync } = await import("./sync-log");
+  return withSyncLogContextAsync(opts?.contentRoot, async () => {
   const config = getGitHubConfig(opts?.repoUrl);
   if (!config) return;
 
@@ -1408,6 +1413,7 @@ export async function ensureWebhook(opts?: { repoUrl?: string; contentRoot?: str
     logSync('ERROR', `Webhook setup error: ${error instanceof Error ? error.message : String(error)}`);
     log.error({ err: error }, '[Webhook] Error ensuring webhook:');
   }
+  });
 }
 
 async function verifyWebhookExists(config: GitHubConfig, webhookId: number): Promise<boolean> {
@@ -1792,8 +1798,19 @@ export async function commitSingleFile(options: {
     updateFileAfterCommit(options.filePath, commitSha || '');
 
     const { logSync, refreshGithubCommit } = await import("./sync-log");
+    const { getSiteConfigs } = await import("./site-config");
+    const matchedSite = getSiteConfigs().find((site) => {
+      const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+      return options.filePath.startsWith(prefix);
+    });
     const displayPath = options.filePath.split('/').slice(1).join('/') || options.filePath;
-    logSync('COMMIT', `${displayPath} → ${commitSha?.slice(0, 7) || '?'}${options.author ? ` by ${options.author}` : ''}`);
+    logSync(
+      'COMMIT',
+      `${displayPath} → ${commitSha?.slice(0, 7) || '?'}${options.author ? ` by ${options.author}` : ''}`,
+      options.author,
+      undefined,
+      matchedSite?.contentFolder,
+    );
     refreshGithubCommit();
     
     return { success: true, commitSha };
@@ -1963,6 +1980,8 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
   errors: string[];
   commitSha: string | null;
 }> {
+  const { withSyncLogContextAsync } = await import('./sync-log');
+  return withSyncLogContextAsync(opts?.contentRoot, async () => {
   const config = getGitHubConfig(opts?.repoUrl);
   if (!config) {
     return { success: false, pulled: 0, errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'], commitSha: null };
@@ -2053,6 +2072,7 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
   _bootstrapState.success = errors.length === 0;
 
   return { success: errors.length === 0, pulled, errors, commitSha: headSha };
+  });
 }
 
 /**
@@ -2139,6 +2159,8 @@ export async function pushAllContentToRemote(opts?: {
   skipped: string[];
   errors: string[];
 }> {
+  const { withSyncLogContextAsync } = await import('./sync-log');
+  return withSyncLogContextAsync(opts?.contentRoot, async () => {
   const syncEnabled = process.env.GITHUB_SYNC_ENABLED === 'true';
   if (!syncEnabled) {
     return { committed: [], skipped: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'] };
@@ -2392,4 +2414,5 @@ export async function pushAllContentToRemote(opts?: {
 
   opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors, commitSha: newCommitSha });
   return { committed, skipped, errors };
+  });
 }

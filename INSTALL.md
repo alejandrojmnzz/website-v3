@@ -37,7 +37,8 @@ Before the dev server starts, `npm run dev` runs `check:sites`, which:
 
 1. Verifies each configured folder exists and has the required scaffold (`settings.yml`, `content-types.yml`, `image-registry.json`, `custom-redirects.yml`, plus `images/`, `menus/`, and `pages/`).
 2. If a folder is missing or incomplete **and** the site has a `github_repo_url` in `sites.yml`, automatically downloads content from GitHub when `GITHUB_TOKEN` is set in `.env` (does not require `GITHUB_SYNC_ENABLED`).
-3. Exits with an error if folders are still invalid — for example when `GITHUB_TOKEN` is absent and content has not been populated manually.
+3. If the remote repo has no content for that site folder, prompts interactively to create a simple local scaffold (syncs via GitHub sync when enabled).
+4. Exits with an error if folders are still invalid — for example when `GITHUB_TOKEN` is absent and content has not been populated manually.
 
 You can run the check alone with `npm run check:sites`.
 

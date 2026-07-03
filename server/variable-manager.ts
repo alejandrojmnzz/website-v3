@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { getDefaultContentFolder } from "./site-config";
+import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import {
@@ -10,14 +10,6 @@ import {
 import { markFileAsModified } from "./sync-state";
 import { child } from "./logger";
 const log = child({ module: "variable-manager" });
-
-
-
-const VARIABLES_PATH = path.join(
-  process.cwd(),
-  getDefaultContentFolder(),
-  "variables.yml",
-);
 
 export interface VariableCondition {
   query: Record<string, string>;
@@ -53,16 +45,19 @@ export interface VariableMapEntry {
 }
 
 class VariableManager {
-  private static instance: VariableManager;
+  private readonly contentRoot: string;
+  private readonly contentFolderName: string;
+  private readonly variablesPath: string;
   private variables: Record<string, VariableDefinition> = {};
   private lastModified: number = 0;
   private initialized = false;
 
-  static getInstance(): VariableManager {
-    if (!VariableManager.instance) {
-      VariableManager.instance = new VariableManager();
-    }
-    return VariableManager.instance;
+  constructor(contentRoot: string) {
+    this.contentRoot = path.isAbsolute(contentRoot)
+      ? contentRoot
+      : path.join(process.cwd(), contentRoot);
+    this.contentFolderName = path.relative(process.cwd(), this.contentRoot);
+    this.variablesPath = path.join(this.contentRoot, "variables.yml");
   }
 
   private ensureInitialized(): void {
@@ -75,15 +70,15 @@ class VariableManager {
 
   private load(): void {
     try {
-      if (!fs.existsSync(VARIABLES_PATH)) {
-        log.warn("[VariableManager] variables.yml not found");
+      if (!fs.existsSync(this.variablesPath)) {
+        log.warn({ path: this.variablesPath }, "[VariableManager] variables.yml not found");
         this.variables = {};
         this.initialized = true;
         return;
       }
 
-      const stat = fs.statSync(VARIABLES_PATH);
-      const raw = fs.readFileSync(VARIABLES_PATH, "utf-8");
+      const stat = fs.statSync(this.variablesPath);
+      const raw = fs.readFileSync(this.variablesPath, "utf-8");
       const parsed = yaml.load(raw) as Record<string, VariableDefinition> | null;
       this.variables = parsed || {};
       this.lastModified = stat.mtimeMs;
@@ -92,7 +87,7 @@ class VariableManager {
       this.aliasReservedIntoGlobal();
 
       const count = Object.keys(this.variables).length;
-      log.info(`[VariableManager] Loaded ${count} variable definitions`);
+      log.info(`[VariableManager] Loaded ${count} variable definitions from ${this.contentFolderName}`);
 
       this.autoMigrate();
     } catch (err) {
@@ -161,8 +156,8 @@ class VariableManager {
 
   private reloadIfChanged(): void {
     try {
-      if (!fs.existsSync(VARIABLES_PATH)) return;
-      const stat = fs.statSync(VARIABLES_PATH);
+      if (!fs.existsSync(this.variablesPath)) return;
+      const stat = fs.statSync(this.variablesPath);
       if (stat.mtimeMs > this.lastModified) {
         log.info("[VariableManager] variables.yml changed, reloading...");
         this.load();
@@ -492,11 +487,11 @@ class VariableManager {
         quotingType: '"',
         forceQuotes: true,
       });
-      fs.writeFileSync(VARIABLES_PATH, content, "utf-8");
-      const stat = fs.statSync(VARIABLES_PATH);
+      fs.writeFileSync(this.variablesPath, content, "utf-8");
+      const stat = fs.statSync(this.variablesPath);
       this.lastModified = stat.mtimeMs;
-      markFileAsModified(`${getDefaultContentFolder()}/variables.yml`);
-      log.info("[VariableManager] Saved variables.yml");
+      markFileAsModified(`${this.contentFolderName}/variables.yml`, undefined, undefined, this.contentRoot);
+      log.info(`[VariableManager] Saved variables.yml for ${this.contentFolderName}`);
     } catch (err) {
       log.error({ err: err }, "[VariableManager] Failed to save variables.yml:");
       throw err;
@@ -508,4 +503,26 @@ class VariableManager {
   }
 }
 
-export const variableManager = VariableManager.getInstance();
+const _managerCache = new Map<string, VariableManager>();
+
+function normalizeContentRoot(contentRoot?: string): string {
+  const root = contentRoot ?? getDefaultContentRoot();
+  return path.isAbsolute(root) ? root : path.join(process.cwd(), root);
+}
+
+export function getVariableManager(contentRoot?: string): VariableManager {
+  const key = normalizeContentRoot(contentRoot);
+  let manager = _managerCache.get(key);
+  if (!manager) {
+    manager = new VariableManager(key);
+    _managerCache.set(key, manager);
+  }
+  return manager;
+}
+
+export function resetVariableManagerCache(): void {
+  _managerCache.clear();
+}
+
+/** @deprecated Use getVariableManager(contentRoot) for multi-site correctness. */
+export const variableManager = getVariableManager();

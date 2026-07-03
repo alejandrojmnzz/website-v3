@@ -1,5 +1,5 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, Home, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { MenuView, SitemapUrl } from "../types";
 import { StatusCountBadge } from "./StatusCountBadge";
@@ -181,12 +181,22 @@ export function SitemapView({
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          ) : filteredSitemapUrls.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">
-              No URLs found
-            </div>
           ) : (
             <>
+              <a
+                href="/en"
+                className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-left hover-elevate cursor-pointer mb-1"
+                data-testid="link-sitemap-home"
+              >
+                <Home className="h-4 w-4 text-primary flex-shrink-0" />
+                <span className="font-medium flex-1 min-w-0 truncate">Home</span>
+              </a>
+              {filteredSitemapUrls.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  No URLs found
+                </div>
+              ) : (
+                <>
               {folders.map((folder) => (
                 <div key={folder.name} className="mb-1">
                   <button
@@ -375,6 +385,8 @@ export function SitemapView({
                   </div>
                 );
               })}
+                </>
+              )}
             </>
           )}
         </div>

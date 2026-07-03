@@ -452,7 +452,9 @@ export function registerGithubRoutes(app: Express): void {
   app.get("/api/github/sync-log", async (_req, res) => {
     try {
       const { getSyncLogForResponse } = await import("../sync-log");
-      const entries = getSyncLogForResponse(res).getEntries();
+      const sl = getSyncLogForResponse(res);
+      await sl.load();
+      const entries = sl.getEntries();
       res.json({ entries });
       return;
     } catch (error) {
@@ -463,7 +465,9 @@ export function registerGithubRoutes(app: Express): void {
   app.get("/api/github/sync-log-text", async (_req, res) => {
     try {
       const { getSyncLogForResponse } = await import("../sync-log");
-      const text = getSyncLogForResponse(res).getText();
+      const sl = getSyncLogForResponse(res);
+      await sl.load();
+      const text = sl.getText();
       res.type("text/plain").send(text);
     } catch (error) {
       res.status(500).send("Error reading sync log");
@@ -701,15 +705,18 @@ export function registerGithubRoutes(app: Express): void {
   app.get("/api/github/sync-info", async (_req, res) => {
     try {
       const {
-        getRecentEntries,
+        getSyncLogForResponse,
         getInstanceId,
         getReplitCheckpoint,
         getGithubCommit,
       } = await import("../sync-log");
       const { getWebhookInfo } = await import("../sync-state");
-      const webhookInfo = getWebhookInfo();
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const webhookInfo = getWebhookInfo(site?.contentRootName);
+      const sl = getSyncLogForResponse(res);
+      await sl.load();
 
-      const repoUrl = (process.env.GITHUB_REPO_URL || "").replace(/\.git$/, "");
+      const repoUrl = (site?.config?.githubRepoUrl || process.env.GITHUB_REPO_URL || "").replace(/\.git$/, "");
       res.json({
         instanceId: getInstanceId(),
         replitCheckpoint: getReplitCheckpoint(),
@@ -725,7 +732,7 @@ export function registerGithubRoutes(app: Express): void {
               createdAt: webhookInfo.createdAt,
             }
           : { active: false },
-        recentLog: getRecentEntries(20),
+        recentLog: sl.getRecent(20).map((e) => `${e.ts} [${e.category}] ${e.message}`),
       });
     } catch (error) {
       res.status(500).json({ error: "Error reading sync info" });

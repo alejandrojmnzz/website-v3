@@ -545,24 +545,25 @@ export default function CloudSyncPage() {
 
   return (
     <div className="min-h-screen bg-background p-6 space-y-6 max-w-6xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/">
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-4 items-start">
+        <div className="flex items-start gap-3 min-w-0">
+          <Link href="/" className="shrink-0">
             <Button variant="ghost" size="icon" data-testid="button-back-from-cloud-sync">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-cloud-sync-title">
-              <Cloud className="h-6 w-6 text-muted-foreground" />
+              <Cloud className="h-6 w-6 text-muted-foreground shrink-0" />
               Cloud Sync
             </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Deployment-wide GCS health across all sites
+            <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl" data-testid="text-cloud-sync-subtitle">
+              Deployment-wide GCS health. Most bucket data syncs per site folder; a few items (e.g. user
+              store) are global across all sites.
             </p>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-col items-start sm:items-end gap-1 shrink-0 sm:justify-self-end">
           <div className="flex items-center gap-2">
             {needsMultisiteMigration && (
               <Button

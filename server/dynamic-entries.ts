@@ -1,10 +1,15 @@
-import { databaseManager } from "./database";
+import { databaseManager, type DatabaseManager } from "./database";
 import {
   getLocaleKey,
   getLocaleDefault,
   getLocaleSource,
   resolveContentTypeUrl,
 } from "./content-types";
+
+export interface ResolveDynamicEntriesOptions {
+  db?: DatabaseManager;
+  contentRoot?: string;
+}
 import { applyTransformIfNeeded } from "./transform";
 import { child } from "./logger";
 const log = child({ module: "dynamic-entries" });
@@ -120,8 +125,12 @@ function faqItemKey(question: string): string {
 export async function resolveDynamicEntries(
   sections: unknown[],
   locale: string,
+  options: ResolveDynamicEntriesOptions = {},
 ): Promise<unknown[]> {
   if (!Array.isArray(sections)) return sections;
+
+  const db = options.db ?? databaseManager;
+  const contentRoot = options.contentRoot;
 
   const resolved = [];
   for (const section of sections) {
@@ -144,12 +153,12 @@ export async function resolveDynamicEntries(
       let items: Record<string, unknown>[];
 
       if (contentType) {
-        items = await databaseManager.fetchMappedItems(contentType);
+        items = await db.fetchMappedItems(contentType);
       } else if (dynamicEntries.database) {
-        const rawItems = await databaseManager.fetchItems(dynamicEntries.database);
+        const rawItems = await db.fetchItems(dynamicEntries.database);
         items = rawItems.items as Record<string, unknown>[];
         try {
-          const dbConfig = databaseManager.get(dynamicEntries.database);
+          const dbConfig = db.get(dynamicEntries.database);
           if (dbConfig.filter_by_locale !== false && dbConfig.field_mapping?.locale) {
             const localeField = dbConfig.field_mapping.locale;
             items = items.filter(item => String(item[localeField] ?? "") === locale);
@@ -162,9 +171,9 @@ export async function resolveDynamicEntries(
       }
 
       if (contentType) {
-        const localeKey = getLocaleKey(contentType) || "lang";
-        const localeDefault = getLocaleDefault(contentType);
-        const localeSource = getLocaleSource(contentType);
+        const localeKey = getLocaleKey(contentType, contentRoot) || "lang";
+        const localeDefault = getLocaleDefault(contentType, contentRoot);
+        const localeSource = getLocaleSource(contentType, contentRoot);
         const normalizedLocale = localeSource ? applyTransformIfNeeded(localeSource, locale) : locale;
         items = items.filter(item => {
           const rawItemLocale = String((item as any)[localeKey] || localeDefault);
@@ -259,7 +268,7 @@ export async function resolveDynamicEntries(
         resolvedItems = items.map(item => {
           const enriched = { ...item };
           if (contentType) {
-            const url = resolveContentTypeUrl(contentType, item, locale);
+            const url = resolveContentTypeUrl(contentType, item, locale, contentRoot);
             if (url) enriched._resolved_url = url;
           }
           return resolveTemplateValue(itemTemplate, enriched as Record<string, unknown>);
@@ -267,7 +276,7 @@ export async function resolveDynamicEntries(
       } else {
         resolvedItems = items.map(item => {
           if (contentType) {
-            const url = resolveContentTypeUrl(contentType, item, locale);
+            const url = resolveContentTypeUrl(contentType, item, locale, contentRoot);
             if (url) (item as any)._resolved_url = url;
           }
           return item;

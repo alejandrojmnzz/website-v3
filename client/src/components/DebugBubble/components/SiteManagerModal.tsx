@@ -49,7 +49,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [folderName, setFolderName] = useState("");
   const [domain, setDomain] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
-  const [includeSample, setIncludeSample] = useState(false);
+  const [includeSample, setIncludeSample] = useState(true);
   const [successResult, setSuccessResult] = useState<CreateSiteResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const queryClient = useQueryClient();
