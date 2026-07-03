@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentFolder } from "../site-config";
 import { createServer, type Server } from "http";
 import { getSiteContextMap } from "../site-manager";
 import { storage } from "../storage";
@@ -216,8 +217,12 @@ export function registerGithubRoutes(app: Express): void {
   // GitHub sync status endpoint
   app.get("/api/github/sync-status", async (req, res) => {
     try {
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
       const { getGitHubSyncStatus } = await import("../github");
-      const status = await getGitHubSyncStatus();
+      const status = await getGitHubSyncStatus({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
       res.json(status);
     } catch (error) {
       log.error({ err: error }, "Error checking GitHub sync status:");
@@ -311,7 +316,7 @@ export function registerGithubRoutes(app: Express): void {
         ""
       ).replace(/\.git$/, "").toLowerCase();
 
-      let contentFolderPrefix = process.env.CONTENT_FOLDER || "default-site-content";
+      let contentFolderPrefix = getDefaultContentFolder();
       let matchedSiteCtx: import("../site-manager").SiteContext | null = null;
       if (pushRepoUrl) {
         for (const ctx of Array.from(getSiteContextMap().values())) {
@@ -729,7 +734,15 @@ export function registerGithubRoutes(app: Express): void {
 
   app.post("/api/github/webhook/setup", async (_req, res) => {
     try {
-      const { ensureWebhook } = await import("../github");
+      const { ensureWebhook, getWebhookSetupSkipReason } = await import("../github");
+      const skipReason = getWebhookSetupSkipReason();
+      if (skipReason) {
+        return res.json({
+          success: false,
+          skipped: true,
+          message: `Skipped webhook setup: ${skipReason}`,
+        });
+      }
       await ensureWebhook();
       const { getWebhookInfo } = await import("../sync-state");
       const info = getWebhookInfo();
@@ -909,8 +922,12 @@ export function registerGithubRoutes(app: Express): void {
   // Get conflict information (missed commits from remote)
   app.get("/api/github/conflict-info", async (req, res) => {
     try {
+      const site = res.locals.site as { contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
       const { getConflictInfo } = await import("../github");
-      const conflictInfo = await getConflictInfo();
+      const conflictInfo = await getConflictInfo({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
       res.json(conflictInfo);
     } catch (error) {
       log.error({ err: error }, "Error getting conflict info:");

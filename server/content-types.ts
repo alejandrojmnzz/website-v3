@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { getSupportedLocales, getDefaultLocale } from "./settings";
@@ -41,7 +42,7 @@ interface ContentTypesRegistry {
 const registryCache = new Map<string, ContentTypesRegistry>();
 
 function resolveContentTypeRoot(contentRoot?: string): string {
-  return contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return contentRoot ?? getDefaultContentRoot();
 }
 function getConfigPath(contentRoot?: string): string {
   return path.join(resolveContentTypeRoot(contentRoot), "content-types.yml");

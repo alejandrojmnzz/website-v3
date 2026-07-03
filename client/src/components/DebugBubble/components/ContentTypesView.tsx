@@ -24,6 +24,7 @@ interface ContentTypeSummary {
   directory: string;
   has_database: boolean;
   database_slug: string | null;
+  database_entry_count: number | null;
   has_field_mapping: boolean;
   static_entry_count: number;
 }
@@ -594,7 +595,7 @@ export function ContentTypesView({ setMenuView }: ContentTypesViewProps) {
                       {ct.has_database && (
                         <span className="inline-flex items-center gap-0.5">
                           <Database className="h-3 w-3" />
-                          {ct.database_slug}
+                          {ct.database_entry_count ?? 0} cached
                         </span>
                       )}
                     </div>

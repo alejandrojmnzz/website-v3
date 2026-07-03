@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { getContentTypeConfig, getLocaleKey, getFieldMapping } from "./content-types";
@@ -8,6 +9,7 @@ import { resolveBySourceUrl } from "./image-registry";
 import { IDatabaseCache, CacheEntry, SqliteCache, CACHE_DIR } from "./db-cache";
 import { markFileAsModified } from "./sync-state";
 import { setJobState } from "./db-job-state";
+import type { MediaGallery } from "./media-gallery";
 import { child } from "./logger";
 const log = child({ module: "database" });
 
@@ -19,10 +21,10 @@ function getDbDir(contentRoot?: string): string {
     const { getDefaultSite } = require('./site-manager') as typeof import('./site-manager');
     return path.join(getDefaultSite().contentRoot, "db");
   } catch {
-    return path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "db");
+    return path.join(process.cwd(), getDefaultContentFolder(), "db");
   }
 }
-const DB_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "db");
+const DB_DIR = path.join(process.cwd(), getDefaultContentFolder(), "db");
 
 export interface VectorSearchConfig {
   enabled: boolean;
@@ -79,6 +81,64 @@ function setValueByPath(obj: Record<string, unknown>, dotPath: string, value: un
 }
 
 const TRANSFORM_ERROR_SENTINEL = "__transform_error__";
+
+export { TRANSFORM_ERROR_SENTINEL };
+
+function countTransformErrorsInValue(val: unknown): number {
+  if (val === TRANSFORM_ERROR_SENTINEL) return 1;
+  if (Array.isArray(val)) {
+    return val.reduce((sum, el) => sum + countTransformErrorsInValue(el), 0);
+  }
+  if (val && typeof val === "object") {
+    return Object.values(val as Record<string, unknown>).reduce(
+      (sum, el) => sum + countTransformErrorsInValue(el),
+      0,
+    );
+  }
+  return 0;
+}
+
+function countTransformErrorsInItems(items: Record<string, unknown>[]): number {
+  return items.reduce((sum, item) => sum + countTransformErrorsInValue(item), 0);
+}
+
+async function withFetchJobState<T>(
+  dbName: string | undefined,
+  fn: () => Promise<T>,
+  getFetchedCount?: (result: T) => number,
+): Promise<T> {
+  if (dbName) {
+    setJobState(dbName, "fetch", {
+      status: "running",
+      startedAt: new Date().toISOString(),
+    });
+  }
+  try {
+    const result = await fn();
+    if (dbName) {
+      const fetched = getFetchedCount
+        ? getFetchedCount(result)
+        : Array.isArray(result)
+          ? result.length
+          : 0;
+      setJobState(dbName, "fetch", {
+        status: "done",
+        fetched,
+        finishedAt: new Date().toISOString(),
+      });
+    }
+    return result;
+  } catch (err) {
+    if (dbName) {
+      setJobState(dbName, "fetch", {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+        finishedAt: new Date().toISOString(),
+      });
+    }
+    throw err;
+  }
+}
 
 function applyFieldMapping(
   item: Record<string, unknown>,
@@ -230,46 +290,76 @@ async function fetchFromApi(
   const pageSize = rawLimit !== undefined ? parseInt(String(rawLimit), 10) : NaN;
 
   if (!hasResultsPath || isNaN(pageSize) || pageSize <= 0) {
-    const url = new URL(apiConfig.endpoint);
-    for (const [key, value] of Object.entries(baseParams)) {
-      url.searchParams.set(key, String(value));
+    if (dbName) {
+      setJobState(dbName, "fetch", {
+        status: "running",
+        startedAt: new Date().toISOString(),
+      });
     }
 
-    const response = await fetch(url.toString(), { headers });
-    if (!response.ok) {
-      throw new Error(
-        `API returned ${response.status}: ${await response.text().catch(() => "")}`
-      );
-    }
+    try {
+      const url = new URL(apiConfig.endpoint);
+      for (const [key, value] of Object.entries(baseParams)) {
+        url.searchParams.set(key, String(value));
+      }
 
-    const data = await response.json();
-
-    if (hasResultsPath) {
-      const items = getValueByPath(data, apiConfig.results_path!);
-      if (!Array.isArray(items)) {
+      const response = await fetch(url.toString(), { headers });
+      if (!response.ok) {
         throw new Error(
-          `results_path "${apiConfig.results_path}" did not resolve to an array`
+          `API returned ${response.status}: ${await response.text().catch(() => "")}`
         );
       }
+
+      const data = await response.json();
+
+      let items: unknown[];
+      if (hasResultsPath) {
+        const resolved = getValueByPath(data, apiConfig.results_path!);
+        if (!Array.isArray(resolved)) {
+          throw new Error(
+            `results_path "${apiConfig.results_path}" did not resolve to an array`
+          );
+        }
+        items = resolved;
+      } else if (Array.isArray(data)) {
+        items = data;
+      } else if (data && typeof data === "object") {
+        const arrayKeys = Object.keys(data as Record<string, unknown>).filter(
+          (k) => Array.isArray((data as Record<string, unknown>)[k])
+        );
+        if (arrayKeys.length === 1) {
+          items = (data as Record<string, unknown>)[arrayKeys[0]] as unknown[];
+        } else if (arrayKeys.length > 1) {
+          throw new Error(
+            `Response contains multiple array keys: ${arrayKeys.map((k) => `"${k}"`).join(", ")}. ` +
+            `Set the Results Path field to one of these.`
+          );
+        } else {
+          throw new Error("API response is not an array and no results_path configured");
+        }
+      } else {
+        throw new Error("API response is not an array and no results_path configured");
+      }
+
+      if (dbName) {
+        setJobState(dbName, "fetch", {
+          status: "done",
+          fetched: items.length,
+          finishedAt: new Date().toISOString(),
+        });
+      }
+
       return items;
-    }
-
-    if (Array.isArray(data)) return data;
-    if (data && typeof data === "object") {
-      const arrayKeys = Object.keys(data as Record<string, unknown>).filter(
-        (k) => Array.isArray((data as Record<string, unknown>)[k])
-      );
-      if (arrayKeys.length === 1) {
-        return (data as Record<string, unknown>)[arrayKeys[0]] as unknown[];
+    } catch (err) {
+      if (dbName) {
+        setJobState(dbName, "fetch", {
+          status: "error",
+          error: err instanceof Error ? err.message : String(err),
+          finishedAt: new Date().toISOString(),
+        });
       }
-      if (arrayKeys.length > 1) {
-        throw new Error(
-          `Response contains multiple array keys: ${arrayKeys.map((k) => `"${k}"`).join(", ")}. ` +
-          `Set the Results Path field to one of these.`
-        );
-      }
+      throw err;
     }
-    throw new Error("API response is not an array and no results_path configured");
   }
 
   const allItems: unknown[] = [];
@@ -455,9 +545,11 @@ export class DatabaseManager {
   }
 
   private readonly dbDir: string;
+  private readonly mediaGallery: MediaGallery | null;
 
-  constructor(contentRoot?: string) {
+  constructor(contentRoot?: string, mediaGallery?: MediaGallery) {
     this.dbDir = getDbDir(contentRoot);
+    this.mediaGallery = mediaGallery ?? null;
     this.reload();
     this.migrateJsonCaches();
   }
@@ -557,6 +649,15 @@ export class DatabaseManager {
     this.cache.clear(name);
   }
 
+  private scheduleExternalImages(
+    dbName: string,
+    config: DatabaseConfig,
+    items: Record<string, unknown>[],
+  ): void {
+    if (!this.mediaGallery) return;
+    ExternalImageCacher.scheduleItems(dbName, config, items, this.mediaGallery);
+  }
+
   async fetchItems(
     name: string,
     forceRefresh = false
@@ -573,7 +674,7 @@ export class DatabaseManager {
     if (!forceRefresh) {
       const memEntry = this.memoryCache.get(name);
       if (memEntry && Date.now() < memEntry.expires) {
-        ExternalImageCacher.scheduleItems(name, config, memEntry.data.items);
+        this.scheduleExternalImages(name, config, memEntry.data.items);
         return { ...memEntry.data, from_cache: true };
       }
 
@@ -601,7 +702,7 @@ export class DatabaseManager {
           data: cached,
           expires: Date.now() + ttl * 60 * 60 * 1000,
         });
-        ExternalImageCacher.scheduleItems(name, config, cached.items);
+        this.scheduleExternalImages(name, config, cached.items);
         return { ...cached, from_cache: true };
       }
     }
@@ -613,10 +714,14 @@ export class DatabaseManager {
       rawItems = await fetchFromApi(config.source.api, name);
     } else if (config.source.type === "local") {
       if (!config.source.local) throw new Error("Local source config missing");
-      rawItems = await fetchFromLocal(name, config.source.local, this.dbDir);
+      rawItems = await withFetchJobState(name, () =>
+        fetchFromLocal(name, config.source.local!, this.dbDir),
+      );
     } else if (config.source.type === "remote") {
       if (!config.source.remote) throw new Error("Remote source config missing");
-      rawItems = await fetchFromRemote(config.source.remote);
+      rawItems = await withFetchJobState(name, () =>
+        fetchFromRemote(config.source.remote!),
+      );
     } else {
       throw new Error(`Unsupported source type: ${config.source.type}`);
     }
@@ -679,7 +784,7 @@ export class DatabaseManager {
       expires: Date.now() + ttl * 60 * 60 * 1000,
     });
 
-    ExternalImageCacher.scheduleItems(name, config, items);
+    this.scheduleExternalImages(name, config, items);
 
     const vsConfig = (config as DatabaseConfig).vector_search;
     if (vsConfig?.enabled && vsConfig.fields?.length > 0) {
@@ -876,6 +981,15 @@ export class DatabaseManager {
     return null;
   }
 
+  countTransformErrors(name: string): number {
+    const config = this.configs.get(name);
+    if (!config) return 0;
+    const ttl = config.cache?.ttl_hours ?? 24;
+    const cached = this.cache.read(name, ttl);
+    if (!cached) return 0;
+    return countTransformErrorsInItems(cached.items);
+  }
+
   getCacheStats(): import("./db-cache").CacheStats {
     return this.cache.getCacheStats();
   }
@@ -1058,6 +1172,15 @@ export class DatabaseManager {
       return false;
     }
   }
+}
+
+/** Cached mapped row count for a database (0 when configured but not yet fetched). */
+export function getCachedDatabaseEntryCount(dbm: DatabaseManager, dbName: string): number {
+  if (!dbName) return 0;
+  const stats = dbm.getCacheStats().perDb[dbName];
+  if (stats) return stats.item_count;
+  if (!dbm.exists(dbName)) return 0;
+  return dbm.getMappedItems(dbName)?.length ?? 0;
 }
 
 export const databaseManager = new DatabaseManager();

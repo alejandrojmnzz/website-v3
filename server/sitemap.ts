@@ -3,8 +3,9 @@ import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, g
 import { getSupportedLocales } from "./settings";
 import { applyTransformIfNeeded } from "./transform";
 import { getFileLastmod } from "./sync-state";
-import { databaseManager } from "./database";
+import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
+import type { SiteContext } from "./site-manager";
 const log = child({ module: "sitemap" });
 
 // Per-request site context for per-site sitemap generation.
@@ -13,10 +14,22 @@ const log = child({ module: "sitemap" });
 export interface ActiveSiteCtx {
   contentIndex: typeof contentIndex;
   contentRootName: string;
+  database: DatabaseManager;
   baseUrl?: string;
 }
+
+export function toActiveSiteCtx(site: Pick<SiteContext, "contentIndex" | "contentRootName" | "database" | "config">): ActiveSiteCtx {
+  return {
+    contentIndex: site.contentIndex,
+    contentRootName: site.contentRootName,
+    database: site.database,
+    baseUrl: site.config.domain ? `https://${site.config.domain}` : undefined,
+  };
+}
+
 let _activeSiteCtx: ActiveSiteCtx | null = null;
 function _ci(): typeof contentIndex { return _activeSiteCtx?.contentIndex ?? contentIndex; }
+function _db(): DatabaseManager { return _activeSiteCtx?.database ?? databaseManager; }
 function _contentFolder(): string {
   return _activeSiteCtx?.contentRootName ?? process.env.CONTENT_FOLDER ?? "content";
 }
@@ -265,7 +278,10 @@ function buildMapKey(entry: CanonicalSitemapEntry): string {
 // ============================================================================
 
 function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, CanonicalSitemapEntry> {
+  _activeSiteCtx = ctx ?? null;
+  try {
   const ci = ctx?.contentIndex ?? contentIndex;
+  const db = ctx?.database ?? databaseManager;
   const cf = ctx?.contentRootName ?? process.env.CONTENT_FOLDER ?? "content";
 
   const today = getCurrentDate();
@@ -359,7 +375,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
     for (const [typeName, typeConfig] of Object.entries(allTypeConfigs)) {
       if (!typeConfig.database?.slug) continue;
       const dbName = typeConfig.database.slug;
-      const items = databaseManager.getMappedItems(dbName);
+      const items = db.getMappedItems(dbName);
       if (!items || items.length === 0) {
         log.warn(`[Sitemap] No cached items for DB-backed type "${typeName}" (db: ${dbName}) — skipping`);
         continue;
@@ -440,6 +456,9 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
   }
 
   return entriesMap;
+  } finally {
+    _activeSiteCtx = null;
+  }
 }
 
 // ============================================================================

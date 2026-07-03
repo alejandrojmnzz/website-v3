@@ -13,6 +13,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
+import { formatSitePathSpaced, toContentFileRef } from "@shared/formatSitePath";
 
 export interface RedirectConflictInfo {
   redirectUrl: string;
@@ -38,10 +39,8 @@ export interface ValidatorIssue {
   fix?: FixHint;
 }
 
-function normalizeFilePath(p: string): string {
-  const idx = p.indexOf("4geeks-com/");
-  return idx >= 0 ? p.substring(idx) : p;
-}
+const CONTENT_FILE_IN_MESSAGE_RE =
+  /"([^"]*(?:site_[^/]+|4geeks-com|content)\/[^"]+\.ya?ml)"/g;
 
 export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictInfo | null {
   const codes = ["REDIRECT_CONFLICT", "REDIRECT_OVERLAP", "SELF_REDIRECT", "REDIRECT_OVERWRITES_CONTENT"];
@@ -53,14 +52,14 @@ export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictIn
   if (issue.code === "REDIRECT_CONFLICT" || issue.code === "REDIRECT_OVERLAP") {
     const urlMatch = issue.message.match(/"([^"]+)"/);
     if (urlMatch) redirectUrl = urlMatch[1];
-    const fileMatches = issue.message.match(/"([^"]*4geeks-com\/[^"]+\.yml)"/g);
+    const fileMatches = issue.message.match(CONTENT_FILE_IN_MESSAGE_RE);
     if (fileMatches) {
       for (const m of fileMatches) {
-        files.push(normalizeFilePath(m.replace(/"/g, "")));
+        files.push(toContentFileRef(m.replace(/"/g, "")));
       }
     }
-    if (issue.file && !files.includes(normalizeFilePath(issue.file))) {
-      files.push(normalizeFilePath(issue.file));
+    if (issue.file && !files.includes(toContentFileRef(issue.file))) {
+      files.push(toContentFileRef(issue.file));
     }
     if (issue.code === "REDIRECT_OVERLAP" && !files.some(f => f.includes("_common.yml"))) {
       const localeFile = files.find(f => !f.includes("_common.yml"));
@@ -72,11 +71,11 @@ export function parseRedirectConflict(issue: ValidatorIssue): RedirectConflictIn
   } else if (issue.code === "SELF_REDIRECT") {
     const urlMatch = issue.message.match(/"([^"]+)"/);
     if (urlMatch) redirectUrl = urlMatch[1];
-    if (issue.file) files.push(normalizeFilePath(issue.file));
+    if (issue.file) files.push(toContentFileRef(issue.file));
   } else if (issue.code === "REDIRECT_OVERWRITES_CONTENT") {
     const urlMatch = issue.message.match(/"([^"]+)"/);
     if (urlMatch) redirectUrl = urlMatch[1];
-    if (issue.file) files.push(normalizeFilePath(issue.file));
+    if (issue.file) files.push(toContentFileRef(issue.file));
   }
 
   if (!redirectUrl) return null;
@@ -94,7 +93,7 @@ function getConflictTitle(code: string): string {
 }
 
 function formatFilePath(f: string): string {
-  return f.replace("4geeks-com/", "").split("/").join(" / ");
+  return formatSitePathSpaced(f);
 }
 
 function getConflictDescription(info: RedirectConflictInfo): string {

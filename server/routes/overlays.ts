@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import * as fs from "fs";
 import * as path from "path";
 import { safeYamlLoad, safeYamlDump, requireCapability } from "./_helpers";
@@ -9,7 +10,7 @@ function getOverlaysFile(contentRoot: string): string {
 }
 
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 
 function readOverlays(contentRoot: string): unknown {

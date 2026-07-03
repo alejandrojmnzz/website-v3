@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { child } from "./logger";
@@ -6,7 +7,7 @@ const log = child({ module: "settings" });
 
 
 
-const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+const DEFAULT_CONTENT_ROOT = getDefaultContentRoot();
 
 function resolveSettingsRoot(contentRoot?: string): string {
   return contentRoot ?? DEFAULT_CONTENT_ROOT;

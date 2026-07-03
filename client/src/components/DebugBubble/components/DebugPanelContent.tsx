@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, CloudDownload, Cookie, Database, Github, GitBranch, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
 import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { normalizeLocale } from "@/lib/locale";
-import { SyncStatusPopover } from "./SyncStatusPopover";
+import { GitHubSyncChip } from "./GitHubSyncChip";
+import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
+import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
 import { ComponentsView } from "./ComponentsView";
 import { VersioningView } from "./VersioningView";
 import { MenusView } from "./MenusView";
@@ -242,17 +244,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     staleTime: 30000,
   });
 
-  const { data: gcsStatus } = useQuery<{ migrationRequired: boolean; bucketName: string | null; available: boolean }>({
-    queryKey: ["/api/admin/gcs-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/gcs-status");
-      if (!res.ok) throw new Error("Failed to fetch GCS status");
-      return res.json();
-    },
-    refetchInterval: 30000,
-    staleTime: 15000,
-  });
-
   const errorLogCount = (errorLogData?.totalErrors ?? 0) + (errorLogData?.totalWarnings ?? 0);
 
   if (props.noTokenDetected) {
@@ -422,24 +413,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
         </div>
       )}
 
-      {gcsStatus?.migrationRequired && (
-        <div className="p-3 bg-amber-100 dark:bg-amber-900/50 border-b border-amber-200 dark:border-amber-800">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                GCS Migration Required
-              </p>
-              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-                Bucket uses old flat layout. GCS writes are blocked.
-              </p>
-              <p className="text-xs font-mono text-amber-700 dark:text-amber-300 mt-1 break-all">
-                npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=&lt;new-bucket&gt;
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <SystemAlertsPanel compact />
 
       <div className="p-3 border-b pl-[8px] pr-[8px] pt-[3px] pb-[3px]">
         <div className="flex items-center justify-between">
@@ -865,89 +839,19 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               )}
             </ExpandableMenuItem>
 
-            <div className="flex items-center justify-between w-full px-3 py-2 rounded-md text-sm">
-              <div className="flex items-center gap-3">
-                <Github className="h-4 w-4 text-muted-foreground" />
-                <span>GitHub Sync</span>
-                {props.githubSyncStatus && !props.githubSyncStatus.syncEnabled && (
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                    Disabled
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <SyncStatusPopover>
-                  {props.syncStatusLoading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  ) : props.githubSyncStatus ? (
-                    <>
-                      {props.githubSyncStatus.status === 'in-sync' && (
-                        <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                          <Check className="h-3.5 w-3.5" />
-                          In sync
-                        </span>
-                      )}
-                      {props.githubSyncStatus.status === 'behind' && (
-                        <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                          <CloudDownload className="h-3.5 w-3.5" />
-                          {props.githubSyncStatus.behindBy} behind
-                        </span>
-                      )}
-                      {props.githubSyncStatus.status === 'ahead' && (
-                        <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                          {props.githubSyncStatus.aheadBy} ahead
-                        </span>
-                      )}
-                      {props.githubSyncStatus.status === 'diverged' && (
-                        <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          Diverged
-                        </span>
-                      )}
-                      {props.githubSyncStatus.status === 'invalid-credentials' && (
-                        <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1 font-medium">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          Invalid Credentials
-                        </span>
-                      )}
-                      {props.githubSyncStatus.status === 'not-configured' && (
-                        <span className="text-xs text-muted-foreground">Not configured</span>
-                      )}
-                      {props.githubSyncStatus.status === 'unknown' && (
-                        <span className="text-xs text-amber-600 dark:text-amber-400" title="Could not compare local and remote commits">
-                          Check failed
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">--</span>
-                  )}
-                </SyncStatusPopover>
-                <button
-                  onClick={props.refreshSyncStatus}
-                  disabled={props.syncStatusLoading}
-                  className="p-1 rounded hover-elevate disabled:opacity-50"
-                  data-testid="button-refresh-sync-status"
-                  title="Refresh sync status"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${props.syncStatusLoading ? 'animate-spin' : ''}`} />
-                </button>
-                {props.githubSyncStatus?.syncEnabled && (
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      props.fetchPendingChanges();
-                      props.setCommitModalOpen(true);
-                    }}
-                    className="p-1 rounded hover-elevate"
-                    data-testid="button-open-sync-modal"
-                    title="Manage file sync"
-                  >
-                    <CloudDownload className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+            <div className="flex gap-1 px-1">
+              <GitHubSyncChip
+                className="flex-1 min-w-0"
+                githubSyncStatus={props.githubSyncStatus}
+                syncStatusLoading={props.syncStatusLoading}
+                refreshSyncStatus={props.refreshSyncStatus}
+                fetchPendingChanges={props.fetchPendingChanges}
+                setCommitModalOpen={props.setCommitModalOpen}
+              />
+              <GcsBucketSyncChip
+                className="flex-1 min-w-0"
+                onNavigate={() => props.navigate("/private/cloud-sync")}
+              />
             </div>
           </div>
 

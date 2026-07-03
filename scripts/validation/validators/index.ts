@@ -17,6 +17,7 @@ import { schemaCompletenessValidator } from "./schema-completeness";
 import { imagesValidator } from "./images";
 import { contentQualityValidator } from "./content-quality";
 import { databaseSinglesValidator } from "./database-singles";
+import { databaseHealthValidator } from "./database-health";
 import { slugConflictsValidator } from "./slug-conflicts";
 import { seoIntentValidator } from "./seo-intent";
 import { imageOptimizationValidator } from "./image-optimization";
@@ -43,6 +44,7 @@ export const validators: Validator[] = [
   imagesValidator,
   contentQualityValidator,
   databaseSinglesValidator,
+  databaseHealthValidator,
   slugConflictsValidator,
   seoIntentValidator,
   imageOptimizationValidator,
@@ -63,6 +65,19 @@ export const allValidators = [...validators, ...slowValidators];
 export const validatorMap = new Map<string, Validator>(
   validators.map((v) => [v.name, v])
 );
+
+/** Ensures a validator is in the registry (e.g. after hot reload with a stale validators array). */
+export function ensureValidatorRegistered(validator: Validator | undefined): void {
+  if (!validator || validatorMap.has(validator.name)) return;
+  validators.push(validator);
+  validatorMap.set(validator.name, validator);
+  const slowIdx = slowValidators.findIndex((v) => v.name === validator.name);
+  if (slowIdx >= 0) {
+    allValidators.splice(0, allValidators.length, ...validators, ...slowValidators);
+  } else if (!allValidators.some((v) => v.name === validator.name)) {
+    allValidators.push(validator);
+  }
+}
 
 export function getValidator(name: string): Validator | undefined {
   return validatorMap.get(name) ?? slowValidators.find((v) => v.name === name);
@@ -95,6 +110,7 @@ export {
   imagesValidator,
   contentQualityValidator,
   databaseSinglesValidator,
+  databaseHealthValidator,
   slugConflictsValidator,
   seoIntentValidator,
   imageOptimizationValidator,

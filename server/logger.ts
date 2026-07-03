@@ -50,6 +50,8 @@ class DbLogStream extends Writable {
 
 const dbStream = new DbLogStream();
 
+const logLevel = process.env.LOG_LEVEL || (isDev ? "debug" : "info");
+
 let rootLogger: pino.Logger;
 
 if (isDev) {
@@ -62,17 +64,17 @@ if (isDev) {
     },
   });
   rootLogger = pino(
-    { level: "debug" },
+    { level: logLevel },
     pino.multistream([
-      { stream: prettyStream, level: "debug" },
+      { stream: prettyStream, level: logLevel },
       { stream: dbStream, level: "warn" },
     ])
   );
 } else {
   rootLogger = pino(
-    { level: "info" },
+    { level: logLevel },
     pino.multistream([
-      { stream: process.stdout, level: "info" },
+      { stream: process.stdout, level: logLevel },
       { stream: dbStream, level: "warn" },
     ])
   );

@@ -12,6 +12,7 @@ const PrivateRedirects = lazy(() => import("@/pages/PrivateRedirects"));
 const BlogManagePage = lazy(() => import("@/pages/BlogManagePage"));
 const ContentTypeManagePage = lazy(() => import("@/pages/ContentTypeManagePage"));
 const SyncLogPage = lazy(() => import("@/pages/SyncLogPage"));
+const CloudSyncPage = lazy(() => import("@/pages/CloudSyncPage"));
 const PrivateDatabases = lazy(() => import("@/pages/PrivateDatabases"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const SeoGeoPage = lazy(() => import("@/pages/SeoGeoPage"));
@@ -47,6 +48,14 @@ function LoadingFallback() {
   );
 }
 
+function SyncLogRedirect() {
+  const search = typeof window !== "undefined" ? window.location.search : "";
+  if (typeof window !== "undefined") {
+    window.location.replace(`/private/repository-sync${search}`);
+  }
+  return null;
+}
+
 export default function PrivateRouter() {
   return (
     <Suspense fallback={<LoadingFallback />}>
@@ -70,7 +79,9 @@ export default function PrivateRouter() {
         <Route path="/private/ai-knowledge-blocks" component={AIKnowledgeBlocks} />
         <Route path="/private/ai-conversations" component={AIConversations} />
         <Route path="/private/settings" component={SettingsPage} />
-        <Route path="/private/sync-log" component={SyncLogPage} />
+        <Route path="/private/sync-log" component={SyncLogRedirect} />
+        <Route path="/private/repository-sync" component={SyncLogPage} />
+        <Route path="/private/cloud-sync" component={CloudSyncPage} />
         <Route path="/private/theme-editor" component={ThemeEditor} />
         <Route path="/private/component-insights" component={ComponentInsightsPage} />
         <Route path="/private/store/products" component={StoreProductsPage} />

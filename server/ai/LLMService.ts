@@ -4,6 +4,7 @@
  */
 
 import OpenAI from "openai";
+import { getDefaultContentRoot } from "../site-config";
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
@@ -30,7 +31,7 @@ let instance: LLMService | null = null;
 let cachedConfigMtime: number | null = null;
 
 function getDefaultLLMPath(): string {
-  return path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
+  return path.join(getDefaultContentRoot(), "llm.yml");
 }
 
 function loadYamlConfig(contentRoot?: string): LLMYamlConfig | null {

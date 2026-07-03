@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
@@ -209,7 +210,7 @@ function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);

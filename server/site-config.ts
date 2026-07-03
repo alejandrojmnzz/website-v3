@@ -100,6 +100,19 @@ export function isMultiSiteMode(): boolean {
   return configs.length > 1;
 }
 
+/** First site in sites.yml, or CONTENT_FOLDER / site_default in single-site mode. */
+export function getDefaultContentFolder(): string {
+  const configs = getSiteConfigs();
+  if (configs.length > 0) return configs[0].contentFolder;
+  return process.env.CONTENT_FOLDER || "site_default";
+}
+
+/** Absolute path to the default site's content folder (from sites.yml when present). */
+export function getDefaultContentRoot(): string {
+  const folder = getDefaultContentFolder();
+  return path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);
+}
+
 export function resetSiteConfigs(): void {
   _cached = null;
   _bucketName = undefined;

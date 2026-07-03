@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { getMergedSchemas, getOrganizationTwitterHandle, getWebsiteDefaultSocialImage } from "./schema-org";
@@ -13,7 +14,7 @@ const log = child({ module: "ssr-schema" });
 
 
 
-const DEFAULT_CONTENT_ROOT = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+const DEFAULT_CONTENT_ROOT = getDefaultContentRoot();
 
 const DEFAULT_IMAGE_DIMENSIONS = { width: 1200, height: 630 };
 const imageRegistryByRoot = new Map<string, Record<string, { src?: string; width?: number; height?: number }>>();

@@ -16,13 +16,18 @@ import { loadAllContent } from "./shared/contentLoader";
 import { contentIndex as defaultContentIndex } from "../../server/content-index";
 import { buildValidUrlSet } from "./shared/canonicalUrls";
 import { getAvailableSchemaKeys } from "./shared/schemaRegistry";
-import { validators, allValidators, getValidator, listValidators } from "./validators";
+import { validators, allValidators, getValidator, listValidators, ensureValidatorRegistered } from "./validators";
+import { databaseHealthValidator } from "./validators/database-health";
 import { getSitemap } from "../../server/sitemap";
 
 export class ValidationService {
   private context: ValidationContext | null = null;
 
-  async buildContext(options: { contentRoot?: string; ci?: typeof defaultContentIndex } = {}): Promise<ValidationContext> {
+  async buildContext(options: {
+    contentRoot?: string;
+    ci?: typeof defaultContentIndex;
+    scope?: { database?: string };
+  } = {}): Promise<ValidationContext> {
     const contentFiles = loadAllContent(options.ci);
     const validUrls = buildValidUrlSet(contentFiles);
     const availableSchemas = getAvailableSchemaKeys();
@@ -44,6 +49,7 @@ export class ValidationService {
       sitemapEntries,
       sitemapXml,
       contentRoot: options.contentRoot,
+      scope: options.scope,
     };
 
     return this.context;
@@ -55,9 +61,13 @@ export class ValidationService {
 
   async runValidators(options: ValidationRunOptions = {}): Promise<ValidationRunResult> {
     const startTime = Date.now();
+
+    ensureValidatorRegistered(databaseHealthValidator);
     
     if (!this.context) {
-      await this.buildContext();
+      await this.buildContext({ scope: options.scope });
+    } else if (options.scope) {
+      this.context.scope = options.scope;
     }
 
     const pool = options.includeSlow ? allValidators : validators;
@@ -134,6 +144,7 @@ export class ValidationService {
   }
 
   getAvailableValidators() {
+    ensureValidatorRegistered(databaseHealthValidator);
     return listValidators();
   }
 

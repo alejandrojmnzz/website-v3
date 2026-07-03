@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getDefaultContentRoot, getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { child } from "./logger";
@@ -32,7 +33,7 @@ interface SchemaReference {
 const schemaCache = new Map<string, SchemaOrgConfig>();
 
 function resolveSchemaPath(contentRoot?: string): string {
-  const root = contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  const root = contentRoot ?? getDefaultContentRoot();
   return path.join(root, "schema-org.yml");
 }
 
@@ -342,7 +343,7 @@ export function getOrganizationSameAsUrl(platform: string, contentRoot?: string)
 }
 
 export function updateOrganizationSameAsUrl(platform: string, url: string): void {
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), getDefaultContentFolder(), "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {
@@ -387,7 +388,7 @@ export function getWebsiteDefaultSocialImage(contentRoot?: string): string | nul
 }
 
 export function updateOrganizationTwitterHandle(handle: string): void {
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), getDefaultContentFolder(), "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {
@@ -428,7 +429,7 @@ export function updateOrganizationTwitterHandle(handle: string): void {
 }
 
 export function updateWebsiteDefaultSocialImage(imageUrl: string): void {
-  const schemaPath = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "schema-org.yml");
+  const schemaPath = path.join(process.cwd(), getDefaultContentFolder(), "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {

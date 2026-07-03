@@ -28,11 +28,12 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
-import { resetSiteConfigs } from "../site-config";
+import { resetSiteConfigs, getDefaultContentFolder, getDefaultContentRoot } from "../site-config";
 import { resetSiteContextMap } from "../site-manager";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
+import { collectSystemAlerts } from "../system-alerts";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -150,6 +151,13 @@ import {
 } from "../../scripts/validation/shared/imageRegistrySrc";
 import type { ProgressEvent } from "../../scripts/validation/fixers/types";
 import { gcs } from "../gcs";
+import {
+  legacyLighthouseGcsPrefixRoot,
+  siteLighthouseGcsPrefix,
+  siteLighthouseGcsPrefixRoot,
+} from "@shared/gcsKeys";
+import { aggregateImageQueuePending, collectGcsSyncInventory } from "../gcs-sync-inventory";
+import { isImageQueueBusy } from "../image-queue-worker";
 import { z } from "zod";
 import {
   generateSsrSchemaHtml,
@@ -180,6 +188,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireStaffSession,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -220,11 +229,11 @@ function getCI(res: Response): typeof contentIndex {
 }
 
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 
 function getContentRootName(res: Response): string {
-  return (res.locals.site as any)?.contentRootName ?? (process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRootName ?? (getDefaultContentFolder());
 }
 
 /** Return the per-site ConversationStore for the current request, falling back to the default singleton. */
@@ -249,12 +258,62 @@ function loadSiteLLMConfig(res: Response): Record<string, unknown> {
 
 export function registerAdminRoutes(app: Express): void {
   // GCS bucket status — migrationRequired flag + bucket name
-  app.get("/api/admin/gcs-status", (_req, res) => {
+  app.get("/api/admin/gcs-status", async (_req, res) => {
+    const diagnostics = await gcs.checkArchitecture();
     res.json({
       migrationRequired: gcs.migrationRequired,
       bucketName: gcs.getBucketName() || null,
       available: gcs.available,
+      diagnostics,
     });
+  });
+
+  app.get("/api/admin/gcs-sync-status", async (req, res) => {
+    const detail = req.query.detail === "1" || req.query.detail === "true";
+    const diagnostics = detail ? await gcs.checkArchitecture() : undefined;
+    const syncStatus = gcs.buildSyncStatus({
+      imageQueuePending: aggregateImageQueuePending(),
+      imageQueueBusy: isImageQueueBusy(),
+      checkError: diagnostics?.checkError,
+    });
+
+    if (!detail) {
+      res.json(syncStatus);
+      return;
+    }
+
+    res.json({
+      ...syncStatus,
+      diagnostics,
+    });
+  });
+
+  app.get("/api/admin/gcs-sync-inventory", async (_req, res) => {
+    const rows = await collectGcsSyncInventory();
+    res.json({ rows });
+  });
+
+  app.post("/api/admin/gcs-recheck-migration", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const diagnostics = await gcs.checkArchitecture();
+    res.json({
+      migrationRequired: gcs.migrationRequired,
+      bucketName: gcs.getBucketName() || null,
+      available: gcs.available,
+      diagnostics,
+      message: gcs.migrationRequired
+        ? "Migration still required — new per-site layout not detected in bucket."
+        : "Migration check passed — GCS writes are allowed.",
+    });
+  });
+
+  app.get("/api/admin/system-alerts", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+    await gcs.checkArchitecture();
+    res.json({ alerts: collectSystemAlerts() });
   });
 
   // Clear sitemap cache (requires token validation)
@@ -1111,25 +1170,37 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/admin/lighthouse/reports", async (_req, res) => {
+  app.get("/api/admin/lighthouse/reports", async (req, res) => {
     try {
       if (!gcs.available) {
         res.json({ runs: [], latestRun: null });
         return;
       }
-      const keys: string[] = await gcs.list("reports/lighthouse/");
+      const siteFolder = getContentRootName(res);
+      const lhRoot = siteLighthouseGcsPrefixRoot(siteFolder);
+      let keys: string[] = await gcs.list(lhRoot);
+      let datePattern = new RegExp(`^${lhRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d{4}-\\d{2}-\\d{2})/`);
+      if (keys.length === 0) {
+        const legacyRoot = legacyLighthouseGcsPrefixRoot();
+        keys = await gcs.list(legacyRoot);
+        datePattern = /^reports\/lighthouse\/(\d{4}-\d{2}-\d{2})\//;
+      }
       const dateSet = new Set<string>();
       for (const key of keys) {
-        const m = key.match(/^reports\/lighthouse\/(\d{4}-\d{2}-\d{2})\//);
+        const m = key.match(datePattern);
         if (m) dateSet.add(m[1]);
       }
       const dates = Array.from(dateSet).sort().reverse().slice(0, 5);
       const runs: { date: string; pageCount: number; avgPerformanceScore: number; worstPage: { slug: string; score: number } | null }[] = [];
       for (const date of dates) {
         try {
-          const buf: Buffer | null = await gcs.download(`reports/lighthouse/${date}/_summary.json`);
-          if (!buf) continue;
-          const pages = JSON.parse(buf.toString()) as { slug: string; performanceScore: number }[];
+          const summaryKeys = [
+            `${siteLighthouseGcsPrefix(siteFolder, date)}/_summary.json`,
+            `reports/lighthouse/${date}/_summary.json`,
+          ];
+          const result = await gcs.downloadFirstExisting(summaryKeys);
+          if (!result) continue;
+          const pages = JSON.parse(result.data.toString()) as { slug: string; performanceScore: number }[];
           if (!Array.isArray(pages) || pages.length === 0) continue;
           const avgPerformanceScore = Math.round(
             pages.reduce((s, p) => s + p.performanceScore, 0) / pages.length
@@ -1158,12 +1229,16 @@ export function registerAdminRoutes(app: Express): void {
         res.status(404).json({ error: "GCS not available" });
         return;
       }
-      const buf: Buffer | null = await gcs.download(`reports/lighthouse/${date}/_summary.json`);
-      if (!buf) {
+      const siteFolder = getContentRootName(res);
+      const result = await gcs.downloadFirstExisting([
+        `${siteLighthouseGcsPrefix(siteFolder, date)}/_summary.json`,
+        `reports/lighthouse/${date}/_summary.json`,
+      ]);
+      if (!result) {
         res.status(404).json({ error: "Report not found" });
         return;
       }
-      const pages = JSON.parse(buf.toString());
+      const pages = JSON.parse(result.data.toString());
       res.json(pages);
     } catch (err) {
       log.error({ err: err }, "[Lighthouse] report date error:");
@@ -1217,9 +1292,10 @@ export function registerAdminRoutes(app: Express): void {
       );
       type PageReport = Awaited<ReturnType<typeof buildPageReport>>;
 
+      const siteFolder = getContentRootName(res);
       const d = new Date();
       const dateDir = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-      const gcsPrefix = `reports/lighthouse/${dateDir}`;
+      const gcsPrefix = siteLighthouseGcsPrefix(siteFolder, dateDir);
 
       function sleep(ms: number): Promise<void> {
         return new Promise((r) => setTimeout(r, ms));
@@ -1659,7 +1735,7 @@ export function registerAdminRoutes(app: Express): void {
     if (
       url.startsWith("/api/") ||
       url.startsWith("/attached_assets/") ||
-      (() => { try { const { getSiteContextMap } = require("../site-manager") as typeof import("../site-manager"); return [...getSiteContextMap().values()].some(s => url.startsWith(`/${s.contentRootName}/`)); } catch { return url.startsWith(`/${process.env.CONTENT_FOLDER || "default-site-content"}/`); } })() ||
+      (() => { try { const { getSiteContextMap } = require("../site-manager") as typeof import("../site-manager"); return [...getSiteContextMap().values()].some(s => url.startsWith(`/${s.contentRootName}/`)); } catch { return url.startsWith(`/${getDefaultContentFolder()}/`); } })() ||
       /\.\w+$/.test(url)
     ) {
       return next();

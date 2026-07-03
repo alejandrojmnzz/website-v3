@@ -19,6 +19,7 @@
  */
 
 import * as fs from "fs";
+import { getDefaultContentFolder } from "../site-config";
 import * as path from "path";
 import * as os from "os";
 import { getFolder } from "../content-types";
@@ -36,7 +37,7 @@ function getSidecarPath(contentType: string): string {
     const { getDefaultSite } = require("../site-manager") as typeof import("../site-manager");
     contentFolder = getDefaultSite().contentRootName;
   } catch {
-    contentFolder = process.env.CONTENT_FOLDER || "default-site-content";
+    contentFolder = getDefaultContentFolder();
   }
   return path.join(process.cwd(), contentFolder, folder, "_section_anchors.json");
 }

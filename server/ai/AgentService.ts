@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { getDefaultContentRoot } from "../site-config";
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
@@ -59,7 +60,7 @@ function loadConfig(contentRoot?: string): LLMConfig {
   try {
     const configPath = contentRoot
       ? path.join(contentRoot, "llm.yml")
-      : path.resolve(`${process.env.CONTENT_FOLDER || "default-site-content"}/llm.yml`);
+      : path.join(getDefaultContentRoot(), "llm.yml");
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, "utf-8");
       return yaml.load(raw) as LLMConfig;

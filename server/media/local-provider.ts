@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentFolder } from "../site-config";
 import * as path from "path";
 import type { StorageProvider } from "./types";
 
@@ -10,7 +11,7 @@ function getLocalPrefixes(): string[] {
       prefixes.push(`/${site.contentRootName}/images/`);
     }
   } catch {
-    const folder = process.env.CONTENT_FOLDER || "default-site-content";
+    const folder = getDefaultContentFolder();
     prefixes.push(`/${folder}/images/`);
   }
   return prefixes;

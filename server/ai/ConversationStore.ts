@@ -1,7 +1,9 @@
 import { db, type SiteDb } from "../db";
+import { getDefaultContentFolder } from "../site-config";
 import { conversations, conversationMessages, aiKnowledge } from "@shared/schema";
 import type { InsertConversation, InsertConversationMessage, Conversation, ConversationMessage } from "@shared/schema";
 import { eq, desc, and, gte, lte, like, sql, type SQL } from "drizzle-orm";
+import { siteConversationsGcsKey } from "@shared/gcsKeys";
 import { gcs } from "../gcs";
 import * as fs from "fs";
 import * as path from "path";
@@ -116,7 +118,7 @@ export class ConversationStore {
     }
 
     let graceMinutes = 15;
-    const contentRoot = filters.contentRoot || process.env.CONTENT_FOLDER || "default-site-content";
+    const contentRoot = filters.contentRoot || getDefaultContentFolder();
     try {
       const llmPath = path.resolve(`${contentRoot}/llm.yml`);
       if (fs.existsSync(llmPath)) {
@@ -177,7 +179,7 @@ export class ConversationStore {
   async saveContextSnapshot(conversationId: string, context: Record<string, unknown>): Promise<void> {
     if (!gcs.available) return;
     try {
-      const key = `conversations/${this.contentFolderName}/${conversationId}/context.json`;
+      const key = siteConversationsGcsKey(this.contentFolderName, conversationId);
       await gcs.upload(key, Buffer.from(JSON.stringify(context, null, 2)), "application/json");
     } catch (err) {
       log.error({ err: err }, "[ConversationStore] Failed to save context snapshot:");

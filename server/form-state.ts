@@ -1,28 +1,23 @@
 /**
- * FormState — registry of form sections found across content YAMLs.
+ * FormState — per-site registry of form sections found across content YAMLs.
  *
- * Local file at 4geeks-com/.form-state.json, synced to GCS
- * at sync/form-state.json on every write (production only).
- *
- * Follows the same pattern as server/user-store.ts.
+ * Local file at {site}/.form-state.json, synced to GCS at
+ * {site}/sync/form-state.json on every write (production only).
  */
 
 import * as fs from "fs";
 import * as path from "path";
+import {
+  formStateReadKeys,
+  siteSyncGcsKey,
+  SYNC_FILENAMES,
+} from "@shared/gcsKeys";
 import { gcs } from "./gcs";
 import { safeYamlLoad } from "./routes/_helpers";
 import { child } from "./logger";
+import { getDefaultContentRoot, getSiteConfigs } from "./site-config";
 const log = child({ module: "form-state" });
 
-
-
-const LOCAL_PATH = path.join(
-  process.cwd(),
-  process.env.CONTENT_FOLDER || "default-site-content",
-  ".form-state.json"
-);
-const GCS_KEY = "sync/form-state.json";
-const CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export interface FormStateEntry {
@@ -47,46 +42,119 @@ interface FormState {
   last_built: string;
 }
 
-let state: FormState = {
-  forms: [],
-  conversion_names: {},
-  known_automations: [],
-  known_tags: [],
-  last_built: new Date().toISOString(),
-};
+const stateBySite = new Map<string, FormState>();
 
-// ─── Persistence ────────────────────────────────────────────────────────────
+function emptyFormState(): FormState {
+  return {
+    forms: [],
+    conversion_names: {},
+    known_automations: [],
+    known_tags: [],
+    last_built: new Date().toISOString(),
+  };
+}
 
-function saveLocal(): void {
+function getSiteLocalPath(contentFolder: string): string {
+  return path.join(process.cwd(), contentFolder, ".form-state.json");
+}
+
+function getSiteGcsKey(contentFolder: string): string {
+  return siteSyncGcsKey(contentFolder, SYNC_FILENAMES.formState);
+}
+
+function getOrCreateSiteState(contentFolder: string): FormState {
+  if (!stateBySite.has(contentFolder)) {
+    stateBySite.set(contentFolder, emptyFormState());
+  }
+  return stateBySite.get(contentFolder)!;
+}
+
+function getAllForms(): FormStateEntry[] {
+  const forms: FormStateEntry[] = [];
+  for (const siteState of stateBySite.values()) {
+    forms.push(...siteState.forms);
+  }
+  return forms;
+}
+
+function getAggregatedSuggestions(): { automations: string[]; tags: string[] } {
+  const automations = new Set<string>();
+  const tags = new Set<string>();
+  for (const siteState of stateBySite.values()) {
+    for (const a of siteState.known_automations) automations.add(a);
+    for (const t of siteState.known_tags) tags.add(t);
+  }
+  return {
+    automations: Array.from(automations).sort(),
+    tags: Array.from(tags).sort(),
+  };
+}
+
+function resolveSiteFromRelPath(relPath: string): string | null {
+  for (const site of getSiteConfigs()) {
+    const prefix = site.contentFolder.replace(/\/$/, "") + "/";
+    if (relPath.startsWith(prefix)) return site.contentFolder;
+  }
+  return null;
+}
+
+function saveSiteLocal(contentFolder: string): void {
+  const siteState = stateBySite.get(contentFolder);
+  if (!siteState) return;
   try {
-    const dir = path.dirname(LOCAL_PATH);
+    const localPath = getSiteLocalPath(contentFolder);
+    const dir = path.dirname(localPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(LOCAL_PATH, JSON.stringify(state, null, 2), "utf-8");
+    fs.writeFileSync(localPath, JSON.stringify(siteState, null, 2), "utf-8");
   } catch (err) {
-    log.error({ err: err }, "[FormState] Error saving local file:");
+    log.error({ err }, "[FormState] Error saving local file:");
   }
 }
 
-async function saveToBucket(): Promise<void> {
+async function saveSiteToBucket(contentFolder: string): Promise<void> {
   if (!IS_PRODUCTION || !gcs.available) return;
+  const siteState = stateBySite.get(contentFolder);
+  if (!siteState) return;
   try {
-    const content = JSON.stringify(state, null, 2);
-    gcs.debouncedUpload(GCS_KEY, Buffer.from(content, "utf-8"), "application/json");
+    const content = JSON.stringify(siteState, null, 2);
+    gcs.debouncedUpload(getSiteGcsKey(contentFolder), Buffer.from(content, "utf-8"), "application/json");
   } catch (err) {
-    log.error({ err: err }, "[FormState] Error saving to GCS:");
+    log.error({ err }, "[FormState] Error saving to GCS:");
   }
 }
 
-function save(): void {
-  saveLocal();
-  saveToBucket().catch((err) => {
-    log.error({ err: err }, "[FormState] Background GCS save failed:");
+function saveSite(contentFolder: string): void {
+  saveSiteLocal(contentFolder);
+  saveSiteToBucket(contentFolder).catch((err) => {
+    log.error({ err }, "[FormState] Background GCS save failed:");
   });
 }
 
-// ─── YAML scanning ───────────────────────────────────────────────────────────
+function rebuildIndexForSite(contentFolder: string): void {
+  const siteState = getOrCreateSiteState(contentFolder);
+  const index: Record<string, string[]> = {};
+  const automationsSet = new Set<string>();
+  const tagsSet = new Set<string>();
 
-/** Walk every non-hidden .yml file under 4geeks-com/ */
+  for (const entry of siteState.forms) {
+    if (!index[entry.conversion_name]) index[entry.conversion_name] = [];
+    if (!index[entry.conversion_name].includes(entry.file)) {
+      index[entry.conversion_name].push(entry.file);
+    }
+    if (entry.automations) automationsSet.add(entry.automations);
+    if (entry.tags) {
+      for (const tag of entry.tags) {
+        if (tag) tagsSet.add(tag);
+      }
+    }
+  }
+
+  siteState.conversion_names = index;
+  siteState.known_automations = Array.from(automationsSet).sort();
+  siteState.known_tags = Array.from(tagsSet).sort();
+}
+
+/** Walk every non-hidden .yml file under a directory */
 function collectYmlFiles(dir: string, result: string[] = []): string[] {
   let entries: fs.Dirent[];
   try {
@@ -106,10 +174,6 @@ function collectYmlFiles(dir: string, result: string[] = []): string[] {
   return result;
 }
 
-/**
- * Parse a relative file path into content_type / slug / locale components.
- * Relative path format: <content_type>/<slug>/<locale>.yml  (or _common.yml)
- */
 function parseRelativePath(relPath: string): {
   content_type: string;
   slug: string;
@@ -124,7 +188,6 @@ function parseRelativePath(relPath: string): {
   return { content_type, slug, locale };
 }
 
-/** Recursively search an object for `form` blocks containing `conversion_name`. */
 function extractFormBlocks(
   obj: unknown,
   sectionId: string,
@@ -136,7 +199,7 @@ function extractFormBlocks(
     tags: string[];
     consent?: Record<string, unknown>;
     variant?: string;
-  }>
+  }>,
 ): void {
   if (!obj || typeof obj !== "object") return;
 
@@ -147,7 +210,6 @@ function extractFormBlocks(
 
   const record = obj as Record<string, unknown>;
 
-  // If this object is a form block with conversion_name
   if (typeof record.conversion_name === "string") {
     results.push({
       conversion_name: record.conversion_name,
@@ -185,11 +247,8 @@ function extractFormBlocks(
   }
 }
 
-/** Scan a single YAML file and return all FormStateEntries found in it. */
-function scanFile(absPath: string, contentDir: string = CONTENT_DIR): FormStateEntry[] {
-  // Key `file` relative to cwd (includes site folder prefix) to avoid cross-site collisions.
+function scanFile(absPath: string, contentDir: string): FormStateEntry[] {
   const relPath = path.relative(process.cwd(), absPath);
-  // Content-type parsing still needs the path relative to the site's content dir.
   const relToContent = path.relative(contentDir, absPath);
   const parsed = parseRelativePath(relToContent);
   if (!parsed) return [];
@@ -217,7 +276,13 @@ function scanFile(absPath: string, contentDir: string = CONTENT_DIR): FormStateE
     const section_type = typeof sec.type === "string" ? sec.type : "";
     const variant = typeof sec.variant === "string" ? sec.variant : undefined;
 
-    const formBlocks: Array<{ conversion_name: string; automations?: string; tags: string[]; consent?: Record<string, unknown>; variant?: string }> = [];
+    const formBlocks: Array<{
+      conversion_name: string;
+      automations?: string;
+      tags: string[];
+      consent?: Record<string, unknown>;
+      variant?: string;
+    }> = [];
     extractFormBlocks(sec, section_id, section_type, variant, formBlocks);
 
     for (const block of formBlocks) {
@@ -240,232 +305,160 @@ function scanFile(absPath: string, contentDir: string = CONTENT_DIR): FormStateE
   return entries;
 }
 
-/** Rebuild conversion_names index and known_automations/known_tags from the forms array. */
-function rebuildIndex(): void {
-  const index: Record<string, string[]> = {};
-  const automationsSet = new Set<string>();
-  const tagsSet = new Set<string>();
-
-  for (const entry of state.forms) {
-    if (!index[entry.conversion_name]) index[entry.conversion_name] = [];
-    if (!index[entry.conversion_name].includes(entry.file)) {
-      index[entry.conversion_name].push(entry.file);
-    }
-    if (entry.automations) automationsSet.add(entry.automations);
-    if (entry.tags) {
-      for (const tag of entry.tags) {
-        if (tag) tagsSet.add(tag);
-      }
-    }
-  }
-
-  state.conversion_names = index;
-  state.known_automations = Array.from(automationsSet).sort();
-  state.known_tags = Array.from(tagsSet).sort();
-}
-
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/** Full rebuild by scanning all .yml files under all site content dirs. */
-export function buildFormState(): void {
-  let siteDirs: string[] = [];
-  try {
-    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
-    siteDirs = getSiteConfigs().map((s) => path.join(process.cwd(), s.contentFolder));
-  } catch {
-    siteDirs = [CONTENT_DIR];
-  }
-  if (siteDirs.length === 0) siteDirs = [CONTENT_DIR];
-
+function buildSiteFormState(contentFolder: string): void {
+  const siteDir = path.join(process.cwd(), contentFolder);
   const forms: FormStateEntry[] = [];
-
-  for (const siteDir of siteDirs) {
-    const allFiles = collectYmlFiles(siteDir);
-    for (const absPath of allFiles) {
-      const entries = scanFile(absPath, siteDir);
-      forms.push(...entries);
-    }
+  for (const absPath of collectYmlFiles(siteDir)) {
+    forms.push(...scanFile(absPath, siteDir));
   }
-
-  state = {
+  stateBySite.set(contentFolder, {
     forms,
     conversion_names: {},
     known_automations: [],
     known_tags: [],
     last_built: new Date().toISOString(),
-  };
-  rebuildIndex();
-  save();
-
-  log.info(`[FormState] Built: ${forms.length} form entry(ies) across ${Object.keys(state.conversion_names).length} conversion name(s)`);
+  });
+  rebuildIndexForSite(contentFolder);
+  saveSite(contentFolder);
 }
 
-/**
- * Incremental update: removes all existing entries for the given file,
- * re-scans just that file, and saves.
- */
+/** Full rebuild by scanning all .yml files under all site content dirs. */
+export function buildFormState(): void {
+  const siteConfigs = getSiteConfigs();
+  const sites = siteConfigs.length > 0
+    ? siteConfigs.map((s) => s.contentFolder)
+    : [path.relative(process.cwd(), getDefaultContentRoot())];
+
+  for (const contentFolder of sites) {
+    buildSiteFormState(contentFolder);
+  }
+
+  const totalForms = getAllForms().length;
+  const totalNames = new Set(getAllForms().map((f) => f.conversion_name)).size;
+  log.info(`[FormState] Built: ${totalForms} form entry(ies) across ${totalNames} conversion name(s)`);
+}
+
 export function updateFormStateForFile(relPath: string): void {
-  let fileRelToContent: string | null = null;
-  let absPath: string | null = null;
+  const contentFolder = resolveSiteFromRelPath(relPath);
+  if (!contentFolder) return;
 
-  try {
-    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
-    for (const site of getSiteConfigs()) {
-      const prefix = site.contentFolder.replace(/\/$/, "") + "/";
-      if (relPath.startsWith(prefix)) {
-        fileRelToContent = relPath.slice(prefix.length);
-        absPath = path.join(process.cwd(), site.contentFolder, fileRelToContent);
-        break;
-      }
-    }
-  } catch {
-    // not a content file
-  }
+  const prefix = contentFolder.replace(/\/$/, "") + "/";
+  const fileRelToContent = relPath.slice(prefix.length);
+  const absPath = path.join(process.cwd(), contentFolder, fileRelToContent);
 
-  if (!fileRelToContent || !absPath) return;
+  const siteState = getOrCreateSiteState(contentFolder);
+  siteState.forms = siteState.forms.filter((e) => e.file !== relPath);
 
-  // Remove existing entries for this file (entries now keyed by cwd-relative path)
-  state.forms = state.forms.filter((e) => e.file !== relPath);
-
-  // Re-scan if file still exists — pass the site-correct contentDir so relPath is correct
   if (fs.existsSync(absPath)) {
-    let siteContentDir = CONTENT_DIR;
-    try {
-      const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
-      for (const site of getSiteConfigs()) {
-        const prefix = site.contentFolder.replace(/\/$/, "") + "/";
-        if (relPath.startsWith(prefix)) {
-          siteContentDir = path.join(process.cwd(), site.contentFolder);
-          break;
-        }
-      }
-    } catch { /* fallback to default */ }
-    const newEntries = scanFile(absPath, siteContentDir);
-    state.forms.push(...newEntries);
+    const siteDir = path.join(process.cwd(), contentFolder);
+    siteState.forms.push(...scanFile(absPath, siteDir));
   }
 
-  rebuildIndex();
-  save();
+  rebuildIndexForSite(contentFolder);
+  saveSite(contentFolder);
 }
 
-/**
- * Startup: in production + GCS, download the cached copy first, then rebuild
- * from YAMLs. In dev or without GCS, just rebuild.
- */
 export async function loadFormStateFromBucket(): Promise<void> {
+  const siteConfigs = getSiteConfigs();
+  const defaultSite = siteConfigs[0]?.contentFolder ?? null;
+
   if (IS_PRODUCTION && gcs.available) {
-    try {
-      const exists = await gcs.exists(GCS_KEY);
-      if (exists) {
-        const data = await gcs.download(GCS_KEY);
-        if (data) {
-          state = JSON.parse(data.toString("utf-8")) as FormState;
-          saveLocal();
-          log.info("[FormState] Loaded cached form state from GCS");
+    for (const site of siteConfigs) {
+      const isDefault = site.contentFolder === defaultSite;
+      try {
+        const result = await gcs.downloadFirstExisting(
+          formStateReadKeys(site.contentFolder, isDefault),
+        );
+        if (result) {
+          stateBySite.set(site.contentFolder, JSON.parse(result.data.toString("utf-8")) as FormState);
+          saveSiteLocal(site.contentFolder);
+          log.info(`[FormState] Loaded cached form state from GCS for ${site.contentFolder}`);
         }
+      } catch (err) {
+        log.error({ err }, `[FormState] Error loading from GCS for ${site.contentFolder} — will rebuild:`);
       }
-    } catch (err) {
-      log.error({ err: err }, "[FormState] Error loading from GCS — will rebuild:");
     }
   }
 
-  // Always rebuild from YAMLs to ensure accuracy
   buildFormState();
 }
 
-/** Returns all form entries matching a conversion name. */
 export function getConversionNameUsages(name: string): FormStateEntry[] {
-  return state.forms.filter((e) => e.conversion_name === name);
+  return getAllForms().filter((e) => e.conversion_name === name);
 }
 
-/** Returns a count of form section entries per conversion name. */
 export function getConversionNameCounts(): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const entry of state.forms) {
+  for (const entry of getAllForms()) {
     counts[entry.conversion_name] = (counts[entry.conversion_name] ?? 0) + 1;
   }
   return counts;
 }
 
-/**
- * Bulk-replace every occurrence of `oldName` with `newName` in all scanned
- * YAML files, then refresh the in-memory form-state cache.
- * Returns the number of files that were modified.
- */
 export function bulkReplaceConversionName(oldName: string, newName: string): number {
-  const allFiles = collectYmlFiles(CONTENT_DIR);
+  let siteDirs: string[] = [];
+  try {
+    siteDirs = getSiteConfigs().map((s) => path.join(process.cwd(), s.contentFolder));
+  } catch {
+    siteDirs = [getDefaultContentRoot()];
+  }
+  if (siteDirs.length === 0) siteDirs = [getDefaultContentRoot()];
+
   let count = 0;
+  for (const siteDir of siteDirs) {
+    for (const absPath of collectYmlFiles(siteDir)) {
+      let raw: string;
+      try {
+        raw = fs.readFileSync(absPath, "utf-8");
+      } catch {
+        continue;
+      }
 
-  for (const absPath of allFiles) {
-    let raw: string;
-    try {
-      raw = fs.readFileSync(absPath, "utf-8");
-    } catch {
-      continue;
-    }
+      const lines = raw.split("\n");
+      let changed = false;
+      const updatedLines = lines.map((line) => {
+        const trimmed = line.trimStart();
+        if (!trimmed.startsWith("conversion_name:")) return line;
+        const rest = trimmed.slice("conversion_name:".length).trim();
+        const unquoted = rest.replace(/^['"]|['"]$/g, "");
+        if (unquoted !== oldName) return line;
+        const indent = line.slice(0, line.length - trimmed.length);
+        changed = true;
+        return `${indent}conversion_name: ${newName}`;
+      });
 
-    const lines = raw.split("\n");
-    let changed = false;
-    const updatedLines = lines.map((line) => {
-      const trimmed = line.trimStart();
-      if (!trimmed.startsWith("conversion_name:")) return line;
-      const rest = trimmed.slice("conversion_name:".length).trim();
-      const unquoted = rest.replace(/^['"]|['"]$/g, "");
-      if (unquoted !== oldName) return line;
-      const indent = line.slice(0, line.length - trimmed.length);
-      changed = true;
-      return `${indent}conversion_name: ${newName}`;
-    });
-
-    if (changed) {
-      fs.writeFileSync(absPath, updatedLines.join("\n"), "utf-8");
-      count++;
-    }
-  }
-
-  for (const entry of state.forms) {
-    if (entry.conversion_name === oldName) {
-      entry.conversion_name = newName;
+      if (changed) {
+        fs.writeFileSync(absPath, updatedLines.join("\n"), "utf-8");
+        count++;
+      }
     }
   }
-  rebuildIndex();
-  save();
+
+  for (const [contentFolder, siteState] of stateBySite.entries()) {
+    for (const entry of siteState.forms) {
+      if (entry.conversion_name === oldName) {
+        entry.conversion_name = newName;
+      }
+    }
+    rebuildIndexForSite(contentFolder);
+    saveSite(contentFolder);
+  }
 
   return count;
 }
 
-/**
- * Section-aware partial replace: replaces `conversion_name` only within the
- * specific YAML sections identified by (file, section_id) pairs.
- *
- * Uses a line-by-line state machine to track which section each
- * `conversion_name:` line belongs to, so a file with multiple sections sharing
- * the same conversion name is updated only for the targeted sections.
- *
- * Two layers of path security:
- *   1. Caller (route) validates entries against the server's own usage index.
- *   2. This function also rejects absolute paths, ".." traversal, non-YAML
- *      extensions, and paths that resolve outside CONTENT_DIR.
- *
- * Returns the number of files that were actually modified.
- */
 export function partialReplaceConversionNameBySection(
   targets: Array<{ file: string; section_id: string }>,
   oldName: string,
-  newName: string
+  newName: string,
 ): number {
-  // Group target section_ids by file, with path validation
-  // Build a map of known site content dirs (all registered sites + default fallback)
-  let siteDirs: string[] = [CONTENT_DIR];
+  let siteDirs: string[] = [getDefaultContentRoot()];
   try {
-    const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
     const cfgs = getSiteConfigs();
     if (cfgs.length > 0) siteDirs = cfgs.map((s) => path.join(process.cwd(), s.contentFolder));
-  } catch { /* fallback to default */ }
+  } catch { /* fallback */ }
 
-  /** Resolve a cwd-relative file path to (absPath, contentDir) across all known site dirs. */
   function resolveFilePath(file: string): { abs: string; contentDir: string } | null {
-    // file is cwd-relative (includes site folder prefix e.g. "site_4geeks-florida/landings/...")
     const abs = path.resolve(process.cwd(), file);
     for (const dir of siteDirs) {
       if (abs.startsWith(dir + path.sep)) return { abs, contentDir: dir };
@@ -497,13 +490,6 @@ export function partialReplaceConversionNameBySection(
 
     const lines = raw.split("\n");
     let changed = false;
-
-    // State machine
-    // sectionsIndent: indent level of the root `sections:` key (-1 = not found yet)
-    // listItemIndent: indent level of section list items (-1 = not set yet)
-    // currentSectionId: id of the section we are currently traversing
-    // inTargetSection: whether currentSectionId is in our target set
-    // idSeen: have we seen the `id:` field for the current section item yet
     let sectionsIndent = -1;
     let listItemIndent = -1;
     let currentSectionId: string | null = null;
@@ -515,14 +501,9 @@ export function partialReplaceConversionNameBySection(
       const currentIndent = line.length - rawTrimmed.length;
       const trimmed = rawTrimmed.trimEnd();
 
-      // Skip blank lines and YAML comments — preserve state
       if (trimmed === "" || trimmed.startsWith("#")) return line;
 
-      // Detect the root-level `sections:` key
-      if (
-        currentIndent === 0 &&
-        (trimmed === "sections:" || trimmed.startsWith("sections: "))
-      ) {
+      if (currentIndent === 0 && (trimmed === "sections:" || trimmed.startsWith("sections: "))) {
         sectionsIndent = currentIndent;
         listItemIndent = -1;
         currentSectionId = null;
@@ -532,26 +513,18 @@ export function partialReplaceConversionNameBySection(
       }
 
       if (sectionsIndent >= 0) {
-        // Exiting the sections block: root-level non-list key
-        if (currentIndent <= sectionsIndent && !trimmed.startsWith("- ") && trimmed !== "-") {
+        if (currentIndent <= sectionsIndent && trimmed !== "" && !trimmed.startsWith("#")) {
           sectionsIndent = -1;
+          listItemIndent = -1;
           currentSectionId = null;
           inTargetSection = false;
-          return line;
-        }
-
-        // New section list item — only at the established list-item indent
-        const isListItem = trimmed.startsWith("- ") || trimmed === "-";
-        if (isListItem) {
-          if (listItemIndent === -1) listItemIndent = currentIndent;
-
-          if (currentIndent === listItemIndent) {
-            // Start of a new section
+          idSeen = false;
+        } else if (trimmed.startsWith("- ")) {
+          if (listItemIndent === -1 || currentIndent === listItemIndent) {
+            listItemIndent = currentIndent;
             currentSectionId = null;
             inTargetSection = false;
             idSeen = false;
-
-            // id might be on the same line: `- id: foo`
             const afterDash = trimmed.startsWith("- ") ? trimmed.slice(2).trimStart() : "";
             if (afterDash.startsWith("id:")) {
               const val = afterDash.slice(3).trim().replace(/^['"]|['"]$/g, "");
@@ -563,7 +536,6 @@ export function partialReplaceConversionNameBySection(
           }
         }
 
-        // Inside a section: capture the `id:` field if we haven't seen it yet
         if (!idSeen && trimmed.startsWith("id:")) {
           const val = trimmed.slice(3).trim().replace(/^['"]|['"]$/g, "");
           currentSectionId = val;
@@ -572,7 +544,6 @@ export function partialReplaceConversionNameBySection(
           return line;
         }
 
-        // Replace `conversion_name` only within targeted sections
         if (inTargetSection && trimmed.startsWith("conversion_name:")) {
           const rest = trimmed.slice("conversion_name:".length).trim();
           const unquoted = rest.replace(/^['"]|['"]$/g, "");
@@ -592,26 +563,27 @@ export function partialReplaceConversionNameBySection(
     }
   }
 
-  // Update in-memory form state for targeted (file, section_id) pairs only
   const targetKey = new Set(targets.map(({ file, section_id }) => `${file}::${section_id}`));
-  for (const entry of state.forms) {
-    if (
-      targetKey.has(`${entry.file}::${entry.section_id}`) &&
-      entry.conversion_name === oldName
-    ) {
-      entry.conversion_name = newName;
+  for (const [contentFolder, siteState] of stateBySite.entries()) {
+    let siteChanged = false;
+    for (const entry of siteState.forms) {
+      if (
+        targetKey.has(`${entry.file}::${entry.section_id}`) &&
+        entry.conversion_name === oldName
+      ) {
+        entry.conversion_name = newName;
+        siteChanged = true;
+      }
+    }
+    if (siteChanged) {
+      rebuildIndexForSite(contentFolder);
+      saveSite(contentFolder);
     }
   }
-  rebuildIndex();
-  save();
 
   return filesChanged;
 }
 
-/** Returns known automations and tags across all form entries (for autocomplete). */
 export function getFormStateSuggestions(): { automations: string[]; tags: string[] } {
-  return {
-    automations: state.known_automations,
-    tags: state.known_tags,
-  };
+  return getAggregatedSuggestions();
 }

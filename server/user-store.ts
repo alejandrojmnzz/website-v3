@@ -1,13 +1,17 @@
 /**
  * UserStore — configurable role-based authorization singleton.
  *
- * Stores roles and user assignments in users-state.json, following the same
- * pattern as sync-state.ts. Local file at 4geeks-com/.users-state.json,
- * synced to sync/users-state.json in GCS on every write.
+ * Local file at repo root (.multisite-user-store.json),
+ * synced to multisite-user-store/users-state.json in GCS on every write.
  */
 
 import * as fs from "fs";
 import * as path from "path";
+import {
+  platformUserStoreGcsKey,
+  platformUserStoreLocalFilename,
+  userStoreReadKeys,
+} from "@shared/gcsKeys";
 import { gcs } from "./gcs";
 import {
 
@@ -22,16 +26,22 @@ import {
 import { child } from "./logger";
 const log = child({ module: "user-store" });
 
-
 export type { ScopedCapability, GlobalCapability, CapabilityName };
 export { SCOPED_CAPABILITIES, GLOBAL_CAPABILITIES, ALL_CAPABILITIES, CAPABILITY_REGISTRY };
 
-const LOCAL_PATH = path.join(
-  process.cwd(),
-  process.env.CONTENT_FOLDER || "default-site-content",
-  ".users-state.json"
-);
-const GCS_KEY = "sync/users-state.json";
+function getLocalPath(): string {
+  const platformPath = path.join(process.cwd(), platformUserStoreLocalFilename());
+  if (fs.existsSync(platformPath)) return platformPath;
+  // Legacy fallback: default site content folder
+  try {
+    const { getDefaultContentRoot } = require("./site-config") as typeof import("./site-config");
+    const legacyPath = path.join(getDefaultContentRoot(), ".users-state.json");
+    if (fs.existsSync(legacyPath)) return legacyPath;
+  } catch { /* ignore */ }
+  return platformPath;
+}
+
+const GCS_KEY = platformUserStoreGcsKey();
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 export interface CapabilityGrant {
@@ -111,11 +121,11 @@ let loaded = false;
 
 function saveLocal(): void {
   try {
-    const dir = path.dirname(LOCAL_PATH);
+    const dir = path.dirname(getLocalPath());
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(LOCAL_PATH, JSON.stringify(state, null, 2), "utf-8");
+    fs.writeFileSync(getLocalPath(), JSON.stringify(state, null, 2), "utf-8");
   } catch (err) {
     log.error({ err: err }, "[UserStore] Error saving local file:");
   }
@@ -140,8 +150,8 @@ function save(): void {
 
 function loadLocal(): UsersState {
   try {
-    if (fs.existsSync(LOCAL_PATH)) {
-      const raw = fs.readFileSync(LOCAL_PATH, "utf-8");
+    if (fs.existsSync(getLocalPath())) {
+      const raw = fs.readFileSync(getLocalPath(), "utf-8");
       return JSON.parse(raw) as UsersState;
     }
   } catch (err) {
@@ -178,19 +188,14 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   }
 
   try {
-    const exists = await gcs.exists(GCS_KEY);
-    if (!exists) {
+    const result = await gcs.downloadFirstExisting(userStoreReadKeys());
+    if (!result) {
       log.info("[UserStore] No users state in GCS — using local file");
       state = loadLocal();
     } else {
-      const data = await gcs.download(GCS_KEY);
-      if (data) {
-        state = JSON.parse(data.toString("utf-8")) as UsersState;
-        log.info("[UserStore] Loaded users state from GCS");
-        saveLocal();
-      } else {
-        state = loadLocal();
-      }
+      state = JSON.parse(result.data.toString("utf-8")) as UsersState;
+      log.info("[UserStore] Loaded users state from GCS");
+      saveLocal();
     }
   } catch (err) {
     log.error({ err: err }, "[UserStore] Error loading from GCS:");

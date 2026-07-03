@@ -29,6 +29,18 @@ Copy or create a `.env` file at the project root (see the environment variable r
 npm run dev
 ```
 
+### Site content folders
+
+Site YAML content is **not** in this repository. Each domain in `sites.yml` maps to a gitignored folder under the project root (currently `site_4geeks-com` and `site_4geeks-florida`).
+
+Before the dev server starts, `npm run dev` runs `check:sites`, which:
+
+1. Verifies each configured folder exists and has the required scaffold (`settings.yml`, `content-types.yml`, `image-registry.json`, `custom-redirects.yml`, plus `images/`, `menus/`, and `pages/`).
+2. If a folder is missing or incomplete **and** the site has a `github_repo_url` in `sites.yml`, automatically downloads content from GitHub when `GITHUB_TOKEN` is set in `.env` (does not require `GITHUB_SYNC_ENABLED`).
+3. Exits with an error if folders are still invalid — for example when `GITHUB_TOKEN` is absent and content has not been populated manually.
+
+You can run the check alone with `npm run check:sites`.
+
 The command starts two processes in parallel:
 
 - **Express backend** — handles API routes, content serving, and GitHub/GCS integrations.

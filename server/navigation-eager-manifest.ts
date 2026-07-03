@@ -16,12 +16,13 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { child } from "./logger";
+import { getDefaultContentFolder } from "./site-config";
 
 const log = child({ module: "navigation-eager-manifest" });
 
 const OUT_FILE = path.join(
   process.cwd(),
-  process.env.CONTENT_FOLDER || "default-site-content",
+  getDefaultContentFolder(),
   "navigation-eager-manifest.json",
 );
 
@@ -103,7 +104,7 @@ export function collectPathsFromContent(ci: ContentIndexLike): Set<string> {
 }
 
 export function collectPathsFromMenus(
-  menusDir = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "menus"),
+  menusDir = path.join(process.cwd(), getDefaultContentFolder(), "menus"),
 ): Set<string> {
   const paths = new Set<string>();
   if (!fs.existsSync(menusDir)) return paths;

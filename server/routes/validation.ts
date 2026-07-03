@@ -1,9 +1,12 @@
 import type { Express, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import * as fs from "fs";
 import * as path from "path";
 import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { getValidationCacheService } from "../services/validationCacheService";
+import { applyValidationRunToCache } from "../services/validationCachePostProcess";
+import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import {
   isNonLocalFilesystemSrc,
   buildRegistrySrcToIdMap,
@@ -39,7 +42,7 @@ function getCI(res: Response): typeof contentIndex {
 }
 
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 
 function getMediaGallery(res: Response): MediaGallery {
@@ -86,10 +89,14 @@ export function registerValidationRoutes(app: Express): void {
   // Run all or specific validators
   app.post("/api/validation/run", async (req, res) => {
     try {
-      const { validators: validatorNames, includeArtifacts } = req.body;
+      const { validators: validatorNames, includeArtifacts, scope } = req.body;
 
       const service = new ValidationService();
-      await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
+      const context = await service.buildContext({
+        contentRoot: getContentRoot(res),
+        ci: getCI(res),
+        scope,
+      });
 
       const result = await service.runValidators({
         validators: validatorNames,
@@ -99,45 +106,7 @@ export function registerValidationRoutes(app: Express): void {
       // Post-process: flush cache before responding so any immediate re-fetch
       // sees the updated results (no race condition).
       try {
-        const cache = getValidationCache(res);
-        const context = service.getContext();
-        if (context) {
-          const nowIso = new Date().toISOString();
-
-          const byFile = new Map<string, { errors: typeof result.validators[0]["errors"]; warnings: typeof result.validators[0]["warnings"] }>();
-
-          for (const v of result.validators) {
-            for (const issue of v.errors) {
-              if (!issue.file) continue;
-              if (v.category) issue.category = v.category;
-              if (!byFile.has(issue.file)) byFile.set(issue.file, { errors: [], warnings: [] });
-              byFile.get(issue.file)!.errors.push(issue);
-            }
-            for (const issue of v.warnings) {
-              if (!issue.file) continue;
-              if (v.category) issue.category = v.category;
-              if (!byFile.has(issue.file)) byFile.set(issue.file, { errors: [], warnings: [] });
-              byFile.get(issue.file)!.warnings.push(issue);
-            }
-          }
-
-          const seenUrls = new Set<string>();
-          for (const file of context.contentFiles) {
-            const url = getCanonicalUrl(file);
-            if (seenUrls.has(url)) continue;
-            seenUrls.add(url);
-
-            const fileIssues = byFile.get(file.filePath) ?? { errors: [], warnings: [] };
-            cache.setByUrl(url, {
-              lastRunAt: nowIso,
-              errors: fileIssues.errors,
-              warnings: fileIssues.warnings,
-            });
-          }
-
-          cache.markFullRunAt(nowIso);
-          await cache.flush();
-        }
+        await applyValidationRunToCache(getValidationCache(res), result, context);
       } catch (err) {
         log.warn({ err }, "ValidationCache post-process error (non-fatal)");
       }
@@ -381,7 +350,7 @@ export function registerValidationRoutes(app: Express): void {
       const { includeArtifacts } = req.body;
 
       const contentRoot: string = (res.locals.site as any)?.contentRoot
-        ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+        ?? getDefaultContentRoot();
 
       const service = new ValidationService();
       await service.buildContext({ contentRoot, ci: getCI(res) });
@@ -540,6 +509,20 @@ export function registerValidationRoutes(app: Express): void {
       summary[url] = {
         errorCount: entry.errors.length,
         warningCount: entry.warnings.length,
+      };
+    }
+    res.json(summary);
+  });
+
+  app.get("/api/validation/database-cache-summary", (_req, res) => {
+    const cache = getValidationCache(res);
+    const all = cache.getAllDatabases();
+    const summary: Record<string, { errorCount: number; warningCount: number; error_summary?: string }> = {};
+    for (const [dbName, entry] of all) {
+      summary[dbName] = {
+        errorCount: countDatabaseCacheErrors(entry.errors),
+        warningCount: entry.warnings.length,
+        error_summary: entry.errors[0]?.message,
       };
     }
     res.json(summary);

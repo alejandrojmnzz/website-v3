@@ -409,7 +409,7 @@ export default function SyncLogPage() {
             <div className="flex items-center gap-2">
               <Github className="h-5 w-5" />
               <h1 className="text-xl font-semibold" data-testid="text-sync-log-title">
-                GitHub Sync Log
+                Repository Sync
               </h1>
             </div>
             <div className="ml-auto flex items-center gap-2">

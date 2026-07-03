@@ -4,6 +4,7 @@
  */
 
 import * as fs from "fs";
+import { getDefaultContentFolder } from "../site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import type {
@@ -87,7 +88,7 @@ export class ContextManager {
       const { getDefaultSite } = require("../site-manager") as typeof import("../site-manager");
       contentFolder = getDefaultSite().contentRootName;
     } catch {
-      contentFolder = process.env.CONTENT_FOLDER || "default-site-content";
+      contentFolder = getDefaultContentFolder();
     }
     const filePath = path.join(process.cwd(), contentFolder, "brand-context.yml");
     const cacheKey = "brand-context";
@@ -115,7 +116,7 @@ export class ContextManager {
   async getContentContext(type: string, slug: string): Promise<ContentContext> {
     const filePath = path.join(
       process.cwd(),
-      process.env.CONTENT_FOLDER || "default-site-content",
+      getDefaultContentFolder(),
       type,
       slug,
       "_common.yml"
@@ -153,7 +154,7 @@ export class ContextManager {
   async getComponentContext(name: string, version: string): Promise<ComponentContext> {
     const filePath = path.join(
       process.cwd(),
-      process.env.CONTENT_FOLDER || "default-site-content",
+      getDefaultContentFolder(),
       "component-registry",
       name,
       version,

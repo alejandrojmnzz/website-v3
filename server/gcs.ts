@@ -18,15 +18,96 @@
  */
 
 import { Storage } from "@google-cloud/storage";
+import {
+  formStateReadKeys,
+  platformUserStoreGcsKey,
+  siteConversationsGcsPrefix,
+  siteLighthouseGcsPrefixRoot,
+  siteMediaGcsPrefix,
+  siteSyncGcsKey,
+  SYNC_FILENAMES,
+  syncLogReadKeys,
+  syncStateReadKeys,
+  userStoreReadKeys,
+  versioningStateReadKeys,
+} from "@shared/gcsKeys";
 import { child as loggerChild } from "./logger";
+import { getBucketName, getSiteConfigs } from "./site-config";
 
 const gcsLogger = loggerChild({ module: "gcs", worker: "gcs" });
+
+function mediaSegment(): string {
+  return process.env.GCS_BASE_PATH || "media";
+}
+
+export interface GcsKeyProbe {
+  label: string;
+  expectedKey: string;
+  legacyKeys: string[];
+  foundKey: string | null;
+  exists: boolean;
+  status: "found" | "legacy" | "missing";
+  updated: string | null;
+}
+
+export interface GcsSiteArchitecture {
+  siteFolder: string;
+  syncFiles: GcsKeyProbe[];
+  mediaSamples: string[];
+  conversationSamples: string[];
+  lighthouseSamples: string[];
+  legacySyncSamples: string[];
+}
+
+export interface GcsPlatformArchitecture {
+  userStore: GcsKeyProbe;
+  mcpAuthSamples: string[];
+}
+
+export interface GcsArchitectureDiagnostics {
+  migrationRequired: boolean;
+  bucketName: string;
+  mediaSegment: string;
+  knownSitePrefixes: string[];
+  hasOldLayout: boolean;
+  hasNewLayout: boolean;
+  newLayoutSamples: Record<string, string[]>;
+  checkError?: string;
+  platform?: GcsPlatformArchitecture;
+  sites?: GcsSiteArchitecture[];
+}
 
 export interface GCSConfig {
   bucketName: string;
   projectId?: string;
   keyFilename?: string;
   credentialsJson?: string;
+}
+
+export type GcsSyncStatusValue =
+  | "active"
+  | "local_dev"
+  | "syncing"
+  | "migration_required"
+  | "unavailable"
+  | "error";
+
+export interface GcsObjectMetadata {
+  exists: boolean;
+  updated: string | null;
+  size: number | null;
+}
+
+export interface GcsSyncStatus {
+  available: boolean;
+  bucketName: string | null;
+  status: GcsSyncStatusValue;
+  pendingUploads: number;
+  pendingUploadKeys: string[];
+  imageQueuePending: number;
+  imageQueueBusy: boolean;
+  migrationRequired: boolean;
+  isProduction: boolean;
 }
 
 interface PendingUpload {
@@ -73,15 +154,10 @@ class GCSClient {
   initFromEnv(): void {
     let bucket: string | undefined;
 
-    try {
-      const { getBucketName } = require("./site-config") as typeof import("./site-config");
-      const fromYml = getBucketName();
-      if (fromYml) {
-        bucket = fromYml;
-        gcsLogger.info({ bucket }, "bucket name resolved from sites.yml");
-      }
-    } catch {
-      // site-config unavailable — fall through to env var
+    const fromYml = getBucketName();
+    if (fromYml) {
+      bucket = fromYml;
+      gcsLogger.info({ bucket }, "bucket name resolved from sites.yml");
     }
 
     if (!bucket) {
@@ -101,6 +177,54 @@ class GCSClient {
     });
   }
 
+  async getArchitectureDiagnostics(): Promise<GcsArchitectureDiagnostics> {
+    const segment = mediaSegment();
+    const flatPrefix = `${segment}/`;
+    const knownSitePrefixes = getSiteConfigs().map((s) => s.contentFolder);
+    const result: GcsArchitectureDiagnostics = {
+      migrationRequired: this.migrationRequired,
+      bucketName: this.bucketName,
+      mediaSegment: segment,
+      knownSitePrefixes,
+      hasOldLayout: false,
+      hasNewLayout: false,
+      newLayoutSamples: {},
+    };
+
+    if (!this.storage) {
+      result.checkError = "GCS not initialized";
+      return result;
+    }
+
+    try {
+      const [oldFiles] = await this.storage
+        .bucket(this.bucketName)
+        .getFiles({ prefix: flatPrefix, maxResults: 3 });
+
+      result.hasOldLayout = oldFiles.length > 0;
+
+      for (const sitePrefix of knownSitePrefixes) {
+        const [newFiles] = await this.storage
+          .bucket(this.bucketName)
+          .getFiles({ prefix: `${sitePrefix}/${segment}/`, maxResults: 3 });
+        result.newLayoutSamples[sitePrefix] = newFiles.map((f) => f.name);
+        if (newFiles.length > 0) result.hasNewLayout = true;
+      }
+
+      result.migrationRequired =
+        result.hasOldLayout && !result.hasNewLayout ? true : false;
+
+      result.platform = await this.probePlatformArchitecture();
+      result.sites = await Promise.all(
+        knownSitePrefixes.map((siteFolder) => this.probeSiteArchitecture(siteFolder, siteFolder === knownSitePrefixes[0])),
+      );
+    } catch (err) {
+      result.checkError = err instanceof Error ? err.message : String(err);
+    }
+
+    return result;
+  }
+
   /**
    * Architecture check — call once after initFromEnv() during server startup.
    *
@@ -108,49 +232,55 @@ class GCSClient {
    * When found and no new-style `{site}/media/…` objects exist, sets
    * `migrationRequired = true` and blocks all writes until migration is done.
    */
-  async checkArchitecture(): Promise<void> {
-    if (!this.storage) return;
-
-    try {
-      let knownSitePrefixes: string[] = [];
-      try {
-        const { getSiteConfigs } = require("./site-config") as typeof import("./site-config");
-        knownSitePrefixes = getSiteConfigs().map((s) => s.contentFolder);
-      } catch {}
-
-      const [oldFiles] = await this.storage
-        .bucket(this.bucketName)
-        .getFiles({ prefix: "media/", maxResults: 1 });
-
-      if (oldFiles.length === 0) {
-        gcsLogger.info("GCS architecture check passed — no old flat-layout objects found");
-        return;
-      }
-
-      let hasNewLayout = false;
-      for (const sitePrefix of knownSitePrefixes) {
-        const [newFiles] = await this.storage
-          .bucket(this.bucketName)
-          .getFiles({ prefix: `${sitePrefix}/media/`, maxResults: 1 });
-        if (newFiles.length > 0) {
-          hasNewLayout = true;
-          break;
-        }
-      }
-
-      if (!hasNewLayout) {
-        this.migrationRequired = true;
-        gcsLogger.warn(
-          { bucket: this.bucketName },
-          "GCS migration required: old flat layout detected. " +
-          "All GCS writes are blocked. Run: npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=<new-bucket>"
-        );
-      } else {
-        gcsLogger.info("GCS architecture check: old and new layouts coexist — migration in progress or already done");
-      }
-    } catch (err) {
-      gcsLogger.warn({ err }, "GCS architecture check failed — skipping (bucket may not yet exist or credentials missing)");
+  async checkArchitecture(): Promise<GcsArchitectureDiagnostics> {
+    if (!this.storage) {
+      return {
+        migrationRequired: false,
+        bucketName: this.bucketName,
+        mediaSegment: mediaSegment(),
+        knownSitePrefixes: [],
+        hasOldLayout: false,
+        hasNewLayout: false,
+        newLayoutSamples: {},
+        checkError: "GCS not initialized",
+      };
     }
+
+    this.migrationRequired = false;
+
+    const diagnostics = await this.getArchitectureDiagnostics();
+    this.migrationRequired = diagnostics.migrationRequired;
+
+    if (diagnostics.checkError) {
+      gcsLogger.warn(
+        { err: diagnostics.checkError },
+        "GCS architecture check failed — skipping (bucket may not yet exist or credentials missing)",
+      );
+      return diagnostics;
+    }
+
+    if (!diagnostics.hasOldLayout) {
+      gcsLogger.info("GCS architecture check passed — no old flat-layout objects found");
+      return diagnostics;
+    }
+
+    if (diagnostics.migrationRequired) {
+      gcsLogger.warn(
+        {
+          bucket: this.bucketName,
+          knownSitePrefixes: diagnostics.knownSitePrefixes,
+          mediaSegment: diagnostics.mediaSegment,
+        },
+        "GCS migration required: old flat layout detected. " +
+          "All GCS writes are blocked. Run: npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=<bucket> --execute",
+      );
+    } else {
+      gcsLogger.info(
+        "GCS architecture check: old and new layouts coexist — migration in progress or already done",
+      );
+    }
+
+    return diagnostics;
   }
 
   get available(): boolean {
@@ -184,7 +314,7 @@ class GCSClient {
     if (!this.storage) throw new Error("[GCS] Not initialized");
 
     if (this.migrationRequired) {
-      const msg = `[GCS] Upload blocked for key "${key}" — bucket migration required. Run: npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=<new-bucket>`;
+      const msg = `[GCS] Upload blocked for key "${key}" — bucket migration required. Run: npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=<bucket> --execute`;
       gcsLogger.warn({ key }, msg);
       throw new Error(msg);
     }
@@ -295,6 +425,213 @@ class GCSClient {
 
   getPublicUrl(key: string): string {
     return `https://storage.googleapis.com/${this.bucketName}/${key}`;
+  }
+
+  getPendingUploadCount(): number {
+    return this._pendingUploads.size;
+  }
+
+  getPendingUploadKeys(): string[] {
+    return Array.from(this._pendingUploads.keys());
+  }
+
+  isPendingUpload(key: string): boolean {
+    return this._pendingUploads.has(key);
+  }
+
+  async getObjectMetadata(key: string): Promise<GcsObjectMetadata> {
+    if (!this.storage) {
+      return { exists: false, updated: null, size: null };
+    }
+    try {
+      const file = this.storage.bucket(this.bucketName).file(key);
+      const [exists] = await file.exists();
+      if (!exists) {
+        return { exists: false, updated: null, size: null };
+      }
+      const [metadata] = await file.getMetadata();
+      const updated =
+        metadata.updated != null
+          ? new Date(metadata.updated).toISOString()
+          : metadata.timeCreated != null
+            ? new Date(metadata.timeCreated).toISOString()
+            : null;
+      const size =
+        metadata.size != null
+          ? typeof metadata.size === "string"
+            ? parseInt(metadata.size, 10)
+            : metadata.size
+          : null;
+      return { exists: true, updated, size: Number.isFinite(size) ? size : null };
+    } catch {
+      return { exists: false, updated: null, size: null };
+    }
+  }
+
+  async getNewestObjectInPrefix(prefix: string): Promise<GcsObjectMetadata & { key: string | null }> {
+    if (!this.storage) {
+      return { key: null, exists: false, updated: null, size: null };
+    }
+    try {
+      const [files] = await this.storage
+        .bucket(this.bucketName)
+        .getFiles({ prefix, maxResults: 50 });
+      if (files.length === 0) {
+        return { key: null, exists: false, updated: null, size: null };
+      }
+      let newest: { key: string; updated: Date } | null = null;
+      for (const file of files) {
+        const updated = file.metadata?.updated
+          ? new Date(file.metadata.updated)
+          : file.metadata?.timeCreated
+            ? new Date(file.metadata.timeCreated)
+            : null;
+        if (!updated) continue;
+        if (!newest || updated > newest.updated) {
+          newest = { key: file.name, updated };
+        }
+      }
+      if (!newest) {
+        return { key: files[0].name, exists: true, updated: null, size: null };
+      }
+      const meta = await this.getObjectMetadata(newest.key);
+      return { key: newest.key, ...meta };
+    } catch {
+      return { key: null, exists: false, updated: null, size: null };
+    }
+  }
+
+  async resolveExistingKey(keys: string[]): Promise<string | null> {
+    for (const key of keys) {
+      if (await this.exists(key)) return key;
+    }
+    return null;
+  }
+
+  async downloadFirstExisting(keys: string[]): Promise<{ key: string; data: Buffer } | null> {
+    const key = await this.resolveExistingKey(keys);
+    if (!key) return null;
+    const data = await this.download(key);
+    if (!data) return null;
+    return { key, data };
+  }
+
+  async listSampleKeys(prefix: string, max = 3): Promise<string[]> {
+    if (!this.storage) return [];
+    try {
+      const [files] = await this.storage
+        .bucket(this.bucketName)
+        .getFiles({ prefix, maxResults: max });
+      return files.map((f) => f.name);
+    } catch {
+      return [];
+    }
+  }
+
+  private async probeKey(
+    label: string,
+    expectedKey: string,
+    legacyKeys: string[],
+  ): Promise<GcsKeyProbe> {
+    const allKeys = [expectedKey, ...legacyKeys];
+    const foundKey = await this.resolveExistingKey(allKeys);
+    let updated: string | null = null;
+    if (foundKey) {
+      const meta = await this.getObjectMetadata(foundKey);
+      updated = meta.updated;
+    }
+    const status: GcsKeyProbe["status"] = !foundKey
+      ? "missing"
+      : foundKey === expectedKey
+        ? "found"
+        : "legacy";
+    return {
+      label,
+      expectedKey,
+      legacyKeys,
+      foundKey,
+      exists: !!foundKey,
+      status,
+      updated,
+    };
+  }
+
+  private async probePlatformArchitecture(): Promise<GcsPlatformArchitecture> {
+    const userStoreKeys = userStoreReadKeys();
+    return {
+      userStore: await this.probeKey(
+        "User store",
+        userStoreKeys[0],
+        userStoreKeys.slice(1),
+      ),
+      mcpAuthSamples: await this.listSampleKeys("mcp-auth/", 3),
+    };
+  }
+
+  private async probeSiteArchitecture(
+    siteFolder: string,
+    isDefaultSite: boolean,
+  ): Promise<GcsSiteArchitecture> {
+    const segment = mediaSegment();
+    const syncFiles = await Promise.all([
+      this.probeKey("Sync state", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.syncState), syncStateReadKeys(siteFolder).slice(1)),
+      this.probeKey("Sync log", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.syncLog), syncLogReadKeys(siteFolder).slice(1)),
+      this.probeKey("Versioning", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.versioningState), versioningStateReadKeys(siteFolder).slice(1)),
+      this.probeKey("Form registry", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.formState), formStateReadKeys(siteFolder, isDefaultSite).slice(1)),
+    ]);
+
+    const legacySyncPrefix = `sync/${siteFolder}/`;
+    const legacySyncSamples = (await this.listSampleKeys(legacySyncPrefix, 10)).filter(
+      (k) => k.startsWith(legacySyncPrefix) && k !== legacySyncPrefix,
+    );
+
+    return {
+      siteFolder,
+      syncFiles,
+      mediaSamples: await this.listSampleKeys(siteMediaGcsPrefix(siteFolder, segment), 3),
+      conversationSamples: await this.listSampleKeys(siteConversationsGcsPrefix(siteFolder), 3),
+      lighthouseSamples: await this.listSampleKeys(siteLighthouseGcsPrefixRoot(siteFolder), 3),
+      legacySyncSamples: legacySyncSamples.slice(0, 3),
+    };
+  }
+
+  buildSyncStatus(options: {
+    imageQueuePending?: number;
+    imageQueueBusy?: boolean;
+    checkError?: string;
+  }): GcsSyncStatus {
+    const pendingUploads = this.getPendingUploadCount();
+    const pendingUploadKeys = this.getPendingUploadKeys();
+    const imageQueuePending = options.imageQueuePending ?? 0;
+    const imageQueueBusy = options.imageQueueBusy ?? false;
+    const isProduction = process.env.NODE_ENV === "production";
+
+    let status: GcsSyncStatusValue;
+    if (!this._available) {
+      status = "unavailable";
+    } else if (options.checkError) {
+      status = "error";
+    } else if (this.migrationRequired) {
+      status = "migration_required";
+    } else if (!isProduction) {
+      status = "local_dev";
+    } else if (pendingUploads > 0 || imageQueuePending > 0 || imageQueueBusy) {
+      status = "syncing";
+    } else {
+      status = "active";
+    }
+
+    return {
+      available: this._available,
+      bucketName: this.bucketName || null,
+      status,
+      pendingUploads,
+      pendingUploadKeys,
+      imageQueuePending,
+      imageQueueBusy,
+      migrationRequired: this.migrationRequired,
+      isProduction,
+    };
   }
 }
 

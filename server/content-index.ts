@@ -1,5 +1,6 @@
 
 import fs from "fs";
+import { getDefaultContentRoot, getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import type { ZodSchema } from "zod";
@@ -7,14 +8,14 @@ import { escapeTemplateVars, unescapeObjectVars, escapeObjectVars, unescapeYamlD
 import { deepMerge } from "./utils/deepMerge";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping } from "./content-types";
-import { databaseManager } from "./database";
+import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 const log = child({ module: "content-index" });
 
 
 
 /** Backward-compat: resolves from CONTENT_FOLDER env var or falls back to the canonical content folder name. */
-export const MARKETING_CONTENT_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+export const MARKETING_CONTENT_PATH = getDefaultContentRoot();
 
 function stripNullValues<T>(obj: T): T {
   if (obj === null) {
@@ -119,11 +120,13 @@ export class ContentIndex {
   readonly contentRoot: string;
   /** Relative path from process.cwd() (e.g. "content" or "4geeks-com"). */
   readonly contentRootName: string;
+  private readonly database: DatabaseManager;
 
-  constructor(contentFolder?: string) {
-    const folder = contentFolder || process.env.CONTENT_FOLDER || "default-site-content";
+  constructor(contentFolder?: string, database?: DatabaseManager) {
+    const folder = contentFolder || getDefaultContentFolder();
     this.contentRoot = path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);
     this.contentRootName = path.relative(process.cwd(), this.contentRoot);
+    this.database = database ?? databaseManager;
   }
 
   /** @deprecated Use `new ContentIndex(contentFolder?)` directly. */
@@ -300,11 +303,11 @@ export class ContentIndex {
 
     this.autoCreateSingleTemplates(baseDir);
 
-    // Build URL index for DB-backed content types from SQLite cache (via databaseManager)
+    // Build URL index for DB-backed content types from SQLite cache
     for (const [contentType, config] of Object.entries(this.contentTypeConfigs)) {
       if (!config?.database?.slug || !config?.url_pattern) continue;
       const dbName = config.database.slug;
-      const items = databaseManager.getMappedItems(dbName);
+      const items = this.database.getMappedItems(dbName);
       if (!items || items.length === 0) continue;
       try {
         const fieldMapping = getFullFieldMapping(contentType);

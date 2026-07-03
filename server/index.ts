@@ -1,6 +1,8 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, startBackgroundSync } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
+import type { ViteDevServer } from "vite";
 import { fallbackRedirectMiddleware } from "./redirects";
 import { initialDataMiddleware } from "./initial-data-middleware";
 import compression from "compression";
@@ -8,7 +10,6 @@ import cookieParser from "cookie-parser";
 import path from "path";
 import { setAutoCommitCallback } from "./sync-state";
 import { queueFileChange } from "./auto-commit";
-import { databaseManager } from "./database";
 import { contentIndex } from "./content-index";
 import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from "./site-manager";
 import { scanEcommerceContent, startEcommerceWatcher } from "./ecommerce/ecommerce-index";
@@ -17,6 +18,7 @@ import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { addFileModifiedListener } from "./sync-state";
 import { gcs } from "./gcs";
 import { getVersioningManager } from "./versioning/VersioningManager";
+import { clearSitemapCache } from "./sitemap";
 import http from "http";
 import { registerSgtmProxy } from "./sgtm-proxy";
 import { getOptimizationSettings } from "./settings";
@@ -302,8 +304,9 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
+  let devVite: ViteDevServer | null = null;
   if (app.get("env") === "development") {
-    await setupVite(app, server);
+    devVite = await setupVite(app, server);
   } else {
     serveStatic(app);
   }
@@ -347,7 +350,8 @@ app.use((req, res, next) => {
   server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
+    // SO_REUSEPORT is supported on Linux (Replit) but throws ENOTSUP on macOS.
+    ...(process.platform === "linux" && { reusePort: true }),
   }, () => {
     log(`serving on port ${port}`);
 
@@ -368,10 +372,27 @@ app.use((req, res, next) => {
     for (const ctx of getSiteContextMap().values()) {
       ctx.contentIndex.startSlowScanAsync();
     }
-    databaseManager.warmup()
-      .then(() => {
+    Promise.all([...getSiteContextMap().values()].map((ctx) => ctx.database.warmup()))
+      .then(async () => {
         for (const ctx of getSiteContextMap().values()) {
           ctx.contentIndex.scanFast();
+        }
+        clearSitemapCache();
+
+        const { ValidationService } = await import("../scripts/validation/service");
+        const { applyValidationRunToCache } = await import("./services/validationCachePostProcess");
+        for (const ctx of getSiteContextMap().values()) {
+          try {
+            const service = new ValidationService();
+            const context = await service.buildContext({
+              contentRoot: ctx.contentRoot,
+              ci: ctx.contentIndex,
+            });
+            const result = await service.runValidators({ validators: ["database-health"] });
+            await applyValidationRunToCache(ctx.validationCache, result, context);
+          } catch (err) {
+            logger.error({ err, site: ctx.contentRootName }, "database-health startup run error");
+          }
         }
       })
       .catch((err) => {
@@ -401,7 +422,12 @@ app.use((req, res, next) => {
     });
   });
 
+  let isShuttingDown = false;
+
   async function gracefulShutdown(signal: string): Promise<void> {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
     logger.info({ signal }, "[Shutdown] flushing pending GCS uploads…");
     try {
       await getVersioningManager().shutdown();
@@ -409,11 +435,25 @@ app.use((req, res, next) => {
     } catch (err) {
       logger.error({ err }, "[Shutdown] error during graceful shutdown");
     }
+
+    if (devVite) {
+      try {
+        logger.info("[Shutdown] closing Vite dev server…");
+        await devVite.close();
+      } catch (err) {
+        logger.error({ err }, "[Shutdown] error closing Vite dev server");
+      }
+      devVite = null;
+    }
+
+    // Drop open keep-alive / HMR connections so server.close() can finish.
+    server.closeAllConnections?.();
+
     server.close(() => {
       logger.info("[Shutdown] HTTP server closed.");
       process.exit(0);
     });
-    // Force exit after 10 s if server.close() hangs
+    // Force exit after 10 s if server.close() still hangs
     setTimeout(() => {
       logger.error("[Shutdown] forced exit after timeout.");
       process.exit(1);

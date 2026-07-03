@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import {
   RedirectConflictResolverModal,
   parseRedirectConflict,
@@ -218,6 +219,7 @@ function StatusBadge({ status }: { status: "passed" | "failed" | "warning" }) {
 
 
 function IssueRow({ issue, onResolve }: { issue: ValidatorIssue; onResolve?: (issue: ValidatorIssue) => void }) {
+  const formatSitePath = useFormatSitePath();
   const conflict = parseRedirectConflict(issue);
   const navUrl = issue.fix?.type === "manual" && issue.fix?.url ? issue.fix.url : null;
 
@@ -234,7 +236,9 @@ function IssueRow({ issue, onResolve }: { issue: ValidatorIssue; onResolve?: (is
       <div className="flex-1 min-w-0">
         <p className="text-sm text-foreground">{issue.message}</p>
         {issue.file && (
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate">{issue.file}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate" title={issue.file}>
+            {formatSitePath(issue.file)}
+          </p>
         )}
         {issue.suggestion && (
           <p className="text-xs text-muted-foreground mt-1 italic">{issue.suggestion}</p>
@@ -650,6 +654,7 @@ function ValidatorCard({
 function GlobalHealthTab() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const formatSitePath = useFormatSitePath();
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
@@ -720,7 +725,7 @@ function GlobalHealthTab() {
     onSuccess: (data) => {
       toast({
         title: "Report saved",
-        description: data.path,
+        description: formatSitePath(data.path),
       });
     },
     onError: (err) => {

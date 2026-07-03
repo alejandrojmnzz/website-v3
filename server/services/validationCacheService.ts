@@ -9,19 +9,45 @@
  */
 
 import * as fs from "fs";
+import { getDefaultContentRoot } from "../site-config";
 import * as path from "path";
-import type { PageCacheEntry, ValidationCacheFile } from "../../scripts/validation/shared/types";
+import type {
+  PageCacheEntry,
+  DatabaseCacheEntry,
+  ValidationCacheFile,
+} from "../../scripts/validation/shared/types";
 import { child } from "../logger";
 
 const log = child({ module: "validationCacheService" });
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 function emptyCache(): ValidationCacheFile {
   return {
     meta: { lastFullRunAt: null, version: CACHE_VERSION },
     pages: {},
+    databases: {},
   };
+}
+
+function migrateCache(parsed: ValidationCacheFile): ValidationCacheFile {
+  const version = parsed.meta?.version ?? 0;
+  if (version >= CACHE_VERSION) {
+    return {
+      ...parsed,
+      databases: parsed.databases ?? {},
+    };
+  }
+  if (version === 2 && parsed.pages) {
+    log.info("[ValidationCache] Migrating v2 cache to v3 (adding databases section)");
+    return {
+      meta: { lastFullRunAt: parsed.meta?.lastFullRunAt ?? null, version: CACHE_VERSION },
+      pages: parsed.pages,
+      databases: {},
+    };
+  }
+  log.info("[ValidationCache] Stale cache version — discarding and starting fresh");
+  return emptyCache();
 }
 
 function readFromDisk(cacheFile: string): ValidationCacheFile {
@@ -30,11 +56,7 @@ function readFromDisk(cacheFile: string): ValidationCacheFile {
       const raw = fs.readFileSync(cacheFile, "utf-8");
       const parsed = JSON.parse(raw) as ValidationCacheFile;
       if (parsed && typeof parsed === "object" && parsed.pages) {
-        if ((parsed.meta?.version ?? 0) < CACHE_VERSION) {
-          log.info("[ValidationCache] Stale cache version — discarding and starting fresh");
-          return emptyCache();
-        }
-        return parsed;
+        return migrateCache(parsed);
       }
     }
   } catch (err) {
@@ -45,6 +67,7 @@ function readFromDisk(cacheFile: string): ValidationCacheFile {
 
 export class ValidationCacheService {
   private map: Map<string, PageCacheEntry> = new Map();
+  private dbMap: Map<string, DatabaseCacheEntry> = new Map();
   private lastFullRunAt: string | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
   private cacheFile: string;
@@ -60,7 +83,10 @@ export class ValidationCacheService {
     const data = readFromDisk(this.cacheFile);
     this.lastFullRunAt = data.meta?.lastFullRunAt ?? null;
     this.map = new Map(Object.entries(data.pages ?? {}));
-    log.info(`[ValidationCache] Loaded ${this.map.size} page entries from disk`);
+    this.dbMap = new Map(Object.entries(data.databases ?? {}));
+    log.info(
+      `[ValidationCache] Loaded ${this.map.size} page entries, ${this.dbMap.size} database entries from disk`,
+    );
   }
 
   getByUrl(url: string): PageCacheEntry | undefined {
@@ -73,6 +99,18 @@ export class ValidationCacheService {
 
   getAll(): Map<string, PageCacheEntry> {
     return this.map;
+  }
+
+  getByDatabase(name: string): DatabaseCacheEntry | undefined {
+    return this.dbMap.get(name);
+  }
+
+  setByDatabase(name: string, entry: DatabaseCacheEntry): void {
+    this.dbMap.set(name, entry);
+  }
+
+  getAllDatabases(): Map<string, DatabaseCacheEntry> {
+    return this.dbMap;
   }
 
   markFullRunAt(ts: string): void {
@@ -94,11 +132,14 @@ export class ValidationCacheService {
     const data: ValidationCacheFile = {
       meta: { lastFullRunAt: this.lastFullRunAt, version: CACHE_VERSION },
       pages: Object.fromEntries(this.map.entries()),
+      databases: Object.fromEntries(this.dbMap.entries()),
     };
 
     try {
       fs.writeFileSync(this.cacheFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
-      log.info(`[ValidationCache] Flushed ${this.map.size} page entries to disk`);
+      log.info(
+        `[ValidationCache] Flushed ${this.map.size} page entries, ${this.dbMap.size} database entries to disk`,
+      );
     } catch (err) {
       log.error({ err }, "[ValidationCache] Failed to write cache file");
       return;
@@ -120,7 +161,7 @@ let _defaultInstance: ValidationCacheService | null = null;
 /** Returns the ValidationCacheService for the default site. */
 export function getValidationCacheService(): ValidationCacheService {
   if (!_defaultInstance) {
-    const contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+    const contentRoot = getDefaultContentRoot();
     _defaultInstance = new ValidationCacheService(contentRoot);
   }
   return _defaultInstance;

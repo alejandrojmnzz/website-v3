@@ -1,0 +1,124 @@
+export interface FormatSitePathOptions {
+  /** Active site content folder, e.g. "site_4geeks-florida". From /api/site/info. */
+  contentFolder?: string | null;
+  /** Extra known site folder names (multi-site list from /api/sites). */
+  knownSiteFolders?: string[];
+}
+
+const LEGACY_SITE_FOLDERS = new Set(["4geeks-com", "content"]);
+const SITE_FOLDER_RE = /^site_[^/]+$/;
+const REPO_NON_SITE_ROOTS = new Set([
+  "marketing-content",
+  "client",
+  "server",
+  "scripts",
+  "shared",
+]);
+
+function normalizeSlashes(filePath: string): string {
+  return filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function pathAfterFolder(segments: string[], folderIndex: number): string {
+  return segments.slice(folderIndex + 1).join("/");
+}
+
+function isSiteFolderSegment(segment: string, knownSiteFolders: string[]): boolean {
+  if (!segment) return false;
+  if (knownSiteFolders.includes(segment)) return true;
+  if (SITE_FOLDER_RE.test(segment)) return true;
+  return LEGACY_SITE_FOLDERS.has(segment);
+}
+
+function findSiteFolderIndex(segments: string[], knownSiteFolders: string[]): number {
+  for (let i = 0; i < segments.length; i++) {
+    if (isSiteFolderSegment(segments[i], knownSiteFolders)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function basename(filePath: string): string {
+  const segments = filePath.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? filePath;
+}
+
+/**
+ * Display-safe file path for UI.
+ * 1. If under a site content folder → path inside that folder (e.g. pages/about/en.yml)
+ * 2. Otherwise → basename only (e.g. report-2026-07-02.json)
+ */
+export function formatSitePath(filePath: string, options?: FormatSitePathOptions): string {
+  if (!filePath) return filePath;
+
+  const normalized = normalizeSlashes(filePath);
+  const knownSiteFolders = options?.knownSiteFolders ?? [];
+  const segments = normalized.split("/").filter(Boolean);
+
+  if (options?.contentFolder) {
+    const folder = options.contentFolder.replace(/\/+$/, "");
+    const folderIndex = segments.indexOf(folder);
+    if (folderIndex >= 0) {
+      const relative = pathAfterFolder(segments, folderIndex);
+      return relative || basename(normalized);
+    }
+    if (normalized === folder) {
+      return basename(normalized);
+    }
+    const prefix = `${folder}/`;
+    if (normalized.startsWith(prefix)) {
+      return normalized.slice(prefix.length) || basename(normalized);
+    }
+  }
+
+  const detectedIndex = findSiteFolderIndex(segments, knownSiteFolders);
+  if (detectedIndex >= 0) {
+    const relative = pathAfterFolder(segments, detectedIndex);
+    return relative || basename(normalized);
+  }
+
+  const firstSegment = segments[0];
+  if (firstSegment && REPO_NON_SITE_ROOTS.has(firstSegment)) {
+    return basename(normalized);
+  }
+
+  // Already site-relative (no absolute prefix, no site-folder segment to strip).
+  if (!normalized.startsWith("/") && !/^[A-Za-z]:/.test(normalized)) {
+    return normalized;
+  }
+
+  return basename(normalized);
+}
+
+/**
+ * Normalize a file path to cwd-relative form including the site folder prefix.
+ * Suitable for API calls that resolve via path.resolve(process.cwd(), sourceFile).
+ */
+export function toContentFileRef(filePath: string, options?: FormatSitePathOptions): string {
+  if (!filePath) return filePath;
+
+  const normalized = normalizeSlashes(filePath);
+  const knownSiteFolders = options?.knownSiteFolders ?? [];
+  const segments = normalized.split("/").filter(Boolean);
+
+  const detectedIndex = findSiteFolderIndex(segments, knownSiteFolders);
+  if (detectedIndex >= 0) {
+    return segments.slice(detectedIndex).join("/");
+  }
+
+  if (options?.contentFolder) {
+    const folder = options.contentFolder.replace(/\/+$/, "");
+    const relative = formatSitePath(filePath, options);
+    if (relative && relative !== basename(normalized)) {
+      return `${folder}/${relative}`;
+    }
+  }
+
+  return normalized;
+}
+
+/** Same as formatSitePath but with spaced segments for compact UI labels. */
+export function formatSitePathSpaced(filePath: string, options?: FormatSitePathOptions): string {
+  return formatSitePath(filePath, options).split("/").join(" / ");
+}

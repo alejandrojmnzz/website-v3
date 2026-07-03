@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, Clipboard, Clock, Code, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Clipboard, Clock, Code, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
@@ -404,6 +404,147 @@ function SampleDataDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-sample">
             Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PartialOverrideDialog({
+  open,
+  onOpenChange,
+  contentTypeLabel,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  contentTypeLabel: string;
+}) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (!open) setShowAdvanced(false);
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-partial-override">
+        <DialogHeader>
+          <DialogTitle>Partial Override</DialogTitle>
+          <DialogDescription>
+            This page appears in both the database and as a static folder for {contentTypeLabel}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 text-sm text-muted-foreground pr-1">
+          <p>
+            The static folder does not replace the database entry. It adds customizations on top — like
+            layout or presentation tweaks for this one page.
+          </p>
+          <div>
+            <p className="font-medium text-foreground mb-1">What you can customize here</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Page title and SEO description</li>
+              <li>Which sections appear and how they are arranged</li>
+              <li>One-off layout changes for this entry only</li>
+            </ul>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">What still comes from the database</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>The main article content (body text, author, dates, etc.)</li>
+              <li>The page must still exist in the database — deleting it there breaks the live page</li>
+            </ul>
+          </div>
+          <p>
+            Use this when you want one database entry to look different without changing the shared
+            template for every entry.
+          </p>
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+            onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="button-toggle-partial-override-advanced"
+          >
+            {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+            <IconChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {showAdvanced && (
+            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
+              <div>
+                <p className="font-medium text-foreground mb-1">How it works under the hood</p>
+                <p>
+                  At render time, the YAML folder merges on top of the shared{" "}
+                  <code className="text-[11px]">single.&lt;locale&gt;.yml</code> template via{" "}
+                  <code className="text-[11px]">mergeSingleTemplate</code>. The database row is still
+                  fetched and attached as <code className="text-[11px]">singleEntry</code>.
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-foreground mb-1">YAML merge rules</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Sections are patched by <code className="text-[11px]">id</code></li>
+                  <li>Sections can be removed with <code className="text-[11px]">_remove: true</code></li>
+                  <li>Per-entry files: <code className="text-[11px]">_common.yml</code> and locale files (e.g. <code className="text-[11px]">en.yml</code>)</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium text-foreground mb-1">Database dependencies</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Template fields using <code className="text-[11px]">{`{{ single.* }}`}</code> resolve from the DB row at render time</li>
+                  <li>Public URLs are resolved from the database index (<code className="text-[11px]">byUrl</code>) when the cache is loaded</li>
+                  <li>
+                    <code className="text-[11px]">loadDatabaseSinglePage</code> returns null without a
+                    matching DB row — static YAML alone cannot serve the page on indexed types
+                  </li>
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter className="border-t pt-4">
+          <Button onClick={() => onOpenChange(false)} data-testid="button-close-partial-override">
+            Got it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PartialOverrideVersionsDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[480px]" data-testid="dialog-partial-override-versions">
+        <DialogHeader>
+          <DialogTitle>Versioning not available</DialogTitle>
+          <DialogDescription>
+            Partial overrides do not support A/B versioning.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            This entry is a partial override — its YAML folder customizes layout and sections on top
+            of a database-backed page. Versioning requires a fully static YAML entry and is not wired
+            into the database render path.
+          </p>
+          <p>
+            To test layout changes, edit the per-entry YAML directly. To run an A/B test, use a
+            fully static entry instead.
+          </p>
+        </div>
+        <DialogFooter className="border-t pt-4">
+          <Button onClick={() => onOpenChange(false)} data-testid="button-close-partial-override-versions">
+            Got it
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2564,6 +2705,8 @@ export default function ContentTypeManagePage() {
   const [createVersionSlug, setCreateVersionSlug] = useState("");
   const [createVersionLocale, setCreateVersionLocale] = useState("en");
   const [isCreatingVersion, setIsCreatingVersion] = useState(false);
+  const [partialOverrideDialogOpen, setPartialOverrideDialogOpen] = useState(false);
+  const [partialOverrideVersionsDialogOpen, setPartialOverrideVersionsDialogOpen] = useState(false);
   const [versionsData, setVersionsData] = useState<Record<string, Record<string, { variants: { slug: string; allocation: number }[] }> | null>>({});
   const [versionsLoading, setVersionsLoading] = useState<Set<string>>(new Set());
 
@@ -2609,9 +2752,15 @@ export default function ContentTypeManagePage() {
 
   const items = allItemsData?.results || [];
 
-  const LOCALE_LABELS: Record<string, string> = { en: "English", es: "Spanish", pt: "Portuguese", fr: "French", de: "German", it: "Italian" };
-
   const dbSlug = typeConfig?.database?.slug || null;
+  const hasDbConnection = !!dbSlug;
+
+  const dbSlugSet = new Set(
+    hasDbConnection ? items.map((item) => String(item.slug ?? "")).filter(Boolean) : [],
+  );
+  const isPartialOverride = (entrySlug: string) => hasDbConnection && dbSlugSet.has(entrySlug);
+
+  const LOCALE_LABELS: Record<string, string> = { en: "English", es: "Spanish", pt: "Portuguese", fr: "French", de: "German", it: "Italian" };
 
   const { data: dbEditorConfig } = useQuery<Record<string, { type?: string }>>({
     queryKey: ["/api/databases", dbSlug, "editor-config"],
@@ -2739,6 +2888,13 @@ export default function ContentTypeManagePage() {
   })();
 
   const hasDb = !!typeConfig?.database?.slug;
+  const staticEntryCount =
+    typeConfig?.static_entry_count !== undefined
+      ? typeConfig.static_entry_count
+      : staticLoading
+        ? null
+        : staticEntriesData?.count ?? 0;
+  const dbEntryCount = hasDb ? (allLoading ? null : allItemsData?.count ?? items.length) : null;
   const defaultViewMode = hasDb ? "db" : "static";
   const prevDefaultRef = useRef(defaultViewMode);
   useEffect(() => {
@@ -3072,31 +3228,6 @@ export default function ContentTypeManagePage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card data-testid="card-kpi-total">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Entries</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div data-testid="text-kpi-static">
-                  <span className="text-2xl font-bold">
-                    {typeConfig?.static_entry_count !== undefined ? typeConfig.static_entry_count : "..."}
-                  </span>
-                  <span className="text-xs text-muted-foreground ml-1">Static</span>
-                </div>
-                {typeConfig?.database?.slug && (
-                  <>
-                    <div className="h-6 w-px bg-border" />
-                    <div data-testid="text-kpi-db">
-                      <span className="text-2xl font-bold">{allLoading ? "..." : items.length}</span>
-                      <span className="text-xs text-muted-foreground ml-1">DB</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
           {allIndexFields.map((idx) => {
             const isLocale = idx === localeKey;
             const counts: Record<string, number> = {};
@@ -3188,6 +3319,9 @@ export default function ContentTypeManagePage() {
                 >
                   <Folder className="h-4 w-4 mr-1" />
                   Static Entries
+                  <span className="ml-1.5 text-muted-foreground font-normal tabular-nums" data-testid="text-kpi-static">
+                    ({staticEntryCount ?? "..."})
+                  </span>
                 </Button>
                 <Button
                   variant="ghost"
@@ -3198,6 +3332,11 @@ export default function ContentTypeManagePage() {
                 >
                   <Database className="h-4 w-4 mr-1" />
                   DB Entries
+                  {hasDb && (
+                    <span className="ml-1.5 text-muted-foreground font-normal tabular-nums" data-testid="text-kpi-db">
+                      ({dbEntryCount ?? "..."})
+                    </span>
+                  )}
                 </Button>
               </div>
               <div className="relative flex-1 min-w-[200px]">
@@ -3206,22 +3345,33 @@ export default function ContentTypeManagePage() {
                   placeholder={`Search ${contentType} entries by title or slug...`}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
+                  className={`pl-9${search ? (viewMode === "db" && (semanticLoading || semanticActive) ? " pr-20" : " pr-8") : ""}`}
                   data-testid="input-search"
                 />
-                {viewMode === "db" && search.trim() && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                    {semanticLoading ? (
-                      <div className="h-3 w-3 animate-spin rounded-full border border-solid border-current border-r-transparent text-muted-foreground" />
-                    ) : semanticActive ? (
-                      <span
-                        className="text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded"
-                        title="Results ranked by semantic similarity"
-                        data-testid="badge-semantic-search"
-                      >
-                        semantic
-                      </span>
-                    ) : null}
+                {search && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                    {viewMode === "db" && search.trim() && (
+                      semanticLoading ? (
+                        <div className="h-3 w-3 animate-spin rounded-full border border-solid border-current border-r-transparent text-muted-foreground" />
+                      ) : semanticActive ? (
+                        <span
+                          className="text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded"
+                          title="Results ranked by semantic similarity"
+                          data-testid="badge-semantic-search"
+                        >
+                          semantic
+                        </span>
+                      ) : null
+                    )}
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setSearch("")}
+                      aria-label="Clear search"
+                      data-testid="button-clear-search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 )}
               </div>
@@ -3356,8 +3506,21 @@ export default function ContentTypeManagePage() {
                                 <div className="font-medium truncate max-w-[300px]" title={entry.title} data-testid={`text-title-${entry.slug}`}>
                                   {entry.title}
                                 </div>
-                                <div className="text-xs text-muted-foreground truncate max-w-[300px]">
-                                  {entry.slug}
+                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                  <div className="text-xs text-muted-foreground truncate max-w-[300px]">
+                                    {entry.slug}
+                                  </div>
+                                  {isPartialOverride(entry.slug) && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0 h-4 cursor-pointer shrink-0 gap-0.5 border-violet-500/40 text-violet-600 dark:text-violet-400 hover:bg-violet-500/10"
+                                      data-testid={`badge-partial-override-${entry.slug}`}
+                                      onClick={() => setPartialOverrideDialogOpen(true)}
+                                    >
+                                      <Info className="h-2.5 w-2.5" />
+                                      Partial Override
+                                    </Badge>
+                                  )}
                                 </div>
                               </div>
                             </td>
@@ -3409,56 +3572,69 @@ export default function ContentTypeManagePage() {
                                   </DropdownMenu>
                                 )}
                                 {entry.locales.length > 0 && (
-                                  <DropdownMenu onOpenChange={(open) => { if (open) fetchVersionsForEntry(entry.slug); }}>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button variant="ghost" size="sm" className="text-xs gap-1.5" data-testid={`button-versions-${entry.slug}`}>
-                                        <GitBranch className="h-3.5 w-3.5" />
-                                        Versions{entry.versionCounts && Object.keys(entry.versionCounts).length > 0 ? ` (${Object.values(entry.versionCounts).reduce((a, b) => a + b, 0)})` : ""}
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="min-w-[220px]">
-                                      {versionsLoading.has(entry.slug) ? (
-                                        <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                          Loading...
-                                        </div>
-                                      ) : !versionsData[entry.slug] || Object.keys(versionsData[entry.slug]!).length === 0 ? (
-                                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                                          No alternate versions for {Object.values(entry.urls)[0] ? new URL(Object.values(entry.urls)[0], window.location.origin).pathname : `/${entry.slug}`}, you can propose new versions here
-                                        </div>
-                                      ) : (
-                                        Object.entries(versionsData[entry.slug]!).flatMap(([loc, localeData]) =>
-                                          localeData.variants.map((variant) => (
-                                            <DropdownMenuItem key={`${loc}-${variant.slug}`} asChild>
-                                              <a
-                                                href={entry.urls[loc] ? `${entry.urls[loc].split("?")[0]}?force_variant=${variant.slug}` : "#"}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                data-testid={`link-variant-${entry.slug}-${loc}-${variant.slug}`}
-                                              >
-                                                <GitBranch className="h-4 w-4 mr-2 flex-shrink-0" />
-                                                <span className="flex-1">{variant.slug}</span>
-                                                <span className="ml-2 text-xs text-muted-foreground">{loc.toUpperCase()} · {variant.allocation}%</span>
-                                              </a>
-                                            </DropdownMenuItem>
-                                          ))
-                                        )
-                                      )}
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() => {
-                                          setCreateVersionEntry(entry);
-                                          setCreateVersionLocale(entry.locales[0] || "en");
-                                          setCreateVersionSlug("");
-                                          setCreateVersionOpen(true);
-                                        }}
-                                        data-testid={`button-new-version-${entry.slug}`}
-                                      >
-                                        <Plus className="h-4 w-4 mr-2" />
-                                        New version...
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
+                                  isPartialOverride(entry.slug) ? (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs gap-1.5"
+                                      data-testid={`button-versions-${entry.slug}`}
+                                      onClick={() => setPartialOverrideVersionsDialogOpen(true)}
+                                    >
+                                      <GitBranch className="h-3.5 w-3.5" />
+                                      Versions
+                                    </Button>
+                                  ) : (
+                                    <DropdownMenu onOpenChange={(open) => { if (open) fetchVersionsForEntry(entry.slug); }}>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="text-xs gap-1.5" data-testid={`button-versions-${entry.slug}`}>
+                                          <GitBranch className="h-3.5 w-3.5" />
+                                          Versions{entry.versionCounts && Object.keys(entry.versionCounts).length > 0 ? ` (${Object.values(entry.versionCounts).reduce((a, b) => a + b, 0)})` : ""}
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end" className="min-w-[220px]">
+                                        {versionsLoading.has(entry.slug) ? (
+                                          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            Loading...
+                                          </div>
+                                        ) : !versionsData[entry.slug] || Object.keys(versionsData[entry.slug]!).length === 0 ? (
+                                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                            No alternate versions for {Object.values(entry.urls)[0] ? new URL(Object.values(entry.urls)[0], window.location.origin).pathname : `/${entry.slug}`}, you can propose new versions here
+                                          </div>
+                                        ) : (
+                                          Object.entries(versionsData[entry.slug]!).flatMap(([loc, localeData]) =>
+                                            localeData.variants.map((variant) => (
+                                              <DropdownMenuItem key={`${loc}-${variant.slug}`} asChild>
+                                                <a
+                                                  href={entry.urls[loc] ? `${entry.urls[loc].split("?")[0]}?force_variant=${variant.slug}` : "#"}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  data-testid={`link-variant-${entry.slug}-${loc}-${variant.slug}`}
+                                                >
+                                                  <GitBranch className="h-4 w-4 mr-2 flex-shrink-0" />
+                                                  <span className="flex-1">{variant.slug}</span>
+                                                  <span className="ml-2 text-xs text-muted-foreground">{loc.toUpperCase()} · {variant.allocation}%</span>
+                                                </a>
+                                              </DropdownMenuItem>
+                                            ))
+                                          )
+                                        )}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onClick={() => {
+                                            setCreateVersionEntry(entry);
+                                            setCreateVersionLocale(entry.locales[0] || "en");
+                                            setCreateVersionSlug("");
+                                            setCreateVersionOpen(true);
+                                          }}
+                                          data-testid={`button-new-version-${entry.slug}`}
+                                        >
+                                          <Plus className="h-4 w-4 mr-2" />
+                                          New version...
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  )
                                 )}
                               {(Object.keys(entry.urls).length > 0 || entry.locales.length === 0) && (
                                 <DropdownMenu>
@@ -3501,7 +3677,7 @@ export default function ContentTypeManagePage() {
                                       Edit YAML
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
-                                      onClick={() => { window.location.href = `/private/sync-log?search=${encodeURIComponent(entry.slug)}`; }}
+                                      onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(entry.slug)}`; }}
                                       className="text-[13px]"
                                       data-testid={`menu-changelog-${entry.slug}`}
                                     >
@@ -3896,6 +4072,8 @@ export default function ContentTypeManagePage() {
         isDeletingPage={isDeletingEntry}
         onConfirm={handleDeleteEntry}
         availableLocales={deletingEntry?.locales}
+        isPartialOverride={deletingEntry ? isPartialOverride(deletingEntry.slug) : false}
+        publicUrls={deletingEntry?.urls}
       />
       <CreateContentModal
         open={createModalOpen}
@@ -4007,6 +4185,17 @@ export default function ContentTypeManagePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PartialOverrideDialog
+        open={partialOverrideDialogOpen}
+        onOpenChange={setPartialOverrideDialogOpen}
+        contentTypeLabel={typeConfig?.label || label}
+      />
+
+      <PartialOverrideVersionsDialog
+        open={partialOverrideVersionsDialogOpen}
+        onOpenChange={setPartialOverrideVersionsDialogOpen}
+      />
     </div>
   );
 }

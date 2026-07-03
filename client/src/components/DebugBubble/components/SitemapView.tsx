@@ -1,8 +1,8 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { IconAlertCircle, IconAlertTriangle } from "@tabler/icons-react";
 import { useToast } from "@/hooks/use-toast";
 import type { MenuView, SitemapUrl } from "../types";
+import { StatusCountBadge } from "./StatusCountBadge";
 
 export interface SitemapFolder {
   name: string;
@@ -45,32 +45,14 @@ function ValidationBadge({
 }) {
   const entry = validationSummary[urlPath];
   if (!entry) return null;
-  const { errorCount, warningCount } = entry;
-  if (errorCount === 0 && warningCount === 0) return null;
-
-  const isError = errorCount > 0;
-  const count = isError ? errorCount : warningCount;
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpenDiagnosticsForUrl(urlPath);
-      }}
-      className={[
-        "flex-shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-medium leading-none cursor-pointer transition-opacity hover:opacity-80",
-        isError
-          ? "bg-destructive text-destructive-foreground"
-          : "bg-amber-500 text-white",
-      ].join(" ")}
-      title={`${errorCount} error${errorCount !== 1 ? "s" : ""}, ${warningCount} warning${warningCount !== 1 ? "s" : ""} — click to view diagnostics`}
-      data-testid={`badge-validation-${urlPath.replace(/\//g, "-")}`}
-    >
-      {isError
-        ? <IconAlertCircle className="h-3 w-3" />
-        : <IconAlertTriangle className="h-3 w-3" />}
-      {count}
-    </button>
+    <StatusCountBadge
+      errorCount={entry.errorCount}
+      warningCount={entry.warningCount}
+      onClick={() => onOpenDiagnosticsForUrl(urlPath)}
+      testId={`badge-validation-${urlPath.replace(/\//g, "-")}`}
+    />
   );
 }
 
@@ -285,7 +267,7 @@ export function SitemapView({
                                       Edit YAML
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
-                                      onClick={() => { window.location.href = `/private/sync-log?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
+                                      onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
                                       className="text-[13px]"
                                       data-testid={`menu-changelog-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
                                     >
@@ -371,7 +353,7 @@ export function SitemapView({
                               Edit YAML
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => { window.location.href = `/private/sync-log?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
+                              onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
                               className="text-[13px]"
                               data-testid={`menu-changelog-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
                             >

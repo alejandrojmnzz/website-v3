@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
@@ -30,7 +31,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager, DatabaseManager } from "../database";
+import { databaseManager, DatabaseManager, getCachedDatabaseEntryCount } from "../database";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -217,11 +218,15 @@ function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
+
+function ctRoot(res: Response): string {
+  return getContentRoot(res);
 }
 
 export function registerContentRoutes(app: Express): void {
@@ -565,7 +570,7 @@ export function registerContentRoutes(app: Express): void {
     const locale = normalizeLocale(req.query.locale as string);
     const forceVariant = req.query.force_variant as string | undefined;
 
-    if (!isValidType(contentType)) {
+    if (!isValidType(contentType, ctRoot(res))) {
       res.status(404).json({ error: `Unknown content type: ${contentType}` });
       return;
     }
@@ -674,7 +679,7 @@ export function registerContentRoutes(app: Express): void {
         100,
       );
       const posts = await getDB(res).fetchMappedItems("blog");
-      const localeKey = getLocaleKey("blog") || "lang";
+      const localeKey = getLocaleKey("blog", ctRoot(res)) || "lang";
       let filtered = locale
         ? posts.filter((p) => (p as any)[localeKey] === normalizeLocale(locale))
         : posts;
@@ -737,7 +742,7 @@ export function registerContentRoutes(app: Express): void {
       const { slug } = req.params;
       const locale = req.query.locale as string | undefined;
       const posts = await getDB(res).fetchMappedItems("blog");
-      const localeKey = getLocaleKey("blog") || "lang";
+      const localeKey = getLocaleKey("blog", ctRoot(res)) || "lang";
       const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
       const post = normalizedLocale
         ? posts.find(
@@ -765,7 +770,7 @@ export function registerContentRoutes(app: Express): void {
   });
 
   app.get("/api/blog/cache-status", (_req, res) => {
-    const dbName = getDatabaseName("blog");
+    const dbName = getDatabaseName("blog", ctRoot(res));
     if (!dbName) {
       res.json({ exists: false, age_hours: null, post_count: null });
       return;
@@ -801,7 +806,7 @@ export function registerContentRoutes(app: Express): void {
   });
 
   app.post("/api/debug/clear-blog-cache", async (_req, res) => {
-    const dbName = getDatabaseName("blog");
+    const dbName = getDatabaseName("blog", ctRoot(res));
     if (dbName && getDB(res).exists(dbName)) {
       await getDB(res).fetchItems(dbName, true).catch(() => {});
     }
@@ -814,7 +819,7 @@ export function registerContentRoutes(app: Express): void {
 
   app.get("/api/blog/config", (_req, res) => {
     try {
-      const config = getContentTypeConfig("blog");
+      const config = getContentTypeConfig("blog", ctRoot(res));
       res.json(config || {});
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -865,6 +870,9 @@ export function registerContentRoutes(app: Express): void {
           url_pattern: config.url_pattern,
           locale_key: config.field_mapping?._locale || null,
           static_entry_count: getCI(res).findByType(type).length,
+          database_entry_count: config.database?.slug
+            ? getCachedDatabaseEntryCount(getDB(res), config.database.slug)
+            : null,
           layout: getLayout(type, cr),
         });
       }
@@ -934,7 +942,7 @@ export function registerContentRoutes(app: Express): void {
       const { type } = req.params;
       const dryRun = req.query.dry_run === "true";
 
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -981,14 +989,14 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/config", (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
       res.json({
         name: type,
-        label: getLabel(type),
+        label: getLabel(type, ctRoot(res)),
         directory: config.directory,
         field_mapping: config.field_mapping || null,
         indexes: config.indexes || null,
@@ -1009,7 +1017,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: "source query parameter is required" });
         return;
       }
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1024,7 +1032,7 @@ export function registerContentRoutes(app: Express): void {
   app.post("/api/content-types/:type/validate-mappings", (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1044,7 +1052,7 @@ export function registerContentRoutes(app: Express): void {
   app.put("/api/content-types/:type/config", (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1086,7 +1094,7 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/available-properties", (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1119,12 +1127,12 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: "field query parameter is required" });
         return;
       }
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
-      const mapping = getFieldMapping(type);
+      const mapping = getFieldMapping(type, ctRoot(res));
       const source = mapping?.[field];
       if (!source || typeof source !== "string") {
         res.status(404).json({ error: `Field "${field}" not found in field_mapping` });
@@ -1156,7 +1164,7 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type } = req.params;
       const locale = ((req.query.locale as string) || "en").replace(/[^a-z-]/g, "");
-      if (!isValidType(type)) {
+      if (!isValidType(type, ctRoot(res))) {
         res.status(404).json({ error: `Unknown content type: ${type}` });
         return;
       }
@@ -1188,7 +1196,7 @@ export function registerContentRoutes(app: Express): void {
       const slugParam = req.query.slug as string | undefined;
       const localeParam = req.query.locale as string | undefined;
 
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1342,7 +1350,7 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/items", async (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config?.database?.slug) {
         res
           .status(400)
@@ -1382,8 +1390,8 @@ export function registerContentRoutes(app: Express): void {
         rawItems = getDB(res).getRawItems(dbName);
       }
 
-      const localeFieldKey = getLocaleKey(type);
-      const localeDefault = getLocaleDefault(type);
+      const localeFieldKey = getLocaleKey(type, ctRoot(res));
+      const localeDefault = getLocaleDefault(type, ctRoot(res));
 
       if (
         Object.keys(regularMapping).length > 0 ||
@@ -1515,33 +1523,24 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/cache-status", (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config?.database?.slug) {
         res.json({ exists: false, age_hours: null, post_count: null });
         return;
       }
       const dbName = config.database.slug;
-      const cachePath = path.join(process.cwd(), ".cache", `db-${dbName}.json`);
-      if (!fs.existsSync(cachePath)) {
+      const stats = getDB(res).getCacheStats().perDb[dbName];
+      if (!stats?.fetched_at) {
         res.json({ exists: false, age_hours: null, post_count: null });
         return;
       }
-      try {
-        const raw = fs.readFileSync(cachePath, "utf-8");
-        const cached = JSON.parse(raw) as {
-          fetched_at: string;
-          items: unknown[];
-        };
-        const ageMs = Date.now() - new Date(cached.fetched_at).getTime();
-        const ageHours = Math.round((ageMs / (60 * 60 * 1000)) * 10) / 10;
-        res.json({
-          exists: true,
-          age_hours: ageHours,
-          post_count: cached.items.length,
-        });
-      } catch {
-        res.json({ exists: false, age_hours: null, post_count: null });
-      }
+      const ageMs = Date.now() - new Date(stats.fetched_at).getTime();
+      const ageHours = Math.round((ageMs / (60 * 60 * 1000)) * 10) / 10;
+      res.json({
+        exists: true,
+        age_hours: ageHours,
+        post_count: stats.item_count,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -1551,7 +1550,7 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type } = req.params;
       const localeFilter = req.query.locale as string | undefined;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1572,7 +1571,7 @@ export function registerContentRoutes(app: Express): void {
           return;
         }
         const items = await getDB(res).fetchMappedItems(type);
-        const localeKey = getLocaleKey(type) || "lang";
+        const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
         const cacheInfo = getDB(res).getCacheInfo(dbName);
         const cacheAgeHours = cacheInfo?.fetched_at
           ? Math.round((Date.now() - new Date(cacheInfo.fetched_at).getTime()) / (60 * 60 * 1000) * 10) / 10
@@ -1700,7 +1699,7 @@ export function registerContentRoutes(app: Express): void {
   app.post("/api/content-types/:type/clear-cache", async (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config?.database?.slug) {
         res
           .status(400)
@@ -1724,7 +1723,7 @@ export function registerContentRoutes(app: Express): void {
   app.delete("/api/content-types/:type/cache/:slug", async (req, res) => {
     try {
       const { type, slug } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config?.database?.slug) {
         res
           .status(400)
@@ -1741,7 +1740,7 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/db-overrides/:slug", (req, res) => {
     try {
       const { type, slug } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config?.database?.slug) {
         res.status(400).json({ error: `Content type "${type}" has no database configured` });
         return;
@@ -1757,7 +1756,7 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       // Build a reverse map: dbPath -> templateKey using the field mapping
-      const fm = getFieldMapping(type);
+      const fm = getFieldMapping(type, ctRoot(res));
       const reverseMap: Record<string, string> = {};
       if (fm) {
         for (const [templateKey, dbPath] of Object.entries(fm)) {
@@ -1794,7 +1793,7 @@ export function registerContentRoutes(app: Express): void {
 
   app.get("/api/db-overrides", async (_req, res) => {
     try {
-      const allConfigs = getAllConfigs();
+      const allConfigs = getAllConfigs(ctRoot(res));
       const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|svg|avif|tiff?|bmp|ico)(\?[^)]*)?$/i;
       const result: Array<{ contentType: string; dbName: string; slug: string; fields: Record<string, unknown> }> = [];
       for (const [contentType, config] of Object.entries(allConfigs)) {
@@ -1825,7 +1824,7 @@ export function registerContentRoutes(app: Express): void {
       const rawFieldKey = req.query.field as string | undefined;
       const rawAuthor = (req.body as Record<string, unknown> | undefined)?.author;
       const authorName = rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config?.database?.slug) {
         res.status(400).json({ error: `Content type "${type}" has no database configured` });
         return;
@@ -1837,7 +1836,7 @@ export function registerContentRoutes(app: Express): void {
       }
       let fieldKey = rawFieldKey;
       if (rawFieldKey) {
-        const fm = getFieldMapping(type);
+        const fm = getFieldMapping(type, ctRoot(res));
         const mappedPath = fm ? fm[rawFieldKey] : undefined;
         if (mappedPath && typeof mappedPath === "string" && !mappedPath.startsWith("function:")) {
           fieldKey = mappedPath;
@@ -1861,7 +1860,7 @@ export function registerContentRoutes(app: Express): void {
   app.post("/api/content-types/:type/entries/:slug/migrate-legacy", async (req, res) => {
     try {
       const { type, slug } = req.params;
-      const config = getContentTypeConfig(type);
+      const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(400).json({ error: `Unknown content type "${type}"` });
         return;

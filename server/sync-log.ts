@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { execSync } from 'child_process';
+import { siteSyncGcsKey, SYNC_FILENAMES, syncLogReadKeys } from "@shared/gcsKeys";
 import { gcs } from './gcs';
 import { child as loggerChild } from './logger';
 
@@ -99,6 +100,7 @@ function parseOldTextLine(line: string): SyncLogEntry | null {
 export class SyncLog {
   private readonly syncLogPath: string;
   private readonly gcsKey: string;
+  private readonly readKeys: string[];
   private readonly migrateLegacy: boolean;
   private logEntries: SyncLogEntry[] = [];
   private loaded = false;
@@ -111,7 +113,8 @@ export class SyncLog {
     // Per-site GCS key: sync/<contentFolderName>/sync-log-state.txt
     // Sanitise the folder name so slashes don't create unexpected GCS prefixes.
     const safeFolder = contentFolderName.replace(/\\/g, '/').replace(/^\/|\/$/g, '');
-    this.gcsKey = `sync/${safeFolder}/sync-log-state.txt`;
+    this.gcsKey = siteSyncGcsKey(safeFolder, SYNC_FILENAMES.syncLog);
+    this.readKeys = syncLogReadKeys(safeFolder);
     this.migrateLegacy = migrateLegacy;
   }
 
@@ -199,25 +202,23 @@ export class SyncLog {
 
     if (IS_PRODUCTION && gcs.available) {
       try {
-        const exists = await gcs.exists(this.gcsKey);
-        if (exists) {
-          const data = await gcs.download(this.gcsKey);
-          if (data) {
-            this.logEntries = data.toString('utf-8')
-              .split('\n')
-              .filter(l => l.trim() !== '')
-              .map(line => {
-                try {
-                  return JSON.parse(line) as SyncLogEntry;
-                } catch {
-                  return parseOldTextLine(line);
-                }
-              })
-              .filter((e): e is SyncLogEntry => e !== null);
-            this.loaded = true;
-            this.saveLocal();
-            return;
-          }
+        const result = await gcs.downloadFirstExisting(this.readKeys);
+        if (result) {
+          const data = result.data;
+          this.logEntries = data.toString('utf-8')
+            .split('\n')
+            .filter(l => l.trim() !== '')
+            .map(line => {
+              try {
+                return JSON.parse(line) as SyncLogEntry;
+              } catch {
+                return parseOldTextLine(line);
+              }
+            })
+            .filter((e): e is SyncLogEntry => e !== null);
+          this.loaded = true;
+          this.saveLocal();
+          return;
         }
       } catch (error) {
         syncLogLogger.error({ err: error }, "error loading from bucket");

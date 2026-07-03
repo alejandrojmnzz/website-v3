@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, Eye, File, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -127,6 +127,17 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9\s_-]/g, "")
     .replace(/[\s-]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+async function parseDatabaseApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: string; message?: string };
+    const message = body.error ?? body.message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  } catch {
+    // response body was not JSON
+  }
+  return fallback;
 }
 
 function DatasetPickerDialog({
@@ -3431,7 +3442,58 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [confirmForceRefreshOpen, setConfirmForceRefreshOpen] = useState(false);
+  const [healthDialogOpen, setHealthDialogOpen] = useState(false);
+  const [healthResult, setHealthResult] = useState<{
+    errors: Array<{ code?: string; message: string; file?: string; suggestion?: string; type: string }>;
+    warnings: Array<{ code?: string; message: string; file?: string; suggestion?: string; type: string }>;
+    status: string;
+  } | null>(null);
   const [savingItems, setSavingItems] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  const checkHealthMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/validation/run", {
+        validators: ["database-health"],
+        scope: { database: dbName },
+      });
+      return res.json() as Promise<{
+        validators: Array<{
+          name: string;
+          status: string;
+          errors: Array<{ code?: string; message: string; file?: string; suggestion?: string; type: string }>;
+          warnings: Array<{ code?: string; message: string; file?: string; suggestion?: string; type: string }>;
+        }>;
+      }>;
+    },
+    onSuccess: (data) => {
+      const v = data.validators?.find((x) => x.name === "database-health");
+      const unknown = v?.errors?.some((e) => e.code === "UNKNOWN_VALIDATOR");
+      if (unknown) {
+        toast({
+          title: "Health check unavailable",
+          description: "Restart the dev server (npm run dev) so the database-health validator can load.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setHealthResult(
+        v
+          ? { errors: v.errors, warnings: v.warnings, status: v.status }
+          : { errors: [], warnings: [], status: "passed" },
+      );
+      setHealthDialogOpen(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/databases"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/databases/${dbName}/job-status`] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Health check failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    },
+  });
 
   const { data: detail, refetch: refetchDetail } = useQuery<DatabaseDetail>({
     queryKey: ["/api/databases", dbName],
@@ -3618,16 +3680,30 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     setPage(1);
   }, [dataView, search]);
 
-  const handleRefresh = async () => {
+  const runForceRefresh = async () => {
     setIsRefreshing(true);
+    setRefreshError(null);
+    setJobStatusDismissed(false);
+    const label = config?.name || dbName;
+    const fallback = `There was an error fetching "${label}".`;
     try {
-      await fetch(`/api/databases/${dbName}/refresh`, { method: "POST" });
+      const res = await fetch(`/api/databases/${dbName}/refresh`, { method: "POST" });
+      if (!res.ok) {
+        throw new Error(await parseDatabaseApiError(res, fallback));
+      }
+      setRefreshError(null);
       setPage(1);
+      queryClient.invalidateQueries({ queryKey: [`/api/databases/${dbName}/job-status`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/databases"] });
       await Promise.all([refetchItems(), refetchRawItems()]);
     } catch (err) {
+      const description = err instanceof Error && err.message.trim()
+        ? err.message
+        : fallback;
+      setRefreshError(description);
       toast({
-        title: "Refresh failed",
-        description: err instanceof Error ? err.message : String(err),
+        title: `Failed to refresh "${label}"`,
+        description,
         variant: "destructive",
       });
     } finally {
@@ -3635,24 +3711,8 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     }
   };
 
-  const handleRetryFetch = async () => {
-    setIsRefreshing(true);
-    setJobStatusDismissed(false);
-    try {
-      await fetch(`/api/databases/${dbName}/refresh`, { method: "POST" });
-      queryClient.invalidateQueries({ queryKey: [`/api/databases/${dbName}/job-status`] });
-      setPage(1);
-      await Promise.all([refetchItems(), refetchRawItems()]);
-    } catch (err) {
-      toast({
-        title: "Retry failed",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+  const handleRefresh = () => runForceRefresh();
+  const handleRetryFetch = () => runForceRefresh();
 
   const handleReindex = async () => {
     setIsReindexing(true);
@@ -3855,6 +3915,20 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => checkHealthMutation.mutate()}
+            disabled={checkHealthMutation.isPending}
+            data-testid="button-check-health"
+          >
+            {checkHealthMutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+            ) : (
+              <HeartPulse className="h-3.5 w-3.5 mr-1" />
+            )}
+            Check Health
+          </Button>
           <Button
             variant={activePanel === "settings" ? "default" : "outline"}
             size="sm"
@@ -4497,6 +4571,28 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
               </div>
             </CardHeader>
             <CardContent className="px-0 pb-0">
+              {refreshError && (
+                <div
+                  className="mx-4 mb-3 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm flex items-start gap-2"
+                  data-testid="refresh-error-banner"
+                >
+                  <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-destructive">
+                      Failed to refresh &ldquo;{config?.name || dbName}&rdquo;
+                    </p>
+                    <p className="text-destructive/90 break-words mt-0.5">{refreshError}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    onClick={() => setRefreshError(null)}
+                    data-testid="button-dismiss-refresh-error"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               {itemsLoading || rawItemsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -4817,6 +4913,88 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={healthDialogOpen} onOpenChange={setHealthDialogOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col" data-testid="dialog-database-health">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {healthResult?.status === "passed" ? (
+                <CircleCheck className="h-5 w-5 text-chart-3" />
+              ) : (
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              )}
+              Database Health — {dbName}
+            </DialogTitle>
+            <DialogDescription>
+              {healthResult?.status === "passed"
+                ? "No issues found. This database passed all health checks."
+                : "Issues detected from cached job state and configuration (read-only check)."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-3 py-1">
+            {healthResult?.status === "passed" && (
+              <div className="p-3 rounded-md bg-chart-3/10 border border-chart-3/30 text-sm text-foreground">
+                All checks passed.
+              </div>
+            )}
+            {(healthResult?.errors.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-destructive">Errors</p>
+                {healthResult!.errors.map((issue, i) => (
+                  <div
+                    key={`e-${i}`}
+                    className="p-2 rounded-md bg-destructive/10 border border-destructive/30 text-sm"
+                    data-testid={`health-error-${i}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <CircleX className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        {issue.code && (
+                          <span className="font-mono text-xs text-destructive">{issue.code}</span>
+                        )}
+                        <p className="text-foreground">{issue.message}</p>
+                        {issue.suggestion && (
+                          <p className="text-xs text-muted-foreground mt-1 italic">{issue.suggestion}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(healthResult?.warnings.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-chart-2">Warnings</p>
+                {healthResult!.warnings.map((issue, i) => (
+                  <div
+                    key={`w-${i}`}
+                    className="p-2 rounded-md bg-chart-2/10 border border-chart-2/30 text-sm"
+                    data-testid={`health-warning-${i}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-chart-2 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        {issue.code && (
+                          <span className="font-mono text-xs text-chart-2">{issue.code}</span>
+                        )}
+                        <p className="text-foreground">{issue.message}</p>
+                        {issue.suggestion && (
+                          <p className="text-xs text-muted-foreground mt-1 italic">{issue.suggestion}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setHealthDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

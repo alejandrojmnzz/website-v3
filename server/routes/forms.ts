@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
@@ -350,7 +351,7 @@ export function registerFormsRoutes(app: Express): void {
 
     // Get all visible locations grouped by region
     const locationsPath = path.join(
-      (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content"),
+      (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot(),
       getFolder("location"),
     );
     const locationsList: Array<{

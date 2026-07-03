@@ -268,6 +268,45 @@ export async function requireCapability(
   return { authorized: true, token, username: profile.username, author };
 }
 
+/**
+ * Validates that the request carries a valid Breathecode staff token.
+ * Does not require a specific capability — any authenticated staff session is enough.
+ */
+export async function requireStaffSession(
+  req: Request,
+  res: Response,
+): Promise<{ authorized: boolean; token: string | null; username: string | null }> {
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const token = extractToken(req);
+
+  if (isDevelopment) {
+    if (token) {
+      try {
+        const profile = await userManager.validateToken(token);
+        if (profile.valid && profile.username) {
+          return { authorized: true, token, username: profile.username };
+        }
+      } catch {
+        // Ignore errors in dev
+      }
+    }
+    return { authorized: true, token, username: null };
+  }
+
+  if (!token) {
+    res.status(401).json({ error: "Authorization required" });
+    return { authorized: false, token: null, username: null };
+  }
+
+  const profile = await userManager.validateToken(token);
+  if (!profile.valid || !profile.username) {
+    res.status(401).json({ error: "Your session has expired. Please log in again." });
+    return { authorized: false, token, username: null };
+  }
+
+  return { authorized: true, token, username: profile.username };
+}
+
 export function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
   const parsed = yaml.load(escaped);

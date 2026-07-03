@@ -151,34 +151,37 @@ The DebugBubble admin panel polls `GET /api/admin/gcs-status` and shows a persis
 
 | Prefix | What | Source |
 |--------|------|--------|
+| `{site}/sync/sync-state.json` | Per-site GitHub sync state | `server/sync-state.ts` |
+| `{site}/sync/sync-log-state.txt` | Per-site GitHub sync log | `server/sync-log.ts` |
+| `{site}/sync/versioning-state.json` | Per-site A/B test counts | `server/versioning/VersioningManager.ts` |
+| `{site}/sync/form-state.json` | Per-site form registry | `server/form-state.ts` |
+| `multisite-user-store/users-state.json` | Platform user/auth store | `server/user-store.ts` |
 | `{site}/media/…` | Images, videos, srcset variants | `server/media/gcs-provider.ts` |
-| `sync/sync-log-state.txt` | GitHub sync log | `server/sync-log.ts` |
-| `sync/{site}/sync-state.json` | Per-site GitHub sync state | `server/sync-state.ts` |
-| `sync/form-state.json` | Form submissions state | `server/form-state.ts` |
-| `sync/users-state.json` | User/auth store | `server/user-store.ts` |
-| `sync/versioning-state.json` | A/B test counts | `server/versioning/VersioningManager.ts` |
+| `{site}/conversations/…` | AI context snapshots | `server/ai/ConversationStore.ts` |
+| `{site}/reports/lighthouse/{date}/…` | Lighthouse audit results | `server/routes/admin.ts` |
 | `reports/lighthouse/{date}/…` | Lighthouse audit results | `server/routes/admin.ts` |
 | `mcp-auth/…` | Encrypted MCP OAuth tokens | `mcp-server/lib/gcs-store.ts` |
 
-### Migration Script (`scripts/admin/migrate-to-new-bucket.ts`)
-One-time migration from old flat bucket to a new bucket with per-site prefixes.
-Bypasses the `gcs` singleton (uses two raw SDK clients) so the write-block doesn't interfere.
+### Migration Script (`scripts/admin/migrate-gcs-multisite.ts`)
+Unified migration: copies flat `media/` objects to per-site `{content_folder}/media/` prefixes, rewrites `image-registry.json`, unifies `sync/{site}/` → `{site}/sync/`, and moves user store to `multisite-user-store/`. Resumable via `.cache/gcs-multisite-migration-state.json`. Bypasses the `gcs` singleton (raw SDK clients) so the write-block doesn't interfere.
 
 ```bash
-# Dry-run first
-npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=my-new-bucket --dry-run
+# Dry-run (default)
+npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=<bucket>
 
-# Actual migration
-npx tsx scripts/admin/migrate-to-new-bucket.ts --to-bucket=my-new-bucket
+# Apply media + layout migration
+npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=<bucket> --execute
+
+# Delete legacy keys after copy
+npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=<bucket> --execute --delete-source
 ```
 
+Legacy media-only script `scripts/admin/migrate-gcs-bucket.ts` remains for backward compatibility.
+
 After migration completes:
-1. Add `bucket_name: <new-bucket>` as the first line of `sites.yml`.
+1. Add `bucket_name: <bucket>` to `sites.yml` if changing buckets.
 2. Redeploy — server picks up the new bucket automatically.
 3. Verify media serving is correct.
-4. Archive (do not delete) the old bucket.
-
-The script also rewrites `image-registry.json` URLs from the old bucket to the new bucket for every registered site.
 
 ## Storage Layer — `server/media/`
 

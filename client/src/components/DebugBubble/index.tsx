@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth, getDebugToken, getDebugUserName, resolveAuthorName } from "@/hooks/useDebugAuth";
+import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { locations } from "@/lib/locations";
 import { LocaleFlag } from "./components/LocaleFlag";
 import { DebugPanelContent } from "./components/DebugPanelContent";
@@ -111,6 +112,7 @@ export function DebugBubble() {
   );
   
   const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, checkSession } = useDebugAuth();
+  const { criticalAlerts } = useSystemAlerts();
   const contentTypesMap = useContentTypes();
   const { session } = useSession();
   const editMode = useEditModeOptional();
@@ -1544,6 +1546,13 @@ export function DebugBubble() {
   // Token states for different warning scenarios
   const noTokenDetected = !hasToken;
   const tokenWithoutCapabilities = hasToken && isValidated === false;
+  const hasCommitIndicator =
+    githubSyncStatus?.syncEnabled &&
+    pendingChanges.some((c) => c.source === "local" || c.source === "conflict") &&
+    !noTokenDetected &&
+    !tokenWithoutCapabilities;
+  const hasSystemAlerts = criticalAlerts.length > 0 && !noTokenDetected && !tokenWithoutCapabilities;
+  const pillTop = (index: number) => (index === 0 ? "-0.25rem" : `${index * 1.5}rem`);
 
   const toggleTheme = () => {
     const newTheme = theme === "light" ? "dark" : "light";
@@ -1985,7 +1994,7 @@ export function DebugBubble() {
               {open ? <X className="h-5 w-5" /> : <Bug className="h-5 w-5" />}
             </Button>
             {/* Show "Commit" indicator when there are local changes that need uploading - only when logged in */}
-            {githubSyncStatus?.syncEnabled && pendingChanges.some(c => c.source === 'local' || c.source === 'conflict') && !noTokenDetected && !tokenWithoutCapabilities && (
+            {hasCommitIndicator && (
               <button
                 onClick={() => {
                   setCommitModalOpen(true);
@@ -2004,13 +2013,30 @@ export function DebugBubble() {
                 <span>Commit</span>
               </button>
             )}
+            {hasSystemAlerts && (
+              <button
+                onClick={() => setOpen(true)}
+                className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+                style={{
+                  top: pillTop(hasCommitIndicator ? 1 : 0),
+                  backgroundColor: "#ef4444",
+                  color: "#fff",
+                  boxShadow: "0 0 12px 2px rgba(239, 68, 68, 0.6), 0 0 20px 4px rgba(239, 68, 68, 0.3)",
+                }}
+                data-testid="indicator-system-alerts"
+                title={`${criticalAlerts.length} critical system alert${criticalAlerts.length !== 1 ? "s" : ""} - click to view`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                <span>System error</span>
+              </button>
+            )}
             {/* Show "Page errors" indicator when diagnostics found issues */}
             {(pageErrorCount > 0 || pageWarningCount > 0) && (
               <button
                 onClick={() => setPageErrorsModalOpen(true)}
                 className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
-                  top: githubSyncStatus?.syncEnabled && pendingChanges.some(c => c.source === 'local' || c.source === 'conflict') && !noTokenDetected && !tokenWithoutCapabilities ? '1.5rem' : '-0.25rem',
+                  top: pillTop((hasCommitIndicator ? 1 : 0) + (hasSystemAlerts ? 1 : 0)),
                   backgroundColor: pageErrorCount > 0 ? '#ef4444' : '#f59e0b',
                   color: '#fff',
                   boxShadow: pageErrorCount > 0

@@ -435,7 +435,7 @@ export async function startBackgroundSync(): Promise<void> {
       await Promise.all(syncTargets.map(async (target) => {
         const opts = target.repoUrl ? { repoUrl: target.repoUrl, contentRoot: target.contentRoot } : undefined;
         const pfx = target.label !== "default" ? ` [${target.label}]` : "";
-        const contentFolder = target.contentRoot ?? (process.env.CONTENT_FOLDER || "default-site-content");
+        const contentFolder = target.contentRoot ?? (getDefaultContentFolder());
 
         // Bootstrap pull: run when GitHub sync is configured AND the bootstrap-complete
         // flag is absent.  The flag is written only after a fully successful pull, so

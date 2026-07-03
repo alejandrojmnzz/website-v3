@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentFolder } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
@@ -29,7 +30,7 @@ function getAllSiteRoots(): SiteRoot[] {
       });
     }
   } catch { /* fall through */ }
-  const fallbackFolder = process.env.CONTENT_FOLDER || "default-site-content";
+  const fallbackFolder = getDefaultContentFolder();
   const contentDir = path.join(process.cwd(), fallbackFolder);
   return [{
     contentDir,

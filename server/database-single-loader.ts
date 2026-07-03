@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import { contentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
@@ -267,7 +268,7 @@ export function mergeSingleTemplate(
   contentRoot?: string,
 ): Record<string, unknown> | null {
   const folder = getFolder(contentType);
-  const resolvedRoot = contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const templateDir = path.join(resolvedRoot, folder);
   const singleCommonPath = path.join(templateDir, "_common.single.yml");
   const commonPath = path.join(templateDir, "_common.yml");

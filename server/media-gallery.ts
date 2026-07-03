@@ -8,7 +8,8 @@ import { media, GCSProvider, createSiteGCSProvider } from "./media";
 import { markFileAsModified } from "./sync-state";
 import { processImageBuffer } from "./image-optimizer";
 import type { Preset } from "./image-optimizer";
-import { importMigrated } from "./image-queue-state";
+import { getImageQueueState, type ImageQueueState } from "./image-queue-state";
+import { getDefaultContentFolder } from "./site-config";
 import { child } from "./logger";
 const log = child({ module: "media-gallery" });
 
@@ -133,7 +134,7 @@ export class MediaGallery {
   private _siteGCSProvider: GCSProvider | null | undefined = undefined;
 
   constructor(contentFolder?: string) {
-    this.contentFolderName = contentFolder || process.env.CONTENT_FOLDER || "default-site-content";
+    this.contentFolderName = contentFolder || process.env.CONTENT_FOLDER || getDefaultContentFolder();
     this.contentDir = path.isAbsolute(this.contentFolderName)
       ? this.contentFolderName
       : path.join(process.cwd(), this.contentFolderName);
@@ -195,7 +196,11 @@ export class MediaGallery {
     return media.delete(src);
   }
 
-  getRegistry(): ImageRegistry | null {
+  getContentDir(): string {
+    return this.contentDir;
+  }
+
+  getRegistry(opts?: { silent?: boolean }): ImageRegistry | null {
     try {
       const stats = fs.statSync(this.registryPath);
       const currentModified = stats.mtimeMs;
@@ -221,7 +226,7 @@ export class MediaGallery {
         }
       }
       if (Object.keys(toMigrate).length > 0) {
-        importMigrated(toMigrate);
+        getImageQueueState(this.contentDir).importMigrated(toMigrate);
         log.info(`[MediaGallery] Migrated queue state for ${Object.keys(toMigrate).length} entries to .image-queue-state.json`);
         // Write the cleaned registry back to disk immediately so the fields
         // are never committed to version control again.
@@ -235,7 +240,10 @@ export class MediaGallery {
       log.info(`[MediaGallery] Loaded ${Object.keys(this.registryCache.images).length} images, ${Object.keys(this.registryCache.presets).length} presets`);
       return this.registryCache;
     } catch (error) {
-      log.error({ err: error }, "[MediaGallery] Failed to load registry:");
+      const err = error as NodeJS.ErrnoException;
+      if (!(opts?.silent && err?.code === "ENOENT")) {
+        log.error({ err: error }, "[MediaGallery] Failed to load registry:");
+      }
       return null;
     }
   }
@@ -1650,4 +1658,24 @@ export class MediaGallery {
   }
 }
 
-export const mediaGallery = new MediaGallery();
+let _defaultMediaGallery: MediaGallery | undefined;
+
+function resolveDefaultMediaGallery(): MediaGallery {
+  if (_defaultMediaGallery) return _defaultMediaGallery;
+  try {
+    const { getDefaultSite } = require("./site-manager") as typeof import("./site-manager");
+    _defaultMediaGallery = getDefaultSite().mediaGallery;
+  } catch {
+    _defaultMediaGallery = new MediaGallery();
+  }
+  return _defaultMediaGallery;
+}
+
+/** Backward-compat singleton — delegates to the default site's MediaGallery instance. */
+export const mediaGallery: MediaGallery = new Proxy({} as MediaGallery, {
+  get(_target, prop) {
+    const instance = resolveDefaultMediaGallery();
+    const value = Reflect.get(instance, prop, instance);
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+});

@@ -5,16 +5,15 @@ import { escapeTemplateVars, unescapeObjectVars } from "../../shared/templateVar
 import { deepMerge } from "../utils/deepMerge";
 import { getFolder, getType } from "../content-types";
 import { addFileModifiedListener, markFileAsModified } from "../sync-state";
+import { siteSyncGcsKey, SYNC_FILENAMES, versioningStateReadKeys } from "@shared/gcsKeys";
 import { gcs } from "../gcs";
 import { hashUserId } from "./cookie-utils";
 import { child } from "../logger";
+import { getDefaultContentFolder, getDefaultContentRoot } from "../site-config";
 const log = child({ module: "versioning/VersioningManager" });
 
 
 
-// Module-level fallback GCS key (single-site compatibility only).
-// Per-site instances use gcsStateKey() instance method instead.
-const GCS_STATE_KEY_LEGACY = "sync/versioning-state.json";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 function getDefaultContentFolderName(): string {
@@ -22,7 +21,7 @@ function getDefaultContentFolderName(): string {
     const { getDefaultSite } = require('../site-manager') as typeof import('../site-manager');
     return getDefaultSite().contentRootName;
   } catch {
-    return process.env.CONTENT_FOLDER || "default-site-content";
+    return getDefaultContentFolder();
   }
 }
 
@@ -31,12 +30,12 @@ function isKnownSiteContentFolder(folderName: string): boolean {
     const { getSiteConfigs } = require('../site-config') as typeof import('../site-config');
     return getSiteConfigs().some((s: import('../site-config').SiteConfig) => s.contentFolder === folderName);
   } catch {
-    return folderName === (process.env.CONTENT_FOLDER || "default-site-content");
+    return folderName === getDefaultContentFolder();
   }
 }
 
 function getContentDir(): string {
-  return path.join(process.cwd(), getDefaultContentFolderName());
+  return getDefaultContentRoot();
 }
 
 function getStateFile(): string {
@@ -135,7 +134,11 @@ export class VersioningManager {
   }
 
   private gcsStateKey(): string {
-    return `sync/${this.contentFolderName()}/versioning-state.json`;
+    return siteSyncGcsKey(this.contentFolderName(), SYNC_FILENAMES.versioningState);
+  }
+
+  private gcsStateReadKeys(): string[] {
+    return versioningStateReadKeys(this.contentFolderName());
   }
 
   private loadState(): void {
@@ -171,20 +174,13 @@ export class VersioningManager {
     }
 
     try {
-      const key = this.gcsStateKey();
-      const exists = await gcs.exists(key);
-      if (!exists) {
+      const result = await gcs.downloadFirstExisting(this.gcsStateReadKeys());
+      if (!result) {
         log.info("[Versioning] No state found in bucket, using local file");
         return;
       }
 
-      const data = await gcs.download(key);
-      if (!data) {
-        log.info("[Versioning] Empty download from bucket, using local file");
-        return;
-      }
-
-      const loaded = JSON.parse(data.toString("utf-8"));
+      const loaded = JSON.parse(result.data.toString("utf-8"));
       this.applyLoadedState(loaded);
       this.saveStateLocal();
       log.info("[Versioning] Loaded state from GCS bucket");

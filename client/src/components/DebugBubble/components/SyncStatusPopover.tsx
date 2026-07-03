@@ -146,7 +146,7 @@ export function SyncStatusPopover({ children }: SyncStatusPopoverProps) {
           <button
             onClick={() => {
               setOpen(false);
-              navigate("/private/sync-log");
+              navigate("/private/repository-sync");
             }}
             className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md text-sm hover-elevate"
             data-testid="button-open-sync-log"

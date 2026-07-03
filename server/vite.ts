@@ -24,7 +24,7 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
-import { createServer as createViteServer, createLogger } from "vite";
+import { createServer as createViteServer, createLogger, type ViteDevServer } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { contentIndex } from "./content-index";
@@ -92,7 +92,7 @@ export function log(message: string, source = "express") {
   ssrLogger.info({ source }, message);
 }
 
-export async function setupVite(app: Express, server: Server) {
+export async function setupVite(app: Express, server: Server): Promise<ViteDevServer> {
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -210,6 +210,8 @@ export async function setupVite(app: Express, server: Server) {
       next(e);
     }
   });
+
+  return vite;
 }
 
 let ssrRenderFn: ((url: string, payload: unknown) => Promise<string>) | null = null;

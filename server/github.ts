@@ -628,11 +628,12 @@ export async function commitAndPush(
  * Get the sync status between local and remote GitHub repository
  * Uses stored lastSyncedCommit from sync-state instead of git CLI
  */
-export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
+export async function getGitHubSyncStatus(opts?: { repoUrl?: string; contentRoot?: string }): Promise<GitHubSyncStatus> {
   const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
   const autoCommitEnabled = syncEnabled && process.env.GITHUB_AUTO_COMMIT_ENABLED === 'true';
   const autoPullEnabled = syncEnabled && process.env.GITHUB_AUTO_PULL_ENABLED === 'true';
-  const config = getGitHubConfig();
+  const repoUrl = opts?.repoUrl || process.env.GITHUB_REPO_URL;
+  const config = getGitHubConfig(repoUrl);
   
   if (!config) {
     return {
@@ -647,7 +648,7 @@ export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
   }
   
   try {
-    const localCommit = getLastSyncedCommit();
+    const localCommit = getLastSyncedCommit(opts?.contentRoot);
     
     const remoteCommit = await getBranchHeadSha(config);
     
@@ -660,7 +661,7 @@ export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
         localCommit,
         remoteCommit: null,
         status: 'unknown',
-        repoUrl: process.env.GITHUB_REPO_URL,
+        repoUrl,
         branch: config.branch,
       };
     }
@@ -674,13 +675,13 @@ export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
         localCommit: null,
         remoteCommit,
         status: 'behind',
-        repoUrl: process.env.GITHUB_REPO_URL,
+        repoUrl,
         branch: config.branch,
       };
     }
     
     if (localCommit === remoteCommit) {
-      const pendingChanges = detectPendingChanges();
+      const pendingChanges = detectPendingChanges(opts?.contentRoot);
       const hasPendingChanges = pendingChanges.length > 0;
       
       return {
@@ -692,7 +693,7 @@ export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
         remoteCommit,
         status: hasPendingChanges ? 'ahead' : 'in-sync',
         aheadBy: hasPendingChanges ? pendingChanges.length : 0,
-        repoUrl: process.env.GITHUB_REPO_URL,
+        repoUrl,
         branch: config.branch,
       };
     }
@@ -705,7 +706,7 @@ export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
       localCommit,
       remoteCommit,
       status: 'behind',
-      repoUrl: process.env.GITHUB_REPO_URL,
+      repoUrl,
       branch: config.branch,
     };
   } catch (error) {
@@ -718,7 +719,7 @@ export async function getGitHubSyncStatus(): Promise<GitHubSyncStatus> {
       localCommit: null,
       remoteCommit: null,
       status: 'unknown',
-      repoUrl: process.env.GITHUB_REPO_URL,
+      repoUrl,
       branch: config?.branch,
     };
   }
@@ -746,8 +747,8 @@ export interface ConflictInfo {
  * Get detailed conflict information including missed commits and changed files
  * Uses GitHub Compare API to fetch commits between lastSyncedCommit and current HEAD
  */
-export async function getConflictInfo(): Promise<ConflictInfo> {
-  const config = getGitHubConfig();
+export async function getConflictInfo(opts?: { repoUrl?: string; contentRoot?: string }): Promise<ConflictInfo> {
+  const config = getGitHubConfig(opts?.repoUrl);
   
   if (!config) {
     return {
@@ -761,7 +762,7 @@ export async function getConflictInfo(): Promise<ConflictInfo> {
     };
   }
   
-  const lastSyncedCommit = getLastSyncedCommit();
+  const lastSyncedCommit = getLastSyncedCommit(opts?.contentRoot);
   const remoteCommit = await getBranchHeadSha(config);
   
   if (!remoteCommit) {
@@ -1280,6 +1281,39 @@ function getWebhookBaseUrl(): string | null {
 }
 
 /**
+ * Returns a human-readable reason when webhook registration should be skipped,
+ * or null when registration should proceed.
+ */
+export function getWebhookSetupSkipReason(baseUrl?: string | null): string | null {
+  if (process.env.NODE_ENV !== 'production') {
+    return 'webhook registration is skipped in development (NODE_ENV !== production)';
+  }
+
+  const resolvedBase = baseUrl ?? getWebhookBaseUrl();
+  if (!resolvedBase) {
+    return 'No SITE_URL or REPLIT_DEV_DOMAIN set';
+  }
+
+  const webhookUrl = `${resolvedBase}/api/github/webhook`;
+  try {
+    const host = new URL(webhookUrl).hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '[::1]'
+    ) {
+      return `webhook URL ${webhookUrl} is not reachable over the public Internet (localhost)`;
+    }
+  } catch {
+    return `invalid webhook URL derived from base URL: ${resolvedBase}`;
+  }
+
+  return null;
+}
+
+/**
  * Ensure a GitHub webhook exists for push events.
  * Checks sync state for existing webhook, verifies it's active, creates one if needed.
  * Auto-generates a random secret and stores webhookId + secret in sync state.
@@ -1291,12 +1325,13 @@ export async function ensureWebhook(opts?: { repoUrl?: string; contentRoot?: str
   const { logSync } = await import("./sync-log");
 
   const baseUrl = getWebhookBaseUrl();
-  if (!baseUrl) {
-    logSync('WEBHOOK', 'No SITE_URL or REPLIT_DEV_DOMAIN set, skipping webhook setup');
+  const skipReason = getWebhookSetupSkipReason(baseUrl);
+  if (skipReason) {
+    logSync('WEBHOOK', `Skipped webhook setup: ${skipReason}`);
     return;
   }
 
-  const webhookUrl = `${baseUrl}/api/github/webhook`;
+  const webhookUrl = `${baseUrl!}/api/github/webhook`;
 
   try {
     const { getWebhookInfo, setWebhookInfo, clearWebhookInfo } = await import("./sync-state");

@@ -20,6 +20,8 @@ import type {
 } from "../shared/types";
 import { getCanonicalUrl } from "../shared/canonicalUrls";
 import { gcs } from "../../../server/gcs";
+import { siteLighthouseGcsPrefix } from "@shared/gcsKeys";
+import { getDefaultContentFolder } from "../../../server/site-config";
 
 export interface PageReport {
   url: string;
@@ -46,12 +48,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function todayDir(): string {
+function todayGcsPrefix(context: ValidationContext): string {
   const d = new Date();
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `reports/lighthouse/${yyyy}-${mm}-${dd}`;
+  const date = `${yyyy}-${mm}-${dd}`;
+  const siteFolder = context.contentRoot
+    ? path.relative(process.cwd(), context.contentRoot).replace(/\\/g, "/")
+    : getDefaultContentFolder();
+  return siteLighthouseGcsPrefix(siteFolder, date);
+}
+
+function todayLocalDir(): string {
+  const d = new Date();
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return path.join("reports", "lighthouse", `${yyyy}-${mm}-${dd}`);
 }
 
 function ensureDir(dir: string): void {
@@ -295,8 +309,8 @@ export const lighthouseValidator: Validator = {
 
     gcs.initFromEnv();
 
-    const gcsPrefix = todayDir();
-    const localDir = todayDir();
+    const gcsPrefix = todayGcsPrefix(context);
+    const localDir = todayLocalDir();
 
     const pages: PageReport[] = [];
 

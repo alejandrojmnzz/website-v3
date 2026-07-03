@@ -108,6 +108,7 @@ export interface ValidationContext {
    *  Validators that read content-folder files (e.g. custom-redirects.yml,
    *  schema-org.yml) must use this instead of hardcoded folder names. */
   contentRoot?: string;
+  scope?: { database?: string };
 }
 
 export interface ValidationRunOptions {
@@ -116,6 +117,7 @@ export interface ValidationRunOptions {
   output?: "detailed" | "summary";
   includeArtifacts?: boolean;
   includeSlow?: boolean;
+  scope?: { database?: string };
 }
 
 export interface ValidationRunResult {
@@ -135,10 +137,17 @@ export interface PageCacheEntry {
   warnings: ValidationIssue[];
 }
 
+export interface DatabaseCacheEntry {
+  lastRunAt: string;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+}
+
 export interface ValidationCacheFile {
   meta: {
     lastFullRunAt: string | null;
     version: number;
   };
   pages: Record<string, PageCacheEntry>;
+  databases?: Record<string, DatabaseCacheEntry>;
 }

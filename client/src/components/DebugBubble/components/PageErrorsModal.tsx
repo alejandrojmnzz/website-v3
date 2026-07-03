@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { PageDiagnostics } from "../types";
+import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { IconAlertTriangle, IconRefresh, IconLoader2, IconClock } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
 
@@ -46,6 +47,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   } = props;
 
   const [isRunningValidation, setIsRunningValidation] = useState(false);
+  const formatSitePath = useFormatSitePath();
 
   async function handleRunValidation() {
     if (isRunningValidation) return;
@@ -185,7 +187,9 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                           <div className="font-mono font-medium text-destructive text-xs">{issue.code}</div>
                           <div className="mt-1 text-foreground">{issue.message}</div>
                           {issue.file && (
-                            <div className="mt-1 text-xs text-muted-foreground font-mono">{issue.file}{issue.line ? `:${issue.line}` : ""}</div>
+                            <div className="mt-1 text-xs text-muted-foreground font-mono" title={issue.file}>
+                              {formatSitePath(issue.file)}{issue.line ? `:${issue.line}` : ""}
+                            </div>
                           )}
                         </div>
                       ))}
@@ -194,7 +198,9 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                           <div className="font-mono font-medium text-amber-700 dark:text-amber-300 text-xs">{issue.code}</div>
                           <div className="mt-1 text-foreground">{issue.message}</div>
                           {issue.file && (
-                            <div className="mt-1 text-xs text-muted-foreground font-mono">{issue.file}{issue.line ? `:${issue.line}` : ""}</div>
+                            <div className="mt-1 text-xs text-muted-foreground font-mono" title={issue.file}>
+                              {formatSitePath(issue.file)}{issue.line ? `:${issue.line}` : ""}
+                            </div>
                           )}
                         </div>
                       ))}

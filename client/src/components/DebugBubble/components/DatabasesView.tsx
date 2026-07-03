@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import type { MenuView } from "../types";
+import { StatusCountBadge } from "./StatusCountBadge";
 
 interface DatabaseSummary {
   name: string;
@@ -17,6 +18,8 @@ interface DatabaseSummary {
   cache_item_count: number | null;
   cache_fetched_at: string | null;
   cache_file_size_bytes: number;
+  error_count: number;
+  error_summary?: string;
 }
 
 interface DatabasesViewProps {
@@ -44,6 +47,7 @@ function formatFileSize(bytes: number): string {
 export function DatabasesView({ setMenuView }: DatabasesViewProps) {
   const { data, isLoading } = useQuery<DatabaseSummary[]>({
     queryKey: ["/api/databases"],
+    refetchInterval: 30_000,
   });
 
   const totalFileSize = data && data.length > 0 ? data[0].cache_file_size_bytes : null;
@@ -104,7 +108,7 @@ export function DatabasesView({ setMenuView }: DatabasesViewProps) {
             data.map((db) => (
               <div
                 key={db.name}
-                className="flex items-center gap-3 px-3 py-2 rounded-md text-sm"
+                className="group flex items-center gap-1 px-3 py-2 rounded-md text-sm hover-elevate"
                 data-testid={`row-database-${db.name}`}
               >
                 <a
@@ -128,6 +132,17 @@ export function DatabasesView({ setMenuView }: DatabasesViewProps) {
                     </div>
                   </div>
                 </a>
+                {db.error_count > 0 && (
+                  <StatusCountBadge
+                    errorCount={db.error_count}
+                    errorsOnly
+                    onClick={() => {
+                      window.location.href = `/private/databases/${db.name}`;
+                    }}
+                    testId={`badge-database-error-${db.name}`}
+                    title={db.error_summary ?? `${db.error_count} error${db.error_count !== 1 ? "s" : ""} — click to view`}
+                  />
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button

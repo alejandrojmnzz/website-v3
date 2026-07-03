@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
@@ -17,7 +18,7 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 }
 
 function getBindingsFile(): string {
-  return path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "section-bindings.json");
+  return path.join(process.cwd(), getDefaultContentFolder(), "section-bindings.json");
 }
 
 const EXCLUDED_PROPERTIES = new Set([
@@ -204,7 +205,7 @@ class BindingManager {
         fs.mkdirSync(dir, { recursive: true });
       }
       fs.writeFileSync(bindingsFile, JSON.stringify(this.data, null, 2), "utf-8");
-      markFileAsModified(`${process.env.CONTENT_FOLDER || "default-site-content"}/section-bindings.json`, author);
+      markFileAsModified(`${getDefaultContentFolder()}/section-bindings.json`, author);
     } catch (error) {
       log.error({ err: error }, "[BindingManager] Error saving bindings:");
     }

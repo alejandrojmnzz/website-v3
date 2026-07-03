@@ -1,0 +1,92 @@
+/** Canonical GCS key builders for multisite bucket layout. */
+
+export const SYNC_FILENAMES = {
+  syncState: "sync-state.json",
+  syncLog: "sync-log-state.txt",
+  versioningState: "versioning-state.json",
+  formState: "form-state.json",
+  usersState: "users-state.json",
+} as const;
+
+export type SyncFilename = (typeof SYNC_FILENAMES)[keyof typeof SYNC_FILENAMES];
+
+export function siteSyncGcsKey(site: string, filename: SyncFilename | string): string {
+  return `${site}/sync/${filename}`;
+}
+
+export function legacyPerSiteSyncGcsKey(site: string, filename: SyncFilename | string): string {
+  return `sync/${site}/${filename}`;
+}
+
+export function legacyGlobalSyncGcsKey(filename: SyncFilename | string): string {
+  return `sync/${filename}`;
+}
+
+export function platformUserStoreGcsKey(): string {
+  return "multisite-user-store/users-state.json";
+}
+
+export function platformUserStoreLocalFilename(): string {
+  return ".multisite-user-store.json";
+}
+
+export function siteConversationsGcsKey(site: string, conversationId: string): string {
+  return `${site}/conversations/${conversationId}/context.json`;
+}
+
+export function siteConversationsGcsPrefix(site: string): string {
+  return `${site}/conversations/`;
+}
+
+export function legacyConversationsGcsPrefix(site: string): string {
+  return `conversations/${site}/`;
+}
+
+export function siteLighthouseGcsPrefix(site: string, date: string): string {
+  return `${site}/reports/lighthouse/${date}`;
+}
+
+export function siteLighthouseGcsPrefixRoot(site: string): string {
+  return `${site}/reports/lighthouse/`;
+}
+
+export function legacyLighthouseGcsPrefixRoot(): string {
+  return "reports/lighthouse/";
+}
+
+export function siteMediaGcsPrefix(site: string, mediaSegment = process.env.GCS_BASE_PATH || "media"): string {
+  return `${site}/${mediaSegment}/`;
+}
+
+export function syncStateReadKeys(site: string): string[] {
+  return [
+    siteSyncGcsKey(site, SYNC_FILENAMES.syncState),
+    legacyPerSiteSyncGcsKey(site, SYNC_FILENAMES.syncState),
+    legacyGlobalSyncGcsKey(SYNC_FILENAMES.syncState),
+  ];
+}
+
+export function syncLogReadKeys(site: string): string[] {
+  return [
+    siteSyncGcsKey(site, SYNC_FILENAMES.syncLog),
+    legacyPerSiteSyncGcsKey(site, SYNC_FILENAMES.syncLog),
+  ];
+}
+
+export function versioningStateReadKeys(site: string): string[] {
+  return [
+    siteSyncGcsKey(site, SYNC_FILENAMES.versioningState),
+    legacyPerSiteSyncGcsKey(site, SYNC_FILENAMES.versioningState),
+    legacyGlobalSyncGcsKey(SYNC_FILENAMES.versioningState),
+  ];
+}
+
+export function formStateReadKeys(site: string, isDefaultSite: boolean): string[] {
+  const keys = [siteSyncGcsKey(site, SYNC_FILENAMES.formState)];
+  if (isDefaultSite) keys.push(legacyGlobalSyncGcsKey(SYNC_FILENAMES.formState));
+  return keys;
+}
+
+export function userStoreReadKeys(): string[] {
+  return [platformUserStoreGcsKey(), legacyGlobalSyncGcsKey(SYNC_FILENAMES.usersState)];
+}

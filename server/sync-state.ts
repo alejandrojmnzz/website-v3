@@ -9,6 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { siteSyncGcsKey, SYNC_FILENAMES, syncStateReadKeys } from '@shared/gcsKeys';
 import { gcs } from './gcs';
 import { child } from "./logger";
 const log = child({ module: "sync-state" });
@@ -59,10 +60,15 @@ function getSyncStatePath(contentRoot?: string): string {
  * Returns the GCS bucket key used to persist sync state across deployments.
  * Keyed by contentRoot so that multi-site setups don't share a single key.
  */
+function getSiteFolder(contentRoot?: string): string {
+  if (!contentRoot) return DEFAULT_CONTENT_FOLDER;
+  return (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
+    .replace(/\\/g, '/')
+    .replace(/^\/|\/$/g, '');
+}
+
 function getGcsSyncStateKey(contentRoot?: string): string {
-  if (!contentRoot) return 'sync/sync-state.json';
-  const rel = path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot;
-  return `sync/${rel}/sync-state.json`;
+  return siteSyncGcsKey(getSiteFolder(contentRoot), SYNC_FILENAMES.syncState);
 }
 
 /**
@@ -81,21 +87,15 @@ export async function loadSyncStateFromBucket(contentRoot?: string): Promise<Syn
     return loadSyncState(contentRoot);
   }
 
-  const gcsKey = getGcsSyncStateKey(contentRoot);
+  const siteFolder = getSiteFolder(contentRoot);
   try {
-    const exists = await gcs.exists(gcsKey);
-    if (!exists) {
+    const result = await gcs.downloadFirstExisting(syncStateReadKeys(siteFolder));
+    if (!result) {
       log.info('[SyncState] No sync state found in bucket, using local file');
       return loadSyncState(contentRoot);
     }
 
-    const data = await gcs.download(gcsKey);
-    if (!data) {
-      log.info('[SyncState] Empty download from bucket, using local file');
-      return loadSyncState(contentRoot);
-    }
-
-    const state = JSON.parse(data.toString('utf-8')) as SyncStateWithConfig;
+    const state = JSON.parse(result.data.toString('utf-8')) as SyncStateWithConfig;
     log.info('[SyncState] Loaded sync state from GCS bucket (authenticated)');
 
     saveSyncStateLocal(state, contentRoot);

@@ -1,15 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import { child } from "./logger";
+import { getDefaultContentRoot } from "./site-config";
 const log = child({ module: "db-job-state" });
 
-
-
-const STATE_PATH = path.join(
-  process.cwd(),
-  process.env.CONTENT_FOLDER || "default-site-content",
-  ".db-job-state.json"
-);
+function getStatePath(contentRoot?: string): string {
+  const root = contentRoot ?? getDefaultContentRoot();
+  return path.join(root, ".db-job-state.json");
+}
 
 export type JobStatus = "idle" | "running" | "done" | "error";
 
@@ -23,7 +21,7 @@ export interface JobState {
   error?: string;
 }
 
-interface DbJobState {
+export interface DbJobState {
   fetch: JobState;
   index: JobState;
 }
@@ -37,7 +35,7 @@ let stateCache: AllState | null = null;
 function load(): AllState {
   if (stateCache) return stateCache;
   try {
-    const content = fs.readFileSync(STATE_PATH, "utf8");
+    const content = fs.readFileSync(getStatePath(), "utf8");
     stateCache = JSON.parse(content) as AllState;
   } catch {
     stateCache = {};
@@ -48,7 +46,7 @@ function load(): AllState {
 function persist(): void {
   try {
     fs.writeFileSync(
-      STATE_PATH,
+      getStatePath(),
       JSON.stringify(stateCache ?? {}, null, 2) + "\n",
       "utf8"
     );
@@ -60,6 +58,15 @@ function persist(): void {
 export function getJobState(dbName: string): DbJobState {
   const state = load();
   return state[dbName] ?? { fetch: DEFAULT_JOB_STATE, index: DEFAULT_JOB_STATE };
+}
+
+export function getAllJobStates(contentRoot?: string): Record<string, DbJobState> {
+  try {
+    const content = fs.readFileSync(getStatePath(contentRoot), "utf8");
+    return JSON.parse(content) as Record<string, DbJobState>;
+  } catch {
+    return {};
+  }
 }
 
 export function setJobState(

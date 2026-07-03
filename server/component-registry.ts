@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentFolder } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import {
@@ -24,7 +25,7 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
   return unescapeYamlDump(dumped, map);
 }
 
-const REGISTRY_PATH = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content", "component-registry");
+const REGISTRY_PATH = path.join(process.cwd(), getDefaultContentFolder(), "component-registry");
 
 /**
  * Root of `schema.yml` for a component version.
@@ -464,7 +465,7 @@ export function createNewVersion(componentType: string, baseVersion: string): { 
 }
 
 export function getExampleFilePath(componentType: string, version: string): string {
-  return path.join(process.env.CONTENT_FOLDER || "default-site-content", "component-registry", componentType, version, "examples");
+  return path.join(getDefaultContentFolder(), "component-registry", componentType, version, "examples");
 }
 
 export type EditorType = "icon-picker" | "color-picker" | "image-picker" | "link-picker" | "video-picker";

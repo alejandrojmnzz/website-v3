@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AutoCommitStatus, PendingChange, GitHubSyncStatus } from "../types";
+import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 
 export interface SyncModalProps {
   open: boolean;
@@ -102,6 +103,7 @@ export function SyncModal({
   const [pushAllCommitMessage, setPushAllCommitMessage] = useState('');
   const [autoPushExpanded, setAutoPushExpanded] = useState(false);
   const [autoPullExpanded, setAutoPullExpanded] = useState(false);
+  const formatSitePath = useFormatSitePath();
 
   const { data: syncInfo } = useQuery<{
     repoUrl: string | null;
@@ -364,7 +366,7 @@ export function SyncModal({
                   {autoCommitStatus.conflictedFiles.map((filePath, idx) => (
                     <Card key={`conflict-${idx}`} className="p-2 space-y-1">
                       <div className="font-mono text-xs text-foreground truncate" title={filePath}>
-                        {filePath.replace('4geeks-com/', '')}
+                        {formatSitePath(filePath)}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">
@@ -426,7 +428,7 @@ export function SyncModal({
                   {autoCommitStatus.pendingFilesDetails.map((file, idx) => (
                     <Card key={`pending-${idx}`} className="p-2 space-y-1">
                       <div className="font-mono text-xs text-foreground truncate" title={file.filePath}>
-                        {file.filePath.replace('4geeks-com/', '')}
+                        {formatSitePath(file.filePath)}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
@@ -511,7 +513,7 @@ export function SyncModal({
                                 className="font-mono text-xs text-foreground truncate min-w-0"
                                 title={change.file}
                               >
-                                {change.file.replace('4geeks-com/', '')}
+                                {formatSitePath(change.file)}
                               </div>
                               {autoCommitStatus && !autoCommitStatus.enabled && autoCommitStatus.autoCommitEligibleFiles?.includes(change.file) && (
                                 <Badge className="shrink-0 text-[10px] px-1 py-0 h-4" style={{ backgroundColor: 'hsl(var(--color-green))' }}>
@@ -617,7 +619,7 @@ export function SyncModal({
                                             const url = URL.createObjectURL(blob);
                                             const a = document.createElement('a');
                                             a.href = url;
-                                            const pathParts = change.file.replace('4geeks-com/', '').split('/');
+                                            const pathParts = formatSitePath(change.file).split('/');
                                             const fileName = pathParts.length >= 2
                                               ? `${pathParts[pathParts.length - 2]}.${pathParts[pathParts.length - 1]}`
                                               : pathParts.pop() || 'backup.yml';
@@ -848,7 +850,7 @@ export function SyncModal({
                   title={change.file}
                   data-testid={`text-push-confirm-file-${change.file}`}
                 >
-                  {change.file.replace('4geeks-com/', '')}
+                  {formatSitePath(change.file)}
                 </div>
               ))}
             </div>

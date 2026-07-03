@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
@@ -12,7 +13,7 @@ function getDefaultContentRootName(): string {
     const { getDefaultSite } = require("./site-manager") as typeof import("./site-manager");
     return getDefaultSite().contentRootName;
   } catch {
-    return process.env.CONTENT_FOLDER || "default-site-content";
+    return getDefaultContentFolder();
   }
 }
 

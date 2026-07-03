@@ -4,6 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "check:sites": "tsx scripts/check-sites.ts",
+    "predev": "npm run check:sites",
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "vite build && vite build --ssr src/entry-server.tsx && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",

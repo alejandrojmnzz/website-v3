@@ -17,6 +17,7 @@
  */
 
 import fs from "fs";
+import { getDefaultContentRoot } from "../site-config";
 import path from "path";
 import { contentIndex } from "../content-index";
 import type { EcommerceProduct, EcommercePlan, EcommerceSettings } from "./types";
@@ -25,7 +26,7 @@ const log = child({ module: "ecommerce/ecommerce-index" });
 
 
 
-export const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+export const MARKETING_CONTENT_DIR = getDefaultContentRoot();
 export const ECOMMERCE_SETTINGS_PATH = path.join(MARKETING_CONTENT_DIR, "ecommerce-settings.yml");
 const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_DIR, "content-types.yml");
 

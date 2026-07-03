@@ -1,14 +1,16 @@
 import pLimit from "p-limit";
-import { mediaGallery } from "./media-gallery";
 import { processImageBuffer, processImageFromSrc, ImageEncodingError } from "./image-optimizer";
 import {
+  createQueueContext,
   getPendingExternalImages,
   getPendingOptimizations,
   markExternalImageDone,
   markJobDone,
   markJobFailed,
+  type ImageQueueContext,
 } from "./image-registry";
 import type { Preset } from "./image-optimizer";
+import { getSiteContextMap } from "./site-manager";
 import { child as loggerChild } from "./logger";
 
 const workerLogger = loggerChild({ module: "ImageQueueWorker", worker: "ImageQueueWorker" });
@@ -19,7 +21,6 @@ const MAX_RETRIES = 3;
 const externalLimit = pLimit(5);
 const optimizeLimit = pLimit(3);
 
-// Re-entrancy guard: prevents overlapping tick executions
 let tickRunning = false;
 
 const PRIVATE_IP_RANGES = [
@@ -85,11 +86,11 @@ async function fetchWithTimeout(url: string): Promise<Buffer | null> {
 }
 
 const IMAGE_MAGIC_BYTES: Array<{ label: string; bytes: number[] }> = [
-  { label: "JPEG",  bytes: [0xff, 0xd8, 0xff] },
-  { label: "PNG",   bytes: [0x89, 0x50, 0x4e, 0x47] },
-  { label: "GIF",   bytes: [0x47, 0x49, 0x46] },
-  { label: "WEBP",  bytes: [0x52, 0x49, 0x46, 0x46] },
-  { label: "AVIF",  bytes: [0x00, 0x00, 0x00] },
+  { label: "JPEG", bytes: [0xff, 0xd8, 0xff] },
+  { label: "PNG", bytes: [0x89, 0x50, 0x4e, 0x47] },
+  { label: "GIF", bytes: [0x47, 0x49, 0x46] },
+  { label: "WEBP", bytes: [0x52, 0x49, 0x46, 0x46] },
+  { label: "AVIF", bytes: [0x00, 0x00, 0x00] },
 ];
 
 function isImageBuffer(buf: Buffer): boolean {
@@ -99,22 +100,25 @@ function isImageBuffer(buf: Buffer): boolean {
   return false;
 }
 
-async function processExternalEntry(entry: { id: string; source_url?: string; tags?: string[] }): Promise<void> {
+async function processExternalEntry(
+  ctx: ImageQueueContext,
+  entry: { id: string; source_url?: string; tags?: string[] },
+): Promise<void> {
   const { id, source_url: url } = entry;
   if (!url) return;
 
-  const registry = mediaGallery.getRegistry();
+  const registry = ctx.gallery.getRegistry();
   if (!registry) return;
 
   const buffer = await fetchWithTimeout(url);
   if (!buffer) {
-    markJobFailed(id, `Failed to fetch ${url}`);
+    markJobFailed(ctx, id, `Failed to fetch ${url}`);
     return;
   }
 
   if (!isImageBuffer(buffer)) {
     workerLogger.warn({ id, url }, "[ImageQueueWorker] Skipped non-image buffer (magic-bytes check)");
-    markJobFailed(id, `Non-image buffer received for ${url}`);
+    markJobFailed(ctx, id, `Non-image buffer received for ${url}`);
     return;
   }
 
@@ -132,7 +136,7 @@ async function processExternalEntry(entry: { id: string; source_url?: string; ta
     } catch (err) {
       if (err instanceof ImageEncodingError) {
         workerLogger.warn({ id, url }, `[ImageQueueWorker] fast-fail: ${(err as Error).message}`);
-        markJobFailed(id, (err as Error).message);
+        markJobFailed(ctx, id, (err as Error).message);
         return;
       }
       throw err;
@@ -141,12 +145,12 @@ async function processExternalEntry(entry: { id: string; source_url?: string; ta
   }
 
   if (!result) {
-    markJobFailed(id, `processImageBuffer failed for ${url}`);
+    markJobFailed(ctx, id, `processImageBuffer failed for ${url}`);
     return;
   }
 
   const primaryUrl = result.srcset?.[0]?.url ?? url;
-  markExternalImageDone(id, primaryUrl, {
+  markExternalImageDone(ctx, id, primaryUrl, {
     alt: `Image from ${dbName}`,
     tags: entry.tags ?? [dbName],
     source_url: url,
@@ -162,9 +166,12 @@ async function processExternalEntry(entry: { id: string; source_url?: string; ta
   workerLogger.info({ id, url }, "cached external image");
 }
 
-async function processOptimizeEntry(entry: { id: string; src: string }): Promise<void> {
+async function processOptimizeEntry(
+  ctx: ImageQueueContext,
+  entry: { id: string; src: string },
+): Promise<void> {
   const { id } = entry;
-  const registry = mediaGallery.getRegistry();
+  const registry = ctx.gallery.getRegistry();
   if (!registry) return;
 
   const entryData = registry.images[id];
@@ -176,23 +183,32 @@ async function processOptimizeEntry(entry: { id: string; src: string }): Promise
   try {
     const result = await processImageFromSrc(id, entryData, presets, false, undefined, tagDefinitions);
     if (result) {
-      markJobDone(id, {
-        width: result.width,
-        height: result.height,
-        preset: result.preset,
-        widths_generated: result.widths_generated,
-        format: result.format,
-        srcset: result.srcset,
-      }, "optimize");
+      markJobDone(
+        ctx,
+        id,
+        {
+          width: result.width,
+          height: result.height,
+          preset: result.preset,
+          widths_generated: result.widths_generated,
+          format: result.format,
+          srcset: result.srcset,
+        },
+        "optimize",
+      );
       workerLogger.info({ id }, "optimized image");
     } else {
-      markJobFailed(id, `processImageFromSrc returned null for "${id}"`, "optimize");
+      markJobFailed(ctx, id, `processImageFromSrc returned null for "${id}"`, "optimize");
     }
   } catch (err) {
-    markJobFailed(id, String(err), "optimize");
+    markJobFailed(ctx, id, String(err), "optimize");
     workerLogger.error({ err, id }, "error optimizing image");
   }
 }
+
+type PendingJob =
+  | { type: "external"; ctx: ImageQueueContext; entry: { id: string } & import("@shared/schema").ImageEntry }
+  | { type: "optimize"; ctx: ImageQueueContext; entry: { id: string } & import("@shared/schema").ImageEntry };
 
 async function tick(): Promise<void> {
   if (tickRunning) {
@@ -202,22 +218,43 @@ async function tick(): Promise<void> {
 
   tickRunning = true;
   try {
-    const externalPending = getPendingExternalImages(20);
-    const optimizePending = getPendingOptimizations(10);
+    const jobs: PendingJob[] = [];
+    const sitesToPersist = new Set<ImageQueueContext["gallery"]>();
 
-    if (externalPending.length === 0 && optimizePending.length === 0) return;
+    for (const site of Array.from(getSiteContextMap().values())) {
+      const ctx = createQueueContext(site.mediaGallery);
+      if (!ctx.gallery.getRegistry({ silent: true })) continue;
 
+      for (const entry of getPendingExternalImages(ctx, 20)) {
+        jobs.push({ type: "external", ctx, entry });
+      }
+      for (const entry of getPendingOptimizations(ctx, 10)) {
+        jobs.push({ type: "optimize", ctx, entry });
+      }
+    }
+
+    if (jobs.length === 0) return;
+
+    const externalCount = jobs.filter((j) => j.type === "external").length;
+    const optimizeCount = jobs.filter((j) => j.type === "optimize").length;
     workerLogger.info(
-      { external: externalPending.length, optimize: optimizePending.length },
-      "tick: processing pending jobs"
+      { external: externalCount, optimize: optimizeCount },
+      "tick: processing pending jobs",
     );
 
-    await Promise.allSettled([
-      ...externalPending.map((entry) => externalLimit(() => processExternalEntry(entry))),
-      ...optimizePending.map((entry) => optimizeLimit(() => processOptimizeEntry(entry))),
-    ]);
+    await Promise.allSettled(
+      jobs.map((job) => {
+        sitesToPersist.add(job.ctx.gallery);
+        if (job.type === "external") {
+          return externalLimit(() => processExternalEntry(job.ctx, job.entry));
+        }
+        return optimizeLimit(() => processOptimizeEntry(job.ctx, job.entry));
+      }),
+    );
 
-    mediaGallery.persistRegistry();
+    for (const gallery of Array.from(sitesToPersist)) {
+      gallery.persistRegistry();
+    }
   } finally {
     tickRunning = false;
   }
@@ -225,6 +262,10 @@ async function tick(): Promise<void> {
 
 export function runNow(): void {
   void tick();
+}
+
+export function isImageQueueBusy(): boolean {
+  return tickRunning;
 }
 
 export function start(): void {

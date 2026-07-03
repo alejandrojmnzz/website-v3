@@ -58,12 +58,12 @@ export function buildSiteContextMap(): Map<string, SiteContext> {
       ? config.contentFolder
       : path.join(process.cwd(), config.contentFolder);
     const contentRootName = path.relative(process.cwd(), contentRoot);
-    const ci = new ContentIndex(config.contentFolder);
     const mg = new MediaGallery(config.contentFolder);
+    const database = new DatabaseManager(contentRoot, mg);
+    const ci = new ContentIndex(config.contentFolder, database);
     const validationCache = new ValidationCacheService(contentRoot);
     const autoCommitQueue = new AutoCommitQueue(contentRootName);
     const versioningManager = new VersioningManager(contentRoot);
-    const database = new DatabaseManager(contentRoot);
     const siteDb = createSiteDb(contentRootName, isFirstSite);
     const conversationStore = new ConversationStore(siteDb, contentRootName);
     const syncLog = new SyncLog(contentRoot, contentRootName, isFirstSite);

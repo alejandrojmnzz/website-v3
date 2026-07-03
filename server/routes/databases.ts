@@ -1,10 +1,13 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
-import { getJobState as getDbJobState } from "../db-job-state";
+import { getAllJobStates, type DbJobState } from "../db-job-state";
+import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
+import { getValidationCacheService } from "../services/validationCacheService";
 
 
 import * as fs from "fs";
@@ -31,7 +34,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager } from "../database";
+import { databaseManager, type DatabaseManager } from "../database";
 import {
   redirectMiddleware,
   getRedirects,
@@ -213,11 +216,20 @@ function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
 function getContentRoot(res: Response): string {
-  return (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
+
+/** Per-site DatabaseManager for the active request (multi-site / dev-site override aware). */
+function getDB(res: Response): DatabaseManager {
+  return (res.locals.site as import("../site-manager").SiteContext | undefined)?.database ?? databaseManager;
+}
+
+function getValidationCache(res: Response) {
+  return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
 }
 
 export function registerDatabasesRoutes(app: Express): void {
@@ -312,19 +324,27 @@ export function registerDatabasesRoutes(app: Express): void {
   // ── Database routes ──────────────────────────────────────────
   app.get("/api/databases", (_req, res) => {
     try {
-      const databases = databaseManager.list();
-      const cacheStats = databaseManager.getCacheStats();
+      const dbm = getDB(res);
+      const databases = dbm.list();
+      const cacheStats = dbm.getCacheStats();
+      const validationCache = getValidationCache(res);
       res.json(
-        databases.map((db) => ({
-          name: db.name,
-          label: db.config.name,
-          description: db.config.description || null,
-          source_type: db.config.source.type,
-          field_count: databaseManager.getFieldCount(db.name),
-          cache_item_count: cacheStats.perDb[db.name]?.item_count ?? null,
-          cache_fetched_at: cacheStats.perDb[db.name]?.fetched_at ?? null,
-          cache_file_size_bytes: cacheStats.totalFileSizeBytes,
-        })),
+        databases.map((db) => {
+          const dbCache = validationCache.getByDatabase(db.name);
+          const errorCount = dbCache ? countDatabaseCacheErrors(dbCache.errors) : 0;
+          return {
+            name: db.name,
+            label: db.config.name,
+            description: db.config.description || null,
+            source_type: db.config.source.type,
+            field_count: dbm.getFieldCount(db.name),
+            cache_item_count: cacheStats.perDb[db.name]?.item_count ?? null,
+            cache_fetched_at: cacheStats.perDb[db.name]?.fetched_at ?? null,
+            cache_file_size_bytes: cacheStats.totalFileSizeBytes,
+            error_count: errorCount,
+            error_summary: dbCache?.errors[0]?.message,
+          };
+        }),
       );
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -340,7 +360,7 @@ export function registerDatabasesRoutes(app: Express): void {
           .json({ error: "slug, config.name, and config.source are required" });
         return;
       }
-      databaseManager.create(slug, config);
+      getDB(res).create(slug, config);
       res.json({ success: true, name: slug, config });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -354,8 +374,9 @@ export function registerDatabasesRoutes(app: Express): void {
 
   app.get("/api/databases/:name", (req, res) => {
     try {
-      const config = databaseManager.get(req.params.name);
-      const cacheInfo = databaseManager.getCacheInfo(req.params.name);
+      const dbm = getDB(res);
+      const config = dbm.get(req.params.name);
+      const cacheInfo = dbm.getCacheInfo(req.params.name);
       res.json({
         name: req.params.name,
         config,
@@ -373,7 +394,7 @@ export function registerDatabasesRoutes(app: Express): void {
 
   app.get("/api/databases/:name/raw-fields", (req, res) => {
     try {
-      const fields = databaseManager.getRawFields(req.params.name);
+      const fields = getDB(res).getRawFields(req.params.name);
       res.json({ fields });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -387,7 +408,7 @@ export function registerDatabasesRoutes(app: Express): void {
 
   app.get("/api/databases/:name/raw-sample", (req, res) => {
     try {
-      const rawItems = databaseManager.getRawItems(req.params.name);
+      const rawItems = getDB(res).getRawItems(req.params.name);
       if (!rawItems || rawItems.length === 0) {
         res.json({ items: [], count: 0 });
         return;
@@ -408,7 +429,7 @@ export function registerDatabasesRoutes(app: Express): void {
     try {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
       const limit = Math.max(1, Math.min(1000, parseInt(String(req.query.limit || "100"), 10)));
-      const rawItems = databaseManager.getRawItems(req.params.name);
+      const rawItems = getDB(res).getRawItems(req.params.name);
       const allItems = rawItems || [];
       const total_count = allItems.length;
       const start = (page - 1) * limit;
@@ -427,7 +448,7 @@ export function registerDatabasesRoutes(app: Express): void {
   app.post("/api/databases/:name/analyze-fields", async (req, res) => {
     try {
       const dbName = req.params.name;
-      const rawItems = databaseManager.getRawItems(dbName);
+      const rawItems = getDB(res).getRawItems(dbName);
       if (!rawItems || rawItems.length === 0) {
         res
           .status(400)
@@ -528,11 +549,12 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
-      const config = databaseManager.get(dbName);
+      const dbm = getDB(res);
+      const config = dbm.get(dbName);
       const vsConfig = (config as any).vector_search as { enabled?: boolean; fields?: string[] } | undefined;
       const vectorEnabled = vsConfig?.enabled === true && Array.isArray(vsConfig.fields) && vsConfig.fields.length > 0;
 
-      const cacheResult = await databaseManager.fetchItems(dbName);
+      const cacheResult = await dbm.fetchItems(dbName);
       const allItems = cacheResult.items;
 
       if (vectorEnabled) {
@@ -620,7 +642,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     try {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
       const limit = Math.max(1, Math.min(1000, parseInt(String(req.query.limit || "100"), 10)));
-      const result = await databaseManager.fetchItems(req.params.name);
+      const result = await getDB(res).fetchItems(req.params.name);
 
       // Apply tag/select field filters: filter[fieldName]=value (multi-value OR per field, AND across fields)
       const filterParam = req.query.filter as Record<string, string | string[]> | undefined;
@@ -656,7 +678,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   app.put("/api/databases/:name/items", async (req, res) => {
     try {
       const dbName = req.params.name;
-      const config = databaseManager.get(dbName);
+      const dbm = getDB(res);
+      const config = dbm.get(dbName);
 
       if (config.source.type !== "local") {
         res.status(400).json({ error: "Only local databases support item editing" });
@@ -683,7 +706,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const yamlStr = safeYamlDump(data, { lineWidth: 120 });
       fs.writeFileSync(filePath, yamlStr);
 
-      databaseManager.clearCache(dbName);
+      dbm.clearCache(dbName);
 
       const relPath = `db/${dbName}/${filename}`;
       markFileAsModified(relPath, "api", undefined, getContentRoot(res));
@@ -700,12 +723,12 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   // ── Helper: read raw items array from local file ─────────────
-  function readLocalItems(dbName: string, contentRoot: string): {
+  function readLocalItems(dbm: DatabaseManager, dbName: string, contentRoot: string): {
     items: Record<string, unknown>[];
     filePath: string;
     resultsPath: string | undefined;
   } {
-    const config = databaseManager.get(dbName);
+    const config = dbm.get(dbName);
     if (config.source.type !== "local") {
       throw new Error("Only local databases support item editing");
     }
@@ -725,6 +748,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   }
 
   function writeLocalItems(
+    dbm: DatabaseManager,
     dbName: string,
     filePath: string,
     resultsPath: string | undefined,
@@ -738,7 +762,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       throw new Error(`Database directory not found`);
     }
     fs.writeFileSync(filePath, yamlStr);
-    databaseManager.clearCache(dbName);
+    dbm.clearCache(dbName);
     const relPath = `db/${dbName}/${filename}`;
     markFileAsModified(relPath, "api", undefined, contentRoot);
   }
@@ -761,10 +785,11 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
-      const config = databaseManager.get(dbName);
+      const dbm = getDB(res);
+      const config = dbm.get(dbName);
       const localConfig = config.source.local!;
-      const { items: existing, filePath, resultsPath } = readLocalItems(dbName, getContentRoot(res));
-      writeLocalItems(dbName, filePath, resultsPath, [...existing, ...newItems], localConfig.filename, getContentRoot(res));
+      const { items: existing, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
+      writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...newItems], localConfig.filename, getContentRoot(res));
       res.json({ success: true, count: existing.length + newItems.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -786,15 +811,16 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
-      const config = databaseManager.get(dbName);
+      const dbm = getDB(res);
+      const config = dbm.get(dbName);
       const localConfig = config.source.local!;
-      const { items, filePath, resultsPath } = readLocalItems(dbName, getContentRoot(res));
+      const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
       items[idx] = { ...items[idx], ...newData };
-      writeLocalItems(dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
+      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
       res.json({ success: true, item: items[idx] });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -811,15 +837,16 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
-      const config = databaseManager.get(dbName);
+      const dbm = getDB(res);
+      const config = dbm.get(dbName);
       const localConfig = config.source.local!;
-      const { items, filePath, resultsPath } = readLocalItems(dbName, getContentRoot(res));
+      const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
       items.splice(idx, 1);
-      writeLocalItems(dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
+      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
       res.json({ success: true, count: items.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -828,26 +855,38 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
   });
 
   app.post("/api/databases/:name/refresh", async (req, res) => {
+    const name = req.params.name;
+    const dbm = getDB(res);
     try {
-      const result = await databaseManager.fetchItems(req.params.name, true);
+      const result = await dbm.fetchItems(name, true);
       res.json(result);
     } catch (err: unknown) {
-      res
-        .status(500)
-        .json({ error: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      let label = name;
+      try {
+        label = dbm.get(name).name || name;
+      } catch {
+        // database config unavailable
+      }
+      res.status(500).json({
+        error: message || `There was an error fetching "${label}".`,
+        database: name,
+        label,
+      });
     }
   });
 
   app.post("/api/databases/:name/reindex", async (req, res) => {
     try {
       const name = req.params.name;
-      const config = databaseManager.get(name);
+      const dbm = getDB(res);
+      const config = dbm.get(name);
       const vsConfig = (config as any).vector_search as { enabled?: boolean; fields?: string[] } | undefined;
       if (!vsConfig?.enabled || !vsConfig.fields?.length) {
         res.status(400).json({ error: "Semantic search is not enabled for this database" });
         return;
       }
-      const cached = await databaseManager.fetchItems(name, false);
+      const cached = await dbm.fetchItems(name, false);
       const { indexItems } = await import("../vector-search");
       indexItems(name, cached.items, vsConfig.fields).catch((err: unknown) => {
         log.error({ err: err }, `[reindex] Background indexing error for "${name}":`);
@@ -860,7 +899,12 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
   app.get("/api/databases/:name/job-status", (req, res) => {
     try {
-      const state = getDbJobState(req.params.name);
+      const allStates = getAllJobStates(getContentRoot(res));
+      const defaultState: DbJobState = {
+        fetch: { status: "idle" },
+        index: { status: "idle" },
+      };
+      const state = allStates[req.params.name] ?? defaultState;
       res.json(state);
     } catch (err: unknown) {
       res
@@ -919,7 +963,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
           .json({ error: "Invalid config: name and source are required" });
         return;
       }
-      databaseManager.update(req.params.name, config);
+      getDB(res).update(req.params.name, config);
       res.json({ success: true });
     } catch (err: unknown) {
       res
@@ -930,7 +974,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
 
   app.delete("/api/databases/:name", (req, res) => {
     try {
-      databaseManager.delete(req.params.name);
+      getDB(res).delete(req.params.name);
       res.json({ success: true });
     } catch (err: unknown) {
       res
@@ -947,7 +991,7 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
         return;
       }
       const dbSlug = req.params.name === "_test" ? req.body?.slug : req.params.name;
-      const result = await databaseManager.test(source, dbSlug);
+      const result = await getDB(res).test(source, dbSlug);
       res.json(result);
     } catch (err: unknown) {
       res

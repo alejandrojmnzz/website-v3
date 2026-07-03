@@ -1,4 +1,5 @@
 import { contentIndex } from "../content-index";
+import { getDefaultContentRoot } from "../site-config";
 import { getDefaultLocale } from "../settings";
 import * as fs from "fs";
 import * as path from "path";
@@ -14,7 +15,7 @@ interface CompiledContext {
 }
 
 function getMarketingContentPath(contentRoot?: string): string {
-  return contentRoot ?? path.resolve(process.env.CONTENT_FOLDER || "default-site-content");
+  return contentRoot ?? getDefaultContentRoot();
 }
 
 // Keep module-level constant for backward-compat callers that don't pass contentRoot

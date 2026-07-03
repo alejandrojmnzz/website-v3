@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { LLMService } from "./ai/LLMService";
@@ -10,7 +11,7 @@ const log = child({ module: "image-auto-tagger" });
 
 
 
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+const MARKETING_CONTENT_DIR = getDefaultContentRoot();
 const LLM_YML_PATH = path.join(MARKETING_CONTENT_DIR, "llm.yml");
 
 const CONTENT_DIRS = getAllDirectories().map(dir => path.join(MARKETING_CONTENT_DIR, dir));

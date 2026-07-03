@@ -1,10 +1,8 @@
 import type { DatabaseConfig } from "./database";
-import { enqueueExternalImage } from "./image-registry";
-import { mediaGallery } from "./media-gallery";
+import { createQueueContext, enqueueExternalImage } from "./image-registry";
+import type { MediaGallery } from "./media-gallery";
 import { child } from "./logger";
 const log = child({ module: "external-image-cacher" });
-
-
 
 const PRIVATE_IP_RANGES = [
   /^127\./,
@@ -41,12 +39,11 @@ function deriveSourceItem(item: Record<string, unknown>, urlFallback?: string): 
   }
   const id = item["id"];
   if (id !== undefined && id !== null) return String(id);
-  // Fallback: truncated filename from the URL
   if (urlFallback) {
     try {
       const pathname = new URL(urlFallback).pathname;
       const filename = pathname.split("/").filter(Boolean).pop() ?? "";
-      const base = filename.replace(/\.[^.]+$/, ""); // strip extension
+      const base = filename.replace(/\.[^.]+$/, "");
       if (base.length > 0) return base.slice(0, 60);
     } catch {
       // ignore malformed URL
@@ -57,7 +54,7 @@ function deriveSourceItem(item: Record<string, unknown>, urlFallback?: string): 
 
 function collectCacheableUrls(
   config: DatabaseConfig,
-  items: Record<string, unknown>[]
+  items: Record<string, unknown>[],
 ): Map<string, string | undefined> {
   const urlMap = new Map<string, string | undefined>();
   if (!config.editor) return urlMap;
@@ -73,9 +70,7 @@ function collectCacheableUrls(
       const val = item[field];
       if (typeof val === "string" && val.startsWith("http") && isSafeUrl(val)) {
         const existing = urlMap.get(val);
-        // Derive source item, using the URL as fallback for filename extraction
         const sourceItem = deriveSourceItem(item, val) || undefined;
-        // Upgrade mapping if we now have a value and didn't before
         if (!urlMap.has(val) || (existing === undefined && sourceItem !== undefined)) {
           urlMap.set(val, sourceItem);
         }
@@ -90,16 +85,17 @@ export const ExternalImageCacher = {
   scheduleItems(
     dbName: string,
     config: DatabaseConfig,
-    items: Record<string, unknown>[]
+    items: Record<string, unknown>[],
+    gallery: MediaGallery,
   ): void {
     const urlMap = collectCacheableUrls(config, items);
     if (urlMap.size === 0) return;
 
+    const queueCtx = createQueueContext(gallery);
     let enqueued = 0;
     let backfilled = 0;
-    const registry = mediaGallery.getRegistry();
-    for (const [url, sourceItem] of urlMap) {
-      // Track source_item backfills on existing entries before enqueueing
+    const registry = gallery.getRegistry();
+    for (const [url, sourceItem] of Array.from(urlMap.entries())) {
       if (sourceItem && registry) {
         for (const entry of Object.values(registry.images)) {
           if (entry.source_url === url && !entry.source_item) {
@@ -108,20 +104,20 @@ export const ExternalImageCacher = {
           }
         }
       }
-      const result = enqueueExternalImage(url, dbName, [], sourceItem);
+      const result = enqueueExternalImage(queueCtx, url, dbName, [], sourceItem);
       if (result !== null) enqueued++;
     }
 
     if (enqueued > 0 || backfilled > 0) {
-      mediaGallery.persistRegistry();
+      gallery.persistRegistry();
       if (enqueued > 0) {
         log.info(
-          `[ExternalImageCacher] Enqueued ${enqueued} new URL(s) for db "${dbName}" (worker will process them)`
+          `[ExternalImageCacher] Enqueued ${enqueued} new URL(s) for db "${dbName}" (worker will process them)`,
         );
       }
       if (backfilled > 0) {
         log.info(
-          `[ExternalImageCacher] Backfilled source_item on ${backfilled} existing entry(s) for db "${dbName}"`
+          `[ExternalImageCacher] Backfilled source_item on ${backfilled} existing entry(s) for db "${dbName}"`,
         );
       }
     }

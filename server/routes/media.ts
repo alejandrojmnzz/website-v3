@@ -1,10 +1,10 @@
 import type { Express, Request, Response } from "express";
+import { getDefaultContentRoot } from "../site-config";
 import { triggerWorkerRunNow } from "./_worker-state";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
-import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
-import { getAllQueueState } from "../image-queue-state";
+import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage, createQueueContext } from "../image-registry";
 
 
 import * as fs from "fs";
@@ -236,13 +236,15 @@ export function registerMediaRoutes(app: Express): void {
 
   app.get("/api/image-registry/failed", (req, res) => {
     const tag = req.query.tag as string | undefined;
-    const entries = getFailedEntries(tag);
+    const queueCtx = createQueueContext(getMediaGallery(res));
+    const entries = getFailedEntries(queueCtx, tag);
     res.json({ entries });
   });
 
   app.post("/api/image-registry/retry-failed", (req, res) => {
     const { tag } = req.body as { tag?: string };
-    const count = retryFailedImages(tag);
+    const queueCtx = createQueueContext(getMediaGallery(res));
+    const count = retryFailedImages(queueCtx, tag);
     if (count > 0) getMediaGallery(res).persistRegistry();
     res.json({ retried: count });
   });
@@ -254,7 +256,8 @@ export function registerMediaRoutes(app: Express): void {
       return;
     }
     const dbName = tag || "manual";
-    const id = enqueueExternalImage(url, dbName);
+    const queueCtx = createQueueContext(getMediaGallery(res));
+    const id = enqueueExternalImage(queueCtx, url, dbName);
     if (id) {
       getMediaGallery(res).persistRegistry();
     }
@@ -781,7 +784,7 @@ export function registerMediaRoutes(app: Express): void {
       let newSrc: string;
 
       if (siteProvider.name === "local") {
-        const contentRoot: string = (res.locals.site as any)?.contentRoot ?? path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content");
+        const contentRoot: string = (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
         const contentRootName = path.basename(contentRoot);
         const imagesDir = path.join(contentRoot, "images");
         if (!fs.existsSync(imagesDir)) {
@@ -876,7 +879,7 @@ export function registerMediaRoutes(app: Express): void {
       }
 
       for (const id of targetIds) {
-        enqueueOptimization(id);
+        enqueueOptimization(createQueueContext(getMediaGallery(res)), id);
       }
       getMediaGallery(res).persistRegistry();
 
@@ -890,11 +893,12 @@ export function registerMediaRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/image-registry/optimize-status", (_req, res) => {
+  app.get("/api/image-registry/optimize-status", (req, res) => {
     const session = getOptimizeSession();
-    const allState = getAllQueueState();
+    const queueCtx = createQueueContext(getMediaGallery(res));
+    const allState = queueCtx.queueState.getAll();
 
-    const remainingEntries = getPendingOptimizations(10000);
+    const remainingEntries = getPendingOptimizations(queueCtx, 10000);
     const remaining = remainingEntries.length;
 
     const failedEntries: Array<{ id: string; error: string }> = [];

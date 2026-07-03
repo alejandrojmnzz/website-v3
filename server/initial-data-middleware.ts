@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Request, Response, NextFunction } from "express";
@@ -17,7 +18,7 @@ import { getDefaultLocale, normalizeLocale } from "./settings";
 import { getApiPath } from "../shared/api-paths";
 import { loadDatabaseSinglePage } from "./database-single-loader";
 import { resolveSingleVars } from "./single-resolver";
-import { databaseManager } from "./database";
+import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyNonBlockingCss, applyEntryModulePreload } from "./utils/html-transforms";
 
 const DEFAULT_SRCSET_SIZES =
@@ -223,7 +224,7 @@ export async function resolvePageQuery(url: string, ci: ContentIndex = contentIn
   }
 }
 
-function resolveMenuQuery(menuId: string, locale: string, contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content")): SingleQuery | null {
+function resolveMenuQuery(menuId: string, locale: string, contentRoot = getDefaultContentRoot()): SingleQuery | null {
   try {
     const menusDir = path.join(contentRoot, "menus");
     let filePath: string | null = null;
@@ -512,6 +513,7 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
 export async function resolveInitialData(
   url: string,
   ci: ContentIndex = contentIndex,
+  dbm: DatabaseManager = databaseManager,
 ): Promise<InitialDataPayload | null> {
   const cleanUrl = url.split("?")[0].split("#")[0];
   const isBlogListing =
@@ -606,13 +608,13 @@ export async function resolveInitialData(
     }
   }
 
-  const contentTypesPayload = buildContentTypesPayload(ci);
+  const contentTypesPayload = buildContentTypesPayload(ci, dbm);
   queries.push({
     queryKey: ["/api/content-types"],
     data: contentTypesPayload,
   });
 
-  const registry = loadImageRegistry();
+  const registry = loadImageRegistry(ci.contentRoot);
   if (registry) {
     queries.push({
       queryKey: ["/api/image-registry"],
@@ -631,7 +633,10 @@ export async function resolveInitialData(
   return { queries, locale: resolvedLocale };
 }
 
-function buildContentTypesPayload(ci: ContentIndex = contentIndex): Record<string, unknown>[] {
+function buildContentTypesPayload(
+  ci: ContentIndex = contentIndex,
+  dbm: DatabaseManager = databaseManager,
+): Record<string, unknown>[] {
   const configs = getAllConfigs(ci.contentRoot);
   const result: Record<string, unknown>[] = [];
   for (const [type, config] of Object.entries(configs)) {
@@ -654,13 +659,16 @@ function buildContentTypesPayload(ci: ContentIndex = contentIndex): Record<strin
       url_pattern: config.url_pattern,
       locale_key: config.field_mapping?._locale || null,
       static_entry_count: ci.findByType(type).length,
+      database_entry_count: config.database?.slug
+        ? getCachedDatabaseEntryCount(dbm, config.database.slug)
+        : null,
       layout: getLayout(type, ci.contentRoot),
     });
   }
   return result;
 }
 
-function buildThemeCssOverrides(contentRoot = path.join(process.cwd(), process.env.CONTENT_FOLDER || "default-site-content")): string {
+function buildThemeCssOverrides(contentRoot = getDefaultContentRoot()): string {
   try {
     const themePath = path.join(contentRoot, "theme.json");
     if (!fs.existsSync(themePath)) return "";
@@ -722,7 +730,8 @@ export function initialDataMiddleware(
   }
 
   const ci = ((res.locals as any).site?.contentIndex ?? contentIndex) as ContentIndex;
-  const payloadPromise = resolveInitialData(req.originalUrl, ci).catch(() => null);
+  const dbm = ((res.locals as any).site?.database ?? databaseManager) as DatabaseManager;
+  const payloadPromise = resolveInitialData(req.originalUrl, ci, dbm).catch(() => null);
 
   const originalEnd = res.end;
   res.end = function (this: Response, chunk?: any, ...args: any[]) {
