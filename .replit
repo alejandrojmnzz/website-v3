@@ -7,9 +7,9 @@ channel = "stable-24_05"
 packages = ["imagemagick", "libwebp", "unzip"]
 
 [deployment]
-deploymentTarget = "vm"
-build = ["sh", "-c", "ln -sfn $(pwd)/shared node_modules/@shared && node_modules/.bin/vite build && node_modules/.bin/vite build --ssr src/entry-server.tsx && node_modules/.bin/esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --alias:@shared=./shared && node_modules/.bin/esbuild mcp-server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/mcp-server.js"]
-run = ["sh", "-c", "node dist/mcp-server.js & node dist/index.js"]
+deploymentTarget = "autoscale"
+build = ["npm", "run", "build"]
+run = ["node", "./dist/index.cjs"]
 
 [[ports]]
 localPort = 3001
@@ -121,6 +121,7 @@ outputType = "console"
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:1.0.0"]
+stack = "FULLSTACK_JS"
 
 [userenv]
 
