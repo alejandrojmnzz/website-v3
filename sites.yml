@@ -24,10 +24,6 @@
 
 bucket_name: 4geeks-academy-website
 
-fl.4geeksacademy.com:
-  content_folder: site_4geeks-florida
-  github_repo_url: https://github.com/breatheco-de/website-4geeks-com
-
 4geeks.com:
   content_folder: site_4geeks-com
   github_repo_url: https://github.com/breatheco-de/website-4geeks-com

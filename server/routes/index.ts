@@ -253,7 +253,7 @@ import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
 import { getSiteInfo, getSiteContextMap, writeDevSiteFile, clearDevSiteFile } from "../site-manager";
-import { getSiteConfigs } from "../site-config";
+import { getSiteConfigs, getDefaultContentFolder } from "../site-config";
 
 const routesLogger = loggerChild({ module: "routes" });
 
