@@ -33,7 +33,7 @@ import { resetSiteContextMap } from "../site-manager";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
-import { collectSystemAlerts } from "../system-alerts";
+import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -314,6 +314,24 @@ export function registerAdminRoutes(app: Express): void {
     if (!auth.authorized) return;
     await gcs.checkArchitecture();
     res.json({ alerts: collectSystemAlerts() });
+  });
+
+  app.post("/api/admin/database-recheck", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const { database, site } = req.body as { database?: string; site?: string };
+    if (!database) {
+      res.status(400).json({ error: "Missing 'database' in request body" });
+      return;
+    }
+
+    const result = await recheckDatabaseHealth(database, site);
+    if (!result.found) {
+      res.status(404).json(result);
+      return;
+    }
+    res.json({ ...result, alerts: collectSystemAlerts() });
   });
 
   // Clear sitemap cache (requires token validation)

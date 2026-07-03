@@ -117,3 +117,79 @@ export function collectSystemAlerts(): SystemAlert[] {
     (a, b) => severityRank[a.severity] - severityRank[b.severity],
   );
 }
+
+export interface DatabaseRecheckResult {
+  found: boolean;
+  resolved: boolean;
+  errorCount: number;
+  warningCount: number;
+  message: string;
+}
+
+/**
+ * Re-evaluate a single database's health live (bypassing the cached
+ * validation result), persist the fresh result to the validation cache,
+ * and report whether the previously-reported critical issues are gone.
+ */
+export async function recheckDatabaseHealth(
+  dbName: string,
+  site?: string,
+): Promise<DatabaseRecheckResult> {
+  const matches = [...getSiteContextMap().values()].filter(
+    (ctx) =>
+      (!site || ctx.contentRootName === site) &&
+      ctx.database.list().some((d: { name: string }) => d.name === dbName),
+  );
+
+  if (matches.length > 1) {
+    return {
+      found: false,
+      resolved: false,
+      errorCount: 0,
+      warningCount: 0,
+      message: `Database "${dbName}" exists in multiple sites; specify a site to re-check.`,
+    };
+  }
+
+  for (const ctx of matches) {
+    const entry = ctx.database.list().find((d: { name: string }) => d.name === dbName);
+    if (!entry) continue;
+
+    const jobStates = getAllJobStates(ctx.contentRoot);
+    const { errors, warnings } = evaluateDatabaseHealth(
+      dbName,
+      entry.config,
+      ctx.contentRoot,
+      jobStates[dbName],
+      ctx.database.getCacheInfo(dbName),
+      ctx.database.countTransformErrors(dbName),
+    );
+
+    ctx.validationCache.setByDatabase(dbName, {
+      lastRunAt: new Date().toISOString(),
+      errors,
+      warnings,
+    });
+    await ctx.validationCache.flush();
+
+    const label = entry.config.name || dbName;
+    const resolved = errors.length === 0;
+    return {
+      found: true,
+      resolved,
+      errorCount: errors.length,
+      warningCount: warnings.length,
+      message: resolved
+        ? `Re-check passed — no issues found for "${label}". The alert has been cleared.`
+        : `Re-check found ${errors.length} issue${errors.length === 1 ? "" : "s"} still present for "${label}".`,
+    };
+  }
+
+  return {
+    found: false,
+    resolved: false,
+    errorCount: 0,
+    warningCount: 0,
+    message: `Database "${dbName}" was not found.`,
+  };
+}
