@@ -7,7 +7,7 @@ channel = "stable-24_05"
 packages = ["imagemagick", "libwebp", "unzip"]
 
 [deployment]
-deploymentTarget = "autoscale"
+deploymentTarget = "gce"
 build = ["npm", "run", "build"]
 run = ["node", "./dist/index.cjs"]
 
@@ -125,6 +125,7 @@ outputType = "console"
 [agent]
 integrations = ["javascript_openai_ai_integrations:1.0.0"]
 stack = "FULLSTACK_JS"
+expertMode = true
 
 [userenv]
 
