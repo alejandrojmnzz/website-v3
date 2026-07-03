@@ -8,6 +8,36 @@ import { child as loggerChild } from './logger';
 
 const syncLogLogger = loggerChild({ module: "SyncLog", worker: "SyncLog" });
 
+/** Async-local style context so logSync() routes to the active site's log. */
+let _activeContentRoot: string | undefined;
+
+export function withSyncLogContext<T>(contentRoot: string | undefined, fn: () => T): T {
+  const prev = _activeContentRoot;
+  _activeContentRoot = contentRoot;
+  try {
+    return fn();
+  } finally {
+    _activeContentRoot = prev;
+  }
+}
+
+export async function withSyncLogContextAsync<T>(
+  contentRoot: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prev = _activeContentRoot;
+  _activeContentRoot = contentRoot;
+  try {
+    return await fn();
+  } finally {
+    _activeContentRoot = prev;
+  }
+}
+
+function legacyGlobalSyncLogPath(): string {
+  return path.join(process.cwd(), process.env.CONTENT_FOLDER || 'content', '.sync-log-state.txt');
+}
+
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const MAX_LOG_LINES = 500;
 
@@ -139,24 +169,50 @@ export class SyncLog {
 
       if (pathToRead) {
         const raw = fs.readFileSync(pathToRead, 'utf-8');
-        this.logEntries = raw
-          .split('\n')
-          .filter(l => l.trim() !== '')
-          .map(line => {
-            try {
-              return JSON.parse(line) as SyncLogEntry;
-            } catch {
-              return parseOldTextLine(line);
-            }
-          })
-          .filter((e): e is SyncLogEntry => e !== null);
+        this.logEntries = this.parseLogLines(raw);
       } else {
         this.logEntries = [];
+      }
+
+      // One-time import: pre-multisite logs lived under content/.sync-log-state.txt
+      if (this.logEntries.length === 0) {
+        this.tryImportLegacyGlobalLog();
       }
     } catch {
       this.logEntries = [];
     }
     this.loaded = true;
+  }
+
+  private parseLogLines(raw: string): SyncLogEntry[] {
+    return raw
+      .split('\n')
+      .filter(l => l.trim() !== '')
+      .map(line => {
+        try {
+          return JSON.parse(line) as SyncLogEntry;
+        } catch {
+          return parseOldTextLine(line);
+        }
+      })
+      .filter((e): e is SyncLogEntry => e !== null);
+  }
+
+  private tryImportLegacyGlobalLog(): void {
+    const legacyPath = legacyGlobalSyncLogPath();
+    if (legacyPath === this.syncLogPath || !fs.existsSync(legacyPath)) return;
+    try {
+      const imported = this.parseLogLines(fs.readFileSync(legacyPath, 'utf-8'));
+      if (imported.length === 0) return;
+      this.logEntries = imported;
+      this.saveLocal();
+      syncLogLogger.info(
+        { count: imported.length, target: this.syncLogPath },
+        "Imported legacy global sync log into per-site log",
+      );
+    } catch {
+      // non-fatal
+    }
   }
 
   private saveLocal(): void {
@@ -205,17 +261,7 @@ export class SyncLog {
         const result = await gcs.downloadFirstExisting(this.readKeys);
         if (result) {
           const data = result.data;
-          this.logEntries = data.toString('utf-8')
-            .split('\n')
-            .filter(l => l.trim() !== '')
-            .map(line => {
-              try {
-                return JSON.parse(line) as SyncLogEntry;
-              } catch {
-                return parseOldTextLine(line);
-              }
-            })
-            .filter((e): e is SyncLogEntry => e !== null);
+          this.logEntries = this.parseLogLines(data.toString('utf-8'));
           this.loaded = true;
           this.saveLocal();
           return;
@@ -305,6 +351,31 @@ const _defaultContentFolder = process.env.CONTENT_FOLDER || 'content';
 const _defaultContentRoot = path.join(process.cwd(), _defaultContentFolder);
 const _defaultSyncLog = new SyncLog(_defaultContentRoot, _defaultContentFolder);
 
+function resolveContentRootName(contentRoot?: string): string | undefined {
+  if (!contentRoot) return undefined;
+  return path.isAbsolute(contentRoot)
+    ? path.relative(process.cwd(), contentRoot)
+    : contentRoot.replace(/\\/g, '/').replace(/^\/|\/$/g, '');
+}
+
+/** Resolve the per-site SyncLog for a content folder name or absolute path. */
+export function getSyncLog(contentRoot?: string): SyncLog {
+  const key = resolveContentRootName(contentRoot ?? _activeContentRoot);
+  if (key) {
+    try {
+      const { getSiteContextMap } = require('./site-manager') as typeof import('./site-manager');
+      for (const ctx of getSiteContextMap().values()) {
+        if (ctx.contentRootName === key || ctx.contentRoot === contentRoot) {
+          return ctx.syncLog;
+        }
+      }
+    } catch {
+      // site map not ready yet
+    }
+  }
+  return _defaultSyncLog;
+}
+
 // ─── Per-request helper ───────────────────────────────────────────────────────
 //
 // Resolves the per-site SyncLog from res.locals.site (set by siteResolutionMiddleware)
@@ -318,11 +389,19 @@ export function getSyncLogForResponse(res: { locals: Record<string, unknown> }):
 // ─── Module-level backward-compatible exports ─────────────────────────────────
 
 export async function loadSyncLog(): Promise<void> {
-  return _defaultSyncLog.load();
+  await _defaultSyncLog.load();
+  try {
+    const { getSiteContextMap } = await import('./site-manager');
+    await Promise.all(
+      Array.from(getSiteContextMap().values()).map((ctx) => ctx.syncLog.load()),
+    );
+  } catch {
+    // site map not ready
+  }
 }
 
-export function logSync(category: SyncLogCategory, message: string, person?: string, meta?: Record<string, unknown>): void {
-  _defaultSyncLog.log(category, message, person, meta);
+export function logSync(category: SyncLogCategory, message: string, person?: string, meta?: Record<string, unknown>, contentRoot?: string): void {
+  getSyncLog(contentRoot ?? _activeContentRoot).log(category, message, person, meta);
 }
 
 export function getInstanceId(): string {

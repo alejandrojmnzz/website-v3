@@ -310,7 +310,7 @@ export class ContentIndex {
       const items = this.database.getMappedItems(dbName);
       if (!items || items.length === 0) continue;
       try {
-        const fieldMapping = getFullFieldMapping(contentType);
+        const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
         const templateEntry: ContentEntry = {
           slug: contentType,
           contentType,

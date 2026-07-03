@@ -138,7 +138,7 @@ import {
   getTrackingSettings,
   updateTrackingSettings,
 } from "../settings";
-import { variableManager } from "../variable-manager";
+import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, normalizeUrl } from "../../scripts/validation/shared/canonicalUrls";
 import {
@@ -363,7 +363,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.get("/api/variables", (_req, res) => {
-    res.json(variableManager.getDefinitions());
+    res.json(getVM(res).getDefinitions());
   });
 
   app.put("/api/variables/:name", (req, res) => {
@@ -371,7 +371,7 @@ export function registerSettingsRoutes(app: Express): void {
       const { name } = req.params;
       const body = req.body;
 
-      const def = variableManager.getDefinition(name);
+      const def = getVM(res).getDefinition(name);
       if (def?.isReserved) {
         return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be modified here. Use Settings → Legal.` });
       }
@@ -387,7 +387,7 @@ export function registerSettingsRoutes(app: Express): void {
           if (value === undefined) {
             return res.status(400).json({ error: "value is required" });
           }
-          variableManager.updateDefault(name, value);
+          getVM(res).updateDefault(name, value);
           break;
         }
         case "add_condition": {
@@ -399,7 +399,7 @@ export function registerSettingsRoutes(app: Express): void {
               .status(400)
               .json({ error: "condition with query and value is required" });
           }
-          variableManager.addCondition(name, condition);
+          getVM(res).addCondition(name, condition);
           break;
         }
         case "update_condition": {
@@ -417,7 +417,7 @@ export function registerSettingsRoutes(app: Express): void {
               error: "index and condition with query and value are required",
             });
           }
-          variableManager.updateCondition(name, index, condition);
+          getVM(res).updateCondition(name, index, condition);
           break;
         }
         case "delete_condition": {
@@ -425,7 +425,7 @@ export function registerSettingsRoutes(app: Express): void {
           if (index === undefined) {
             return res.status(400).json({ error: "index is required" });
           }
-          variableManager.deleteCondition(name, index);
+          getVM(res).deleteCondition(name, index);
           break;
         }
         case "reorder_conditions": {
@@ -438,7 +438,7 @@ export function registerSettingsRoutes(app: Express): void {
               .status(400)
               .json({ error: "fromIndex and toIndex are required" });
           }
-          variableManager.reorderConditions(name, fromIndex, toIndex);
+          getVM(res).reorderConditions(name, fromIndex, toIndex);
           break;
         }
         default:
@@ -447,7 +447,7 @@ export function registerSettingsRoutes(app: Express): void {
 
       res.json({
         success: true,
-        definitions: variableManager.getDefinitions(),
+        definitions: getVM(res).getDefinitions(),
       });
     } catch (err: any) {
       res
@@ -461,7 +461,7 @@ export function registerSettingsRoutes(app: Express): void {
       const { name } = req.params;
       const body = req.body;
 
-      const defToDelete = variableManager.getDefinition(name);
+      const defToDelete = getVM(res).getDefinition(name);
       if (defToDelete?.isReserved) {
         return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be deleted. Manage it in Settings → Legal.` });
       }
@@ -487,22 +487,22 @@ export function registerSettingsRoutes(app: Express): void {
             .status(400)
             .json({ error: "key is required for non-default levels" });
         }
-        const result = variableManager.deleteVariableEntry(name, level, key);
+        const result = getVM(res).deleteVariableEntry(name, level, key);
         if (!result) {
           return res.status(404).json({ error: "Variable not found" });
         }
         return res.json({
           success: true,
-          definitions: variableManager.getDefinitions(),
+          definitions: getVM(res).getDefinitions(),
         });
       }
 
       const { action, index } = body as { action?: string; index?: number };
       if (action === "delete_condition" && index !== undefined) {
-        variableManager.deleteCondition(name, index);
+        getVM(res).deleteCondition(name, index);
         return res.json({
           success: true,
-          definitions: variableManager.getDefinitions(),
+          definitions: getVM(res).getDefinitions(),
         });
       }
 
@@ -534,7 +534,7 @@ export function registerSettingsRoutes(app: Express): void {
       const { newName, author } = req.body as { newName: string; author?: string };
       const authorName = author && typeof author === "string" ? author : undefined;
 
-      const defToRename = variableManager.getDefinition(oldName);
+      const defToRename = getVM(res).getDefinition(oldName);
       if (defToRename?.isReserved) {
         return res.status(403).json({ error: `Variable "${oldName}" is reserved and cannot be renamed.` });
       }
@@ -572,7 +572,7 @@ export function registerSettingsRoutes(app: Express): void {
         }
       }
 
-      variableManager.renameVariable(oldName, sanitized);
+      getVM(res).renameVariable(oldName, sanitized);
 
       getCI(res).refresh();
       invalidateContentCaches();
@@ -582,7 +582,7 @@ export function registerSettingsRoutes(app: Express): void {
         oldName,
         newName: sanitized,
         updatedFiles,
-        definitions: variableManager.getDefinitions(),
+        definitions: getVM(res).getDefinitions(),
       });
     } catch (err: any) {
       res
@@ -592,7 +592,7 @@ export function registerSettingsRoutes(app: Express): void {
   });
   app.get("/api/settings/legal", (_req, res) => {
     try {
-      res.json(variableManager.getLegalSettings());
+      res.json(getVM(res).getLegalSettings());
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to load legal settings" });
     }
@@ -610,12 +610,12 @@ export function registerSettingsRoutes(app: Express): void {
       }
       const { legal_terms_url, legal_privacy_url } = parsed.data;
       if (legal_terms_url !== undefined) {
-        variableManager.updateLegalSetting("legal_terms_url", legal_terms_url);
+        getVM(res).updateLegalSetting("legal_terms_url", legal_terms_url);
       }
       if (legal_privacy_url !== undefined) {
-        variableManager.updateLegalSetting("legal_privacy_url", legal_privacy_url);
+        getVM(res).updateLegalSetting("legal_privacy_url", legal_privacy_url);
       }
-      res.json({ success: true, ...variableManager.getLegalSettings() });
+      res.json({ success: true, ...getVM(res).getLegalSettings() });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to save legal settings" });
     }
@@ -623,7 +623,7 @@ export function registerSettingsRoutes(app: Express): void {
 
   app.get("/api/settings/consent", (_req, res) => {
     try {
-      res.json(variableManager.getConsentSettings());
+      res.json(getVM(res).getConsentSettings());
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to load consent settings" });
     }
@@ -642,11 +642,11 @@ export function registerSettingsRoutes(app: Express): void {
         return res.status(400).json({ error: "Invalid request body" });
       }
       const { consent_whatsapp, consent_sms, consent_email, consent_general } = parsed.data;
-      if (consent_whatsapp !== undefined) variableManager.updateConsentSetting("consent_whatsapp", consent_whatsapp);
-      if (consent_sms !== undefined) variableManager.updateConsentSetting("consent_sms", consent_sms);
-      if (consent_email !== undefined) variableManager.updateConsentSetting("consent_email", consent_email);
-      if (consent_general !== undefined) variableManager.updateConsentSetting("consent_general", consent_general);
-      res.json({ success: true, ...variableManager.getConsentSettings() });
+      if (consent_whatsapp !== undefined) getVM(res).updateConsentSetting("consent_whatsapp", consent_whatsapp);
+      if (consent_sms !== undefined) getVM(res).updateConsentSetting("consent_sms", consent_sms);
+      if (consent_email !== undefined) getVM(res).updateConsentSetting("consent_email", consent_email);
+      if (consent_general !== undefined) getVM(res).updateConsentSetting("consent_general", consent_general);
+      res.json({ success: true, ...getVM(res).getConsentSettings() });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to save consent settings" });
     }
@@ -1288,7 +1288,7 @@ export function registerSettingsRoutes(app: Express): void {
         location: req.query.location as string | undefined,
         region: req.query.region as string | undefined,
       };
-      const { data: resolved } = variableManager.resolveDeep(data, context);
+      const { data: resolved } = getVM(res).resolveDeep(data, context);
       res.json({ name, locale: locale || "en", data: resolved });
     } catch (error) {
       log.error({ err: error }, `Error loading menu ${name}:`);

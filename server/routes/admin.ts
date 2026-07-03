@@ -2182,70 +2182,12 @@ export function registerAdminRoutes(app: Express): void {
         return res.status(409).json({ error: `Folder "${folderName}" already exists` });
       }
 
-      // Create directory structure
-      fs.mkdirSync(folderPath, { recursive: true });
-      fs.mkdirSync(path.join(folderPath, "images"), { recursive: true });
-      fs.mkdirSync(path.join(folderPath, "menus"), { recursive: true });
-      fs.mkdirSync(path.join(folderPath, "pages"), { recursive: true });
-
-      // Write .gitkeep for images dir
-      fs.writeFileSync(path.join(folderPath, "images", ".gitkeep"), "");
-
-      // settings.yml
-      const settingsYml = `# Site settings for ${folderName}\ni18n:\n  defaultLocale: en\n  locales:\n    - en\n`;
-      fs.writeFileSync(path.join(folderPath, "settings.yml"), settingsYml);
-
-      // content-types.yml
-      const contentTypesYml = `# Content types for ${folderName}\npages:\n  label: Pages\n  folder: pages\n  url_pattern:\n    en: "/en/:slug"\n`;
-      fs.writeFileSync(path.join(folderPath, "content-types.yml"), contentTypesYml);
-
-      // image-registry.json
-      fs.writeFileSync(path.join(folderPath, "image-registry.json"), JSON.stringify({ images: [], presets: [] }, null, 2));
-
-      // custom-redirects.yml
-      fs.writeFileSync(path.join(folderPath, "custom-redirects.yml"), "redirects: []\n");
-
-      // menus/main-navbar.yml
-      fs.writeFileSync(
-        path.join(folderPath, "menus", "main-navbar.yml"),
-        `navbar:\n  items:\n    - label: Logo\n      href: /en\n      component: Logo\n    - label: Home\n      href: /en\n    - label: About\n      href: /en/about\n    - label: Language\n      component: LanguageSwitcher\n`,
-      );
-
-      // menus/main-footer.yml
-      fs.writeFileSync(
-        path.join(folderPath, "menus", "main-footer.yml"),
-        `footer:\n  columns: []\n  socials: []\n  copyright_text: "${name}. All rights reserved."\n`,
-      );
-
-      // pages/home.en.yml
-      fs.writeFileSync(
-        path.join(folderPath, "pages", "home.en.yml"),
-        `meta:\n  title: "Welcome to ${name}"\n  description: "Home page for ${name}"\nsections:\n  - type: hero_single_column\n    title: "Welcome to ${name}"\n    subtitle: "Your new site is ready. Start editing this page to get started."\n    button_label: Get Started\n    button_url: /en/about\n`,
-      );
-
-      // Sample content (optional)
-      if (includeSampleContent) {
-        // pages/about.en.yml
-        fs.writeFileSync(
-          path.join(folderPath, "pages", "about.en.yml"),
-          `meta:\n  title: "About - ${name}"\n  description: "Learn more about ${name}"\nsections:\n  - type: two_column_text\n    title: "About Us"\n    left_body: |\n      We are a team passionate about building great products.\n      This is the about page for ${name}.\n    right_body: |\n      Feel free to edit this page with your own content.\n      Replace images, update the text, and make it yours.\n`,
-        );
-
-        // blog/ directory
-        fs.mkdirSync(path.join(folderPath, "blog"), { recursive: true });
-
-        // blog/_common.single.yml
-        fs.writeFileSync(
-          path.join(folderPath, "blog", "_common.single.yml"),
-          `sections:\n  - type: hero_single_column\n    title: "{{ single.title }}"\n    subtitle: "{{ single.excerpt }}"\n  - type: markdown_body\n    body: "{{ single.body }}"\n`,
-        );
-
-        // blog/sample-post.en.yml
-        fs.writeFileSync(
-          path.join(folderPath, "blog", "sample-post.en.yml"),
-          `title: "Sample Blog Post"\nexcerpt: "This is a sample blog post to get you started."\nbody: |\n  ## Hello World\n\n  This is a sample blog post for **${name}**. You can edit or delete this file\n  and create your own posts in this folder.\n`,
-        );
-      }
+      const { ensureSiteScaffold } = await import("../site-scaffold");
+      ensureSiteScaffold({
+        contentFolder: folderName,
+        displayName: name,
+        includeSampleContent: includeSampleContent !== false,
+      });
 
       // Append to sites.yml
       const sitesYmlPath = path.join(process.cwd(), "sites.yml");

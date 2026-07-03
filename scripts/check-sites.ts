@@ -17,7 +17,9 @@ const {
   bootstrapContentFromRemote,
   getBootstrapState,
   isGitHubConfigured,
+  writeBootstrapCompleteFlag,
 } = await import("../server/github");
+const { ensureSiteScaffold } = await import("../server/site-scaffold");
 
 type SiteConfig = import("../server/site-config").SiteConfig;
 
@@ -135,6 +137,49 @@ function formatMissingList(issues: string[]): string {
   return issues.join(", ");
 }
 
+function scaffoldDisplayName(site: SiteConfig): string {
+  return site.domain || site.contentFolder.replace(/^site_/, "");
+}
+
+async function promptCreateLocalScaffold(domain: string, contentFolder: string): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    return false;
+  }
+
+  const readline = await import("readline");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    const question =
+      `\n        No content found in the remote repo for ${domain} (${contentFolder}).\n` +
+      `        Create a simple local site scaffold? It will sync via GitHub sync. [y/N] `;
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(/^y(es)?$/i.test(answer.trim()));
+    });
+  });
+}
+
+async function tryCreateLocalScaffold(site: SiteConfig): Promise<boolean> {
+  const shouldCreate = await promptCreateLocalScaffold(site.domain, site.contentFolder);
+  if (!shouldCreate) {
+    console.log("        skipped — scaffold not created");
+    return false;
+  }
+
+  ensureSiteScaffold({
+    contentFolder: site.contentFolder,
+    displayName: scaffoldDisplayName(site),
+    includeSampleContent: true,
+  });
+  writeBootstrapCompleteFlag(site.contentFolder);
+  console.log("        ✓ local scaffold created");
+  return true;
+}
+
 async function ensureSite(
   site: SiteConfig,
   index: number,
@@ -193,6 +238,24 @@ async function ensureSite(
         bootstrapNote,
       };
     }
+
+    if (remoteNote?.startsWith("no files found")) {
+      const created = await tryCreateLocalScaffold(site);
+      if (created) {
+        validation = validateSiteStructure(folderPath);
+        if (validation.ok) {
+          return {
+            domain: site.domain,
+            contentFolder: site.contentFolder,
+            githubRepoUrl: site.githubRepoUrl,
+            ok: true,
+            missing: [],
+            remoteNote,
+            bootstrapNote: "local scaffold created",
+          };
+        }
+      }
+    }
   }
 
   return {
@@ -244,6 +307,7 @@ async function main(): Promise<void> {
   }
 
   console.log("Set GITHUB_TOKEN in .env to auto-download content, or populate folders manually.");
+  console.log("When a site is missing from the remote repo, run interactively to create a local scaffold.");
   console.log("Content folders are gitignored and are not included in git clone.");
   process.exit(1);
 }

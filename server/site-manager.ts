@@ -11,6 +11,7 @@ import { DatabaseManager } from "./database";
 import { ConversationStore } from "./ai/ConversationStore";
 import { SyncLog } from "./sync-log";
 import { createSiteDb } from "./db";
+import { getVariableManager, resetVariableManagerCache, type VariableManager } from "./variable-manager";
 import { child } from "./logger";
 
 const log = child({ module: "site-manager" });
@@ -27,6 +28,7 @@ export interface SiteContext {
   database: DatabaseManager;
   conversationStore: ConversationStore;
   syncLog: SyncLog;
+  variableManager: VariableManager;
   isDevOverride?: boolean;
 }
 
@@ -67,8 +69,9 @@ export function buildSiteContextMap(): Map<string, SiteContext> {
     const siteDb = createSiteDb(contentRootName, isFirstSite);
     const conversationStore = new ConversationStore(siteDb, contentRootName);
     const syncLog = new SyncLog(contentRoot, contentRootName, isFirstSite);
+    const variableManager = getVariableManager(contentRoot);
     isFirstSite = false;
-    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database, conversationStore, syncLog };
+    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database, conversationStore, syncLog, variableManager };
     map.set(config.domain, ctx);
     log.info(`[SiteManager] Registered site domain="${config.domain}" contentFolder="${config.contentFolder}"`);
   }
@@ -91,6 +94,13 @@ export function getDefaultSite(): SiteContext {
 export function resetSiteContextMap(): void {
   _siteMap = null;
   _defaultSite = null;
+  resetVariableManagerCache();
+}
+
+/** Per-request VariableManager from site context. */
+export function getVM(res: Response): VariableManager {
+  const site = res.locals.site as SiteContext | undefined;
+  return site?.variableManager ?? getVariableManager(site?.contentRoot);
 }
 
 // =============================================================================

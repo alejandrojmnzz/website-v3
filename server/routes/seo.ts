@@ -34,7 +34,7 @@ import type { SiteContext } from "../site-manager";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager } from "../database";
+import { databaseManager, type DatabaseManager } from "../database";
 import {
   redirectMiddleware,
   getRedirects,
@@ -220,6 +220,9 @@ function getContentRoot(res: Response): string {
 }
 function getContentRootName(res: Response): string {
   return (res.locals.site as any)?.contentRootName ?? (getDefaultContentFolder());
+}
+function getDB(res: Response): DatabaseManager {
+  return (res.locals.site as SiteContext | undefined)?.database ?? databaseManager;
 }
 function getSiteSitemapCtx(res: Response): ActiveSiteCtx | undefined {
   const site = res.locals.site as SiteContext | undefined;
@@ -563,8 +566,8 @@ Sitemap: ${baseUrl}/sitemap.xml
         return;
       }
 
-      if (hasDatabaseSingle(contentType)) {
-        const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+      if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+        const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
         if (!page) {
           res.status(404).json({ error: "Content not found" });
           return;

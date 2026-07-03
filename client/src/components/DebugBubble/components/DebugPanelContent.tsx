@@ -838,8 +838,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 />
               )}
             </ExpandableMenuItem>
+          </div>
 
-            <div className="flex gap-1 px-1">
+          <div className="border-t" data-testid="section-sync">
+            <div className="flex divide-x divide-border">
               <GitHubSyncChip
                 className="flex-1 min-w-0"
                 githubSyncStatus={props.githubSyncStatus}

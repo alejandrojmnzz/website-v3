@@ -140,7 +140,7 @@ import {
   getOptimizationSettings,
   updateOptimizationSettings,
 } from "../settings";
-import { variableManager } from "../variable-manager";
+import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, normalizeUrl } from "../../scripts/validation/shared/canonicalUrls";
 import {
@@ -229,6 +229,10 @@ function ctRoot(res: Response): string {
   return getContentRoot(res);
 }
 
+function dynamicEntriesOptions(res: Response) {
+  return { db: getDB(res), contentRoot: getContentRoot(res) };
+}
+
 export function registerContentRoutes(app: Express): void {
   app.get("/api/career-programs", (req, res) => {
     const locale = normalizeLocale(req.query.locale as string);
@@ -276,10 +280,10 @@ export function registerContentRoutes(app: Express): void {
 
     const programData = program as unknown as Record<string, unknown>;
     if (Array.isArray(programData.sections)) {
-      programData.sections = await resolveDynamicEntries(programData.sections, locale) as any;
+      programData.sections = await resolveDynamicEntries(programData.sections, locale, dynamicEntriesOptions(res)) as any;
     }
     const programRaw = getCI(res).loadMergedContent("program", slug, locale);
-    const layout = resolveLayout("program", programRaw.data || {});
+    const layout = resolveLayout("program", programRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("program", programData);
     injectCanonicalIfMissing(programData, "program", locale);
     const { layout: _stripLayout, ...rest } = programData;
@@ -360,12 +364,12 @@ export function registerContentRoutes(app: Express): void {
     const landingData = landing as unknown as Record<string, unknown>;
 
     if (landing.sections && Array.isArray(landing.sections)) {
-      (landing as any).sections = await resolveDynamicEntries(landing.sections as any, locale);
+      (landing as any).sections = await resolveDynamicEntries(landing.sections as any, locale, dynamicEntriesOptions(res));
       applyComponentImageSizes((landing as any).sections as unknown[]);
     }
 
     const rawMerged = getCI(res).loadMergedContent("landing", slug, locale);
-    const layout = resolveLayout("landing", rawMerged.data || commonData || {});
+    const layout = resolveLayout("landing", rawMerged.data || commonData || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("landing", landingData);
     injectCanonicalIfMissing(landingData, "landing", locale);
     const { layout: _stripLayout, ...restLanding } = landingData;
@@ -425,11 +429,11 @@ export function registerContentRoutes(app: Express): void {
     const locationData = location as unknown as Record<string, unknown>;
     if (locationData.sections && Array.isArray(locationData.sections)) {
       applyComponentSectionDefaults(locationData.sections);
-      locationData.sections = await resolveDynamicEntries(locationData.sections as any, locale) as any;
+      locationData.sections = await resolveDynamicEntries(locationData.sections as any, locale, dynamicEntriesOptions(res)) as any;
       applyComponentImageSizes(locationData.sections);
     }
     const locationRaw = getCI(res).loadMergedContent("location", slug, locale);
-    const layout = resolveLayout("location", locationRaw.data || {});
+    const layout = resolveLayout("location", locationRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("location", locationData);
     injectCanonicalIfMissing(locationData, "location", locale);
     const { layout: _stripLayout, ...restLocation } = locationData;
@@ -460,7 +464,7 @@ export function registerContentRoutes(app: Express): void {
 
     const cpPageData = page as unknown as Record<string, unknown>;
     const cpRaw = getCI(res).loadMergedContent("page", "career-programs", locale);
-    const cpLayout = resolveLayout("page", cpRaw.data || {});
+    const cpLayout = resolveLayout("page", cpRaw.data || {}, getContentRoot(res));
     injectCanonicalIfMissing(cpPageData, "page", locale);
     const { layout: _cpStripLayout, ...cpRest } = cpPageData;
     res.json({ ...cpRest, layout: cpLayout });
@@ -499,7 +503,7 @@ export function registerContentRoutes(app: Express): void {
 
     const commonData = getCI(res).loadCommonData("page", "apply");
     const applyRaw = getCI(res).loadMergedContent("page", "apply", locale);
-    const layout = resolveLayout("page", applyRaw.data || {});
+    const layout = resolveLayout("page", applyRaw.data || {}, getContentRoot(res));
     const applyData = page as unknown as Record<string, unknown>;
     injectCanonicalIfMissing(applyData, "page", locale);
     const { layout: _stripLayout, ...restApply } = applyData;
@@ -548,6 +552,7 @@ export function registerContentRoutes(app: Express): void {
       page.sections = (await resolveDynamicEntries(
         page.sections,
         locale,
+        dynamicEntriesOptions(res),
       )) as any;
       applyComponentSectionDefaults(page.sections);
       applyComponentImageSizes(page.sections);
@@ -555,7 +560,7 @@ export function registerContentRoutes(app: Express): void {
 
     const pageData = page as unknown as Record<string, unknown>;
     const pageRaw = getCI(res).loadMergedContent("page", slug, locale);
-    const layout = resolveLayout("page", pageRaw.data || {});
+    const layout = resolveLayout("page", pageRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("page", pageData);
     if (singleEntry) {
       pageData.singleEntry = singleEntry;
@@ -575,11 +580,11 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
-    if (hasDatabaseSingle(contentType)) {
-      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+    if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       if (page) {
         if (page.sections && Array.isArray(page.sections)) {
-          page.sections = (await resolveDynamicEntries(page.sections, locale)) as any;
+          page.sections = (await resolveDynamicEntries(page.sections, locale, dynamicEntriesOptions(res))) as any;
           applyComponentImageSizes(page.sections as unknown[]);
         }
         const dbPageData = page as unknown as Record<string, unknown>;
@@ -589,7 +594,7 @@ export function registerContentRoutes(app: Express): void {
           Object.assign(dbPageData, dbResolved);
         }
         const dbRaw = getCI(res).loadMergedContent(contentType, slug, locale);
-        const dbLayout = resolveLayout(contentType, dbRaw.data || {});
+        const dbLayout = resolveLayout(contentType, dbRaw.data || {}, getContentRoot(res));
         injectCanonicalIfMissing(dbPageData, contentType, locale);
         const { layout: _dbStripLayout, ...dbRest } = dbPageData;
         res.json({ ...dbRest, layout: dbLayout });
@@ -619,11 +624,11 @@ export function registerContentRoutes(app: Express): void {
     if (variantPage) {
       const variantSections = variantPage.sections;
       if (variantSections && Array.isArray(variantSections)) {
-        (variantPage as any).sections = (await resolveDynamicEntries(variantSections, locale)) as any;
+        (variantPage as any).sections = (await resolveDynamicEntries(variantSections, locale, dynamicEntriesOptions(res))) as any;
         applyComponentImageSizes((variantPage as any).sections as unknown[]);
       }
       const variantRaw = getCI(res).loadMergedContent(contentType, slug, locale);
-      const variantLayout = resolveLayout(contentType, variantRaw.data || {});
+      const variantLayout = resolveLayout(contentType, variantRaw.data || {}, getContentRoot(res));
       const variantSingleEntry = buildSingleEntryFromContent(contentType, variantPage);
       if (variantSingleEntry) {
         variantPage.singleEntry = variantSingleEntry;
@@ -650,13 +655,13 @@ export function registerContentRoutes(app: Express): void {
     const page = result.data;
 
     if (page.sections && Array.isArray(page.sections)) {
-      page.sections = (await resolveDynamicEntries(page.sections, locale)) as any;
+      page.sections = (await resolveDynamicEntries(page.sections, locale, dynamicEntriesOptions(res))) as any;
       applyComponentImageSizes(page.sections as unknown[]);
     }
 
     const genericPageData = page as unknown as Record<string, unknown>;
     const genericRaw = getCI(res).loadMergedContent(contentType, slug, locale);
-    const genericLayout = resolveLayout(contentType, genericRaw.data || {});
+    const genericLayout = resolveLayout(contentType, genericRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent(contentType, genericPageData);
     if (singleEntry) {
       genericPageData.singleEntry = singleEntry;
@@ -761,7 +766,7 @@ export function registerContentRoutes(app: Express): void {
         content = await fetchMarkdownContent((post as any).readme_url);
       }
 
-      const blogLayout = resolveLayout("blog", post as unknown as Record<string, unknown>);
+      const blogLayout = resolveLayout("blog", post as unknown as Record<string, unknown>, getContentRoot(res));
       res.json({ ...post, content, layout: blogLayout });
     } catch (error) {
       log.error({ err: error }, "[Blog] Error fetching post:");
@@ -1168,7 +1173,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Unknown content type: ${type}` });
         return;
       }
-      if (!hasDatabaseSingle(type)) {
+      if (!hasDatabaseSingle(type, getContentRoot(res))) {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
       }
@@ -1664,7 +1669,7 @@ export function registerContentRoutes(app: Express): void {
               const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
 
               const rawMeta = (merged.meta as Record<string, unknown>) ?? {};
-              const { data: resolvedMeta } = variableManager.resolveDeep(rawMeta, { locale });
+              const { data: resolvedMeta } = getVM(res).resolveDeep(rawMeta, { locale });
 
               let url: string | null = null;
               if (urlPattern) {

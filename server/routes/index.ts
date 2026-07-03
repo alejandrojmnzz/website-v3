@@ -272,10 +272,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { getReplitCheckpoint, refreshGithubCommit } = await import(
     "../sync-log"
   );
-  logSync(
-    "RESTART",
-    `Server started (instance=${getInstanceId()}, checkpoint=${getReplitCheckpoint()}, env=${process.env.NODE_ENV || "development"}, pid=${process.pid})`,
-  );
+  const restartMessage = `Server started (instance=${getInstanceId()}, checkpoint=${getReplitCheckpoint()}, env=${process.env.NODE_ENV || "development"}, pid=${process.pid})`;
+  try {
+    for (const ctx of Array.from(getSiteContextMap().values())) {
+      ctx.syncLog.log("RESTART", restartMessage);
+    }
+  } catch {
+    logSync("RESTART", restartMessage);
+  }
   refreshGithubCommit();
 
   // Attach user ID from the X-User-Id header (sent by the client on
@@ -433,6 +437,8 @@ export async function startBackgroundSync(): Promise<void> {
       } = await import("../github");
 
       await Promise.all(syncTargets.map(async (target) => {
+        const { withSyncLogContextAsync } = await import("../sync-log");
+        return withSyncLogContextAsync(target.contentRoot, async () => {
         const opts = target.repoUrl ? { repoUrl: target.repoUrl, contentRoot: target.contentRoot } : undefined;
         const pfx = target.label !== "default" ? ` [${target.label}]` : "";
         const contentFolder = target.contentRoot ?? (getDefaultContentFolder());
@@ -521,6 +527,7 @@ export async function startBackgroundSync(): Promise<void> {
           logSync("AUTO-PULL", `Skipped startup pull${pfx} — GITHUB_AUTO_PULL_ENABLED not set to 'true'`);
         }
         await ensureWebhook(opts);
+        });
       }));
     })
     .catch((err) => {

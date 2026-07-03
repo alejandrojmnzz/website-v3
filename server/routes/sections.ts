@@ -32,7 +32,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager } from "../database";
+import { databaseManager, type DatabaseManager } from "../database";
 import {
   redirectMiddleware,
   getRedirects,
@@ -221,6 +221,10 @@ function getContentRootName(res: Response): string {
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
 }
 
+function getDB(res: Response): DatabaseManager {
+  return (res.locals.site as import("../site-manager").SiteContext | undefined)?.database ?? databaseManager;
+}
+
 export function registerSectionsRoutes(app: Express): void {
   // ── Per-entry section operations ──
 
@@ -255,7 +259,7 @@ export function registerSectionsRoutes(app: Express): void {
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Load the current merged page to get the section
-      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       if (!mergedPage) {
         res.status(404).json({ error: "Entry not found" });
         return;
@@ -566,7 +570,7 @@ export function registerSectionsRoutes(app: Express): void {
           // Insert before all sections
           newSection._insertAfterSectionId = null;
         } else {
-          const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+          const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
           const mergedSections = Array.isArray(mergedPage?.sections)
             ? (mergedPage!.sections as Record<string, unknown>[])
             : [];
@@ -622,7 +626,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       // Return updated merged section list so the client can update without a full page reload
-      const updatedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+      const updatedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       res.json({ success: true, sections: updatedPage?.sections ?? [] });
     } catch (error) {
       log.error({ err: error }, "[per-entry-section-add] Error:");
@@ -795,7 +799,7 @@ export function registerSectionsRoutes(app: Express): void {
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Load the current merged page to get the section and its id
-      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       if (!mergedPage) {
         res.status(404).json({ error: "Entry not found" });
         return;

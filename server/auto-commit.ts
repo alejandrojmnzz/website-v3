@@ -332,6 +332,15 @@ function groupByAuthor(changes: Map<string, PendingFileChange>): Map<string, str
 }
 
 async function commitBatch(config: GitHubConfig, author: string, files: string[]): Promise<void> {
+  const { getSiteConfigs } = await import('./site-config');
+  const contentRootForLog = (() => {
+    if (files.length === 0) return undefined;
+    const filePath = files[0];
+    return getSiteConfigs().find((site) => {
+      const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+      return filePath.startsWith(prefix);
+    })?.contentFolder;
+  })();
   const existingFiles: Array<{ path: string; content: string }> = [];
   const deletedFiles: string[] = [];
 
@@ -358,18 +367,18 @@ async function commitBatch(config: GitHubConfig, author: string, files: string[]
     updateSyncStateAfterCommit(result.commitSha, files);
     log.info(`[AutoCommit] Committed ${files.length} file(s) by ${author}: ${result.commitSha.substring(0, 7)}`);
     const { logSync, refreshGithubCommit } = await import("./sync-log");
-    logSync('COMMIT', `Auto-commit ${result.commitSha.substring(0, 7)} by ${author}: ${fileNames}`, author);
+    logSync('COMMIT', `Auto-commit ${result.commitSha.substring(0, 7)} by ${author}: ${fileNames}`, author, undefined, contentRootForLog);
     refreshGithubCommit();
   } else if (result.error?.includes('422') || result.error?.includes('conflict') || result.error?.includes('Update is not a fast forward')) {
     log.warn(`[AutoCommit] Conflict detected for batch by ${author}, retrying individual files...`);
     const { logSync } = await import("./sync-log");
-    logSync('CONFLICT', `Auto-commit conflict by ${author}, retrying individually: ${fileNames}`, author);
-    await retryIndividualFiles(config, author, existingFiles, deletedFiles);
+    logSync('CONFLICT', `Auto-commit conflict by ${author}, retrying individually: ${fileNames}`, author, undefined, contentRootForLog);
+    await retryIndividualFiles(config, author, existingFiles, deletedFiles, contentRootForLog);
   } else {
     lastError = result.error || 'Unknown commit error';
     log.error(`[AutoCommit] Batch commit failed: ${lastError}`);
     const { logSync } = await import("./sync-log");
-    logSync('ERROR', `Auto-commit failed by ${author}: ${lastError}`, author);
+    logSync('ERROR', `Auto-commit failed by ${author}: ${lastError}`, author, undefined, contentRootForLog);
     for (const filePath of files) {
       pendingChanges.set(filePath, {
         filePath,
@@ -384,7 +393,8 @@ async function retryIndividualFiles(
   config: GitHubConfig,
   author: string,
   existingFiles: Array<{ path: string; content: string }>,
-  deletedFiles: string[]
+  deletedFiles: string[],
+  contentRootForLog?: string,
 ): Promise<void> {
   for (const file of existingFiles) {
     const fileName = stripContentFolderPrefix(file.path);
@@ -402,7 +412,7 @@ async function retryIndividualFiles(
       lastError = `Conflict on ${fileName}: ${result.error}`;
       log.warn(`[AutoCommit] Conflict on ${fileName}, marked as conflicted`);
       const { logSync } = await import("./sync-log");
-      logSync('CONFLICT', `Conflict on ${fileName} by ${author}: ${result.error ?? 'push rejected'}`, author);
+      logSync('CONFLICT', `Conflict on ${fileName} by ${author}: ${result.error ?? 'push rejected'}`, author, undefined, contentRootForLog);
     }
   }
 
@@ -410,7 +420,7 @@ async function retryIndividualFiles(
     conflictedFiles.add(filePath);
     log.warn(`[AutoCommit] Skipping delete for conflicted file: ${filePath}`);
     const { logSync } = await import("./sync-log");
-    logSync('CONFLICT', `Conflict on deleted file ${stripContentFolderPrefix(filePath)} by ${author}: push rejected`, author);
+    logSync('CONFLICT', `Conflict on deleted file ${stripContentFolderPrefix(filePath)} by ${author}: push rejected`, author, undefined, contentRootForLog);
   }
 }
 

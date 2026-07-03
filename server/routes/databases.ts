@@ -238,7 +238,7 @@ export function registerDatabasesRoutes(app: Express): void {
       const { contentType, slug } = req.params;
       const locale = normalizeLocale(req.query.locale as string);
 
-      if (!hasDatabaseSingle(contentType)) {
+      if (!hasDatabaseSingle(contentType, getContentRoot(res))) {
         res
           .status(400)
           .json({
@@ -247,7 +247,7 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
 
-      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res));
+      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       if (!page) {
         res
           .status(404)
@@ -256,7 +256,7 @@ export function registerDatabasesRoutes(app: Express): void {
       }
 
       const dbSingleRaw = getCI(res).loadMergedContent(contentType, slug, locale);
-      const dbSingleLayout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>));
+      const dbSingleLayout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>), getContentRoot(res));
       const dbSingleData = page as unknown as Record<string, unknown>;
       injectCanonicalIfMissing(dbSingleData, contentType, locale);
       const { layout: _dbSingleStripLayout, ...dbSingleRest } = dbSingleData;
