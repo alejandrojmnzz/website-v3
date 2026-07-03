@@ -7,9 +7,9 @@ channel = "stable-24_05"
 packages = ["imagemagick", "libwebp", "unzip"]
 
 [deployment]
-deploymentTarget = "gce"
+deploymentTarget = "vm"
 build = ["npm", "run", "build"]
-run = ["node", "./dist/index.cjs"]
+run = ["node", "dist/index.js"]
 
 [[ports]]
 localPort = 3001
