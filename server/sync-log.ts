@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import { siteSyncGcsKey, SYNC_FILENAMES, syncLogReadKeys } from "@shared/gcsKeys";
 import { gcs } from './gcs';
 import { child as loggerChild } from './logger';
+import { getDefaultContentFolder } from './site-config';
 
 const syncLogLogger = loggerChild({ module: "SyncLog", worker: "SyncLog" });
 
@@ -34,8 +35,9 @@ export async function withSyncLogContextAsync<T>(
   }
 }
 
+/** Pre-multisite global sync log location (read-only migration import). */
 function legacyGlobalSyncLogPath(): string {
-  return path.join(process.cwd(), process.env.CONTENT_FOLDER || 'content', '.sync-log-state.txt');
+  return path.join(process.cwd(), 'content', '.sync-log-state.txt');
 }
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -155,9 +157,15 @@ export class SyncLog {
   // site's history would break per-site log isolation.  Only called when
   // migrateLegacy=true (i.e. the primary/default site).
   private findLegacySyncLogPath(): string | null {
-    const legacyFolder = process.env.CONTENT_FOLDER || 'content';
-    const legacyPath = path.join(process.cwd(), legacyFolder, '.sync-log-state.txt');
-    if (legacyPath !== this.syncLogPath && fs.existsSync(legacyPath)) return legacyPath;
+    const candidates = [
+      legacyGlobalSyncLogPath(),
+      ...(process.env.CONTENT_FOLDER
+        ? [path.join(process.cwd(), process.env.CONTENT_FOLDER, '.sync-log-state.txt')]
+        : []),
+    ].filter((p) => p !== this.syncLogPath);
+    for (const legacyPath of candidates) {
+      if (fs.existsSync(legacyPath)) return legacyPath;
+    }
     return null;
   }
 
@@ -344,12 +352,19 @@ export class SyncLog {
 // ─── Default module-level instance ───────────────────────────────────────────
 //
 // Used by startup code in routes/index.ts and any other callers that don't
-// have access to a per-site SyncLog.  Parameterised by CONTENT_FOLDER env var
-// (the same value the server uses for single-site deployments).
+// have access to a per-site SyncLog. Delegates to the default site's SyncLog
+// from SiteContext when available.
 
-const _defaultContentFolder = process.env.CONTENT_FOLDER || 'content';
-const _defaultContentRoot = path.join(process.cwd(), _defaultContentFolder);
-const _defaultSyncLog = new SyncLog(_defaultContentRoot, _defaultContentFolder);
+function getDefaultSyncLogInstance(): SyncLog {
+  try {
+    const { getDefaultSite } = require('./site-manager') as typeof import('./site-manager');
+    return getDefaultSite().syncLog;
+  } catch {
+    const folder = getDefaultContentFolder();
+    const root = path.join(process.cwd(), folder);
+    return new SyncLog(root, folder);
+  }
+}
 
 function resolveContentRootName(contentRoot?: string): string | undefined {
   if (!contentRoot) return undefined;
@@ -373,7 +388,7 @@ export function getSyncLog(contentRoot?: string): SyncLog {
       // site map not ready yet
     }
   }
-  return _defaultSyncLog;
+  return getDefaultSyncLogInstance();
 }
 
 // ─── Per-request helper ───────────────────────────────────────────────────────
@@ -383,13 +398,13 @@ export function getSyncLog(contentRoot?: string): SyncLog {
 
 export function getSyncLogForResponse(res: { locals: Record<string, unknown> }): SyncLog {
   const site = res.locals.site as { syncLog?: SyncLog } | undefined;
-  return site?.syncLog ?? _defaultSyncLog;
+  return site?.syncLog ?? getDefaultSyncLogInstance();
 }
 
 // ─── Module-level backward-compatible exports ─────────────────────────────────
 
 export async function loadSyncLog(): Promise<void> {
-  await _defaultSyncLog.load();
+  await getDefaultSyncLogInstance().load();
   try {
     const { getSiteContextMap } = await import('./site-manager');
     await Promise.all(
@@ -413,25 +428,25 @@ export function getReplitCheckpoint(): string {
 }
 
 export function getSyncLogEntries(): SyncLogEntry[] {
-  return _defaultSyncLog.getEntries();
+  return getDefaultSyncLogInstance().getEntries();
 }
 
 export function getSyncLogText(): string {
-  return _defaultSyncLog.getText();
+  return getDefaultSyncLogInstance().getText();
 }
 
 export function getRecentEntries(count: number = 20): SyncLogEntry[] {
-  return _defaultSyncLog.getRecent(count);
+  return getDefaultSyncLogInstance().getRecent(count);
 }
 
 export async function flushSyncLog(): Promise<void> {
-  return _defaultSyncLog.flush();
+  return getDefaultSyncLogInstance().flush();
 }
 
 export async function clearSyncLog(): Promise<void> {
-  return _defaultSyncLog.clear();
+  return getDefaultSyncLogInstance().clear();
 }
 
 export async function clearSyncLogOlderThan(cutoffMs: number): Promise<void> {
-  return _defaultSyncLog.clearOlderThan(cutoffMs);
+  return getDefaultSyncLogInstance().clearOlderThan(cutoffMs);
 }

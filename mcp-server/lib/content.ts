@@ -15,48 +15,79 @@ interface SiteConfigMcp {
 
 let _mcpSiteConfigsCache: SiteConfigMcp[] | null = null;
 
-function getMcpSiteConfigs(): SiteConfigMcp[] {
-  if (_mcpSiteConfigsCache) return _mcpSiteConfigsCache;
+const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
+example.com:
+  content_folder: site_example-com
+  github_repo_url: https://github.com/org/example-content
+`;
 
+export function formatSitesYmlRequiredError(reason: string): string {
+  return [
+    "sites.yml is required but could not be loaded.",
+    "",
+    `Reason: ${reason}`,
+    "",
+    "Create sites.yml at the project root with at least one site entry.",
+    "See INSTALL.md (Site content folders) for setup steps.",
+    "",
+    "Expected format:",
+    SITES_YML_EXAMPLE.trimEnd(),
+  ].join("\n");
+}
+
+function parseSitesYml(): SiteConfigMcp[] {
   const sitesYml = path.join(process.cwd(), "sites.yml");
 
-  if (fs.existsSync(sitesYml)) {
-    try {
-      const raw = fs.readFileSync(sitesYml, "utf-8");
-      const parsed = yaml.load(raw) as Record<string, unknown> | null;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const configs: SiteConfigMcp[] = [];
-        for (const [domain, config] of Object.entries(parsed)) {
-          if (config && typeof config === "object") {
-            const c = config as Record<string, unknown>;
-            configs.push({
-              domain,
-              contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
-            });
-          }
-        }
-        if (configs.length > 0) {
-          _mcpSiteConfigsCache = configs;
-          return _mcpSiteConfigsCache;
-        }
-      }
-    } catch {
-      // Fall through to single-site
+  if (!fs.existsSync(sitesYml)) {
+    throw new Error(formatSitesYmlRequiredError("sites.yml not found at project root"));
+  }
+
+  let parsed: Record<string, unknown> | null;
+  try {
+    const raw = fs.readFileSync(sitesYml, "utf-8");
+    parsed = yaml.load(raw) as Record<string, unknown> | null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(formatSitesYmlRequiredError(`failed to parse sites.yml: ${msg}`));
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(formatSitesYmlRequiredError("sites.yml must be a YAML mapping (object), not an array or scalar"));
+  }
+
+  const configs: SiteConfigMcp[] = [];
+  for (const [domain, config] of Object.entries(parsed)) {
+    if (domain === "bucket_name") continue;
+    if (config && typeof config === "object") {
+      const c = config as Record<string, unknown>;
+      configs.push({
+        domain,
+        contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
+      });
     }
   }
 
-  // Single-site fallback
-  const contentFolder = process.env.CONTENT_FOLDER || "4geeks-com";
-  let domain = "localhost";
-  if (process.env.SITE_URL) {
-    try { domain = new URL(process.env.SITE_URL).hostname; } catch { /* ignore */ }
+  if (configs.length === 0) {
+    throw new Error(formatSitesYmlRequiredError("sites.yml contains no site entries (add at least one domain block)"));
   }
-  _mcpSiteConfigsCache = [{ domain, contentFolder }];
+
+  return configs;
+}
+
+function getMcpSiteConfigs(): SiteConfigMcp[] {
+  if (_mcpSiteConfigsCache) return _mcpSiteConfigsCache;
+  _mcpSiteConfigsCache = parseSitesYml();
   return _mcpSiteConfigsCache;
 }
 
-export function isMultiSiteMode(): boolean {
+/** True when more than one site is configured (UI / MCP param requirements). */
+export function hasMultipleSites(): boolean {
   return getMcpSiteConfigs().length > 1;
+}
+
+/** @deprecated Use hasMultipleSites() */
+export function isMultiSiteMode(): boolean {
+  return hasMultipleSites();
 }
 
 export type SiteContextResult =
@@ -65,8 +96,8 @@ export type SiteContextResult =
 
 /**
  * Resolve a site domain to its absolute content path.
- * In single-site mode: domain is ignored and the single config is used.
- * In multi-site mode: domain is required; omitting it returns an error listing available domains.
+ * When one site is configured, domain is optional.
+ * When multiple sites are configured, domain is required.
  */
 export function resolveSiteContext(domain?: string): SiteContextResult {
   const configs = getMcpSiteConfigs();
@@ -81,7 +112,6 @@ export function resolveSiteContext(domain?: string): SiteContextResult {
     };
   }
 
-  // Multi-site mode
   if (!domain) {
     return {
       ok: false,
@@ -545,8 +575,6 @@ export function getComponentSchema(componentType: string, contentPath?: string):
     }
   }
 
-  // If no variants are declared the component is single-variant; expose a synthetic "default"
-  // so the two-step workflow (get_component_schema → get_component_variant) always works.
   if (variants.length === 0) {
     variants.push({ name: "default", description: "Default (single-variant) component" });
   }
@@ -588,12 +616,6 @@ export function getComponentVariant(
   const parsed = safeLoad(fs.readFileSync(schemaYml, "utf-8"));
   if (!parsed) return null;
 
-  // Check the variant actually exists — handle three schema shapes:
-  // (a) object-map variants: { variantName: { description, best_for } }
-  // (b) array variants: [{ name, description, best_for }] or ["name", ...]
-  // (c) no variants key: single-variant component — accept any requested name
-  //     (get_component_schema emits a synthetic "default" for these; honour it and
-  //     any other name so callers are never stuck).
   const variantsDef = parsed.variants;
   let variantExists = false;
   if (!variantsDef) {
@@ -609,7 +631,6 @@ export function getComponentVariant(
   }
   if (!variantExists) return null;
 
-  // Extract variant_props for this specific variant.
   let variant_props: Record<string, unknown> | null = null;
   if (
     parsed.variant_props &&
@@ -638,7 +659,6 @@ export function getComponentVariant(
     variant_props = parsed.properties as Record<string, unknown>;
   }
 
-  // Find an example that uses this variant.
   const variantPattern = new RegExp(`variant:\\s*["']?${variant}["']?(?:\\s|$)`);
   let example: string | null = null;
   const examplesPath = path.join(versionPath, "examples");

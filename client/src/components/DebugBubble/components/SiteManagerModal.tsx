@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getDebugToken } from "@/hooks/useDebugAuth";
 
 interface SiteInfo {
   domain: string;
@@ -56,9 +57,12 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
 
   const createMutation = useMutation<CreateSiteResult, Error, { name: string; domain: string; githubRepoUrl?: string; includeSampleContent: boolean }>({
     mutationFn: async (body) => {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Token ${token}`;
       const res = await fetch("/api/admin/sites/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(body),
       });
       const data = await res.json();

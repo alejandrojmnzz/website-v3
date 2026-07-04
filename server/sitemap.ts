@@ -6,6 +6,7 @@ import { getFileLastmod } from "./sync-state";
 import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 import type { SiteContext } from "./site-manager";
+import { getDefaultContentFolder } from "./site-config";
 const log = child({ module: "sitemap" });
 
 // Per-request site context for per-site sitemap generation.
@@ -31,7 +32,7 @@ let _activeSiteCtx: ActiveSiteCtx | null = null;
 function _ci(): typeof contentIndex { return _activeSiteCtx?.contentIndex ?? contentIndex; }
 function _db(): DatabaseManager { return _activeSiteCtx?.database ?? databaseManager; }
 function _contentFolder(): string {
-  return _activeSiteCtx?.contentRootName ?? process.env.CONTENT_FOLDER ?? "content";
+  return _activeSiteCtx?.contentRootName ?? getDefaultContentFolder();
 }
 
 
@@ -282,7 +283,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
   try {
   const ci = ctx?.contentIndex ?? contentIndex;
   const db = ctx?.database ?? databaseManager;
-  const cf = ctx?.contentRootName ?? process.env.CONTENT_FOLDER ?? "content";
+  const cf = ctx?.contentRootName ?? getDefaultContentFolder();
 
   const today = getCurrentDate();
   const entriesMap = new Map<string, CanonicalSitemapEntry>();

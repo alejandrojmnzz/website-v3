@@ -18,6 +18,25 @@ const SYNC_FILES = [
   SYNC_FILENAMES.versioningState,
 ] as const;
 
+async function resolveSyncFileSrcKey(
+  bucket: Bucket,
+  site: string,
+  file: (typeof SYNC_FILES)[number],
+  defaultSite: string,
+): Promise<string> {
+  const candidates = [legacyPerSiteSyncGcsKey(site, file)];
+  if (site === defaultSite) {
+    if (file === SYNC_FILENAMES.syncState || file === SYNC_FILENAMES.versioningState) {
+      candidates.push(legacyGlobalSyncGcsKey(file));
+    }
+  }
+  for (const key of candidates) {
+    const [exists] = await bucket.file(key).exists();
+    if (exists) return key;
+  }
+  return candidates[0];
+}
+
 export async function buildLayoutMigrationPlan(options: {
   bucket: Bucket;
   sites: string[];
@@ -35,7 +54,12 @@ export async function buildLayoutMigrationPlan(options: {
 
   for (const site of sites) {
     for (const file of SYNC_FILES) {
-      const srcKey = legacyPerSiteSyncGcsKey(site, file);
+      const srcKey = await resolveSyncFileSrcKey(
+        options.bucket,
+        site,
+        file,
+        options.defaultSite,
+      );
       const destKey = siteSyncGcsKey(site, file);
       add({
         id: jobId(srcKey, destKey),

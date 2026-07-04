@@ -391,32 +391,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 export async function startBackgroundSync(): Promise<void> {
   const { logSync } = await import("../sync-log");
   const { loadSyncStateFromBucket } = await import("../sync-state");
-  const { isMultiSiteMode } = await import("../site-config");
 
-  // Build per-site sync targets. In multi-site mode ONLY sites that explicitly
-  // configure githubRepoUrl are synced; sites without a repo are skipped entirely
+  // Per-site sync targets from SiteContext — sites without githubRepoUrl are skipped
   // so they cannot inadvertently pull from the global GITHUB_REPO_URL env var.
-  // In single-site mode a single implicit target uses GITHUB_REPO_URL env var.
   type SyncTarget = { repoUrl?: string; contentRoot?: string; label: string };
   const syncTargets: SyncTarget[] = [];
-  if (isMultiSiteMode()) {
-    const seen = new Set<string>();
-    for (const ctx of Array.from(getSiteContextMap().values())) {
-      if (!ctx.config.githubRepoUrl) continue; // no repo configured — skip
-      const key = `${ctx.config.githubRepoUrl.replace(/\.git$/, "")}:${ctx.contentRootName}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      syncTargets.push({
-        repoUrl: ctx.config.githubRepoUrl,
-        contentRoot: ctx.contentRootName,
-        label: ctx.config.domain,
-      });
-    }
-    // In multi-site mode we do NOT add a global fallback: any site lacking a
-    // githubRepoUrl should stay isolated from the global GITHUB_REPO_URL env var.
-  } else {
-    // Single-site mode: use GITHUB_REPO_URL env var (may be undefined → no sync).
-    syncTargets.push({ label: "default" });
+  const seen = new Set<string>();
+  for (const ctx of Array.from(getSiteContextMap().values())) {
+    if (!ctx.config.githubRepoUrl) continue;
+    const key = `${ctx.config.githubRepoUrl.replace(/\.git$/, "")}:${ctx.contentRootName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    syncTargets.push({
+      repoUrl: ctx.config.githubRepoUrl,
+      contentRoot: ctx.contentRootName,
+      label: ctx.config.domain,
+    });
   }
 
   routesLogger.info(`reconciling sync state in background (non-blocking) for ${syncTargets.length} site(s)...`);
@@ -439,9 +429,9 @@ export async function startBackgroundSync(): Promise<void> {
       await Promise.all(syncTargets.map(async (target) => {
         const { withSyncLogContextAsync } = await import("../sync-log");
         return withSyncLogContextAsync(target.contentRoot, async () => {
-        const opts = target.repoUrl ? { repoUrl: target.repoUrl, contentRoot: target.contentRoot } : undefined;
-        const pfx = target.label !== "default" ? ` [${target.label}]` : "";
-        const contentFolder = target.contentRoot ?? (getDefaultContentFolder());
+        const opts = { repoUrl: target.repoUrl, contentRoot: target.contentRoot };
+        const pfx = ` [${target.label}]`;
+        const contentFolder = target.contentRoot ?? getDefaultContentFolder();
 
         // Bootstrap pull: run when GitHub sync is configured AND the bootstrap-complete
         // flag is absent.  The flag is written only after a fully successful pull, so

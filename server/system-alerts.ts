@@ -1,7 +1,7 @@
 import { gcs } from "./gcs";
 import { getAllJobStates } from "./db-job-state";
 import { getSiteContextMap } from "./site-manager";
-import { isMultiSiteMode } from "./site-config";
+import { hasMultipleSites } from "./site-config";
 import {
   evaluateDatabaseHealth,
   isAuthFetchError,
@@ -51,7 +51,7 @@ function issuesFromCacheOrEvaluate(
 
 export function collectSystemAlerts(): SystemAlert[] {
   const alerts: SystemAlert[] = [];
-  const multiSite = isMultiSiteMode();
+  const multiSite = hasMultipleSites();
 
   if (gcs.migrationRequired) {
     alerts.push({

@@ -22,6 +22,7 @@ import {
   type PendingChange,
 } from './sync-state';
 import { child } from "./logger";
+import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 const log = child({ module: "github" });
 
 
@@ -209,10 +210,10 @@ export function isGitHubConfigured(repoUrl?: string): boolean {
 /**
  * Fetch all content-folder files from a commit tree.
  * Used when there's no lastSyncedCommit to compare against.
- * @param contentFolder - relative content folder name (e.g. "4geeks-com"); defaults to CONTENT_FOLDER env var
+ * @param contentFolder - relative content folder name (e.g. site_4geeks-com); defaults to default site from sites.yml
  */
 async function fetchFilesFromTree(config: GitHubConfig, commitSha: string, contentFolder?: string): Promise<string[]> {
-  const folder = contentFolder || process.env.CONTENT_FOLDER || 'content';
+  const folder = contentFolder || getDefaultContentFolder();
   try {
     // Get the tree for the commit recursively
     const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees/${commitSha}?recursive=1`;
@@ -987,7 +988,7 @@ export async function getAllSyncChanges(contentFolder?: string): Promise<Pending
       
       // Parse content type and slug from file path
       const allDirs = [...getAllDirectories(), "component-registry"];
-      const _cf = contentFolder || process.env.CONTENT_FOLDER || 'content';
+      const _cf = contentFolder || getDefaultContentFolder();
       const _cfEsc = _cf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const pathMatch = filePath.match(new RegExp(`${_cfEsc}\\/(${allDirs.join("|")})\\/([^\\/]+)`));
       changes.push({
@@ -1110,7 +1111,9 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
       rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
 
       if (pulledCount > 0) {
-        const _cfRec = opts?.contentRoot ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot) : (process.env.CONTENT_FOLDER || 'content');
+        const _cfRec = opts?.contentRoot
+          ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
+          : getDefaultContentFolder();
         logSync('RECONCILE', `Pulled ${pulledCount} stale file(s) from GitHub: ${staleFiles.slice(0, 5).map(f => f.replace(`${_cfRec}/`, '')).join(', ')}${staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : ''}`);
       }
       if (pullErrors.length > 0) {
@@ -1190,7 +1193,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
 
   const contentFolder = opts?.contentRoot
     ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
-    : (process.env.CONTENT_FOLDER || 'content');
+    : getDefaultContentFolder();
 
   const pulled: string[] = [];
   const conflicted: string[] = [];
@@ -1921,18 +1924,17 @@ export function getBootstrapState(): Readonly<BootstrapState> {
 }
 
 /**
- * Path to the marker file written on a successful bootstrap.
- * Its absence signals an incomplete bootstrap so the next startup re-attempts.
+ * Path to the bootstrap-complete marker for the default site (when contentRoot omitted).
  */
-export const BOOTSTRAP_COMPLETE_FLAG = path.join(
-  process.cwd(),
-  process.env.CONTENT_FOLDER || 'content',
-  '.bootstrap-complete',
-);
+export function getBootstrapCompleteFlagPath(): string {
+  return bootstrapFlagPath();
+}
 
 function bootstrapFlagPath(contentRoot?: string): string {
-  if (!contentRoot) return BOOTSTRAP_COMPLETE_FLAG;
-  const abs = path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
+  const folder = contentRoot
+    ? (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
+    : getDefaultContentFolder();
+  const abs = path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);
   return path.join(abs, '.bootstrap-complete');
 }
 
@@ -2013,7 +2015,7 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
 
   const contentFolder = opts?.contentRoot
     ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
-    : (process.env.CONTENT_FOLDER || 'content');
+    : getDefaultContentFolder();
   const files = await fetchFilesFromTree(config, headSha, contentFolder);
   if (files.length === 0) {
     logSync('AUTO-PULL', `Bootstrap: no ${contentFolder} files found on remote`);
@@ -2175,7 +2177,7 @@ export async function pushAllContentToRemote(opts?: {
 
   const contentDir = opts?.contentRoot
     ? (path.isAbsolute(opts.contentRoot) ? opts.contentRoot : path.join(process.cwd(), opts.contentRoot))
-    : path.join(process.cwd(), process.env.CONTENT_FOLDER || 'content');
+    : getDefaultContentRoot();
   const contentFolderName = path.relative(process.cwd(), contentDir);
   if (!fs.existsSync(contentDir)) {
     return { committed: [], skipped: [], errors: [`${contentFolderName}/ directory does not exist`] };

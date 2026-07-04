@@ -26,7 +26,7 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
   return headers;
 }
 
-const SITE_PARAM_DESC = 'Domain of the target site, e.g. "fl.4geeks.com" (required in multi-site mode; ignored in single-site mode)';
+const SITE_PARAM_DESC = 'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists)';
 
 export function registerComponentTools(mcp: McpServer, mcpToken?: string): void {
   // list_components

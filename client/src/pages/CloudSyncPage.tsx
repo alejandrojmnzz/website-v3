@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, AlertTriangle, ChevronDown, Cloud, Info, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,61 @@ function formatDate(iso: string | null): string {
   } catch {
     return iso;
   }
+}
+
+function CopyableMonoText({
+  text,
+  testId,
+}: {
+  text: string | null | undefined;
+  testId: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const display = text ?? "—";
+  const canCopy = Boolean(text);
+
+  function handleCopy() {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <button
+        type="button"
+        onClick={handleCopy}
+        disabled={!canCopy}
+        className={cn(
+          "text-sm font-mono truncate text-left min-w-0 flex-1",
+          canCopy && "cursor-pointer hover:text-foreground transition-colors",
+          !canCopy && "cursor-default",
+        )}
+        title={canCopy ? (copied ? "Copied!" : text ?? undefined) : undefined}
+        data-testid={testId}
+      >
+        {display}
+      </button>
+      {canCopy && (
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={cn(
+            "shrink-0 inline-flex items-center justify-center h-5 w-5 rounded-sm",
+            "text-muted-foreground hover:text-foreground transition-colors",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+          title={copied ? "Copied!" : "Copy to clipboard"}
+          aria-label="Copy to clipboard"
+          data-testid={`${testId}-copy`}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function MetricCardHelp({ testId, children }: { testId: string; children: React.ReactNode }) {
@@ -629,9 +684,7 @@ export default function CloudSyncPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <p className="text-sm font-mono truncate" title={status?.bucketName ?? undefined} data-testid="text-bucket-name">
-                {status?.bucketName ?? "—"}
-              </p>
+              <CopyableMonoText text={status?.bucketName} testId="text-bucket-name" />
               <MetricCardHelp testId="text-bucket-name-help">
                 Set <span className="font-mono">bucket_name</span> in{" "}
                 <span className="font-mono">sites.yml</span>, or use{" "}
