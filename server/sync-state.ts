@@ -12,20 +12,21 @@ import * as crypto from 'crypto';
 import { siteSyncGcsKey, SYNC_FILENAMES, syncStateReadKeys } from '@shared/gcsKeys';
 import { gcs } from './gcs';
 import { child } from "./logger";
+import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 const log = child({ module: "sync-state" });
 
+function defaultContentFolder(): string {
+  return getDefaultContentFolder();
+}
 
-
-const DEFAULT_CONTENT_FOLDER = process.env.CONTENT_FOLDER || 'content';
-const MARKETING_CONTENT_DIR = path.join(process.cwd(), DEFAULT_CONTENT_FOLDER);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 /**
  * Returns the relative content folder name for a given contentRoot.
- * Falls back to CONTENT_FOLDER env var (or '4geeks-com') when no contentRoot provided.
+ * Falls back to the default site from sites.yml when no contentRoot provided.
  */
 export function getContentFolder(contentRoot?: string): string {
-  if (!contentRoot) return DEFAULT_CONTENT_FOLDER;
+  if (!contentRoot) return defaultContentFolder();
   return path.isAbsolute(contentRoot)
     ? path.relative(process.cwd(), contentRoot)
     : contentRoot;
@@ -51,7 +52,7 @@ function normalizePath(filePath: string, contentRoot?: string): string {
  * inside its content directory, preventing cross-repo contamination.
  */
 function getSyncStatePath(contentRoot?: string): string {
-  if (!contentRoot) return path.join(process.cwd(), DEFAULT_CONTENT_FOLDER, '.sync-state.json');
+  if (!contentRoot) return path.join(getDefaultContentRoot(), '.sync-state.json');
   const abs = path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
   return path.join(abs, '.sync-state.json');
 }
@@ -61,7 +62,7 @@ function getSyncStatePath(contentRoot?: string): string {
  * Keyed by contentRoot so that multi-site setups don't share a single key.
  */
 function getSiteFolder(contentRoot?: string): string {
-  if (!contentRoot) return DEFAULT_CONTENT_FOLDER;
+  if (!contentRoot) return defaultContentFolder();
   return (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
     .replace(/\\/g, '/')
     .replace(/^\/|\/$/g, '');
@@ -384,7 +385,7 @@ function getAllContentFiles(contentRoot?: string): string[] {
   const files: string[] = [];
   const scanDir = contentRoot
     ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
-    : MARKETING_CONTENT_DIR;
+    : getDefaultContentRoot();
 
   function walkDir(dir: string) {
     if (!fs.existsSync(dir)) return;

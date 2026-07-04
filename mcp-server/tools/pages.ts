@@ -26,7 +26,7 @@ const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Must match the value used in server/routes/_helpers.ts trusted-internal bypass.
 export const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-const SITE_PARAM_DESC = 'Domain of the target site, e.g. "fl.4geeks.com" (required in multi-site mode; ignored in single-site mode)';
+const SITE_PARAM_DESC = 'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists)';
 
 /**
  * Build the Authorization + author headers for loopback calls to the main

@@ -14,56 +14,98 @@ export interface SiteConfig {
 let _cached: SiteConfig[] | null = null;
 let _bucketName: string | null | undefined = undefined;
 
-export function getSiteConfigs(): SiteConfig[] {
-  if (_cached) return _cached;
+const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
+#
+# bucket_name: my-gcs-bucket   # optional — shared GCS bucket for all sites
+#
+# example.com:
+#   content_folder: site_example-com
+#   github_repo_url: https://github.com/org/example-content
 
-  const sitesYml = path.join(process.cwd(), "sites.yml");
+bucket_name: my-gcs-bucket
 
-  if (fs.existsSync(sitesYml)) {
-    try {
-      const raw = fs.readFileSync(sitesYml, "utf-8");
-      const parsed = yaml.load(raw) as Record<string, unknown> | null;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const configs: SiteConfig[] = [];
+example.com:
+  content_folder: site_example-com
+  github_repo_url: https://github.com/org/example-content
+`;
 
-        if (typeof parsed.bucket_name === "string" && parsed.bucket_name) {
-          _bucketName = parsed.bucket_name;
-        }
+export function formatSitesYmlRequiredError(reason: string): string {
+  return [
+    "sites.yml is required but could not be loaded.",
+    "",
+    `Reason: ${reason}`,
+    "",
+    "Create sites.yml at the project root with at least one site entry.",
+    "See INSTALL.md (Site content folders) for setup steps.",
+    "",
+    "Expected format:",
+    SITES_YML_EXAMPLE.trimEnd(),
+  ].join("\n");
+}
 
-        for (const [domain, config] of Object.entries(parsed)) {
-          if (domain === "bucket_name") continue;
-          if (config && typeof config === "object") {
-            const c = config as Record<string, unknown>;
-            configs.push({
-              domain,
-              contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
-              githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
-            });
-          }
-        }
-        if (configs.length > 0) {
-          log.info(`[SiteConfig] Loaded ${configs.length} site(s) from sites.yml`);
-          _cached = configs;
-          return _cached;
-        }
-      }
-    } catch (err) {
-      log.error({ err }, "[SiteConfig] Failed to parse sites.yml — falling back to single-site mode");
+export class SitesYmlRequiredError extends Error {
+  constructor(reason: string) {
+    super(formatSitesYmlRequiredError(reason));
+    this.name = "SitesYmlRequiredError";
+  }
+}
+
+function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
+  if (!fs.existsSync(sitesYml)) {
+    throw new SitesYmlRequiredError("sites.yml not found at project root");
+  }
+
+  let parsed: Record<string, unknown> | null;
+  try {
+    const raw = fs.readFileSync(sitesYml, "utf-8");
+    parsed = yaml.load(raw) as Record<string, unknown> | null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new SitesYmlRequiredError(`failed to parse sites.yml: ${msg}`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new SitesYmlRequiredError("sites.yml must be a YAML mapping (object), not an array or scalar");
+  }
+
+  const configs: SiteConfig[] = [];
+
+  if (typeof parsed.bucket_name === "string" && parsed.bucket_name) {
+    _bucketName = parsed.bucket_name;
+  }
+
+  for (const [domain, config] of Object.entries(parsed)) {
+    if (domain === "bucket_name") continue;
+    if (config && typeof config === "object") {
+      const c = config as Record<string, unknown>;
+      configs.push({
+        domain,
+        contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
+        githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
+      });
     }
   }
 
-  const contentFolder = process.env.CONTENT_FOLDER || "site_default";
-  const githubRepoUrl = process.env.GITHUB_REPO_URL || undefined;
-  let domain = "localhost";
-  if (process.env.SITE_URL) {
-    try {
-      domain = new URL(process.env.SITE_URL).hostname;
-    } catch {}
+  if (configs.length === 0) {
+    throw new SitesYmlRequiredError("sites.yml contains no site entries (add at least one domain block)");
   }
 
-  log.info(`[SiteConfig] Single-site mode: contentFolder="${contentFolder}", domain="${domain}"`);
-  _cached = [{ domain, contentFolder, githubRepoUrl }];
+  return configs;
+}
+
+/** Load site configs from sites.yml; throws SitesYmlRequiredError when missing or invalid. */
+export function requireSiteConfigs(): SiteConfig[] {
+  if (_cached) return _cached;
+
+  const sitesYml = path.join(process.cwd(), "sites.yml");
+  const configs = parseSitesYmlFile(sitesYml);
+  log.info(`[SiteConfig] Loaded ${configs.length} site(s) from sites.yml`);
+  _cached = configs;
   return _cached;
+}
+
+export function getSiteConfigs(): SiteConfig[] {
+  return requireSiteConfigs();
 }
 
 /**
@@ -95,19 +137,22 @@ export function getBucketName(): string | null {
   return null;
 }
 
+/** True when more than one site is configured (UI-only: site switcher visibility). */
+export function hasMultipleSites(): boolean {
+  return getSiteConfigs().length > 1;
+}
+
+/** @deprecated Use hasMultipleSites() — kept for compatibility during migration. */
 export function isMultiSiteMode(): boolean {
-  const configs = getSiteConfigs();
-  return configs.length > 1;
+  return hasMultipleSites();
 }
 
-/** First site in sites.yml, or CONTENT_FOLDER / site_default in single-site mode. */
+/** First site in sites.yml (the default site for unmatched hostnames). */
 export function getDefaultContentFolder(): string {
-  const configs = getSiteConfigs();
-  if (configs.length > 0) return configs[0].contentFolder;
-  return process.env.CONTENT_FOLDER || "site_default";
+  return getSiteConfigs()[0].contentFolder;
 }
 
-/** Absolute path to the default site's content folder (from sites.yml when present). */
+/** Absolute path to the default site's content folder (from sites.yml). */
 export function getDefaultContentRoot(): string {
   const folder = getDefaultContentFolder();
   return path.isAbsolute(folder) ? folder : path.join(process.cwd(), folder);

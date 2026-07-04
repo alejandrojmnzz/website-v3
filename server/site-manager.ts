@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import type { Request, Response, NextFunction } from "express";
-import { getSiteConfigs, isMultiSiteMode, type SiteConfig } from "./site-config";
+import { getSiteConfigs, hasMultipleSites, type SiteConfig } from "./site-config";
 import { ContentIndex } from "./content-index";
 import { MediaGallery } from "./media-gallery";
 import { ValidationCacheService } from "./services/validationCacheService";
@@ -224,12 +224,14 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   next();
 }
 
-export function getSiteInfo(req: Request, res: Response): { domain: string; contentFolder: string; isMultiSite: boolean; isDevOverride: boolean; githubRepoUrl?: string } {
+export function getSiteInfo(req: Request, res: Response): { domain: string; contentFolder: string; isMultiSite: boolean; siteCount: number; isDevOverride: boolean; githubRepoUrl?: string } {
   const site = res.locals.site ?? getDefaultSite();
+  const configs = getSiteConfigs();
   return {
     domain: site.config.domain,
     contentFolder: site.config.contentFolder,
-    isMultiSite: isMultiSiteMode(),
+    isMultiSite: hasMultipleSites(),
+    siteCount: configs.length,
     isDevOverride: site.isDevOverride ?? false,
     githubRepoUrl: site.config.githubRepoUrl,
   };

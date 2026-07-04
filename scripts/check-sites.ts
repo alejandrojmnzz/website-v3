@@ -12,7 +12,7 @@ loadDotenv({ quiet: true });
 
 process.env.LOG_LEVEL = "silent";
 
-const { getSiteConfigs } = await import("../server/site-config");
+const { requireSiteConfigs } = await import("../server/site-config");
 const {
   bootstrapContentFromRemote,
   getBootstrapState,
@@ -270,7 +270,7 @@ async function ensureSite(
 }
 
 async function main(): Promise<void> {
-  const sites = getSiteConfigs();
+  const sites = requireSiteConfigs();
   console.log(`Checking site folders (${sites.length} site${sites.length === 1 ? "" : "s"} from sites.yml)...\n`);
 
   const results: SiteResult[] = [];

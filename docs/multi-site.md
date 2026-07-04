@@ -1,25 +1,31 @@
 # Multi-site content repo separation
 
-## Subdomain routing (single deployment, multiple sites)
+## Subdomain routing (single deployment, one or more sites)
 
-One deployment can serve multiple sites differentiated by subdomain or domain. Each
-site gets its own content folder. The router reads `sites.yml` at the repo root.
+One deployment serves one or more sites differentiated by subdomain or domain. Each
+site gets its own content folder. The router reads **`sites.yml` at the repo root**
+(required).
 
 ### sites.yml format
 
 ```yaml
-# sites.yml (repo root)
+# sites.yml (repo root) — required
+bucket_name: my-gcs-bucket   # optional — shared GCS bucket for all sites
+
 app.example.com:
-  content_folder: content-example        # relative to project root
+  content_folder: site_example-com        # relative to project root
   github_repo_url: https://github.com/org/example-content
 
 app.other.com:
-  content_folder: content-other
+  content_folder: site_other-com
   github_repo_url: https://github.com/org/other-content
 ```
 
-When `sites.yml` is absent the server falls back to **single-site mode** using the
-`CONTENT_FOLDER` environment variable (default: `content`).
+A deployment with **one site** uses the same model — add a single domain block to
+`sites.yml`. There is no separate single-site mode.
+
+If `sites.yml` is missing or invalid, the server and `npm run check:sites` fail
+with instructions and an example format. See [INSTALL.md](../INSTALL.md).
 
 ### Development override
 
@@ -29,7 +35,10 @@ Append `?__site=app.example.com` to any URL to force a specific site without edi
 
 | Variable | Description |
 |---|---|
-| `CONTENT_FOLDER` | Content folder for single-site mode (default: `content`). Set to `4geeks-com` for existing deployments that haven't migrated. |
+| `GITHUB_REPO_URL` | Legacy global fallback only used by some admin tools; per-site repos are configured in `sites.yml` → `github_repo_url`. |
+
+**Deprecated:** `CONTENT_FOLDER` is no longer used for site resolution. Set
+`content_folder` per site in `sites.yml` instead.
 
 ---
 

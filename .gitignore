@@ -6,6 +6,8 @@ artifacts
 # Site content folders — each site has its own repo (GITHUB_REPO_URL).
 # The site_*/ glob covers every site folder; the platform code repo does not contain content.
 site_*/
+# Legacy single-site default folder (no longer created; ignore if present locally)
+/content/
 marketing-content/*
 !marketing-content/.gitkeep
 !marketing-content/README.md
