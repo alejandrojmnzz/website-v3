@@ -234,6 +234,13 @@ export function isFirstUser(): boolean {
   return !Object.values(state.users).some((u) => u.roles.includes("webmaster"));
 }
 
+/** True when the user holds the built-in webmaster role (full platform access). */
+export function hasWebmasterRole(username: string): boolean {
+  ensureLoaded();
+  const user = state.users[username];
+  return user?.roles.includes("webmaster") ?? false;
+}
+
 /**
  * Upsert a user record (from Breathecode profile). Updates lastLoginAt.
  */
@@ -315,6 +322,8 @@ export function hasCapability(
   capName: CapabilityName,
   contentType?: string
 ): boolean {
+  if (hasWebmasterRole(username)) return true;
+
   const caps = getEffectiveCapabilities(username);
   const grant = caps.find((g) => g.name === capName);
   if (!grant) return false;
