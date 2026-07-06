@@ -4,3 +4,4 @@
 - [Per-site AI isolation](per-site-ai-isolation.md) — ConversationStore + SyncLog are per-site instances in SiteContext; use getConversationStore(res) / getSyncLogForResponse(res) in routes; legacy data copied only for primary site (isFirstSite flag) to prevent cross-site leakage.
 - [Production build: @shared path alias](prod-build-shared-alias.md) — @shared is a Vite/TS alias not a real package; fix via symlink + esbuild alias in deployment build command.
 - [Vite 8 / Rolldown config bundling trap](vite8-rolldown-config-trap.md) — Rolldown statically inlines server code into the vite config bundle; fix via concatenated import paths + try/catch subprocess fallback.
+- [Server controls, soft-reload atomicity & staff-auth](server-control-and-staff-auth.md) — soft reload must rebuild singletons commit-on-success (never null-then-rebuild); requireStaffSession auto-authorizes in dev; hard-restart kills the dev server (no auto-relaunch).

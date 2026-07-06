@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconServer } from "@tabler/icons-react";
-import { Check, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2, Power } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,12 +9,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getDebugToken } from "@/hooks/useDebugAuth";
+import { useHardRestart } from "@/hooks/useHardRestart";
 
 interface SiteInfo {
   domain: string;
@@ -53,7 +64,9 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [includeSample, setIncludeSample] = useState(true);
   const [successResult, setSuccessResult] = useState<CreateSiteResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { phase: restartPhase, message: restartMessage, start: startRestart, reset: resetRestart } = useHardRestart();
 
   const createMutation = useMutation<CreateSiteResult, Error, { name: string; domain: string; githubRepoUrl?: string; includeSampleContent: boolean }>({
     mutationFn: async (body) => {
@@ -148,17 +161,35 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
                 </div>
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSuccessResult(null);
-                    setFolderName("");
-                    setDomain("");
-                    setGithubUrl("");
-                    setIncludeSample(false);
-                  }}
+                  variant="destructive"
+                  onClick={() => setRestartConfirmOpen(true)}
+                  disabled={restartPhase === "restarting"}
+                  data-testid="button-restart-server"
                 >
-                  Create another site
+                  {restartPhase === "restarting" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <Power className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Restart server
                 </Button>
+                {restartPhase !== "idle" && (
+                  <div
+                    className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
+                      restartPhase === "online"
+                        ? "border-green-500/30 bg-green-500/5 text-foreground"
+                        : restartPhase === "failed"
+                          ? "border-destructive/30 bg-destructive/5 text-destructive"
+                          : "border-border bg-muted/40 text-foreground"
+                    }`}
+                    data-testid="status-restart-server"
+                  >
+                    {restartPhase === "restarting" && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mt-0.5" />}
+                    {restartPhase === "online" && <Check className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" />}
+                    {restartPhase === "failed" && <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
+                    <span className="flex-1">{restartMessage}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -237,6 +268,32 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
           </TabsContent>
         </Tabs>
       </DialogContent>
+
+      <AlertDialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restart the server?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This gracefully exits and relaunches the process so newly created sites are picked up. The site will be
+              briefly unavailable while it comes back online. If it does not recover, you will need to roll back or
+              redeploy from the platform. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-restart-server">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                resetRestart();
+                startRestart();
+              }}
+              data-testid="button-confirm-restart-server"
+            >
+              Restart server
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

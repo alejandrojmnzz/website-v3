@@ -20,10 +20,6 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 6333
-externalPort = 6000
-
-[[ports]]
 localPort = 6334
 externalPort = 6800
 
@@ -78,13 +74,13 @@ args = "Qdrant Vector Store"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
 
 [[workflows.workflow]]
 name = "artifacts/mockup-sandbox: Component Preview Server"
