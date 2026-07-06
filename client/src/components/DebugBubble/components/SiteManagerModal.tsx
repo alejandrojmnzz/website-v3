@@ -30,9 +30,20 @@ interface SiteManagerModalProps {
   siteInfo: SiteInfo | null | undefined;
 }
 
+interface GitHubSeedResult {
+  attempted: boolean;
+  success: boolean;
+  committed: string[];
+  skipped: string[];
+  errors: string[];
+  commitSha: string | null;
+  reason?: string;
+}
+
 interface CreateSiteResult {
   folderName: string;
   created: boolean;
+  githubSeed?: GitHubSeedResult;
 }
 
 function ConfigRow({ label, value, mono = false }: { label: string; value: string | boolean | undefined; mono?: boolean }) {
@@ -52,6 +63,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [githubUrl, setGithubUrl] = useState("");
   const [includeSample, setIncludeSample] = useState(true);
   const [successResult, setSuccessResult] = useState<CreateSiteResult | null>(null);
+  const [successGithubUrl, setSuccessGithubUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -71,6 +83,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
     },
     onSuccess: (data) => {
       setSuccessResult(data);
+      setSuccessGithubUrl(githubUrl.trim() || null);
       setErrorMsg(null);
       queryClient.invalidateQueries({ queryKey: ["/api/site/info"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
@@ -84,6 +97,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
     if (!folderName.trim() || !domain.trim()) return;
     setErrorMsg(null);
     setSuccessResult(null);
+    setSuccessGithubUrl(null);
     createMutation.mutate({
       name: folderName.trim(),
       domain: domain.trim(),
@@ -95,6 +109,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const handleDialogClose = (v: boolean) => {
     if (!v) {
       setSuccessResult(null);
+      setSuccessGithubUrl(null);
       setErrorMsg(null);
     }
     onOpenChange(v);
@@ -142,15 +157,47 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
                   <Check className="h-4 w-4 text-primary" />
                   Site created successfully
                 </div>
-                <div className="text-xs text-muted-foreground space-y-1">
+                <div className="text-xs text-muted-foreground space-y-2">
                   <p>Folder: <code className="font-mono bg-muted px-1 py-0.5 rounded">{successResult.folderName}/</code></p>
-                  <p className="mt-2 text-foreground">Next step: restart the server for the new site to be picked up.</p>
+
+                  {successResult.githubSeed?.success && (
+                    <p className="text-foreground">
+                      {successResult.githubSeed.committed.length} scaffold file
+                      {successResult.githubSeed.committed.length === 1 ? "" : "s"} pushed to GitHub
+                      {successResult.githubSeed.commitSha
+                        ? ` (commit ${successResult.githubSeed.commitSha.slice(0, 7)})`
+                        : ""}
+                      . Files are safe in the content repo before restart.
+                    </p>
+                  )}
+
+                  {successResult.githubSeed?.attempted && !successResult.githubSeed.success && (
+                    <div className="rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-destructive space-y-1">
+                      <p className="font-medium">GitHub push failed — files exist only locally.</p>
+                      {successResult.githubSeed.errors.length > 0 && (
+                        <p>{successResult.githubSeed.errors.slice(0, 3).join("; ")}</p>
+                      )}
+                      <p>Retry via Sync → push-all before restarting.</p>
+                    </div>
+                  )}
+
+                  {successResult.githubSeed && !successResult.githubSeed.attempted && successResult.githubSeed.reason && (
+                    <p className="text-foreground">GitHub push skipped: {successResult.githubSeed.reason}</p>
+                  )}
+
+                  <p className="text-foreground">
+                    Next step: restart the server so background sync picks up the new site.
+                  </p>
+                  {successGithubUrl && successResult.githubSeed?.attempted && !successResult.githubSeed.success && (
+                    <p className="text-destructive">Do not restart until the push succeeds, or scaffold files may be lost.</p>
+                  )}
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
                     setSuccessResult(null);
+                    setSuccessGithubUrl(null);
                     setFolderName("");
                     setDomain("");
                     setGithubUrl("");
@@ -229,7 +276,9 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
                     data-testid="button-create-site"
                   >
                     {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-                    Create Site
+                    {createMutation.isPending
+                      ? (githubUrl.trim() ? "Creating & pushing…" : "Creating site…")
+                      : "Create Site"}
                   </Button>
                 </div>
               </>
