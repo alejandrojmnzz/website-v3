@@ -309,6 +309,33 @@ export function registerAdminRoutes(app: Express): void {
     });
   });
 
+  app.post("/api/admin/gcs-reupload-sites-yml", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const { reuploadSitesYmlToBucket } = await import("../sites-yml-store");
+      const result = await reuploadSitesYmlToBucket();
+      if (!result.success) {
+        return res.status(400).json({
+          ...result,
+          message: result.reason ?? "Could not upload site registry.",
+        });
+      }
+      res.json({
+        ...result,
+        message: `Uploaded site registry to ${result.gcsKey}.`,
+      });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to re-upload sites.yml to GCS:");
+      res.status(500).json({
+        success: false,
+        uploaded: false,
+        message: err instanceof Error ? err.message : "Failed to upload site registry.",
+      });
+    }
+  });
+
   app.get("/api/admin/system-alerts", async (req, res) => {
     const auth = await requireStaffSession(req, res);
     if (!auth.authorized) return;
@@ -2189,16 +2216,13 @@ export function registerAdminRoutes(app: Express): void {
         includeSampleContent: includeSampleContent !== false,
       });
 
-      // Append to sites.yml
-      const sitesYmlPath = path.join(process.cwd(), "sites.yml");
-      let sitesContent = "";
-      if (fs.existsSync(sitesYmlPath)) {
-        sitesContent = fs.readFileSync(sitesYmlPath, "utf-8");
-        if (!sitesContent.endsWith("\n")) sitesContent += "\n";
-      }
+      // Append to sites.yml and persist to GCS (production)
+      const { readSitesYmlLocal, saveSitesYml } = await import("../sites-yml-store");
+      let sitesContent = readSitesYmlLocal() ?? "";
+      if (sitesContent && !sitesContent.endsWith("\n")) sitesContent += "\n";
       const newEntry = `${domain}:\n  content_folder: ${folderName}\n${githubRepoUrl ? `  github_repo_url: ${githubRepoUrl}\n` : ""}`;
       sitesContent += newEntry;
-      fs.writeFileSync(sitesYmlPath, sitesContent);
+      saveSitesYml(sitesContent);
       resetSiteConfigs();
       resetSiteContextMap();
 

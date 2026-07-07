@@ -28,6 +28,7 @@ export interface GcsSiteArchitecture {
 }
 
 export interface GcsPlatformArchitecture {
+  sitesYml: GcsKeyProbe;
   userStore: GcsKeyProbe;
   mcpAuthSamples: string[];
 }
@@ -189,6 +190,8 @@ export function inventoryCategoryDescription(label: string): string | null {
       return "Stored Lighthouse audit results for this site (GCS only). Used by admin diagnostics and performance monitoring.";
     case "AI conversation snapshots":
       return "Backups of AI editor conversations for this site, stored in GCS so chat history survives deploys and restarts.";
+    case "Site registry (sites.yml)":
+      return "Platform site registry — maps domains to content folders and GitHub repos. Canonical copy in GCS; local sites.yml is a cache. Updated by Site Manager.";
     case "User/auth store":
       return "Platform-wide user and session data shared across all sites — not stored under a site folder. Synced between local disk and GCS in production.";
     case "Pending upload":

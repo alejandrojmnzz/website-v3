@@ -35,7 +35,7 @@ export function formatSitesYmlRequiredError(reason: string): string {
     "",
     `Reason: ${reason}`,
     "",
-    "Create sites.yml at the project root with at least one site entry.",
+    "Create sites.yml at the project root with at least one site entry (copy sites.yml.example).",
     "See INSTALL.md (Site content folders) for setup steps.",
     "",
     "Expected format:",

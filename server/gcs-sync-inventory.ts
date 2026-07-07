@@ -2,6 +2,9 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   formStateReadKeys,
+  platformSitesYmlGcsKey,
+  platformSitesYmlLocalFilename,
+  platformSitesYmlReadKeys,
   platformUserStoreGcsKey,
   platformUserStoreLocalFilename,
   siteConversationsGcsPrefix,
@@ -242,6 +245,15 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
   }
 
   rows.push(
+    await resolveRow({
+      id: "multisite-platform-sites-yml",
+      label: "Site registry (sites.yml)",
+      siteFolder: null,
+      gcsKey: platformSitesYmlGcsKey(),
+      readKeys: platformSitesYmlReadKeys(),
+      localPath: path.join(process.cwd(), platformSitesYmlLocalFilename()),
+      writesBlocked: true,
+    }),
     await resolveRow({
       id: "multisite-user-store",
       label: "User/auth store",

@@ -23,11 +23,33 @@ export function legacyGlobalSyncGcsKey(filename: SyncFilename | string): string 
 }
 
 export function platformUserStoreGcsKey(): string {
+  return "multisite-global/users-state.json";
+}
+
+/** Legacy prefix before platform files were consolidated under multisite-global/. */
+export function legacyPlatformUserStoreGcsKey(): string {
   return "multisite-user-store/users-state.json";
 }
 
 export function platformUserStoreLocalFilename(): string {
   return ".multisite-user-store.json";
+}
+
+export function platformSitesYmlGcsKey(): string {
+  return "multisite-global/sites.yml";
+}
+
+/** Legacy prefix before platform files were consolidated under multisite-global/. */
+export function legacyPlatformSitesYmlGcsKey(): string {
+  return "multisite-platform/sites.yml";
+}
+
+export function platformSitesYmlLocalFilename(): string {
+  return "sites.yml";
+}
+
+export function platformSitesYmlReadKeys(): string[] {
+  return [platformSitesYmlGcsKey(), legacyPlatformSitesYmlGcsKey()];
 }
 
 export function siteConversationsGcsKey(site: string, conversationId: string): string {
@@ -88,5 +110,9 @@ export function formStateReadKeys(site: string, isDefaultSite: boolean): string[
 }
 
 export function userStoreReadKeys(): string[] {
-  return [platformUserStoreGcsKey(), legacyGlobalSyncGcsKey(SYNC_FILENAMES.usersState)];
+  return [
+    platformUserStoreGcsKey(),
+    legacyPlatformUserStoreGcsKey(),
+    legacyGlobalSyncGcsKey(SYNC_FILENAMES.usersState),
+  ];
 }

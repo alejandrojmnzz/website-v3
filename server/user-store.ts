@@ -2,7 +2,7 @@
  * UserStore — configurable role-based authorization singleton.
  *
  * Local file at repo root (.multisite-user-store.json),
- * synced to multisite-user-store/users-state.json in GCS on every write.
+ * synced to multisite-global/users-state.json in GCS on every write.
  */
 
 import * as fs from "fs";

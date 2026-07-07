@@ -186,6 +186,9 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
                   )}
 
                   <p className="text-foreground">
+                    Site registry saved to GCS in production — the new domain will appear in Switch Site after a browser refresh.
+                  </p>
+                  <p className="text-foreground">
                     Next step: restart the server so background sync picks up the new site.
                   </p>
                   {successGithubUrl && successResult.githubSeed?.attempted && !successResult.githubSeed.success && (

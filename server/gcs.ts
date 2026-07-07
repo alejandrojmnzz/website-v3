@@ -20,6 +20,7 @@
 import { Storage } from "@google-cloud/storage";
 import {
   formStateReadKeys,
+  platformSitesYmlReadKeys,
   platformUserStoreGcsKey,
   siteConversationsGcsPrefix,
   siteLighthouseGcsPrefixRoot,
@@ -60,6 +61,7 @@ export interface GcsSiteArchitecture {
 }
 
 export interface GcsPlatformArchitecture {
+  sitesYml: GcsKeyProbe;
   userStore: GcsKeyProbe;
   mcpAuthSamples: string[];
 }
@@ -149,6 +151,25 @@ class GCSClient {
     this.storage = new Storage(opts);
     this._available = true;
     gcsLogger.info({ bucket: this.bucketName }, "initialized");
+  }
+
+  /**
+   * Bootstrap init using GCS_BUCKET_NAME only — used before sites.yml is on disk
+   * (e.g. loading the site registry from GCS on cold start).
+   */
+  initBootstrapFromEnv(): void {
+    const bucket = process.env.GCS_BUCKET_NAME;
+    if (!bucket) {
+      gcsLogger.info("initBootstrapFromEnv: GCS_BUCKET_NAME not set — GCS unavailable");
+      return;
+    }
+    gcsLogger.info({ bucket }, "initBootstrapFromEnv: bucket from GCS_BUCKET_NAME");
+    this.init({
+      bucketName: bucket,
+      projectId: process.env.GCS_PROJECT_ID,
+      keyFilename: process.env.GCS_KEY_FILENAME,
+      credentialsJson: process.env.GCS_CREDENTIALS_JSON,
+    });
   }
 
   initFromEnv(): void {
@@ -557,8 +578,14 @@ class GCSClient {
   }
 
   private async probePlatformArchitecture(): Promise<GcsPlatformArchitecture> {
+    const sitesYmlKeys = platformSitesYmlReadKeys();
     const userStoreKeys = userStoreReadKeys();
     return {
+      sitesYml: await this.probeKey(
+        "Site registry",
+        sitesYmlKeys[0],
+        sitesYmlKeys.slice(1),
+      ),
       userStore: await this.probeKey(
         "User store",
         userStoreKeys[0],

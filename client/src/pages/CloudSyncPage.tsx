@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
+import { useToast } from "@/hooks/use-toast";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import {
@@ -488,7 +490,7 @@ function MigrateMultisiteDialog({
             <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
               <li>Flat <span className="font-mono">media/</span> → <span className="font-mono">{"{site}/media/"}</span></li>
               <li>Legacy sync keys → <span className="font-mono">{"{site}/sync/*"}</span></li>
-              <li>User store → <span className="font-mono">multisite-user-store/</span></li>
+              <li>User store → <span className="font-mono">multisite-global/</span></li>
               <li>Conversations, Lighthouse, and form state to per-site prefixes</li>
             </ul>
           </div>
@@ -539,14 +541,73 @@ function MigrateMultisiteDialog({
             <p className="font-medium mb-1">4. After migration</p>
             <p className="text-xs text-muted-foreground">
               Refresh this page and confirm <strong>New layout</strong> is detected under Bucket
-              architecture. If you changed buckets, update <span className="font-mono">bucket_name</span> in{" "}
-              <span className="font-mono">sites.yml</span> and restart the server. Use{" "}
+              architecture. If you changed buckets, update <span className="font-mono">bucket_name</span> in the
+              site registry (<span className="font-mono">sites.yml</span>, synced to GCS in production) and restart
+              the server. Use{" "}
               <strong>Re-check migration</strong> if the banner is still shown.
             </p>
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const SITES_YML_ROW_ID = "multisite-platform-sites-yml";
+
+interface ReuploadSitesYmlResponse {
+  success: boolean;
+  uploaded: boolean;
+  gcsKey: string;
+  message: string;
+}
+
+function ReuploadSitesYmlButton() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/gcs-reupload-sites-yml", {
+        method: "POST",
+        headers: getSessionHeaders(),
+      });
+      const body = (await res.json()) as ReuploadSitesYmlResponse;
+      if (!res.ok || !body.success) {
+        throw new Error(body.message || "Failed to upload site registry.");
+      }
+      return body;
+    },
+    onSuccess: (body) => {
+      toast({ title: "Site registry uploaded", description: body.message });
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-status", "detail"] });
+    },
+    onError: (err) => {
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "Failed to upload site registry.",
+      });
+    },
+  });
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 text-xs"
+      onClick={() => mutation.mutate()}
+      disabled={mutation.isPending}
+      data-testid="button-reupload-sites-yml"
+    >
+      {mutation.isPending ? (
+        <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+      ) : (
+        <UploadCloud className="h-3 w-3 mr-1.5" />
+      )}
+      Upload to GCS
+    </Button>
   );
 }
 
@@ -686,9 +747,9 @@ export default function CloudSyncPage() {
             <div className="space-y-2">
               <CopyableMonoText text={status?.bucketName} testId="text-bucket-name" />
               <MetricCardHelp testId="text-bucket-name-help">
-                Set <span className="font-mono">bucket_name</span> in{" "}
-                <span className="font-mono">sites.yml</span>, or use{" "}
-                <span className="font-mono">GCS_BUCKET_NAME</span> as a fallback. Restart the server
+                Set <span className="font-mono">bucket_name</span> in the site registry (
+                <span className="font-mono">sites.yml</span>, GCS-synced in production), or use{" "}
+                <span className="font-mono">GCS_BUCKET_NAME</span> as a bootstrap fallback. Restart the server
                 after changing.
               </MetricCardHelp>
             </div>
@@ -873,6 +934,10 @@ export default function CloudSyncPage() {
                           isProduction={status?.isProduction}
                           testId={`badge-inventory-${row.id}`}
                         />
+                        {row.id === SITES_YML_ROW_ID &&
+                          (row.status === "missing" || row.status === "local_only") && (
+                            <ReuploadSitesYmlButton />
+                          )}
                         <p className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`inventory-last-synced-${row.id}`}>
                           {row.status === "pending" ? (
                             "—"
@@ -966,16 +1031,34 @@ export default function CloudSyncPage() {
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Platform (multisite)
                 </p>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span>{diagnostics.platform.userStore.label}</span>
-                  <ProbeStatusBadge
-                    probe={diagnostics.platform.userStore}
-                    testId="badge-probe-user-store"
-                  />
-                  <span className="font-mono text-muted-foreground truncate">
-                    {diagnostics.platform.userStore.foundKey ?? diagnostics.platform.userStore.expectedKey}
-                  </span>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  Global configuration and state files shared across all sites (not tied to any single site).
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Sync file</TableHead>
+                      <TableHead className="text-xs">Expected key</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[diagnostics.platform.sitesYml, diagnostics.platform.userStore].map((probe) => (
+                      <TableRow key={probe.expectedKey}>
+                        <TableCell className="text-xs py-2">{probe.label}</TableCell>
+                        <TableCell className="font-mono text-xs py-2 max-w-[240px] truncate" title={probe.foundKey ?? probe.expectedKey}>
+                          {probe.foundKey ?? probe.expectedKey}
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <ProbeStatusBadge
+                            probe={probe}
+                            testId={`badge-probe-platform-${probe.label.replace(/\s+/g, "-").toLowerCase()}`}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
                 {diagnostics.platform.mcpAuthSamples.length > 0 && (
                   <div>
                     <div className="flex items-center gap-1 mb-1">
