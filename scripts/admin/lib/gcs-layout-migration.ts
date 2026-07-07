@@ -4,6 +4,9 @@ import {
   legacyGlobalSyncGcsKey,
   legacyLighthouseGcsPrefixRoot,
   legacyPerSiteSyncGcsKey,
+  legacyPlatformSitesYmlGcsKey,
+  legacyPlatformUserStoreGcsKey,
+  platformSitesYmlGcsKey,
   platformUserStoreGcsKey,
   siteConversationsGcsPrefix,
   siteLighthouseGcsPrefixRoot,
@@ -97,13 +100,36 @@ export async function buildLayoutMigrationPlan(options: {
     }
   }
 
-  const usersSrc = legacyGlobalSyncGcsKey(SYNC_FILENAMES.usersState);
+  const platformSite = options.defaultSite || sites[0] || "platform";
+
   const usersDest = platformUserStoreGcsKey();
+  const usersCandidates = [
+    legacyPlatformUserStoreGcsKey(),
+    legacyGlobalSyncGcsKey(SYNC_FILENAMES.usersState),
+  ];
+  let usersSrc = usersCandidates[0];
+  for (const key of usersCandidates) {
+    const [exists] = await options.bucket.file(key).exists();
+    if (exists) {
+      usersSrc = key;
+      break;
+    }
+  }
   add({
     id: jobId(usersSrc, usersDest),
     srcKey: usersSrc,
     destKey: usersDest,
-    site: options.defaultSite || sites[0] || "platform",
+    site: platformSite,
+    phase: "layout_copy",
+  });
+
+  const sitesYmlSrc = legacyPlatformSitesYmlGcsKey();
+  const sitesYmlDest = platformSitesYmlGcsKey();
+  add({
+    id: jobId(sitesYmlSrc, sitesYmlDest),
+    srcKey: sitesYmlSrc,
+    destKey: sitesYmlDest,
+    site: platformSite,
     phase: "layout_copy",
   });
 

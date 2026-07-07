@@ -27,6 +27,20 @@ A deployment with **one site** uses the same model — add a single domain block
 If `sites.yml` is missing or invalid, the server and `npm run check:sites` fail
 with instructions and an example format. See [INSTALL.md](../INSTALL.md).
 
+### Persistence (local vs GCS)
+
+| Environment | Canonical source | Local file |
+|---|---|---|
+| Development | `sites.yml` at repo root (copy from `sites.yml.example`) | Same file |
+| Production | GCS `multisite-global/sites.yml` | `sites.yml` is a cache (gitignored) |
+
+Site Manager appends new domains to `sites.yml` and uploads to GCS in production.
+Changes survive redeploy without committing to the platform git repo.
+
+**Bootstrap:** production cold start requires `GCS_BUCKET_NAME` in env to fetch the
+registry from GCS before site contexts are built. The `bucket_name` field inside
+`sites.yml` should match that bucket once loaded.
+
 ### Development override
 
 Append `?__site=app.example.com` to any URL to force a specific site without editing DNS.

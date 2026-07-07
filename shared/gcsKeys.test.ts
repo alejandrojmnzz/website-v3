@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   formStateReadKeys,
   legacyPerSiteSyncGcsKey,
+  platformSitesYmlGcsKey,
+  platformSitesYmlReadKeys,
   platformUserStoreGcsKey,
   siteConversationsGcsKey,
   siteLighthouseGcsPrefix,
   siteMediaGcsPrefix,
   siteSyncGcsKey,
   syncStateReadKeys,
+  userStoreReadKeys,
 } from "./gcsKeys";
 
 describe("gcsKeys", () => {
@@ -24,7 +27,24 @@ describe("gcsKeys", () => {
   });
 
   it("builds platform user store key", () => {
-    expect(platformUserStoreGcsKey()).toBe("multisite-user-store/users-state.json");
+    expect(platformUserStoreGcsKey()).toBe("multisite-global/users-state.json");
+  });
+
+  it("builds platform sites.yml key", () => {
+    expect(platformSitesYmlGcsKey()).toBe("multisite-global/sites.yml");
+  });
+
+  it("reads user store new-first with legacy fallbacks", () => {
+    const keys = userStoreReadKeys();
+    expect(keys[0]).toBe("multisite-global/users-state.json");
+    expect(keys).toContain("multisite-user-store/users-state.json");
+    expect(keys).toContain("sync/users-state.json");
+  });
+
+  it("reads sites.yml new-first with legacy fallback", () => {
+    const keys = platformSitesYmlReadKeys();
+    expect(keys[0]).toBe("multisite-global/sites.yml");
+    expect(keys).toContain("multisite-platform/sites.yml");
   });
 
   it("builds site media prefix", () => {

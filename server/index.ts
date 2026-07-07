@@ -12,6 +12,7 @@ import { setAutoCommitCallback } from "./sync-state";
 import { queueFileChange } from "./auto-commit";
 import { contentIndex } from "./content-index";
 import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from "./site-manager";
+import { loadSitesYmlFromBucket } from "./sites-yml-store";
 import { scanEcommerceContent, startEcommerceWatcher } from "./ecommerce/ecommerce-index";
 import { loadUsersStateFromBucket } from "./user-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
@@ -298,6 +299,9 @@ app.use((req, res, next) => {
 
   // sGTM proxy — registered early so it fires before static file handlers
   registerSgtmProxy(app);
+
+  // Load site registry from GCS (production) before building site contexts
+  await loadSitesYmlFromBucket();
 
   // Build site context map before routes so siteResolutionMiddleware has data
   await buildSiteContextMap();

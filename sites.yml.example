@@ -1,0 +1,21 @@
+# sites.yml.example — copy to sites.yml for local development
+#
+# In production the canonical copy lives in GCS (multisite-global/sites.yml).
+# This file documents the required format only — do not put real domains here.
+#
+# Top-level fields (not site entries):
+#
+#   bucket_name: <string>  (optional)
+#     GCS bucket for all sites. Takes precedence over GCS_BUCKET_NAME env var.
+#
+# Site entries — one block per domain:
+#
+#   <domain>:
+#     content_folder: site_<name>
+#     github_repo_url: https://github.com/org/content-repo  (optional)
+
+bucket_name: my-gcs-bucket-name
+
+example.com:
+  content_folder: site_example-com
+  github_repo_url: https://github.com/org/example-content

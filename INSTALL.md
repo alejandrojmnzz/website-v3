@@ -31,7 +31,17 @@ npm run dev
 
 ### Site content folders
 
-Site YAML content is **not** in this repository. Each domain in `sites.yml` maps to a gitignored folder under the project root (currently `site_4geeks-com` and `site_4geeks-florida`).
+Site YAML content is **not** in this repository. Each domain in `sites.yml` maps to a gitignored folder under the project root.
+
+**Local development:** copy the template to create your registry:
+
+```
+cp sites.yml.example sites.yml
+```
+
+Edit `sites.yml` with your domain(s) and content folder names. The file is gitignored — it is local runtime config, not platform source code.
+
+**Production:** the canonical `sites.yml` is stored in GCS at `multisite-global/sites.yml` (requires `GCS_BUCKET_NAME`). Site Manager updates are persisted there automatically. On first deploy with GCS enabled, the server seeds GCS from a local/git copy if the bucket object does not exist yet.
 
 Before the dev server starts, `npm run dev` runs `check:sites`, which:
 
