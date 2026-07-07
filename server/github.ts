@@ -2155,22 +2155,24 @@ export type PushProgressEvent =
 export async function pushAllContentToRemote(opts?: {
   contentRoot?: string;
   repoUrl?: string;
+  commitMessage?: string;
   onProgress?: (event: PushProgressEvent) => void;
 }): Promise<{
   committed: string[];
   skipped: string[];
   errors: string[];
+  commitSha: string | null;
 }> {
   const { withSyncLogContextAsync } = await import('./sync-log');
   return withSyncLogContextAsync(opts?.contentRoot, async () => {
   const syncEnabled = process.env.GITHUB_SYNC_ENABLED === 'true';
   if (!syncEnabled) {
-    return { committed: [], skipped: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'] };
+    return { committed: [], skipped: [], errors: ['GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)'], commitSha: null };
   }
 
   const config = getGitHubConfig(opts?.repoUrl);
   if (!config) {
-    return { committed: [], skipped: [], errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'] };
+    return { committed: [], skipped: [], errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'], commitSha: null };
   }
 
   const { logSync } = await import('./sync-log');
@@ -2180,7 +2182,7 @@ export async function pushAllContentToRemote(opts?: {
     : getDefaultContentRoot();
   const contentFolderName = path.relative(process.cwd(), contentDir);
   if (!fs.existsSync(contentDir)) {
-    return { committed: [], skipped: [], errors: [`${contentFolderName}/ directory does not exist`] };
+    return { committed: [], skipped: [], errors: [`${contentFolderName}/ directory does not exist`], commitSha: null };
   }
 
   // Explicit denylist: internal runtime state files that must never be pushed
@@ -2258,8 +2260,8 @@ export async function pushAllContentToRemote(opts?: {
 
   if (filesToUpload.length === 0 && errors.length === 0) {
     logSync('AUTO-PULL', `Push-all: nothing to do — all ${skipped.length} files already up to date`);
-    opts?.onProgress?.({ type: "done", created: [], updated: [], skipped, errors: [] });
-    return { committed: [], skipped, errors: [] };
+    opts?.onProgress?.({ type: "done", created: [], updated: [], skipped, errors: [], commitSha: headSha ?? undefined });
+    return { committed: [], skipped, errors: [], commitSha: headSha };
   }
 
   // ── Step 3: upload blobs only for changed/new files ──
@@ -2316,7 +2318,7 @@ export async function pushAllContentToRemote(opts?: {
   const changedEntries = blobEntries.filter(e => !skipped.includes(e.path));
   if (changedEntries.length === 0) {
     opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors });
-    return { committed: [], skipped, errors };
+    return { committed: [], skipped, errors, commitSha: null };
   }
 
   // ── Step 4: create a single tree with ALL files (changed + unchanged) ──
@@ -2350,13 +2352,13 @@ export async function pushAllContentToRemote(opts?: {
     const msg = await treeRes.text();
     const treeErrors = [`Tree creation failed (${treeRes.status}): ${msg}`, ...errors];
     opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors: treeErrors });
-    return { committed: [], skipped, errors: treeErrors };
+    return { committed: [], skipped, errors: treeErrors, commitSha: null };
   }
   const newTreeSha = ((await treeRes.json()) as { sha: string }).sha;
 
   // ── Step 5: create commit ──
   const commitBody: Record<string, unknown> = {
-    message: `[push-all] sync ${changedEntries.length} changed file(s) from ${contentFolderName}/`,
+    message: opts?.commitMessage ?? `[push-all] sync ${changedEntries.length} changed file(s) from ${contentFolderName}/`,
     tree: newTreeSha,
   };
   if (parentShas.length) commitBody.parents = parentShas;
@@ -2378,7 +2380,7 @@ export async function pushAllContentToRemote(opts?: {
     const msg = await commitRes.text();
     const commitErrors = [`Commit creation failed (${commitRes.status}): ${msg}`, ...errors];
     opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors: commitErrors });
-    return { committed: [], skipped, errors: commitErrors };
+    return { committed: [], skipped, errors: commitErrors, commitSha: null };
   }
   const newCommitSha = ((await commitRes.json()) as { sha: string }).sha;
 
@@ -2404,7 +2406,7 @@ export async function pushAllContentToRemote(opts?: {
     const msg = await updateRes.text();
     const refErrors = [`Ref update failed (${updateRes.status}): ${msg}`, ...errors];
     opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors: refErrors });
-    return { committed: [], skipped, errors: refErrors };
+    return { committed: [], skipped, errors: refErrors, commitSha: null };
   }
 
   const committed = changedEntries.map(e => e.path);
@@ -2415,6 +2417,73 @@ export async function pushAllContentToRemote(opts?: {
   log.info(`Push-all complete: commit=${newCommitSha}, synced=${committed.length}, skipped=${skipped.length}, errors=${errors.length}`);
 
   opts?.onProgress?.({ type: "done", created: createdFiles, updated: updatedFiles, skipped, errors, commitSha: newCommitSha });
-  return { committed, skipped, errors };
+  return { committed, skipped, errors, commitSha: newCommitSha };
   });
+}
+
+export interface GitHubSeedResult {
+  attempted: boolean;
+  success: boolean;
+  committed: string[];
+  skipped: string[];
+  errors: string[];
+  commitSha: string | null;
+  reason?: string;
+}
+
+/**
+ * Push a newly scaffolded site's content folder to its dedicated GitHub repo,
+ * then initialize per-site sync state so a restart cannot clobber local files.
+ * Only affects the given contentRoot — no other sites are touched.
+ */
+export async function seedNewSiteToGitHub(opts: {
+  contentRoot: string;
+  repoUrl: string;
+}): Promise<GitHubSeedResult> {
+  const empty: GitHubSeedResult = {
+    attempted: false,
+    success: false,
+    committed: [],
+    skipped: [],
+    errors: [],
+    commitSha: null,
+  };
+
+  if (process.env.GITHUB_SYNC_ENABLED !== 'true') {
+    return { ...empty, reason: 'GitHub sync is not enabled (GITHUB_SYNC_ENABLED != true)' };
+  }
+
+  if (!isGitHubConfigured(opts.repoUrl)) {
+    return { ...empty, reason: 'GitHub not configured (missing GITHUB_TOKEN or invalid repo URL)' };
+  }
+
+  const pushResult = await pushAllContentToRemote({
+    contentRoot: opts.contentRoot,
+    repoUrl: opts.repoUrl,
+    commitMessage: `[site-create] Initial scaffold for ${opts.contentRoot}`,
+  });
+
+  const result: GitHubSeedResult = {
+    attempted: true,
+    success: false,
+    committed: pushResult.committed,
+    skipped: pushResult.skipped,
+    errors: pushResult.errors,
+    commitSha: pushResult.commitSha,
+  };
+
+  if (!pushResult.commitSha) {
+    if (pushResult.errors.length === 0) {
+      result.errors = ['Push completed but no commit SHA was returned'];
+    }
+    return result;
+  }
+
+  const { rebuildSyncStateFromLocal } = await import('./sync-state');
+  rebuildSyncStateFromLocal(pushResult.commitSha, opts.contentRoot);
+  writeBootstrapCompleteFlag(opts.contentRoot);
+  await ensureWebhook({ repoUrl: opts.repoUrl, contentRoot: opts.contentRoot });
+
+  result.success = pushResult.errors.length === 0;
+  return result;
 }

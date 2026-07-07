@@ -2295,7 +2295,37 @@ export function registerAdminRoutes(app: Express): void {
 
       log.info(`[SiteManager] Created new site scaffold: ${folderName} for domain ${domain}`);
 
-      res.json({ folderName, created: true });
+      const githubSeed = githubRepoUrl?.trim()
+        ? await (async () => {
+            const { seedNewSiteToGitHub } = await import("../github");
+            return seedNewSiteToGitHub({
+              contentRoot: folderName,
+              repoUrl: githubRepoUrl.trim(),
+            });
+          })()
+        : {
+            attempted: false,
+            success: false,
+            committed: [] as string[],
+            skipped: [] as string[],
+            errors: [] as string[],
+            commitSha: null,
+          };
+
+      if (githubSeed.attempted) {
+        if (githubSeed.success) {
+          log.info(
+            `[SiteManager] GitHub seed succeeded for ${folderName}: ${githubSeed.committed.length} file(s) committed (${githubSeed.commitSha?.slice(0, 7) ?? "?"})`,
+          );
+        } else {
+          log.warn(
+            { githubSeed },
+            `[SiteManager] GitHub seed failed for ${folderName} — site created locally`,
+          );
+        }
+      }
+
+      res.json({ folderName, created: true, githubSeed });
     } catch (err) {
       log.error({ err }, "[SiteManager] Failed to create site:");
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create site" });
