@@ -29,7 +29,7 @@ import {
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
 import { resetSiteConfigs, getDefaultContentFolder, getDefaultContentRoot, getSiteConfigs } from "../site-config";
-import { resetSiteContextMap, getSiteInfo } from "../site-manager";
+import { resetSiteContextMap, getSiteInfo, readDevSiteFile, writeDevSiteFile } from "../site-manager";
 import {
   BOOT_ID,
   BOOT_TIME,
@@ -2376,6 +2376,81 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "[SiteManager] Failed to create site:");
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create site" });
+    }
+  });
+
+  app.patch("/api/admin/sites/domain", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "webmaster");
+      if (!auth.authorized) return;
+
+      const { currentDomain, newDomain } = req.body as {
+        currentDomain?: string;
+        newDomain?: string;
+      };
+
+      if (!currentDomain || typeof currentDomain !== "string") {
+        return res.status(400).json({ error: "Missing required field: currentDomain" });
+      }
+      if (!newDomain || typeof newDomain !== "string") {
+        return res.status(400).json({ error: "Missing required field: newDomain" });
+      }
+
+      const from = currentDomain.trim().toLowerCase();
+      const to = newDomain.trim().toLowerCase();
+
+      if (!from || !to) {
+        return res.status(400).json({ error: "Domain cannot be empty" });
+      }
+      if (from === to) {
+        return res.status(400).json({ error: "New domain must be different from the current domain" });
+      }
+      if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(to) || to.length > 253) {
+        return res.status(400).json({ error: "Invalid domain format" });
+      }
+
+      const { renameSiteDomain } = await import("../sites-yml-store");
+      const { getSiteContextMap, getDefaultSite } = await import("../site-manager");
+      const staleSite = res.locals.site;
+
+      renameSiteDomain(from, to);
+      resetSiteConfigs();
+      resetSiteContextMap();
+
+      if (process.env.NODE_ENV !== "production") {
+        const devOverride = readDevSiteFile();
+        if (devOverride === from || staleSite?.config.domain === from) {
+          writeDevSiteFile(to);
+        }
+      }
+
+      if (staleSite?.config.domain === from) {
+        const freshCtx = getSiteContextMap().get(to) ?? getDefaultSite();
+        res.locals.site = { ...freshCtx, isDevOverride: staleSite.isDevOverride ?? false };
+      }
+
+      const sites = getSiteConfigs().map(({ domain, contentFolder, githubRepoUrl }) => ({
+        domain,
+        contentFolder,
+        githubRepoUrl,
+      }));
+      const siteInfo = getSiteInfo(req, res);
+
+      log.info(`[SiteManager] Renamed site domain: ${from} → ${to}`);
+
+      res.json({
+        success: true,
+        sites,
+        siteInfo,
+        previousDomain: from,
+        message: `Domain updated from ${from} to ${to}.`,
+      });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to rename site domain:");
+      res.status(500).json({
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to rename site domain",
+      });
     }
   });
 

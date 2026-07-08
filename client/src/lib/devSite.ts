@@ -52,6 +52,7 @@
 
 const IS_DEV = import.meta.env.DEV;
 const LS_KEY = "__dev_site";
+const PENDING_DOMAIN_KEY = "__pending_domain_nav";
 
 /**
  * Returns the active dev-site override domain, or null if none is set.
@@ -83,6 +84,31 @@ export async function setDevSiteOverride(domain: string): Promise<void> {
   // Lazy import to avoid circular dependency (queryClient imports getDevSiteOverride from here).
   const { queryClient } = await import("./queryClient");
   queryClient.clear();
+}
+
+/** Remember a post-restart domain switch (survives full page reload). */
+export function stashPendingDomainNavigation(domain: string): void {
+  try { sessionStorage.setItem(PENDING_DOMAIN_KEY, domain); } catch {}
+}
+
+/**
+ * After a hard restart, re-apply the renamed domain override if the modal
+ * unmounted before navigation could run.
+ */
+export async function resumePendingDomainNavigation(): Promise<void> {
+  let pending: string | null = null;
+  try { pending = sessionStorage.getItem(PENDING_DOMAIN_KEY); } catch {}
+  if (!pending) return;
+  try { sessionStorage.removeItem(PENDING_DOMAIN_KEY); } catch {}
+
+  if (!IS_DEV) {
+    window.location.href = `https://${pending}${window.location.pathname}${window.location.search}`;
+    return;
+  }
+
+  if (getDevSiteOverride() === pending) return;
+  await setDevSiteOverride(pending);
+  window.location.reload();
 }
 
 /**

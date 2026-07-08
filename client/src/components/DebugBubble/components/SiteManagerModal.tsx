@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconServer } from "@tabler/icons-react";
-import { AlertCircle, Check, Loader2, Plus, Power, RefreshCw } from "lucide-react";
+import { AlertCircle, Check, Loader2, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -26,6 +25,9 @@ import { Switch } from "@/components/ui/switch";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { useHardRestart } from "@/hooks/useHardRestart";
 import { useToast } from "@/hooks/use-toast";
+import { setDevSiteOverride, stashPendingDomainNavigation } from "@/lib/devSite";
+
+const IS_PROD = import.meta.env.PROD;
 
 interface SiteInfo {
   domain: string;
@@ -73,6 +75,30 @@ interface CreateSiteResult {
   githubSeed?: GitHubSeedResult;
 }
 
+interface RenameDomainResult {
+  success: boolean;
+  sites: Array<{ domain: string; contentFolder: string; githubRepoUrl?: string }>;
+  siteInfo: SiteInfo;
+  previousDomain: string;
+  message: string;
+  error?: string;
+}
+
+interface SoftReloadResult {
+  success: boolean;
+  error?: string;
+}
+
+async function finishDomainNavigation(domain: string): Promise<void> {
+  stashPendingDomainNavigation(domain);
+  if (!IS_PROD) {
+    await setDevSiteOverride(domain);
+    window.location.reload();
+    return;
+  }
+  window.location.href = `https://${domain}${window.location.pathname}${window.location.search}`;
+}
+
 function ConfigRow({ label, value, mono = false }: { label: string; value: string | boolean | undefined; mono?: boolean }) {
   if (value === undefined || value === null || value === "") return null;
   const displayValue = typeof value === "boolean" ? (value ? "Yes" : "No") : value;
@@ -80,6 +106,106 @@ function ConfigRow({ label, value, mono = false }: { label: string; value: strin
     <div className="flex items-start justify-between gap-4 py-2 border-b last:border-b-0">
       <span className="text-xs text-muted-foreground shrink-0 w-32">{label}</span>
       <span className={`text-xs text-foreground text-right break-all ${mono ? "font-mono" : ""}`}>{displayValue}</span>
+    </div>
+  );
+}
+
+function EditableDomainRow({
+  domain,
+  onRenameRequest,
+  disabled = false,
+}: {
+  domain: string;
+  onRenameRequest: (newDomain: string) => void;
+  disabled?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(domain);
+
+  useEffect(() => {
+    if (!editing) setDraft(domain);
+  }, [domain, editing]);
+
+  if (!domain) return null;
+
+  const handleSave = () => {
+    const next = draft.trim().toLowerCase();
+    if (!next || next === domain) {
+      setDraft(domain);
+      setEditing(false);
+      return;
+    }
+    onRenameRequest(next);
+    setEditing(false);
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-4 py-2 border-b last:border-b-0">
+      <span className="text-xs text-muted-foreground shrink-0 w-32">Domain</span>
+      <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-end">
+        {editing ? (
+          <>
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") {
+                  setDraft(domain);
+                  setEditing(false);
+                }
+              }}
+              className="h-7 font-mono text-xs text-right max-w-[220px]"
+              disabled={disabled}
+              autoFocus
+              data-testid="input-edit-site-domain"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={handleSave}
+              disabled={disabled}
+              title="Save domain change"
+              data-testid="button-save-site-domain"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => {
+                setDraft(domain);
+                setEditing(false);
+              }}
+              disabled={disabled}
+              title="Cancel"
+              data-testid="button-cancel-edit-site-domain"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        ) : (
+          <>
+            <span className="text-xs text-foreground text-right break-all font-mono">{domain}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => setEditing(true)}
+              disabled={disabled}
+              title="Edit domain"
+              data-testid="button-edit-site-domain"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -94,11 +220,16 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [successGithubUrl, setSuccessGithubUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
+  const [domainConfirmOpen, setDomainConfirmOpen] = useState(false);
+  const [domainReloadActive, setDomainReloadActive] = useState(false);
+  const [renamedTargetDomain, setRenamedTargetDomain] = useState<string | null>(null);
+  const [pendingDomainRename, setPendingDomainRename] = useState<{ from: string; to: string } | null>(null);
   const [displaySiteInfo, setDisplaySiteInfo] = useState<SiteInfo | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { phase: restartPhase, message: restartMessage, start: startRestart, reset: resetRestart } = useHardRestart();
   const currentSiteInfo = displaySiteInfo ?? siteInfo ?? null;
+  const siteManagerDialogOpen = open && !domainConfirmOpen && !restartConfirmOpen && !domainReloadActive;
 
   const refreshMutation = useMutation<RefreshConfigResult, Error>({
     mutationFn: async () => {
@@ -126,6 +257,61 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
       });
     },
   });
+
+  const renameDomainMutation = useMutation<RenameDomainResult, Error, { currentDomain: string; newDomain: string }>({
+    mutationFn: async ({ currentDomain, newDomain }) => {
+      const res = await fetch("/api/admin/sites/domain", {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ currentDomain, newDomain }),
+      });
+      const data = (await res.json()) as RenameDomainResult;
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to rename site domain");
+      }
+
+      const softRes = await fetch("/api/admin/server/soft-reload", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const soft = (await softRes.json()) as SoftReloadResult;
+      if (!softRes.ok || !soft.success) {
+        throw new Error(soft.error || "Domain updated but server soft reload failed");
+      }
+
+      return data;
+    },
+    onSuccess: async (data) => {
+      setDisplaySiteInfo(data.siteInfo);
+      queryClient.setQueryData(["/api/site/info"], data.siteInfo);
+      queryClient.setQueryData(["/api/sites"], data.sites);
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
+      setDomainReloadActive(false);
+      setRenamedTargetDomain(null);
+      toast({ title: "Domain updated", description: data.message });
+      await finishDomainNavigation(data.siteInfo.domain);
+    },
+    onError: (err) => {
+      setDomainReloadActive(false);
+      setRenamedTargetDomain(null);
+      toast({
+        variant: "destructive",
+        title: "Domain update failed",
+        description: err.message,
+      });
+    },
+  });
+
+  const domainActionsBusy =
+    refreshMutation.isPending ||
+    renameDomainMutation.isPending ||
+    domainReloadActive;
+
+  const handleDomainRenameRequest = (newDomain: string) => {
+    if (!currentSiteInfo?.domain) return;
+    setPendingDomainRename({ from: currentSiteInfo.domain, to: newDomain });
+    setDomainConfirmOpen(true);
+  };
 
   const createMutation = useMutation<CreateSiteResult, Error, { name: string; domain: string; githubRepoUrl?: string; includeSampleContent: boolean }>({
     mutationFn: async (body) => {
@@ -171,6 +357,10 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
       setErrorMsg(null);
       setDisplaySiteInfo(null);
       setRestartConfirmOpen(false);
+      setDomainConfirmOpen(false);
+      setDomainReloadActive(false);
+      setRenamedTargetDomain(null);
+      setPendingDomainRename(null);
       resetRestart();
     }
     onOpenChange(v);
@@ -241,7 +431,9 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
         <Button
           size="sm"
           variant="destructive"
-          onClick={() => setRestartConfirmOpen(true)}
+          onClick={() => {
+            setRestartConfirmOpen(true);
+          }}
           disabled={restartPhase === "restarting"}
           data-testid="button-restart-server"
         >
@@ -366,7 +558,8 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   );
 
   return (
-    <Dialog open={open} onOpenChange={handleDialogClose}>
+    <>
+    <Dialog open={siteManagerDialogOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -409,7 +602,11 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
             {currentSiteInfo ? (
               <div className="rounded-md border px-3 py-1">
                 <ConfigRow label="Content Folder" value={currentSiteInfo.contentFolder} mono />
-                <ConfigRow label="Domain" value={currentSiteInfo.domain} mono />
+                <EditableDomainRow
+                  domain={currentSiteInfo.domain}
+                  onRenameRequest={handleDomainRenameRequest}
+                  disabled={domainActionsBusy}
+                />
                 <ConfigRow label="Multi-site Mode" value={currentSiteInfo.isMultiSite} />
                 <ConfigRow label="Dev Override" value={currentSiteInfo.isDevOverride} />
                 <ConfigRow label="GitHub Repo URL" value={currentSiteInfo.githubRepoUrl} mono />
@@ -422,6 +619,66 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
           <div className="space-y-4">{createForm}</div>
         )}
       </DialogContent>
+    </Dialog>
+
+      <AlertDialog
+        open={domainConfirmOpen}
+        onOpenChange={(open) => {
+          setDomainConfirmOpen(open);
+          if (!open && !renameDomainMutation.isPending) setPendingDomainRename(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change site domain?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDomainRename ? (
+                <>
+                  Rename <span className="font-mono">{pendingDomainRename.from}</span> to{" "}
+                  <span className="font-mono">{pendingDomainRename.to}</span> in sites.yml, soft-reload the server
+                  registry, and reload your browser on the new domain.
+                </>
+              ) : (
+                "Confirm the domain change to update sites.yml and reload the server registry."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={renameDomainMutation.isPending}
+              data-testid="button-cancel-domain-rename"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!pendingDomainRename || renameDomainMutation.isPending}
+              onClick={() => {
+                if (!pendingDomainRename) return;
+                setDomainConfirmOpen(false);
+                setRenamedTargetDomain(pendingDomainRename.to);
+                setPendingDomainRename(null);
+                setDomainReloadActive(true);
+                renameDomainMutation.mutate({
+                  currentDomain: pendingDomainRename.from,
+                  newDomain: pendingDomainRename.to,
+                });
+              }}
+              data-testid="button-confirm-domain-rename"
+            >
+              {renameDomainMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  Updating…
+                </>
+              ) : (
+                "Confirm & reload"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
         <AlertDialogContent>
@@ -435,19 +692,54 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-restart-server">Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
+              type="button"
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
+                setRestartConfirmOpen(false);
                 resetRestart();
                 startRestart();
               }}
               data-testid="button-confirm-restart-server"
             >
               Restart server
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+
+      <AlertDialog
+        open={domainReloadActive}
+        onOpenChange={(open) => {
+          if (!open && !renameDomainMutation.isPending) {
+            setDomainReloadActive(false);
+            setRenamedTargetDomain(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Applying domain change</AlertDialogTitle>
+            <AlertDialogDescription>
+              {renamedTargetDomain ? (
+                <>
+                  Updating the site registry to <span className="font-mono">{renamedTargetDomain}</span> and reloading
+                  server state. Your browser will refresh on the new domain when this finishes.
+                </>
+              ) : (
+                "Updating sites.yml and reloading server state."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div
+            className="flex items-start gap-2 rounded-md border px-3 py-2 text-xs border-border bg-muted/40 text-foreground"
+            data-testid="status-domain-reload-dialog"
+          >
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mt-0.5" />
+            <span className="flex-1">Soft-reloading server registry…</span>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

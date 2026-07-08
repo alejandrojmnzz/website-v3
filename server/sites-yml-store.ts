@@ -6,6 +6,7 @@
 
 import fs from "fs";
 import path from "path";
+import yaml from "js-yaml";
 import {
   platformSitesYmlGcsKey,
   platformSitesYmlLocalFilename,
@@ -65,6 +66,45 @@ function debouncedUploadSitesYmlToBucket(content: string): void {
 export function saveSitesYml(content: string): void {
   writeSitesYmlLocal(content);
   debouncedUploadSitesYmlToBucket(content);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Rename a site domain key in sites.yml while preserving comments and nested fields. */
+export function renameSiteDomain(currentDomain: string, newDomain: string): void {
+  const content = readSitesYmlLocal();
+  if (!content) {
+    throw new Error("sites.yml not found at project root");
+  }
+
+  const parsed = yaml.load(content) as Record<string, unknown> | null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("sites.yml must be a YAML mapping (object), not an array or scalar");
+  }
+  if (!(currentDomain in parsed)) {
+    throw new Error(`Domain "${currentDomain}" not found in sites.yml`);
+  }
+  if (newDomain in parsed) {
+    throw new Error(`Domain "${newDomain}" already exists in sites.yml`);
+  }
+
+  const keyPattern = new RegExp(`^(${escapeRegExp(currentDomain)}):\\s*$`);
+  let found = false;
+  const updated = content.split("\n").map((line) => {
+    if (keyPattern.test(line)) {
+      found = true;
+      return `${newDomain}:`;
+    }
+    return line;
+  });
+
+  if (!found) {
+    throw new Error(`Could not locate domain key "${currentDomain}" in sites.yml`);
+  }
+
+  saveSitesYml(updated.join("\n"));
 }
 
 export interface ReuploadSitesYmlResult {

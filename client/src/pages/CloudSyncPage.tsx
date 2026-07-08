@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, FileText, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,12 @@ import {
 } from "@/hooks/useGcsSyncStatus";
 
 const SitesYmlViewerPanel = lazy(() => import("@/components/editing/SitesYmlViewerPanel"));
+
+interface SiteRegistryEntry {
+  domain: string;
+  contentFolder: string;
+  githubRepoUrl?: string;
+}
 
 function formatInventoryLocalPath(
   localPath: string | null,
@@ -706,6 +712,10 @@ export default function CloudSyncPage() {
     isFetching: inventoryFetching,
     dataUpdatedAt: inventoryUpdatedAt,
   } = useGcsSyncInventory();
+  const { data: sites } = useQuery<SiteRegistryEntry[]>({
+    queryKey: ["/api/sites"],
+    staleTime: 30_000,
+  });
   const { recheckGcsMigration, recheckingGcs, recheckMessage } = useSystemAlerts();
   const formatSitePath = useFormatSitePath();
   const [siteFilter, setSiteFilter] = useState<string>("all");
@@ -718,6 +728,14 @@ export default function CloudSyncPage() {
     }
     return [...folders].sort();
   }, [inventory?.rows]);
+
+  const domainByContentFolder = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const site of sites ?? []) {
+      map.set(site.contentFolder, site.domain);
+    }
+    return map;
+  }, [sites]);
 
   const filteredInventoryRows = useMemo(() => {
     if (!inventory?.rows) return [];
@@ -934,15 +952,19 @@ export default function CloudSyncPage() {
                     Global (All sites)
                   </ToggleGroupItem>
                 )}
-                {inventorySiteFolders.map((folder) => (
+                {inventorySiteFolders.map((folder) => {
+                  const domain = domainByContentFolder.get(folder);
+                  return (
                   <ToggleGroupItem
                     key={folder}
                     value={folder}
-                    className="text-xs h-7 px-2.5 font-mono"
+                    className="text-xs h-7 px-2.5"
+                    title={domain ? `${domain} (${folder})` : folder}
                   >
-                    {folder}
+                    <span className="font-mono">{domain ?? folder}</span>
                   </ToggleGroupItem>
-                ))}
+                  );
+                })}
               </ToggleGroup>
             </div>
           )}

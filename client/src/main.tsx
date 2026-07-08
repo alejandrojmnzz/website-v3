@@ -6,7 +6,7 @@ import {
   readInitialDataPayload,
 } from "./lib/initialData";
 import { preloadSectionsFromInitialData } from "@/components/sectionRegistry";
-import { injectDevSite } from "./lib/devSite";
+import { injectDevSite, resumePendingDomainNavigation } from "./lib/devSite";
 
 // ─── Global fetch interceptor ────────────────────────────────────────────────
 // Injects ?__site=<domain> into every relative /api/ fetch call so that direct
@@ -36,6 +36,10 @@ if (typeof window !== "undefined") {
 
 const initialDataPayload = readInitialDataPayload();
 hydrateInitialData();
+
+if (typeof window !== "undefined") {
+  void resumePendingDomainNavigation();
+}
 
 const rootEl = document.getElementById("root")!;
 

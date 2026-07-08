@@ -6,6 +6,7 @@ import {
   getSitesYmlLocalPath,
   loadSitesYmlFromBucket,
   readSitesYmlLocal,
+  renameSiteDomain,
   saveSitesYml,
   writeSitesYmlLocal,
 } from "./sites-yml-store";
@@ -55,5 +56,26 @@ describe("sites-yml-store", () => {
     process.env.NODE_ENV = "development";
     writeSitesYmlLocal("example.com:\n  content_folder: site_example\n");
     await expect(loadSitesYmlFromBucket()).resolves.toBeUndefined();
+  });
+
+  it("renameSiteDomain updates the domain key and preserves nested fields", () => {
+    const content = [
+      "# header comment",
+      "bucket_name: test-bucket",
+      "",
+      "example.com:",
+      "  content_folder: site_example",
+      "  github_repo_url: https://github.com/org/repo",
+    ].join("\n");
+    writeSitesYmlLocal(content);
+
+    renameSiteDomain("example.com", "new-example.com");
+
+    const updated = readSitesYmlLocal();
+    expect(updated).toContain("# header comment");
+    expect(updated).toContain("new-example.com:");
+    expect(updated).not.toMatch(/^example\.com:/m);
+    expect(updated).toContain("content_folder: site_example");
+    expect(updated).toContain("github_repo_url: https://github.com/org/repo");
   });
 });
