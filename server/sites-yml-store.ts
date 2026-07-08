@@ -12,7 +12,8 @@ import {
   platformSitesYmlReadKeys,
 } from "@shared/gcsKeys";
 import { gcs } from "./gcs";
-import { SitesYmlRequiredError } from "./site-config";
+import { resetSiteConfigs, SitesYmlRequiredError } from "./site-config";
+import { resetSiteContextMap } from "./site-manager";
 import { child } from "./logger";
 
 const log = child({ module: "sites-yml-store" });
@@ -127,6 +128,22 @@ function missingSitesYmlError(reason: string): SitesYmlRequiredError {
  * Production: GCS is canonical; local file is a cache.
  * Development: local file only.
  */
+export type SitesYmlRefreshSource = "gcs" | "local";
+
+/** Re-fetch sites.yml (from GCS in production) and rebuild in-memory site config. */
+export async function refreshSitesYmlConfig(): Promise<SitesYmlRefreshSource> {
+  const hadGcs =
+    IS_PRODUCTION &&
+    Boolean(process.env.GCS_BUCKET_NAME) &&
+    (gcs.available || (gcs.initBootstrapFromEnv(), gcs.available));
+
+  await loadSitesYmlFromBucket();
+  resetSiteConfigs();
+  resetSiteContextMap();
+
+  return hadGcs ? "gcs" : "local";
+}
+
 export async function loadSitesYmlFromBucket(): Promise<void> {
   if (!IS_PRODUCTION) {
     log.info("[SitesYml] Development mode — using local sites.yml only");

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -562,11 +562,55 @@ interface ReuploadSitesYmlResponse {
   message: string;
 }
 
-function ReuploadSitesYmlButton() {
+interface RefreshSitesYmlResponse {
+  success: boolean;
+  source: "gcs" | "local";
+  sites: Array<{ domain: string; contentFolder: string; githubRepoUrl?: string }>;
+  message: string;
+  error?: string;
+}
+
+function SitesYmlSyncButtons() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const mutation = useMutation({
+  const invalidateSitesYmlQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-status", "detail"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/site/info"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
+  };
+
+  const downloadMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/sites/refresh-config", {
+        method: "POST",
+        headers: getSessionHeaders(),
+      });
+      const body = (await res.json()) as RefreshSitesYmlResponse;
+      if (!res.ok || !body.success) {
+        throw new Error(body.error || body.message || "Failed to download site registry.");
+      }
+      return body;
+    },
+    onSuccess: (body) => {
+      const siteList = body.sites.map((s) => s.domain).join(", ");
+      toast({
+        title: "Site registry downloaded",
+        description: `${body.message} (${body.sites.length} site${body.sites.length === 1 ? "" : "s"}: ${siteList})`,
+      });
+      invalidateSitesYmlQueries();
+    },
+    onError: (err) => {
+      toast({
+        variant: "destructive",
+        title: "Download failed",
+        description: err instanceof Error ? err.message : "Failed to download site registry.",
+      });
+    },
+  });
+
+  const uploadMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/admin/gcs-reupload-sites-yml", {
         method: "POST",
@@ -580,8 +624,7 @@ function ReuploadSitesYmlButton() {
     },
     onSuccess: (body) => {
       toast({ title: "Site registry uploaded", description: body.message });
-      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
-      void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-status", "detail"] });
+      invalidateSitesYmlQueries();
     },
     onError: (err) => {
       toast({
@@ -592,22 +635,41 @@ function ReuploadSitesYmlButton() {
     },
   });
 
+  const busy = downloadMutation.isPending || uploadMutation.isPending;
+
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-7 text-xs"
-      onClick={() => mutation.mutate()}
-      disabled={mutation.isPending}
-      data-testid="button-reupload-sites-yml"
-    >
-      {mutation.isPending ? (
-        <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-      ) : (
-        <UploadCloud className="h-3 w-3 mr-1.5" />
-      )}
-      Upload to GCS
-    </Button>
+    <div className="flex items-center gap-1">
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-7 w-7"
+        title="Download from GCS"
+        onClick={() => downloadMutation.mutate()}
+        disabled={busy}
+        data-testid="button-download-sites-yml"
+      >
+        {downloadMutation.isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <DownloadCloud className="h-3.5 w-3.5" />
+        )}
+      </Button>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-7 w-7"
+        title="Upload to GCS"
+        onClick={() => uploadMutation.mutate()}
+        disabled={busy}
+        data-testid="button-reupload-sites-yml"
+      >
+        {uploadMutation.isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <UploadCloud className="h-3.5 w-3.5" />
+        )}
+      </Button>
+    </div>
   );
 }
 
@@ -934,10 +996,7 @@ export default function CloudSyncPage() {
                           isProduction={status?.isProduction}
                           testId={`badge-inventory-${row.id}`}
                         />
-                        {row.id === SITES_YML_ROW_ID &&
-                          (row.status === "missing" || row.status === "local_only") && (
-                            <ReuploadSitesYmlButton />
-                          )}
+                        {row.id === SITES_YML_ROW_ID && <SitesYmlSyncButtons />}
                         <p className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`inventory-last-synced-${row.id}`}>
                           {row.status === "pending" ? (
                             "—"

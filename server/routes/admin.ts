@@ -28,8 +28,8 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
-import { resetSiteConfigs, getDefaultContentFolder, getDefaultContentRoot } from "../site-config";
-import { resetSiteContextMap } from "../site-manager";
+import { resetSiteConfigs, getDefaultContentFolder, getDefaultContentRoot, getSiteConfigs } from "../site-config";
+import { resetSiteContextMap, getSiteInfo } from "../site-manager";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
@@ -2262,6 +2262,39 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "[SiteManager] Failed to create site:");
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create site" });
+    }
+  });
+
+  app.post("/api/admin/sites/refresh-config", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "webmaster");
+      if (!auth.authorized) return;
+
+      const { refreshSitesYmlConfig } = await import("../sites-yml-store");
+      const source = await refreshSitesYmlConfig();
+      const sites = getSiteConfigs().map(({ domain, contentFolder, githubRepoUrl }) => ({
+        domain,
+        contentFolder,
+        githubRepoUrl,
+      }));
+      const siteInfo = getSiteInfo(req, res);
+
+      res.json({
+        success: true,
+        source,
+        sites,
+        siteInfo,
+        message:
+          source === "gcs"
+            ? "Site registry refreshed from GCS."
+            : "Site registry reloaded from local sites.yml.",
+      });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to refresh site registry:");
+      res.status(500).json({
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to refresh site registry.",
+      });
     }
   });
 
