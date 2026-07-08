@@ -15,6 +15,7 @@ import {
   syncLogReadKeys,
   syncStateReadKeys,
   userStoreReadKeys,
+  validationCacheReadKeys,
   versioningStateReadKeys,
 } from "@shared/gcsKeys";
 import { gcs } from "./gcs";
@@ -173,6 +174,15 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         gcsKey: siteSyncGcsKey(safeFolder, SYNC_FILENAMES.formState),
         readKeys: formStateReadKeys(safeFolder, safeFolder === defaultSite),
         localPath: path.join(root, ".form-state.json"),
+        writesBlocked: true,
+      }),
+      await resolveRow({
+        id: `validation-cache-${safeFolder}`,
+        label: "Validation cache",
+        siteFolder: site.contentFolder,
+        gcsKey: siteSyncGcsKey(safeFolder, SYNC_FILENAMES.validationCache),
+        readKeys: validationCacheReadKeys(safeFolder),
+        localPath: path.join(root, "validation-cache.json"),
         writesBlocked: true,
       }),
     );

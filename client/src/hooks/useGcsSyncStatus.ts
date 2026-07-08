@@ -184,6 +184,8 @@ export function inventoryCategoryDescription(label: string): string | null {
       return "A/B test and content versioning allocations for pages on this site — which variants are active and their traffic splits.";
     case "Form registry":
       return "Index of form sections across this site's YAML content: conversion names, automations, and metadata used by the forms admin tools.";
+    case "Validation cache":
+      return "Cached validation results for this site — page and database health issues from the last diagnostics run. Stored per site in GCS (not GitHub) so results survive deploys without polluting the content repo.";
     case "Media":
       return "Site images from the local images/ folder, mirrored to the GCS media prefix. Shows whether cloud copies exist and when they were last updated.";
     case "Lighthouse reports":

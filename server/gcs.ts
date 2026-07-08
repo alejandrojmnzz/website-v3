@@ -30,6 +30,7 @@ import {
   syncLogReadKeys,
   syncStateReadKeys,
   userStoreReadKeys,
+  validationCacheReadKeys,
   versioningStateReadKeys,
 } from "@shared/gcsKeys";
 import { child as loggerChild } from "./logger";
@@ -605,6 +606,7 @@ class GCSClient {
       this.probeKey("Sync log", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.syncLog), syncLogReadKeys(siteFolder).slice(1)),
       this.probeKey("Versioning", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.versioningState), versioningStateReadKeys(siteFolder).slice(1)),
       this.probeKey("Form registry", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.formState), formStateReadKeys(siteFolder, isDefaultSite).slice(1)),
+      this.probeKey("Validation cache", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.validationCache), validationCacheReadKeys(siteFolder).slice(1)),
     ]);
 
     const legacySyncPrefix = `sync/${siteFolder}/`;

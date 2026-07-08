@@ -16,6 +16,7 @@ import { loadSitesYmlFromBucket } from "./sites-yml-store";
 import { scanEcommerceContent, startEcommerceWatcher } from "./ecommerce/ecommerce-index";
 import { loadUsersStateFromBucket } from "./user-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
+import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
 import { addFileModifiedListener } from "./sync-state";
 import { gcs } from "./gcs";
 import { getVersioningManager } from "./versioning/VersioningManager";
@@ -393,6 +394,10 @@ app.use((req, res, next) => {
         }
         clearSitemapCache();
 
+        await loadValidationCachesFromBucket().catch((err) => {
+          logger.error({ err, worker: "ValidationCache" }, "failed to load validation caches from GCS");
+        });
+
         const { ValidationService } = await import("../scripts/validation/service");
         const { applyValidationRunToCache } = await import("./services/validationCachePostProcess");
         for (const ctx of getSiteContextMap().values()) {
@@ -445,6 +450,7 @@ app.use((req, res, next) => {
     logger.info({ signal }, "[Shutdown] flushing pending GCS uploads…");
     try {
       await getVersioningManager().shutdown();
+      await shutdownValidationCaches();
       await gcs.flushPending();
     } catch (err) {
       logger.error({ err }, "[Shutdown] error during graceful shutdown");

@@ -5,6 +5,7 @@ export const SYNC_FILENAMES = {
   syncLog: "sync-log-state.txt",
   versioningState: "versioning-state.json",
   formState: "form-state.json",
+  validationCache: "validation-cache.json",
   usersState: "users-state.json",
 } as const;
 
@@ -107,6 +108,10 @@ export function formStateReadKeys(site: string, isDefaultSite: boolean): string[
   const keys = [siteSyncGcsKey(site, SYNC_FILENAMES.formState)];
   if (isDefaultSite) keys.push(legacyGlobalSyncGcsKey(SYNC_FILENAMES.formState));
   return keys;
+}
+
+export function validationCacheReadKeys(site: string): string[] {
+  return [siteSyncGcsKey(site, SYNC_FILENAMES.validationCache)];
 }
 
 export function userStoreReadKeys(): string[] {

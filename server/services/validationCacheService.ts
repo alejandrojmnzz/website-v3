@@ -2,8 +2,8 @@
  * Validation Cache Service
  *
  * Per-site class that persists page validation results to
- * <contentRoot>/validation-cache.json and optionally auto-commits
- * the file to GitHub using the existing queue mechanism.
+ * <contentRoot>/validation-cache.json (local cache) and, in production,
+ * to GCS at {site}/sync/validation-cache.json.
  *
  * Concurrent flush writes are serialized via a Promise chain (write queue).
  */
@@ -16,10 +16,14 @@ import type {
   DatabaseCacheEntry,
   ValidationCacheFile,
 } from "../../scripts/validation/shared/types";
+import { siteSyncGcsKey, SYNC_FILENAMES, validationCacheReadKeys } from "@shared/gcsKeys";
+import { gcs } from "../gcs";
+import { getSiteContextMap } from "../site-manager";
 import { child } from "../logger";
 
 const log = child({ module: "validationCacheService" });
 
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const CACHE_VERSION = 3;
 
 function emptyCache(): ValidationCacheFile {
@@ -71,22 +75,62 @@ export class ValidationCacheService {
   private lastFullRunAt: string | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
   private cacheFile: string;
-  private contentRootRelative: string;
+  private contentFolder: string;
 
   constructor(contentRoot: string) {
     this.cacheFile = path.join(contentRoot, "validation-cache.json");
-    this.contentRootRelative = path.relative(process.cwd(), contentRoot);
+    this.contentFolder = path.relative(process.cwd(), contentRoot);
     this.loadFromDisk();
+  }
+
+  private gcsKey(): string {
+    return siteSyncGcsKey(this.contentFolder, SYNC_FILENAMES.validationCache);
+  }
+
+  private applyLoadedData(data: ValidationCacheFile): void {
+    this.lastFullRunAt = data.meta?.lastFullRunAt ?? null;
+    this.map = new Map(Object.entries(data.pages ?? {}));
+    this.dbMap = new Map(Object.entries(data.databases ?? {}));
   }
 
   private loadFromDisk(): void {
     const data = readFromDisk(this.cacheFile);
-    this.lastFullRunAt = data.meta?.lastFullRunAt ?? null;
-    this.map = new Map(Object.entries(data.pages ?? {}));
-    this.dbMap = new Map(Object.entries(data.databases ?? {}));
+    this.applyLoadedData(data);
     log.info(
       `[ValidationCache] Loaded ${this.map.size} page entries, ${this.dbMap.size} database entries from disk`,
     );
+  }
+
+  /** Load cached validation results from GCS (production only). */
+  async loadFromBucket(): Promise<void> {
+    if (!IS_PRODUCTION || !gcs.available) {
+      if (!IS_PRODUCTION) {
+        log.info("[ValidationCache] Development mode, using local file only");
+      }
+      return;
+    }
+
+    try {
+      const result = await gcs.downloadFirstExisting(validationCacheReadKeys(this.contentFolder));
+      if (!result) {
+        log.info("[ValidationCache] No cache found in bucket, using local file");
+        return;
+      }
+
+      const parsed = JSON.parse(result.data.toString("utf-8")) as ValidationCacheFile;
+      if (!parsed || typeof parsed !== "object" || !parsed.pages) {
+        log.warn("[ValidationCache] Invalid cache in bucket, keeping local file");
+        return;
+      }
+
+      this.applyLoadedData(migrateCache(parsed));
+      this.writeLocalFile();
+      log.info(
+        `[ValidationCache] Loaded ${this.map.size} page entries, ${this.dbMap.size} database entries from GCS`,
+      );
+    } catch (err) {
+      log.error({ err }, "[ValidationCache] Error loading from bucket:");
+    }
   }
 
   getByUrl(url: string): PageCacheEntry | undefined {
@@ -128,15 +172,29 @@ export class ValidationCacheService {
     return this.writeQueue;
   }
 
-  private async doFlush(): Promise<void> {
-    const data: ValidationCacheFile = {
+  private buildCacheFile(): ValidationCacheFile {
+    return {
       meta: { lastFullRunAt: this.lastFullRunAt, version: CACHE_VERSION },
       pages: Object.fromEntries(this.map.entries()),
       databases: Object.fromEntries(this.dbMap.entries()),
     };
+  }
 
+  private writeLocalFile(): void {
+    const data = this.buildCacheFile();
+    fs.writeFileSync(this.cacheFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  }
+
+  private saveToBucket(): void {
+    if (!IS_PRODUCTION || !gcs.available) return;
+
+    const content = JSON.stringify(this.buildCacheFile(), null, 2) + "\n";
+    gcs.debouncedUpload(this.gcsKey(), Buffer.from(content, "utf-8"), "application/json", 30_000);
+  }
+
+  private async doFlush(): Promise<void> {
     try {
-      fs.writeFileSync(this.cacheFile, JSON.stringify(data, null, 2) + "\n", "utf-8");
+      this.writeLocalFile();
       log.info(
         `[ValidationCache] Flushed ${this.map.size} page entries, ${this.dbMap.size} database entries to disk`,
       );
@@ -145,13 +203,26 @@ export class ValidationCacheService {
       return;
     }
 
+    this.saveToBucket();
+  }
+
+  /** Force-upload the cache to GCS (e.g. on graceful shutdown). */
+  async shutdown(): Promise<void> {
     try {
-      const { queueFileChange, isAutoCommitEnabled } = await import("../auto-commit");
-      if (isAutoCommitEnabled()) {
-        queueFileChange(`${this.contentRootRelative}/validation-cache.json`, "System");
-      }
+      this.writeLocalFile();
     } catch (err) {
-      log.warn({ err }, "[ValidationCache] Could not queue auto-commit (non-fatal)");
+      log.error({ err }, "[ValidationCache] Failed to write cache file on shutdown");
+      return;
+    }
+
+    if (!IS_PRODUCTION || !gcs.available) return;
+
+    await gcs.flushPending();
+    try {
+      const content = JSON.stringify(this.buildCacheFile(), null, 2) + "\n";
+      await gcs.upload(this.gcsKey(), Buffer.from(content, "utf-8"), "application/json");
+    } catch (err) {
+      log.error({ err }, "[ValidationCache] Error saving to bucket on shutdown");
     }
   }
 }
@@ -165,4 +236,18 @@ export function getValidationCacheService(): ValidationCacheService {
     _defaultInstance = new ValidationCacheService(contentRoot);
   }
   return _defaultInstance;
+}
+
+/** Load per-site validation caches from GCS before startup validation runs. */
+export async function loadValidationCachesFromBucket(): Promise<void> {
+  await Promise.all(
+    [...getSiteContextMap().values()].map((ctx) => ctx.validationCache.loadFromBucket()),
+  );
+}
+
+/** Flush all per-site validation caches to GCS on shutdown. */
+export async function shutdownValidationCaches(): Promise<void> {
+  await Promise.all(
+    [...getSiteContextMap().values()].map((ctx) => ctx.validationCache.shutdown()),
+  );
 }

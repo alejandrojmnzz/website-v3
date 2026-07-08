@@ -185,52 +185,60 @@ export async function refreshSitesYmlConfig(): Promise<SitesYmlRefreshSource> {
 }
 
 export async function loadSitesYmlFromBucket(): Promise<void> {
-  if (!IS_PRODUCTION) {
-    log.info("[SitesYml] Development mode — using local sites.yml only");
-    if (!readSitesYmlLocal()) {
-      throw missingSitesYmlError("sites.yml not found at project root");
-    }
-    return;
-  }
-
-  const envBucket = process.env.GCS_BUCKET_NAME;
-  if (!envBucket) {
-    log.info("[SitesYml] GCS_BUCKET_NAME not set — using local sites.yml only");
-    if (!readSitesYmlLocal()) {
-      throw missingSitesYmlError("sites.yml not found and GCS_BUCKET_NAME is not set");
-    }
-    return;
-  }
-
-  gcs.initBootstrapFromEnv();
-  if (!gcs.available) {
-    log.info("[SitesYml] GCS unavailable after bootstrap — using local sites.yml");
-    if (!readSitesYmlLocal()) {
-      throw missingSitesYmlError("sites.yml not found and GCS is unavailable");
-    }
-    return;
-  }
-
   try {
-    const result = await gcs.downloadFirstExisting(platformSitesYmlReadKeys());
-    if (result) {
-      writeSitesYmlLocal(result.data.toString("utf-8"));
-      log.info("[SitesYml] Loaded site registry from GCS");
+    if (!IS_PRODUCTION) {
+      log.info("[SitesYml] Development mode — using local sites.yml only");
+      if (!readSitesYmlLocal()) {
+        throw missingSitesYmlError("sites.yml not found at project root");
+      }
       return;
     }
 
-    const local = readSitesYmlLocal();
-    if (local) {
-      log.info("[SitesYml] No GCS copy found — seeding site registry from local sites.yml");
-      await uploadSitesYmlToBucket(local);
+    const envBucket = process.env.GCS_BUCKET_NAME;
+    if (!envBucket) {
+      log.info("[SitesYml] GCS_BUCKET_NAME not set — using local sites.yml only");
+      if (!readSitesYmlLocal()) {
+        throw missingSitesYmlError("sites.yml not found and GCS_BUCKET_NAME is not set");
+      }
       return;
     }
 
-    throw missingSitesYmlError("sites.yml not found locally or in GCS");
-  } catch (err) {
-    if (err instanceof SitesYmlRequiredError) throw err;
-    log.error({ err }, "[SitesYml] Error loading from GCS — falling back to local file");
-    if (readSitesYmlLocal()) return;
-    throw missingSitesYmlError("sites.yml not found after GCS load failure");
+    gcs.initBootstrapFromEnv();
+    if (!gcs.available) {
+      log.info("[SitesYml] GCS unavailable after bootstrap — using local sites.yml");
+      if (!readSitesYmlLocal()) {
+        throw missingSitesYmlError("sites.yml not found and GCS is unavailable");
+      }
+      return;
+    }
+
+    try {
+      const result = await gcs.downloadFirstExisting(platformSitesYmlReadKeys());
+      if (result) {
+        writeSitesYmlLocal(result.data.toString("utf-8"));
+        log.info("[SitesYml] Loaded site registry from GCS");
+        return;
+      }
+
+      const local = readSitesYmlLocal();
+      if (local) {
+        log.info("[SitesYml] No GCS copy found — seeding site registry from local sites.yml");
+        await uploadSitesYmlToBucket(local);
+        return;
+      }
+
+      throw missingSitesYmlError("sites.yml not found locally or in GCS");
+    } catch (err) {
+      if (err instanceof SitesYmlRequiredError) throw err;
+      log.error({ err }, "[SitesYml] Error loading from GCS — falling back to local file");
+      if (readSitesYmlLocal()) return;
+      throw missingSitesYmlError("sites.yml not found after GCS load failure");
+    }
+  } finally {
+    // Other modules (content-index, database, settings, …) may have parsed
+    // sites.yml at import time, before this GCS load runs. Always invalidate
+    // the in-memory cache so the next getSiteConfigs() reads the file we just
+    // resolved on disk (canonical in production).
+    resetSiteConfigs();
   }
 }

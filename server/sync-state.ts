@@ -151,6 +151,10 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
   }
 
   const basename = path.basename(filePath);
+  if (basename === 'validation-cache.json') {
+    return false;
+  }
+
   if (basename.startsWith('.') && basename.endsWith('-state.json')) {
     return false;
   }

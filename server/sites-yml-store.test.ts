@@ -10,7 +10,7 @@ import {
   saveSitesYml,
   writeSitesYmlLocal,
 } from "./sites-yml-store";
-import { SitesYmlRequiredError } from "./site-config";
+import { getSiteConfigs, hasMultipleSites, resetSiteConfigs, SitesYmlRequiredError } from "./site-config";
 
 const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
@@ -19,11 +19,13 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "sites-yml-store-test-"));
   process.chdir(tempDir);
+  resetSiteConfigs();
 });
 
 afterEach(() => {
   process.chdir(ORIGINAL_CWD);
   process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  resetSiteConfigs();
   vi.restoreAllMocks();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
@@ -56,6 +58,25 @@ describe("sites-yml-store", () => {
     process.env.NODE_ENV = "development";
     writeSitesYmlLocal("example.com:\n  content_folder: site_example\n");
     await expect(loadSitesYmlFromBucket()).resolves.toBeUndefined();
+  });
+
+  it("loadSitesYmlFromBucket clears stale site-config cache after resolving sites.yml", async () => {
+    process.env.NODE_ENV = "development";
+    writeSitesYmlLocal(`old.example.com:
+  content_folder: site_old
+`);
+    expect(getSiteConfigs()).toHaveLength(1);
+    expect(hasMultipleSites()).toBe(false);
+
+    writeSitesYmlLocal(`a.example.com:
+  content_folder: site_a
+b.example.com:
+  content_folder: site_b
+`);
+    await loadSitesYmlFromBucket();
+
+    expect(getSiteConfigs()).toHaveLength(2);
+    expect(hasMultipleSites()).toBe(true);
   });
 
   it("renameSiteDomain updates the domain key and preserves nested fields", () => {
