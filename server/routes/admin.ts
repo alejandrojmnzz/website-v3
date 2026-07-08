@@ -309,6 +309,29 @@ export function registerAdminRoutes(app: Express): void {
     });
   });
 
+  app.get("/api/admin/sites-yml", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const { getSitesYmlLocalPath, readSitesYmlLocal } = await import("../sites-yml-store");
+      const content = readSitesYmlLocal();
+      res.json({
+        exists: content !== null,
+        path: getSitesYmlLocalPath(),
+        content,
+      });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to read sites.yml:");
+      res.status(500).json({
+        exists: false,
+        path: "sites.yml",
+        content: null,
+        error: err instanceof Error ? err.message : "Failed to read sites.yml",
+      });
+    }
+  });
+
   app.post("/api/admin/gcs-reupload-sites-yml", async (req, res) => {
     const auth = await requireStaffSession(req, res);
     if (!auth.authorized) return;

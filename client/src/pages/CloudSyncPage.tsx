@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, FileText, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,8 @@ import {
   type GcsSyncStatusValue,
   type SyncInventoryStatus,
 } from "@/hooks/useGcsSyncStatus";
+
+const SitesYmlViewerPanel = lazy(() => import("@/components/editing/SitesYmlViewerPanel"));
 
 function formatInventoryLocalPath(
   localPath: string | null,
@@ -573,6 +575,7 @@ interface RefreshSitesYmlResponse {
 function SitesYmlSyncButtons() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [showViewer, setShowViewer] = useState(false);
 
   const invalidateSitesYmlQueries = () => {
     void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
@@ -638,7 +641,19 @@ function SitesYmlSyncButtons() {
   const busy = downloadMutation.isPending || uploadMutation.isPending;
 
   return (
-    <div className="flex items-center gap-1">
+    <>
+      <div className="flex items-center gap-1">
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-7 w-7"
+        title="View sites.yml"
+        onClick={() => setShowViewer(true)}
+        disabled={busy}
+        data-testid="button-view-sites-yml"
+      >
+        <FileText className="h-3.5 w-3.5" />
+      </Button>
       <Button
         variant="outline"
         size="icon"
@@ -669,7 +684,13 @@ function SitesYmlSyncButtons() {
           <UploadCloud className="h-3.5 w-3.5" />
         )}
       </Button>
-    </div>
+      </div>
+      {showViewer && (
+        <Suspense fallback={null}>
+          <SitesYmlViewerPanel onClose={() => setShowViewer(false)} />
+        </Suspense>
+      )}
+    </>
   );
 }
 
