@@ -23,6 +23,7 @@ import { clearSitemapCache } from "./sitemap";
 import http from "http";
 import { registerSgtmProxy } from "./sgtm-proxy";
 import { getOptimizationSettings } from "./settings";
+import { BOOT_ID, BOOT_TIME, getLastSoftReload, registerShutdownHandler } from "./server-control";
 import logger from "./logger";
 // Note: gcs.initFromEnv() is called by media.initFromEnv() in routes.ts,
 // which happens before sync-state needs it.
@@ -217,7 +218,16 @@ app.use((req, res, next) => {
   // Registered first — before all other routes — so health-checks always get an
   // immediate 200 even while SSR / DB warmup is still in progress.
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", uptime: process.uptime(), env: process.env.NODE_ENV ?? "development" });
+    const lastReload = getLastSoftReload();
+    res.json({
+      status: "ok",
+      uptime: process.uptime(),
+      env: process.env.NODE_ENV ?? "development",
+      bootId: BOOT_ID,
+      bootTime: BOOT_TIME,
+      lastSoftReloadAt: lastReload.at,
+      lastSoftReloadId: lastReload.id,
+    });
   });
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -466,4 +476,8 @@ app.use((req, res, next) => {
 
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+  // Expose graceful shutdown so the staff-gated hard-restart admin route can
+  // trigger it (same code path as SIGTERM, preserving the 10s force-exit safety).
+  registerShutdownHandler(gracefulShutdown);
 })();

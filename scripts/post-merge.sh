@@ -95,5 +95,12 @@ except Exception as e:
 PYEOF
 
 # ── Dependencies & DB ─────────────────────────────────────────────────────────
+# Guardrail: a node_modules/@shared symlink pointing at the real shared/ folder
+# lets npm install delete real source files through the link. Remove it first.
+if [ -L node_modules/@shared ]; then
+  echo "[post-merge] Removing dangerous node_modules/@shared symlink before npm install"
+  rm node_modules/@shared
+fi
+
 npm install
 npm run db:push

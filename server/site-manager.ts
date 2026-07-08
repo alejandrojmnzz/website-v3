@@ -43,9 +43,14 @@ declare global {
 let _siteMap: Map<string, SiteContext> | null = null;
 let _defaultSite: SiteContext | null = null;
 
-export function buildSiteContextMap(): Map<string, SiteContext> {
-  if (_siteMap) return _siteMap;
-
+/**
+ * Construct a brand-new site context map from the current configs WITHOUT
+ * touching any live global state. If any site's construction throws, the
+ * exception propagates and no globals have been mutated — the caller decides
+ * whether/when to commit. This is the shared core for both the lazy initial
+ * build and the atomic rebuild used by soft reload.
+ */
+function constructSiteContextMap(): { map: Map<string, SiteContext>; defaultSite: SiteContext | null } {
   const configs = getSiteConfigs();
   const map = new Map<string, SiteContext>();
 
@@ -76,8 +81,30 @@ export function buildSiteContextMap(): Map<string, SiteContext> {
     log.info(`[SiteManager] Registered site domain="${config.domain}" contentFolder="${config.contentFolder}"`);
   }
 
+  return { map, defaultSite: map.values().next().value ?? null };
+}
+
+export function buildSiteContextMap(): Map<string, SiteContext> {
+  if (_siteMap) return _siteMap;
+
+  const { map, defaultSite } = constructSiteContextMap();
   _siteMap = map;
-  _defaultSite = map.values().next().value ?? null;
+  _defaultSite = defaultSite;
+  return map;
+}
+
+/**
+ * Atomically rebuild the site context map. A fresh map is constructed off to
+ * the side first; the live `_siteMap`/`_defaultSite` are only swapped once the
+ * new map is fully built. If construction throws, the previously serving map is
+ * left completely untouched (no null window, no half-torn-down state), so a
+ * failed reload never degrades the running process.
+ */
+export function rebuildSiteContextMap(): Map<string, SiteContext> {
+  const { map, defaultSite } = constructSiteContextMap();
+  _siteMap = map;
+  _defaultSite = defaultSite;
+  resetVariableManagerCache();
   return map;
 }
 
@@ -94,6 +121,23 @@ export function getDefaultSite(): SiteContext {
 export function resetSiteContextMap(): void {
   _siteMap = null;
   _defaultSite = null;
+  resetVariableManagerCache();
+}
+
+export interface SiteContextMapSnapshot {
+  map: Map<string, SiteContext> | null;
+  defaultSite: SiteContext | null;
+}
+
+/** Capture the current context map so it can be restored after a failed rebuild. */
+export function snapshotSiteContextMap(): SiteContextMapSnapshot {
+  return { map: _siteMap, defaultSite: _defaultSite };
+}
+
+/** Restore a previously captured context map (used to roll back a failed rebuild). */
+export function restoreSiteContextMap(snap: SiteContextMapSnapshot): void {
+  _siteMap = snap.map;
+  _defaultSite = snap.defaultSite;
   resetVariableManagerCache();
 }
 

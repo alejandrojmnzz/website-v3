@@ -7,9 +7,9 @@ channel = "stable-24_05"
 packages = ["imagemagick", "libwebp", "unzip"]
 
 [deployment]
-deploymentTarget = "autoscale"
+deploymentTarget = "vm"
 build = ["npm", "run", "build"]
-run = ["node", "./dist/index.cjs"]
+run = ["node", "dist/index.js"]
 
 [[ports]]
 localPort = 3001
@@ -21,7 +21,7 @@ externalPort = 80
 
 [[ports]]
 localPort = 6333
-externalPort = 6000
+externalPort = 5173
 
 [[ports]]
 localPort = 6334
@@ -78,6 +78,9 @@ args = "Qdrant Vector Store"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run dev"
@@ -122,6 +125,7 @@ outputType = "console"
 [agent]
 integrations = ["javascript_openai_ai_integrations:1.0.0"]
 stack = "FULLSTACK_JS"
+expertMode = true
 
 [userenv]
 

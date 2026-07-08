@@ -162,3 +162,34 @@ export function resetSiteConfigs(): void {
   _cached = null;
   _bucketName = undefined;
 }
+
+/**
+ * Re-read sites.yml from disk and replace the cache — but only if the fresh
+ * parse succeeds. If sites.yml is missing or invalid, the previously cached
+ * (valid) configs are left untouched and the parse error propagates, so a
+ * failed reload never leaves the process without a usable site config.
+ */
+export function reloadSiteConfigs(): SiteConfig[] {
+  const sitesYml = path.join(process.cwd(), "sites.yml");
+  const configs = parseSitesYmlFile(sitesYml);
+  log.info(`[SiteConfig] Reloaded ${configs.length} site(s) from sites.yml`);
+  _cached = configs;
+  _bucketName = undefined; // force re-read of bucket_name on next access
+  return configs;
+}
+
+export interface SiteConfigSnapshot {
+  cached: SiteConfig[] | null;
+  bucketName: string | null | undefined;
+}
+
+/** Capture the current config cache so it can be restored after a failed reload. */
+export function snapshotSiteConfigs(): SiteConfigSnapshot {
+  return { cached: _cached, bucketName: _bucketName };
+}
+
+/** Restore a previously captured config cache (used to roll back a failed reload). */
+export function restoreSiteConfigs(snap: SiteConfigSnapshot): void {
+  _cached = snap.cached;
+  _bucketName = snap.bucketName;
+}

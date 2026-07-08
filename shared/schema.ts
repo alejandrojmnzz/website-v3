@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -18,6 +18,27 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// Managed by raw SQL in server/db.ts (CREATE TABLE IF NOT EXISTS); defined here
+// so drizzle-kit push does not treat it as extraneous and attempt to drop it.
+export const errorLog = sqliteTable(
+  "error_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ts: integer("ts").notNull(),
+    level: text("level").notNull(),
+    module: text("module").notNull(),
+    message: text("message").notNull(),
+    errName: text("err_name"),
+    errStack: text("err_stack"),
+  },
+  (table) => [
+    index("error_log_ts_idx").on(table.ts),
+    index("error_log_level_idx").on(table.level),
+  ],
+);
+
+export type ErrorLogRow = typeof errorLog.$inferSelect;
 
 // ============================================
 // Re-export Common Schemas from Component Registry

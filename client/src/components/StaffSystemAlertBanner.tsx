@@ -36,20 +36,33 @@ function alertMessageClasses(severity: SystemAlert["severity"]): string {
   return "text-muted-foreground";
 }
 
+const DATABASE_ALERT_CODES = new Set<SystemAlert["code"]>([
+  "database_auth_env_missing",
+  "database_auth_failed",
+  "database_fetch_failed",
+]);
+
 export function SystemAlertItem({
   alert,
   compact = false,
   onRecheckGcs,
   recheckingGcs = false,
   recheckMessage,
+  onRecheckDatabase,
+  recheckingDatabase = false,
+  databaseRecheckMessage,
 }: {
   alert: SystemAlert;
   compact?: boolean;
   onRecheckGcs?: () => void;
   recheckingGcs?: boolean;
   recheckMessage?: string | null;
+  onRecheckDatabase?: () => void;
+  recheckingDatabase?: boolean;
+  databaseRecheckMessage?: string | null;
 }) {
   const showGcsRecheck = alert.code === "gcs_migration_required" && onRecheckGcs;
+  const showDbRecheck = DATABASE_ALERT_CODES.has(alert.code) && !!onRecheckDatabase;
 
   return (
     <div className={cn("flex items-start gap-3", compact && "gap-2")} data-testid={`system-alert-${alert.id}`}>
@@ -76,6 +89,11 @@ export function SystemAlertItem({
             {recheckMessage}
           </p>
         ) : null}
+        {databaseRecheckMessage && showDbRecheck ? (
+          <p className={cn(compact ? "text-[11px]" : "text-xs", "mt-1", alertMessageClasses(alert.severity))}>
+            {databaseRecheckMessage}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2 mt-1">
           {showGcsRecheck ? (
             <Button
@@ -93,6 +111,25 @@ export function SystemAlertItem({
                 </>
               ) : (
                 "Re-check migration"
+              )}
+            </Button>
+          ) : null}
+          {showDbRecheck ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn("h-7", compact ? "text-[11px]" : "text-xs")}
+              onClick={onRecheckDatabase}
+              disabled={recheckingDatabase}
+              data-testid={`button-recheck-database-${alert.id}`}
+            >
+              {recheckingDatabase ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  Checking…
+                </>
+              ) : (
+                "Check again"
               )}
             </Button>
           ) : null}
@@ -115,7 +152,16 @@ export function SystemAlertItem({
 }
 
 export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
-  const { alerts, hasAlerts, recheckGcsMigration, recheckingGcs, recheckMessage } = useSystemAlerts();
+  const {
+    alerts,
+    hasAlerts,
+    recheckGcsMigration,
+    recheckingGcs,
+    recheckMessage,
+    recheckDatabase,
+    recheckingDbId,
+    dbRecheckMessages,
+  } = useSystemAlerts();
   if (!hasAlerts) return null;
 
   return (
@@ -131,6 +177,9 @@ export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
             onRecheckGcs={alert.code === "gcs_migration_required" ? recheckGcsMigration : undefined}
             recheckingGcs={recheckingGcs}
             recheckMessage={recheckMessage}
+            onRecheckDatabase={alert.database ? () => void recheckDatabase(alert) : undefined}
+            recheckingDatabase={recheckingDbId === alert.id}
+            databaseRecheckMessage={dbRecheckMessages[alert.id] ?? null}
           />
         </div>
       ))}
@@ -140,7 +189,17 @@ export function SystemAlertsPanel({ compact = false }: { compact?: boolean }) {
 
 export function StaffSystemAlertBanner() {
   const { isValidated, hasToken, isLoading: authLoading } = useDebugAuth();
-  const { alerts, hasAlerts, isLoading, recheckGcsMigration, recheckingGcs, recheckMessage } = useSystemAlerts();
+  const {
+    alerts,
+    hasAlerts,
+    isLoading,
+    recheckGcsMigration,
+    recheckingGcs,
+    recheckMessage,
+    recheckDatabase,
+    recheckingDbId,
+    dbRecheckMessages,
+  } = useSystemAlerts();
   const [expanded, setExpanded] = useState(false);
 
   if (!isDebugModeActive() || authLoading || !isValidated || !hasToken) {
@@ -171,6 +230,9 @@ export function StaffSystemAlertBanner() {
               onRecheckGcs={alert.code === "gcs_migration_required" ? recheckGcsMigration : undefined}
               recheckingGcs={recheckingGcs}
               recheckMessage={recheckMessage}
+              onRecheckDatabase={alert.database ? () => void recheckDatabase(alert) : undefined}
+              recheckingDatabase={recheckingDbId === alert.id}
+              databaseRecheckMessage={dbRecheckMessages[alert.id] ?? null}
             />
           </div>
         ))}

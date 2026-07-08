@@ -16,6 +16,7 @@ import {
   IconInfoCircle,
   IconScale,
   IconMessage,
+  IconServer,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
@@ -38,6 +39,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { ServerTab } from "@/components/settings/ServerTab";
 
 interface LocaleEntry {
   code: string;
@@ -407,6 +409,10 @@ export default function SettingsPage() {
             <TabsTrigger value="legal" data-testid="tab-legal">
               <IconScale className="h-4 w-4 mr-1.5" />
               Legal
+            </TabsTrigger>
+            <TabsTrigger value="server" data-testid="tab-server">
+              <IconServer className="h-4 w-4 mr-1.5" />
+              Server
             </TabsTrigger>
           </TabsList>
 
@@ -949,6 +955,10 @@ export default function SettingsPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+          </TabsContent>
+
+          <TabsContent value="server" className="mt-4">
+            <ServerTab />
           </TabsContent>
 
         </Tabs>

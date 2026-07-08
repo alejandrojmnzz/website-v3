@@ -41,12 +41,22 @@ export interface GcsRecheckResponse {
   };
 }
 
+export interface DatabaseRecheckResponse {
+  found: boolean;
+  resolved: boolean;
+  errorCount: number;
+  warningCount: number;
+  message: string;
+}
+
 export function useSystemAlerts() {
   const queryClient = useQueryClient();
   const { isValidated, hasToken, isLoading: authLoading } = useDebugAuth();
   const enabled = isValidated === true && hasToken;
   const [recheckingGcs, setRecheckingGcs] = useState(false);
   const [recheckMessage, setRecheckMessage] = useState<string | null>(null);
+  const [recheckingDbId, setRecheckingDbId] = useState<string | null>(null);
+  const [dbRecheckMessages, setDbRecheckMessages] = useState<Record<string, string>>({});
 
   const { data, isLoading, isFetching } = useQuery<SystemAlertsResponse>({
     queryKey: ["/api/admin/system-alerts"],
@@ -80,6 +90,28 @@ export function useSystemAlerts() {
     }
   }, [queryClient]);
 
+  const recheckDatabase = useCallback(
+    async (alert: SystemAlert) => {
+      if (!alert.database) return;
+      setRecheckingDbId(alert.id);
+      try {
+        const res = await fetch("/api/admin/database-recheck", {
+          method: "POST",
+          headers: { ...getSessionHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ database: alert.database, site: alert.site }),
+        });
+        if (!res.ok) throw new Error("Failed to re-check database");
+        const body = (await res.json()) as DatabaseRecheckResponse;
+        setDbRecheckMessages((prev) => ({ ...prev, [alert.id]: body.message }));
+        await queryClient.invalidateQueries({ queryKey: ["/api/admin/system-alerts"] });
+        return body;
+      } finally {
+        setRecheckingDbId(null);
+      }
+    },
+    [queryClient],
+  );
+
   const alerts = data?.alerts ?? [];
   const criticalAlerts = alerts.filter((a) => a.severity === "critical");
   const warningAlerts = alerts.filter((a) => a.severity === "warning");
@@ -94,5 +126,8 @@ export function useSystemAlerts() {
     recheckGcsMigration,
     recheckingGcs,
     recheckMessage,
+    recheckDatabase,
+    recheckingDbId,
+    dbRecheckMessages,
   };
 }

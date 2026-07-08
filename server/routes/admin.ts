@@ -30,10 +30,18 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { resetSiteConfigs, getDefaultContentFolder, getDefaultContentRoot, getSiteConfigs } from "../site-config";
 import { resetSiteContextMap, getSiteInfo } from "../site-manager";
+import {
+  BOOT_ID,
+  BOOT_TIME,
+  getLastSoftReload,
+  performSoftReload,
+  triggerGracefulShutdown,
+  isShutdownHandlerRegistered,
+} from "../server-control";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, DatabaseManager } from "../database";
-import { collectSystemAlerts } from "../system-alerts";
+import { collectSystemAlerts, recheckDatabaseHealth } from "../system-alerts";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -365,6 +373,89 @@ export function registerAdminRoutes(app: Express): void {
     await gcs.checkArchitecture();
     res.json({ alerts: collectSystemAlerts() });
   });
+
+  app.post("/api/admin/database-recheck", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const { database, site } = req.body as { database?: string; site?: string };
+    if (!database) {
+      res.status(400).json({ error: "Missing 'database' in request body" });
+      return;
+    }
+
+    const result = await recheckDatabaseHealth(database, site);
+    if (!result.found) {
+      res.status(404).json(result);
+      return;
+    }
+    res.json({ ...result, alerts: collectSystemAlerts() });
+  });
+
+  // ─── Server controls (staff-only) ─────────────────────────────────────────
+  // Richer status than /health, for the Settings → Server tab status card.
+  app.get("/api/admin/server/status", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    const lastReload = getLastSoftReload();
+    const mem = process.memoryUsage();
+    res.json({
+      status: "ok",
+      bootId: BOOT_ID,
+      bootTime: BOOT_TIME,
+      uptime: process.uptime(),
+      env: process.env.NODE_ENV ?? "development",
+      nodeVersion: process.version,
+      pid: process.pid,
+      lastSoftReloadAt: lastReload.at,
+      lastSoftReloadId: lastReload.id,
+      restartAvailable: isShutdownHandlerRegistered(),
+      memory: {
+        rssMb: Math.round(mem.rss / 1024 / 1024),
+        heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+        heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+      },
+    });
+  });
+
+  // Soft reload — re-hydrate derived in-memory state without killing the
+  // process. Reports per-step results so a partial failure is visible.
+  app.post("/api/admin/server/soft-reload", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const result = await performSoftReload();
+      res.json(result);
+    } catch (err) {
+      // performSoftReload isolates step failures, but guard the outer call too.
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err }, "[Admin] Soft reload failed unexpectedly");
+      res.status(500).json({ success: false, error: message, steps: [] });
+    }
+  });
+
+  // Hard restart — gracefully exit the process so the platform supervisor
+  // relaunches it. The response is flushed first, then shutdown fires on a
+  // short delay so the client receives the acknowledgement.
+  app.post("/api/admin/server/hard-restart", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    if (!isShutdownHandlerRegistered()) {
+      res.status(503).json({ error: "Hard restart is unavailable (shutdown handler not registered)." });
+      return;
+    }
+
+    res.json({ ok: true, bootId: BOOT_ID, message: "Restart initiated" });
+
+    // Delay so the response fully flushes before we begin tearing down.
+    setTimeout(() => {
+      triggerGracefulShutdown("ADMIN_HARD_RESTART");
+    }, 250);
+  });
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Clear sitemap cache (requires token validation)
   app.post("/api/debug/clear-sitemap-cache", async (req, res) => {
@@ -2300,6 +2391,15 @@ export function registerAdminRoutes(app: Express): void {
         contentFolder,
         githubRepoUrl,
       }));
+
+      // res.locals.site was resolved before the refresh reset the context map;
+      // re-resolve it against the freshly built map so siteInfo is not stale.
+      const { getSiteContextMap, getDefaultSite } = await import("../site-manager");
+      const staleSite = res.locals.site;
+      if (staleSite) {
+        const freshCtx = getSiteContextMap().get(staleSite.config.domain) ?? getDefaultSite();
+        res.locals.site = { ...freshCtx, isDevOverride: staleSite.isDevOverride ?? false };
+      }
       const siteInfo = getSiteInfo(req, res);
 
       res.json({
