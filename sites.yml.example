@@ -13,9 +13,17 @@
 #   <domain>:
 #     content_folder: site_<name>
 #     github_repo_url: https://github.com/org/content-repo  (optional)
+#     fallback_content_folder: site_<parent>  (optional)
+#       When an image_id is missing in this site's image-registry.json,
+#       resolve it from the named site's registry (else the default/first site).
 
 bucket_name: my-gcs-bucket-name
 
 example.com:
   content_folder: site_example-com
   github_repo_url: https://github.com/org/example-content
+
+fl.example.com:
+  content_folder: site_example-florida
+  github_repo_url: https://github.com/org/example-content
+  fallback_content_folder: site_example-com

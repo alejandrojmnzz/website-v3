@@ -13,6 +13,8 @@ import {
 } from "./component-registry";
 import { getVariableManager } from "./variable-manager";
 import { loadImageRegistry } from "./image-registry";
+import { getMergedImageRegistry } from "./image-registry-resolver";
+import type { SiteContext } from "./site-manager";
 import { readNavigationEagerManifest } from "./navigation-eager-manifest";
 import { getDefaultLocale, normalizeLocale } from "./settings";
 import { getApiPath } from "../shared/api-paths";
@@ -526,6 +528,7 @@ export async function resolveInitialData(
   url: string,
   ci: ContentIndex = contentIndex,
   dbm: DatabaseManager = databaseManager,
+  site?: SiteContext,
 ): Promise<InitialDataPayload | null> {
   const cleanUrl = url.split("?")[0].split("#")[0];
   const isBlogListing =
@@ -626,7 +629,9 @@ export async function resolveInitialData(
     data: contentTypesPayload,
   });
 
-  const registry = loadImageRegistry(ci.contentRoot);
+  const registry = site
+    ? getMergedImageRegistry(site)
+    : loadImageRegistry(ci.contentRoot);
   if (registry) {
     queries.push({
       queryKey: ["/api/image-registry"],
@@ -743,7 +748,8 @@ export function initialDataMiddleware(
 
   const ci = ((res.locals as any).site?.contentIndex ?? contentIndex) as ContentIndex;
   const dbm = ((res.locals as any).site?.database ?? databaseManager) as DatabaseManager;
-  const payloadPromise = resolveInitialData(req.originalUrl, ci, dbm).catch(() => null);
+  const site = (res.locals as any).site as SiteContext | undefined;
+  const payloadPromise = resolveInitialData(req.originalUrl, ci, dbm, site).catch(() => null);
 
   const originalEnd = res.end;
   res.end = function (this: Response, chunk?: any, ...args: any[]) {

@@ -91,16 +91,36 @@ function getOpenAIClient(config: LLMConfig): OpenAI {
 
 export class AgentService {
   private config: LLMConfig;
-  private client: OpenAI;
+  private client: OpenAI | null = null;
 
   constructor() {
     this.config = loadConfig();
-    this.client = getOpenAIClient(this.config);
+    this.reloadClient();
+  }
+
+  private reloadClient(): void {
+    try {
+      this.client = getOpenAIClient(this.config);
+    } catch (err) {
+      log.warn({ err }, "[AgentService] API client unavailable (missing API key?)");
+      this.client = null;
+    }
   }
 
   reload(): void {
     this.config = loadConfig();
-    this.client = getOpenAIClient(this.config);
+    this.reloadClient();
+  }
+
+  private requireClient(): OpenAI {
+    if (!this.client) {
+      this.reloadClient();
+    }
+    if (!this.client) {
+      const apiKeyEnv = this.config.provider?.api_key_env || "OPENAI_API_KEY";
+      throw new Error(`API key not configured. Set ${apiKeyEnv} in environment.`);
+    }
+    return this.client;
   }
 
   getConfig(): LLMConfig {
@@ -187,7 +207,7 @@ Question: "${content}"
 
 Respond with ONLY the category name, nothing else.`;
 
-      const response = await this.client.chat.completions.create({
+      const response = await this.requireClient().chat.completions.create({
         model: resolveModel(this.config, "default"),
         messages: [{ role: "user", content: tagPrompt }],
         temperature: 0,
@@ -252,7 +272,7 @@ Respond with ONLY the category name, nothing else.`;
       trace.totalTokens += usage.total_tokens || (prompt + completion);
     };
 
-    let response = await this.client.chat.completions.create({
+    let response = await this.requireClient().chat.completions.create({
       model,
       messages,
       temperature: this.config.temperature ?? 0.3,
@@ -301,7 +321,7 @@ Respond with ONLY the category name, nothing else.`;
         });
       }
 
-      response = await this.client.chat.completions.create({
+      response = await this.requireClient().chat.completions.create({
         model,
         messages,
         temperature: this.config.temperature ?? 0.3,
@@ -319,7 +339,7 @@ Respond with ONLY the category name, nothing else.`;
 
     if (!assistantMessage?.content) {
       log.info(`[AgentService] No content after ${iterations} tool-call iteration(s) — making rescue call without tools`);
-      const rescueResponse = await this.client.chat.completions.create({
+      const rescueResponse = await this.requireClient().chat.completions.create({
         model,
         messages,
         temperature: this.config.temperature ?? 0.3,
@@ -355,7 +375,7 @@ Only include categories that have at least one question. Limit examples to 3 per
 
     const model = resolveModel(this.config, "default");
 
-    const response = await this.client.chat.completions.create({
+    const response = await this.requireClient().chat.completions.create({
       model,
       messages: [{ role: "user", content: tagPrompt }],
       temperature: 0,

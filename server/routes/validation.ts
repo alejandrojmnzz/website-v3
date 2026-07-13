@@ -17,6 +17,8 @@ import { contentIndex } from "../content-index";
 import { getAvailableSchemaKeys } from "../schema-org";
 import { generateSsrSchemaHtml } from "../ssr-schema";
 import { mediaGallery, MediaGallery } from "../media-gallery";
+import { getMergedImageRegistry } from "../image-registry-resolver";
+import type { SiteContext } from "../site-manager";
 import {
 
   safeYamlLoad,
@@ -714,7 +716,10 @@ export function registerValidationRoutes(app: Express): void {
 
       let registryImages: Record<string, any> = {};
       try {
-        const reg = getMediaGallery(res).getRegistry();
+        const site = res.locals.site as SiteContext | undefined;
+        const reg = site
+          ? getMergedImageRegistry(site)
+          : getMediaGallery(res).getRegistry();
         if (reg) {
           registryImages = reg.images || {};
         }

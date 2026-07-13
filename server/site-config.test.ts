@@ -75,6 +75,23 @@ b.example.com:
     expect(hasMultipleSites()).toBe(true);
   });
 
+  it("parses fallback_content_folder", () => {
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  content_folder: site_a
+b.example.com:
+  content_folder: site_b
+  fallback_content_folder: site_a
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    const configs = getSiteConfigs();
+    expect(configs[0].fallbackContentFolder).toBeUndefined();
+    expect(configs[1].fallbackContentFolder).toBe("site_a");
+  });
+
   it("formatSitesYmlRequiredError includes reason and example", () => {
     const msg = formatSitesYmlRequiredError("test reason");
     expect(msg).toContain("test reason");

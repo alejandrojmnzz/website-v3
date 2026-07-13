@@ -9,6 +9,8 @@ export interface SiteConfig {
   domain: string;
   contentFolder: string;
   githubRepoUrl?: string;
+  /** When an image_id is missing locally, resolve it from this site's registry. */
+  fallbackContentFolder?: string;
 }
 
 let _cached: SiteConfig[] | null = null;
@@ -21,6 +23,7 @@ const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
 # example.com:
 #   content_folder: site_example-com
 #   github_repo_url: https://github.com/org/example-content
+#   fallback_content_folder: site_parent-com  # optional
 
 bucket_name: my-gcs-bucket
 
@@ -78,10 +81,15 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
     if (domain === "bucket_name") continue;
     if (config && typeof config === "object") {
       const c = config as Record<string, unknown>;
+      const fallbackFolder =
+        (typeof c.fallback_content_folder === "string" && c.fallback_content_folder) ||
+        (typeof c.fallbackContentFolder === "string" && c.fallbackContentFolder) ||
+        undefined;
       configs.push({
         domain,
         contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
         githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
+        fallbackContentFolder: fallbackFolder || undefined,
       });
     }
   }

@@ -91,6 +91,7 @@ import {
   buildUserContext,
 } from "../versioning";
 import { mediaGallery, MediaGallery } from "../media-gallery";
+import { getMergedImageRegistry } from "../image-registry-resolver";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
@@ -265,7 +266,10 @@ export function registerMediaRoutes(app: Express): void {
   });
 
   app.get("/api/image-registry", (_req, res) => {
-    const registry = getMediaGallery(res).getRegistry();
+    const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+    const registry = site
+      ? getMergedImageRegistry(site)
+      : getMediaGallery(res).getRegistry();
     if (!registry) {
       res.status(500).json({ error: "Failed to load image registry" });
       return;

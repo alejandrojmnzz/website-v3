@@ -1581,9 +1581,17 @@ export function registerAdminRoutes(app: Express): void {
 
       const conversationStore = await getConversationStore(res);
       const updates = req.body || {};
+      const llmConfigKeys = new Set([
+        "updated_by",
+        "agent_tools",
+        "chat_bubble",
+        "empty_conversation_grace_minutes",
+        "model_default",
+        "model_chat",
+      ]);
 
       for (const [key, value] of Object.entries(updates)) {
-        if (key === "updated_by" || key === "empty_conversation_grace_minutes" || key === "model_default" || key === "model_chat") continue;
+        if (llmConfigKeys.has(key)) continue;
         await conversationStore.setKnowledge(key, value, updates.updated_by);
       }
 
@@ -1598,27 +1606,42 @@ export function registerAdminRoutes(app: Express): void {
       const hasLlmUpdates = updates.agent_tools || updates.chat_bubble || updates.empty_conversation_grace_minutes !== undefined || updates.model_default !== undefined || updates.model_chat !== undefined;
       if (hasLlmUpdates) {
         const llmPath = path.join(getContentRoot(res), "llm.yml");
-        if (fs.existsSync(llmPath)) {
-          const llmConfig = loadSiteLLMConfig(res);
-          const mutableConfig: Record<string, unknown> = { ...llmConfig };
-          if (updates.agent_tools) mutableConfig.agent_tools = updates.agent_tools;
-          if (updates.chat_bubble) mutableConfig.chat_bubble = updates.chat_bubble;
-          if (updates.empty_conversation_grace_minutes !== undefined) mutableConfig.empty_conversation_grace_minutes = updates.empty_conversation_grace_minutes;
-          if (updates.model_default !== undefined || updates.model_chat !== undefined) {
-            const existing = typeof mutableConfig.model === "object" && mutableConfig.model !== null
-              ? mutableConfig.model as Record<string, string>
-              : { default: typeof mutableConfig.model === "string" ? mutableConfig.model : "" };
-            const modelObj: Record<string, string> = { ...existing };
-            if (updates.model_default !== undefined) modelObj.default = updates.model_default;
-            if (updates.model_chat !== undefined) modelObj.chat = updates.model_chat;
-            if (!modelObj.chat) delete modelObj.chat;
-            mutableConfig.model = modelObj;
-          }
-          fs.writeFileSync(llmPath, yaml.dump(mutableConfig, { lineWidth: -1 }), "utf-8");
+        const llmConfig = loadSiteLLMConfig(res);
+        const mutableConfig: Record<string, unknown> = { ...llmConfig };
+        if (updates.agent_tools) mutableConfig.agent_tools = updates.agent_tools;
+        if (updates.chat_bubble) {
+          const existingBubble =
+            typeof mutableConfig.chat_bubble === "object" && mutableConfig.chat_bubble !== null
+              ? (mutableConfig.chat_bubble as Record<string, unknown>)
+              : {};
+          mutableConfig.chat_bubble = { ...existingBubble, ...(updates.chat_bubble as Record<string, unknown>) };
+        }
+        if (updates.empty_conversation_grace_minutes !== undefined) mutableConfig.empty_conversation_grace_minutes = updates.empty_conversation_grace_minutes;
+        if (updates.model_default !== undefined || updates.model_chat !== undefined) {
+          const existing = typeof mutableConfig.model === "object" && mutableConfig.model !== null
+            ? mutableConfig.model as Record<string, string>
+            : { default: typeof mutableConfig.model === "string" ? mutableConfig.model : "" };
+          const modelObj: Record<string, string> = { ...existing };
+          if (updates.model_default !== undefined) modelObj.default = updates.model_default;
+          if (updates.model_chat !== undefined) modelObj.chat = updates.model_chat;
+          if (!modelObj.chat) delete modelObj.chat;
+          mutableConfig.model = modelObj;
+        }
+        fs.writeFileSync(llmPath, yaml.dump(mutableConfig, { lineWidth: -1 }), "utf-8");
+
+        try {
+          const { markFileAsModified } = await import("../sync-state");
+          markFileAsModified(llmPath);
+        } catch (markErr) {
+          log.warn({ err: markErr }, "[AI Knowledge PATCH] Could not mark llm.yml modified (non-fatal)");
         }
 
-        const { getAgentService } = await import("../ai/AgentService");
-        getAgentService().reload();
+        try {
+          const { getAgentService } = await import("../ai/AgentService");
+          getAgentService().reload();
+        } catch (reloadErr) {
+          log.warn({ err: reloadErr }, "[AI Knowledge PATCH] Agent reload failed (non-fatal)");
+        }
       }
 
       res.json({ success: true });

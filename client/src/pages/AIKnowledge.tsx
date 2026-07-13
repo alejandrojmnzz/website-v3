@@ -14,7 +14,22 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
 import { getDebugToken } from "@/hooks/useDebugAuth";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { ChatPanel } from "@/components/ChatPanel";
+
+function knowledgeRequestHeaders(): Record<string, string> {
+  return { "Content-Type": "application/json", ...getSessionHeaders() };
+}
+
+async function readKnowledgeError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json() as { error?: string };
+    if (body.error) return body.error;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
 
 interface KnowledgeData {
   system_prompt: string | null;
@@ -207,10 +222,7 @@ export default function AIKnowledge() {
   const { data, isLoading } = useQuery<KnowledgeData>({
     queryKey: ["/api/admin/ai/knowledge"],
     queryFn: async () => {
-      const token = getDebugToken();
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Token ${token}`;
-      const res = await fetch("/api/admin/ai/knowledge", { headers });
+      const res = await fetch("/api/admin/ai/knowledge", { headers: getSessionHeaders() });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
       return res.json();
     },
@@ -288,8 +300,8 @@ export default function AIKnowledge() {
       setDraftAgentTools(agentTools.map(t => ({ ...t })));
       setExpandedTools(new Set());
       const token = getDebugToken();
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Token ${token}`;
+      const headers: Record<string, string> = { ...getSessionHeaders() };
+      if (token && !headers.Authorization) headers.Authorization = `Token ${token}`;
       fetch("/api/admin/ai/tool-definitions", { headers })
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data?.tools) setToolDefinitions(data.tools); })
@@ -307,23 +319,24 @@ export default function AIKnowledge() {
   const handleToolsSave = async () => {
     setSavingTools(true);
     try {
-      const token = getDebugToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Token ${token}`;
       const res = await fetch("/api/admin/ai/knowledge", {
         method: "PATCH",
-        headers,
+        headers: knowledgeRequestHeaders(),
         body: JSON.stringify({
           agent_tools: draftAgentTools,
         }),
       });
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      if (!res.ok) throw new Error(await readKnowledgeError(res, `Save failed (${res.status})`));
       setAgentTools(draftAgentTools.map(t => ({ ...t })));
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({ title: "Agent Tools saved", description: "Changes are instantly applied — test the agent now." });
       setToolsOpen(false);
-    } catch {
-      toast({ title: "Error", description: "Failed to save agent tools.", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to save agent tools.",
+        variant: "destructive",
+      });
     } finally {
       setSavingTools(false);
     }
@@ -332,25 +345,26 @@ export default function AIKnowledge() {
   const handleModelsSave = async () => {
     setSavingModels(true);
     try {
-      const token = getDebugToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Token ${token}`;
       const res = await fetch("/api/admin/ai/knowledge", {
         method: "PATCH",
-        headers,
+        headers: knowledgeRequestHeaders(),
         body: JSON.stringify({
           model_default: draftModelDefault,
           model_chat: draftModelChat,
         }),
       });
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      if (!res.ok) throw new Error(await readKnowledgeError(res, `Save failed (${res.status})`));
       setModelDefault(draftModelDefault);
       setModelChat(draftModelChat);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({ title: "Models saved", description: "Changes are instantly applied — test the agent now." });
       setModelsOpen(false);
-    } catch {
-      toast({ title: "Error", description: "Failed to save models.", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to save models.",
+        variant: "destructive",
+      });
     } finally {
       setSavingModels(false);
     }
@@ -393,13 +407,10 @@ export default function AIKnowledge() {
   const handleIdentityCoreSave = async () => {
     setSavingIdentity(true);
     try {
-      const token = getDebugToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Token ${token}`;
       const compiled = compileSystemPrompt(draftAgentName, draftPromptRole, draftPromptPersonality, draftPromptInstructions, draftPromptFallback);
       const res = await fetch("/api/admin/ai/knowledge", {
         method: "PATCH",
-        headers,
+        headers: knowledgeRequestHeaders(),
         body: JSON.stringify({
           system_prompt: compiled,
           prompt_role: draftPromptRole,
@@ -409,7 +420,7 @@ export default function AIKnowledge() {
           chat_bubble: { enabled: bubbleEnabled, page_patterns: pagePatterns, content_types: contentTypes, agent_name: draftAgentName, agent_icon: draftAgentIcon },
         }),
       });
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      if (!res.ok) throw new Error(await readKnowledgeError(res, `Save failed (${res.status})`));
       setAgentName(draftAgentName);
       setAgentIcon(draftAgentIcon);
       setPromptRole(draftPromptRole);
@@ -419,8 +430,12 @@ export default function AIKnowledge() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({ title: "Identity Core saved", description: "Changes are instantly applied — test the agent now." });
       setIdentityCoreOpen(false);
-    } catch {
-      toast({ title: "Error", description: "Failed to save identity settings.", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to save identity settings.",
+        variant: "destructive",
+      });
     } finally {
       setSavingIdentity(false);
     }
@@ -429,25 +444,26 @@ export default function AIKnowledge() {
   const handleVisibilitySave = async () => {
     setSavingVisibility(true);
     try {
-      const token = getDebugToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Token ${token}`;
       const res = await fetch("/api/admin/ai/knowledge", {
         method: "PATCH",
-        headers,
+        headers: knowledgeRequestHeaders(),
         body: JSON.stringify({
           chat_bubble: { enabled: draftBubbleEnabled, page_patterns: draftPagePatterns, content_types: draftContentTypes, agent_name: agentName, agent_icon: agentIcon },
         }),
       });
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      if (!res.ok) throw new Error(await readKnowledgeError(res, `Save failed (${res.status})`));
       setBubbleEnabled(draftBubbleEnabled);
       setPagePatterns(draftPagePatterns);
       setContentTypes(draftContentTypes);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({ title: "Page targeting saved", description: "Changes are instantly applied — test the agent now." });
       setVisibilityOpen(false);
-    } catch {
-      toast({ title: "Error", description: "Failed to save targeting settings.", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Failed to save targeting settings.",
+        variant: "destructive",
+      });
     } finally {
       setSavingVisibility(false);
     }
