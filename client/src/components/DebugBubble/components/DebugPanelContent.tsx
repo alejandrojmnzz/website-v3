@@ -115,6 +115,7 @@ export interface DebugPanelContentProps {
   handleDeletePage: (url: string) => void;
   handleDownloadYml: (url: string) => void;
   handleEditYaml: (url: string) => void;
+  onEditContentTypesYml: () => void;
   handleRefreshCache: (url: SitemapUrl) => void;
   validationSummary: Record<string, { errorCount: number; warningCount: number }>;
   onOpenDiagnosticsForUrl: (urlPath: string) => void;
@@ -1017,7 +1018,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
       ) : props.menuView === "databases" ? (
         <DatabasesView setMenuView={props.setMenuView} />
       ) : props.menuView === "content-types" ? (
-        <ContentTypesView setMenuView={props.setMenuView} />
+        <ContentTypesView
+          setMenuView={props.setMenuView}
+          onEditContentTypesYml={props.onEditContentTypesYml}
+        />
       ) : (
         <SitemapView
           setMenuView={props.setMenuView}

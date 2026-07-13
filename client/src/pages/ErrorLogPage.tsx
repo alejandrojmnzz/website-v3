@@ -82,7 +82,7 @@ export default function ErrorLogPage() {
   const topModule = data?.byModule?.[0]?.module ?? "—";
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Error &amp; Warning Log</h1>

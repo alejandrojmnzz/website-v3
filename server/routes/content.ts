@@ -127,6 +127,8 @@ import {
   resolveLayout,
   listAvailableMenus,
   getDirectory,
+  readRawContentTypesYml,
+  writeRawContentTypesYml,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
@@ -939,6 +941,48 @@ export function registerContentRoutes(app: Express): void {
       });
     } catch (err) {
       res.status(400).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/yml", (_req, res) => {
+    try {
+      const file = readRawContentTypesYml(getContentRoot(res));
+      if (!file) {
+        res.status(404).json({ exists: false, error: "content-types.yml not found" });
+        return;
+      }
+      const relativePath = `${getContentRootName(res)}/content-types.yml`;
+      res.json({ exists: true, path: relativePath, content: file.content });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.put("/api/content-types/yml", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "content_types_manage");
+      if (!auth.authorized) return;
+
+      const { content, author: requestAuthor } = req.body as {
+        content?: string;
+        author?: string;
+      };
+      if (typeof content !== "string") {
+        res.status(400).json({ error: "content is required" });
+        return;
+      }
+
+      const authorName =
+        auth.author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
+
+      writeRawContentTypesYml(content, getContentRoot(res), authorName);
+      getCI(res).refresh();
+      clearSitemapCache();
+      invalidateContentCaches(undefined, getCI(res));
+
+      res.json({ success: true, path: `${getContentRootName(res)}/content-types.yml` });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 

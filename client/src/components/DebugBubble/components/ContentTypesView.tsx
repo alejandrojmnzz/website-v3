@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, Database, ExternalLink, FileText, Folder, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, Database, ExternalLink, FileCode, FileText, Folder, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -31,6 +31,7 @@ interface ContentTypeSummary {
 
 interface ContentTypesViewProps {
   setMenuView: (v: MenuView) => void;
+  onEditContentTypesYml: () => void;
 }
 
 interface LocaleEntry {
@@ -525,7 +526,7 @@ function CreateContentTypeDialog({ open, onOpenChange }: { open: boolean; onOpen
   );
 }
 
-export function ContentTypesView({ setMenuView }: ContentTypesViewProps) {
+export function ContentTypesView({ setMenuView, onEditContentTypesYml }: ContentTypesViewProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ContentTypeSummary | null>(null);
   const { data, isLoading } = useQuery<ContentTypeSummary[]>({
@@ -552,13 +553,29 @@ export function ContentTypesView({ setMenuView }: ContentTypesViewProps) {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="p-1 rounded-md hover-elevate"
-            data-testid="button-create-content-type"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onEditContentTypesYml}
+                  className="p-1 rounded-md hover-elevate"
+                  data-testid="button-edit-content-types-yml"
+                >
+                  <FileCode className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                Edit content-types.yml
+              </TooltipContent>
+            </Tooltip>
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="p-1 rounded-md hover-elevate"
+              data-testid="button-create-content-type"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 

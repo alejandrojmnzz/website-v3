@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth, getDebugToken, getDebugUserName, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { locations } from "@/lib/locations";
+import { queryClient } from "@/lib/queryClient";
 import { LocaleFlag } from "./components/LocaleFlag";
 import { DebugPanelContent } from "./components/DebugPanelContent";
 import { useQuery } from "@tanstack/react-query";
@@ -46,6 +47,7 @@ import {
 } from "./types";
 import { deslugify, detectContentInfo, getPersistedMenuView } from "./utils/debugHelpers";
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
+const ContentTypesYmlEditorPanel = lazy(() => import("@/components/editing/ContentTypesYmlEditorPanel"));
 import { LocationOverrideModal } from "./components/LocationOverrideModal";
 import { SessionModal } from "./components/SessionModal";
 import { SyncModal } from "./components/SyncModal";
@@ -145,6 +147,7 @@ export function DebugBubble() {
   const [showSitemapSearch, setShowSitemapSearch] = useState(false);
   const [showYamlEditor, setShowYamlEditor] = useState(false);
   const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string; variantSlug?: string } | null>(null);
+  const [showContentTypesYmlEditor, setShowContentTypesYmlEditor] = useState(false);
   const [componentSearch, setComponentSearch] = useState("");
   const [showComponentSearch, setShowComponentSearch] = useState(false);
 
@@ -1906,6 +1909,7 @@ export function DebugBubble() {
     handleDeletePage,
     handleDownloadYml,
     handleEditYaml,
+    onEditContentTypesYml: () => setShowContentTypesYmlEditor(true),
     handleRefreshCache,
     validationSummary,
     onOpenDiagnosticsForUrl: handleOpenDiagnosticsForUrl,
@@ -2268,6 +2272,16 @@ export function DebugBubble() {
             variantSlug={yamlEditorInfo.variantSlug}
             onClose={() => setShowYamlEditor(false)}
             onSaved={() => window.location.reload()}
+          />
+        </Suspense>
+      )}
+      {showContentTypesYmlEditor && (
+        <Suspense fallback={null}>
+          <ContentTypesYmlEditorPanel
+            onClose={() => setShowContentTypesYmlEditor(false)}
+            onSaved={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
+            }}
           />
         </Suspense>
       )}

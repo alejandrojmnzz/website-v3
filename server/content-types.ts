@@ -471,6 +471,53 @@ export function resetRegistry(contentRoot?: string): void {
   }
 }
 
+export function readRawContentTypesYml(contentRoot?: string): { content: string; absolutePath: string } | null {
+  const configPath = getConfigPath(contentRoot);
+  if (!fs.existsSync(configPath)) return null;
+  return {
+    content: fs.readFileSync(configPath, "utf-8"),
+    absolutePath: configPath,
+  };
+}
+
+export function writeRawContentTypesYml(content: string, contentRoot?: string, author?: string): void {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err) {
+    throw new Error(`Invalid YAML: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("content-types.yml must be a YAML object mapping type names to configs");
+  }
+
+  for (const [name, entry] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Entry "${name}" must be an object`);
+    }
+    const config = entry as Partial<ContentTypeEntry>;
+    if (!config.directory || typeof config.directory !== "string") {
+      throw new Error(`Entry "${name}" requires a string "directory"`);
+    }
+    if (!config.url_pattern) {
+      throw new Error(`Entry "${name}" requires "url_pattern"`);
+    }
+    const normalized = normalizeUrlPattern(config.url_pattern as string | Record<string, string>);
+    validateUrlPatterns(normalized);
+    if (config.database && !(config.field_mapping as Record<string, unknown> | undefined)?._slug) {
+      throw new Error(`Database-backed content type "${name}" requires _slug in field_mapping`);
+    }
+  }
+
+  const resolvedRoot = resolveContentTypeRoot(contentRoot);
+  const configPath = getConfigPath(resolvedRoot);
+  fs.writeFileSync(configPath, content, "utf-8");
+  markFileAsModified(configPath, author, undefined, resolvedRoot);
+  resetRegistry(resolvedRoot);
+  log.info("[ContentTypes] Wrote raw content-types.yml");
+}
+
 function extractDotPath(record: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
   let current: unknown = record;
