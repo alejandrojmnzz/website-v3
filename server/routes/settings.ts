@@ -1030,6 +1030,7 @@ export function registerSettingsRoutes(app: Express): void {
         : `footer:\n  columns: []\n`;
 
     fs.writeFileSync(filePath, scaffold, "utf8");
+    markFileAsModified(filePath, undefined, undefined, getContentRoot(res));
 
     res.status(201).json({ name, file: fileName });
   });
@@ -1037,7 +1038,7 @@ export function registerSettingsRoutes(app: Express): void {
   app.get("/api/menus/:name/usage", (req, res) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     try {
       const { name } = req.params;
-      const configs = getAllConfigs();
+      const configs = getAllConfigs(getContentRoot(res));
       const defaultContentTypes: { name: string; position: "top" | "bottom" | "both" }[] = [];
       for (const [typeName, config] of Object.entries(configs)) {
         const top = config.layout?.menu?.top === name;
@@ -1110,8 +1111,10 @@ export function registerSettingsRoutes(app: Express): void {
         return changed;
       };
 
+      const contentRoot = getContentRoot(res);
+
       // 1. Clean up layout references in content-types.yml
-      const configs = getAllConfigs();
+      const configs = getAllConfigs(contentRoot);
       for (const [typeName, config] of Object.entries(configs)) {
         const top = config.layout?.menu?.top === name;
         const bottom = config.layout?.menu?.bottom === name;
@@ -1122,7 +1125,7 @@ export function registerSettingsRoutes(app: Express): void {
           top: top ? null : (currentMenu.top ?? null),
           bottom: bottom ? null : (currentMenu.bottom ?? null),
         };
-        updateContentTypeConfig(typeName, { layout: { menu: newMenu } });
+        updateContentTypeConfig(typeName, { layout: { menu: newMenu } }, contentRoot);
 
         // Also clean any page-level overrides for this content type
         const position: "top" | "bottom" | "both" = top && bottom ? "both" : top ? "top" : "bottom";
@@ -1136,6 +1139,7 @@ export function registerSettingsRoutes(app: Express): void {
             if (!parsed) continue;
             if (cleanMenuRef(parsed, position)) {
               fs.writeFileSync(commonPath, yaml.dump(parsed, { lineWidth: 120, noRefs: true }), "utf-8");
+              markFileAsModified(commonPath, undefined, undefined, contentRoot);
             }
           } catch {}
         }
@@ -1152,19 +1156,23 @@ export function registerSettingsRoutes(app: Express): void {
           if (!parsed) continue;
           if (cleanMenuRef(parsed, override.position)) {
             fs.writeFileSync(commonPath, yaml.dump(parsed, { lineWidth: 120, noRefs: true }), "utf-8");
+            markFileAsModified(commonPath, undefined, undefined, contentRoot);
           }
         } catch {}
       }
 
       // 3. Delete the main file and any translation variant files
       fs.unlinkSync(mainFile);
+      markFileAsModified(mainFile, undefined, undefined, contentRoot);
       try {
         // Safe: name is already validated as a slug (no special regex chars)
         const translationPattern = new RegExp(`^${name}\\.[a-z]{2}(?:\\.[a-z]{2})?\\.(yml|yaml)$`);
         const dir = fs.readdirSync(menusDir);
         for (const f of dir) {
           if (translationPattern.test(f)) {
-            fs.unlinkSync(path.join(menusDir, f));
+            const translationPath = path.join(menusDir, f);
+            fs.unlinkSync(translationPath);
+            markFileAsModified(translationPath, undefined, undefined, contentRoot);
           }
         }
       } catch {}
@@ -1181,7 +1189,8 @@ export function registerSettingsRoutes(app: Express): void {
       const { type } = req.params;
       const auth = await requireCapability(req, res, "content_types_manage");
       if (!auth.authorized) return;
-      const config = getContentTypeConfig(type);
+      const contentRoot = getContentRoot(res);
+      const config = getContentTypeConfig(type, contentRoot);
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -1206,7 +1215,7 @@ export function registerSettingsRoutes(app: Express): void {
       if ("bottom" in body.menu) newMenu.bottom = body.menu.bottom;
       else newMenu.bottom = currentLayout.bottom;
 
-      updateContentTypeConfig(type, { layout: { menu: newMenu } });
+      updateContentTypeConfig(type, { layout: { menu: newMenu } }, contentRoot);
 
       const slugs = getCI(res).listContentSlugs(type);
       for (const slug of slugs) {
@@ -1235,6 +1244,7 @@ export function registerSettingsRoutes(app: Express): void {
               delete parsed.layout;
             }
             fs.writeFileSync(commonPath, yaml.dump(parsed, { lineWidth: 120, noRefs: true }), "utf-8");
+            markFileAsModified(commonPath, undefined, undefined, contentRoot);
           }
         } catch {}
       }
@@ -1629,8 +1639,9 @@ export function registerSettingsRoutes(app: Express): void {
         noRefs: true,
         sortKeys: false,
       });
+      const contentRoot = getContentRoot(res);
       fs.writeFileSync(filePath, yamlContent, "utf-8");
-      markFileAsModified(filePath, authorName);
+      markFileAsModified(filePath, authorName, undefined, contentRoot);
 
       const syncResults: Record<string, string> = {};
       const translationLocales = ["es", "fr", "de", "pt", "it"];
@@ -1660,7 +1671,7 @@ export function registerSettingsRoutes(app: Express): void {
               sortKeys: false,
             });
             fs.writeFileSync(translationFilePath, syncedYaml, "utf-8");
-            markFileAsModified(translationFilePath, authorName);
+            markFileAsModified(translationFilePath, authorName, undefined, contentRoot);
             syncResults[targetLocale] = "synced";
           } catch (syncError) {
             log.error(
@@ -1757,7 +1768,7 @@ export function registerSettingsRoutes(app: Express): void {
         sortKeys: false,
       });
       fs.writeFileSync(filePath, yamlContent, "utf-8");
-      markFileAsModified(filePath, authorName);
+      markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
 
       res.json({
         success: true,

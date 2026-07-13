@@ -360,11 +360,12 @@ export function updateContentTypeConfig(type: string, update: Partial<ContentTyp
     throw new Error(`Database-backed content type "${singular}" requires _slug in field_mapping`);
   }
 
+  const resolvedRoot = resolveContentTypeRoot(contentRoot);
   const configPath = getConfigPath(contentRoot);
   const allTypes = { ...reg.types, [singular]: merged };
   writeConfigWithHeader(allTypes, contentRoot);
-  markFileAsModified(configPath);
-  resetRegistry(resolveContentTypeRoot(contentRoot));
+  markFileAsModified(configPath, undefined, undefined, resolvedRoot);
+  resetRegistry(resolvedRoot);
   log.info(`[ContentTypes] Updated config for "${singular}"`);
 }
 
@@ -384,7 +385,7 @@ export function addContentType(name: string, config: ContentTypeEntry, contentRo
   const resolvedRoot = resolveContentTypeRoot(contentRoot);
   const allTypes = { ...reg.types, [name]: config };
   writeConfigWithHeader(allTypes, contentRoot);
-  markFileAsModified(configPath);
+  markFileAsModified(configPath, undefined, undefined, resolvedRoot);
   registryCache.delete(resolvedRoot);
 
   const dirPath = path.join(resolvedRoot, config.directory);
@@ -420,7 +421,7 @@ export function addContentType(name: string, config: ContentTypeEntry, contentRo
     ].join("\n");
     const commonYmlPath = path.join(sampleDir, "_common.yml");
     fs.writeFileSync(commonYmlPath, commonYml);
-    markFileAsModified(commonYmlPath);
+    markFileAsModified(commonYmlPath, undefined, undefined, resolvedRoot);
 
     for (const locale of locales) {
       const localeYml = [
@@ -436,7 +437,7 @@ export function addContentType(name: string, config: ContentTypeEntry, contentRo
       ].join("\n");
       const localeYmlPath = path.join(sampleDir, `${locale}.yml`);
       fs.writeFileSync(localeYmlPath, localeYml);
-      markFileAsModified(localeYmlPath);
+      markFileAsModified(localeYmlPath, undefined, undefined, resolvedRoot);
     }
 
     const folderName2 = path.relative(process.cwd(), resolvedRoot);
@@ -455,11 +456,12 @@ export function deleteContentType(name: string, contentRoot?: string): void {
   }
 
   const configPath = getConfigPath(contentRoot);
+  const resolvedRoot = resolveContentTypeRoot(contentRoot);
   const allTypes = { ...reg.types };
   delete allTypes[singular];
   writeConfigWithHeader(allTypes, contentRoot);
-  markFileAsModified(configPath);
-  resetRegistry(resolveContentTypeRoot(contentRoot));
+  markFileAsModified(configPath, undefined, undefined, resolvedRoot);
+  resetRegistry(resolvedRoot);
   log.info(`[ContentTypes] Deleted content type "${singular}"`);
 }
 
