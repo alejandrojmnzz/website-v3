@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, useState } from "react";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { UniversalImage } from "@/components/UniversalImage";
 import type { GraduatesStatsSection } from "@shared/schema";
 import { cn } from "@/lib/utils";
@@ -173,13 +173,13 @@ export default function GraduatesStatsDefault({ data }: GraduatesStatsDefaultPro
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 shrink-0 rounded-full border-0 shadow-none"
+              className="h-10 w-10 shrink-0 rounded-full border-0 shadow-none hover:bg-muted"
               onClick={() => goToMobileImage(activeMobileImageIndex - 1)}
               disabled={activeMobileImageIndex === 0}
               aria-label="Previous graduate image"
               data-testid="button-graduates-stats-prev"
             >
-              <IconChevronLeft size={16} />
+              <ChevronLeft className="h-4 w-4" />
             </Button>
 
             <DotsIndicator
@@ -192,13 +192,13 @@ export default function GraduatesStatsDefault({ data }: GraduatesStatsDefaultPro
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 shrink-0 rounded-full border-0 shadow-none"
+              className="h-10 w-10 shrink-0 rounded-full border-0 shadow-none hover:bg-muted"
               onClick={() => goToMobileImage(activeMobileImageIndex + 1)}
               disabled={activeMobileImageIndex === collage_images.length - 1}
               aria-label="Next graduate image"
               data-testid="button-graduates-stats-next"
             >
-              <IconChevronRight size={16} />
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         )}

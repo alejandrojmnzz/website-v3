@@ -67,8 +67,11 @@ export function InternalLink({
     <a
       href={href}
       onClick={(e) => {
-        if (useSpaNav) handleClick(e);
+        handleClick(e);
         onClick?.(e);
+      }}
+      onMouseDown={(e) => {
+        handleClick.onMouseDown(e);
       }}
       onMouseEnter={handleMouseEnter}
       {...externalProps}

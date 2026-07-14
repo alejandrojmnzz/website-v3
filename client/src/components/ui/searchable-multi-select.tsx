@@ -37,8 +37,6 @@ interface SearchableMultiSelectProps {
   emptyMessage?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  allowFreeText?: boolean;
-  portalContainer?: HTMLElement | null;
 }
 
 export function SearchableMultiSelect({
@@ -53,8 +51,6 @@ export function SearchableMultiSelect({
   emptyMessage = "No options found",
   open: openProp,
   onOpenChange: onOpenChangeProp,
-  allowFreeText = false,
-  portalContainer,
 }: SearchableMultiSelectProps) {
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -130,7 +126,6 @@ export function SearchableMultiSelect({
           >
             <PopoverTrigger asChild>
               <Button
-                type="button"
                 variant="outline"
                 size="sm"
                 data-testid={`button-edit-${testIdPrefix}`}
@@ -145,25 +140,15 @@ export function SearchableMultiSelect({
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-72 p-0 z-[10000]" align="end" container={portalContainer}>
+            <PopoverContent className="w-72 p-0 z-[10000]" align="end">
               <div className="p-2 border-b">
                 <div className="relative">
                   <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder={allowFreeText ? `${searchPlaceholder} or type + Enter` : searchPlaceholder}
+                    placeholder={searchPlaceholder}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (allowFreeText && e.key === "Enter") {
-                        const trimmed = search.trim();
-                        if (trimmed && !value.includes(trimmed)) {
-                          onChange([...value, trimmed]);
-                          setSearch("");
-                          e.preventDefault();
-                        }
-                      }
-                    }}
                     className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                     data-testid={`input-${testIdPrefix}-filter-search`}
                     autoFocus
@@ -247,14 +232,15 @@ export function SearchableMultiSelect({
         <div className="flex flex-wrap gap-1.5">
           {value.map((v) => {
             const opt = optionByValue[v];
+            if (!opt) return null;
             return (
               <Badge key={v} variant="secondary" className="gap-1 pr-1">
-                {opt?.prefix && (
+                {opt.prefix && (
                   <span className="flex-shrink-0 text-xs leading-none">
                     {opt.prefix}
                   </span>
                 )}
-                <span>{opt?.badgeLabel ?? opt?.label ?? v}</span>
+                <span>{opt.badgeLabel ?? opt.label}</span>
                 <button
                   type="button"
                   onClick={() => toggle(v)}

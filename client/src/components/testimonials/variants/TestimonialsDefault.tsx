@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { Star } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import UniversalImage from "@/components/UniversalImage";
 import type { TestimonialsSection as TestimonialsSectionType } from "@shared/schema";
 import { DotsIndicator } from "@/components/DotsIndicator";
 import { useQuery } from "@tanstack/react-query";
@@ -107,6 +109,8 @@ const CARD_SPACING_MOBILE = 220;
 const DRAG_MULTIPLIER = 0.52;
 const SIDE_SCALE = 0.85;
 const SIDE_OPACITY = 0.5;
+// Mobile: side cards fade harder so half-cut text doesn't read as broken content
+const SIDE_OPACITY_MOBILE = 0.2;
 
 export function TestimonialsSection({ data, testimonials }: TestimonialsSectionProps) {
   const { i18n } = useTranslation();
@@ -133,13 +137,23 @@ export function TestimonialsSection({ data, testimonials }: TestimonialsSectionP
     return sorted.slice(0, limit).map(mapBankToItem);
   })();
 
-  const hardcodedItems = data?.items || testimonials?.map(t => ({
-    name: t.name,
-    role: t.role,
-    rating: t.rating,
-    comment: t.comment,
-    company: t.course,
-  })) || [];
+  const hardcodedItems: TestimonialItem[] = data?.items
+    ? data.items.map((item) => ({
+        name: item.name,
+        role: item.role,
+        rating: item.rating,
+        comment: item.comment,
+        company: item.company,
+        avatar: item.avatar,
+        outcome: item.outcome,
+      }))
+    : testimonials?.map((t) => ({
+        name: t.name,
+        role: t.role,
+        rating: t.rating,
+        comment: t.comment,
+        company: t.course,
+      })) ?? [];
 
   const items = useBankData && bankItems.length > 0 ? bankItems : hardcodedItems;
 
@@ -217,17 +231,19 @@ export function TestimonialsSection({ data, testimonials }: TestimonialsSectionP
       // Side cards (dist ~1): scale 0.85, opacity 0.5
       // Hidden (dist > 1.5): opacity 0
       
+      const sideOpacity = isDesktopOrTablet ? SIDE_OPACITY : SIDE_OPACITY_MOBILE;
+
       if (normalizedDist <= 1) {
         // Smoothly interpolate from center to side
         scale = 1 - (normalizedDist * (1 - SIDE_SCALE));
-        opacity = 1 - (normalizedDist * (1 - SIDE_OPACITY));
+        opacity = 1 - (normalizedDist * (1 - sideOpacity));
         // Z-index based on proximity - closer = higher
         zIndex = Math.round(10 - normalizedDist * 5);
       } else if (normalizedDist <= 2) {
         // Fade out zone
         const fadeProgress = normalizedDist - 1; // 0 to 1
         scale = SIDE_SCALE;
-        opacity = SIDE_OPACITY * (1 - fadeProgress);
+        opacity = sideOpacity * (1 - fadeProgress);
         zIndex = 1;
       } else {
         // Hidden
@@ -558,14 +574,14 @@ export function TestimonialsSection({ data, testimonials }: TestimonialsSectionP
 
         {/* Carousel Container */}
         <div className="relative h-[380px] lg:h-[420px]">
-          {/* Left fade - much smaller on mobile for better card visibility */}
+          {/* Left fade - wide enough on mobile to soften half-cut side cards */}
           <div 
-            className="absolute left-0 top-0 bottom-0 w-[20px] lg:w-[180px] bg-gradient-to-r from-background to-transparent z-30 pointer-events-none"
+            className="absolute left-0 top-0 bottom-0 w-[56px] lg:w-[180px] bg-gradient-to-r from-background to-transparent z-30 pointer-events-none"
           />
           
-          {/* Right fade - much smaller on mobile for better card visibility */}
+          {/* Right fade - wide enough on mobile to soften half-cut side cards */}
           <div 
-            className="absolute right-0 top-0 bottom-0 w-[20px] lg:w-[180px] bg-gradient-to-l from-background to-transparent z-30 pointer-events-none"
+            className="absolute right-0 top-0 bottom-0 w-[56px] lg:w-[180px] bg-gradient-to-l from-background to-transparent z-30 pointer-events-none"
           />
 
           {/* Scrollable container - native scroll on mobile, custom drag on desktop */}
@@ -602,7 +618,7 @@ export function TestimonialsSection({ data, testimonials }: TestimonialsSectionP
                       zIndex: transform.zIndex,
                     }}
                   >
-                    <TestimonialCard testimonial={testimonial} />
+                    <TestimonialCard testimonial={testimonial} index={index} />
                   </div>
                 );
               })}
@@ -628,19 +644,30 @@ export default TestimonialsSection;
 
 interface TestimonialCardProps {
   testimonial: TestimonialItem;
+  index: number;
 }
 
-function TestimonialCard({ testimonial }: TestimonialCardProps) {
+function TestimonialCard({ testimonial, index }: TestimonialCardProps) {
   return (
     <Card className="min-h-[320px] md:min-h-[270px] border border-border bg-card">
       <CardContent className="p-6 h-full flex flex-col min-h-[320px] md:min-h-[270px]">
         {/* Header with Avatar and Info */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-            <span className="font-semibold text-muted-foreground text-base">
-              {getInitials(testimonial.name)}
-            </span>
-          </div>
+          <Avatar className="w-12 h-12 flex-shrink-0 overflow-hidden">
+            {testimonial.avatar ? (
+              <UniversalImage
+                id={testimonial.avatar}
+                alt={testimonial.name}
+                className="w-full h-full"
+                style={{ objectFit: "cover" }}
+                fieldContext={{ arrayPath: "items", index, srcField: "avatar" }}
+              />
+            ) : (
+              <AvatarFallback className="bg-muted text-muted-foreground text-base font-semibold">
+                {getInitials(testimonial.name)}
+              </AvatarFallback>
+            )}
+          </Avatar>
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-foreground truncate text-base">
               {testimonial.name}
@@ -664,14 +691,17 @@ function TestimonialCard({ testimonial }: TestimonialCardProps) {
         </div>
 
         {/* Review Text */}
-        <p className="text-muted-foreground leading-relaxed text-sm line-clamp-none md:line-clamp-5 flex-1">
+        <p className="text-muted-foreground leading-relaxed text-sm line-clamp-[8] md:line-clamp-5 flex-1">
           {testimonial.comment}
         </p>
 
         {/* Outcome Badge - always at bottom */}
         {testimonial.outcome && (
           <div className="pt-3 mt-auto">
-            <Badge variant="secondary" className="text-xs">
+            <Badge
+              variant="secondary"
+              className="text-xs max-w-full whitespace-normal break-words text-left h-auto"
+            >
               {testimonial.outcome}
             </Badge>
           </div>

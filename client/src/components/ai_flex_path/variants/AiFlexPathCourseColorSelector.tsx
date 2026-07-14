@@ -215,7 +215,8 @@ function PathItem({
   const stepDelay = index * SEGMENT_MS;
   const cardRevealDelay = index * SEGMENT_MS + 80;
   const outgoingLineDelay = index * SEGMENT_MS + 60;
-  const incomingLineDelay = index * SEGMENT_MS - LINE_MS + 60;
+  // Start incoming right when the previous card's outgoing finishes, so line flows top→bottom
+  const incomingLineDelay = (index - 1) * SEGMENT_MS + 60 + LINE_MS;
 
   const [cardEntered, setCardEntered] = useState(false);
   useEffect(() => {
@@ -344,7 +345,7 @@ function PathItem({
               height: "100%",
               background: "hsl(var(--primary))",
               opacity: expanded ? 0 : 0.25,
-              transformOrigin: "bottom",
+              transformOrigin: "top",
               transform: revealed ? "scaleY(1)" : "scaleY(0)",
               transition: expanded
                 ? `opacity 0ms 300ms, transform ${LINE_MS}ms cubic-bezier(.4,0,.2,1) ${incomingLineDelay}ms`
@@ -376,23 +377,20 @@ function PathItem({
       {!isFirst && (
         <div className="hidden md:block absolute z-0 overflow-hidden" style={{
           left: 15, top: 0, bottom: "50%", width: 2,
-          background: expanded ? "hsl(var(--background))" : "transparent",
-          transition: expanded ? "background 0ms" : "background 0ms 300ms",
+          background: "transparent",
         }}>
           <div style={{
             width: "100%", height: "100%",
             background: "hsl(var(--primary))",
-            opacity: expanded ? 0 : 0.25,
-            transformOrigin: "bottom",
+            opacity: 0.25,
+            transformOrigin: "top",
             transform: revealed ? "scaleY(1)" : "scaleY(0)",
-            transition: expanded
-              ? `opacity 0ms 300ms, transform ${LINE_MS}ms cubic-bezier(.4,0,.2,1) ${incomingLineDelay}ms`
-              : `transform ${LINE_MS}ms cubic-bezier(.4,0,.2,1) ${incomingLineDelay}ms`,
+            transition: `transform ${LINE_MS}ms cubic-bezier(.4,0,.2,1) ${incomingLineDelay}ms`,
           }} />
         </div>
       )}
       {!isLast && (
-        <div className="hidden md:block absolute z-0" style={{ left: 15, top: "50%", bottom: 0, width: 2, overflow: "hidden", background: "hsl(var(--background))" }}>
+        <div className="hidden md:block absolute z-0" style={{ left: 15, top: "50%", bottom: 0, width: 2, overflow: "hidden" }}>
           <div style={{
             width: "100%", height: "100%",
             background: "hsl(var(--primary))", opacity: 0.25,
@@ -525,7 +523,7 @@ function PathItem({
           className="overflow-hidden transition-all duration-300"
           style={{
             maxHeight: expanded ? 300 : 0,
-            borderTop: expanded ? `1px solid ${hslColor(resolved, 0.15)}` : "none",
+            borderTop: `1px solid ${hslColor(resolved, expanded ? 0.15 : 0)}`,
           }}
         >
           <div className="px-[13px] pt-[10px] pb-[10px] flex flex-col gap-2">
@@ -551,6 +549,7 @@ function DraggableCardTextContent({
   taglineStyle,
   hrsStyle,
   titleClassName = "text-[15px] font-bold leading-[1.3]",
+  alignTaglineWithTitle = false,
 }: {
   course: Course;
   courseIcon: ReactNode;
@@ -558,6 +557,7 @@ function DraggableCardTextContent({
   taglineStyle?: React.CSSProperties;
   hrsStyle?: React.CSSProperties;
   titleClassName?: string;
+  alignTaglineWithTitle?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-[2px] flex-1 min-w-0">
@@ -579,7 +579,10 @@ function DraggableCardTextContent({
           </div>
         </div>
       </div>
-      <div className="text-[12px] leading-[1.4] w-full" style={taglineStyle}>
+      <div
+        className="text-[12px] leading-[1.4] w-full"
+        style={{ ...taglineStyle, paddingLeft: alignTaglineWithTitle ? "21px" : undefined }}
+      >
         {course.tagline}
       </div>
     </div>
@@ -596,6 +599,7 @@ function DraggableCourseCard({
   swapCancelLabel,
   isSwapSource,
   onSwapClick,
+  isDraggable = true,
 }: {
   course: Course;
   viewDetailsLabel?: string;
@@ -605,6 +609,7 @@ function DraggableCourseCard({
   swapCancelLabel?: string;
   isSwapSource: boolean;
   onSwapClick: () => void;
+  isDraggable?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [btnHovered, setBtnHovered] = useState(false);
@@ -632,11 +637,7 @@ function DraggableCourseCard({
       }
       style={{
         maxHeight: expanded && !isSwapSource ? 260 : 0,
-        borderTop: expanded && !isSwapSource
-          ? absolute
-            ? "none"
-            : "1px solid hsl(var(--primary) / 0.15)"
-          : "none",
+        borderTop: absolute ? "none" : `1px solid hsl(var(--primary) / ${expanded && !isSwapSource ? 0.15 : 0})`,
         ...(absolute && expanded && !isSwapSource
           ? {
               borderWidth: "0 1.5px 1.5px",
@@ -752,11 +753,11 @@ function DraggableCourseCard({
       <div
         className="hidden md:block h-full"
         style={{
-          touchAction: "none",
-          cursor: isDragging ? "grabbing" : "grab",
+          touchAction: isDraggable ? "none" : undefined,
+          cursor: isDraggable ? (isDragging ? "grabbing" : "grab") : "default",
         }}
-        {...listeners}
-        {...attributes}
+        {...(isDraggable ? listeners : {})}
+        {...(isDraggable ? attributes : {})}
       >
         <div
           style={{
@@ -768,13 +769,13 @@ function DraggableCourseCard({
               : "0 1px 3px rgba(0,0,0,0.04), 0 3px 10px rgba(0,0,0,0.03)",
             transition: "border-color .2s, box-shadow .2s, opacity .2s",
           }}
-          className={`rounded-[13px] border-[1.5px] flex flex-col h-full relative ${expanded && viewDetailsLabel ? "z-20" : ""} ${expanded && viewDetailsLabel ? "rounded-b-none" : ""}`}
+          className="rounded-[13px] border-[1.5px] flex flex-col relative"
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
           <div className="flex flex-col flex-1 min-h-0">
             <div className="flex items-start gap-[3px] p-[13px] pb-[6px]">
-              <GripVertical size={31} className="mt-1 shrink-0" style={{ color: "hsl(var(--muted-foreground) / 0.6)" }} />
+              {isDraggable && <GripVertical size={31} className="mt-1 shrink-0" style={{ color: "hsl(var(--muted-foreground) / 0.6)" }} />}
               <DraggableCardTextContent
                 course={course}
                 courseIcon={
@@ -791,6 +792,7 @@ function DraggableCourseCard({
                   background: hovered ? "hsl(var(--primary) / 0.1)" : "hsl(var(--muted-foreground) / 0.07)",
                   transition: "color .2s, background .2s",
                 }}
+                alignTaglineWithTitle={!isDraggable}
               />
             </div>
             <div className="flex-1 min-h-0" aria-hidden />
@@ -822,7 +824,7 @@ function DraggableCourseCard({
             </div>
             )}
           </div>
-          {viewDetailsLabel && expandedSection(true)}
+          {viewDetailsLabel && expandedSection()}
         </div>
       </div>
 
@@ -1001,6 +1003,7 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
   const slotColors = data.slot_colors?.length
     ? data.slot_colors.map((s) => s.color)
     : DEFAULT_COURSE_COLORS;
+  const isDraggable = data.draggable !== false;
   const viewDetailsLabel = data.view_details_label;
   const replaceLabel = data.replace_label;
   const dragInstructionLabel = data.drag_instruction_label;
@@ -1277,7 +1280,8 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
                 </div>
                 )}
                 <AvailableDropZone isDragActive={!!activeCourseName}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-[9px] md:items-stretch">
+                  {/* Mobile: single column */}
+                  <div className="md:hidden flex flex-col gap-[9px]">
                     {availableCourses.map((course) => {
                       const isBeingDragged = course.name === activeCourseName;
                       const displacedCourse = overSlot !== null && activeDeltaY < -40 ? pathCourses[overSlot] ?? null : null;
@@ -1285,19 +1289,26 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
                         return <GhostPreviewCard key={course.name} course={displacedCourse} slotIndex={overSlot!} slotColors={slotColors} />;
                       }
                       return (
-                        <DraggableCourseCard
-                          key={course.name}
-                          course={course}
-                          viewDetailsLabel={viewDetailsLabel}
-                          swapLabel={swapLabel}
-                          swapIcon={swapIcon}
-                          swapPromptLabel={swapPromptLabel}
-                          swapCancelLabel={swapCancelLabel}
-                          isSwapSource={swapCandidate === course.name}
-                          onSwapClick={() => handleSwapClick(course.name)}
-                        />
+                        <DraggableCourseCard key={course.name} course={course} viewDetailsLabel={viewDetailsLabel} swapLabel={swapLabel} swapIcon={swapIcon} swapPromptLabel={swapPromptLabel} swapCancelLabel={swapCancelLabel} isSwapSource={swapCandidate === course.name} onSwapClick={() => handleSwapClick(course.name)} isDraggable={isDraggable} />
                       );
                     })}
+                  </div>
+                  {/* Desktop: two independent flex columns so expansion only pushes its own column */}
+                  <div className="hidden md:flex gap-[9px] items-start">
+                    {[0, 1].map((colIdx) => (
+                      <div key={colIdx} className="flex flex-col gap-[9px] flex-1 min-w-0">
+                        {availableCourses.filter((_, i) => i % 2 === colIdx).map((course) => {
+                          const isBeingDragged = course.name === activeCourseName;
+                          const displacedCourse = overSlot !== null && activeDeltaY < -40 ? pathCourses[overSlot] ?? null : null;
+                          if (isBeingDragged && displacedCourse) {
+                            return <GhostPreviewCard key={course.name} course={displacedCourse} slotIndex={overSlot!} slotColors={slotColors} />;
+                          }
+                          return (
+                            <DraggableCourseCard key={course.name} course={course} viewDetailsLabel={viewDetailsLabel} swapLabel={swapLabel} swapIcon={swapIcon} swapPromptLabel={swapPromptLabel} swapCancelLabel={swapCancelLabel} isSwapSource={swapCandidate === course.name} onSwapClick={() => handleSwapClick(course.name)} isDraggable={isDraggable} />
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 </AvailableDropZone>
               </div>

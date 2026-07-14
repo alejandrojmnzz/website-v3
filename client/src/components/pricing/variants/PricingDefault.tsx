@@ -71,7 +71,7 @@ export function PricingSection({ data }: PricingSectionProps) {
 
           <div className="grid lg:grid-cols-12 gap-0 items-stretch relative overflow-hidden">
             <div
-              className="relative rounded-t-2xl lg:rounded-tl-2xl lg:rounded-bl-2xl lg:rounded-tr-none lg:rounded-br-none overflow-hidden lg:col-span-4"
+              className="relative min-w-0 rounded-t-2xl lg:rounded-tl-2xl lg:rounded-bl-2xl lg:rounded-tr-none lg:rounded-br-none overflow-hidden lg:col-span-4"
               data-testid="card-pricing"
               style={{
                 background: "linear-gradient(135deg, #366bff 0%, #4aa5ff 100%)",
@@ -134,7 +134,7 @@ export function PricingSection({ data }: PricingSectionProps) {
               </div>
             </div>
 
-            <div className="bg-background border border-t-0 lg:border-t lg:border-l-0 border-border rounded-b-2xl lg:rounded-b-none lg:rounded-r-2xl p-4 space-y-4 lg:col-span-8 overflow-hidden">
+            <div className="min-w-0 bg-background border border-t-0 lg:border-t lg:border-l-0 border-border rounded-b-2xl lg:rounded-b-none lg:rounded-r-2xl p-4 flex flex-col gap-4 lg:col-span-8">
               {data.features_title && (
                 <p
                   className="text-[#3A3A3A] font-normal text-body"
@@ -208,6 +208,38 @@ export function PricingSection({ data }: PricingSectionProps) {
                   );
                 })}
               </div>
+
+              {(data.footer || (data.footer_badges && data.footer_badges.length > 0)) && (
+                <div className="mt-auto" data-testid="footer-badges-section">
+                  {data.footer && (
+                    <p className="text-xs font-semibold text-muted-foreground tracking-wider mb-2 text-center lg:text-left" data-testid="text-footer-label">
+                      {data.footer}
+                    </p>
+                  )}
+                  {data.footer_badges && data.footer_badges.length > 0 && (
+                    <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
+                      {data.footer_badges.map((item, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs text-foreground bg-muted"
+                          data-testid={`badge-footer-${index}`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                          {item.label}
+                          {item.tag && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                              data-testid={`badge-footer-tag-${index}`}
+                            >
+                              {item.tag}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -281,7 +313,7 @@ export function PricingSection({ data }: PricingSectionProps) {
           </div>
 
           <div
-            className="relative rounded-t-2xl lg:rounded-t-none lg:rounded-l-2xl overflow-hidden lg:col-span-4"
+            className="relative min-w-0 rounded-t-2xl lg:rounded-t-none lg:rounded-l-2xl overflow-hidden lg:col-span-4"
             style={{
               background: "linear-gradient(135deg, #66B8FF 0%, #3399FF 100%)",
             }}
@@ -343,7 +375,7 @@ export function PricingSection({ data }: PricingSectionProps) {
             </div>
           </div>
 
-          <div className="bg-background border border-t-0 lg:border-t lg:border-l-0 border-border rounded-b-2xl lg:rounded-b-none lg:rounded-r-2xl p-4 space-y-4 lg:col-span-8 overflow-hidden">
+          <div className="min-w-0 bg-background border border-t-0 lg:border-t lg:border-l-0 border-border rounded-b-2xl lg:rounded-b-none lg:rounded-r-2xl p-4 space-y-4 lg:col-span-8 overflow-hidden">
             {data.features_title && (
               <p
                 className="text-[#3A3A3A] font-normal text-lg"

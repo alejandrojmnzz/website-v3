@@ -18,14 +18,17 @@ export function BarChart({
   years          = DEFAULT_YEARS,
   displaced      = DEFAULT_DISPLACED,
   created        = DEFAULT_CREATED,
-  displacedLabel = "Displaced",
+  displacedLabel,
   createdLabel   = "Created by AI",
   accentColor    = "hsl(var(--color-green))",
 }: BarChartProps) {
   const resolved   = resolveColorVar(accentColor);
   const accentCss  = hslColorRaw(resolved);
   const faintColor = hslColor(resolved, 0.35);
-  const maxVal     = Math.max(...displaced, ...created);
+  const showDisplaced = Boolean(displacedLabel);
+  const maxVal     = showDisplaced
+    ? Math.max(...displaced, ...created)
+    : Math.max(...created);
 
   return (
     <div className="flex flex-col gap-3">
@@ -33,13 +36,15 @@ export function BarChart({
         {years.map((year, i) => (
           <div key={year} className="flex-1 flex flex-col items-center gap-0.5">
             <div className="w-full flex items-end gap-0.5 h-24">
-              <div
-                className="flex-1 rounded-t-sm transition-all"
-                style={{
-                  height: `${((displaced[i] ?? 0) / maxVal) * 100}%`,
-                  background: faintColor,
-                }}
-              />
+              {showDisplaced && (
+                <div
+                  className="flex-1 rounded-t-sm transition-all"
+                  style={{
+                    height: `${((displaced[i] ?? 0) / maxVal) * 100}%`,
+                    background: faintColor,
+                  }}
+                />
+              )}
               <div
                 className="flex-1 rounded-t-sm transition-all"
                 style={{
@@ -54,13 +59,15 @@ export function BarChart({
       </div>
 
       <div className="flex items-center gap-4 pt-1">
-        <div className="flex items-center gap-1.5">
-          <span
-            className="w-2.5 h-2.5 rounded-sm shrink-0"
-            style={{ background: faintColor }}
-          />
-          <span className="text-xs text-slate-400">{displacedLabel}</span>
-        </div>
+        {showDisplaced && (
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-2.5 h-2.5 rounded-sm shrink-0"
+              style={{ background: faintColor }}
+            />
+            <span className="text-xs text-slate-400">{displacedLabel}</span>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <span
             className="w-2.5 h-2.5 rounded-sm shrink-0"

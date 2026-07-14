@@ -118,7 +118,11 @@ export async function loadSectionComponent(
   const loader = allLoaders[modulePath];
   if (!loader) return null;
 
-  const mod = await loader();
+  // Retry once on transient fetch failures (interrupted connection, HMR invalidation).
+  const mod = await loader().catch(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return loader();
+  });
   if (!mod.default) return null;
 
   componentCache.set(key, mod.default);

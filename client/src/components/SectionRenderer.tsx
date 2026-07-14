@@ -512,9 +512,16 @@ function LazySection({ section, index }: { section: Section; index: number }) {
   useEffect(() => {
     if (Component) return;
     let cancelled = false;
-    loadSectionComponent(sectionType, sectionVariant).then((loaded) => {
-      if (!cancelled && loaded) setComponent(() => loaded);
-    });
+    loadSectionComponent(sectionType, sectionVariant)
+      .then((loaded) => {
+        if (!cancelled && loaded) setComponent(() => loaded);
+      })
+      .catch((err) => {
+        console.error(
+          `[SectionRenderer] Failed to load section chunk "${sectionType}/${sectionVariant}":`,
+          err,
+        );
+      });
     return () => {
       cancelled = true;
     };

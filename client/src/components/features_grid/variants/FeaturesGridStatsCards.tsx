@@ -15,7 +15,7 @@ export default function FeaturesGridStatsCards({ data }: FeaturesGridStatsCardsP
     >
       <div className="max-w-6xl mx-auto px-4 ">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 flex items-center">
-          <div className="flex flex-col gap-4 ">
+          <div className="flex flex-col gap-4 order-2 lg:order-1">
             {data.items.map((item, index) => {
               const itemId = item.id || `stat-${index}`;
               return (
@@ -31,7 +31,7 @@ export default function FeaturesGridStatsCards({ data }: FeaturesGridStatsCardsP
             })}
           </div>
 
-          <div className="lg:pl-4">
+          <div className="lg:pl-4 order-1 lg:order-2">
             {data.title && (
               <h2 
                 className="text-h2 mb-2 text-foreground"
