@@ -143,8 +143,10 @@ export {
 export {
   aiFlexPathDefaultSchema,
   aiFlexPathDragAndDropSchema,
+  aiFlexPathCourseColorSelectorSchema,
   type AiFlexPathDefault,
   type AiFlexPathDragAndDrop,
+  type AiFlexPathCourseColorSelector,
 } from "../site_4geeks-com/component-registry/ai_flex_path/v1.0/schema";
 
 // ============================================
@@ -847,6 +849,30 @@ import { imageRowSectionSchema, type ImageRowSection } from "../site_4geeks-com/
 export { imageRowSectionSchema, type ImageRowSection };
 import { courseSelectorSectionSchema, type CourseSelectorSection, type CourseItem, type CourseBadge, type CourseTag } from "../site_4geeks-com/component-registry/course_selector/v1.0/schema";
 export { courseSelectorSectionSchema, type CourseSelectorSection, type CourseItem, type CourseBadge, type CourseTag };
+import {
+  enrollmentSelectorDefaultSchema,
+  enrollmentProgramSchema,
+  enrollmentPlanSchema,
+  enrollmentSummarySchema,
+  enrollmentSelectorSectionSchema,
+  type EnrollmentSelectorDefault,
+  type EnrollmentSelectorSection,
+  type EnrollmentSelectorProgram,
+  type EnrollmentSelectorPlan,
+  type EnrollmentSummary,
+} from "../site_4geeks-com/component-registry/enrollment_selector/v1.0/schema";
+export {
+  enrollmentSelectorDefaultSchema,
+  enrollmentProgramSchema,
+  enrollmentPlanSchema,
+  enrollmentSummarySchema,
+  enrollmentSelectorSectionSchema,
+  type EnrollmentSelectorDefault,
+  type EnrollmentSelectorSection,
+  type EnrollmentSelectorProgram,
+  type EnrollmentSelectorPlan,
+  type EnrollmentSummary,
+};
 import { articleSectionSchema, type ArticleSection } from "../site_4geeks-com/component-registry/article/v1.0/schema";
 export { articleSectionSchema, type ArticleSection };
 import { partnershipCarouselSectionSchema, type PartnershipCarouselSection, type PartnershipSlide } from "../site_4geeks-com/component-registry/partnership_carousel/v1.0/schema";
@@ -1147,6 +1173,7 @@ const baseSectionSchema = z.union([
   imageRowSectionSchema,
   featureQuadSectionSchema,
   courseSelectorSectionSchema,
+  enrollmentSelectorSectionSchema,
   articleSectionSchema,
   partnershipCarouselSectionSchema,
   careerSupportExplainSectionSchema,

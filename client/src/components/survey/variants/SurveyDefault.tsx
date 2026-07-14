@@ -180,7 +180,12 @@ export default function SurveyDefault({ data }: { data: SurveyDefault }) {
       const type = sectionData.type as string | undefined;
       const variant = (sectionData.variant as string | undefined) ?? "default";
       if (!type) continue;
-      loadSectionComponent(type, variant);
+      void loadSectionComponent(type, variant).catch((err) => {
+        console.error(
+          `[SurveyDefault] Failed to preload section chunk "${type}/${variant}":`,
+          err,
+        );
+      });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

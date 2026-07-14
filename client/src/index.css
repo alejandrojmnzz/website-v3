@@ -954,10 +954,10 @@
 /* ─── BannerMarqueeBadges marquee animations ─────────────────── */
 @keyframes marquee-scroll-fwd {
   from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
+  to   { transform: translateX(-25%); }
 }
 @keyframes marquee-scroll-rev {
-  from { transform: translateX(-50%); }
+  from { transform: translateX(-25%); }
   to   { transform: translateX(0); }
 }
 .marquee-fwd {

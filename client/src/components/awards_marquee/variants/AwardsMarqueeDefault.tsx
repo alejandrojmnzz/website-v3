@@ -70,7 +70,7 @@ export function AwardsMarquee({ data }: { data: any }) {
                     id={item.logo}
                     alt={item.alt}
                     className="h-full w-auto"
-                    style={{ objectFit: "contain" }}
+                    style={{ objectFit: "contain", width: "auto", height: "100%" }}
                     fieldContext={{ arrayPath: "items", index, srcField: "logo" }}
                   />
                 </div>

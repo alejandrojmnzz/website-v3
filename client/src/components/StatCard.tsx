@@ -171,7 +171,7 @@ export function StatCard({
           formatValueWithUnit(numericValue)
         )}
       </div>
-      <div className={`text-sm text-foreground`}>
+      <div className={`text-sm text-foreground ${isHorizontalMobile ? "sm:mt-2" : "mt-2"}`}>
         {title}
       </div>
     </div>

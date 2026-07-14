@@ -8,7 +8,7 @@ import { useSectionContext } from "@/contexts/SectionContext";
 import type {
   ImageRowSection,
   ImageRowSlide,
-} from "../../../../../4geeks-com/component-registry/image_row/v1.0/schema";
+} from "../../../../../site_4geeks-com/component-registry/image_row/v1.0/schema";
 
 interface ImageRowProps {
   data: ImageRowSection;
