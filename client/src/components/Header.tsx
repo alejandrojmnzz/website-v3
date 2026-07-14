@@ -177,8 +177,8 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
                 <div className="flex md:hidden flex-1 items-center justify-between gap-3">
                   {logoItem && renderNavbarItem(logoItem, undefined, undefined, menuConfig?.navbar?.constrained_margin)}
                   <div className="flex items-center gap-2">
-                    {buttonItems.map((item) => renderNavbarItem(item))}
                     {langItem && renderNavbarItem(langItem)}
+                    {buttonItems.map((item) => renderNavbarItem(item))}
                     {menuConfig && <MobileNav config={menuConfig} />}
                   </div>
                 </div>

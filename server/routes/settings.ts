@@ -1476,6 +1476,10 @@ export function registerSettingsRoutes(app: Express): void {
       component: master.component,
     };
 
+    if (master.variant !== undefined) {
+      result.variant = master.variant;
+    }
+
     if (master.dropdown) {
       result.dropdown = syncDropdown(
         master.dropdown,
