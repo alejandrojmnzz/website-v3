@@ -66,6 +66,9 @@ export {
 // Alias for backward compatibility
 export { leadFormDataSchema as productShowcaseFormSchema } from "../site_4geeks-com/component-registry/_common/schema";
 
+// Local binding for use within this file
+import { ctaButtonSchema as commonCtaButtonSchema } from "../site_4geeks-com/component-registry/_common/schema";
+
 // ============================================
 // Re-export Hero Schemas from Component Registry
 // Only export unified schema and shared sub-schemas (not individual variants)
@@ -709,7 +712,8 @@ export const humanAndAIDuoSectionSchema = z.object({
   version: z.string().optional(),
   heading: z.string(),
   description: z.string(),
-  bullet_groups: z.array(humanAndAIDuoBulletGroupSchema),
+  bullet_groups: z.array(humanAndAIDuoBulletGroupSchema).optional(),
+  cta: commonCtaButtonSchema.optional(),
   footer_description: z.string().optional(),
   // New: array of images with CSS styling
   images: z.array(z.object({
@@ -978,6 +982,7 @@ export const featureQuadSectionSchema = z.object({
   cards: z.array(featureQuadCardSchema),
   footer_description: z.string().optional(),
   background: z.string().optional(),
+  text_align: z.enum(["left", "center"]).optional(),
   description_with_background: z.boolean().optional(),
   // Video option - when provided, replaces images with video
   // Accepts either string URL (legacy) or full config object

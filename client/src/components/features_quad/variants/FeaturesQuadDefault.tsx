@@ -76,7 +76,10 @@ export default function FeaturesQuadDefault({ data }: FeaturesQuadDefaultProps) 
   const hasHeading = !!data.heading;
   const hasDescription = !!data.description;
   const hasOnlyOne = (hasHeading && !hasDescription) || (!hasHeading && hasDescription);
-  const textAlign = hasOnlyOne ? "text-center" : "text-left";
+  const textAlign = data.text_align
+    ? (data.text_align === "center" ? "text-center" : "text-left")
+    : (hasOnlyOne ? "text-center" : "text-left");
+  const isCenter = textAlign === "text-center";
   const handleLinkClick = useInternalNav();
 
   const getButtonVariant = (variant?: string) => {
@@ -257,7 +260,7 @@ export default function FeaturesQuadDefault({ data }: FeaturesQuadDefaultProps) 
                 </h2>
               )}
               {hasDescription && (
-                <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">{data.description}</p>
+                <p className={`text-lg text-muted-foreground leading-relaxed max-w-xl ${isCenter ? "mx-auto" : ""}`}>{data.description}</p>
               )}
               {data.cta && (
                 <Button
