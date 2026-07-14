@@ -189,6 +189,7 @@ interface MenuResponse {
 
 const componentOptions = [
   { value: "SimpleLink", label: "Simple Link" },
+  { value: "Button", label: "Button (CTA)" },
   { value: "Dropdown", label: "Dropdown Menu" },
   { value: "Logo", label: "Logo (Universal Image)" },
   { value: "LanguageSwitcher", label: "Language Switcher" },

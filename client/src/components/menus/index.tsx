@@ -1,4 +1,5 @@
 export { SimpleLink, type SimpleLinkProps } from "./SimpleLink";
+export { NavButton, type NavButtonProps } from "./NavButton";
 export { Dropdown, type DropdownProps } from "./Dropdown";
 export { EditableDropdownPreview, EditableLinkItem, EditableText } from "./EditableDropdownPreview";
 export { MobileNav } from "./MobileNav";
@@ -6,6 +7,7 @@ export { TypewriterAnnouncement, type TypewriterAnnouncementProps } from "./Type
 
 import { useState } from "react";
 import { SimpleLink } from "./SimpleLink";
+import { NavButton } from "./NavButton";
 import { Dropdown, type DropdownProps } from "./Dropdown";
 import { TypewriterAnnouncement } from "./TypewriterAnnouncement";
 import UniversalImage from "@/components/UniversalImage";
@@ -17,7 +19,8 @@ import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 export type NavbarItem = {
   label: string;
   href: string;
-  component: "SimpleLink" | "Dropdown" | "Logo" | "LanguageSwitcher" | "TypewriterAnnouncement";
+  component: "SimpleLink" | "Button" | "Dropdown" | "Logo" | "LanguageSwitcher" | "TypewriterAnnouncement";
+  variant?: "default" | "outline" | "secondary" | "ghost";
   dropdown?: DropdownProps["dropdown"];
   imageId?: string;
   imageAlt?: string;
@@ -108,6 +111,10 @@ export function renderNavbarItem(
     return <LanguageSwitcher key="language-switcher" />;
   }
 
+  if (item.component === "Button") {
+    return <NavButton key={`nav-button-${item.label}`} label={item.label} href={item.href} variant={item.variant} />;
+  }
+
   const Component = resolveComponent(item.component);
   
   if (!Component) {
@@ -156,7 +163,9 @@ export function Navbar({ config }: { config: NavbarConfig }) {
   const navLinkItems = navItems.filter(
     (item) => item.component === "Dropdown" || item.component === "SimpleLink",
   );
-  const trailingItems = navItems.filter((item) => item.component === "LanguageSwitcher");
+  const trailingItems = navItems.filter(
+    (item) => item.component === "LanguageSwitcher" || item.component === "Button",
+  );
 
   const constrained_margin = config.navbar.constrained_margin;
 
@@ -174,7 +183,11 @@ export function Navbar({ config }: { config: NavbarConfig }) {
           })}
         </div>
       )}
-      {trailingItems.map((item) => renderNavbarItem(item))}
+      {trailingItems.length > 0 && (
+        <div className="flex items-center gap-1 lg:gap-2" data-testid="navbar-trailing">
+          {trailingItems.map((item) => renderNavbarItem(item))}
+        </div>
+      )}
     </nav>
   );
 }

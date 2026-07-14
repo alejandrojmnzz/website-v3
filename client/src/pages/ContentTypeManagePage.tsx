@@ -2683,6 +2683,22 @@ export default function ContentTypeManagePage() {
   const [urlsExpanded, setUrlsExpanded] = useState(false);
   const [dryRunLoading, setDryRunLoading] = useState(false);
 
+  const [convertDialogOpen, setConvertDialogOpen] = useState(false);
+  const [convertConfirmInput, setConvertConfirmInput] = useState("");
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertDryRunLoading, setConvertDryRunLoading] = useState(false);
+  const [convertDryRun, setConvertDryRun] = useState<{
+    entry_count: number;
+    locale_count: number;
+    files_to_write: number;
+    files_to_overwrite: number;
+    existing_slug_folders: string[];
+    templates_to_delete: string[];
+    directory: string;
+    database_slug: string;
+    message: string;
+  } | null>(null);
+
   const [showYamlEditor, setShowYamlEditor] = useState(false);
   const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string } | null>(null);
 
@@ -2954,6 +2970,81 @@ export default function ContentTypeManagePage() {
     }
   };
 
+  const handleOpenConvertDialog = async () => {
+    setConvertConfirmInput("");
+    setConvertDryRun(null);
+    setConvertDialogOpen(true);
+    setConvertDryRunLoading(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(`/api/content-types/${contentType}/convert-to-static`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ dry_run: true }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setConvertDryRun(data);
+      } else {
+        toast({
+          title: "Cannot convert",
+          description: data.error || "Failed to preview conversion",
+          variant: "destructive",
+        });
+        setConvertDialogOpen(false);
+      }
+    } catch {
+      toast({ title: "Cannot convert", description: "Connection error", variant: "destructive" });
+      setConvertDialogOpen(false);
+    } finally {
+      setConvertDryRunLoading(false);
+    }
+  };
+
+  const handleConvertToStatic = async () => {
+    if (convertConfirmInput !== contentType) return;
+    setIsConverting(true);
+    try {
+      const token = getDebugToken();
+      const author = await resolveAuthorName();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(`/api/content-types/${contentType}/convert-to-static`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ dry_run: false, author }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast({
+          title: "Converted to static",
+          description: `Wrote ${data.written?.length ?? 0} new and ${data.overwritten?.length ?? 0} overwritten file(s). Database unlinked.`,
+        });
+        setConvertDialogOpen(false);
+        setConvertConfirmInput("");
+        setConvertDryRun(null);
+        queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "cache-status"] });
+        setViewMode("static");
+      } else {
+        toast({
+          title: "Conversion failed",
+          description: data.error || "Failed to convert",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({ title: "Conversion failed", description: "Connection error", variant: "destructive" });
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
   const handleOpenDeleteTypeDialog = async () => {
     setDeleteTypeConfirmInput("");
     setDryRunResult(null);
@@ -3186,6 +3277,15 @@ export default function ContentTypeManagePage() {
                   <RefreshCw className={`h-4 w-4 mr-2 ${clearing ? "animate-spin" : ""}`} />
                   Clear Cache
                 </DropdownMenuItem>
+                {hasDb && (
+                  <DropdownMenuItem
+                    onClick={handleOpenConvertDialog}
+                    data-testid="button-convert-to-static"
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Convert to static
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button
@@ -4041,6 +4141,103 @@ export default function ContentTypeManagePage() {
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete Content Type
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={convertDialogOpen}
+        onOpenChange={(open) => {
+          setConvertDialogOpen(open);
+          if (!open) {
+            setConvertConfirmInput("");
+            setConvertDryRun(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-convert-to-static">
+          <DialogHeader>
+            <DialogTitle>Convert to static</DialogTitle>
+            <DialogDescription>
+              Materialize all database entries into YAML folders and unlink the database from this content type.
+              This cannot be automatically undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {convertDryRunLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="convert-dry-run-loading">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Previewing conversion…
+              </div>
+            ) : convertDryRun ? (
+              <div className="space-y-3 text-sm" data-testid="convert-dry-run-result">
+                <p className="text-muted-foreground">{convertDryRun.message}</p>
+                <ul className="space-y-1 rounded-md border bg-muted/40 p-3 font-mono text-xs">
+                  <li>Directory: {convertDryRun.directory}/</li>
+                  <li>Database: {convertDryRun.database_slug}</li>
+                  <li>Entries: {convertDryRun.entry_count}</li>
+                  <li>Locales: {convertDryRun.locale_count}</li>
+                  <li>New files: {convertDryRun.files_to_write}</li>
+                  <li>Overwrite files: {convertDryRun.files_to_overwrite}</li>
+                  <li>Existing overlays: {convertDryRun.existing_slug_folders.length}</li>
+                  <li>Templates to delete: {convertDryRun.templates_to_delete.length}</li>
+                </ul>
+                <p className="text-destructive text-xs">
+                  Existing per-entry overlay patches will be merged into full static YAML and overwritten.
+                  Shared <code className="text-[11px]">single.*.yml</code> templates will be deleted.
+                  Remote markdown bodies are inlined into the YAML.
+                </p>
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="convert-type-confirm">
+                Type <span className="font-mono font-bold">{contentType}</span> to confirm
+              </label>
+              <Input
+                id="convert-type-confirm"
+                value={convertConfirmInput}
+                onChange={(e) => setConvertConfirmInput(e.target.value)}
+                placeholder={contentType}
+                data-testid="input-convert-to-static-confirm"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setConvertDialogOpen(false);
+                setConvertConfirmInput("");
+                setConvertDryRun(null);
+              }}
+              data-testid="button-cancel-convert-to-static"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConvertToStatic}
+              disabled={
+                convertConfirmInput !== contentType ||
+                isConverting ||
+                convertDryRunLoading ||
+                !convertDryRun
+              }
+              data-testid="button-confirm-convert-to-static"
+            >
+              {isConverting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Converting…
+                </>
+              ) : (
+                <>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Convert to static
                 </>
               )}
             </Button>

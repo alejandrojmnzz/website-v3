@@ -31,6 +31,7 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
 
   const logoItem = menuConfig?.navbar?.items?.find(item => item.component === "Logo");
   const langItem = menuConfig?.navbar?.items?.find(item => item.component === "LanguageSwitcher");
+  const buttonItems = menuConfig?.navbar?.items?.filter(item => item.component === "Button") ?? [];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -175,7 +176,8 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
 
                 <div className="flex md:hidden flex-1 items-center justify-between gap-3">
                   {logoItem && renderNavbarItem(logoItem, undefined, undefined, menuConfig?.navbar?.constrained_margin)}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {buttonItems.map((item) => renderNavbarItem(item))}
                     {langItem && renderNavbarItem(langItem)}
                     {menuConfig && <MobileNav config={menuConfig} />}
                   </div>

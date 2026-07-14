@@ -197,7 +197,7 @@ export function MobileNav({ config }: MobileNavProps) {
         </VisuallyHidden>
         <nav className="flex flex-col mt-8" data-testid="mobile-nav">
           {config.navbar.items
-            .filter((item) => item.component !== "Logo" && item.component !== "LanguageSwitcher")
+            .filter((item) => item.component !== "Logo" && item.component !== "LanguageSwitcher" && item.component !== "Button")
             .map((item, index) => (
             <MobileNavItem 
               key={index} 

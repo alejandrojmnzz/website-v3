@@ -101,6 +101,10 @@ import { contentIndex, type ContentType } from "../content-index";
 import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
 import {
+  convertContentTypeToStatic,
+  ConvertToStaticError,
+} from "../convert-content-type-to-static";
+import {
   getFolder,
   getType,
   isValidType,
@@ -840,7 +844,7 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: "Request body must be a JSON object" });
         return;
       }
-      const update: Partial<import("../content-types").ContentTypeEntry> = {};
+      const update: import("../content-types").ContentTypeConfigUpdate = {};
       if (body.url_pattern !== undefined) update.url_pattern = body.url_pattern;
       if (body.database !== undefined) update.database = body.database;
       updateContentTypeConfig("blog", update, getContentRoot(res));
@@ -1126,7 +1130,7 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
-      const update: Partial<import("../content-types").ContentTypeEntry> = {};
+      const update: import("../content-types").ContentTypeConfigUpdate = {};
       if (body.url_pattern !== undefined) update.url_pattern = body.url_pattern;
       if (body.field_mapping !== undefined) update.field_mapping = body.field_mapping;
       if (body.indexes !== undefined) update.indexes = body.indexes;
@@ -1137,6 +1141,39 @@ export function registerContentRoutes(app: Express): void {
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.post("/api/content-types/:type/convert-to-static", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "content_types_manage");
+      if (!auth.authorized) return;
+
+      const { type } = req.params;
+      const dryRun = req.body?.dry_run === true || req.query.dry_run === "true";
+      const authorName =
+        (typeof req.body?.author === "string" && req.body.author) ||
+        auth.username ||
+        "convert-to-static";
+
+      const result = await convertContentTypeToStatic({
+        contentType: type,
+        contentRoot: getContentRoot(res),
+        dryRun,
+        author: authorName,
+        db: getDB(res),
+        refreshIndex: () => getCI(res).refresh(),
+        invalidateCommonFields: (ct) => getCI(res).invalidateCommonFields(ct),
+      });
+
+      res.json(result);
+    } catch (err) {
+      if (err instanceof ConvertToStaticError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      log.error({ err }, "[convert-to-static] Error:");
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 

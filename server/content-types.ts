@@ -339,7 +339,12 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export function updateContentTypeConfig(type: string, update: Partial<ContentTypeEntry>, contentRoot?: string): void {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database">> & {
+  /** Pass `null` to unlink a database-backed type (removes the `database` key). */
+  database?: DatabaseConfig | null;
+};
+
+export function updateContentTypeConfig(type: string, update: ContentTypeConfigUpdate, contentRoot?: string): void {
   const reg = loadRegistry(contentRoot);
   const singular = getType(type, contentRoot);
   const existing = reg.types[singular];
@@ -347,9 +352,14 @@ export function updateContentTypeConfig(type: string, update: Partial<ContentTyp
     throw new Error(`Content type "${type}" not found`);
   }
 
-  const merged = { ...existing, ...update };
-  if (update.database && existing.database) {
-    merged.database = { ...existing.database, ...update.database };
+  const { database: databaseUpdate, ...rest } = update;
+  const merged: ContentTypeEntry = { ...existing, ...rest };
+  if (databaseUpdate === null) {
+    delete merged.database;
+  } else if (databaseUpdate && existing.database) {
+    merged.database = { ...existing.database, ...databaseUpdate };
+  } else if (databaseUpdate) {
+    merged.database = databaseUpdate;
   }
 
   if (merged.url_pattern) {
