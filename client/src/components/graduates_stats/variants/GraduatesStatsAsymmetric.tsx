@@ -56,9 +56,8 @@ export default function GraduatesStatsAsymmetric({ data }: GraduatesStatsAsymmet
               <h2 
                 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground leading-tight mb-4"
                 data-testid="text-graduates-stats-heading"
-              >
-                {heading}
-              </h2>
+                dangerouslySetInnerHTML={{ __html: heading }}
+              />
             )}
             {subheading && (
               <p 

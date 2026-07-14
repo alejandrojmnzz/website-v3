@@ -1,4 +1,6 @@
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useInternalNav } from "@/hooks/useInternalNav";
 import { Check } from "lucide-react";
 import { getIcon as resolveIcon } from "@/lib/icons";
 import type { ComponentType, CSSProperties } from "react";
@@ -48,7 +50,8 @@ interface HumanAndAIDuoData {
   version?: string;
   heading: string;
   description: string;
-  bullet_groups: HumanAndAIDuoSection["bullet_groups"];
+  bullet_groups?: HumanAndAIDuoSection["bullet_groups"];
+  cta?: HumanAndAIDuoSection["cta"];
   footer_description?: string;
   // New format: array of images with CSS styling
   images?: StyledImageProps[];
@@ -108,6 +111,28 @@ function normalizeVideo(
 
 export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
   const backgroundClass = data.background || "bg-background";
+  const hasBulletGroups = !!data.bullet_groups && data.bullet_groups.length > 0;
+  const handleLinkClick = useInternalNav();
+
+  const getButtonVariant = (variant?: string) => {
+    if (variant === "primary") return "default";
+    if (variant === "outline") return "outline";
+    return "secondary";
+  };
+
+  const renderCta = (testId: string) => {
+    if (!data.cta?.text || !data.cta?.url) return null;
+    return (
+      <Button
+        variant={getButtonVariant(data.cta.variant)}
+        asChild
+        className="mt-4"
+        data-testid={testId}
+      >
+        <a href={data.cta.url} onClick={handleLinkClick}>{data.cta.text}</a>
+      </Button>
+    );
+  };
   const videoConfig = normalizeVideo(data.video, data.video_ratio, data.video_preview_image);
   const hasVideo = !!videoConfig?.url;
   
@@ -168,14 +193,16 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
             <p className="text-base text-muted-foreground leading-relaxed">
               {data.description}
             </p>
+            {renderCta("button-human-ai-cta-mobile")}
           </div>
           {renderMedia(
             hasVideo ? "w-full" : "flex justify-center gap-3 w-full h-36",
             "img-students-mobile"
           )}
+          {hasBulletGroups && (
           <Card className="p-0 overflow-hidden" data-testid="card-info-container-mobile">
             <div className="divide-y divide-border">
-              {data.bullet_groups.map((group, groupIndex) => (
+              {(data.bullet_groups ?? []).map((group, groupIndex) => (
                 <div key={groupIndex} className="p-5">
                   <div className="flex items-center gap-3 mb-4">
                     {group.icon ? (
@@ -202,6 +229,7 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
               ))}
             </div>
           </Card>
+          )}
           {data.footer_description && (
             <p className="text-sm text-muted-foreground leading-relaxed italic text-center">{data.footer_description}</p>
           )}
@@ -215,6 +243,7 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
                 {data.heading}
               </h2>
               <p className="text-base text-muted-foreground leading-relaxed">{data.description}</p>
+              {renderCta("button-human-ai-cta-tablet")}
             </div>
             <div className="col-span-5">
               {renderMedia(
@@ -223,9 +252,10 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
               )}
             </div>
           </div>
+          {hasBulletGroups && (
           <Card className="p-0 overflow-hidden hover:shadow-md transition-shadow duration-200" data-testid="card-info-container-tablet">
             <div className="grid grid-cols-2 divide-x divide-border">
-              {data.bullet_groups.map((group, groupIndex) => (
+              {(data.bullet_groups ?? []).map((group, groupIndex) => (
                 <div key={groupIndex} className="p-6">
                   <div className="flex items-center gap-3 mb-4">
                     {group.icon ? (
@@ -252,6 +282,7 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
               ))}
             </div>
           </Card>
+          )}
           {data.footer_description && (
             <p className="text-sm text-muted-foreground leading-relaxed italic text-left">{data.footer_description}</p>
           )}
@@ -265,6 +296,7 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
                 {data.heading}
               </h2>
               <p className="text-lg text-muted-foreground leading-relaxed">{data.description}</p>
+              {renderCta("button-human-ai-cta-desktop")}
             </div>
             <div className={`${hasVideo ? "col-span-5" : "col-span-5 flex items-start gap-4 bg-primary/5 p-4 rounded-card h-44"}`}>
               {renderMedia(
@@ -273,9 +305,10 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
               )}
             </div>
           </div>
+          {hasBulletGroups && (
           <Card className="p-0 overflow-hidden hover:shadow-md transition-shadow duration-200" data-testid="card-info-container">
             <div className="grid grid-cols-2 divide-x divide-border" data-testid="list-human-ai-groups">
-              {data.bullet_groups.map((group, groupIndex) => (
+              {(data.bullet_groups ?? []).map((group, groupIndex) => (
                 <div key={groupIndex} className="p-8">
                   <div className="flex items-center gap-3 mb-5">
                     {group.icon ? (
@@ -302,6 +335,7 @@ export function HumanAndAIDuo({ data }: HumanAndAIDuoProps) {
               ))}
             </div>
           </Card>
+          )}
           {data.footer_description && (
             <p className="text-base text-muted-foreground leading-relaxed italic">{data.footer_description}</p>
           )}
