@@ -5,8 +5,13 @@ import { useSyncOptional } from "@/contexts/SyncContext";
 // Custom event to open the sync modal in DebugBubble
 export const OPEN_SYNC_MODAL_EVENT = "open-sync-modal";
 
-export function openSyncModal() {
-  window.dispatchEvent(new CustomEvent(OPEN_SYNC_MODAL_EVENT));
+export type OpenSyncModalOptions = {
+  /** Expand the Commit Queue section (pending local/remote diffs). */
+  expandQueue?: boolean;
+};
+
+export function openSyncModal(options?: OpenSyncModalOptions) {
+  window.dispatchEvent(new CustomEvent(OPEN_SYNC_MODAL_EVENT, { detail: options ?? {} }));
 }
 
 export function SyncConflictBanner() {

@@ -5,8 +5,6 @@ import {
   IconCloudDownload,
   IconCheck,
   IconAlertTriangle,
-  IconFilePlus,
-  IconPencil,
   IconMinus,
   IconGitCommit,
 } from "@tabler/icons-react";
@@ -33,6 +31,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { apiRequest } from "@/lib/queryClient";
+import { openSyncModal } from "@/components/SyncConflictBanner";
 
 const CATEGORIES = [
   "RESTART",
@@ -240,18 +239,8 @@ export default function SyncLogPage() {
     },
   });
 
-  const [forcePushOpen, setForcePushOpen] = useState(false);
   const [forcePullOpen, setForcePullOpen] = useState(false);
-  const [pushStarted, setPushStarted] = useState(false);
   const [pullStarted, setPullStarted] = useState(false);
-
-  const startPushMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/github/content/push-all").then(r => r.json()),
-    onSuccess: () => {
-      setPushStarted(true);
-      qc.invalidateQueries({ queryKey: ["/api/github/push-all-status"] });
-    },
-  });
 
   const startPullMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/github/content/pull-all").then(r => r.json()),
@@ -275,39 +264,6 @@ export default function SyncLogPage() {
     enabled: forcePullOpen || pullStarted,
     queryFn: async () => {
       const res = await fetch("/api/github/pull-all-status");
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error("Status check failed");
-      return res.json();
-    },
-    refetchInterval: (query) => {
-      const d = query.state.data;
-      if (!d) return 800;
-      if (d.running) return 800;
-      return false;
-    },
-    staleTime: 0,
-  });
-
-  const { data: pushStatus } = useQuery<{
-    runId: string;
-    running: boolean;
-    phase: "diffing" | "uploading" | "committing" | "done";
-    total: number;
-    processed: number;
-    created: number;
-    updated: number;
-    skipped: number;
-    failed: number;
-    errors: string[];
-    commitSha?: string;
-    repoUrl?: string;
-    startedAt: number;
-    completedAt?: number;
-  } | null>({
-    queryKey: ["/api/github/push-all-status"],
-    enabled: forcePushOpen || pushStarted,
-    queryFn: async () => {
-      const res = await fetch("/api/github/push-all-status");
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Status check failed");
       return res.json();
@@ -432,7 +388,10 @@ export default function SyncLogPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => { setPushResult(null); setForcePushOpen(true); }} data-testid="button-force-push">
+                  <DropdownMenuItem
+                    onClick={() => openSyncModal({ expandQueue: true })}
+                    data-testid="button-force-push"
+                  >
                     <IconCloudUpload className="h-4 w-4 mr-2" />
                     Force Push
                   </DropdownMenuItem>
@@ -505,7 +464,7 @@ export default function SyncLogPage() {
                     data-testid="button-webhook-inactive"
                   >
                     <X className="h-3 w-3" />
-                    Inactive
+                    Webhooks Inactive
                   </button>
                 )}
               </span>
@@ -708,166 +667,6 @@ export default function SyncLogPage() {
         </Card>
       </div>
     </div>
-
-    {/* Force Push Modal */}
-    <Dialog open={forcePushOpen} onOpenChange={(open) => { if (!open) setForcePushOpen(false); }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {pushStatus?.phase === "done" ? (
-              pushStatus.errors.length > 0
-                ? <IconAlertTriangle className="h-5 w-5 text-destructive" />
-                : <IconCheck className="h-5 w-5 text-primary" />
-            ) : pushStatus?.running ? (
-              <IconCloudUpload className="h-5 w-5 animate-pulse" />
-            ) : (
-              <IconCloudUpload className="h-5 w-5" />
-            )}
-            {pushStatus?.phase === "done"
-              ? pushStatus.errors.length > 0 ? "Push completed with errors" : "Push complete"
-              : pushStatus?.running ? "Pushing to GitHub…"
-              : "Force Push to GitHub"}
-          </DialogTitle>
-
-          {/* Pre-start description — only shown before a push is running */}
-          {!pushStatus?.running && pushStatus?.phase !== "done" && (
-            <DialogDescription asChild>
-              <div className="space-y-2 text-sm">
-                <p>This will sync all local content files to the GitHub repository.</p>
-                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li><span className="font-medium text-foreground">Local always wins</span> — if a file differs, the local version overwrites GitHub.</li>
-                  <li><span className="font-medium text-foreground">Skips unchanged files</span> — only files with a different SHA are uploaded.</li>
-                  <li><span className="font-medium text-foreground">Single commit</span> — all changes land in one commit using the Git Trees API.</li>
-                  <li>Files deleted locally are <span className="font-medium text-foreground">not</span> removed from GitHub.</li>
-                </ul>
-              </div>
-            </DialogDescription>
-          )}
-        </DialogHeader>
-
-        {/* Live progress — shown while running */}
-        {pushStatus?.running && (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {pushStatus.phase === "diffing" && "Comparing local files with GitHub…"}
-              {pushStatus.phase === "uploading" && (
-                pushStatus.total > 0
-                  ? `Uploading files… ${pushStatus.processed} of ${pushStatus.total}`
-                  : "Uploading files…"
-              )}
-              {pushStatus.phase === "committing" && "Creating commit…"}
-            </p>
-            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{
-                  width: pushStatus.total > 0
-                    ? `${Math.round((pushStatus.processed / pushStatus.total) * 100)}%`
-                    : pushStatus.phase === "diffing" ? "10%" : "95%",
-                }}
-              />
-            </div>
-            {pushStatus.total > 0 && (
-              <p className="text-xs text-muted-foreground text-right">
-                {pushStatus.processed} / {pushStatus.total} files
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Completion stat grid */}
-        {pushStatus?.phase === "done" && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
-                <IconFilePlus size={16} className="text-primary shrink-0" />
-                <div>
-                  <p className="font-medium">{pushStatus.created}</p>
-                  <p className="text-xs text-muted-foreground">Created</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
-                <IconPencil size={16} className="text-primary shrink-0" />
-                <div>
-                  <p className="font-medium">{pushStatus.updated}</p>
-                  <p className="text-xs text-muted-foreground">Updated</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
-                <IconMinus size={16} className="text-muted-foreground shrink-0" />
-                <div>
-                  <p className="font-medium">{pushStatus.skipped}</p>
-                  <p className="text-xs text-muted-foreground">Unchanged</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
-                <IconAlertTriangle size={16} className={pushStatus.failed > 0 ? "text-destructive shrink-0" : "text-muted-foreground shrink-0"} />
-                <div>
-                  <p className={`font-medium ${pushStatus.failed > 0 ? "text-destructive" : ""}`}>{pushStatus.failed}</p>
-                  <p className="text-xs text-muted-foreground">Errors</p>
-                </div>
-              </div>
-            </div>
-
-            {pushStatus.commitSha && (() => {
-              const repoUrl = (pushStatus.repoUrl || syncInfo?.repoUrl || "").replace(/\.git$/, "");
-              return (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <IconGitCommit size={14} className="shrink-0" />
-                  {repoUrl ? (
-                    <a
-                      href={`${repoUrl}/commit/${pushStatus.commitSha}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono hover:underline text-foreground"
-                      data-testid="link-push-commit-sha"
-                    >
-                      {pushStatus.commitSha.slice(0, 7)}
-                    </a>
-                  ) : (
-                    <span className="font-mono">{pushStatus.commitSha.slice(0, 7)}</span>
-                  )}
-                </div>
-              );
-            })()}
-
-            {pushStatus.errors.length > 0 && (
-              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2.5 space-y-1 max-h-28 overflow-y-auto">
-                {pushStatus.errors.slice(0, 5).map((e, i) => (
-                  <p key={i} className="text-xs font-mono text-destructive break-all">{e}</p>
-                ))}
-                {pushStatus.errors.length > 5 && (
-                  <p className="text-xs text-muted-foreground">…and {pushStatus.errors.length - 5} more</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={() => setForcePushOpen(false)}
-            disabled={pushStatus?.running}
-            data-testid="button-cancel-force-push"
-          >
-            {pushStatus?.phase === "done" ? "Close" : pushStatus?.running ? "Running…" : "Cancel"}
-          </Button>
-          {(!pushStatus || pushStatus.phase === "done") && !pushStatus?.running && (
-            <Button
-              onClick={() => startPushMutation.mutate()}
-              disabled={startPushMutation.isPending || pushStatus?.running}
-              data-testid="button-start-force-push"
-            >
-              {startPushMutation.isPending
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
-                : <><IconCloudUpload className="h-4 w-4 mr-2" />{pushStatus?.phase === "done" ? "Push Again" : "Start Push"}</>
-              }
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
 
     {/* Force Pull Modal */}
     <Dialog open={forcePullOpen} onOpenChange={(open) => { if (!open && !pullStatus?.running) { setForcePullOpen(false); } }}>

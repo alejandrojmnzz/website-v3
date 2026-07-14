@@ -48,9 +48,10 @@ function getDB(res: import("express").Response): DatabaseManager {
 }
 import {
   redirectMiddleware,
-  getRedirects,
   clearRedirectCache,
   testRedirect,
+  getFreshRedirectEntries,
+  isRegexPattern,
 } from "../redirects";
 import {
   getSchema,
@@ -545,22 +546,16 @@ export function registerAdminRoutes(app: Express): void {
   // Get active redirects (for debug tools)
   app.get("/api/debug/redirects", (req, res) => {
     const ci = getCI(res);
-    const isSiteSpecific = ci.contentRoot !== contentIndex.contentRoot;
-    if (isSiteSpecific) {
-      const siteEntries = ci.getRedirects();
-      const redirects = siteEntries.map(e => ({
-        from: e.from,
-        to: e.to,
-        type: e.type || "redirect",
-        status: e.status || 301,
-        source: e.source || ci.contentRoot,
-        priority: e.priority,
-      }));
-      res.json({ count: redirects.length, redirects });
-    } else {
-      const redirects = getRedirects();
-      res.json({ count: redirects.length, redirects });
-    }
+    const siteEntries = getFreshRedirectEntries(ci);
+    const redirects = siteEntries.map((e) => ({
+      from: e.from,
+      to: e.to,
+      type: e.type || "redirect",
+      status: e.status || 301,
+      source: e.source || ci.contentRoot,
+      priority: e.priority,
+    }));
+    res.json({ count: redirects.length, redirects });
   });
 
   app.get("/api/locale-urls", (req, res) => {
@@ -1046,30 +1041,137 @@ export function registerAdminRoutes(app: Express): void {
       return;
     }
     const locale = (req.query.locale as string) || getDefaultLocale();
-    const result = testRedirect(url, locale);
+    const ci = getCI(res);
+    const result = testRedirect(url, locale, ci);
 
     if (result.match && result.resolvedTo) {
-      const resolved = getCI(res).resolveUrl(result.resolvedTo);
-      if (!resolved) {
-        result.destinationExists = false;
-      } else if (resolved.fromDatabase) {
-        try {
-          const items = await getDB(res).fetchMappedItems(
-            resolved.contentType,
-          );
-          const exists = items.some(
-            (item) => String(item.slug) === resolved.slug,
-          );
-          result.destinationExists = exists;
-        } catch {
-          result.destinationExists = false;
-        }
-      } else {
+      // External absolute URLs are outside this site's content index — treat as valid destinations.
+      if (/^https?:\/\//i.test(result.resolvedTo)) {
         result.destinationExists = true;
+      } else {
+        const resolved = ci.resolveUrl(result.resolvedTo);
+        if (!resolved) {
+          result.destinationExists = false;
+        } else if (resolved.fromDatabase) {
+          try {
+            const items = await getDB(res).fetchMappedItems(
+              resolved.contentType,
+            );
+            const exists = items.some(
+              (item) => String(item.slug) === resolved.slug,
+            );
+            result.destinationExists = exists;
+          } catch {
+            result.destinationExists = false;
+          }
+        } else {
+          result.destinationExists = true;
+        }
       }
     }
 
     res.json(result);
+  });
+
+  // Update a custom regex redirect's from/to (inline editor)
+  app.patch("/api/debug/redirects", (req, res) => {
+    try {
+      const { from, newFrom, newTo, author } = req.body;
+      const authorName = author && typeof author === "string" ? author : undefined;
+
+      if (!from || typeof from !== "string") {
+        res.status(400).json({ error: "'from' is required" });
+        return;
+      }
+
+      const hasNewFrom = typeof newFrom === "string" && newFrom.trim().length > 0;
+      const hasNewTo = typeof newTo === "string" && newTo.trim().length > 0;
+      if (!hasNewFrom && !hasNewTo) {
+        res.status(400).json({ error: "Provide 'newFrom' and/or 'newTo'" });
+        return;
+      }
+
+      if (!isRegexPattern(from)) {
+        res.status(400).json({
+          error: "Inline edit is only supported for custom regex redirects",
+        });
+        return;
+      }
+
+      const customFilePath = path.join(
+        getContentRoot(res),
+        "custom-redirects.yml",
+      );
+
+      if (!fs.existsSync(customFilePath)) {
+        res.status(404).json({ error: "custom-redirects.yml not found" });
+        return;
+      }
+
+      const raw = fs.readFileSync(customFilePath, "utf-8");
+      const parsed = yaml.load(raw) as { redirects?: any[] } | null;
+      const entries = parsed?.redirects || [];
+
+      const entry = entries.find((r: any) => r.from === from);
+      if (!entry) {
+        res
+          .status(404)
+          .json({ error: `Redirect "${from}" not found in custom-redirects.yml` });
+        return;
+      }
+
+      if (hasNewFrom) {
+        const trimmedFrom = (newFrom as string).trim();
+        if (!isRegexPattern(trimmedFrom)) {
+          res.status(400).json({
+            error: "Updated 'from' must remain a regex pattern",
+          });
+          return;
+        }
+        try {
+          new RegExp(`^${trimmedFrom}$`, "i");
+        } catch {
+          res.status(400).json({ error: "Updated 'from' is not a valid regular expression" });
+          return;
+        }
+        if (
+          trimmedFrom !== from &&
+          entries.some((r: any) => r.from === trimmedFrom)
+        ) {
+          res.status(409).json({
+            error: `Redirect "${trimmedFrom}" already exists in custom-redirects.yml`,
+          });
+          return;
+        }
+        entry.from = trimmedFrom;
+      }
+
+      if (hasNewTo) {
+        entry.to = (newTo as string).trim();
+      }
+
+      const yamlContent = safeYamlDump(
+        { redirects: entries },
+        { lineWidth: -1, noRefs: true },
+      );
+      fs.writeFileSync(customFilePath, yamlContent, "utf-8");
+      markFileAsModified(customFilePath, authorName);
+
+      // Keep live middleware + debug tester in sync with disk
+      getCI(res).scan();
+      clearRedirectCache();
+
+      res.json({
+        success: true,
+        from: entry.from,
+        to: entry.to,
+        message: `Custom redirect updated: ${entry.from} -> ${entry.to}`,
+        file: `${getContentRootName(res)}/custom-redirects.yml`,
+      });
+    } catch (err) {
+      log.error({ err: err }, "[Debug] Failed to update redirect:");
+      res.status(500).json({ error: "Failed to update redirect" });
+    }
   });
 
   app.patch("/api/debug/redirects/priority", (req, res) => {
@@ -1137,10 +1239,15 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  // Clear redirect cache (for debug tools)
+  // Clear redirect cache (for debug tools) — also rescan so disk and tester agree
   app.post("/api/debug/clear-redirect-cache", (req, res) => {
+    try {
+      getCI(res).scan();
+    } catch (err) {
+      log.warn({ err }, "[Debug] ContentIndex rescan failed during clear-redirect-cache");
+    }
     clearRedirectCache();
-    res.json({ success: true, message: "Redirect cache cleared" });
+    res.json({ success: true, message: "Redirect cache cleared and content index rescanned" });
   });
 
   app.get("/api/admin/brand-settings", async (req, res) => {

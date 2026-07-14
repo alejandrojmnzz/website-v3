@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ChevronUp, CircleCheck, ExternalLink, Info, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck, ExternalLink, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -38,6 +38,7 @@ import {
   parseRedirectConflict,
   useRedirectConflictResolver,
 } from "@/components/RedirectConflictResolver";
+import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 
 interface Redirect {
   from: string;
@@ -46,6 +47,25 @@ interface Redirect {
   status: number;
   source: string;
   priority?: "before" | "fallback";
+}
+
+/** Extract the server error from apiRequest throws (`${status}: ${body}`). */
+function getApiErrorMessage(
+  err: unknown,
+  fallback = "An unexpected error occurred",
+): string {
+  if (!(err instanceof Error) || !err.message) return fallback;
+  const colonIdx = err.message.indexOf(": ");
+  const body = colonIdx === -1 ? err.message : err.message.slice(colonIdx + 2);
+  try {
+    const parsed = JSON.parse(body) as { error?: string };
+    if (typeof parsed?.error === "string" && parsed.error.trim()) {
+      return parsed.error;
+    }
+  } catch {
+    // body is not JSON
+  }
+  return body.trim() || fallback;
 }
 
 function formatRedirectTo(to: string | Record<string, string>): string {
@@ -61,6 +81,11 @@ function isLocaleMap(
 
 function hasRegexChars(path: string): boolean {
   return /\(.*\)|\[.*\]|\.\*|\.\+|\\d|\\w|\\s|\{\d+[,}]/.test(path);
+}
+
+function isCustomRedirect(redirect: { type?: string; source?: string }): boolean {
+  if (redirect.type === "custom") return true;
+  return /(?:^|\/)custom-redirects\.yml$/.test(redirect.source || "");
 }
 
 interface ValidationIssue {
@@ -80,14 +105,49 @@ interface ValidationResult {
   duration: number;
 }
 
-function stripContentPath(text: string): string {
-  return text.replace(
-    /(?:\/home\/runner\/workspace\/)?4geeks-com\//g,
-    "",
+function isContentFilePath(p: string): boolean {
+  return (
+    /\.ya?ml$/i.test(p) ||
+    /(?:^|\/)(?:site_[^/]+|4geeks-com|content)\//.test(p)
   );
 }
 
+/** Format a path or a message that embeds content file paths (site-relative). */
+function formatValidationText(
+  text: string,
+  formatPath: (filePath: string) => string,
+): string {
+  if (!text) return text;
+  if (!text.includes('"') && isContentFilePath(text)) {
+    return formatPath(text);
+  }
+  return text.replace(/"([^"]+)"/g, (full, inner: string) =>
+    isContentFilePath(inner) ? `"${formatPath(inner)}"` : full,
+  );
+}
+
+const FILE_ORDINALS = ["first", "second", "third", "fourth", "fifth"];
+
+/** Button label for remove-from-file; disambiguates when basenames collide. */
+function removeFromFileLabel(
+  files: string[],
+  index: number,
+  formatPath: (filePath: string) => string,
+): string {
+  const basenames = files.map((f) => formatPath(f).split("/").pop() || f);
+  const name = basenames[index] || "file";
+  const duplicateCount = basenames.filter((b) => b === name).length;
+  if (duplicateCount > 1) {
+    const ordinalIndex =
+      basenames.slice(0, index + 1).filter((b) => b === name).length - 1;
+    const ordinal = FILE_ORDINALS[ordinalIndex] || `${ordinalIndex + 1}th`;
+    return `Remove from ${ordinal} ${name}`;
+  }
+  return `Remove from ${name}`;
+}
+
 export default function PrivateRedirects() {
+  const formatPath = useFormatSitePath();
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -130,6 +190,10 @@ export default function PrivateRedirects() {
     null,
   );
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const editDraftRef = useRef("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const [originCheckStatus, setOriginCheckStatus] = useState<
     "idle" | "checking" | "available" | "taken"
@@ -358,7 +422,7 @@ export default function PrivateRedirects() {
 
     setIsSubmitting(true);
     try {
-      const res = await apiRequest("POST", "/api/debug/redirects", {
+      await apiRequest("POST", "/api/debug/redirects", {
         from: newFrom.trim(),
         to: newTo.trim(),
         allLanguages,
@@ -367,16 +431,6 @@ export default function PrivateRedirects() {
         priority: redirectPriority,
         author: getDebugUserName(),
       });
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast({
-          title: "Failed to add redirect",
-          description: data.error || "An error occurred",
-          variant: "destructive",
-        });
-        return;
-      }
 
       toast({
         title: "Redirect added",
@@ -386,10 +440,10 @@ export default function PrivateRedirects() {
       setShowAddDialog(false);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
       runValidation();
-    } catch {
+    } catch (err) {
       toast({
         title: "Failed to add redirect",
-        description: "An unexpected error occurred",
+        description: getApiErrorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -402,21 +456,11 @@ export default function PrivateRedirects() {
 
     setIsDeleting(true);
     try {
-      const res = await apiRequest("DELETE", "/api/debug/redirects", {
+      await apiRequest("DELETE", "/api/debug/redirects", {
         from: deletingRedirect.from,
         source: deletingRedirect.source,
         author: getDebugUserName(),
       });
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast({
-          title: "Failed to delete redirect",
-          description: data.error || "An error occurred",
-          variant: "destructive",
-        });
-        return;
-      }
 
       toast({
         title: "Redirect deleted",
@@ -426,10 +470,10 @@ export default function PrivateRedirects() {
       setDeletingRedirect(null);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
       runValidation();
-    } catch {
+    } catch (err) {
       toast({
         title: "Failed to delete redirect",
-        description: "An unexpected error occurred",
+        description: getApiErrorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -461,15 +505,15 @@ export default function PrivateRedirects() {
         author: getDebugUserName(),
       });
       const data = await res.json();
-      if (!res.ok) {
-        toast({ title: "Failed to remove", description: data.error || "An error occurred", variant: "destructive" });
-        return;
-      }
       toast({ title: "Removed", description: data.message || `Removed from ${source}` });
       removeIssueFromValidation(redirectUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
-    } catch {
-      toast({ title: "Failed to remove", description: "An unexpected error occurred", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Failed to remove",
+        description: getApiErrorMessage(err),
+        variant: "destructive",
+      });
     } finally {
       setRemovingFrom(null);
     }
@@ -480,22 +524,21 @@ export default function PrivateRedirects() {
     setRemovingFrom(key);
     try {
       for (const source of files) {
-        const res = await apiRequest("DELETE", "/api/debug/redirects", {
+        await apiRequest("DELETE", "/api/debug/redirects", {
           from: redirectUrl,
           source,
           author: getDebugUserName(),
         });
-        if (!res.ok) {
-          const data = await res.json();
-          toast({ title: "Failed to remove", description: data.error || `Failed for ${source}`, variant: "destructive" });
-          return;
-        }
       }
       toast({ title: "Removed from both", description: `Removed "${redirectUrl}" from all sources` });
       removeIssueFromValidation(redirectUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
-    } catch {
-      toast({ title: "Failed to remove", description: "An unexpected error occurred", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Failed to remove",
+        description: getApiErrorMessage(err),
+        variant: "destructive",
+      });
     } finally {
       setRemovingFrom(null);
     }
@@ -511,15 +554,83 @@ export default function PrivateRedirects() {
         author: getDebugUserName(),
       });
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
-    } catch {
-      toast({ title: "Failed to update priority", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Failed to update priority",
+        description: getApiErrorMessage(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const startInlineEdit = (redirect: Redirect, field: "from" | "to") => {
+    if (!isCustomRedirect(redirect) || !hasRegexChars(redirect.from)) return;
+    if (field === "to" && typeof redirect.to !== "string") return;
+    const initial = field === "from" ? redirect.from : String(redirect.to);
+    editDraftRef.current = initial;
+    setEditDraft(initial);
+    setEditingKey(`${redirect.from}::${field}`);
+  };
+
+  const cancelInlineEdit = () => {
+    setEditingKey(null);
+    editDraftRef.current = "";
+    setEditDraft("");
+  };
+
+  const handleSaveInlineEdit = async (redirect: Redirect, field: "from" | "to") => {
+    const trimmed = editDraftRef.current.trim();
+    if (!trimmed) {
+      toast({
+        title: "Value required",
+        description: "Pattern or destination cannot be empty",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (field === "from" && !hasRegexChars(trimmed)) {
+      toast({
+        title: "Invalid pattern",
+        description: "Edited origin must remain a regex pattern",
+        variant: "destructive",
+      });
+      return;
+    }
+    const current = field === "from" ? redirect.from : String(redirect.to);
+    if (trimmed === current) {
+      cancelInlineEdit();
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      await apiRequest("PATCH", "/api/debug/redirects", {
+        from: redirect.from,
+        ...(field === "from" ? { newFrom: trimmed } : { newTo: trimmed }),
+        author: getDebugUserName(),
+      });
+      toast({
+        title: "Redirect updated",
+        description:
+          field === "from"
+            ? `${redirect.from} → ${trimmed}`
+            : `${redirect.from} now points to ${trimmed}`,
+      });
+      cancelInlineEdit();
+      await queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
+    } catch (err) {
+      toast({
+        title: "Failed to update redirect",
+        description: getApiErrorMessage(err),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
   const handleReorderCustomRedirect = async (fromIndex: number, toIndex: number) => {
-    const allCustomRedirects = redirects.filter(
-      (r) => r.source === "4geeks-com/custom-redirects.yml",
-    );
+    const allCustomRedirects = redirects.filter((r) => isCustomRedirect(r));
     const reordered = [...allCustomRedirects];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
@@ -778,7 +889,7 @@ export default function PrivateRedirects() {
                       )}
                       <div className="flex items-center gap-2 text-xs">
                         <span className="text-muted-foreground flex-shrink-0">Source:</span>
-                        <span className="text-muted-foreground">{stripContentPath(testRedirectResult.source || "")}</span>
+                        <span className="text-muted-foreground">{formatPath(testRedirectResult.source || "")}</span>
                       </div>
                     </div>
                   </div>
@@ -892,16 +1003,16 @@ export default function PrivateRedirects() {
                               </Badge>
                               {issue.file && (
                                 <span className="text-xs text-muted-foreground truncate">
-                                  {stripContentPath(issue.file)}
+                                  {formatPath(issue.file || "")}
                                 </span>
                               )}
                             </div>
                             <p className="text-sm mt-1">
-                              {stripContentPath(issue.message)}
+                              {formatValidationText(issue.message, formatPath)}
                             </p>
                             {issue.suggestion && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {stripContentPath(issue.suggestion)}
+                                {formatValidationText(issue.suggestion || "", formatPath)}
                               </p>
                             )}
                             {conflict && conflict.files.length >= 2 && (
@@ -917,7 +1028,9 @@ export default function PrivateRedirects() {
                                     data-testid={`button-remove-from-${fi}-err-${i}`}
                                   >
                                     <Trash2 className="h-3 w-3" />
-                                    {removingFrom === `${conflict.redirectUrl}::${file}` ? "Removing..." : `Remove from ${stripContentPath(file).split("/").pop()}`}
+                                    {removingFrom === `${conflict.redirectUrl}::${file}`
+                                      ? "Removing..."
+                                      : removeFromFileLabel(conflict.files, fi, formatPath)}
                                   </Button>
                                 ))}
                                 <Button
@@ -944,7 +1057,9 @@ export default function PrivateRedirects() {
                                   data-testid={`button-remove-err-${i}`}
                                 >
                                   <Trash2 className="h-3 w-3" />
-                                  {removingFrom === `${conflict.redirectUrl}::${conflict.files[0]}` ? "Removing..." : `Remove from ${stripContentPath(conflict.files[0]).split("/").pop()}`}
+                                  {removingFrom === `${conflict.redirectUrl}::${conflict.files[0]}`
+                                    ? "Removing..."
+                                    : removeFromFileLabel(conflict.files, 0, formatPath)}
                                 </Button>
                               </div>
                             )}
@@ -971,16 +1086,16 @@ export default function PrivateRedirects() {
                               </Badge>
                               {issue.file && (
                                 <span className="text-xs text-muted-foreground truncate">
-                                  {stripContentPath(issue.file)}
+                                  {formatPath(issue.file || "")}
                                 </span>
                               )}
                             </div>
                             <p className="text-sm mt-1">
-                              {stripContentPath(issue.message)}
+                              {formatValidationText(issue.message, formatPath)}
                             </p>
                             {issue.suggestion && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {stripContentPath(issue.suggestion)}
+                                {formatValidationText(issue.suggestion || "", formatPath)}
                               </p>
                             )}
                             {conflict && conflict.files.length >= 2 && (
@@ -996,7 +1111,9 @@ export default function PrivateRedirects() {
                                     data-testid={`button-remove-from-${fi}-warn-${i}`}
                                   >
                                     <Trash2 className="h-3 w-3" />
-                                    {removingFrom === `${conflict.redirectUrl}::${file}` ? "Removing..." : `Remove from ${stripContentPath(file).split("/").pop()}`}
+                                    {removingFrom === `${conflict.redirectUrl}::${file}`
+                                      ? "Removing..."
+                                      : removeFromFileLabel(conflict.files, fi, formatPath)}
                                   </Button>
                                 ))}
                                 <Button
@@ -1023,7 +1140,9 @@ export default function PrivateRedirects() {
                                   data-testid={`button-remove-warn-${i}`}
                                 >
                                   <Trash2 className="h-3 w-3" />
-                                  {removingFrom === `${conflict.redirectUrl}::${conflict.files[0]}` ? "Removing..." : `Remove from ${stripContentPath(conflict.files[0]).split("/").pop()}`}
+                                  {removingFrom === `${conflict.redirectUrl}::${conflict.files[0]}`
+                                    ? "Removing..."
+                                    : removeFromFileLabel(conflict.files, 0, formatPath)}
                                 </Button>
                               </div>
                             )}
@@ -1074,16 +1193,20 @@ export default function PrivateRedirects() {
                   {isExpanded && (
                     <div className="ml-4 mt-1 border rounded-lg divide-y overflow-hidden">
                       {(() => {
-                        const allCustomRedirects = redirects.filter(
-                          (r) => r.source === "4geeks-com/custom-redirects.yml",
+                        const allCustomRedirects = redirects.filter((r) =>
+                          isCustomRedirect(r),
                         );
                         return typeRedirects.map((redirect, index) => {
-                        const isCustom = redirect.source === "4geeks-com/custom-redirects.yml";
+                        const isCustom = isCustomRedirect(redirect);
+                        const isEditableRegex =
+                          isCustom && hasRegexChars(redirect.from);
                         const globalCustomIndex = isCustom
                           ? allCustomRedirects.findIndex((r) => r.from === redirect.from && r.to === redirect.to)
                           : -1;
                         const isFirstCustom = globalCustomIndex === 0;
                         const isLastCustom = globalCustomIndex === allCustomRedirects.length - 1;
+                        const editingFrom = editingKey === `${redirect.from}::from`;
+                        const editingTo = editingKey === `${redirect.from}::to`;
                         return (
                           <div
                             key={`${redirect.from}-${index}`}
@@ -1111,9 +1234,70 @@ export default function PrivateRedirects() {
                               </div>
                             )}
                             <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                              <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                                {redirect.from}
-                              </code>
+                              {editingFrom ? (
+                                <div className="flex items-center gap-1 flex-1 min-w-0">
+                                  <Input
+                                    value={editDraft}
+                                    onChange={(e) => {
+                                      editDraftRef.current = e.target.value;
+                                      setEditDraft(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        void handleSaveInlineEdit(redirect, "from");
+                                      } else if (e.key === "Escape") {
+                                        cancelInlineEdit();
+                                      }
+                                    }}
+                                    disabled={isSavingEdit}
+                                    autoFocus
+                                    className="h-7 text-xs font-mono flex-1"
+                                    data-testid={`input-edit-from-${type}-${index}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 flex-shrink-0"
+                                    disabled={isSavingEdit}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => void handleSaveInlineEdit(redirect, "from")}
+                                    title="Save"
+                                    data-testid={`button-save-from-${type}-${index}`}
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 flex-shrink-0"
+                                    disabled={isSavingEdit}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={cancelInlineEdit}
+                                    title="Cancel"
+                                    data-testid={`button-cancel-from-${type}-${index}`}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              ) : isEditableRegex ? (
+                                <button
+                                  type="button"
+                                  className="text-xs bg-muted px-2 py-1 rounded truncate text-left min-w-0 max-w-full cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
+                                  onClick={() => startInlineEdit(redirect, "from")}
+                                  title="Click to edit regex"
+                                  data-testid={`code-from-${type}-${index}`}
+                                >
+                                  <code className="font-mono truncate">{redirect.from}</code>
+                                  <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                </button>
+                              ) : (
+                                <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
+                                  {redirect.from}
+                                </code>
+                              )}
                               {hasRegexChars(redirect.from) && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0 font-mono">
                                   regex
@@ -1224,11 +1408,72 @@ export default function PrivateRedirects() {
                                     ),
                                   )}
                                 </div>
+                              ) : editingTo ? (
+                                <div className="flex items-center gap-1 flex-1 min-w-0">
+                                  <Input
+                                    value={editDraft}
+                                    onChange={(e) => {
+                                      editDraftRef.current = e.target.value;
+                                      setEditDraft(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        void handleSaveInlineEdit(redirect, "to");
+                                      } else if (e.key === "Escape") {
+                                        cancelInlineEdit();
+                                      }
+                                    }}
+                                    disabled={isSavingEdit}
+                                    autoFocus
+                                    className="h-7 text-xs font-mono flex-1"
+                                    data-testid={`input-edit-to-${type}-${index}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 flex-shrink-0"
+                                    disabled={isSavingEdit}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => void handleSaveInlineEdit(redirect, "to")}
+                                    title="Save"
+                                    data-testid={`button-save-to-${type}-${index}`}
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 flex-shrink-0"
+                                    disabled={isSavingEdit}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={cancelInlineEdit}
+                                    title="Cancel"
+                                    data-testid={`button-cancel-to-${type}-${index}`}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
                               ) : (
                                 <>
-                                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate flex-1">
-                                    {redirect.to}
-                                  </code>
+                                  {isEditableRegex ? (
+                                    <button
+                                      type="button"
+                                      className="text-xs bg-muted px-2 py-1 rounded truncate text-left flex-1 min-w-0 cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
+                                      onClick={() => startInlineEdit(redirect, "to")}
+                                      title="Click to edit destination"
+                                      data-testid={`code-to-${type}-${index}`}
+                                    >
+                                      <code className="font-mono truncate">{redirect.to as string}</code>
+                                      <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                    </button>
+                                  ) : (
+                                    <code className="text-xs bg-muted px-2 py-1 rounded block truncate flex-1">
+                                      {redirect.to}
+                                    </code>
+                                  )}
                                   {!/\$\d/.test(redirect.to as string) && !hasRegexChars(redirect.to as string) && (
                                     <a
                                       href={redirect.to as string}
