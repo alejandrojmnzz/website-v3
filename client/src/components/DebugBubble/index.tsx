@@ -611,11 +611,15 @@ export function DebugBubble() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteInfo?.domain]);
 
-  // Listen for open-sync-modal event from SyncConflictBanner
+  // Listen for open-sync-modal event from SyncConflictBanner / Sync Log Force Push
   useEffect(() => {
-    const handleOpenSyncModal = () => {
+    const handleOpenSyncModal = (event: Event) => {
+      const detail = (event as CustomEvent<{ expandQueue?: boolean }>).detail;
       setCommitModalOpen(true);
-      // Fetch pending changes when modal opens from banner
+      if (detail?.expandQueue) {
+        setManualActionsOpen(true);
+      }
+      // Fetch pending changes when modal opens from banner / force-push
       setPendingChangesLoading(true);
       fetch(`/api/github/pending-changes?_t=${Date.now()}`)
         .then((res) => res.json())

@@ -411,6 +411,217 @@ function SampleDataDialog({
   );
 }
 
+function ClearCacheConfirmDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+  contentTypeLabel,
+  clearing,
+  cacheAgeHours,
+  postCount,
+  databaseSlug,
+  hasDatabase,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  contentTypeLabel: string;
+  clearing: boolean;
+  cacheAgeHours: number | null;
+  postCount: number | null;
+  databaseSlug: string | null;
+  hasDatabase: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]" data-testid="dialog-clear-cache-confirm">
+        <DialogHeader>
+          <DialogTitle>Clear {contentTypeLabel} cache</DialogTitle>
+          <DialogDescription>
+            {hasDatabase
+              ? "Force-refresh the linked database snapshot and clear cached markdown bodies."
+              : "This content type is static-only — there is no database cache to clear."}
+          </DialogDescription>
+        </DialogHeader>
+        {hasDatabase ? (
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <p>
+              This does not delete content, YAML folders, or database configuration. It only
+              refreshes locally cached data so the next loads use fresh source data.
+            </p>
+            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+              <p className="font-medium text-foreground">What will be cleared</p>
+              <ul className="list-disc pl-5 space-y-1.5">
+                <li>
+                  The local database item cache
+                  {databaseSlug ? (
+                    <>
+                      {" "}for <code className="text-[11px]">{databaseSlug}</code>
+                    </>
+                  ) : null}
+                  {postCount != null ? ` (${postCount} cached entries)` : ""}
+                  {cacheAgeHours != null ? ` — currently ~${cacheAgeHours}h old` : ""}
+                </li>
+                <li>
+                  In-memory markdown/readme cache used when rendering database-backed article bodies
+                </li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-foreground mb-1">What happens next</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Entries are re-fetched from the database source (API / remote / local)</li>
+                <li>The admin list and live pages will use the new snapshot</li>
+                <li>The first few page loads may be slightly slower while caches rebuild</li>
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+              <p className="font-medium text-foreground">Nothing to clear</p>
+              <p>
+                Static content types read YAML from disk. Clear Cache only applies when a
+                database is attached — that is what builds the local item cache and markdown
+                body cache this action refreshes.
+              </p>
+            </div>
+            <p>
+              To use Clear Cache here, connect a database first via{" "}
+              <span className="text-foreground">Manage Connection</span>.
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          {hasDatabase ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={clearing}
+                data-testid="button-cancel-clear-cache"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={onConfirm}
+                disabled={clearing}
+                data-testid="button-confirm-clear-cache"
+              >
+                {clearing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Clearing…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Clear cache
+                  </>
+                )}
+              </Button>
+            </>
+          ) : (
+            <Button
+              onClick={() => onOpenChange(false)}
+              data-testid="button-close-clear-cache"
+            >
+              Got it
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ConnectDatabaseConfirmDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+  contentTypeLabel,
+  staticCount,
+  alreadyConnected,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  contentTypeLabel: string;
+  staticCount: number;
+  alreadyConnected: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-connect-database-confirm">
+        <DialogHeader>
+          <DialogTitle>
+            {alreadyConnected ? "Manage database connection" : "Connect a database"}
+          </DialogTitle>
+          <DialogDescription>
+            {alreadyConnected
+              ? `Update how ${contentTypeLabel} pulls entries from a database.`
+              : `Link a database so ${contentTypeLabel} can serve entries dynamically.`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 text-sm text-muted-foreground pr-1">
+          <p>
+            Connecting a database does not delete or migrate your existing static YAML folders.
+            It only attaches a live data source and field mapping to this content type.
+          </p>
+          {staticCount > 0 && (
+            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3">
+              <p className="font-medium text-foreground">
+                You currently have {staticCount} static {contentTypeLabel.toLowerCase()} entr{staticCount === 1 ? "y" : "ies"}.
+              </p>
+              <ul className="list-disc pl-5 space-y-1.5">
+                <li>
+                  Matching slugs become <span className="text-foreground">partial overrides</span> —
+                  the static folder customizes layout/sections on top of the database page.
+                </li>
+                <li>
+                  The article body and core fields still come from the database when a row exists
+                  for that slug.
+                </li>
+                <li>
+                  Static-only entries (no matching database row) may stop resolving as live pages
+                  once this type is database-backed — public URLs are driven by the database index.
+                </li>
+              </ul>
+            </div>
+          )}
+          <div>
+            <p className="font-medium text-foreground mb-1">What happens next</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Pick a database and map identity fields (slug, locale)</li>
+              <li>Map content fields and optional indexes for filtering</li>
+              <li>Shared <code className="text-[11px]">single.*.yml</code> templates are used to render DB entries</li>
+            </ul>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            data-testid="button-cancel-connect-database"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              onOpenChange(false);
+              onConfirm();
+            }}
+            data-testid="button-confirm-connect-database"
+          >
+            <Database className="h-4 w-4 mr-2" />
+            {alreadyConnected ? "Continue" : "Continue to connect"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PartialOverrideDialog({
   open,
   onOpenChange,
@@ -2656,6 +2867,8 @@ export default function ContentTypeManagePage() {
   const [tagFilters, setTagFilters] = useState<Record<string, string[]>>({});
   const [clearing, setClearing] = useState(false);
   const [dsDialogOpen, setDsDialogOpen] = useState(false);
+  const [connectDbConfirmOpen, setConnectDbConfirmOpen] = useState(false);
+  const [clearCacheConfirmOpen, setClearCacheConfirmOpen] = useState(false);
   const [seoDialogOpen, setSeoDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"static" | "db">("static");
@@ -2963,6 +3176,7 @@ export default function ContentTypeManagePage() {
       toast({ title: `${label} cache cleared`, description: "Refreshing entries..." });
       queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] });
       queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "cache-status"] });
+      setClearCacheConfirmOpen(false);
     } catch {
       toast({ title: "Failed to clear cache", variant: "destructive" });
     } finally {
@@ -3263,14 +3477,14 @@ export default function ContentTypeManagePage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onClick={() => setDsDialogOpen(true)}
+                  onClick={() => setConnectDbConfirmOpen(true)}
                   data-testid="button-manage-connection"
                 >
                   <Database className="h-4 w-4 mr-2" />
                   Manage Connection
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={handleClearCache}
+                  onClick={() => setClearCacheConfirmOpen(true)}
                   disabled={clearing}
                   data-testid="button-clear-cache"
                 >
@@ -3327,84 +3541,86 @@ export default function ContentTypeManagePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {allIndexFields.map((idx) => {
-            const isLocale = idx === localeKey;
-            const counts: Record<string, number> = {};
-            for (const item of items) {
-              if (isTagsField(idx)) {
-                const raw = item[idx];
-                const tokens: string[] = Array.isArray(raw)
-                  ? (raw as string[])
-                  : typeof raw === "string" && raw.trim()
-                  ? raw.split(",").map((t) => t.trim()).filter(Boolean)
-                  : [];
-                for (const token of tokens) {
-                  const t = token.toLowerCase();
-                  if (t) counts[t] = (counts[t] || 0) + 1;
+        {hasDb && allIndexFields.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {allIndexFields.map((idx) => {
+              const isLocale = idx === localeKey;
+              const counts: Record<string, number> = {};
+              for (const item of items) {
+                if (isTagsField(idx)) {
+                  const raw = item[idx];
+                  const tokens: string[] = Array.isArray(raw)
+                    ? (raw as string[])
+                    : typeof raw === "string" && raw.trim()
+                    ? raw.split(",").map((t) => t.trim()).filter(Boolean)
+                    : [];
+                  for (const token of tokens) {
+                    const t = token.toLowerCase();
+                    if (t) counts[t] = (counts[t] || 0) + 1;
+                  }
+                } else {
+                  const val = String(item[idx] || "").toLowerCase();
+                  if (val) counts[val] = (counts[val] || 0) + 1;
                 }
-              } else {
-                const val = String(item[idx] || "").toLowerCase();
-                if (val) counts[val] = (counts[val] || 0) + 1;
               }
-            }
-            const sortedEntries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-            return (
-              <Card key={idx} data-testid={`card-kpi-${idx}`}>
-                <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {isLocale ? "Language" : idx.charAt(0).toUpperCase() + idx.slice(1)}
-                  </CardTitle>
-                  {isLocale ? (
-                    <Globe className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <LayoutList className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </CardHeader>
-                <CardContent>
-                  {(() => {
-                    const VISIBLE_COUNT = 2;
-                    const visible = sortedEntries.slice(0, VISIBLE_COUNT);
-                    const remaining = sortedEntries.length - VISIBLE_COUNT;
-                    return (
-                      <div className="flex flex-wrap gap-1.5">
-                        {visible.map(([val, count]) => (
-                          <Badge key={val} variant="secondary" className="text-xs" data-testid={`text-kpi-${idx}-${val}`}>
-                            {allLoading ? "..." : count}
-                            <span className="ml-1 text-muted-foreground font-normal">
-                              {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
-                            </span>
-                          </Badge>
-                        ))}
-                        {remaining > 0 && (
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Badge variant="outline" className="text-xs cursor-pointer" data-testid={`button-view-more-${idx}`}>
-                                +{remaining} more
-                              </Badge>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto max-w-xs p-3" align="start">
-                              <div className="flex flex-wrap gap-1.5">
-                                {sortedEntries.slice(VISIBLE_COUNT).map(([val, count]) => (
-                                  <Badge key={val} variant="secondary" className="text-xs" data-testid={`text-kpi-${idx}-${val}`}>
-                                    {allLoading ? "..." : count}
-                                    <span className="ml-1 text-muted-foreground font-normal">
-                                      {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
-                                    </span>
-                                  </Badge>
-                                ))}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+              const sortedEntries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+              return (
+                <Card key={idx} data-testid={`card-kpi-${idx}`}>
+                  <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      {isLocale ? "Language" : idx.charAt(0).toUpperCase() + idx.slice(1)}
+                    </CardTitle>
+                    {isLocale ? (
+                      <Globe className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <LayoutList className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const VISIBLE_COUNT = 2;
+                      const visible = sortedEntries.slice(0, VISIBLE_COUNT);
+                      const remaining = sortedEntries.length - VISIBLE_COUNT;
+                      return (
+                        <div className="flex flex-wrap gap-1.5">
+                          {visible.map(([val, count]) => (
+                            <Badge key={val} variant="secondary" className="text-xs" data-testid={`text-kpi-${idx}-${val}`}>
+                              {allLoading ? "..." : count}
+                              <span className="ml-1 text-muted-foreground font-normal">
+                                {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
+                              </span>
+                            </Badge>
+                          ))}
+                          {remaining > 0 && (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Badge variant="outline" className="text-xs cursor-pointer" data-testid={`button-view-more-${idx}`}>
+                                  +{remaining} more
+                                </Badge>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto max-w-xs p-3" align="start">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {sortedEntries.slice(VISIBLE_COUNT).map(([val, count]) => (
+                                    <Badge key={val} variant="secondary" className="text-xs" data-testid={`text-kpi-${idx}-${val}`}>
+                                      {allLoading ? "..." : count}
+                                      <span className="ml-1 text-muted-foreground font-normal">
+                                        {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
+                                      </span>
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
         <Card>
           <CardHeader className="pb-3">
@@ -3857,7 +4073,7 @@ export default function ContentTypeManagePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setDsDialogOpen(true)}
+                    onClick={() => setConnectDbConfirmOpen(true)}
                     data-testid="button-link-database"
                   >
                     <Database className="h-4 w-4 mr-1" />
@@ -4245,6 +4461,25 @@ export default function ContentTypeManagePage() {
         </DialogContent>
       </Dialog>
 
+      <ClearCacheConfirmDialog
+        open={clearCacheConfirmOpen}
+        onOpenChange={setClearCacheConfirmOpen}
+        onConfirm={handleClearCache}
+        contentTypeLabel={label}
+        clearing={clearing}
+        cacheAgeHours={cacheStatus?.age_hours ?? null}
+        postCount={cacheStatus?.post_count ?? null}
+        databaseSlug={dbSlug}
+        hasDatabase={hasDb}
+      />
+      <ConnectDatabaseConfirmDialog
+        open={connectDbConfirmOpen}
+        onOpenChange={setConnectDbConfirmOpen}
+        onConfirm={() => setDsDialogOpen(true)}
+        contentTypeLabel={label}
+        staticCount={typeof staticEntryCount === "number" ? staticEntryCount : staticEntriesData?.count ?? 0}
+        alreadyConnected={hasDb}
+      />
       <DataSourceDialog open={dsDialogOpen} onOpenChange={setDsDialogOpen} contentType={contentType} />
       <FieldMappingDialog open={mappingDialogOpen} onOpenChange={setMappingDialogOpen} contentType={contentType} />
       <SeoSettingsDialog

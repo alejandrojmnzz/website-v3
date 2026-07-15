@@ -933,6 +933,19 @@ export class ContentIndex {
     return [...this.redirectEntries];
   }
 
+  /**
+   * Re-read custom-redirects.yml from disk into redirectEntries.
+   * Returns the full redirect list after refresh (bypasses slow-phase gating).
+   */
+  refreshCustomRedirects(): RedirectEntry[] {
+    this.ensureInitialized();
+    this.redirectEntries = this.redirectEntries.filter((e) => e.type !== "custom");
+    this.scanCustomRedirects(this.contentRoot);
+    // Custom redirects are loaded from disk — safe to expose via getRedirects().
+    this.slowPhaseReady = true;
+    return [...this.redirectEntries];
+  }
+
   getAllValidUrls(): Set<string> {
     this.ensureInitialized();
     const urls = new Set<string>();

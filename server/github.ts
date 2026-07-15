@@ -1254,6 +1254,33 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
         rebuildSyncStateFromLocal(commitSha, opts?.contentRoot);
       }
     }
+
+    // Keep in-memory redirects/content index in sync with files just written to disk.
+    // Otherwise debug "add redirect" (reads YAML) and "test URL" (reads CI) disagree.
+    if (pulled.length > 0) {
+      try {
+        const { getSiteContextMap } = await import("./site-manager");
+        const { clearRedirectCache } = await import("./redirects");
+        const folder = contentFolder;
+        const siteCtx = Array.from(getSiteContextMap().values()).find(
+          (ctx) => ctx.contentRootName === folder || ctx.contentRoot.endsWith(folder),
+        );
+        if (siteCtx?.contentIndex) {
+          siteCtx.contentIndex.refresh();
+          clearRedirectCache();
+          log.info(
+            `[GitHub] Refreshed ContentIndex + redirect cache for ${siteCtx.contentRootName} after pulling ${pulled.length} file(s)`,
+          );
+        } else {
+          clearRedirectCache();
+        }
+      } catch (e) {
+        log.warn(
+          { err: e },
+          "[GitHub] Failed to refresh ContentIndex after auto-pull — redirect tester may be stale until restart",
+        );
+      }
+    }
   } catch (error) {
     errors.push(error instanceof Error ? error.message : 'Unknown error');
   }

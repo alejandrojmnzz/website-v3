@@ -437,7 +437,27 @@ function makeResult(entry: RedirectEntry, locale: string, matchType: "exact" | "
   };
 }
 
-export function testRedirect(rawInput: string, locale: string = "en"): RedirectTestResult {
+/**
+ * Fresh redirect entries for debug tools: re-reads custom-redirects.yml from disk.
+ * Does not touch the live middleware redirect cache.
+ */
+export function getFreshRedirectEntries(
+  ci: typeof contentIndex = contentIndex,
+): RedirectEntry[] {
+  try {
+    return ci.refreshCustomRedirects();
+  } catch (err) {
+    log.warn({ err }, "[Redirects] refreshCustomRedirects failed in getFreshRedirectEntries");
+    return ci.getRedirects();
+  }
+}
+
+export function testRedirect(
+  rawInput: string,
+  locale: string = "en",
+  /** Active site's content index — must match live middleware / add-redirect checks. */
+  ci: typeof contentIndex = contentIndex,
+): RedirectTestResult {
   let urlPath = rawInput;
   try {
     if (/^https?:\/\//i.test(urlPath)) {
@@ -447,48 +467,40 @@ export function testRedirect(rawInput: string, locale: string = "en"): RedirectT
   urlPath = urlPath.split("?")[0].split("#")[0];
   if (!urlPath.startsWith("/")) urlPath = "/" + urlPath;
 
-  const map = getRedirectMap();
+  // Debug tester prioritizes correctness over speed: always re-read from disk and
+  // build maps from scratch (never the live request cache).
+  const maps = _buildMapsFromEntries(getFreshRedirectEntries(ci));
   const normalized = normalizePath(urlPath);
 
-  const exact = map.get(normalized);
+  const exact = maps.map.get(normalized);
   if (exact) return makeResult(exact, locale, "exact");
 
-  if (regexRedirectsBefore) {
-    for (const { regex, entry } of regexRedirectsBefore) {
-      const m = urlPath.match(regex);
-      if (m) return makeResult(entry, locale, "regex", undefined, m.slice(1));
-    }
+  for (const { regex, entry } of maps.regexBefore) {
+    const m = urlPath.match(regex);
+    if (m) return makeResult(entry, locale, "regex", undefined, m.slice(1));
   }
 
-  if (fallbackNonCustomMap) {
-    const fbNc = fallbackNonCustomMap.get(normalized);
-    if (fbNc) return makeResult(fbNc, locale, "exact", "fallback");
+  const fbNc = maps.fallbackNonCustomMap.get(normalized);
+  if (fbNc) return makeResult(fbNc, locale, "exact", "fallback");
+
+  for (const { regex, entry } of maps.regexFallbackNonCustom) {
+    const m = urlPath.match(regex);
+    if (m) return makeResult(entry, locale, "regex", "fallback", m.slice(1));
   }
 
-  if (regexRedirectsFallbackNonCustom) {
-    for (const { regex, entry } of regexRedirectsFallbackNonCustom) {
+  const isKnown = ci.isKnownUrl(urlPath);
+
+  if (!isKnown) {
+    const fb = maps.fallbackMap.get(normalized);
+    if (fb) return makeResult(fb, locale, "exact", "fallback");
+
+    for (const { regex, entry } of maps.regexFallback) {
       const m = urlPath.match(regex);
       if (m) return makeResult(entry, locale, "regex", "fallback", m.slice(1));
     }
   }
 
-  const isKnown = contentIndex.isKnownUrl(urlPath);
-
-  if (!isKnown) {
-    if (fallbackMap) {
-      const fb = fallbackMap.get(normalized);
-      if (fb) return makeResult(fb, locale, "exact", "fallback");
-    }
-
-    if (regexRedirectsFallback) {
-      for (const { regex, entry } of regexRedirectsFallback) {
-        const m = urlPath.match(regex);
-        if (m) return makeResult(entry, locale, "regex", "fallback", m.slice(1));
-      }
-    }
-  }
-
-  return { match: false, pageExists: contentIndex.isKnownUrl(urlPath) };
+  return { match: false, pageExists: isKnown };
 }
 
 export function clearRedirectCache(): void {
@@ -496,6 +508,8 @@ export function clearRedirectCache(): void {
   regexRedirectsBefore = null;
   fallbackMap = null;
   regexRedirectsFallback = null;
+  fallbackNonCustomMap = null;
+  regexRedirectsFallbackNonCustom = null;
   _siteRedirectCache.clear();
   log.info("[Redirects] Cache cleared (global + all per-site)");
 }
