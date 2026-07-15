@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ExternalLink, Github, Pencil, RefreshCw, Save, Trash2, Undo2, Webhook, X } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ExternalLink, Github, Pencil, RefreshCw, Save, Search, Trash2, Undo2, Webhook, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,8 +101,12 @@ export function SyncModal({
   const [skipBulkPrompt, setSkipBulkPrompt] = useState(false);
   const [pushAllConfirmOpen, setPushAllConfirmOpen] = useState(false);
   const [pushAllCommitMessage, setPushAllCommitMessage] = useState('');
+  const [dropSelectedConfirmOpen, setDropSelectedConfirmOpen] = useState(false);
+  const [isDroppingSelected, setIsDroppingSelected] = useState(false);
   const [autoPushExpanded, setAutoPushExpanded] = useState(false);
   const [autoPullExpanded, setAutoPullExpanded] = useState(false);
+  const [queueFilter, setQueueFilter] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const formatSitePath = useFormatSitePath();
 
   const { data: syncInfo } = useQuery<{
@@ -118,11 +122,128 @@ export function SyncModal({
   const localOnlyFiles = pendingChanges.filter(c => c.source === 'local');
   const nonConflictIncoming = pendingChanges.filter(c => c.source === 'incoming');
 
+  const isSelectableChange = (c: PendingChange) =>
+    c.source === "local" || c.source === "conflict";
+
+  const filteredChanges = useMemo(() => {
+    const q = queueFilter.trim().toLowerCase();
+    if (!q) return pendingChanges;
+    return pendingChanges.filter((c) => {
+      const formatted = formatSitePath(c.file).toLowerCase();
+      return c.file.toLowerCase().includes(q) || formatted.includes(q);
+    });
+  }, [pendingChanges, queueFilter, formatSitePath]);
+
+  const selectableFiltered = useMemo(
+    () => filteredChanges.filter(isSelectableChange),
+    [filteredChanges],
+  );
+
+  const hasSelection = selectedFiles.size > 0;
+  const filesToPush = useMemo(() => {
+    if (!hasSelection) return localOnlyFiles.map((c) => c.file);
+    return pendingChanges
+      .filter((c) => selectedFiles.has(c.file) && isSelectableChange(c))
+      .map((c) => c.file);
+  }, [hasSelection, localOnlyFiles, pendingChanges, selectedFiles]);
+
+  /** Local-only selected files — matches single-row "Drop changes" behavior. */
+  const filesToDrop = useMemo(
+    () =>
+      pendingChanges
+        .filter((c) => selectedFiles.has(c.file) && c.source === "local")
+        .map((c) => c.file),
+    [pendingChanges, selectedFiles],
+  );
+
+  const allFilteredSelected =
+    selectableFiltered.length > 0 &&
+    selectableFiltered.every((c) => selectedFiles.has(c.file));
+
+  useEffect(() => {
+    setSelectedFiles((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<string>();
+      for (const c of pendingChanges) {
+        if (prev.has(c.file) && isSelectableChange(c)) next.add(c.file);
+      }
+      if (next.size === prev.size && [...next].every((f) => prev.has(f))) return prev;
+      return next;
+    });
+  }, [pendingChanges]);
+
+  useEffect(() => {
+    if (!open) {
+      setQueueFilter("");
+      setSelectedFiles(new Set());
+    }
+  }, [open]);
+
   useEffect(() => {
     if (pushAllConfirmOpen) {
-      setPushAllCommitMessage(`[Manual sync] ${localOnlyFiles.length} local file(s)`);
+      const n = filesToPush.length;
+      setPushAllCommitMessage(
+        hasSelection
+          ? `[Manual sync] ${n} selected file(s)`
+          : `[Manual sync] ${n} local file(s)`,
+      );
     }
-  }, [pushAllConfirmOpen, localOnlyFiles.length]);
+  }, [pushAllConfirmOpen, filesToPush.length, hasSelection]);
+
+  const toggleFileSelection = (file: string, checked: boolean) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(file);
+      else next.delete(file);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = (checked: boolean) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      for (const c of selectableFiltered) {
+        if (checked) next.add(c.file);
+        else next.delete(c.file);
+      }
+      return next;
+    });
+  };
+
+  const handleDropSelected = async () => {
+    if (filesToDrop.length === 0) return;
+    setIsDroppingSelected(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+
+      for (const filePath of filesToDrop) {
+        const res = await fetch("/api/github/pull-file", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ filePath }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Failed to drop ${filePath}`);
+        }
+      }
+
+      setDropSelectedConfirmOpen(false);
+      setSelectedFiles(new Set());
+      fetchPendingChanges();
+    } catch (e) {
+      toast({
+        title: "Failed to drop some changes",
+        description: e instanceof Error ? e.message : "Could not revert selected files",
+        variant: "destructive",
+      });
+      fetchPendingChanges();
+    } finally {
+      setIsDroppingSelected(false);
+    }
+  };
 
   const handleDownloadClick = (file: string, source: string) => {
     if (source === 'conflict') {
@@ -467,22 +588,64 @@ export function SyncModal({
                   <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">{pendingChanges.length}</Badge>
                 )}
               </button>
-              {localOnlyFiles.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-xs px-2"
-                  disabled={isPushingAllLocal}
-                  onClick={(e) => { e.stopPropagation(); setPushAllLocalError(null); setPushAllConfirmOpen(true); }}
-                  data-testid="button-push-all-local"
-                >
-                  {isPushingAllLocal ? (
-                    <><RefreshCw className="h-3 w-3 animate-spin mr-1" />Pushing...</>
-                  ) : (
-                    <><ArrowUp className="h-3 w-3 mr-1" />Push all</>
-                  )}
-                </Button>
-              )}
+              <div className="flex items-center gap-1.5">
+                {hasSelection && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 text-xs px-2"
+                    disabled={isPushingAllLocal || isDroppingSelected}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedFiles(new Set());
+                    }}
+                    data-testid="button-clear-queue-selection"
+                  >
+                    Clear selection
+                  </Button>
+                )}
+                {hasSelection && filesToDrop.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs px-2 text-destructive hover:text-destructive"
+                    disabled={isPushingAllLocal || isDroppingSelected}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDropSelectedConfirmOpen(true);
+                    }}
+                    data-testid="button-drop-selected"
+                  >
+                    {isDroppingSelected ? (
+                      <><RefreshCw className="h-3 w-3 animate-spin mr-1" />Dropping...</>
+                    ) : (
+                      <><Undo2 className="h-3 w-3 mr-1" />Drop selected ({filesToDrop.length})</>
+                    )}
+                  </Button>
+                )}
+                {(hasSelection ? filesToPush.length > 0 : localOnlyFiles.length > 0) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs px-2"
+                    disabled={isPushingAllLocal || isDroppingSelected || filesToPush.length === 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPushAllLocalError(null);
+                      setPushAllConfirmOpen(true);
+                    }}
+                    data-testid={hasSelection ? "button-push-selected" : "button-push-all-local"}
+                  >
+                    {isPushingAllLocal ? (
+                      <><RefreshCw className="h-3 w-3 animate-spin mr-1" />Pushing...</>
+                    ) : hasSelection ? (
+                      <><ArrowUp className="h-3 w-3 mr-1" />Push selected ({selectedFiles.size})</>
+                    ) : (
+                      <><ArrowUp className="h-3 w-3 mr-1" />Push all</>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
 
             {pushAllLocalError && (
@@ -501,14 +664,73 @@ export function SyncModal({
                       No remote or local differences detected outside the auto-commit queue.
                     </p>
                   ) : (
-                    <div className="max-h-[200px] overflow-y-auto">
+                    <>
+                      <div className="flex items-center gap-3">
+                        {queueFilter.trim() && selectableFiltered.length > 0 && (
+                          <label
+                            className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none shrink-0"
+                            data-testid="label-select-all-filtered"
+                          >
+                            <Checkbox
+                              checked={allFilteredSelected}
+                              onCheckedChange={(checked) => toggleSelectAllFiltered(checked === true)}
+                              data-testid="checkbox-select-all-filtered"
+                            />
+                            Select all filtered ({selectableFiltered.length})
+                            {hasSelection && (
+                              <span className="text-foreground">· {selectedFiles.size} selected</span>
+                            )}
+                          </label>
+                        )}
+                        <div className="relative flex-1 min-w-[12rem] max-w-sm ml-auto">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input
+                            value={queueFilter}
+                            onChange={(e) => setQueueFilter(e.target.value)}
+                            placeholder="Filter by file path…"
+                            className="h-7 text-xs pl-7 pr-7"
+                            data-testid="input-commit-queue-filter"
+                          />
+                          {queueFilter && (
+                            <button
+                              type="button"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              onClick={() => setQueueFilter("")}
+                              aria-label="Clear filter"
+                              data-testid="button-clear-commit-queue-filter"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {filteredChanges.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2" data-testid="text-commit-queue-filter-empty">
+                          No files match “{queueFilter.trim()}”.
+                        </p>
+                      ) : (
+                    <div className="max-h-[280px] overflow-y-auto">
                       <div className="space-y-1">
-                        {pendingChanges.map((change, index) => (
+                        {filteredChanges.map((change, index) => {
+                          const selectable = isSelectableChange(change);
+                          return (
                           <Card
                             key={`${change.file}-${index}`}
                             className="p-2 space-y-1"
                           >
                             <div className="flex items-center gap-1.5 min-w-0">
+                              {selectable ? (
+                                <Checkbox
+                                  checked={selectedFiles.has(change.file)}
+                                  onCheckedChange={(checked) =>
+                                    toggleFileSelection(change.file, checked === true)
+                                  }
+                                  className="shrink-0"
+                                  data-testid={`checkbox-queue-file-${index}`}
+                                />
+                              ) : (
+                                <span className="w-4 shrink-0" aria-hidden />
+                              )}
                               <div
                                 className="font-mono text-xs text-foreground truncate min-w-0"
                                 title={change.file}
@@ -578,7 +800,7 @@ export function SyncModal({
                                     ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
                                     : 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300'
                                 }`}>
-                                  {change.source === 'conflict' ? 'Conflict' : change.source === 'incoming' ? 'Incoming' : 'Local'}
+                                  {change.source === 'conflict' ? 'Conflict' : change.source === 'incoming' ? 'Incoming' : 'Local change'}
                                 </span>
                                 <span className="text-xs text-muted-foreground italic">
                                   {change.author || 'Unknown author'}
@@ -713,9 +935,12 @@ export function SyncModal({
                               </div>
                             )}
                           </Card>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -834,23 +1059,31 @@ export function SyncModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ArrowUp className="h-5 w-5" />
-            Push local files to GitHub
+            {hasSelection ? "Push selected files to GitHub" : "Push local files to GitHub"}
           </DialogTitle>
           <DialogDescription>
-            The following {localOnlyFiles.length} local file{localOnlyFiles.length !== 1 ? "s" : ""} will be committed and pushed to the remote repository. Files with conflicts are excluded and must be resolved individually.
+            {hasSelection ? (
+              <>
+                The following {filesToPush.length} selected file{filesToPush.length !== 1 ? "s" : ""} will be committed and pushed to the remote repository.
+              </>
+            ) : (
+              <>
+                The following {filesToPush.length} local file{filesToPush.length !== 1 ? "s" : ""} will be committed and pushed to the remote repository. Files with conflicts are excluded and must be resolved individually.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-1">
           <ScrollArea className="max-h-40 rounded-md border">
             <div className="p-2 space-y-1">
-              {localOnlyFiles.map((change) => (
+              {filesToPush.map((file) => (
                 <div
-                  key={change.file}
+                  key={file}
                   className="font-mono text-xs text-muted-foreground truncate px-1 py-0.5"
-                  title={change.file}
-                  data-testid={`text-push-confirm-file-${change.file}`}
+                  title={file}
+                  data-testid={`text-push-confirm-file-${file}`}
                 >
-                  {formatSitePath(change.file)}
+                  {formatSitePath(file)}
                 </div>
               ))}
             </div>
@@ -877,17 +1110,76 @@ export function SyncModal({
           </Button>
           <Button
             onClick={() => {
-              if (!pushAllCommitMessage.trim()) return;
+              if (!pushAllCommitMessage.trim() || filesToPush.length === 0) return;
+              const files = [...filesToPush];
               setPushAllConfirmOpen(false);
-              handlePushAllLocal(pushAllCommitMessage.trim(), localOnlyFiles.map(c => c.file));
+              handlePushAllLocal(pushAllCommitMessage.trim(), files);
+              setSelectedFiles(new Set());
             }}
-            disabled={isPushingAllLocal || !pushAllCommitMessage.trim()}
+            disabled={isPushingAllLocal || !pushAllCommitMessage.trim() || filesToPush.length === 0}
             data-testid="button-push-all-confirm"
           >
             {isPushingAllLocal ? (
               <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Pushing...</>
             ) : (
-              <><ArrowUp className="h-4 w-4 mr-2" />Push {localOnlyFiles.length} file{localOnlyFiles.length !== 1 ? "s" : ""}</>
+              <><ArrowUp className="h-4 w-4 mr-2" />Push {filesToPush.length} file{filesToPush.length !== 1 ? "s" : ""}</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      open={dropSelectedConfirmOpen}
+      onOpenChange={(open) => {
+        if (!open && !isDroppingSelected) setDropSelectedConfirmOpen(false);
+      }}
+    >
+      <DialogContent className="w-full max-w-full rounded-none sm:rounded-lg sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Undo2 className="h-5 w-5" />
+            Drop selected local changes?
+          </DialogTitle>
+          <DialogDescription>
+            This will replace your local version of {filesToDrop.length} file{filesToDrop.length !== 1 ? "s" : ""} with the remote version. This cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <ScrollArea className="max-h-40 rounded-md border">
+            <div className="p-2 space-y-1">
+              {filesToDrop.map((file) => (
+                <div
+                  key={file}
+                  className="font-mono text-xs text-muted-foreground truncate px-1 py-0.5"
+                  title={file}
+                  data-testid={`text-drop-confirm-file-${file}`}
+                >
+                  {formatSitePath(file)}
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            onClick={() => setDropSelectedConfirmOpen(false)}
+            disabled={isDroppingSelected}
+            data-testid="button-drop-selected-cancel"
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleDropSelected}
+            disabled={isDroppingSelected || filesToDrop.length === 0}
+            data-testid="button-drop-selected-confirm"
+          >
+            {isDroppingSelected ? (
+              <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Dropping...</>
+            ) : (
+              <><Undo2 className="h-4 w-4 mr-2" />Drop {filesToDrop.length} file{filesToDrop.length !== 1 ? "s" : ""}</>
             )}
           </Button>
         </DialogFooter>
