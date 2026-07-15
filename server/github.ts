@@ -285,11 +285,11 @@ export interface GitHubSyncStatus {
 }
 
 /**
- * Get list of pending changes in 4geeks-com directory
+ * Get list of pending changes in the content directory
  * Uses file hash comparison instead of git status
  */
-export async function getPendingChanges(): Promise<PendingChange[]> {
-  return detectPendingChanges();
+export async function getPendingChanges(contentRoot?: string): Promise<PendingChange[]> {
+  return detectPendingChanges(contentRoot);
 }
 
 /**
@@ -916,9 +916,15 @@ export async function checkPullConflicts(): Promise<PullConflictCheck> {
  * 2. AND it appears in remote changes (remote has commits affecting this file)
  * 3. AND the local change has a remoteSha stored (meaning we've synced before)
  */
-export async function getAllSyncChanges(contentFolder?: string): Promise<PendingChange[]> {
-  const localChanges = await getPendingChanges();
-  const conflictInfo = await getConflictInfo();
+export async function getAllSyncChanges(
+  contentFolder?: string,
+  opts?: { repoUrl?: string },
+): Promise<PendingChange[]> {
+  const localChanges = await getPendingChanges(contentFolder);
+  const conflictInfo = await getConflictInfo({
+    repoUrl: opts?.repoUrl,
+    contentRoot: contentFolder,
+  });
   
   // Use changedFiles directly from conflictInfo (filtered by shouldTrackFile)
   const { shouldTrackFile } = await import("./sync-state");
@@ -982,7 +988,7 @@ export async function getAllSyncChanges(contentFolder?: string): Promise<Pending
   for (const filePath of remoteChangedFiles) {
     if (!localFileMap.has(filePath)) {
       // Skip files that have already been pulled from the current remote commit
-      if (currentRemoteCommit && wasFilePulledFromCommit(filePath, currentRemoteCommit)) {
+      if (currentRemoteCommit && wasFilePulledFromCommit(filePath, currentRemoteCommit, contentFolder)) {
         continue;
       }
       

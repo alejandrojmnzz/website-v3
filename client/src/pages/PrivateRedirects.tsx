@@ -39,6 +39,28 @@ import {
   useRedirectConflictResolver,
 } from "@/components/RedirectConflictResolver";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { Checkbox } from "@/components/ui/checkbox";
+
+const SKIP_DELETE_CONFIRM_KEY = "private-redirects-skip-delete-confirm-until";
+const SKIP_DELETE_CONFIRM_MS = 5 * 60 * 1000;
+
+function getSkipDeleteConfirmUntil(): number {
+  try {
+    const raw = sessionStorage.getItem(SKIP_DELETE_CONFIRM_KEY);
+    const until = raw ? Number(raw) : 0;
+    return Number.isFinite(until) ? until : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setSkipDeleteConfirmUntil(until: number): void {
+  try {
+    sessionStorage.setItem(SKIP_DELETE_CONFIRM_KEY, String(until));
+  } catch {
+    /* ignore */
+  }
+}
 
 interface Redirect {
   from: string;
@@ -190,6 +212,7 @@ export default function PrivateRedirects() {
     null,
   );
   const [isDeleting, setIsDeleting] = useState(false);
+  const [dontAskAgainDelete, setDontAskAgainDelete] = useState(false);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const editDraftRef = useRef("");
@@ -451,23 +474,29 @@ export default function PrivateRedirects() {
     }
   };
 
-  const handleDeleteRedirect = async () => {
-    if (!deletingRedirect) return;
+  const handleDeleteRedirect = async (redirect?: Redirect | null) => {
+    const target = redirect ?? deletingRedirect;
+    if (!target) return;
 
     setIsDeleting(true);
     try {
       await apiRequest("DELETE", "/api/debug/redirects", {
-        from: deletingRedirect.from,
-        source: deletingRedirect.source,
+        from: target.from,
+        source: target.source,
         author: getDebugUserName(),
       });
 
+      if (dontAskAgainDelete) {
+        setSkipDeleteConfirmUntil(Date.now() + SKIP_DELETE_CONFIRM_MS);
+      }
+
       toast({
         title: "Redirect deleted",
-        description: `${deletingRedirect.from} has been removed`,
+        description: `${target.from} has been removed`,
       });
 
       setDeletingRedirect(null);
+      setDontAskAgainDelete(false);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
       runValidation();
     } catch (err) {
@@ -479,6 +508,15 @@ export default function PrivateRedirects() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const requestDeleteRedirect = (redirect: Redirect) => {
+    if (Date.now() < getSkipDeleteConfirmUntil()) {
+      void handleDeleteRedirect(redirect);
+      return;
+    }
+    setDontAskAgainDelete(false);
+    setDeletingRedirect(redirect);
   };
 
   const [removingFrom, setRemovingFrom] = useState<string | null>(null);
@@ -1493,7 +1531,7 @@ export default function PrivateRedirects() {
                               variant="ghost"
                               size="icon"
                               className="flex-shrink-0 text-muted-foreground hover:text-destructive"
-                              onClick={() => setDeletingRedirect(redirect)}
+                              onClick={() => requestDeleteRedirect(redirect)}
                               title="Delete redirect"
                               data-testid={`button-delete-redirect-${type}-${index}`}
                             >
@@ -2005,7 +2043,10 @@ export default function PrivateRedirects() {
       <Dialog
         open={!!deletingRedirect}
         onOpenChange={(open) => {
-          if (!open) setDeletingRedirect(null);
+          if (!open) {
+            setDeletingRedirect(null);
+            setDontAskAgainDelete(false);
+          }
         }}
       >
         <DialogContent className="sm:max-w-sm">
@@ -2017,7 +2058,7 @@ export default function PrivateRedirects() {
             </DialogDescription>
           </DialogHeader>
           {deletingRedirect && (
-            <div className="space-y-2 py-2">
+            <div className="space-y-3 py-2">
               <div className="rounded-md border p-3 space-y-2">
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground mb-1">From</p>
@@ -2050,12 +2091,28 @@ export default function PrivateRedirects() {
                   )}
                 </div>
               </div>
+              <label
+                className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none"
+                data-testid="label-dont-ask-again-delete"
+              >
+                <Checkbox
+                  checked={dontAskAgainDelete}
+                  onCheckedChange={(checked) =>
+                    setDontAskAgainDelete(checked === true)
+                  }
+                  data-testid="checkbox-dont-ask-again-delete"
+                />
+                Don&apos;t ask again for 5 min
+              </label>
             </div>
           )}
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDeletingRedirect(null)}
+              onClick={() => {
+                setDeletingRedirect(null);
+                setDontAskAgainDelete(false);
+              }}
               disabled={isDeleting}
               data-testid="button-cancel-delete"
             >
@@ -2063,7 +2120,7 @@ export default function PrivateRedirects() {
             </Button>
             <Button
               variant="destructive"
-              onClick={handleDeleteRedirect}
+              onClick={() => handleDeleteRedirect()}
               disabled={isDeleting}
               data-testid="button-confirm-delete"
             >

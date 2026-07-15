@@ -705,7 +705,7 @@ export function registerAdminRoutes(app: Express): void {
           noRefs: true,
         });
         fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-        markFileAsModified(customFilePath, authorName);
+        markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
         getCI(res).scan();
         clearRedirectCache();
@@ -792,7 +792,7 @@ export function registerAdminRoutes(app: Express): void {
         noRefs: true,
       });
       fs.writeFileSync(filePath, yamlContent, "utf-8");
-      markFileAsModified(filePath, authorName);
+      markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
 
       getCI(res).scan();
       clearRedirectCache();
@@ -889,7 +889,7 @@ export function registerAdminRoutes(app: Express): void {
           noRefs: true,
         });
         fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-        markFileAsModified(customFilePath, authorName);
+        markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
         getCI(res).scan();
         clearRedirectCache();
@@ -954,7 +954,7 @@ export function registerAdminRoutes(app: Express): void {
 
       const yamlContent = safeYamlDump(parsed, { lineWidth: -1, noRefs: true });
       fs.writeFileSync(filePath, yamlContent, "utf-8");
-      markFileAsModified(filePath, authorName);
+      markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
 
       getCI(res).scan();
       clearRedirectCache();
@@ -1019,7 +1019,7 @@ export function registerAdminRoutes(app: Express): void {
         { lineWidth: -1, noRefs: true },
       );
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-      markFileAsModified(customFilePath, authorName);
+      markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
       getCI(res).scan();
       clearRedirectCache();
@@ -1155,7 +1155,7 @@ export function registerAdminRoutes(app: Express): void {
         { lineWidth: -1, noRefs: true },
       );
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-      markFileAsModified(customFilePath, authorName);
+      markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
       // Keep live middleware + debug tester in sync with disk
       getCI(res).scan();
@@ -1224,7 +1224,7 @@ export function registerAdminRoutes(app: Express): void {
         { lineWidth: -1, noRefs: true },
       );
       fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-      markFileAsModified(customFilePath, authorName);
+      markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
       getCI(res).scan();
       clearRedirectCache();
@@ -1738,7 +1738,7 @@ export function registerAdminRoutes(app: Express): void {
 
         try {
           const { markFileAsModified } = await import("../sync-state");
-          markFileAsModified(llmPath);
+          markFileAsModified(llmPath, undefined, undefined, getContentRoot(res));
         } catch (markErr) {
           log.warn({ err: markErr }, "[AI Knowledge PATCH] Could not mark llm.yml modified (non-fatal)");
         }

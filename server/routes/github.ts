@@ -811,11 +811,17 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
-  // Get all sync changes (local and incoming)
+  // Get all sync changes (local and incoming) for the active site
   app.get("/api/github/pending-changes", async (req, res) => {
     try {
+      const site = res.locals.site as {
+        contentRootName?: string;
+        config?: { githubRepoUrl?: string };
+      } | undefined;
       const { getAllSyncChanges } = await import("../github");
-      const changes = await getAllSyncChanges();
+      const changes = await getAllSyncChanges(site?.contentRootName, {
+        repoUrl: site?.config?.githubRepoUrl,
+      });
       res.json({ changes, count: changes.length });
     } catch (error) {
       log.error({ err: error }, "Error getting sync changes:");
@@ -872,11 +878,15 @@ export function registerGithubRoutes(app: Express): void {
         }
 
         // Determine which files to queue
+        const site = res.locals.site as {
+          contentRootName?: string;
+          config?: { githubRepoUrl?: string };
+        } | undefined;
         let filesToQueue: string[];
         if (Array.isArray(files) && files.length > 0) {
           filesToQueue = files as string[];
         } else {
-          const pending = detectPendingChanges();
+          const pending = detectPendingChanges(site?.contentRootName);
           filesToQueue = pending.map((c) => c.file);
         }
 
@@ -889,7 +899,7 @@ export function registerGithubRoutes(app: Express): void {
 
         const effectiveAuthor = authorName || "MCP";
         for (const filePath of filesToQueue) {
-          markFileAsModified(filePath, effectiveAuthor);
+          markFileAsModified(filePath, effectiveAuthor, undefined, site?.contentRootName);
           const shortPath = filePath.split('/').slice(1).join('/') || filePath;
           getSyncLogForResponse(res).log("EDIT", `MCP queued edit: ${shortPath}`, effectiveAuthor);
         }
