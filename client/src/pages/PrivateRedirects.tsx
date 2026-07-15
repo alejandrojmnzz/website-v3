@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck, ExternalLink, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck, ExternalLink, FileText, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -40,6 +40,10 @@ import {
 } from "@/components/RedirectConflictResolver";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { Checkbox } from "@/components/ui/checkbox";
+
+const CustomRedirectsYmlEditorPanel = lazy(
+  () => import("@/components/editing/CustomRedirectsYmlEditorPanel"),
+);
 
 const SKIP_DELETE_CONFIRM_KEY = "private-redirects-skip-delete-confirm-until";
 const SKIP_DELETE_CONFIRM_MS = 5 * 60 * 1000;
@@ -173,6 +177,7 @@ export default function PrivateRedirects() {
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [showYamlEditor, setShowYamlEditor] = useState(false);
   const [expandedType, setExpandedType] = useState<string | null>(null);
   const [validationResult, setValidationResult] =
     useState<ValidationResult | null>(null);
@@ -803,6 +808,15 @@ export default function PrivateRedirects() {
                 data-testid="button-toggle-search"
               >
                 <Search className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowYamlEditor(true)}
+                data-testid="button-view-custom-redirects-yml"
+              >
+                <FileText className="h-3.5 w-3.5 mr-1" />
+                View YAML
               </Button>
               <Button
                 variant="default"
@@ -2138,6 +2152,17 @@ export default function PrivateRedirects() {
           runValidation();
         }}
       />
+      {showYamlEditor && (
+        <Suspense fallback={null}>
+          <CustomRedirectsYmlEditorPanel
+            onClose={() => setShowYamlEditor(false)}
+            onSaved={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
+              runValidation();
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

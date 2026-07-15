@@ -558,6 +558,118 @@ export function registerAdminRoutes(app: Express): void {
     res.json({ count: redirects.length, redirects });
   });
 
+  app.get("/api/debug/redirects/yml", (_req, res) => {
+    try {
+      const relativePath = `${getContentRootName(res)}/custom-redirects.yml`;
+      const customFilePath = path.join(getContentRoot(res), "custom-redirects.yml");
+      if (!fs.existsSync(customFilePath)) {
+        res.json({ exists: false, path: relativePath, content: null });
+        return;
+      }
+      const content = fs.readFileSync(customFilePath, "utf-8");
+      res.json({ exists: true, path: relativePath, content });
+    } catch (err) {
+      log.error({ err }, "[Redirects] Failed to read custom-redirects.yml:");
+      res.status(500).json({
+        exists: false,
+        path: `${getContentRootName(res)}/custom-redirects.yml`,
+        content: null,
+        error: err instanceof Error ? err.message : "Failed to read custom-redirects.yml",
+      });
+    }
+  });
+
+  app.put("/api/debug/redirects/yml", (req, res) => {
+    try {
+      const { content, author } = req.body as {
+        content?: string;
+        author?: string;
+      };
+      if (typeof content !== "string") {
+        res.status(400).json({ error: "content is required" });
+        return;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = safeYamlLoad(content);
+      } catch (err) {
+        res.status(400).json({
+          error: `Invalid YAML: ${err instanceof Error ? err.message : String(err)}`,
+        });
+        return;
+      }
+
+      if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        res.status(400).json({ error: "custom-redirects.yml must be a YAML object with a redirects array" });
+        return;
+      }
+
+      const root = parsed as Record<string, unknown>;
+      if (!Array.isArray(root.redirects)) {
+        res.status(400).json({ error: "custom-redirects.yml must have a redirects array" });
+        return;
+      }
+
+      const seenFrom = new Set<string>();
+      for (let i = 0; i < root.redirects.length; i++) {
+        const entry = root.redirects[i];
+        if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
+          res.status(400).json({ error: `Redirect at index ${i} must be an object` });
+          return;
+        }
+        const item = entry as Record<string, unknown>;
+        if (typeof item.from !== "string" || !item.from.trim()) {
+          res.status(400).json({ error: `Redirect at index ${i} requires a non-empty string "from"` });
+          return;
+        }
+        if (typeof item.to !== "string" || !item.to.trim()) {
+          res.status(400).json({ error: `Redirect at index ${i} requires a non-empty string "to"` });
+          return;
+        }
+        if (item.status !== undefined && item.status !== 301 && item.status !== 302) {
+          res.status(400).json({ error: `Redirect at index ${i}: status must be 301 or 302` });
+          return;
+        }
+        if (
+          item.priority !== undefined &&
+          item.priority !== "before" &&
+          item.priority !== "fallback"
+        ) {
+          res.status(400).json({
+            error: `Redirect at index ${i}: priority must be "before" or "fallback"`,
+          });
+          return;
+        }
+        const normalizedFrom = item.from.toLowerCase();
+        if (seenFrom.has(normalizedFrom)) {
+          res.status(400).json({
+            error: `Duplicate redirect "from" value: ${item.from}`,
+          });
+          return;
+        }
+        seenFrom.add(normalizedFrom);
+      }
+
+      const relativePath = `${getContentRootName(res)}/custom-redirects.yml`;
+      const customFilePath = path.join(getContentRoot(res), "custom-redirects.yml");
+      const authorName = author && typeof author === "string" ? author : undefined;
+
+      fs.writeFileSync(customFilePath, content, "utf-8");
+      markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
+
+      getCI(res).scan();
+      clearRedirectCache();
+
+      res.json({ success: true, path: relativePath });
+    } catch (err) {
+      log.error({ err }, "[Redirects] Failed to write custom-redirects.yml:");
+      res.status(500).json({
+        error: err instanceof Error ? err.message : "Failed to write custom-redirects.yml",
+      });
+    }
+  });
+
   app.get("/api/locale-urls", (req, res) => {
     try {
       const url = req.query.url as string;
