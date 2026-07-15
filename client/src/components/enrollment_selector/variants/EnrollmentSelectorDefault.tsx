@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { UniversalImage } from "@/components/UniversalImage";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
+import { useSectionContext } from "@/contexts/SectionContext";
 import { IconChevronRight, IconCheck } from "@tabler/icons-react";
 import type { EnrollmentSelectorDefault, EnrollmentSelectorProgram } from "@shared/schema";
 import { addDays, addWeeks, addMonths } from "date-fns";
@@ -78,27 +80,42 @@ type DisplayDate = {
   date_iso: string;
 };
 
+/** Current calendar date in UTC (YYYY-MM-DD) — identical on server and client. */
+function todayUtcIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Deterministic date label: fixed page locale + UTC timezone, so SSR and client output match. */
+function formatDateLabel(iso: string, locale: string): string {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString(locale || "en", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function generateIntervalDates(
   startIso: string,
   interval: number,
   unit: "days" | "weeks" | "months",
+  locale: string,
   url?: string,
 ): DisplayDate[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  let current = new Date(startIso + "T00:00:00");
-  while (current <= today) {
+  const todayIso = todayUtcIso();
+  let current = new Date(startIso + "T00:00:00Z");
+  while (current.toISOString().slice(0, 10) <= todayIso) {
     current = advanceByInterval(current, interval, unit);
   }
   const result: DisplayDate[] = [];
   for (let i = 0; i < 3; i++) {
+    const iso = current.toISOString().slice(0, 10);
     result.push({
-      label: current.toLocaleDateString(undefined, { month: "long", day: "numeric" }),
-      year: String(current.getFullYear()),
+      label: formatDateLabel(iso, locale),
+      year: String(current.getUTCFullYear()),
       badges: [],
       tags: [],
       url,
-      date_iso: current.toISOString().slice(0, 10),
+      date_iso: iso,
     });
     current = advanceByInterval(current, interval, unit);
   }
@@ -148,7 +165,13 @@ function DateSelectorTiles({
       >
         {label}
       </p>
-      <div className={`grid grid-cols-3 ${compact ? "gap-1.5" : "gap-1.5 md:gap-2"}`}>
+      <div
+        className={`grid ${
+          compact
+            ? "grid-cols-3 gap-1.5"
+            : "grid-cols-3 md:grid-cols-1 lg:grid-cols-3 gap-1.5 md:gap-2"
+        }`}
+      >
         {dates.map((d, i) => {
           const active = selectedIdx === i;
           const fid = `date-${i}`;
@@ -255,6 +278,88 @@ function BenefitsList({
   );
 }
 
+type AddonConfig = NonNullable<EnrollmentSelectorProgram["addon"]>;
+
+/** Querystring link navigated when the toggle turns ON (defaults to ?addon=<id>) */
+function addonOnUrl(addon: AddonConfig): string {
+  return addon.on?.url ?? `?addon=${addon.id}`;
+}
+
+/** Querystring link navigated when the toggle turns OFF (defaults to ?addon=) */
+function addonOffUrl(addon: AddonConfig): string {
+  return addon.off?.url ?? "?addon=";
+}
+
+function AddonToggleRow({
+  addon,
+  enabled,
+  compact,
+  onToggle,
+}: {
+  addon: AddonConfig;
+  enabled: boolean;
+  compact?: boolean;
+  onToggle: (checked: boolean) => void;
+}) {
+  const badgeText = selectionCardBadgeText(addon.badge);
+  return (
+    <div className={compact ? "mt-3 pt-3 border-t border-border" : "mt-4 pt-4 border-t border-border md:mt-5 md:pt-5"}>
+      <div className="flex items-start justify-between gap-3 md:gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5 md:mb-1">
+            <span className={compact ? "text-[12px] font-bold text-foreground" : "text-[13px] md:text-[15px] font-bold text-foreground"}>
+              {addon.label}
+            </span>
+            {badgeText && (
+              <span
+                className="inline-flex items-center text-[9px] md:text-[10px] font-bold leading-none px-1.5 py-[3px] rounded-full whitespace-nowrap"
+                style={{
+                  background: "hsl(var(--primary) / 0.12)",
+                  color: "hsl(var(--primary))",
+                }}
+              >
+                {badgeText}
+              </span>
+            )}
+          </div>
+          {(addon.description || addon.on?.added_label) && (
+            <p className={compact ? "text-[11px] text-muted-foreground leading-snug" : "text-[11px] md:text-[12px] text-muted-foreground leading-relaxed"}>
+              {addon.description}
+              {addon.on?.added_label && (
+                <span
+                  className={`inline-flex items-center gap-1 text-[9px] md:text-[10px] font-bold leading-none px-1.5 py-[3px] rounded-full whitespace-nowrap align-middle ml-1.5 transition-opacity duration-200 ${
+                    enabled ? "opacity-100" : "opacity-0"
+                  }`}
+                  aria-hidden={!enabled}
+                  style={{
+                    background: "hsl(var(--color-green) / 0.15)",
+                    color: "hsl(var(--color-green))",
+                  }}
+                  data-testid="badge-addon-added"
+                >
+                  <IconCheck size={10} stroke={3} />
+                  {addon.on.added_label}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-0.5">
+          <span className="text-[11px] md:text-[12px] text-muted-foreground font-medium">
+            {enabled ? "On" : "Off"}
+          </span>
+          <Switch
+            checked={enabled}
+            onCheckedChange={onToggle}
+            aria-label={addon.label}
+            data-testid="switch-addon"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UnlocksList({ unlocks }: { unlocks: { icon?: string; text: string }[] }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -286,25 +391,38 @@ function UnlocksList({ unlocks }: { unlocks: { icon?: string; text: string }[] }
 
 export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSelectorDefault }) {
   const nav = useInternalNav();
+  const { locale } = useSectionContext();
 
   const [selectedProgramIdx, setSelectedProgramIdx] = useState(0);
   const [selectedDateIdx, setSelectedDateIdx] = useState(0);
   const [selectedPlanIdx, setSelectedPlanIdx] = useState(0);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [filteredByQs, setFilteredByQs] = useState(false);
+  const [addonEnabled, setAddonEnabled] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // On mount: read ?program and ?cohort from URL
+  // On mount: read ?program, ?cohort and ?addon from URL
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const programQs = params.get("program");
+    let activeIdx = 0;
     if (programQs) {
       const idx = data.programs.findIndex((p) => p.id === programQs);
       if (idx !== -1) {
+        activeIdx = idx;
         setSelectedProgramIdx(idx);
         setFilteredByQs(true);
       }
+    }
+    const addon = data.programs[activeIdx]?.addon;
+    if (addon) {
+      const onParams = new URLSearchParams(addonOnUrl(addon).replace(/^\?/, ""));
+      let matches = false;
+      onParams.forEach((v, k) => {
+        if (params.get(k) === v && v !== "") matches = true;
+      });
+      if (matches) setAddonEnabled(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -317,20 +435,14 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const displayDates = useMemo<DisplayDate[]>(() => {
     if (!program?.dates) return [];
     if (program.dates.mode === "static") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const todayIso = todayUtcIso();
       return program.dates.items
-        .filter((item) => new Date(item.date_iso + "T00:00:00") >= today)
+        .filter((item) => item.date_iso >= todayIso)
         .sort((a, b) => a.date_iso.localeCompare(b.date_iso))
         .slice(0, 3)
         .map((item) => ({
-          label:
-            item.label ??
-            new Date(item.date_iso + "T00:00:00").toLocaleDateString(undefined, {
-              month: "long",
-              day: "numeric",
-            }),
-          year: item.year ?? String(new Date(item.date_iso + "T00:00:00").getFullYear()),
+          label: item.label ?? formatDateLabel(item.date_iso, locale),
+          year: item.year ?? item.date_iso.slice(0, 4),
           badges: asChipList(item.badges),
           tags: asChipList(item.tags),
           url: item.url,
@@ -341,17 +453,10 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
       program.dates.start_date_iso,
       program.dates.interval,
       program.dates.interval_unit,
+      locale,
       program.dates.url,
     );
-  }, [program]);
-
-  // On mount: fire the URL of the first pre-selected date to set query params
-  useEffect(() => {
-    if (filteredByQs) return;
-    const firstDate = displayDates[0];
-    if (firstDate?.url) nav.navigate(firstDate.url);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [program, locale]);
 
   // Preselect date from ?cohort querystring once dates are resolved
   useEffect(() => {
@@ -386,6 +491,23 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
     if (url) nav.navigate(url);
   }
 
+  function handleAddonToggle(checked: boolean) {
+    setAddonEnabled(checked);
+    const addon = program?.addon;
+    if (!addon) return;
+    nav.navigate(checked ? addonOnUrl(addon) : addonOffUrl(addon));
+  }
+
+  /** Ensure the current (default) selection's query params are in the URL
+   *  before the CTA link resolves its {qs:} tokens. Uses history.replaceState
+   *  under the hood for `?` URLs, so it causes no re-render. */
+  function applySelectionParams() {
+    const d = displayDates[selectedDateIdx];
+    if (d?.url) nav.navigate(d.url);
+    const addon = program?.addon;
+    if (addon) nav.navigate(addonEnabled ? addonOnUrl(addon) : addonOffUrl(addon));
+  }
+
   const sectionCls =
     "bg-card border border-border rounded-[0.8rem] p-3 mb-3 md:p-5 md:mb-4 shadow-[0_1px_4px_rgba(0,0,0,0.06),0_4px_16px_rgba(0,0,0,0.05)]";
   const sectionClsLast =
@@ -396,8 +518,10 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
 
   if (!program || !activeSummary) return null;
 
+  const programCardRendered = !filteredByQs && data.programs.length > 1;
+
   const plansAttachToProgramCard =
-    !filteredByQs && data.programs.length > 1 && isPlanMode && !!program?.plans?.length;
+    programCardRendered && isPlanMode && !!program?.plans?.length;
 
   const ctaVariantMap: Record<string, "default" | "secondary" | "outline"> = {
     primary: "default",
@@ -444,7 +568,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
               <p className="text-[10px] md:text-[12px] font-bold tracking-[1.5px] md:tracking-[1.8px] uppercase text-muted-foreground mb-2 md:mb-3.5">
                 {data.choose_program_label ?? "Choose your program"}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 md:gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3 gap-1.5 md:gap-2">
                 {data.programs.map((prog, i) => {
                   const active = selectedProgramIdx === i;
                   const fid = `prog-${i}`;
@@ -465,6 +589,10 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                         setSelectedProgramIdx(i);
                         setSelectedDateIdx(0);
                         setSelectedPlanIdx(0);
+                        if (addonEnabled && program?.addon) {
+                          nav.navigate(addonOffUrl(program.addon));
+                        }
+                        setAddonEnabled(false);
                       }}
                     >
                       {active && (
@@ -472,13 +600,13 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                       )}
                       <div className="flex items-center justify-between gap-2 pr-5 sm:block sm:pr-4">
                         <span
-                          className="flex items-center gap-1.5 min-w-0 text-[14px] sm:text-[15px] font-extrabold sm:mb-1 transition-colors duration-200"
+                          className="flex items-center gap-1.5 min-w-0 text-[14px] sm:text-[15px] font-extrabold sm:mb-1 md:justify-center lg:justify-start transition-colors duration-200"
                           style={{ color: active ? "hsl(var(--primary))" : "hsl(var(--foreground))" }}
                         >
                           {ProgramIcon && <ProgramIcon size={16} className="shrink-0" />}
                           <span className="truncate">{prog.selection_card.name}</span>
                         </span>
-                        <span className="flex items-center gap-1 shrink-0 text-[12px] sm:text-[13px] text-muted-foreground sm:mt-0">
+                        <span className="flex items-center gap-1 shrink-0 text-[12px] sm:text-[13px] text-muted-foreground sm:mt-0 md:justify-center lg:justify-start">
                           {prog.selection_card.duration}
                           {programBadge && (
                             <DateBadgeItem text={programBadge} color="primary" />
@@ -502,6 +630,17 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                     setSelectedPlanIdx(i);
                   }}
                 />
+              )}
+
+              {/* MOBILE: addon toggle at the bottom of the program card (below plans if present) */}
+              {program.addon && (
+                <div className="md:hidden">
+                  <AddonToggleRow
+                    addon={program.addon}
+                    enabled={addonEnabled}
+                    onToggle={handleAddonToggle}
+                  />
+                </div>
               )}
             </div>
           ) : null}
@@ -551,9 +690,18 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
           )}
 
           {/* BENEFITS — desktop only */}
-          {activeBenefits.length > 0 && (
+          {(activeBenefits.length > 0 || program.addon) && (
             <div className={`${sectionClsLast} hidden md:block`}>
-              <BenefitsList benefits={activeBenefits} label={includedLabel} />
+              {activeBenefits.length > 0 && (
+                <BenefitsList benefits={activeBenefits} label={includedLabel} />
+              )}
+              {program.addon && (
+                <AddonToggleRow
+                  addon={program.addon}
+                  enabled={addonEnabled}
+                  onToggle={handleAddonToggle}
+                />
+              )}
             </div>
           )}
         </div>
@@ -623,6 +771,11 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                   if (row.show_dynamic_program && program) {
                     dynamicValue = program.selection_card.name;
                     accent = true;
+                  } else if (row.show_dynamic_addon && program?.addon) {
+                    dynamicValue = addonEnabled
+                      ? (program.addon.on?.summary_value ?? "")
+                      : (program.addon.off?.summary_value ?? "");
+                    accent = addonEnabled;
                   } else if (row.show_dynamic_date) {
                     if (isDateMode && displayDates.length > 0) {
                       const d = displayDates[selectedDateIdx];
@@ -633,7 +786,9 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                   }
 
                   const isDynamic = dynamicValue !== null;
-                  const value = dynamicValue ?? row.value ?? "";
+                  const baseValue =
+                    addonEnabled && row.value_with_addon ? row.value_with_addon : row.value;
+                  const value = dynamicValue ?? baseValue ?? "";
 
                   return (
                     <div
@@ -663,14 +818,24 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                 })}
               </div>
 
-              {/* MOBILE: benefits (replaces unlocks) */}
+              {/* MOBILE: benefits (replaces unlocks). Addon lives in the program card when it renders */}
               <div className="md:hidden">
-                {activeBenefits.length > 0 && (
+                {(activeBenefits.length > 0 || (program.addon && !programCardRendered)) && (
                   <div
                     className={summaryInsetCls}
                     style={{ background: "hsl(var(--muted-foreground) / 0.03)" }}
                   >
-                    <BenefitsList benefits={activeBenefits} label={includedLabel} compact />
+                    {activeBenefits.length > 0 && (
+                      <BenefitsList benefits={activeBenefits} label={includedLabel} compact />
+                    )}
+                    {program.addon && !programCardRendered && (
+                      <AddonToggleRow
+                        addon={program.addon}
+                        enabled={addonEnabled}
+                        compact
+                        onToggle={handleAddonToggle}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -696,7 +861,19 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                 data-testid="button-enrollment-cta"
                 asChild
               >
-                <a href={activeSummary.cta.url} onClick={nav} onMouseDown={nav.onMouseDown}>
+                <a
+                  href={activeSummary.cta.url}
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) {
+                      applySelectionParams();
+                    }
+                    nav(e);
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.button === 1) applySelectionParams();
+                    nav.onMouseDown(e);
+                  }}
+                >
                   {activeSummary.cta.text}
                   <IconChevronRight size={16} stroke={2.5} />
                 </a>
@@ -757,7 +934,7 @@ function PlanSelectorBlock({
       <p className="text-[10px] md:text-[12px] font-bold tracking-[1.5px] md:tracking-[1.8px] uppercase text-muted-foreground mb-2 md:mb-3.5">
         {label}
       </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3">
         {plans.map((p: EnrollmentPlan, i) => {
           const active = selectedPlanIdx === i;
           const fid = `plan-${i}`;
