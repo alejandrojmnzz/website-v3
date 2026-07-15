@@ -519,7 +519,16 @@ async function getBranchHeadSha(config: GitHubConfig): Promise<string | null> {
     });
     
     if (!response.ok) {
-      log.error({ err: response.status }, 'GitHub API error getting branch head:');
+      const hint =
+        response.status === 401
+          ? 'invalid or expired GITHUB_TOKEN'
+          : response.status === 404
+            ? 'repo or branch not found (or token lacks access)'
+            : 'see GitHub API status';
+      log.error(
+        { status: response.status, owner: config.owner, repo: config.repo, branch: config.branch, hint },
+        'GitHub API error getting branch head',
+      );
       return null;
     }
     
@@ -1102,7 +1111,7 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
 
       for (const filePath of staleFiles) {
         try {
-          const result = await pullSingleFile(filePath);
+          const result = await pullSingleFile(filePath, { repoUrl: opts?.repoUrl });
           if (result.success) {
             pulledCount++;
           } else {
@@ -1221,7 +1230,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
           continue;
         }
         try {
-          const result = await pullSingleFile(filePath);
+          const result = await pullSingleFile(filePath, { repoUrl: opts?.repoUrl });
           if (result.success) {
             pulled.push(filePath);
           } else {
@@ -1238,7 +1247,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
 
       for (const change of incomingOnly) {
         try {
-          const result = await pullSingleFile(change.file);
+          const result = await pullSingleFile(change.file, { repoUrl: opts?.repoUrl });
           if (result.success) {
             pulled.push(change.file);
           } else {
@@ -1606,14 +1615,17 @@ async function deleteWebhook(config: GitHubConfig, webhookId: number): Promise<v
 /**
  * Get file content from GitHub remote
  */
-export async function getRemoteFileContent(filePath: string): Promise<{ 
-  success: boolean; 
-  content?: string; 
+export async function getRemoteFileContent(
+  filePath: string,
+  opts?: { repoUrl?: string },
+): Promise<{
+  success: boolean;
+  content?: string;
   sha?: string;
   error?: string;
 }> {
-  const config = getGitHubConfig();
-  
+  const config = getGitHubConfig(opts?.repoUrl);
+
   if (!config) {
     return { success: false, error: "GitHub not configured" };
   }
@@ -1672,21 +1684,24 @@ export async function getRemoteFileContent(filePath: string): Promise<{
 /**
  * Pull a single file from remote to local
  */
-export async function pullSingleFile(filePath: string): Promise<{ 
-  success: boolean; 
+export async function pullSingleFile(
+  filePath: string,
+  opts?: { repoUrl?: string },
+): Promise<{
+  success: boolean;
   error?: string;
 }> {
-  const config = getGitHubConfig();
-  
+  const config = getGitHubConfig(opts?.repoUrl);
+
   if (!config) {
     return { success: false, error: "GitHub not configured" };
   }
-  
+
   // Get current remote commit SHA for tracking
   const remoteCommit = await getBranchHeadSha(config);
-  
+
   // Fetch file content from remote
-  const remoteResult = await getRemoteFileContent(filePath);
+  const remoteResult = await getRemoteFileContent(filePath, opts);
   
   // If file doesn't exist on remote, delete it locally (reset to remote state)
   if (remoteResult.error === "File not found on remote") {
@@ -1987,11 +2002,12 @@ async function pullWithRetry(
   filePath: string,
   maxRetries: number = 3,
   baseDelayMs: number = 1000,
+  opts?: { repoUrl?: string },
 ): Promise<{ success: boolean; error?: string }> {
   let lastError: string | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const result = await pullSingleFile(filePath);
+      const result = await pullSingleFile(filePath, opts);
       if (result.success) return result;
       lastError = result.error;
     } catch (e) {
@@ -2000,13 +2016,21 @@ async function pullWithRetry(
     if (attempt < maxRetries) {
       const delay = baseDelayMs * Math.pow(2, attempt - 1);
       log.warn(
-        { filePath, attempt, maxRetries, delayMs: delay },
+        { filePath, attempt, maxRetries, delayMs: delay, error: lastError },
         'Bootstrap: pullSingleFile failed, retrying after back-off...',
       );
       await new Promise<void>(r => setTimeout(r, delay));
     }
   }
   return { success: false, error: lastError };
+}
+
+function failBootstrapState(errors: string[]): void {
+  _bootstrapState.running = false;
+  _bootstrapState.errors = errors;
+  _bootstrapState.startedAt = _bootstrapState.startedAt ?? Date.now();
+  _bootstrapState.doneAt = Date.now();
+  _bootstrapState.success = false;
 }
 
 export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; contentRoot?: string }): Promise<{
@@ -2017,15 +2041,10 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
 }> {
   const { withSyncLogContextAsync } = await import('./sync-log');
   return withSyncLogContextAsync(opts?.contentRoot, async () => {
-  const config = getGitHubConfig(opts?.repoUrl);
-  if (!config) {
-    return { success: false, pulled: 0, errors: ['GitHub not configured (missing GITHUB_TOKEN or GITHUB_REPO_URL)'], commitSha: null };
-  }
-
   const { logSync } = await import('./sync-log');
-  logSync('AUTO-PULL', 'Bootstrap: starting full content pull from remote...');
 
-  // Reset and mark as running
+  // Mark as started immediately so /pull-all-status can surface progress or failures
+  // (including early exits for missing config / bad credentials).
   _bootstrapState.running = true;
   _bootstrapState.total = 0;
   _bootstrapState.pulled = 0;
@@ -2035,13 +2054,35 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
   _bootstrapState.success = null;
   _bootstrapState.commitSha = null;
 
+  try {
+  const config = getGitHubConfig(opts?.repoUrl);
+  if (!config) {
+    const msg =
+      'GitHub not configured (missing GITHUB_TOKEN or repo URL). ' +
+      'Set GITHUB_REPO_URL or pass the site github_repo_url from sites.yml.';
+    log.error(
+      { repoUrl: opts?.repoUrl || process.env.GITHUB_REPO_URL || null, hasToken: !!process.env.GITHUB_TOKEN },
+      `Bootstrap aborted: ${msg}`,
+    );
+    logSync('ERROR', `Bootstrap aborted: ${msg}`);
+    failBootstrapState([msg]);
+    return { success: false, pulled: 0, errors: [msg], commitSha: null };
+  }
+
+  logSync(
+    'AUTO-PULL',
+    `Bootstrap: starting full content pull from ${config.owner}/${config.repo}@${config.branch}...`,
+  );
+
   const headSha = await getBranchHeadSha(config);
   if (!headSha) {
-    _bootstrapState.running = false;
-    _bootstrapState.doneAt = Date.now();
-    _bootstrapState.success = false;
-    _bootstrapState.errors = ['Could not get remote branch HEAD SHA'];
-    return { success: false, pulled: 0, errors: _bootstrapState.errors, commitSha: null };
+    const msg =
+      `Could not get remote branch HEAD for ${config.owner}/${config.repo}@${config.branch}. ` +
+      'Check GITHUB_TOKEN (401 = invalid/expired or insufficient permissions) and that the branch exists.';
+    log.error({ owner: config.owner, repo: config.repo, branch: config.branch }, `Bootstrap failed: ${msg}`);
+    logSync('ERROR', `Bootstrap failed: ${msg}`);
+    failBootstrapState([msg]);
+    return { success: false, pulled: 0, errors: [msg], commitSha: null };
   }
 
   _bootstrapState.commitSha = headSha;
@@ -2066,8 +2107,9 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
   let pulled = 0;
   const errors: string[] = [];
 
+  const pullOpts = { repoUrl: opts?.repoUrl };
   for (const filePath of files) {
-    const result = await pullWithRetry(filePath);
+    const result = await pullWithRetry(filePath, 3, 1000, pullOpts);
     if (result.success) {
       pulled++;
       _bootstrapState.pulled = pulled;
@@ -2107,6 +2149,13 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
   _bootstrapState.success = errors.length === 0;
 
   return { success: errors.length === 0, pulled, errors, commitSha: headSha };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    log.error({ err: error }, 'Bootstrap: unexpected failure');
+    logSync('ERROR', `Bootstrap failed unexpectedly: ${msg}`);
+    failBootstrapState([`Bootstrap failed unexpectedly: ${msg}`]);
+    return { success: false, pulled: _bootstrapState.pulled, errors: _bootstrapState.errors, commitSha: null };
+  }
   });
 }
 

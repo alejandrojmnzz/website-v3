@@ -1028,8 +1028,9 @@ export function registerGithubRoutes(app: Express): void {
         res.status(400).json({ error: "Missing filePath" });
         return;
       }
+      const site = res.locals.site as { config?: { githubRepoUrl?: string } } | undefined;
       const { pullSingleFile } = await import("../github");
-      const result = await pullSingleFile(filePath);
+      const result = await pullSingleFile(filePath, { repoUrl: site?.config?.githubRepoUrl });
 
       if (result.success) {
         res.json({ success: true });
@@ -1134,10 +1135,14 @@ export function registerGithubRoutes(app: Express): void {
   });
 
   // Trigger a full bootstrap pull from the content repo (re-downloads all files)
-  app.post("/api/github/content/bootstrap", async (_req, res) => {
+  app.post("/api/github/content/bootstrap", async (req, res) => {
     try {
+      const site = res.locals.site as { contentRoot?: string; contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
       const { bootstrapContentFromRemote } = await import("../github");
-      const result = await bootstrapContentFromRemote();
+      const result = await bootstrapContentFromRemote({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName ?? site?.contentRoot,
+      });
       if (result.success) {
         res.json({ success: true, pulled: result.pulled, errors: result.errors, commitSha: result.commitSha });
       } else {
@@ -1192,17 +1197,54 @@ export function registerGithubRoutes(app: Express): void {
 
   // Pull all remote content files to local (force-overwrite).
   // Returns immediately with { ok: true } — poll /api/github/pull-all-status for progress.
+  // Config errors fail fast (400) so the UI does not enter a progress/polling loop.
   app.post("/api/github/content/pull-all", async (_req, res) => {
-    const { getBootstrapState } = await import("../github");
+    const site = res.locals.site as { contentRoot?: string; contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+    const { getBootstrapState, getGitHubConfig } = await import("../github");
     if (getBootstrapState().running) {
       return res.json({ ok: true, alreadyRunning: true });
     }
+
+    const repoUrl = site?.config?.githubRepoUrl;
+    const contentRoot = site?.contentRootName ?? site?.contentRoot;
+    const config = getGitHubConfig(repoUrl);
+    if (!config) {
+      const error =
+        "GitHub not configured (missing GITHUB_TOKEN or repo URL). " +
+        "Set GITHUB_REPO_URL or github_repo_url on the site in sites.yml.";
+      log.error(
+        { repoUrl: repoUrl || process.env.GITHUB_REPO_URL || null, hasToken: !!process.env.GITHUB_TOKEN },
+        `Force pull-all rejected: ${error}`,
+      );
+      return res.status(400).json({ ok: false, error });
+    }
+
+    log.info(
+      {
+        repoUrl: repoUrl || process.env.GITHUB_REPO_URL || null,
+        contentRoot: contentRoot || null,
+        owner: config.owner,
+        repo: config.repo,
+      },
+      "Starting force pull-all from GitHub",
+    );
 
     // Fire-and-forget
     (async () => {
       try {
         const { bootstrapContentFromRemote } = await import("../github");
-        await bootstrapContentFromRemote();
+        const result = await bootstrapContentFromRemote({ repoUrl, contentRoot });
+        if (!result.success) {
+          log.error(
+            { errors: result.errors, repoUrl: repoUrl || null, contentRoot: contentRoot || null },
+            "Force pull-all finished with errors",
+          );
+        } else {
+          log.info(
+            { pulled: result.pulled, commitSha: result.commitSha },
+            "Force pull-all completed successfully",
+          );
+        }
       } catch (error) {
         log.error({ err: error }, "Error running pull-all:");
       }

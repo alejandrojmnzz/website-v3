@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { openSyncModal } from "@/components/SyncConflictBanner";
+import { useToast } from "@/hooks/use-toast";
 
 const CATEGORIES = [
   "RESTART",
@@ -164,6 +165,7 @@ function extractPath(url: string): string {
 }
 
 export default function SyncLogPage() {
+  const { toast } = useToast();
   const initialSearch = useRef(
     new URLSearchParams(window.location.search).get("search") || ""
   );
@@ -241,12 +243,37 @@ export default function SyncLogPage() {
 
   const [forcePullOpen, setForcePullOpen] = useState(false);
   const [pullStarted, setPullStarted] = useState(false);
+  const pullToastShown = useRef(false);
+  const pullStartAt = useRef<number | null>(null);
+  const pullStartedRef = useRef(false);
+  pullStartedRef.current = pullStarted;
 
   const startPullMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/github/content/pull-all").then(r => r.json()),
     onSuccess: () => {
+      pullToastShown.current = false;
+      pullStartAt.current = Date.now();
       setPullStarted(true);
       qc.invalidateQueries({ queryKey: ["/api/github/pull-all-status"] });
+    },
+    onError: (err: Error) => {
+      // apiRequest throws `${status}: ${body}` — prefer JSON.error when present
+      let description = err.message || "Request failed";
+      const colon = description.indexOf(": ");
+      if (colon >= 0) {
+        const body = description.slice(colon + 2);
+        try {
+          const parsed = JSON.parse(body) as { error?: string };
+          if (parsed?.error) description = parsed.error;
+        } catch {
+          // keep raw message
+        }
+      }
+      toast({
+        title: "Force pull failed to start",
+        description,
+        variant: "destructive",
+      });
     },
   });
 
@@ -270,12 +297,56 @@ export default function SyncLogPage() {
     },
     refetchInterval: (query) => {
       const d = query.state.data;
-      if (!d) return 800;
-      if (d.running) return 800;
+      if (d?.running) return 800;
+      if (d && d.doneAt != null) return false;
+      // After Start Pull, wait briefly for status; stop if it never appears
+      if (!d && pullStartedRef.current) {
+        const elapsed = pullStartAt.current ? Date.now() - pullStartAt.current : 0;
+        if (elapsed > 15000) return false;
+        return 800;
+      }
+      // Dialog open before start: light poll in case a pull is already running
+      if (!d) return 2000;
       return false;
     },
     staleTime: 0,
   });
+
+  useEffect(() => {
+    if (!pullStarted || !pullStatus || pullStatus.running || pullStatus.doneAt == null) return;
+    if (pullToastShown.current) return;
+    pullToastShown.current = true;
+
+    const errorCount = pullStatus.errors?.length ?? 0;
+    if (pullStatus.success === false || errorCount > 0) {
+      toast({
+        title: "Force pull failed",
+        description: pullStatus.errors?.[0] || "Pull completed with errors — see the dialog for details.",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Force pull complete",
+        description: `Downloaded ${pullStatus.pulled} file${pullStatus.pulled === 1 ? "" : "s"} from GitHub.`,
+      });
+    }
+    qc.invalidateQueries({ queryKey: ["/api/github/sync-log"] });
+    qc.invalidateQueries({ queryKey: ["/api/github/sync-info"] });
+  }, [pullStatus, pullStarted, toast, qc]);
+
+  useEffect(() => {
+    if (!pullStarted || pullStatus != null) return;
+    const timer = window.setTimeout(() => {
+      if (pullToastShown.current) return;
+      pullToastShown.current = true;
+      toast({
+        title: "Force pull status unavailable",
+        description: "No pull progress was reported. Check the server terminal for errors.",
+        variant: "destructive",
+      });
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [pullStarted, pullStatus, toast]);
 
   const {
     data: logData,
