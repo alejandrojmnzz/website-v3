@@ -1055,10 +1055,9 @@ export async function syncWithRemote(): Promise<{ success: boolean; error?: stri
 }
 
 /**
- * Reconcile sync state on startup by comparing local file hashes against remote blob SHAs.
- * If local files already match the remote (e.g., after a deploy where files were pulled in dev),
- * silently updates the sync state instead of showing false "incoming" changes.
- * Uses only 2 API calls: HEAD SHA + compare (no per-file fetches).
+ * Reconcile sync state on startup using the same classification as the Sync Modal
+ * (`getAllSyncChanges`). Does not overwrite local edits; downloads are left to
+ * `autoPullNonConflicting`.
  */
 export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
   const { withSyncLogContextAsync } = await import("./sync-log");
@@ -1070,7 +1069,7 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
   refreshGithubCommit();
 
   try {
-    const { getLastSyncedCommit } = await import("./sync-state");
+    const { getLastSyncedCommit, rebuildSyncStateFromLocal } = await import("./sync-state");
     const lastSyncedCommit = getLastSyncedCommit(opts?.contentRoot);
     const remoteCommit = await getBranchHeadSha(config);
 
@@ -1078,112 +1077,36 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
       return;
     }
 
-    const { shouldTrackFile, computeGitBlobSha, computeFileSha, updateFileAfterPull, loadSyncState } = await import("./sync-state");
-
     if (lastSyncedCommit === remoteCommit) {
-      const state = loadSyncState(opts?.contentRoot);
-      const staleFiles: string[] = [];
-
-      for (const [filePath, fileInfo] of Object.entries(state.files)) {
-        if (!shouldTrackFile(filePath, undefined, opts?.contentRoot) || !fileInfo.remoteSha) continue;
-
-        const fullPath = path.join(process.cwd(), filePath);
-        if (!fs.existsSync(fullPath)) {
-          staleFiles.push(filePath);
-          continue;
-        }
-
-        const localContent = fs.readFileSync(fullPath, 'utf-8');
-        const localSha = computeFileSha(localContent);
-        if (localSha !== fileInfo.remoteSha) {
-          staleFiles.push(filePath);
-        }
-      }
-
-      if (staleFiles.length === 0) {
-        logSync('RECONCILE', `Already in sync at ${lastSyncedCommit.slice(0, 7)}`);
-        return;
-      }
-
-      logSync('RECONCILE', `Commits match at ${remoteCommit.slice(0, 7)} but ${staleFiles.length} local file(s) are stale (deploy snapshot), pulling from GitHub...`);
-      let pulledCount = 0;
-      const pullErrors: string[] = [];
-
-      for (const filePath of staleFiles) {
-        try {
-          const result = await pullSingleFile(filePath, { repoUrl: opts?.repoUrl });
-          if (result.success) {
-            pulledCount++;
-          } else {
-            pullErrors.push(`${filePath}: ${result.error}`);
-          }
-        } catch (e) {
-          pullErrors.push(`${filePath}: ${e instanceof Error ? e.message : 'Unknown error'}`);
-        }
-      }
-
-      const { rebuildSyncStateFromLocal } = await import("./sync-state");
-      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
-
-      if (pulledCount > 0) {
-        const _cfRec = opts?.contentRoot
-          ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
-          : getDefaultContentFolder();
-        logSync('RECONCILE', `Pulled ${pulledCount} stale file(s) from GitHub: ${staleFiles.slice(0, 5).map(f => f.replace(`${_cfRec}/`, '')).join(', ')}${staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : ''}`);
-      }
-      if (pullErrors.length > 0) {
-        logSync('ERROR', `Failed to pull ${pullErrors.length} stale file(s): ${pullErrors.join('; ')}`);
-      }
+      // Local hash diffs are pending Sync Modal changes — do not re-pull/overwrite.
+      logSync('RECONCILE', `Already in sync at ${lastSyncedCommit.slice(0, 7)}`);
       return;
     }
 
-    logSync('RECONCILE', `Local ${lastSyncedCommit.slice(0, 7)} ≠ remote ${remoteCommit.slice(0, 7)}, checking file hashes...`);
+    const contentFolder = opts?.contentRoot
+      ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
+      : getDefaultContentFolder();
 
-    const conflictInfo = await getConflictInfo();
+    logSync(
+      'RECONCILE',
+      `Local ${lastSyncedCommit.slice(0, 7)} ≠ remote ${remoteCommit.slice(0, 7)}, classifying with Sync Modal rules...`,
+    );
 
-    const trackedFiles = conflictInfo.changedFiles.filter(f => shouldTrackFile(f, undefined, opts?.contentRoot));
-    if (trackedFiles.length === 0) {
-      const { rebuildSyncStateFromLocal } = await import("./sync-state");
+    const changes = await getAllSyncChanges(contentFolder, { repoUrl: opts?.repoUrl });
+    const pendingRemote = changes.filter(c => c.source === 'incoming' || c.source === 'conflict');
+
+    if (pendingRemote.length === 0) {
+      // Remote moved but nothing tracked/pending remains — just advance baseline.
+      // Incoming downloads (if any appear later) are handled by autoPullNonConflicting.
       rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
-      logSync('RECONCILE', `No tracked files changed, updated to ${remoteCommit.slice(0, 7)}`);
+      logSync('RECONCILE', `No incoming/conflict files; updated to ${remoteCommit.slice(0, 7)}`);
       return;
     }
 
-    let allReconciled = true;
-    let reconciledCount = 0;
-
-    for (const filePath of trackedFiles) {
-      const remoteBlobSha = conflictInfo.fileBlobShas[filePath];
-      if (!remoteBlobSha) {
-        allReconciled = false;
-        continue;
-      }
-
-      const fullPath = path.join(process.cwd(), filePath);
-      if (!fs.existsSync(fullPath)) {
-        allReconciled = false;
-        continue;
-      }
-
-      const localContent = fs.readFileSync(fullPath, 'utf-8');
-      const localBlobSha = computeGitBlobSha(localContent);
-
-      if (localBlobSha === remoteBlobSha) {
-        const fileCommitDate = await getFileCommitDate(config, filePath);
-        updateFileAfterPull(filePath, remoteCommit, fileCommitDate || undefined);
-        reconciledCount++;
-      } else {
-        allReconciled = false;
-      }
-    }
-
-    if (allReconciled) {
-      const { rebuildSyncStateFromLocal } = await import("./sync-state");
-      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
-      logSync('RECONCILE', `All ${reconciledCount} files match remote, updated to ${remoteCommit.slice(0, 7)}`);
-    } else {
-      logSync('RECONCILE', `${reconciledCount}/${trackedFiles.length} files match remote, ${trackedFiles.length - reconciledCount} still differ`);
-    }
+    logSync(
+      'RECONCILE',
+      `${pendingRemote.filter(c => c.source === 'incoming').length} incoming, ${pendingRemote.filter(c => c.source === 'conflict').length} conflict(s) — deferring pull to auto-pull`,
+    );
   } catch (error) {
     logSync('ERROR', `Reconciliation error: ${error instanceof Error ? error.message : String(error)}`);
     log.error({ err: error }, '[SyncReconcile] Error during reconciliation:');
@@ -1241,7 +1164,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
         }
       }
     } else {
-      const allChanges = await getAllSyncChanges(contentFolder);
+      const allChanges = await getAllSyncChanges(contentFolder, { repoUrl: opts?.repoUrl });
       const incomingOnly = allChanges.filter(c => c.source === 'incoming');
       if (incomingOnly.length === 0) return { pulled, conflicted, errors };
 
@@ -1262,7 +1185,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
       conflicted.push(...conflictChanges.map(c => c.file));
     }
 
-    if (pulled.length > 0 && conflicted.length === 0) {
+    if (pulled.length > 0 && conflicted.length === 0 && errors.length === 0) {
       const { rebuildSyncStateFromLocal } = await import("./sync-state");
       const commitSha = remoteCommitSha || await getBranchHeadSha(config);
       if (commitSha) {
