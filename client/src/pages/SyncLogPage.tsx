@@ -33,6 +33,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { openSyncModal } from "@/components/SyncConflictBanner";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 const CATEGORIES = [
   "RESTART",
@@ -150,6 +151,14 @@ function getCategoryBadgeVariant(cat: string): "default" | "secondary" | "destru
   }
 }
 
+/** Strip the site content-folder prefix for shorter paths in the pull result list. */
+function shortenPullPath(filePath: string, contentFolder?: string | null): string {
+  if (contentFolder && filePath.startsWith(`${contentFolder}/`)) {
+    return filePath.slice(contentFolder.length + 1);
+  }
+  return filePath;
+}
+
 interface SitemapEntry {
   loc: string;
   label: string;
@@ -248,6 +257,7 @@ export default function SyncLogPage() {
 
   const [forcePullOpen, setForcePullOpen] = useState(false);
   const [pullStarted, setPullStarted] = useState(false);
+  const [pullResultTab, setPullResultTab] = useState<"downloaded" | "skipped" | "errors">("downloaded");
   const pullToastShown = useRef(false);
   const pullStartAt = useRef<number | null>(null);
   const pullStartedRef = useRef(false);
@@ -260,6 +270,7 @@ export default function SyncLogPage() {
       pullToastShown.current = false;
       pullStartAt.current = Date.now();
       setPullStarted(true);
+      setPullResultTab("downloaded");
       qc.invalidateQueries({ queryKey: ["/api/github/pull-all-status"] });
     },
     onError: (err: Error) => {
@@ -304,6 +315,8 @@ export default function SyncLogPage() {
     pulled: number;
     skipped: number;
     errors: string[];
+    pulledFiles?: string[];
+    skippedFiles?: string[];
     startedAt: number | null;
     doneAt: number | null;
     success: boolean | null;
@@ -850,45 +863,112 @@ export default function SyncLogPage() {
           );
         })()}
 
-        {/* Completion stat grid */}
-        {pullStatus?.doneAt != null && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
-                <IconCloudDownload size={16} className="text-primary shrink-0" />
-                <div>
-                  <p className="font-medium">{pullStatus.pulled}</p>
-                  <p className="text-xs text-muted-foreground">Downloaded</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
-                <IconMinus size={16} className="text-muted-foreground shrink-0" />
-                <div>
-                  <p className="font-medium">{pullStatus.skipped ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">Skipped</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50 col-span-2">
-                <IconAlertTriangle size={16} className={(pullStatus.errors?.length ?? 0) > 0 ? "text-destructive shrink-0" : "text-muted-foreground shrink-0"} />
-                <div>
-                  <p className={`font-medium ${(pullStatus.errors?.length ?? 0) > 0 ? "text-destructive" : ""}`}>{pullStatus.errors?.length ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">Errors</p>
-                </div>
-              </div>
-            </div>
+        {/* Result KPIs + file list (completion or cancelled) */}
+        {pullStatus?.doneAt != null && (() => {
+          const downloaded = pullStatus.pulledFiles ?? [];
+          const skipped = pullStatus.skippedFiles ?? [];
+          const errors = pullStatus.errors ?? [];
+          const folder = siteInfo?.contentFolder;
+          const tabs = [
+            {
+              id: "downloaded" as const,
+              label: "Downloaded",
+              count: pullStatus.pulled ?? downloaded.length,
+              icon: IconCloudDownload,
+              activeClass: "border-primary bg-primary/10 text-primary",
+              countClass: "",
+            },
+            {
+              id: "skipped" as const,
+              label: "Skipped",
+              count: pullStatus.skipped ?? skipped.length,
+              icon: IconMinus,
+              activeClass: "border-muted-foreground/40 bg-muted text-foreground",
+              countClass: "",
+            },
+            {
+              id: "errors" as const,
+              label: "Errors",
+              count: errors.length,
+              icon: IconAlertTriangle,
+              activeClass: "border-destructive bg-destructive/10 text-destructive",
+              countClass: errors.length > 0 ? "text-destructive" : "",
+            },
+          ];
+          const activeList =
+            pullResultTab === "downloaded"
+              ? downloaded.map((p) => shortenPullPath(p, folder))
+              : pullResultTab === "skipped"
+                ? skipped.map((p) => shortenPullPath(p, folder))
+                : errors.map((e) => {
+                    const colon = e.indexOf(": ");
+                    if (colon > 0) {
+                      const pathPart = e.slice(0, colon);
+                      const msg = e.slice(colon + 2);
+                      return `${shortenPullPath(pathPart, folder)}: ${msg}`;
+                    }
+                    return e;
+                  });
+          const emptyLabel =
+            pullResultTab === "downloaded"
+              ? "No files downloaded"
+              : pullResultTab === "skipped"
+                ? "No files skipped"
+                : "No errors";
 
-            {(pullStatus.errors?.length ?? 0) > 0 && (
-              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2.5 space-y-1 max-h-28 overflow-y-auto">
-                {(pullStatus.errors ?? []).slice(0, 5).map((e, i) => (
-                  <p key={i} className="text-xs font-mono text-destructive break-all">{e}</p>
-                ))}
-                {(pullStatus.errors?.length ?? 0) > 5 && (
-                  <p className="text-xs text-muted-foreground">…and {(pullStatus.errors?.length ?? 0) - 5} more</p>
-                )}
+          return (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Pull result categories">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const selected = pullResultTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setPullResultTab(tab.id)}
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-0.5 rounded-md border p-2.5 text-center transition-colors hover-elevate",
+                        selected
+                          ? tab.activeClass
+                          : "border-transparent bg-muted/50 text-muted-foreground",
+                      )}
+                      data-testid={`pull-result-tab-${tab.id}`}
+                    >
+                      <Icon size={16} className="shrink-0" />
+                      <span className={cn("text-base font-medium tabular-nums leading-none", selected ? tab.countClass : "")}>
+                        {tab.count}
+                      </span>
+                      <span className="text-[10px] leading-tight">{tab.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
-          </div>
-        )}
+
+              <ScrollArea className="h-40 rounded-md border bg-muted/30">
+                <div className="p-2.5 space-y-1" role="tabpanel" data-testid={`pull-result-list-${pullResultTab}`}>
+                  {activeList.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-6 text-center">{emptyLabel}</p>
+                  ) : (
+                    activeList.map((line, i) => (
+                      <p
+                        key={`${pullResultTab}-${i}`}
+                        className={cn(
+                          "text-xs font-mono break-all leading-snug",
+                          pullResultTab === "errors" ? "text-destructive" : "text-foreground",
+                        )}
+                      >
+                        {line}
+                      </p>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          );
+        })()}
 
         <DialogFooter className="gap-2 sm:gap-0 flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end">
           {pullStatus?.running ? (

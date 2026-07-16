@@ -888,7 +888,7 @@ export function DebugBubble() {
       const res = await fetch('/api/github/commit', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: commitMessage, files }),
+        body: JSON.stringify({ message: commitMessage, files, force: true }),
       });
       const data = await res.json();
       if (data.success) {

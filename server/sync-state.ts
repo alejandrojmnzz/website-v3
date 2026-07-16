@@ -594,9 +594,22 @@ export function initializeSyncStateFromRemote(
   saveSyncState(state, contentRoot);
 }
 
-export function rebuildSyncStateFromLocal(commitSha: string, contentRoot?: string): void {
+/**
+ * Rebuild sync state from on-disk files and advance lastSyncedCommit.
+ *
+ * @param opts.syncedRemotePaths - When provided (e.g. from a GitHub tree fetch during
+ *   bootstrap), only those paths are marked as matching remote (`remoteSha = local sha`).
+ *   Local-only paths get no remoteSha so they appear as "added" in the Commit Queue.
+ *   When omitted, never invent remoteSha = sha; only preserve an existing remoteSha.
+ */
+export function rebuildSyncStateFromLocal(
+  commitSha: string,
+  contentRoot?: string,
+  opts?: { syncedRemotePaths?: Iterable<string> },
+): void {
   const currentFiles = getAllContentFiles(contentRoot);
   const existingState = loadSyncState(contentRoot) as SyncStateWithConfig;
+  const remoteSet = opts?.syncedRemotePaths ? new Set(opts.syncedRemotePaths) : null;
   const state: SyncStateWithConfig = {
     config: existingState.config || DEFAULT_CONFIG,
     ...(existingState.webhook ? { webhook: existingState.webhook } : {}),
@@ -617,14 +630,34 @@ export function rebuildSyncStateFromLocal(commitSha: string, contentRoot?: strin
       const stats = fs.statSync(fullPath);
 
       const existing = existingState.files[filePath];
-      const hadLocalChanges = existing && existing.remoteSha && existing.sha !== existing.remoteSha;
+      const hadLocalChanges = !!(existing?.remoteSha && existing.sha !== existing.remoteSha);
+
+      let remoteSha: string | undefined;
+      if (remoteSet) {
+        if (remoteSet.has(filePath)) {
+          // Confirmed on remote at this commit — local baseline matches unless still dirty.
+          remoteSha = hadLocalChanges ? existing!.remoteSha : sha;
+        } else {
+          // Local-only — never claim it exists on GitHub.
+          remoteSha = undefined;
+        }
+      } else if (hadLocalChanges) {
+        remoteSha = existing!.remoteSha;
+      } else if (existing?.remoteSha) {
+        // Preserve last known remote sha; do NOT invent remoteSha = sha.
+        remoteSha = existing.remoteSha;
+      } else {
+        remoteSha = undefined;
+      }
+
+      const keepLocalMeta = hadLocalChanges || remoteSha === undefined;
 
       state.files[filePath] = {
         sha,
         lastModified: stats.mtimeMs,
-        remoteSha: hadLocalChanges ? existing.remoteSha : sha,
-        ...(hadLocalChanges && existing.author ? { author: existing.author } : {}),
-        ...(hadLocalChanges && existing.modifiedAt ? { modifiedAt: existing.modifiedAt } : {}),
+        ...(remoteSha !== undefined ? { remoteSha } : {}),
+        ...(keepLocalMeta && existing?.author ? { author: existing.author } : {}),
+        ...(keepLocalMeta && existing?.modifiedAt ? { modifiedAt: existing.modifiedAt } : {}),
         // Always preserve committedAt and pulledFromCommit — these represent real GitHub
         // timestamps and must survive reconcile/rebuild cycles so sitemap lastmod stays accurate.
         ...(existing?.committedAt ? { committedAt: existing.committedAt } : {}),

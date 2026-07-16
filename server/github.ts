@@ -2020,6 +2020,10 @@ export interface BootstrapState {
   pulled: number;
   skipped: number;
   errors: string[];
+  /** Paths successfully downloaded this run */
+  pulledFiles: string[];
+  /** Paths skipped because local hash matched remote */
+  skippedFiles: string[];
   startedAt: number | null;
   doneAt: number | null;
   success: boolean | null;
@@ -2034,6 +2038,8 @@ function emptyBootstrapState(): BootstrapState {
     pulled: 0,
     skipped: 0,
     errors: [],
+    pulledFiles: [],
+    skippedFiles: [],
     startedAt: null,
     doneAt: null,
     success: null,
@@ -2064,7 +2070,13 @@ function getOrCreateBootstrapState(contentRoot?: string): BootstrapState {
 }
 
 export function getBootstrapState(contentRoot?: string): Readonly<BootstrapState> {
-  return { ...getOrCreateBootstrapState(contentRoot) };
+  const state = getOrCreateBootstrapState(contentRoot);
+  return {
+    ...state,
+    errors: [...state.errors],
+    pulledFiles: [...state.pulledFiles],
+    skippedFiles: [...state.skippedFiles],
+  };
 }
 
 /**
@@ -2179,6 +2191,8 @@ export async function bootstrapContentFromRemote(opts?: {
   state.pulled = 0;
   state.skipped = 0;
   state.errors = [];
+  state.pulledFiles = [];
+  state.skippedFiles = [];
   state.startedAt = Date.now();
   state.doneAt = null;
   state.success = null;
@@ -2251,6 +2265,8 @@ export async function bootstrapContentFromRemote(opts?: {
   let pulled = 0;
   let skipped = 0;
   const errors: string[] = [];
+  const pulledFiles: string[] = [];
+  const skippedFiles: string[] = [];
   let wasCancelled = false;
 
   const pullOpts = { repoUrl: opts?.repoUrl, contentRoot: opts?.contentRoot };
@@ -2267,7 +2283,9 @@ export async function bootstrapContentFromRemote(opts?: {
           const content = fs.readFileSync(fullPath);
           if (computeGitBlobSha(content) === remoteSha) {
             skipped++;
+            skippedFiles.push(filePath);
             state.skipped = skipped;
+            state.skippedFiles = [...skippedFiles];
             continue;
           }
         } catch {
@@ -2279,7 +2297,9 @@ export async function bootstrapContentFromRemote(opts?: {
     const result = await pullWithRetry(filePath, 3, 1000, pullOpts);
     if (result.success) {
       pulled++;
+      pulledFiles.push(filePath);
       state.pulled = pulled;
+      state.pulledFiles = [...pulledFiles];
     } else {
       const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
       errors.push(errMsg);
@@ -2315,7 +2335,9 @@ export async function bootstrapContentFromRemote(opts?: {
   // (or the next reconcile/auto-pull run) can detect and recover the missing files.
   if (errors.length === 0) {
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
-    rebuildSyncStateFromLocal(headSha, opts?.contentRoot);
+    rebuildSyncStateFromLocal(headSha, opts?.contentRoot, {
+      syncedRemotePaths: remoteEntries.map((e) => e.path),
+    });
     writeBootstrapCompleteFlag(opts?.contentRoot);
     logSync(
       'AUTO-PULL',
@@ -2769,7 +2791,9 @@ export async function seedNewSiteToGitHub(opts: {
   }
 
   const { rebuildSyncStateFromLocal } = await import('./sync-state');
-  rebuildSyncStateFromLocal(pushResult.commitSha, opts.contentRoot);
+  rebuildSyncStateFromLocal(pushResult.commitSha, opts.contentRoot, {
+    syncedRemotePaths: pushResult.committed,
+  });
   writeBootstrapCompleteFlag(opts.contentRoot);
   await ensureWebhook({ repoUrl: opts.repoUrl, contentRoot: opts.contentRoot });
 
