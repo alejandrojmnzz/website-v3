@@ -624,6 +624,10 @@ export async function commitAndPush(
     }
     
     updateSyncStateAfterCommit(newCommitSha, committedFiles, options?.contentRoot);
+
+    // So the GitHub webhook skips auto-pull for this self-push (same as auto-commit).
+    const { recordLastCommitSha } = await import("./auto-commit");
+    recordLastCommitSha(newCommitSha);
     
     log.info(`Committed and pushed to GitHub via API: ${newCommitSha}`);
     return { success: true, commitHash: newCommitSha };
@@ -1917,6 +1921,11 @@ export async function commitSingleFile(options: {
     const { updateFileAfterCommit } = await import("./sync-state");
     updateFileAfterCommit(options.filePath, commitSha || '');
 
+    if (commitSha) {
+      const { recordLastCommitSha } = await import("./auto-commit");
+      recordLastCommitSha(commitSha);
+    }
+
     const { logSync, refreshGithubCommit } = await import("./sync-log");
     const { getSiteConfigs } = await import("./site-config");
     const matchedSite = getSiteConfigs().find((site) => {
@@ -2721,6 +2730,8 @@ export async function pushAllContentToRemote(opts?: {
   }
 
   const committed = changedEntries.map(e => e.path);
+  const { recordLastCommitSha } = await import("./auto-commit");
+  recordLastCommitSha(newCommitSha);
   logSync(
     'AUTO-PULL',
     `Push-all: commit ${newCommitSha.slice(0, 7)} — ${committed.length} synced, ${skipped.length} skipped, ${errors.length} errors`
