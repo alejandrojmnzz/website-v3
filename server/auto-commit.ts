@@ -362,8 +362,7 @@ async function commitBatch(config: GitHubConfig, author: string, files: string[]
   const result = await commitFilesViaTreeAPI(config, message, existingFiles, deletedFiles);
 
   if (result.success && result.commitSha) {
-    lastCommitAt = new Date().toISOString();
-    lastCommitSha = result.commitSha;
+    recordLastCommitSha(result.commitSha);
     updateSyncStateAfterCommit(result.commitSha, files);
     log.info(`[AutoCommit] Committed ${files.length} file(s) by ${author}: ${result.commitSha.substring(0, 7)}`);
     const { logSync, refreshGithubCommit } = await import("./sync-log");
@@ -403,8 +402,7 @@ async function retryIndividualFiles(
     const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message);
 
     if (result.success && result.commitSha) {
-      lastCommitAt = new Date().toISOString();
-      lastCommitSha = result.commitSha;
+      recordLastCommitSha(result.commitSha);
       updateSyncStateAfterCommit(result.commitSha, [file.path]);
       log.info(`[AutoCommit] Individual commit succeeded: ${fileName}`);
     } else {
@@ -654,6 +652,17 @@ export function clearConflict(filePath: string): boolean {
 
 export function clearAllConflicts(): void {
   conflictedFiles.clear();
+}
+
+/**
+ * Record a commit SHA pushed by this instance so the GitHub webhook can skip
+ * auto-pull for self-pushes. Auto-commit already sets this; manual commit/push
+ * paths must call it too.
+ */
+export function recordLastCommitSha(commitSha: string): void {
+  if (!commitSha) return;
+  lastCommitSha = commitSha;
+  lastCommitAt = new Date().toISOString();
 }
 
 /**
