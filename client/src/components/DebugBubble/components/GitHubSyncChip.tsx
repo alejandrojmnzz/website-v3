@@ -1,7 +1,6 @@
 import { AlertTriangle, Check, CloudDownload, Github, RefreshCw } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { SyncStatusPopover } from "./SyncStatusPopover";
 import type { GitHubSyncStatus } from "../types";
 
 export interface GitHubSyncChipProps {
@@ -107,7 +106,13 @@ export function GitHubSyncChip({
         )}
       </button>
       <div className="flex items-center gap-0.5 shrink-0">
-        <SyncStatusPopover>
+        <button
+          type="button"
+          onClick={() => navigate("/private/repository-sync")}
+          className="flex items-center gap-1 cursor-pointer"
+          title="Open repository sync"
+          data-testid="button-sync-status-popover"
+        >
           {syncStatusLoading ? (
             <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
           ) : githubSyncStatus ? (
@@ -119,7 +124,7 @@ export function GitHubSyncChip({
           ) : (
             <span className="text-[10px] text-muted-foreground">--</span>
           )}
-        </SyncStatusPopover>
+        </button>
         <button
           onClick={refreshSyncStatus}
           disabled={syncStatusLoading}

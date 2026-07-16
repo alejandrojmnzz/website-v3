@@ -186,6 +186,11 @@ export default function SyncLogPage() {
     },
   });
 
+  const { data: siteInfo } = useQuery<{ domain: string; contentFolder: string }>({
+    queryKey: ["/api/site/info"],
+  });
+  const siteLabel = siteInfo?.domain || siteInfo?.contentFolder || null;
+
   const initialFillDone = useRef(false);
 
   useEffect(() => {
@@ -249,7 +254,8 @@ export default function SyncLogPage() {
   pullStartedRef.current = pullStarted;
 
   const startPullMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/github/content/pull-all").then(r => r.json()),
+    mutationFn: (force: boolean) =>
+      apiRequest("POST", "/api/github/content/pull-all", { force }).then((r) => r.json()),
     onSuccess: () => {
       pullToastShown.current = false;
       pullStartAt.current = Date.now();
@@ -270,8 +276,23 @@ export default function SyncLogPage() {
         }
       }
       toast({
-        title: "Force pull failed to start",
+        title: "Pull failed to start",
         description,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const cancelPullMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/github/content/pull-all/cancel").then((r) => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/github/pull-all-status"] });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could not cancel pull",
+        description: err.message || "Request failed",
         variant: "destructive",
       });
     },
@@ -281,11 +302,13 @@ export default function SyncLogPage() {
     running: boolean;
     total: number;
     pulled: number;
+    skipped: number;
     errors: string[];
     startedAt: number | null;
     doneAt: number | null;
     success: boolean | null;
     commitSha: string | null;
+    cancelled: boolean;
   } | null>({
     queryKey: ["/api/github/pull-all-status"],
     enabled: forcePullOpen || pullStarted,
@@ -318,16 +341,25 @@ export default function SyncLogPage() {
     pullToastShown.current = true;
 
     const errorCount = pullStatus.errors?.length ?? 0;
-    if (pullStatus.success === false || errorCount > 0) {
+    if (pullStatus.cancelled) {
       toast({
-        title: "Force pull failed",
+        title: "Pull cancelled",
+        description: "Already downloaded files are kept. Use Pull only changed to resume.",
+      });
+    } else if (pullStatus.success === false || errorCount > 0) {
+      toast({
+        title: "Pull failed",
         description: pullStatus.errors?.[0] || "Pull completed with errors — see the dialog for details.",
         variant: "destructive",
       });
     } else {
+      const skipped = pullStatus.skipped ?? 0;
       toast({
-        title: "Force pull complete",
-        description: `Downloaded ${pullStatus.pulled} file${pullStatus.pulled === 1 ? "" : "s"} from GitHub.`,
+        title: "Pull complete",
+        description:
+          skipped > 0
+            ? `Downloaded ${pullStatus.pulled}, skipped ${skipped} unchanged.`
+            : `Downloaded ${pullStatus.pulled} file${pullStatus.pulled === 1 ? "" : "s"} from GitHub.`,
       });
     }
     qc.invalidateQueries({ queryKey: ["/api/github/sync-log"] });
@@ -745,29 +777,44 @@ export default function SyncLogPage() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {pullStatus?.doneAt != null ? (
-              (pullStatus.errors?.length ?? 0) > 0
-                ? <IconAlertTriangle className="h-5 w-5 text-destructive" />
-                : <IconCheck className="h-5 w-5 text-primary" />
+              pullStatus.cancelled ? (
+                <IconMinus className="h-5 w-5 text-muted-foreground" />
+              ) : (pullStatus.errors?.length ?? 0) > 0 ? (
+                <IconAlertTriangle className="h-5 w-5 text-destructive" />
+              ) : (
+                <IconCheck className="h-5 w-5 text-primary" />
+              )
             ) : pullStatus?.running ? (
               <IconCloudDownload className="h-5 w-5 animate-pulse" />
             ) : (
               <IconCloudDownload className="h-5 w-5" />
             )}
-            {pullStatus?.doneAt != null
-              ? (pullStatus.errors?.length ?? 0) > 0 ? "Pull completed with errors" : "Pull complete"
-              : pullStatus?.running ? "Pulling from GitHub…"
-              : "Force Pull from GitHub"}
+            {(() => {
+              const base =
+                pullStatus?.doneAt != null
+                  ? pullStatus.cancelled
+                    ? "Pull cancelled"
+                    : (pullStatus.errors?.length ?? 0) > 0
+                      ? "Pull completed with errors"
+                      : "Pull complete"
+                  : pullStatus?.running
+                    ? cancelPullMutation.isPending
+                      ? "Cancelling pull…"
+                      : "Pulling from GitHub…"
+                    : "Pull from GitHub";
+              return siteLabel ? `${base} · ${siteLabel}` : base;
+            })()}
           </DialogTitle>
 
           {/* Pre-start description — only shown before a pull is running */}
           {!pullStatus?.running && pullStatus?.doneAt == null && (
             <DialogDescription asChild>
               <div className="space-y-2 text-sm">
-                <p>This will overwrite local content files with whatever is currently on GitHub.</p>
+                <p>Overwrite local content with what is on GitHub. Choose how much to download:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed to GitHub will be lost.</li>
-                  <li><span className="font-medium text-foreground">Downloads all files</span> — every file in the content folder is re-fetched from the remote.</li>
-                  <li>Use this to recover from a corrupted local state or after manual GitHub edits.</li>
+                  <li><span className="font-medium text-foreground">Pull only changed</span> — only missing files and files whose hash differs from remote.</li>
+                  <li><span className="font-medium text-foreground">Pull all files</span> — re-download every remote content file (slower; use for recovery).</li>
+                  <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed will be lost for downloaded files.</li>
                 </ul>
               </div>
             </DialogDescription>
@@ -775,11 +822,13 @@ export default function SyncLogPage() {
         </DialogHeader>
 
         {/* Live progress — shown while running */}
-        {pullStatus?.running && (
+        {pullStatus?.running && (() => {
+          const processed = (pullStatus.pulled ?? 0) + (pullStatus.skipped ?? 0);
+          return (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               {pullStatus.total > 0
-                ? `Downloading files… ${pullStatus.pulled} of ${pullStatus.total}`
+                ? `Checking/downloading… ${processed} of ${pullStatus.total}`
                 : "Fetching file list from GitHub…"}
             </p>
             <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
@@ -787,18 +836,19 @@ export default function SyncLogPage() {
                 className="h-full rounded-full bg-primary transition-all duration-300"
                 style={{
                   width: pullStatus.total > 0
-                    ? `${Math.round((pullStatus.pulled / pullStatus.total) * 100)}%`
+                    ? `${Math.round((processed / pullStatus.total) * 100)}%`
                     : "10%",
                 }}
               />
             </div>
             {pullStatus.total > 0 && (
               <p className="text-xs text-muted-foreground text-right">
-                {pullStatus.pulled} / {pullStatus.total} files
+                {pullStatus.pulled} downloaded, {pullStatus.skipped ?? 0} skipped / {pullStatus.total} files
               </p>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Completion stat grid */}
         {pullStatus?.doneAt != null && (
@@ -814,7 +864,7 @@ export default function SyncLogPage() {
               <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/50">
                 <IconMinus size={16} className="text-muted-foreground shrink-0" />
                 <div>
-                  <p className="font-medium">{(pullStatus.total ?? 0) - (pullStatus.pulled ?? 0) - (pullStatus.errors?.length ?? 0)}</p>
+                  <p className="font-medium">{pullStatus.skipped ?? 0}</p>
                   <p className="text-xs text-muted-foreground">Skipped</p>
                 </div>
               </div>
@@ -840,27 +890,49 @@ export default function SyncLogPage() {
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={() => setForcePullOpen(false)}
-            disabled={pullStatus?.running}
-            data-testid="button-close-force-pull"
-          >
-            {pullStatus?.doneAt != null ? "Close" : pullStatus?.running ? "Running…" : "Cancel"}
-          </Button>
-          {(!pullStatus || pullStatus.doneAt != null) && !pullStatus?.running && (
+        <DialogFooter className="gap-2 sm:gap-0 flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end">
+          {pullStatus?.running ? (
             <Button
-              variant="destructive"
-              onClick={() => startPullMutation.mutate()}
-              disabled={startPullMutation.isPending || pullStatus?.running}
-              data-testid="button-start-force-pull"
+              variant="outline"
+              onClick={() => cancelPullMutation.mutate()}
+              disabled={cancelPullMutation.isPending}
+              data-testid="button-cancel-force-pull"
             >
-              {startPullMutation.isPending
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
-                : <><IconCloudDownload className="h-4 w-4 mr-2" />{pullStatus?.doneAt != null ? "Pull Again" : "Start Pull"}</>
-              }
+              {cancelPullMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Cancelling…</>
+                : "Cancel pull"}
             </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => setForcePullOpen(false)}
+              data-testid="button-close-force-pull"
+            >
+              {pullStatus?.doneAt != null ? "Close" : "Cancel"}
+            </Button>
+          )}
+          {(!pullStatus || pullStatus.doneAt != null) && !pullStatus?.running && (
+            <>
+              <Button
+                onClick={() => startPullMutation.mutate(false)}
+                disabled={startPullMutation.isPending || pullStatus?.running}
+                data-testid="button-start-partial-pull"
+              >
+                {startPullMutation.isPending
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
+                  : <><IconCloudDownload className="h-4 w-4 mr-2" />Pull only changed</>}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => startPullMutation.mutate(true)}
+                disabled={startPullMutation.isPending || pullStatus?.running}
+                data-testid="button-start-force-pull"
+              >
+                {startPullMutation.isPending
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
+                  : <><IconCloudDownload className="h-4 w-4 mr-2" />Pull all files</>}
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>

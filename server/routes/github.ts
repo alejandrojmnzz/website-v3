@@ -955,8 +955,15 @@ export function registerGithubRoutes(app: Express): void {
   // Sync local state with remote (accept remote changes)
   app.post("/api/github/sync", async (req, res) => {
     try {
+      const site = res.locals.site as {
+        contentRootName?: string;
+        config?: { githubRepoUrl?: string };
+      } | undefined;
       const { syncWithRemote } = await import("../github");
-      const result = await syncWithRemote();
+      const result = await syncWithRemote({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
 
       if (result.success) {
         res.json({ success: true });
@@ -1028,9 +1035,15 @@ export function registerGithubRoutes(app: Express): void {
         res.status(400).json({ error: "Missing filePath" });
         return;
       }
-      const site = res.locals.site as { config?: { githubRepoUrl?: string } } | undefined;
+      const site = res.locals.site as {
+        contentRootName?: string;
+        config?: { githubRepoUrl?: string };
+      } | undefined;
       const { pullSingleFile } = await import("../github");
-      const result = await pullSingleFile(filePath, { repoUrl: site?.config?.githubRepoUrl });
+      const result = await pullSingleFile(filePath, {
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
 
       if (result.success) {
         res.json({ success: true });
@@ -1046,8 +1059,15 @@ export function registerGithubRoutes(app: Express): void {
   // Sync local state with remote (update lastSyncedCommit to current remote HEAD)
   app.post("/api/github/sync-with-remote", async (req, res) => {
     try {
+      const site = res.locals.site as {
+        contentRootName?: string;
+        config?: { githubRepoUrl?: string };
+      } | undefined;
       const { syncWithRemote } = await import("../github");
-      const result = await syncWithRemote();
+      const result = await syncWithRemote({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
 
       if (result.success) {
         res.json({ success: true });
@@ -1130,23 +1150,27 @@ export function registerGithubRoutes(app: Express): void {
 
   // Get live bootstrap progress state (no auth required — state is read-only)
   app.get("/api/github/bootstrap-status", async (_req, res) => {
+    const site = res.locals.site as { contentRootName?: string; contentRoot?: string } | undefined;
+    const contentRoot = site?.contentRootName ?? site?.contentRoot;
     const { getBootstrapState } = await import("../github");
-    res.json(getBootstrapState());
+    res.json(getBootstrapState(contentRoot));
   });
 
-  // Trigger a full bootstrap pull from the content repo (re-downloads all files)
+  // Trigger a content pull from the remote (hash-diff by default; only missing/changed files)
   app.post("/api/github/content/bootstrap", async (req, res) => {
     try {
       const site = res.locals.site as { contentRoot?: string; contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
+      const force = req.body?.force === true;
       const { bootstrapContentFromRemote } = await import("../github");
       const result = await bootstrapContentFromRemote({
         repoUrl: site?.config?.githubRepoUrl,
         contentRoot: site?.contentRootName ?? site?.contentRoot,
+        force,
       });
       if (result.success) {
-        res.json({ success: true, pulled: result.pulled, errors: result.errors, commitSha: result.commitSha });
+        res.json({ success: true, pulled: result.pulled, skipped: result.skipped, errors: result.errors, commitSha: result.commitSha });
       } else {
-        res.status(500).json({ success: false, pulled: result.pulled, errors: result.errors, commitSha: result.commitSha });
+        res.status(500).json({ success: false, pulled: result.pulled, skipped: result.skipped, errors: result.errors, commitSha: result.commitSha });
       }
     } catch (error) {
       log.error({ err: error }, "Error running bootstrap pull:");
@@ -1195,18 +1219,20 @@ export function registerGithubRoutes(app: Express): void {
     res.json(currentPushAllRun);
   });
 
-  // Pull all remote content files to local (force-overwrite).
+  // Pull remote content files to local.
+  // Body: { force?: boolean } — force=true re-downloads all; default is hash-diff (skip matching SHAs).
   // Returns immediately with { ok: true } — poll /api/github/pull-all-status for progress.
   // Config errors fail fast (400) so the UI does not enter a progress/polling loop.
-  app.post("/api/github/content/pull-all", async (_req, res) => {
+  app.post("/api/github/content/pull-all", async (req, res) => {
     const site = res.locals.site as { contentRoot?: string; contentRootName?: string; config?: { githubRepoUrl?: string } } | undefined;
     const { getBootstrapState, getGitHubConfig } = await import("../github");
-    if (getBootstrapState().running) {
+    const force = req.body?.force === true;
+    const repoUrl = site?.config?.githubRepoUrl;
+    const contentRoot = site?.contentRootName ?? site?.contentRoot;
+    if (getBootstrapState(contentRoot).running) {
       return res.json({ ok: true, alreadyRunning: true });
     }
 
-    const repoUrl = site?.config?.githubRepoUrl;
-    const contentRoot = site?.contentRootName ?? site?.contentRoot;
     const config = getGitHubConfig(repoUrl);
     if (!config) {
       const error =
@@ -1225,24 +1251,30 @@ export function registerGithubRoutes(app: Express): void {
         contentRoot: contentRoot || null,
         owner: config.owner,
         repo: config.repo,
+        force,
       },
-      "Starting force pull-all from GitHub",
+      force ? "Starting force pull-all from GitHub" : "Starting partial (hash-diff) pull from GitHub",
     );
 
     // Fire-and-forget
     (async () => {
       try {
         const { bootstrapContentFromRemote } = await import("../github");
-        const result = await bootstrapContentFromRemote({ repoUrl, contentRoot });
-        if (!result.success) {
+        const result = await bootstrapContentFromRemote({ repoUrl, contentRoot, force });
+        if (result.cancelled) {
+          log.info(
+            { pulled: result.pulled, skipped: result.skipped, commitSha: result.commitSha, force },
+            "Pull-all cancelled by user",
+          );
+        } else if (!result.success) {
           log.error(
-            { errors: result.errors, repoUrl: repoUrl || null, contentRoot: contentRoot || null },
-            "Force pull-all finished with errors",
+            { errors: result.errors, repoUrl: repoUrl || null, contentRoot: contentRoot || null, force },
+            "Pull-all finished with errors",
           );
         } else {
           log.info(
-            { pulled: result.pulled, commitSha: result.commitSha },
-            "Force pull-all completed successfully",
+            { pulled: result.pulled, skipped: result.skipped, commitSha: result.commitSha, force },
+            "Pull-all completed successfully",
           );
         }
       } catch (error) {
@@ -1253,10 +1285,24 @@ export function registerGithubRoutes(app: Express): void {
     res.json({ ok: true });
   });
 
+  // Cooperative cancel of an in-progress pull-all / bootstrap for the current site.
+  app.post("/api/github/content/pull-all/cancel", async (_req, res) => {
+    const site = res.locals.site as { contentRootName?: string; contentRoot?: string } | undefined;
+    const contentRoot = site?.contentRootName ?? site?.contentRoot;
+    const { requestBootstrapCancel } = await import("../github");
+    const result = requestBootstrapCancel(contentRoot);
+    if (result.ok) {
+      log.info({ contentRoot: contentRoot || null }, "Pull-all cancel requested");
+    }
+    res.json(result);
+  });
+
   // Get the live pull-all (bootstrap) progress state for polling
   app.get("/api/github/pull-all-status", async (_req, res) => {
+    const site = res.locals.site as { contentRootName?: string; contentRoot?: string } | undefined;
+    const contentRoot = site?.contentRootName ?? site?.contentRoot;
     const { getBootstrapState } = await import("../github");
-    const state = getBootstrapState();
+    const state = getBootstrapState(contentRoot);
     if (state.startedAt === null) {
       return res.status(404).json({ error: "No pull-all run has started yet" });
     }

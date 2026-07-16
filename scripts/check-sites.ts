@@ -116,7 +116,7 @@ async function bootstrapWithProgress(
       new Promise<false>((resolve) => setTimeout(resolve, POLL_MS)),
     ]);
 
-    const state = getBootstrapState();
+    const state = getBootstrapState(contentFolder);
     const line = prefix + renderProgressBar(state.pulled, state.total);
     if (line !== lastLine) {
       process.stdout.write(`\r${line}`);

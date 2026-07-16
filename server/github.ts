@@ -1029,8 +1029,11 @@ export async function getAllSyncChanges(
  * Call this after user chooses to "refresh" and accept remote changes
  * Rebuilds the file hash cache so pending changes shows 0 after sync
  */
-export async function syncWithRemote(): Promise<{ success: boolean; error?: string }> {
-  const config = getGitHubConfig();
+export async function syncWithRemote(opts?: {
+  repoUrl?: string;
+  contentRoot?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const config = getGitHubConfig(opts?.repoUrl);
   
   if (!config) {
     return { success: false, error: "GitHub not configured" };
@@ -1045,7 +1048,7 @@ export async function syncWithRemote(): Promise<{ success: boolean; error?: stri
     // Rebuild sync state from current local files
     // Since local = remote after sync, all hashes should match
     const { rebuildSyncStateFromLocal } = await import("./sync-state");
-    rebuildSyncStateFromLocal(remoteCommit);
+    rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
     
     return { success: true };
   } catch (error) {
@@ -1141,7 +1144,10 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
 
       for (const filePath of staleFiles) {
         try {
-          const result = await pullSingleFile(filePath, { repoUrl: opts?.repoUrl });
+          const result = await pullSingleFile(filePath, {
+            repoUrl: opts?.repoUrl,
+            contentRoot: opts?.contentRoot,
+          });
           if (result.success) {
             pulledCount++;
           } else {
@@ -1268,7 +1274,7 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
       const tracked = changedFiles.filter(f => shouldTrackFile(f, undefined, opts?.contentRoot));
       if (tracked.length === 0) return { pulled, conflicted, errors };
 
-      const localChanges = await getPendingChanges();
+      const localChanges = await getPendingChanges(opts?.contentRoot);
       const localFileSet = new Set(localChanges.map(c => c.file));
 
       for (const filePath of tracked) {
@@ -1277,7 +1283,10 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
           continue;
         }
         try {
-          const result = await pullSingleFile(filePath, { repoUrl: opts?.repoUrl });
+          const result = await pullSingleFile(filePath, {
+            repoUrl: opts?.repoUrl,
+            contentRoot: opts?.contentRoot,
+          });
           if (result.success) {
             pulled.push(filePath);
           } else {
@@ -1294,7 +1303,10 @@ export async function autoPullNonConflicting(changedFiles?: string[], remoteComm
 
       for (const change of incomingOnly) {
         try {
-          const result = await pullSingleFile(change.file, { repoUrl: opts?.repoUrl });
+          const result = await pullSingleFile(change.file, {
+            repoUrl: opts?.repoUrl,
+            contentRoot: opts?.contentRoot,
+          });
           if (result.success) {
             pulled.push(change.file);
           } else {
@@ -1733,12 +1745,13 @@ export async function getRemoteFileContent(
  */
 export async function pullSingleFile(
   filePath: string,
-  opts?: { repoUrl?: string },
+  opts?: { repoUrl?: string; contentRoot?: string },
 ): Promise<{
   success: boolean;
   error?: string;
 }> {
   const config = getGitHubConfig(opts?.repoUrl);
+  const contentRoot = opts?.contentRoot;
 
   if (!config) {
     return { success: false, error: "GitHub not configured" };
@@ -1770,9 +1783,9 @@ export async function pullSingleFile(
         }
       }
       
-      // Remove from sync state
+      // Remove from sync state (scoped to the site that owns this file)
       const { removeFileFromState } = await import("./sync-state");
-      removeFileFromState(filePath);
+      removeFileFromState(filePath, contentRoot);
       
       return { success: true };
     } catch (error) {
@@ -1785,16 +1798,21 @@ export async function pullSingleFile(
     return { success: false, error: remoteResult.error || "Failed to get remote content" };
   }
   
+  const fullPath = path.join(process.cwd(), filePath);
+  const tmpPath = `${fullPath}.pulltmp`;
   try {
-    // Write to local filesystem
-    const fullPath = path.join(process.cwd(), filePath);
     const dir = path.dirname(fullPath);
     
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    
-    fs.writeFileSync(fullPath, remoteResult.content, 'utf-8');
+
+    // Clear leftover temp from a prior crash, then write atomically (tmp → rename).
+    if (fs.existsSync(tmpPath)) {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+    fs.writeFileSync(tmpPath, remoteResult.content, 'utf-8');
+    fs.renameSync(tmpPath, fullPath);
     
     // Fetch file-specific commit date from GitHub API for accurate lastmod in sitemap.
     // We use the commits-by-path API so that unrelated newer commits on the branch
@@ -1805,12 +1823,16 @@ export async function pullSingleFile(
       if (date) committedAt = date;
     }
 
-    // Update sync state with the commit we pulled from
+    // Update sync state with the commit we pulled from (per-site when contentRoot is set)
     const { updateFileAfterPull } = await import("./sync-state");
-    updateFileAfterPull(filePath, remoteCommit || undefined, committedAt);
+    updateFileAfterPull(filePath, remoteCommit || undefined, committedAt, contentRoot);
     
     return { success: true };
   } catch (error) {
+    // Leave the original destination untouched; remove a partial temp if present.
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch { /* ignore cleanup errors */ }
     log.error({ err: error }, 'Error writing file:');
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
@@ -1990,32 +2012,81 @@ export async function getRemoteFileStatus(filePath: string): Promise<{
 
 /**
  * Live progress state for bootstrapContentFromRemote().
- * Updated in-place as the bootstrap runs so the status API can stream progress.
+ * Keyed by content folder so multi-site pulls do not clobber each other.
  */
 export interface BootstrapState {
   running: boolean;
   total: number;
   pulled: number;
+  skipped: number;
   errors: string[];
   startedAt: number | null;
   doneAt: number | null;
   success: boolean | null;
   commitSha: string | null;
+  cancelled: boolean;
 }
 
-const _bootstrapState: BootstrapState = {
-  running: false,
-  total: 0,
-  pulled: 0,
-  errors: [],
-  startedAt: null,
-  doneAt: null,
-  success: null,
-  commitSha: null,
-};
+function emptyBootstrapState(): BootstrapState {
+  return {
+    running: false,
+    total: 0,
+    pulled: 0,
+    skipped: 0,
+    errors: [],
+    startedAt: null,
+    doneAt: null,
+    success: null,
+    commitSha: null,
+    cancelled: false,
+  };
+}
 
-export function getBootstrapState(): Readonly<BootstrapState> {
-  return { ..._bootstrapState };
+/** Normalize contentRoot to a stable map key (relative content folder name). */
+function bootstrapStateKey(contentRoot?: string): string {
+  if (!contentRoot) return getDefaultContentFolder();
+  return (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
+    .replace(/\\/g, '/')
+    .replace(/^\/|\/$/g, '');
+}
+
+const _bootstrapStates = new Map<string, BootstrapState>();
+const _bootstrapCancelRequested = new Map<string, boolean>();
+
+function getOrCreateBootstrapState(contentRoot?: string): BootstrapState {
+  const key = bootstrapStateKey(contentRoot);
+  let state = _bootstrapStates.get(key);
+  if (!state) {
+    state = emptyBootstrapState();
+    _bootstrapStates.set(key, state);
+  }
+  return state;
+}
+
+export function getBootstrapState(contentRoot?: string): Readonly<BootstrapState> {
+  return { ...getOrCreateBootstrapState(contentRoot) };
+}
+
+/**
+ * Request cooperative cancel of an in-progress bootstrap/pull for a site.
+ * The loop stops between files after the current file finishes.
+ */
+export function requestBootstrapCancel(contentRoot?: string): { ok: boolean; running: boolean } {
+  const key = bootstrapStateKey(contentRoot);
+  const state = getOrCreateBootstrapState(contentRoot);
+  if (!state.running) {
+    return { ok: false, running: false };
+  }
+  _bootstrapCancelRequested.set(key, true);
+  return { ok: true, running: true };
+}
+
+function isBootstrapCancelRequested(contentRoot?: string): boolean {
+  return _bootstrapCancelRequested.get(bootstrapStateKey(contentRoot)) === true;
+}
+
+function clearBootstrapCancelRequested(contentRoot?: string): void {
+  _bootstrapCancelRequested.delete(bootstrapStateKey(contentRoot));
 }
 
 /**
@@ -2049,7 +2120,7 @@ async function pullWithRetry(
   filePath: string,
   maxRetries: number = 3,
   baseDelayMs: number = 1000,
-  opts?: { repoUrl?: string },
+  opts?: { repoUrl?: string; contentRoot?: string },
 ): Promise<{ success: boolean; error?: string }> {
   let lastError: string | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -2072,34 +2143,47 @@ async function pullWithRetry(
   return { success: false, error: lastError };
 }
 
-function failBootstrapState(errors: string[]): void {
-  _bootstrapState.running = false;
-  _bootstrapState.errors = errors;
-  _bootstrapState.startedAt = _bootstrapState.startedAt ?? Date.now();
-  _bootstrapState.doneAt = Date.now();
-  _bootstrapState.success = false;
+function failBootstrapState(state: BootstrapState, errors: string[]): void {
+  state.running = false;
+  state.errors = errors;
+  state.startedAt = state.startedAt ?? Date.now();
+  state.doneAt = Date.now();
+  state.success = false;
+  state.cancelled = false;
 }
 
-export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; contentRoot?: string }): Promise<{
+export async function bootstrapContentFromRemote(opts?: {
+  repoUrl?: string;
+  contentRoot?: string;
+  /** When true, re-download every remote file. When false (default), skip files whose local git blob SHA matches remote. */
+  force?: boolean;
+}): Promise<{
   success: boolean;
   pulled: number;
+  skipped: number;
   errors: string[];
   commitSha: string | null;
+  cancelled?: boolean;
 }> {
   const { withSyncLogContextAsync } = await import('./sync-log');
   return withSyncLogContextAsync(opts?.contentRoot, async () => {
   const { logSync } = await import('./sync-log');
+  const force = opts?.force === true;
+  const state = getOrCreateBootstrapState(opts?.contentRoot);
 
   // Mark as started immediately so /pull-all-status can surface progress or failures
   // (including early exits for missing config / bad credentials).
-  _bootstrapState.running = true;
-  _bootstrapState.total = 0;
-  _bootstrapState.pulled = 0;
-  _bootstrapState.errors = [];
-  _bootstrapState.startedAt = Date.now();
-  _bootstrapState.doneAt = null;
-  _bootstrapState.success = null;
-  _bootstrapState.commitSha = null;
+  clearBootstrapCancelRequested(opts?.contentRoot);
+  state.running = true;
+  state.total = 0;
+  state.pulled = 0;
+  state.skipped = 0;
+  state.errors = [];
+  state.startedAt = Date.now();
+  state.doneAt = null;
+  state.success = null;
+  state.commitSha = null;
+  state.cancelled = false;
 
   try {
   const config = getGitHubConfig(opts?.repoUrl);
@@ -2112,13 +2196,13 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
       `Bootstrap aborted: ${msg}`,
     );
     logSync('ERROR', `Bootstrap aborted: ${msg}`);
-    failBootstrapState([msg]);
-    return { success: false, pulled: 0, errors: [msg], commitSha: null };
+    failBootstrapState(state, [msg]);
+    return { success: false, pulled: 0, skipped: 0, errors: [msg], commitSha: null };
   }
 
   logSync(
     'AUTO-PULL',
-    `Bootstrap: starting full content pull from ${config.owner}/${config.repo}@${config.branch}...`,
+    `Bootstrap: starting ${force ? 'full' : 'partial (hash-diff)'} content pull from ${config.owner}/${config.repo}@${config.branch}...`,
   );
 
   const headSha = await getBranchHeadSha(config);
@@ -2128,58 +2212,120 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
       'Check GITHUB_TOKEN (401 = invalid/expired or insufficient permissions) and that the branch exists.';
     log.error({ owner: config.owner, repo: config.repo, branch: config.branch }, `Bootstrap failed: ${msg}`);
     logSync('ERROR', `Bootstrap failed: ${msg}`);
-    failBootstrapState([msg]);
-    return { success: false, pulled: 0, errors: [msg], commitSha: null };
+    failBootstrapState(state, [msg]);
+    return { success: false, pulled: 0, skipped: 0, errors: [msg], commitSha: null };
   }
 
-  _bootstrapState.commitSha = headSha;
+  state.commitSha = headSha;
 
   const contentFolder = opts?.contentRoot
     ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
     : getDefaultContentFolder();
-  const files = await fetchFilesFromTree(config, headSha, contentFolder);
-  if (files.length === 0) {
+
+  // One recursive tree call → path + blob SHA. Fall back to path-only list if the tree call fails.
+  let remoteEntries: Array<{ path: string; sha: string | null }> = [];
+  const remoteShas = await fetchRemoteTreeShas(config, headSha, contentFolder);
+  if (remoteShas.size > 0) {
+    remoteEntries = Array.from(remoteShas.entries()).map(([filePath, sha]) => ({ path: filePath, sha }));
+  } else {
+    const files = await fetchFilesFromTree(config, headSha, contentFolder);
+    remoteEntries = files.map((filePath) => ({ path: filePath, sha: null }));
+  }
+
+  if (remoteEntries.length === 0) {
     logSync('AUTO-PULL', `Bootstrap: no ${contentFolder} files found on remote`);
     // Mark as complete even when there's nothing to pull — directory is in sync.
     writeBootstrapCompleteFlag(opts?.contentRoot);
-    _bootstrapState.running = false;
-    _bootstrapState.doneAt = Date.now();
-    _bootstrapState.success = true;
-    return { success: true, pulled: 0, errors: [], commitSha: headSha };
+    state.running = false;
+    state.doneAt = Date.now();
+    state.success = true;
+    return { success: true, pulled: 0, skipped: 0, errors: [], commitSha: headSha };
   }
 
-  _bootstrapState.total = files.length;
-  logSync('AUTO-PULL', `Bootstrap: found ${files.length} files on remote, downloading...`);
+  state.total = remoteEntries.length;
+  logSync(
+    'AUTO-PULL',
+    `Bootstrap: found ${remoteEntries.length} files on remote, ${force ? 'downloading all...' : 'diffing local hashes...'}`,
+  );
 
   let pulled = 0;
+  let skipped = 0;
   const errors: string[] = [];
+  let wasCancelled = false;
 
-  const pullOpts = { repoUrl: opts?.repoUrl };
-  for (const filePath of files) {
+  const pullOpts = { repoUrl: opts?.repoUrl, contentRoot: opts?.contentRoot };
+  for (const { path: filePath, sha: remoteSha } of remoteEntries) {
+    if (isBootstrapCancelRequested(opts?.contentRoot)) {
+      wasCancelled = true;
+      break;
+    }
+
+    if (!force && remoteSha) {
+      const fullPath = path.join(process.cwd(), filePath);
+      if (fs.existsSync(fullPath)) {
+        try {
+          const content = fs.readFileSync(fullPath);
+          if (computeGitBlobSha(content) === remoteSha) {
+            skipped++;
+            state.skipped = skipped;
+            continue;
+          }
+        } catch {
+          // Fall through to pull if local read fails
+        }
+      }
+    }
+
     const result = await pullWithRetry(filePath, 3, 1000, pullOpts);
     if (result.success) {
       pulled++;
-      _bootstrapState.pulled = pulled;
+      state.pulled = pulled;
     } else {
       const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
       errors.push(errMsg);
-      _bootstrapState.errors = [...errors];
+      state.errors = [...errors];
     }
   }
 
-  // Only mark sync state as up-to-date when every file was pulled successfully.
+  clearBootstrapCancelRequested(opts?.contentRoot);
+
+  if (wasCancelled) {
+    logSync('AUTO-PULL', `Bootstrap cancelled: pulled=${pulled} skipped=${skipped}`);
+    log.info(`Bootstrap cancelled: pulled=${pulled}, skipped=${skipped}, sha=${headSha}`);
+    state.running = false;
+    state.pulled = pulled;
+    state.skipped = skipped;
+    state.doneAt = Date.now();
+    state.success = false;
+    state.cancelled = true;
+    // Do not update sync state / bootstrap-complete — next Pull changed resumes via hash skip.
+    return {
+      success: false,
+      pulled,
+      skipped,
+      errors: [],
+      commitSha: headSha,
+      cancelled: true,
+    };
+  }
+
+  // Only mark sync state as up-to-date when every required file was pulled successfully.
+  // Skipped (hash-matched) files are already correct locally.
   // If any files failed, leave lastSyncedCommit unset so the next startup
   // (or the next reconcile/auto-pull run) can detect and recover the missing files.
   if (errors.length === 0) {
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
     rebuildSyncStateFromLocal(headSha, opts?.contentRoot);
     writeBootstrapCompleteFlag(opts?.contentRoot);
-    logSync('AUTO-PULL', `Bootstrap: pulled ${pulled} files successfully — sync state updated to ${headSha.slice(0, 7)}`);
+    logSync(
+      'AUTO-PULL',
+      `Bootstrap: pulled=${pulled} skipped=${skipped} — sync state updated to ${headSha.slice(0, 7)}`,
+    );
   } else {
     // Log each failed file clearly so operators know exactly what is missing.
     logSync(
       'ERROR',
-      `Bootstrap: pulled ${pulled}/${files.length} files; ${errors.length} failed after retries — ${errors.join(' | ')}`,
+      `Bootstrap: pulled=${pulled} skipped=${skipped} of ${remoteEntries.length}; ${errors.length} failed after retries — ${errors.join(' | ')}`,
     );
     log.error(
       { failedFiles: errors },
@@ -2188,20 +2334,29 @@ export async function bootstrapContentFromRemote(opts?: { repoUrl?: string; cont
     logSync('AUTO-PULL', `Bootstrap: sync state NOT updated — next startup will re-attempt the bootstrap`);
   }
 
-  log.info(`Bootstrap complete: pulled=${pulled}, errors=${errors.length}, sha=${headSha}`);
+  log.info(`Bootstrap complete: pulled=${pulled}, skipped=${skipped}, errors=${errors.length}, sha=${headSha}`);
 
-  _bootstrapState.running = false;
-  _bootstrapState.pulled = pulled;
-  _bootstrapState.doneAt = Date.now();
-  _bootstrapState.success = errors.length === 0;
+  state.running = false;
+  state.pulled = pulled;
+  state.skipped = skipped;
+  state.doneAt = Date.now();
+  state.success = errors.length === 0;
+  state.cancelled = false;
 
-  return { success: errors.length === 0, pulled, errors, commitSha: headSha };
+  return { success: errors.length === 0, pulled, skipped, errors, commitSha: headSha };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    log.error({ err: error }, 'Bootstrap: unexpected failure');
-    logSync('ERROR', `Bootstrap failed unexpectedly: ${msg}`);
-    failBootstrapState([`Bootstrap failed unexpectedly: ${msg}`]);
-    return { success: false, pulled: _bootstrapState.pulled, errors: _bootstrapState.errors, commitSha: null };
+  clearBootstrapCancelRequested(opts?.contentRoot);
+  const msg = error instanceof Error ? error.message : String(error);
+  log.error({ err: error }, 'Bootstrap: unexpected failure');
+  logSync('ERROR', `Bootstrap failed unexpectedly: ${msg}`);
+  failBootstrapState(state, [`Bootstrap failed unexpectedly: ${msg}`]);
+  return {
+    success: false,
+    pulled: state.pulled,
+    skipped: state.skipped,
+    errors: state.errors,
+    commitSha: null,
+  };
   }
   });
 }
@@ -2249,13 +2404,16 @@ function computeGitBlobSha(content: Buffer): string {
 /**
  * Fetch a map of { path → blobSha } for every file in the remote tree under
  * the given commit.  Returns an empty map on failure so callers fall back to
- * uploading everything.
+ * uploading/pulling everything.
+ * @param contentFolder - when set, only include blobs under `{folder}/`
  */
 async function fetchRemoteTreeShas(
   config: GitHubConfig,
-  commitSha: string
+  commitSha: string,
+  contentFolder?: string,
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
+  const prefix = contentFolder ? `${contentFolder.replace(/\/$/, '')}/` : null;
   try {
     const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/trees/${commitSha}?recursive=1`;
     const res = await fetch(url, {
@@ -2268,10 +2426,12 @@ async function fetchRemoteTreeShas(
     if (!res.ok) return map;
     const data = await res.json() as { tree?: Array<{ type: string; path: string; sha: string }> };
     for (const item of data.tree ?? []) {
-      if (item.type === 'blob') map.set(item.path, item.sha);
+      if (item.type !== 'blob') continue;
+      if (prefix && !item.path.startsWith(prefix)) continue;
+      map.set(item.path, item.sha);
     }
   } catch {
-    // silently return empty map — caller will upload everything
+    // silently return empty map — caller will upload/pull everything
   }
   return map;
 }
