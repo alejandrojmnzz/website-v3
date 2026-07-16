@@ -363,7 +363,7 @@ async function commitBatch(config: GitHubConfig, author: string, files: string[]
 
   if (result.success && result.commitSha) {
     recordLastCommitSha(result.commitSha);
-    updateSyncStateAfterCommit(result.commitSha, files);
+    updateSyncStateAfterCommit(result.commitSha, files, contentRootForLog);
     log.info(`[AutoCommit] Committed ${files.length} file(s) by ${author}: ${result.commitSha.substring(0, 7)}`);
     const { logSync, refreshGithubCommit } = await import("./sync-log");
     logSync('COMMIT', `Auto-commit ${result.commitSha.substring(0, 7)} by ${author}: ${fileNames}`, author, undefined, contentRootForLog);
@@ -403,7 +403,14 @@ async function retryIndividualFiles(
 
     if (result.success && result.commitSha) {
       recordLastCommitSha(result.commitSha);
-      updateSyncStateAfterCommit(result.commitSha, [file.path]);
+      // Prefer the site of this file; fall back to the batch contentRoot.
+      const { getSiteConfigs } = await import('./site-config');
+      const fileContentRoot =
+        getSiteConfigs().find((site) => {
+          const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+          return file.path.startsWith(prefix);
+        })?.contentFolder ?? contentRootForLog;
+      updateSyncStateAfterCommit(result.commitSha, [file.path], fileContentRoot);
       log.info(`[AutoCommit] Individual commit succeeded: ${fileName}`);
     } else {
       conflictedFiles.add(file.path);

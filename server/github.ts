@@ -576,10 +576,24 @@ export async function commitAndPush(
     
     const lastSyncedCommit = getLastSyncedCommit(options?.contentRoot);
     if (lastSyncedCommit && lastSyncedCommit !== currentHeadSha && !options?.force) {
-      return { 
-        success: false, 
-        error: "Remote has new commits. Please sync before committing, or use force commit." 
-      };
+      // Shared monorepo: HEAD may have moved due to another site's push.
+      // Only block if this site's content folder has remote changes in that range.
+      const conflictInfo = await getConflictInfo({
+        repoUrl: options?.repoUrl,
+        contentRoot: options?.contentRoot,
+      });
+      const { shouldTrackFile } = await import("./sync-state");
+      const siteRemoteChanges = conflictInfo.changedFiles.filter((f) =>
+        shouldTrackFile(f, undefined, options?.contentRoot),
+      );
+      if (siteRemoteChanges.length > 0) {
+        return {
+          success: false,
+          error: "Remote has new commits. Please sync before committing, or use force commit.",
+        };
+      }
+      // No files for this site in the remote range — advance lastSynced and continue.
+      updateSyncStateAfterCommit(currentHeadSha, [], options?.contentRoot);
     }
     
     const baseTreeSha = await getTreeSha(config, currentHeadSha);
@@ -711,6 +725,31 @@ export async function getGitHubSyncStatus(opts?: { repoUrl?: string; contentRoot
         branch: config.branch,
       };
     }
+
+    // Shared monorepo: HEAD may have moved due to another site's push.
+    // Only report "behind" if this site's folder has files in that range.
+    const conflictInfo = await getConflictInfo({
+      repoUrl,
+      contentRoot: opts?.contentRoot,
+    });
+    // On compare API failure, hasConflict is true with empty changedFiles — stay behind.
+    if (conflictInfo.changedFiles.length === 0 && !conflictInfo.hasConflict) {
+      updateSyncStateAfterCommit(remoteCommit, [], opts?.contentRoot);
+      const pendingChanges = detectPendingChanges(opts?.contentRoot);
+      const hasPendingChanges = pendingChanges.length > 0;
+      return {
+        configured: true,
+        syncEnabled,
+        autoCommitEnabled,
+        autoPullEnabled,
+        localCommit: remoteCommit,
+        remoteCommit,
+        status: hasPendingChanges ? 'ahead' : 'in-sync',
+        aheadBy: hasPendingChanges ? pendingChanges.length : 0,
+        repoUrl,
+        branch: config.branch,
+      };
+    }
     
     return {
       configured: true,
@@ -793,7 +832,10 @@ export async function getConflictInfo(opts?: { repoUrl?: string; contentRoot?: s
   
   if (!lastSyncedCommit || lastSyncedCommit === remoteCommit) {
     if (!lastSyncedCommit && remoteCommit) {
-      const changedFiles = await fetchFilesFromTree(config, remoteCommit);
+      const contentFolder = opts?.contentRoot
+        ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
+        : undefined;
+      const changedFiles = await fetchFilesFromTree(config, remoteCommit, contentFolder);
       return {
         hasConflict: true,
         behindBy: 1,
@@ -849,11 +891,15 @@ export async function getConflictInfo(opts?: { repoUrl?: string; contentRoot?: s
       files: [],
     }));
     
-    const changedFiles: string[] = (data.files || []).map((f: any) => f.filename);
+    const { shouldTrackFile } = await import("./sync-state");
+    const allChangedFiles: string[] = (data.files || []).map((f: any) => f.filename);
+    const changedFiles = opts?.contentRoot
+      ? allChangedFiles.filter((f) => shouldTrackFile(f, undefined, opts.contentRoot))
+      : allChangedFiles;
     
     const fileBlobShas: Record<string, string> = {};
     for (const f of (data.files || [])) {
-      if (f.filename && f.sha) {
+      if (f.filename && f.sha && (!opts?.contentRoot || shouldTrackFile(f.filename, undefined, opts.contentRoot))) {
         fileBlobShas[f.filename] = f.sha;
       }
     }
@@ -863,7 +909,7 @@ export async function getConflictInfo(opts?: { repoUrl?: string; contentRoot?: s
     }
     
     return {
-      hasConflict: commits.length > 0 || changedFiles.length > 0,
+      hasConflict: changedFiles.length > 0,
       behindBy: data.behind_by || commits.length,
       commits,
       changedFiles,
@@ -893,19 +939,32 @@ export interface PullConflictCheck {
 }
 
 /**
- * Check if pulling from remote would conflict with pending local changes
- * Returns list of files that exist in both local pending changes and remote changes
+ * Check if pulling from remote would conflict with pending local changes.
+ * contentRoot is required so multi-site setups never silently use the default site.
  */
-export async function checkPullConflicts(): Promise<PullConflictCheck> {
-  const pendingChanges = await getPendingChanges();
-  const conflictInfo = await getConflictInfo();
+export async function checkPullConflicts(opts: {
+  contentRoot: string;
+  repoUrl?: string;
+}): Promise<PullConflictCheck> {
+  if (!opts?.contentRoot?.trim()) {
+    throw new Error("contentRoot is required to check pull conflicts for a site");
+  }
+
+  const contentRoot = opts.contentRoot.trim();
+  const pendingChanges = await getPendingChanges(contentRoot);
+  const conflictInfo = await getConflictInfo({
+    repoUrl: opts.repoUrl,
+    contentRoot,
+  });
   
   // Get all local pending file paths
   const localPendingFiles = pendingChanges.map(c => c.file);
   
-  // Use changedFiles directly from conflictInfo (filtered by shouldTrackFile)
+  // Use changedFiles directly from conflictInfo (filtered by shouldTrackFile for this site)
   const { shouldTrackFile } = await import("./sync-state");
-  const remoteChangedFiles = conflictInfo.changedFiles.filter(f => shouldTrackFile(f));
+  const remoteChangedFiles = conflictInfo.changedFiles.filter(f =>
+    shouldTrackFile(f, undefined, contentRoot),
+  );
   
   // Find overlapping files
   const localFileSet = new Set(localPendingFiles);
@@ -1754,8 +1813,14 @@ export async function pullSingleFile(
   success: boolean;
   error?: string;
 }> {
-  const config = getGitHubConfig(opts?.repoUrl);
-  const contentRoot = opts?.contentRoot;
+  // Per-file ops: path owns the site (localhost may resolve to the wrong domain).
+  const { getSiteConfigs } = await import("./site-config");
+  const matchedSite = getSiteConfigs().find((site) => {
+    const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+    return filePath.startsWith(prefix);
+  });
+  const contentRoot = matchedSite?.contentFolder || opts?.contentRoot;
+  const config = getGitHubConfig(opts?.repoUrl || matchedSite?.githubRepoUrl);
 
   if (!config) {
     return { success: false, error: "GitHub not configured" };
@@ -1765,7 +1830,9 @@ export async function pullSingleFile(
   const remoteCommit = await getBranchHeadSha(config);
 
   // Fetch file content from remote
-  const remoteResult = await getRemoteFileContent(filePath, opts);
+  const remoteResult = await getRemoteFileContent(filePath, {
+    repoUrl: opts?.repoUrl || matchedSite?.githubRepoUrl,
+  });
   
   // If file doesn't exist on remote, delete it locally (reset to remote state)
   if (remoteResult.error === "File not found on remote") {
@@ -1849,12 +1916,21 @@ export async function commitSingleFile(options: {
   filePath: string;
   message: string;
   author?: string;
+  repoUrl?: string;
+  contentRoot?: string;
 }): Promise<{ 
   success: boolean; 
   commitSha?: string;
   error?: string;
 }> {
-  const config = getGitHubConfig();
+  // Per-file ops: path owns the site (localhost may resolve to the wrong domain).
+  const { getSiteConfigs } = await import("./site-config");
+  const matchedSite = getSiteConfigs().find((site) => {
+    const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+    return options.filePath.startsWith(prefix);
+  });
+  const contentRoot = matchedSite?.contentFolder || options.contentRoot;
+  const config = getGitHubConfig(options.repoUrl || matchedSite?.githubRepoUrl);
   
   if (!config) {
     return { success: false, error: "GitHub not configured" };
@@ -1919,7 +1995,7 @@ export async function commitSingleFile(options: {
     const commitSha = data.commit?.sha;
     
     const { updateFileAfterCommit } = await import("./sync-state");
-    updateFileAfterCommit(options.filePath, commitSha || '');
+    updateFileAfterCommit(options.filePath, commitSha || '', contentRoot);
 
     if (commitSha) {
       const { recordLastCommitSha } = await import("./auto-commit");
@@ -1927,18 +2003,13 @@ export async function commitSingleFile(options: {
     }
 
     const { logSync, refreshGithubCommit } = await import("./sync-log");
-    const { getSiteConfigs } = await import("./site-config");
-    const matchedSite = getSiteConfigs().find((site) => {
-      const prefix = site.contentFolder.replace(/\/$/, '') + '/';
-      return options.filePath.startsWith(prefix);
-    });
     const displayPath = options.filePath.split('/').slice(1).join('/') || options.filePath;
     logSync(
       'COMMIT',
       `${displayPath} → ${commitSha?.slice(0, 7) || '?'}${options.author ? ` by ${options.author}` : ''}`,
       options.author,
       undefined,
-      matchedSite?.contentFolder,
+      contentRoot,
     );
     refreshGithubCommit();
     

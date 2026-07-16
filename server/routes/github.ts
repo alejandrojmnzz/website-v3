@@ -1,7 +1,6 @@
 import type { Express, Request, Response } from "express";
-import { getDefaultContentFolder } from "../site-config";
 import { createServer, type Server } from "http";
-import { getSiteContextMap } from "../site-manager";
+import { getSiteContextMap, getDefaultSite } from "../site-manager";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
@@ -307,33 +306,36 @@ export function registerGithubRoutes(app: Express): void {
       const { getAutoCommitStatus } = await import("../auto-commit");
       const { lastCommitSha } = getAutoCommitStatus();
 
-      // Match this push to a site by comparing the payload's repo URL against
-      // registered sites' githubRepoUrl.  Falls back to the global GITHUB_REPO_URL
-      // env var (single-site mode or un-matched multi-site push).
+      // Sites that share this push's github repo (multi-site can share one content repo).
       const pushRepoUrl = (
         pushPayload.repository?.html_url ||
         pushPayload.repository?.clone_url ||
         ""
       ).replace(/\.git$/, "").toLowerCase();
 
-      let contentFolderPrefix = getDefaultContentFolder();
-      let matchedSiteCtx: import("../site-manager").SiteContext | null = null;
+      const matchedSites: import("../site-manager").SiteContext[] = [];
       if (pushRepoUrl) {
         for (const ctx of Array.from(getSiteContextMap().values())) {
           const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
           if (siteRepo && siteRepo === pushRepoUrl) {
-            contentFolderPrefix = ctx.contentRootName;
-            matchedSiteCtx = ctx;
-            break;
+            matchedSites.push(ctx);
           }
         }
       }
+      if (matchedSites.length === 0) {
+        // Single-site / unmatched: fall back to default site.
+        matchedSites.push(getDefaultSite());
+      }
 
-      // Delegate to the matched site's SyncLog instance so sync events are
-      // stored in the correct per-site log file / GCS key.
-      const _sl = matchedSiteCtx?.syncLog;
-      const siteLogSync = (cat: import("../sync-log").SyncLogCategory, msg: string, person?: string, meta?: Record<string, unknown>) =>
-        _sl ? _sl.log(cat, msg, person, meta) : logSync(cat, msg, person, meta);
+      const logForSite = (
+        ctx: import("../site-manager").SiteContext | null,
+        cat: import("../sync-log").SyncLogCategory,
+        msg: string,
+        person?: string,
+      ) => {
+        if (ctx?.syncLog) ctx.syncLog.log(cat, msg, person);
+        else logSync(cat, msg, person);
+      };
 
       if (
         lastCommitSha &&
@@ -342,7 +344,9 @@ export function registerGithubRoutes(app: Express): void {
           commitSha.startsWith(lastCommitSha) ||
           lastCommitSha.startsWith(commitSha))
       ) {
-        siteLogSync(
+        const primary = matchedSites[0] ?? null;
+        logForSite(
+          primary,
           "WEBHOOK",
           `Push ${commitSha?.slice(0, 7)} by ${pusher}: skipping auto-pull — commit was pushed by this instance`,
           pusher,
@@ -376,66 +380,93 @@ export function registerGithubRoutes(app: Express): void {
         for (const f of commit.removed || []) changedFiles.add(f);
       }
 
-      const marketingFiles = Array.from(changedFiles).filter((f) =>
-        f.startsWith(`${contentFolderPrefix}/`),
-      );
-
-      if (marketingFiles.length === 0) {
-        siteLogSync(
-          "WEBHOOK",
-          `Push ${commitSha?.slice(0, 7)} by ${person}: no ${contentFolderPrefix} files changed`,
-          person,
-        );
-        res.json({ ok: true, message: `No ${contentFolderPrefix} files changed` });
-        return;
-      }
-
-      siteLogSync(
-        "WEBHOOK",
-        `Push ${commitSha?.slice(0, 7)} by ${person}: ${marketingFiles.length} ${contentFolderPrefix} files changed`,
-        person,
-      );
-
       const isAutoPullEnabled =
         process.env.GITHUB_SYNC_ENABLED === "true" &&
         process.env.GITHUB_AUTO_PULL_ENABLED === "true";
-      if (!isAutoPullEnabled) {
-        siteLogSync(
-          "AUTO-PULL",
-          `Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'`,
+
+      const { autoPullNonConflicting } = await import("../github");
+      let totalPulled = 0;
+      let totalConflicted = 0;
+      let totalErrors = 0;
+      let sitesWithFiles = 0;
+
+      for (const ctx of matchedSites) {
+        const contentFolderPrefix = ctx.contentRootName;
+        const siteFiles = Array.from(changedFiles).filter((f) =>
+          f.startsWith(`${contentFolderPrefix}/`),
         );
+
+        if (siteFiles.length === 0) {
+          logForSite(
+            ctx,
+            "WEBHOOK",
+            `Push ${commitSha?.slice(0, 7)} by ${person}: no ${contentFolderPrefix} files changed`,
+            person,
+          );
+          continue;
+        }
+
+        sitesWithFiles++;
+        logForSite(
+          ctx,
+          "WEBHOOK",
+          `Push ${commitSha?.slice(0, 7)} by ${person}: ${siteFiles.length} ${contentFolderPrefix} files changed`,
+          person,
+        );
+
+        if (!isAutoPullEnabled) {
+          logForSite(
+            ctx,
+            "AUTO-PULL",
+            `Skipped webhook pull — GITHUB_AUTO_PULL_ENABLED not set to 'true'`,
+          );
+          continue;
+        }
+
+        const result = await autoPullNonConflicting(siteFiles, commitSha, {
+          contentRoot: contentFolderPrefix,
+          repoUrl: pushRepoUrl || undefined,
+        });
+
+        totalPulled += result.pulled.length;
+        totalConflicted += result.conflicted.length;
+        totalErrors += result.errors.length;
+
+        if (result.pulled.length > 0) {
+          logForSite(
+            ctx,
+            "AUTO-PULL",
+            `Webhook: pulled ${result.pulled.length} files from ${commitSha?.slice(0, 7)}: ${result.pulled.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
+          );
+        }
+        if (result.conflicted.length > 0) {
+          logForSite(
+            ctx,
+            "CONFLICT",
+            `Webhook: ${result.conflicted.length} files have local edits: ${result.conflicted.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
+          );
+        }
+        if (result.errors.length > 0) {
+          logForSite(ctx, "ERROR", `Webhook pull errors: ${result.errors.join("; ")}`);
+        }
+      }
+
+      if (sitesWithFiles === 0) {
+        res.json({ ok: true, message: "No site content-folder files changed" });
+        return;
+      }
+
+      if (!isAutoPullEnabled) {
         res.json({ ok: true, message: "Auto-pull disabled" });
         return;
       }
 
-      const { autoPullNonConflicting } = await import("../github");
-      const pullOpts = {
-        contentRoot: contentFolderPrefix,
-        repoUrl: pushRepoUrl || undefined,
-      };
-      const result = await autoPullNonConflicting(marketingFiles, commitSha, pullOpts);
-
-      if (result.pulled.length > 0) {
-        siteLogSync(
-          "AUTO-PULL",
-          `Webhook: pulled ${result.pulled.length} files from ${commitSha?.slice(0, 7)}: ${result.pulled.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
-        );
-      }
-      if (result.conflicted.length > 0) {
-        siteLogSync(
-          "CONFLICT",
-          `Webhook: ${result.conflicted.length} files have local edits: ${result.conflicted.map((f) => f.replace(`${contentFolderPrefix}/`, "")).join(", ")}`,
-        );
-      }
-      if (result.errors.length > 0) {
-        siteLogSync("ERROR", `Webhook pull errors: ${result.errors.join("; ")}`);
-      }
-
       res.json({
         ok: true,
-        pulled: result.pulled.length,
-        conflicted: result.conflicted.length,
-        errors: result.errors.length,
+        pulled: totalPulled,
+        conflicted: totalConflicted,
+        errors: totalErrors,
+        sites: sitesWithFiles,
       });
     } catch (error) {
       const { logSync: _logSyncErr } = await import("../sync-log");
@@ -979,10 +1010,28 @@ export function registerGithubRoutes(app: Express): void {
   // Check for pull conflicts (files changed both locally and remotely)
   app.get("/api/github/pull-conflicts", async (req, res) => {
     try {
+      const site = res.locals.site as {
+        contentRootName?: string;
+        config?: { githubRepoUrl?: string };
+      } | undefined;
+      if (!site?.contentRootName) {
+        res.status(400).json({
+          error: "contentRoot is required — site could not be resolved for this request",
+        });
+        return;
+      }
       const { checkPullConflicts } = await import("../github");
-      const result = await checkPullConflicts();
+      const result = await checkPullConflicts({
+        repoUrl: site.config?.githubRepoUrl,
+        contentRoot: site.contentRootName,
+      });
       res.json(result);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to check pull conflicts";
+      if (message.includes("contentRoot is required")) {
+        res.status(400).json({ error: message });
+        return;
+      }
       log.error({ err: error }, "Error checking pull conflicts:");
       res.status(500).json({ error: "Failed to check pull conflicts" });
     }
@@ -1013,8 +1062,18 @@ export function registerGithubRoutes(app: Express): void {
         res.status(400).json({ error: "Missing filePath or message" });
         return;
       }
+      const site = res.locals.site as {
+        contentRootName?: string;
+        config?: { githubRepoUrl?: string };
+      } | undefined;
       const { commitSingleFile } = await import("../github");
-      const result = await commitSingleFile({ filePath, message, author });
+      const result = await commitSingleFile({
+        filePath,
+        message,
+        author,
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
 
       if (result.success) {
         res.json({ success: true, commitSha: result.commitSha });
