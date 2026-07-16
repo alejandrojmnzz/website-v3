@@ -4,11 +4,12 @@ import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, C
 import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
-import { badgeVariants } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { normalizeLocale } from "@/lib/locale";
 import { GitHubSyncChip } from "./GitHubSyncChip";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
@@ -20,6 +21,7 @@ import { CreateMenuModal } from "./CreateMenuModal";
 import { DatabasesView } from "./DatabasesView";
 import { ContentTypesView } from "./ContentTypesView";
 import { SitemapView } from "./SitemapView";
+import type { RobotsSettingsResponse } from "@/components/settings/RobotsTab";
 import type {
   MenuView,
   ContentInfo,
@@ -244,6 +246,11 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     refetchInterval: 60000,
     staleTime: 30000,
   });
+
+  const { data: robotsSettings } = useQuery<RobotsSettingsResponse>({
+    queryKey: ["/api/settings/robots"],
+  });
+  const siteDisallowed = !!robotsSettings?.block_indexing;
 
   const errorLogCount = (errorLogData?.totalErrors ?? 0) + (errorLogData?.totalWarnings ?? 0);
 
@@ -574,7 +581,50 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 onClick={() => props.setMenuView("sitemap")}
                 indicator="chevron"
                 testId="button-sitemap-all-urls"
-                rightContent={<span className="text-xs text-muted-foreground">{props.sitemapUrlCount !== null ? props.sitemapUrlCount : '...'}</span>}
+                rightContent={
+                  <div className="flex items-center gap-1.5">
+                    {siteDisallowed && (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex"
+                            data-testid="badge-indexed-urls-disallowed"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                          >
+                            <Badge variant="destructive" className="cursor-pointer">
+                              disallowed
+                            </Badge>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="w-72 space-y-2"
+                          onClick={(e) => e.stopPropagation()}
+                          align="end"
+                        >
+                          <p className="text-sm font-medium text-destructive">Site indexing blocked</p>
+                          <p className="text-xs text-muted-foreground">
+                            The whole website is globally disallowed for search indexing. Per-page
+                            robots settings are ignored until this is turned off.
+                          </p>
+                          <a
+                            href="/private/settings?tab=robots"
+                            className="text-xs text-primary underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Open Robots settings
+                          </a>
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {props.sitemapUrlCount !== null ? props.sitemapUrlCount : "..."}
+                    </span>
+                  </div>
+                }
               />
               <MenuItem
                 icon={Route}

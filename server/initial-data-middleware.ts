@@ -16,7 +16,7 @@ import { loadImageRegistry } from "./image-registry";
 import { getMergedImageRegistry } from "./image-registry-resolver";
 import type { SiteContext } from "./site-manager";
 import { readNavigationEagerManifest } from "./navigation-eager-manifest";
-import { getDefaultLocale, normalizeLocale } from "./settings";
+import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./settings";
 import { getApiPath } from "../shared/api-paths";
 import { loadDatabaseSinglePage } from "./database-single-loader";
 import { resolveSingleVars } from "./single-resolver";
@@ -457,7 +457,7 @@ function replaceMetaContent(html: string, attr: string, attrValue: string, repla
   return html;
 }
 
-export function injectSsrMetaTags(html: string, payload: InitialDataPayload | null): string {
+export function injectSsrMetaTags(html: string, payload: InitialDataPayload | null, contentRoot?: string): string {
   if (!payload) return html;
 
   const lang = payload.locale || "en";
@@ -514,7 +514,10 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
     }
   }
 
-  const robotsValue = typeof meta.robots === "string" ? meta.robots : "index, follow";
+  const robotsValue = resolveEffectiveRobots(
+    typeof meta.robots === "string" ? meta.robots : undefined,
+    contentRoot,
+  );
   if (html.includes('name="robots"')) {
     html = replaceMetaContent(html, "name", "robots", robotsValue);
   } else {

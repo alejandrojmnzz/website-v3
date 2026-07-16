@@ -8,7 +8,7 @@ import { deepMerge } from "./utils/deepMerge";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { getFolder, getContentTypeConfig, resolveUrlPatternWithMapping } from "./content-types";
 import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generateHomepageHreflangTags } from "./hreflang";
-import { getHomePage, getSupportedLocales, getDefaultLocale } from "./settings";
+import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
 
@@ -332,7 +332,10 @@ export function generateDatabaseSsrHtml(
     );
   }
 
-  const robots = typeof record.robots === "string" ? record.robots : "index, follow";
+  const robots = resolveEffectiveRobots(
+    typeof record.robots === "string" ? record.robots : undefined,
+    contentRoot,
+  );
   const ogType = contentType === "blog" ? "article" : "website";
   const twitterHandle = getOrganizationTwitterHandle(contentRoot);
   const imageDimensions = image ? getImageDimensions(image, contentRoot) : null;
@@ -383,7 +386,7 @@ export function generateListingSsrHtml(contentType: string, locale: string, cont
   const defaultImageDimensions = defaultSocialImage ? getImageDimensions(defaultSocialImage, contentRoot) : null;
   const metaTags = [
     `<title>${title}</title>`,
-    `<meta name="robots" content="index, follow" />`,
+    `<meta name="robots" content="${resolveEffectiveRobots(undefined, contentRoot)}" />`,
     `<meta name="description" content="${description}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:title" content="${title}" />`,
@@ -407,14 +410,18 @@ export function generateListingSsrHtml(contentType: string, locale: string, cont
 
 export function resolvePageRobots(url: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): string {
   try {
+    if (isIndexingBlocked(contentRoot)) return "noindex, nofollow";
     const route = parseRoute(url, ci);
     if (!route) return "index, follow";
     const pageData = loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
     if (!pageData) return "index, follow";
     const meta = pageData.meta as Record<string, unknown> | undefined;
-    return typeof meta?.robots === "string" ? meta.robots : "index, follow";
+    return resolveEffectiveRobots(
+      typeof meta?.robots === "string" ? meta.robots : undefined,
+      contentRoot,
+    );
   } catch {
-    return "index, follow";
+    return resolveEffectiveRobots(undefined, contentRoot);
   }
 }
 
@@ -467,7 +474,10 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
     }
 
     const meta = pageData.meta as Record<string, unknown> | undefined;
-    const robots = typeof meta?.robots === "string" ? meta.robots : "index, follow";
+    const robots = resolveEffectiveRobots(
+      typeof meta?.robots === "string" ? meta.robots : undefined,
+      contentRoot,
+    );
     const robotsTag = `<meta name="robots" content="${robots}" />`;
 
     const ogImage = typeof meta?.og_image === "string" ? meta.og_image : null;

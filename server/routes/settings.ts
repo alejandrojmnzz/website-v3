@@ -137,6 +137,9 @@ import {
   updateOptimizationSettings,
   getTrackingSettings,
   updateTrackingSettings,
+  getRobotsSettings,
+  updateRobotsSettings,
+  buildRobotsTxtContent,
 } from "../settings";
 import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
@@ -899,6 +902,55 @@ export function registerSettingsRoutes(app: Express): void {
       }
       updateOptimizationSettings({ tagmanager }, getContentRoot(res));
       res.json({ success: true, ...getOptimizationSettings(getContentRoot(res)) });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/settings/robots", (req, res) => {
+    try {
+      const contentRoot = getContentRoot(res);
+      const robots = getRobotsSettings(contentRoot);
+      function getRobotsBaseUrl(): string {
+        if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
+        if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+        return "http://localhost:5000";
+      }
+      res.json({
+        ...robots,
+        robots_txt_preview: buildRobotsTxtContent(robots, getRobotsBaseUrl()),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load robots settings" });
+    }
+  });
+
+  app.put("/api/settings/robots", (req, res) => {
+    try {
+      const schema = z.object({
+        block_indexing: z.boolean().optional(),
+        include_sitemap: z.boolean().optional(),
+        disallow_paths: z.array(z.string()).optional(),
+        ai_bots: z.array(z.string()).optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+      }
+      const contentRoot = getContentRoot(res);
+      const robots = updateRobotsSettings(parsed.data, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      clearSitemapCache();
+      function getRobotsBaseUrl(): string {
+        if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
+        if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+        return "http://localhost:5000";
+      }
+      res.json({
+        success: true,
+        ...robots,
+        robots_txt_preview: buildRobotsTxtContent(robots, getRobotsBaseUrl()),
+      });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
     }

@@ -149,6 +149,7 @@ import {
   getHomePage,
   getOptimizationSettings,
   updateOptimizationSettings,
+  resolveEffectiveRobots,
 } from "../settings";
 import { variableManager } from "../variable-manager";
 import { getValidationService } from "../../scripts/validation/service";
@@ -2199,6 +2200,7 @@ export function registerAdminRoutes(app: Express): void {
       robotsDirective = resolvePageRobots(url, getCI(res), getContentRoot(res));
     }
 
+    robotsDirective = resolveEffectiveRobots(robotsDirective, getContentRoot(res));
     res.setHeader("X-Robots-Tag", robotsDirective);
 
     const isBlogRoute = isDatabaseRoute || isListingRoute || !!blogUrlMatch;
