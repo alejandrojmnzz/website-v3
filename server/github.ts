@@ -1055,9 +1055,10 @@ export async function syncWithRemote(): Promise<{ success: boolean; error?: stri
 }
 
 /**
- * Reconcile sync state on startup using the same classification as the Sync Modal
- * (`getAllSyncChanges`). Does not overwrite local edits; downloads are left to
- * `autoPullNonConflicting`.
+ * Reconcile sync state on startup by comparing local file hashes against remote blob SHAs
+ * (same approach as website-v3old). If the commit baseline matches HEAD but the deploy
+ * disk snapshot is stale, pull those files. Never advance lastSyncedCommit via
+ * rebuildSyncStateFromLocal unless local content actually matches remote.
  */
 export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; contentRoot?: string }): Promise<void> {
   const { withSyncLogContextAsync } = await import("./sync-log");
@@ -1069,7 +1070,15 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
   refreshGithubCommit();
 
   try {
-    const { getLastSyncedCommit, rebuildSyncStateFromLocal } = await import("./sync-state");
+    const {
+      getLastSyncedCommit,
+      rebuildSyncStateFromLocal,
+      shouldTrackFile,
+      computeGitBlobSha,
+      computeFileSha,
+      updateFileAfterPull,
+      loadSyncState,
+    } = await import("./sync-state");
     const lastSyncedCommit = getLastSyncedCommit(opts?.contentRoot);
     const remoteCommit = await getBranchHeadSha(config);
 
@@ -1077,39 +1086,154 @@ export async function reconcileSyncStateOnStartup(opts?: { repoUrl?: string; con
       return;
     }
 
-    if (lastSyncedCommit === remoteCommit) {
-      // Local hash diffs are pending Sync Modal changes — do not re-pull/overwrite.
-      logSync('RECONCILE', `Already in sync at ${lastSyncedCommit.slice(0, 7)}`);
-      return;
-    }
-
     const contentFolder = opts?.contentRoot
       ? (path.isAbsolute(opts.contentRoot) ? path.relative(process.cwd(), opts.contentRoot) : opts.contentRoot)
       : getDefaultContentFolder();
 
-    logSync(
-      'RECONCILE',
-      `Local ${lastSyncedCommit.slice(0, 7)} ≠ remote ${remoteCommit.slice(0, 7)}, classifying with Sync Modal rules...`,
-    );
+    const refreshAfterPull = async (pulledCount: number) => {
+      if (pulledCount <= 0) return;
+      try {
+        const { getSiteContextMap } = await import("./site-manager");
+        const { clearRedirectCache } = await import("./redirects");
+        const siteCtx = Array.from(getSiteContextMap().values()).find(
+          (ctx) => ctx.contentRootName === contentFolder || ctx.contentRoot.endsWith(contentFolder),
+        );
+        if (siteCtx?.contentIndex) {
+          siteCtx.contentIndex.refresh();
+        }
+        clearRedirectCache();
+      } catch (e) {
+        log.warn({ err: e }, "[SyncReconcile] Failed to refresh ContentIndex after stale pull");
+      }
+    };
 
-    const changes = await getAllSyncChanges(contentFolder, { repoUrl: opts?.repoUrl });
-    const pendingRemote = changes.filter(c => c.source === 'incoming' || c.source === 'conflict');
+    if (lastSyncedCommit === remoteCommit) {
+      const state = loadSyncState(opts?.contentRoot);
+      const staleFiles: string[] = [];
 
-    if (pendingRemote.length === 0) {
-      // Remote moved but nothing tracked/pending remains — just advance baseline.
-      // Incoming downloads (if any appear later) are handled by autoPullNonConflicting.
-      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
-      logSync('RECONCILE', `No incoming/conflict files; updated to ${remoteCommit.slice(0, 7)}`);
+      for (const [filePath, fileInfo] of Object.entries(state.files)) {
+        if (!shouldTrackFile(filePath, undefined, opts?.contentRoot) || !fileInfo.remoteSha) continue;
+
+        const fullPath = path.join(process.cwd(), filePath);
+        if (!fs.existsSync(fullPath)) {
+          staleFiles.push(filePath);
+          continue;
+        }
+
+        const localContent = fs.readFileSync(fullPath, "utf-8");
+        const localSha = computeFileSha(localContent);
+        if (localSha !== fileInfo.remoteSha) {
+          staleFiles.push(filePath);
+        }
+      }
+
+      if (staleFiles.length === 0) {
+        logSync("RECONCILE", `Already in sync at ${lastSyncedCommit.slice(0, 7)}`);
+        return;
+      }
+
+      logSync(
+        "RECONCILE",
+        `Commits match at ${remoteCommit.slice(0, 7)} but ${staleFiles.length} local file(s) are stale (deploy snapshot), pulling from GitHub...`,
+      );
+      let pulledCount = 0;
+      const pullErrors: string[] = [];
+
+      for (const filePath of staleFiles) {
+        try {
+          const result = await pullSingleFile(filePath, { repoUrl: opts?.repoUrl });
+          if (result.success) {
+            pulledCount++;
+          } else {
+            pullErrors.push(`${filePath}: ${result.error}`);
+          }
+        } catch (e) {
+          pullErrors.push(`${filePath}: ${e instanceof Error ? e.message : "Unknown error"}`);
+        }
+      }
+
+      // Only advance baseline when every stale file was restored; otherwise keep
+      // prior remoteShas so the next startup / Sync Modal can retry.
+      if (pullErrors.length === 0) {
+        rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
+      }
+
+      if (pulledCount > 0) {
+        const short = staleFiles
+          .slice(0, 5)
+          .map((f) => f.replace(`${contentFolder}/`, ""))
+          .join(", ");
+        logSync(
+          "RECONCILE",
+          `Pulled ${pulledCount} stale file(s) from GitHub: ${short}${staleFiles.length > 5 ? ` (+${staleFiles.length - 5} more)` : ""}`,
+        );
+        await refreshAfterPull(pulledCount);
+      }
+      if (pullErrors.length > 0) {
+        logSync("ERROR", `Failed to pull ${pullErrors.length} stale file(s): ${pullErrors.join("; ")}`);
+      }
       return;
     }
 
     logSync(
-      'RECONCILE',
-      `${pendingRemote.filter(c => c.source === 'incoming').length} incoming, ${pendingRemote.filter(c => c.source === 'conflict').length} conflict(s) — deferring pull to auto-pull`,
+      "RECONCILE",
+      `Local ${lastSyncedCommit.slice(0, 7)} ≠ remote ${remoteCommit.slice(0, 7)}, checking file hashes...`,
     );
+
+    const conflictInfo = await getConflictInfo({
+      repoUrl: opts?.repoUrl,
+      contentRoot: opts?.contentRoot,
+    });
+
+    const trackedFiles = conflictInfo.changedFiles.filter((f) =>
+      shouldTrackFile(f, undefined, opts?.contentRoot),
+    );
+    if (trackedFiles.length === 0) {
+      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
+      logSync("RECONCILE", `No tracked files changed, updated to ${remoteCommit.slice(0, 7)}`);
+      return;
+    }
+
+    let allReconciled = true;
+    let reconciledCount = 0;
+
+    for (const filePath of trackedFiles) {
+      const remoteBlobSha = conflictInfo.fileBlobShas[filePath];
+      if (!remoteBlobSha) {
+        allReconciled = false;
+        continue;
+      }
+
+      const fullPath = path.join(process.cwd(), filePath);
+      if (!fs.existsSync(fullPath)) {
+        allReconciled = false;
+        continue;
+      }
+
+      const localContent = fs.readFileSync(fullPath, "utf-8");
+      const localBlobSha = computeGitBlobSha(localContent);
+
+      if (localBlobSha === remoteBlobSha) {
+        const fileCommitDate = await getFileCommitDate(config, filePath);
+        updateFileAfterPull(filePath, remoteCommit, fileCommitDate || undefined, opts?.contentRoot);
+        reconciledCount++;
+      } else {
+        allReconciled = false;
+      }
+    }
+
+    if (allReconciled) {
+      rebuildSyncStateFromLocal(remoteCommit, opts?.contentRoot);
+      logSync("RECONCILE", `All ${reconciledCount} files match remote, updated to ${remoteCommit.slice(0, 7)}`);
+    } else {
+      logSync(
+        "RECONCILE",
+        `${reconciledCount}/${trackedFiles.length} files match remote, ${trackedFiles.length - reconciledCount} still differ — deferring pull to auto-pull`,
+      );
+    }
   } catch (error) {
-    logSync('ERROR', `Reconciliation error: ${error instanceof Error ? error.message : String(error)}`);
-    log.error({ err: error }, '[SyncReconcile] Error during reconciliation:');
+    logSync("ERROR", `Reconciliation error: ${error instanceof Error ? error.message : String(error)}`);
+    log.error({ err: error }, "[SyncReconcile] Error during reconciliation:");
   }
   });
 }
