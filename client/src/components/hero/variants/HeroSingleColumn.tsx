@@ -10,7 +10,7 @@ import type { HeroSingleColumn } from "@shared/schema";
 import { createElement } from "react";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { resolveTemplateFallback, coerceToText } from "@/lib/variable-manager";
+import { resolveTemplateFallback, coerceToText, coerceToHtml } from "@/lib/variable-manager";
 
 const BLOG_IMAGE_FALLBACK = "https://storage.googleapis.com/4geeks-academy-website/media/Group-original_1765419144159.webp";
 
@@ -72,12 +72,12 @@ export default function HeroSingleColumn({ data }: HeroSingleColumnProps) {
         <h1 
           className="text-4xl md:text-h1 mb-6 text-foreground"
           data-testid="text-hero-title"
-          dangerouslySetInnerHTML={{ __html: data.title || "" }}
+          dangerouslySetInnerHTML={{ __html: coerceToHtml(data.title) }}
         />
         
-        {data.subtitle && (
+        {coerceToHtml(data.subtitle) && (
           <RichTextContent 
-            html={data.subtitle}
+            html={coerceToHtml(data.subtitle)}
             className="text-body text-muted-foreground max-w-3xl mx-auto mb-8 leading-relaxed [&_p]:mb-0"
             data-testid="text-hero-subtitle"
           />

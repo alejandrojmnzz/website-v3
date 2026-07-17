@@ -242,6 +242,14 @@ export function coerceToText(value: unknown): string {
   return "";
 }
 
+/**
+ * Like coerceToText, but preserves HTML strings unchanged so rich-text
+ * fields keep their markup. Non-string values are coerced to plain text.
+ */
+export function coerceToHtml(value: unknown): string {
+  return typeof value === "string" ? value : coerceToText(value);
+}
+
 export function hasTemplateVariables(text: string): boolean {
   return new RegExp(TEMPLATE_REGEX.source, TEMPLATE_REGEX.flags).test(text);
 }

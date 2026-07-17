@@ -71,8 +71,8 @@ export default function HeroSimpleStacked({ data }: HeroSimpleStackedProps) {
 
           <div className="w-full max-w-md">
             <UniversalImage
-              id={resolveTemplateFallback(data.image.src ?? "")}
-              alt={data.image.alt}
+              id={resolveTemplateFallback(data.image?.src ?? "")}
+              alt={data.image?.alt}
               className="w-full h-auto rounded-card shadow-card"
               fieldContext={{ fieldPath: "image.src" }}
               loading="eager"

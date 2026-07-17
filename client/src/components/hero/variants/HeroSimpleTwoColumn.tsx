@@ -7,7 +7,7 @@ import { UniversalImage } from "@/components/UniversalImage";
 import { createElement } from "react";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { coerceToText } from "@/lib/variable-manager";
+import { coerceToText, coerceToHtml } from "@/lib/variable-manager";
 
 interface HeroSimpleTwoColumnProps {
   data: HeroSimpleTwoColumnType;
@@ -73,9 +73,9 @@ export default function HeroSimpleTwoColumn({ data }: HeroSimpleTwoColumnProps) 
             >
               {coerceToText(data.title)}
             </h1>
-            {data.subtitle && (
+            {coerceToHtml(data.subtitle) && (
               <RichTextContent
-                html={data.subtitle}
+                html={coerceToHtml(data.subtitle)}
                 className="text-base mb-4 leading-relaxed"
                 data-testid="text-hero-subtitle"
               />
