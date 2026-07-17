@@ -10,7 +10,7 @@ import type { HeroSingleColumn } from "@shared/schema";
 import { createElement } from "react";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { resolveTemplateFallback } from "@/lib/variable-manager";
+import { resolveTemplateFallback, coerceToText, coerceToHtml } from "@/lib/variable-manager";
 
 const BLOG_IMAGE_FALLBACK = "https://storage.googleapis.com/4geeks-academy-website/media/Group-original_1765419144159.webp";
 
@@ -49,30 +49,35 @@ export default function HeroSingleColumn({ data }: HeroSingleColumnProps) {
     setFallbackSrc(data.image?.fallback ?? BLOG_IMAGE_FALLBACK);
   };
 
+  // Badge values can arrive as plain strings or as objects (e.g. a category
+  // entry like { slug: "..." } from static YAML content) — coerce to a
+  // renderable string so React never receives a raw object child.
+  const badgeText = coerceToText(data.badge);
+
   return (
     <section 
       data-testid="section-hero"
     >
       <div className="max-w-6xl mx-auto px-4 text-center">
-        {data.badge && (
+        {badgeText && (
           <Badge 
             variant="secondary" 
             className="mb-6"
             data-testid="badge-hero"
           >
-            {data.badge}
+            {badgeText}
           </Badge>
         )}
         
         <h1 
           className="text-4xl md:text-h1 mb-6 text-foreground"
           data-testid="text-hero-title"
-          dangerouslySetInnerHTML={{ __html: data.title || "" }}
+          dangerouslySetInnerHTML={{ __html: coerceToHtml(data.title) }}
         />
         
-        {data.subtitle && (
+        {coerceToHtml(data.subtitle) && (
           <RichTextContent 
-            html={data.subtitle}
+            html={coerceToHtml(data.subtitle)}
             className="text-body text-muted-foreground max-w-3xl mx-auto mb-8 leading-relaxed [&_p]:mb-0"
             data-testid="text-hero-subtitle"
           />

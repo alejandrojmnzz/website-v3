@@ -1,5 +1,5 @@
 import { contentIndex, MARKETING_CONTENT_PATH as BASE_CONTENT_PATH } from "./content-index";
-import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, resolveUrlPatternWithMapping, getAllConfigs, getDirectory } from "./content-types";
+import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, getDirectory } from "./content-types";
 import { getSupportedLocales, isIndexingBlocked } from "./settings";
 import { applyTransformIfNeeded } from "./transform";
 import { getFileLastmod } from "./sync-state";
@@ -409,6 +409,13 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         }
         const urlPattern = urlPatterns[locale] || urlPatterns["en"];
         if (!urlPattern) continue;
+        const { missing } = extractUrlPatternParams(urlPattern, item, fieldMapping);
+        if (missing.length > 0) {
+          log.warn(
+            `[Sitemap] Skipping ${typeName} entry "${String(item.slug || item.id || "")}" (${locale}): cannot resolve URL pattern variable(s) ${missing.map((m) => `:${m}`).join(", ")} from entry data`,
+          );
+          continue;
+        }
         const itemUrl = `${getBaseUrl(ctx)}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping)}`;
         const title = String(item.title || item.slug || item.id || "");
         const updatedAt = String(item.updated_at || "");
@@ -449,7 +456,19 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
             continue;
           }
 
-          const url = `${getBaseUrl(ctx)}${ci.buildUrl(typeName, locale, (merged.slug as string) || slug)}`;
+          const urlPattern = typeConfig.url_pattern?.[locale] || typeConfig.url_pattern?.["default"];
+          let params: Record<string, string> | undefined;
+          if (urlPattern) {
+            const extracted = extractUrlPatternParams(urlPattern, merged);
+            if (extracted.missing.length > 0) {
+              log.warn(
+                `[Sitemap] Skipping ${typeName} entry "${slug}" (${locale}): cannot resolve URL pattern variable(s) ${extracted.missing.map((m) => `:${m}`).join(", ")} from entry data`,
+              );
+              continue;
+            }
+            params = extracted.params;
+          }
+          const url = `${getBaseUrl(ctx)}${ci.buildUrl(typeName, locale, (merged.slug as string) || slug, params)}`;
           const title = meta.page_title || (merged.title as string) || slug;
           const typeLabel = typeName.charAt(0).toUpperCase() + typeName.slice(1);
 

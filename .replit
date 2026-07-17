@@ -132,15 +132,10 @@ expertMode = true
 [userenv.shared]
 MEDIA_DEFAULT_PROVIDER = "gcs"
 EDIT_TOKEN = "61bb7963aa6a49d10b953c5e14fce3161688a6de"
-OPENAI_BASE_URL = "https://api.groq.com/openai/v1"
-BREATHECODE_TOKEN = "c6fe193405438832e2790dfb1d6253200fe16775"
-CONTENT_FOLDER = "site_4geeks-com"
 
 [userenv.development]
-SITE_URL = "https://72ebe23e-b4ff-4d6d-91d4-3fd3478c7a09-00-1gihg1kbib7l6.worf.replit.dev"
 
 [userenv.production]
-SITE_URL = "https://4geeksacademy.com"
 NODE_ENV = "production"
 
 [postMerge]

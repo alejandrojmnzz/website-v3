@@ -226,6 +226,30 @@ export function resolveTemplateFallback(text: string): string {
   );
 }
 
+/**
+ * Coerces a resolved single-entry value to a renderable string. Static YAML
+ * content can resolve template variables like {{ single.category }} to raw
+ * objects (e.g. { slug: "..." }); rendering those directly as React children
+ * crashes the page. Picks a sensible text field from objects, else "".
+ */
+export function coerceToText(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const candidate = obj.text ?? obj.label ?? obj.name ?? obj.title ?? obj.slug;
+    if (typeof candidate === "string" || typeof candidate === "number") return String(candidate);
+  }
+  return "";
+}
+
+/**
+ * Like coerceToText, but preserves HTML strings unchanged so rich-text
+ * fields keep their markup. Non-string values are coerced to plain text.
+ */
+export function coerceToHtml(value: unknown): string {
+  return typeof value === "string" ? value : coerceToText(value);
+}
+
 export function hasTemplateVariables(text: string): boolean {
   return new RegExp(TEMPLATE_REGEX.source, TEMPLATE_REGEX.flags).test(text);
 }

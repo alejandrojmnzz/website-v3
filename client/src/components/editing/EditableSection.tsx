@@ -119,6 +119,26 @@ function toMaxWidthResponsiveSpacing(values: MaxWidthValues): ResponsiveSpacing 
 
 type XBreakpoint = "mobile" | "desktop";
 
+interface ContentTypeXDefaults {
+  paddingX?: ResponsiveSpacing;
+  marginX?: ResponsiveSpacing;
+  maxWidth?: ResponsiveSpacing;
+}
+
+/** Value for one breakpoint from a ResponsiveSpacing default; null if not set for that bp. */
+function getDefaultTokenForBreakpoint(
+  value: ResponsiveSpacing | undefined,
+  breakpoint: XBreakpoint,
+): string | null {
+  if (!value || typeof value !== "object") return null;
+  if (breakpoint === "mobile") {
+    return typeof value.mobile === "string" && value.mobile.trim() ? value.mobile : null;
+  }
+  if (typeof value.desktop === "string" && value.desktop.trim()) return value.desktop;
+  if (typeof value.mobile === "string" && value.mobile.trim()) return value.mobile;
+  return null;
+}
+
 interface XSpacingValues {
   mobile: { left: string; right: string };
   desktop: { left: string; right: string };
@@ -188,24 +208,39 @@ function XSpacingPresetButtons({
   value,
   onChange,
   testId,
+  defaultValues,
 }: {
   value: string;
   onChange: (value: string) => void;
   testId: string;
+  /** Preset values marked as content-type defaults (amber dot). */
+  defaultValues?: string[];
 }) {
+  const defaults = defaultValues ?? [];
   return (
     <div className="flex items-center gap-1">
-      {X_SPACING_PRESETS.map((preset) => (
-        <Button
-          key={preset.value}
-          variant={value === preset.value ? "default" : "outline"}
-          size="sm"
-          onClick={() => onChange(preset.value)}
-          data-testid={`x-spacing-preset-${testId}-${preset.value}`}
-        >
-          {preset.label}
-        </Button>
-      ))}
+      {X_SPACING_PRESETS.map((preset) => {
+        const isDefault = defaults.includes(preset.value);
+        return (
+          <Button
+            key={preset.value}
+            variant={value === preset.value ? "default" : "outline"}
+            size="sm"
+            className="relative"
+            onClick={() => onChange(preset.value)}
+            data-testid={`x-spacing-preset-${testId}-${preset.value}`}
+            title={isDefault ? "Content-type default (_common.single.yml)" : undefined}
+          >
+            {isDefault ? (
+              <span
+                className="absolute -top-0.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-amber-500 ring-1 ring-background"
+                aria-hidden
+              />
+            ) : null}
+            {preset.label}
+          </Button>
+        );
+      })}
     </div>
   );
 }
@@ -220,6 +255,8 @@ function XSpacingGroup({
   onChangeBoth,
   onToggleLink,
   testIdPrefix,
+  defaultLeft,
+  defaultRight,
 }: {
   label: string;
   leftValue: string;
@@ -230,7 +267,12 @@ function XSpacingGroup({
   onChangeBoth: (v: string) => void;
   onToggleLink: () => void;
   testIdPrefix: string;
+  defaultLeft?: string | null;
+  defaultRight?: string | null;
 }) {
+  const linkedDefaults = [
+    ...new Set([defaultLeft, defaultRight].filter((v): v is string => !!v)),
+  ];
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -256,16 +298,27 @@ function XSpacingGroup({
           value={leftValue}
           onChange={onChangeBoth}
           testId={`${testIdPrefix}-both`}
+          defaultValues={linkedDefaults}
         />
       ) : (
         <div className="space-y-1.5">
           <div>
             <Label className="text-xs text-muted-foreground">Left</Label>
-            <XSpacingPresetButtons value={leftValue} onChange={onChangeLeft} testId={`${testIdPrefix}-left`} />
+            <XSpacingPresetButtons
+              value={leftValue}
+              onChange={onChangeLeft}
+              testId={`${testIdPrefix}-left`}
+              defaultValues={defaultLeft ? [defaultLeft] : undefined}
+            />
           </div>
           <div>
             <Label className="text-xs text-muted-foreground">Right</Label>
-            <XSpacingPresetButtons value={rightValue} onChange={onChangeRight} testId={`${testIdPrefix}-right`} />
+            <XSpacingPresetButtons
+              value={rightValue}
+              onChange={onChangeRight}
+              testId={`${testIdPrefix}-right`}
+              defaultValues={defaultRight ? [defaultRight] : undefined}
+            />
           </div>
         </div>
       )}
@@ -380,6 +433,8 @@ export function EditableSection({ children, section, index, sectionType, content
     token: string | null;
     changedFields: string[];
   } | null>(null);
+  /** Layout defaults from _common.single.yml for the content type (X spacing keys only). */
+  const [contentTypeXDefaults, setContentTypeXDefaults] = useState<ContentTypeXDefaults | null>(null);
 
   // YAML source modal state
   const [showYamlModal, setShowYamlModal] = useState(false);
@@ -841,6 +896,41 @@ export function EditableSection({ children, section, index, sectionType, content
       setXMaxWidth(mw);
       setPadLinked(pad.desktop.left === pad.desktop.right);
       setMarLinked(mar.desktop.left === mar.desktop.right);
+      setContentTypeXDefaults(null);
+      if (contentType) {
+        const token = getDebugToken();
+        fetch(`/api/content-type/${contentType}/single-defaults`, {
+          headers: token ? { Authorization: `Token ${token}` } : {},
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            const defaults = (data?.defaults ?? {}) as Record<string, unknown>;
+            const legacy = (defaults.section_defaults && typeof defaults.section_defaults === "object"
+              ? defaults.section_defaults
+              : {}) as Record<string, unknown>;
+            const next: ContentTypeXDefaults = {};
+            const padX = defaults.paddingX ?? legacy.paddingX;
+            const marX = defaults.marginX ?? legacy.marginX;
+            const mw = defaults.maxWidth ?? legacy.maxWidth;
+            if (padX && typeof padX === "object") {
+              next.paddingX = padX as ResponsiveSpacing;
+            }
+            if (marX && typeof marX === "object") {
+              next.marginX = marX as ResponsiveSpacing;
+            }
+            if (mw && typeof mw === "object") {
+              next.maxWidth = mw as ResponsiveSpacing;
+            }
+            if (next.paddingX || next.marginX || next.maxWidth) {
+              setContentTypeXDefaults(next);
+            } else {
+              setContentTypeXDefaults(null);
+            }
+          })
+          .catch(() => setContentTypeXDefaults(null));
+      }
+    } else {
+      setContentTypeXDefaults(null);
     }
   };
 
@@ -915,9 +1005,10 @@ export function EditableSection({ children, section, index, sectionType, content
           });
           if (defaultsResp.ok) {
             const { defaults } = await defaultsResp.json();
-            const hasPadX = defaults?.section_defaults?.paddingX;
-            const hasMarX = defaults?.section_defaults?.marginX;
-            const hasMW = defaults?.section_defaults?.maxWidth;
+            const legacy = defaults?.section_defaults;
+            const hasPadX = defaults?.paddingX ?? legacy?.paddingX;
+            const hasMarX = defaults?.marginX ?? legacy?.marginX;
+            const hasMW = defaults?.maxWidth ?? legacy?.maxWidth;
             if (!hasPadX && !hasMarX && !hasMW && (padChanged || marChanged || mwChanged)) {
               const sectionDefaults: Record<string, unknown> = {};
               const changedFields: string[] = [];
@@ -1010,7 +1101,7 @@ export function EditableSection({ children, section, index, sectionType, content
           "Content-Type": "application/json",
           ...(xDefaultConfirmData.token ? { Authorization: `Token ${xDefaultConfirmData.token}` } : {}),
         },
-        body: JSON.stringify({ section_defaults: xDefaultConfirmData.sectionDefaults }),
+        body: JSON.stringify(xDefaultConfirmData.sectionDefaults),
       });
       toast({ title: "Default X spacing saved for content type" });
     } catch {}
@@ -1138,6 +1229,19 @@ export function EditableSection({ children, section, index, sectionType, content
           </PopoverTrigger>
           <PopoverContent className="w-auto min-w-[340px] p-3" onClick={(e) => e.stopPropagation()}>
             <div className="space-y-3">
+              {contentTypeXDefaults ? (
+                <div
+                  className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-1.5 text-[11px] leading-snug text-amber-950 dark:text-amber-100"
+                  data-testid={`x-spacing-type-defaults-${index}`}
+                >
+                  Some values have already been set on the{" "}
+                  <span className="font-medium">_common</span> template.
+                  <span className="text-amber-800/80 dark:text-amber-200/80">
+                    {" "}Amber dots mark those defaults for{" "}
+                    {xSpacingBreakpoint === "desktop" ? "desktop" : "mobile"}.
+                  </span>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium">X Spacing</span>
                 <div className="flex items-center gap-1 rounded-md border p-0.5">
@@ -1163,20 +1267,48 @@ export function EditableSection({ children, section, index, sectionType, content
                   </Button>
                 </div>
               </div>
+              {(() => {
+                const mwDefault = getDefaultTokenForBreakpoint(
+                  contentTypeXDefaults?.maxWidth,
+                  xSpacingBreakpoint,
+                );
+                const padToken = getDefaultTokenForBreakpoint(
+                  contentTypeXDefaults?.paddingX,
+                  xSpacingBreakpoint,
+                );
+                const marToken = getDefaultTokenForBreakpoint(
+                  contentTypeXDefaults?.marginX,
+                  xSpacingBreakpoint,
+                );
+                const padSides = padToken ? parseLR(padToken) : null;
+                const marSides = marToken ? parseLR(marToken) : null;
+                return (
+                  <>
               <div className="space-y-2">
                 <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Max Width</span>
                 <div className="flex items-center gap-1">
-                  {MAX_WIDTH_PRESETS.map((preset) => (
+                  {MAX_WIDTH_PRESETS.map((preset) => {
+                    const isDefault = mwDefault === preset.value;
+                    return (
                     <Button
                       key={preset.value}
                       variant={xMaxWidth[xSpacingBreakpoint] === preset.value ? "default" : "outline"}
                       size="sm"
+                      className="relative"
                       onClick={() => setXMaxWidth(prev => ({ ...prev, [xSpacingBreakpoint]: preset.value }))}
                       data-testid={`x-mw-preset-${index}-${preset.value}`}
+                      title={isDefault ? "Content-type default (_common.single.yml)" : undefined}
                     >
+                      {isDefault ? (
+                        <span
+                          className="absolute -top-0.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-amber-500 ring-1 ring-background"
+                          aria-hidden
+                        />
+                      ) : null}
                       {preset.label}
                     </Button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <XSpacingGroup
@@ -1189,6 +1321,8 @@ export function EditableSection({ children, section, index, sectionType, content
                 onChangeBoth={(v) => updateXBoth(setXPadding, xSpacingBreakpoint, v)}
                 onToggleLink={() => setPadLinked(prev => !prev)}
                 testIdPrefix={`x-pad-${index}`}
+                defaultLeft={padSides?.left}
+                defaultRight={padSides?.right}
               />
               {(xMaxWidth.desktop === "none" && xMaxWidth.mobile === "none") && (
                 <XSpacingGroup
@@ -1201,8 +1335,13 @@ export function EditableSection({ children, section, index, sectionType, content
                   onChangeBoth={(v) => updateXBoth(setXMargin, xSpacingBreakpoint, v)}
                   onToggleLink={() => setMarLinked(prev => !prev)}
                   testIdPrefix={`x-mar-${index}`}
+                  defaultLeft={marSides?.left}
+                  defaultRight={marSides?.right}
                 />
               )}
+                  </>
+                );
+              })()}
               <div className="flex items-center justify-end gap-2 pt-1">
                 <Button
                   variant="ghost"

@@ -13,6 +13,7 @@ export interface ContentTypeApiItem {
   url_pattern: Record<string, string>;
   has_database: boolean;
   database_slug: string | null;
+  single_template: boolean;
   has_field_mapping: boolean;
   unique_fields: string[];
   field_mapping_keys: string[];

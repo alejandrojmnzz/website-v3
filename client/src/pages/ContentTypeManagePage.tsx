@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, Clipboard, Clock, Code, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
@@ -80,6 +81,7 @@ interface ContentTypeConfig {
   unique_fields?: string[];
   database: DatabaseConfig | null;
   url_pattern: Record<string, string>;
+  single_template?: boolean;
   static_entry_count?: number;
 }
 
@@ -1759,28 +1761,131 @@ type MissingEntry = { slug: string; files: string[] };
 type FieldValidationResult = { valid: boolean; total: number; found: number; missing: MissingEntry[] };
 type ValidationState = Record<string, FieldValidationResult | "loading" | null>;
 
-function FieldValidationIndicator({ result }: { result: FieldValidationResult | "loading" | null | undefined }) {
+function FieldValidationIndicator({ result, optional }: { result: FieldValidationResult | "loading" | null | undefined; optional?: boolean }) {
   if (!result) return null;
   if (result === "loading") {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground flex-shrink-0" />;
   }
-  if (result.valid) {
+  if (result.valid || optional) {
     return <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 flex-shrink-0" data-testid="icon-validation-valid" />;
   }
   return <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" data-testid="icon-validation-invalid" />;
 }
 
-function FieldValidationMessage({ result, fieldKey, source }: { result: FieldValidationResult | "loading" | null | undefined; fieldKey: string; source?: string }) {
+function OptionalFieldHint({ result, fieldKey }: { result: FieldValidationResult | "loading" | null | undefined; fieldKey: string }) {
+  if (!result || result === "loading" || result.valid) return null;
+  return (
+    <p className="text-[11px] text-muted-foreground mt-1" data-testid={`text-optional-hint-${fieldKey}`}>
+      Optional — {result.found} of {result.total} {result.total === 1 ? "entry has" : "entries have"} this value.
+    </p>
+  );
+}
+
+function FieldValidationMessage({
+  result,
+  fieldKey,
+  source,
+  onSetOptional,
+  onBackfill,
+}: {
+  result: FieldValidationResult | "loading" | null | undefined;
+  fieldKey: string;
+  source?: string;
+  onSetOptional?: () => void;
+  onBackfill?: (value: string) => Promise<void>;
+}) {
+  const [showValueInput, setShowValueInput] = useState(false);
+  const [fillValue, setFillValue] = useState("");
+  const [filling, setFilling] = useState(false);
   if (!result || result === "loading" || result.valid) return null;
   const displaySource = source || (fieldKey.startsWith("__") ? "" : fieldKey);
   if (!displaySource) return null;
   const allMissing = result.found === 0;
+  const hasActions = !!onSetOptional || !!onBackfill;
   return (
     <div className="text-[11px] text-destructive mt-1" data-testid={`text-validation-error-${fieldKey}`}>
       <p>
         Source property "<span className="font-mono font-medium">{displaySource}</span>" was not found in {allMissing ? "any" : "some"} content {result.total === 1 ? "entry" : "entries"}.
         {" "}{allMissing ? "None" : `Only ${result.found}`} of {result.total} {result.total === 1 ? "entry has" : "entries have"} this property, it must be in all entries to become a common mapped field.
+        {hasActions && (
+          <>
+            {" "}You can{" "}
+            {onSetOptional ? (
+              <button
+                type="button"
+                className="underline font-medium hover:opacity-80"
+                onClick={onSetOptional}
+                data-testid={`link-set-optional-${fieldKey}`}
+              >
+                set it as optional
+              </button>
+            ) : (
+              "set it as optional"
+            )}
+            {" "}or{" "}
+            {onBackfill ? (
+              <button
+                type="button"
+                className="underline font-medium hover:opacity-80"
+                onClick={() => setShowValueInput((v) => !v)}
+                data-testid={`link-set-value-${fieldKey}`}
+              >
+                set a value
+              </button>
+            ) : (
+              "set a value"
+            )}
+            {" "}for all the missing ones right now.
+          </>
+        )}
       </p>
+      {showValueInput && onBackfill && (
+        <div className="flex items-center gap-2 mt-1.5" data-testid={`backfill-row-${fieldKey}`}>
+          <Input
+            value={fillValue}
+            onChange={(e) => setFillValue(e.target.value)}
+            placeholder={`Value for "${displaySource}" in missing entries`}
+            className="text-xs font-mono h-7 flex-1"
+            disabled={filling}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && fillValue.trim() && !filling) {
+                setFilling(true);
+                onBackfill(fillValue.trim())
+                  .then(() => { setShowValueInput(false); setFillValue(""); })
+                  .catch(() => {})
+                  .finally(() => setFilling(false));
+              }
+            }}
+            autoFocus
+            data-testid={`input-backfill-${fieldKey}`}
+          />
+          <Button
+            size="sm"
+            className="h-7 text-[11px]"
+            disabled={filling || !fillValue.trim()}
+            onClick={() => {
+              setFilling(true);
+              onBackfill(fillValue.trim())
+                .then(() => { setShowValueInput(false); setFillValue(""); })
+                .catch(() => {})
+                .finally(() => setFilling(false));
+            }}
+            data-testid={`button-backfill-save-${fieldKey}`}
+          >
+            {filling ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[11px]"
+            disabled={filling}
+            onClick={() => { setShowValueInput(false); setFillValue(""); }}
+            data-testid={`button-backfill-cancel-${fieldKey}`}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1816,6 +1921,8 @@ function FieldMappingDialog({
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [transformerModes, setTransformerModes] = useState<Record<string, boolean>>({});
   const [customModes, setCustomModes] = useState<Record<string, boolean>>({});
+  const [optionalFields, setOptionalFields] = useState<Record<string, boolean>>({});
+  const [newOptional, setNewOptional] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({});
   const [newValueValidation, setNewValueValidation] = useState<FieldValidationResult | "loading" | null>(null);
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1839,22 +1946,33 @@ function FieldMappingDialog({
     if (!config) return;
     const fm: Record<string, string> = {};
     const tmodes: Record<string, boolean> = {};
+    const optFields: Record<string, boolean> = {};
     if (config.field_mapping) {
       for (const [k, v] of Object.entries(config.field_mapping)) {
         if (typeof v === "string") {
           if (v.startsWith("function:")) {
             fm[k] = atob(v.slice(9));
             tmodes[k] = true;
+          } else if (v.startsWith("?")) {
+            fm[k] = v.slice(1);
+            optFields[k] = true;
           } else {
             fm[k] = v;
           }
         } else if (v && typeof v === "object" && "source" in v) {
-          fm[k] = v.source;
+          if (typeof v.source === "string" && v.source.startsWith("?")) {
+            fm[k] = v.source.slice(1);
+            optFields[k] = true;
+          } else {
+            fm[k] = v.source;
+          }
         }
       }
     }
     setMappings(fm);
     setTransformerModes(tmodes);
+    setOptionalFields(optFields);
+    setNewOptional(false);
     // A source is "custom" if it contains a dot (dotted path like category.slug)
     const cmodes: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(fm)) {
@@ -1897,7 +2015,7 @@ function FieldMappingDialog({
     if (config.field_mapping) {
       for (const [k, v] of Object.entries(config.field_mapping)) {
         if (typeof v === "string" && !v.startsWith("function:") && !k.startsWith("_")) {
-          rawMapping[k] = v;
+          rawMapping[k] = v.startsWith("?") ? v.slice(1) : v;
         }
       }
     }
@@ -1964,11 +2082,37 @@ function FieldMappingDialog({
     };
   })();
 
+  const handleBackfill = async (key: string, source: string, value: string) => {
+    const res = await fetch(`/api/content-types/${contentType}/backfill-property`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, value }),
+    });
+    let data: Record<string, unknown> = {};
+    try { data = await res.json(); } catch { /* non-JSON response */ }
+    if (!res.ok) {
+      toast({ title: (data.error as string) || "Failed to set value on missing entries", variant: "destructive" });
+      throw new Error("backfill failed");
+    }
+    const updated = (data.updated as number) ?? 0;
+    toast({ title: `Value set on ${updated} ${updated === 1 ? "entry" : "entries"}` });
+    if (key === "__new") {
+      validateNewValue(source);
+    } else {
+      validateSingleField(key, source);
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "available-properties-all"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "available-properties-exclude-mapped"] });
+  };
+
   const handleAddField = () => {
     const key = newKey.trim();
     if (!key || key in mappings) return;
     const source = newValue.trim() || key;
     setMappings((prev) => ({ ...prev, [key]: source }));
+    if (newOptional) {
+      setOptionalFields((prev) => ({ ...prev, [key]: true }));
+    }
     if (newValueValidation && newValueValidation !== "loading") {
       setValidation((prev) => ({ ...prev, [key]: newValueValidation }));
     } else if (!isDbBacked && !key.startsWith("_")) {
@@ -1976,6 +2120,7 @@ function FieldMappingDialog({
     }
     setNewKey("");
     setNewValue("");
+    setNewOptional(false);
     setNewValueValidation(null);
     setSourceDropdownOpen(false);
     setShowAddField(false);
@@ -1987,7 +2132,7 @@ function FieldMappingDialog({
       const fullMapping: Record<string, string> = {};
       for (const [k, v] of Object.entries(mappings)) {
         if (v) {
-          fullMapping[k] = transformerModes[k] ? "function:" + btoa(v) : v;
+          fullMapping[k] = transformerModes[k] ? "function:" + btoa(v) : (optionalFields[k] ? "?" + v : v);
         }
       }
 
@@ -2155,6 +2300,9 @@ function FieldMappingDialog({
                                   setCustomModes((prev) => ({ ...prev, [key]: true }));
                                   setMappings((prev) => ({ ...prev, [key]: "" }));
                                 } else {
+                                  if ((allAvailableProps?.partial ?? []).some((p) => p.key === v)) {
+                                    setOptionalFields((prev) => ({ ...prev, [key]: true }));
+                                  }
                                   handleSourceChange(key, v);
                                 }
                               }}
@@ -2190,11 +2338,11 @@ function FieldMappingDialog({
                                   </SelectItem>
                                 ))}
                                 {(allAvailableProps?.partial ?? []).map((p) => (
-                                  <SelectItem key={p.key} value={p.key} disabled className="text-xs font-mono opacity-50">
+                                  <SelectItem key={p.key} value={p.key} className="text-xs font-mono">
                                     <span className="flex items-center gap-2">
                                       <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
                                       {p.key}
-                                      <span className="text-[10px] text-muted-foreground">{p.count}/{p.total}</span>
+                                      <span className="text-[10px] text-muted-foreground">{p.count}/{p.total} — added as optional</span>
                                     </span>
                                   </SelectItem>
                                 ))}
@@ -2204,7 +2352,26 @@ function FieldMappingDialog({
                               </SelectContent>
                             </Select>
                           )}
-                          {!isFn && !isDbBacked && <FieldValidationIndicator result={vResult} />}
+                          {!isFn && !isDbBacked && <FieldValidationIndicator result={vResult} optional={!!optionalFields[key]} />}
+                          {!isFn && !isDbBacked && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`flex-shrink-0 ${optionalFields[key] ? "text-primary" : ""}`}
+                              title={optionalFields[key] ? "Optional field — not required in all entries. Click to make it required." : "Make optional — allow entries without this property"}
+                              onClick={() => {
+                                setOptionalFields((prev) => {
+                                  const next = { ...prev };
+                                  if (next[key]) delete next[key];
+                                  else next[key] = true;
+                                  return next;
+                                });
+                              }}
+                              data-testid={`button-toggle-optional-${key}`}
+                            >
+                              <CircleDashed className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -2252,6 +2419,11 @@ function FieldMappingDialog({
                                   delete next[key];
                                   return next;
                                 });
+                                setOptionalFields((prev) => {
+                                  const next = { ...prev };
+                                  delete next[key];
+                                  return next;
+                                });
                                 setValidation((prev) => {
                                   const next = { ...prev };
                                   delete next[key];
@@ -2276,7 +2448,19 @@ function FieldMappingDialog({
                             </Button>
                           </div>
                         )}
-                        {!isFn && !isDbBacked && pendingDeleteKey !== key && <FieldValidationMessage result={vResult} fieldKey={key} source={mappings[key]} />}
+                        {!isFn && !isDbBacked && pendingDeleteKey !== key && (
+                          optionalFields[key] ? (
+                            <OptionalFieldHint result={vResult} fieldKey={key} />
+                          ) : (
+                            <FieldValidationMessage
+                              result={vResult}
+                              fieldKey={key}
+                              source={mappings[key]}
+                              onSetOptional={() => setOptionalFields((prev) => ({ ...prev, [key]: true }))}
+                              onBackfill={(value) => handleBackfill(key, mappings[key] || key, value)}
+                            />
+                          )
+                        )}
                       </div>
                     );
                   })}
@@ -2338,19 +2522,38 @@ function FieldMappingDialog({
                               <button
                                 key={p.key}
                                 type="button"
-                                disabled
-                                className="w-full text-left px-2 py-1.5 flex items-center gap-2 text-xs opacity-50 cursor-not-allowed border-b last:border-b-0"
+                                className="w-full text-left px-2 py-1.5 flex items-center gap-2 text-xs hover-elevate border-b last:border-b-0"
+                                onClick={() => {
+                                  handleNewValueChange(p.key);
+                                  setNewOptional(true);
+                                  setSourceDropdownOpen(false);
+                                  if (!newKey.trim()) {
+                                    setNewKey(p.key.split(".").pop() || p.key);
+                                  }
+                                }}
                                 data-testid={`source-option-${p.key}`}
                               >
                                 <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
                                 <span className="font-mono">{p.key}</span>
-                                <span className="text-[10px] text-muted-foreground ml-auto">{p.count}/{p.total}</span>
+                                <span className="text-[10px] text-muted-foreground ml-auto">{p.count}/{p.total} — added as optional</span>
                               </button>
                             ))}
                           </div>
                         )}
                       </div>
-                      {!isDbBacked && (newValue.trim() || newKey.trim()) && <FieldValidationIndicator result={newValueValidation} />}
+                      {!isDbBacked && (newValue.trim() || newKey.trim()) && <FieldValidationIndicator result={newValueValidation} optional={newOptional} />}
+                      {!isDbBacked && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`flex-shrink-0 ${newOptional ? "text-primary" : ""}`}
+                          title={newOptional ? "Optional field — not required in all entries. Click to make it required." : "Make optional — allow entries without this property"}
+                          onClick={() => setNewOptional((v) => !v)}
+                          data-testid="button-toggle-optional-new"
+                        >
+                          <CircleDashed className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="icon"
@@ -2369,7 +2572,19 @@ function FieldMappingDialog({
                         <X className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                    {!isDbBacked && <FieldValidationMessage result={newValueValidation} fieldKey="__new" source={newValue.trim() || newKey.trim()} />}
+                    {!isDbBacked && (
+                      newOptional ? (
+                        <OptionalFieldHint result={newValueValidation} fieldKey="__new" />
+                      ) : (
+                        <FieldValidationMessage
+                          result={newValueValidation}
+                          fieldKey="__new"
+                          source={newValue.trim() || newKey.trim()}
+                          onSetOptional={() => setNewOptional(true)}
+                          onBackfill={(value) => handleBackfill("__new", newValue.trim() || newKey.trim(), value)}
+                        />
+                      )
+                    )}
                   </div>
                 ) : (
                   <Button
@@ -3117,6 +3332,35 @@ export default function ContentTypeManagePage() {
   })();
 
   const hasDb = !!typeConfig?.database?.slug;
+  const singleTemplateEnabled = !!typeConfig?.single_template;
+  const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
+  const [singleTemplateAdvancedOpen, setSingleTemplateAdvancedOpen] = useState(false);
+
+  const handleToggleSingleTemplate = async (checked: boolean) => {
+    setSingleTemplateSaving(true);
+    try {
+      await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
+        single_template: checked,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
+      toast({
+        title: checked ? "Single template on" : "Single template off",
+        description: checked
+          ? "All entries share one layout. You can still override one entry when needed."
+          : "Each entry keeps its own full layout.",
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to update single template",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSingleTemplateSaving(false);
+    }
+  };
+
   const staticEntryCount =
     typeConfig?.static_entry_count !== undefined
       ? typeConfig.static_entry_count
@@ -3407,6 +3651,39 @@ export default function ContentTypeManagePage() {
     }
   };
 
+  const handleOpenSingleTemplate = async () => {
+    const token = getDebugToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Token ${token}`;
+    try {
+      const res = await fetch(
+        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.single")}&locale=en`,
+        { headers },
+      );
+      if (!res.ok) {
+        toast({
+          title: "No template found",
+          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const data = await res.json();
+      if (!data.exists) {
+        toast({
+          title: "No template found",
+          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setYamlEditorInfo({ contentType, slug: "_common.single", locale: "en" });
+      setShowYamlEditor(true);
+    } catch {
+      toast({ title: "Error", description: "Failed to open the single template", variant: "destructive" });
+    }
+  };
+
   const handleDuplicate = async (entry: StaticEntry) => {
     const firstLocale = entry.locales[0] || "en";
     const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || `/${firstLocale}/${entry.slug}`;
@@ -3621,6 +3898,55 @@ export default function ContentTypeManagePage() {
             })}
           </div>
         )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <Card data-testid="card-kpi-single-template">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Single template
+              </CardTitle>
+              <Switch
+                checked={singleTemplateEnabled}
+                disabled={singleTemplateSaving || typeConfig === undefined}
+                onCheckedChange={handleToggleSingleTemplate}
+                data-testid="switch-single-template"
+              />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Share one layout across every entry. Turn overrides on only when one page needs to look different.
+              </p>
+              <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => setSingleTemplateAdvancedOpen((open) => !open)}
+                data-testid="button-single-template-advanced"
+              >
+                {singleTemplateAdvancedOpen ? "Hide advanced" : "Read advanced"}
+              </button>
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={handleOpenSingleTemplate}
+                data-testid="button-open-single-template"
+              >
+                Open template
+              </button>
+              </div>
+              {singleTemplateAdvancedOpen && (
+                <p className="text-xs text-muted-foreground leading-relaxed border-t border-border pt-2" data-testid="text-single-template-advanced">
+                  On: load merges <code className="text-[11px]">_common.single.yml</code> (and{" "}
+                  <code className="text-[11px]">single.&#123;locale&#125;.yml</code> if present) as the shared
+                  section template; each entry’s YAML applies id-based patches (
+                  <code className="text-[11px]">_remove</code>, field overrides, or new sections). Off:{" "}
+                  <code className="text-[11px]">deepMerge</code> replaces the whole{" "}
+                  <code className="text-[11px]">sections</code> array from the entry file.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader className="pb-3">
@@ -4550,7 +4876,15 @@ export default function ContentTypeManagePage() {
             slug={yamlEditorInfo.slug}
             locale={yamlEditorInfo.locale}
             onClose={() => setShowYamlEditor(false)}
-            onSaved={() => window.location.reload()}
+            onSaved={() => {
+              setShowYamlEditor(false);
+              if (yamlEditorInfo?.slug === "_common.single") {
+                queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+                toast({ title: "Template saved" });
+              } else {
+                window.location.reload();
+              }
+            }}
           />
         </Suspense>
       )}

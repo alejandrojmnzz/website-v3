@@ -214,6 +214,22 @@ app.use((req, res, next) => {
   // ─── Health endpoint ──────────────────────────────────────────────────────────
   // Registered first — before all other routes — so health-checks always get an
   // immediate 200 even while SSR / DB warmup is still in progress.
+  //
+  // Deployment health checks hit "/" (not /health). During post-deploy warmup,
+  // SSR of "/" can fail or be very slow, causing the platform to report the
+  // deployment as unreachable. Until warmup completes, answer "/" with an
+  // instant lightweight 200 page (production only) that auto-refreshes.
+  let warmupComplete = process.env.NODE_ENV !== "production";
+  app.get("/", (_req, res, next) => {
+    if (warmupComplete) return next();
+    res
+      .status(200)
+      .set("Cache-Control", "no-store")
+      .set("Content-Type", "text/html; charset=utf-8")
+      .send(
+        `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="3"><title>Starting…</title></head><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Starting up — this page will refresh automatically.</p></body></html>`,
+      );
+  });
   app.get("/health", (_req, res) => {
     const lastReload = getLastSoftReload();
     res.json({
@@ -412,6 +428,10 @@ app.use((req, res, next) => {
       })
       .catch((err) => {
         logger.error({ err, worker: "DatabaseManager" }, "warmup error");
+      })
+      .finally(() => {
+        warmupComplete = true;
+        log("warmup complete — serving full SSR on /");
       });
     startBackgroundSync().catch((err) => {
       logger.error({ err, worker: "SyncState" }, "failed to start background sync");

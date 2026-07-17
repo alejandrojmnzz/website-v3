@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { UniversalImage } from "@/components/UniversalImage";
-import { resolveTemplateFallback } from "@/lib/variable-manager";
+import { resolveTemplateFallback, coerceToText } from "@/lib/variable-manager";
 
 interface HeroSimpleStackedProps {
   data: HeroSimpleStackedType;
@@ -13,6 +13,9 @@ interface HeroSimpleStackedProps {
 
 export default function HeroSimpleStacked({ data }: HeroSimpleStackedProps) {
   const handleLinkClick = useInternalNav();
+  const badgeText = coerceToText(data.badge);
+  const titleText = coerceToText(data.title);
+  const subtitleText = coerceToText(data.subtitle);
   return (
     <section 
       className={`${data.background || "bg-gradient-to-b from-primary/5 to-background"}`}
@@ -21,12 +24,12 @@ export default function HeroSimpleStacked({ data }: HeroSimpleStackedProps) {
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex flex-col items-center text-center">
           <div className="max-w-2xl mb-4">
-            {data.badge && (
+            {badgeText && (
               <span 
                 className="inline-block bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium mb-4"
                 data-testid="text-hero-badge"
               >
-                {data.badge}
+                {badgeText}
               </span>
             )}
             
@@ -34,15 +37,15 @@ export default function HeroSimpleStacked({ data }: HeroSimpleStackedProps) {
               className="text-h1 mb-4 text-foreground"
               data-testid="text-hero-title"
             >
-              {data.title}
+              {titleText}
             </h1>
             
-            {data.subtitle && (
+            {subtitleText && (
               <p 
                 className="text-body text-muted-foreground mb-6 leading-relaxed"
                 data-testid="text-hero-subtitle"
               >
-                {data.subtitle}
+                {subtitleText}
               </p>
             )}
 
@@ -68,8 +71,8 @@ export default function HeroSimpleStacked({ data }: HeroSimpleStackedProps) {
 
           <div className="w-full max-w-md">
             <UniversalImage
-              id={resolveTemplateFallback(data.image.src ?? "")}
-              alt={data.image.alt}
+              id={resolveTemplateFallback(data.image?.src ?? "")}
+              alt={data.image?.alt}
               className="w-full h-auto rounded-card shadow-card"
               fieldContext={{ fieldPath: "image.src" }}
               loading="eager"

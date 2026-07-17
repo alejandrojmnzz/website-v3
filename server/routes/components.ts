@@ -685,6 +685,44 @@ export function registerComponentsRoutes(app: Express): void {
         return;
       }
       const folder = getFolder(contentType);
+      const contentRootName = getContentRootName(res);
+      const baseDir = path.join(getContentRoot(res), folder);
+
+      // Type-level single template: `_common.single.yml` (+ optional `single.{locale}.yml`)
+      if (slug === "_common.single") {
+        const files: {
+          locale?: { path: string; content: string };
+          common?: { path: string; content: string };
+        } = {};
+
+        const singleCommonPath = path.join(baseDir, "_common.single.yml");
+        if (fs.existsSync(singleCommonPath)) {
+          files.common = {
+            path: `${contentRootName}/${folder}/_common.single.yml`,
+            content: fs.readFileSync(singleCommonPath, "utf-8"),
+          };
+        }
+
+        let singleLocalePath = path.join(baseDir, `single.${locale}.yml`);
+        if (!fs.existsSync(singleLocalePath)) {
+          singleLocalePath = path.join(baseDir, "single.en.yml");
+        }
+        if (fs.existsSync(singleLocalePath)) {
+          const localeFileName = path.basename(singleLocalePath);
+          files.locale = {
+            path: `${contentRootName}/${folder}/${localeFileName}`,
+            content: fs.readFileSync(singleLocalePath, "utf-8"),
+          };
+        }
+
+        if (!files.locale && !files.common) {
+          res.status(404).json({ exists: false });
+          return;
+        }
+
+        res.json({ exists: true, files, resolvedSlug: "_common.single" });
+        return;
+      }
 
       let resolvedSlug = slug;
       try {
@@ -693,7 +731,6 @@ export function registerComponentsRoutes(app: Express): void {
         // keep original slug if resolution fails
       }
 
-      const baseDir = path.join(getContentRoot(res), folder);
       let contentDir = path.join(baseDir, resolvedSlug);
 
       if (!fs.existsSync(contentDir)) {
@@ -739,14 +776,14 @@ export function registerComponentsRoutes(app: Express): void {
       if (fs.existsSync(localePath)) {
         files.locale = {
           path: variantSlug
-            ? `${getContentRootName(res)}/${folder}/${resolvedSlug}/${variantSlug}.${locale}.yml`
-            : `${getContentRootName(res)}/${folder}/${resolvedSlug}/${locale}.yml`,
+            ? `${contentRootName}/${folder}/${resolvedSlug}/${variantSlug}.${locale}.yml`
+            : `${contentRootName}/${folder}/${resolvedSlug}/${locale}.yml`,
           content: fs.readFileSync(localePath, "utf-8"),
         };
       }
       if (fs.existsSync(commonPath)) {
         files.common = {
-          path: `${getContentRootName(res)}/${folder}/${resolvedSlug}/_common.yml`,
+          path: `${contentRootName}/${folder}/${resolvedSlug}/_common.yml`,
           content: fs.readFileSync(commonPath, "utf-8"),
         };
       }

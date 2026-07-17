@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  extractUrlPatternParams,
   getContentTypeConfig,
   resetRegistry,
   updateContentTypeConfig,
@@ -73,5 +74,52 @@ describe("updateContentTypeConfig database unlink", () => {
     resetRegistry(contentRoot);
     const after = getContentTypeConfig("blog", contentRoot);
     expect(after?.database?.slug).toBe("other_db");
+  });
+});
+
+describe("extractUrlPatternParams", () => {
+  it("resolves multi-variable patterns from entry data, including nested object slugs", () => {
+    const { params, missing } = extractUrlPatternParams(
+      "/en/blog/:category/:slug",
+      { slug: "my-post", category: { slug: "uncategorized" } },
+    );
+    expect(missing).toEqual([]);
+    expect(params).toEqual({ category: "uncategorized" });
+  });
+
+  it("resolves plain string fields and ignores slug/locale placeholders", () => {
+    const { params, missing } = extractUrlPatternParams(
+      "/:locale/posts/:author/:year/:slug",
+      { author: "jane", year: 2026 },
+    );
+    expect(missing).toEqual([]);
+    expect(params).toEqual({ author: "jane", year: "2026" });
+  });
+
+  it("reports missing variables instead of resolving them to empty strings", () => {
+    const { params, missing } = extractUrlPatternParams(
+      "/en/blog/:category/:slug",
+      { slug: "my-post" },
+    );
+    expect(missing).toEqual(["category"]);
+    expect(params).toEqual({});
+  });
+
+  it("treats empty values as missing", () => {
+    const { missing } = extractUrlPatternParams(
+      "/en/blog/:category/:slug",
+      { slug: "my-post", category: { slug: "" } },
+    );
+    expect(missing).toEqual(["category"]);
+  });
+
+  it("uses field mapping to resolve variables from mapped source fields", () => {
+    const { params, missing } = extractUrlPatternParams(
+      "/en/blog/:category/:slug",
+      { category_name: "trends-and-tech" },
+      { category: "category_name" },
+    );
+    expect(missing).toEqual([]);
+    expect(params).toEqual({ category: "trends-and-tech" });
   });
 });

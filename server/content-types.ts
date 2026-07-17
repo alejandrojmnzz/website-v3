@@ -30,6 +30,12 @@ export interface ContentTypeEntry {
   indexes?: string[];
   database?: DatabaseConfig;
   layout?: { menu?: { top?: string | null; bottom?: string | null } };
+  /**
+   * When true (static types), `_common.single.yml` (+ optional `single.{locale}.yml`)
+   * is the shared section template; entry YAML id-patches sections instead of replacing them.
+   * DB-backed types already use this merge model via mergeSingleTemplate.
+   */
+  single_template?: boolean;
 }
 
 interface ContentTypesRegistry {
@@ -79,6 +85,11 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     bottom: menu ID for footer (e.g., "main-footer") or null for no footer
 #   System default (when absent): { menu: { top: null, bottom: null } }
 #   Per-entry override: set layout.menu.top / layout.menu.bottom in _common.yml or locale files
+#
+# single_template (optional, default false):
+#   When true, static entries inherit sections from _common.single.yml (and single.{locale}.yml
+#   if present) and apply per-entry section patches by id — same model as DB-backed singles.
+#   Set automatically when converting a DB-backed type to static.
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {
@@ -548,6 +559,52 @@ function resolveFieldValue(value: unknown): string {
     return String((value as Record<string, unknown>).slug || "");
   }
   return String(value);
+}
+
+/**
+ * Extract all `:variable` params (besides `slug` and `locale`) from a URL pattern
+ * and resolve each from the entry's merged data. Supports nested values like a
+ * `category` object whose `slug` should be used, as well as plain string fields
+ * and dot-notation lookups via an optional field mapping.
+ *
+ * Returns the resolved params plus a list of variables that could not be
+ * resolved (missing or empty), so callers can skip entries instead of emitting
+ * malformed URLs.
+ */
+export function extractUrlPatternParams(
+  pattern: string,
+  record: Record<string, unknown>,
+  fieldMapping?: Record<string, string | null> | null,
+): { params: Record<string, string>; missing: string[] } {
+  const params: Record<string, string> = {};
+  const missing: string[] = [];
+
+  const paramMatches = pattern.match(/:([a-zA-Z_]+)/g) || [];
+  for (const param of paramMatches) {
+    const key = param.slice(1);
+    if (key === "slug" || key === "locale") continue;
+
+    let rawValue: unknown;
+    const mappingKey = fieldMapping && `_${key}` in fieldMapping ? `_${key}` : key;
+    if (fieldMapping && mappingKey in fieldMapping) {
+      const sourceField = fieldMapping[mappingKey];
+      if (sourceField) {
+        rawValue = extractDotPath(record, sourceField);
+      }
+    }
+    if (rawValue === undefined) {
+      rawValue = extractDotPath(record, key);
+    }
+
+    const resolved = resolveFieldValue(rawValue);
+    if (!resolved) {
+      if (!missing.includes(key)) missing.push(key);
+      continue;
+    }
+    params[key] = resolved;
+  }
+
+  return { params, missing };
 }
 
 export function resolveUrlPatternWithMapping(

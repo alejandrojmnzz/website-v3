@@ -5,6 +5,8 @@ import { useLocation } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
 import { apiFetch } from "@/lib/queryClient";
 import type { TemplatePage } from "@shared/schema";
+import { getApiPath } from "@shared/api-paths";
+import { useContentTypesRaw } from "@/hooks/useContentTypes";
 import { usePageMeta } from "@/hooks/usePageMeta";
 import { useSchemaOrg } from "@/hooks/useSchemaOrg";
 import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
@@ -31,16 +33,31 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
   const segments = location.split("?")[0].split("/").filter(Boolean);
   const slug = segments[segments.length - 1] || "";
 
+  const { data: contentTypesData } = useContentTypesRaw();
+  const contentTypeInfo = contentTypesData?.find((ct) => ct.name === contentType);
+  // Default to database-backed until content types load (matches historical behavior);
+  // once loaded, static types are fetched from the content-pages endpoint instead.
+  const isDbBacked = contentTypeInfo ? contentTypeInfo.has_database : true;
+  const isSharedTemplate = contentTypeInfo
+    ? !!(contentTypeInfo.has_database || contentTypeInfo.single_template)
+    : true;
+  const staticApiPath = getApiPath(contentType);
+
   const { data: page, isLoading, error, refetch } = useQuery<TemplatePage>({
-    queryKey: ["/api/database-single", contentType, slug, locale],
+    queryKey: isDbBacked
+      ? ["/api/database-single", contentType, slug, locale]
+      : [staticApiPath, slug, locale],
     queryFn: async () => {
-      const response = await apiFetch(`/api/database-single/${contentType}/${slug}?locale=${locale}`);
+      const url = isDbBacked
+        ? `/api/database-single/${contentType}/${slug}?locale=${locale}`
+        : `${staticApiPath}/${slug}?locale=${locale}`;
+      const response = await apiFetch(url);
       if (!response.ok) {
         throw new Error("Page not found");
       }
       return response.json();
     },
-    enabled: !!slug,
+    enabled: !!slug && contentTypesData !== undefined,
   });
 
   const { data: varDefinitions } = useVariableDefinitions();
@@ -131,7 +148,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
             slug={slug}
             locale={locale}
             onMenuChange={() => refetch()}
-            isSharedTemplate
+            isSharedTemplate={isSharedTemplate}
           />
         </div>
         <SectionRenderer
@@ -140,7 +157,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           contentType={contentType}
           slug={slug}
           locale={locale}
-          isSharedTemplate
+          isSharedTemplate={isSharedTemplate}
           singleEntry={page.singleEntry}
           perEntryRemovedSections={page.perEntryRemovedSections}
         />
@@ -158,7 +175,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           slug={slug}
           locale={locale}
           onMenuChange={() => refetch()}
-          isSharedTemplate
+          isSharedTemplate={isSharedTemplate}
         />
       </div>
     </div>
