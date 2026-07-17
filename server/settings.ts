@@ -79,11 +79,73 @@ export interface TrackingSettings {
   webhook?: TrackingWebhook;
 }
 
+export interface RobotsSettings {
+  block_indexing: boolean;
+  include_sitemap: boolean;
+  disallow_paths: string[];
+  ai_bots: string[];
+}
+
+export const DEFAULT_ROBOTS_SETTINGS: RobotsSettings = {
+  block_indexing: false,
+  include_sitemap: true,
+  disallow_paths: ["/api/", "/private/", "/preview-frame", "/health"],
+  ai_bots: [
+    "GPTBot",
+    "ChatGPT-User",
+    "Google-Extended",
+    "anthropic-ai",
+    "ClaudeBot",
+    "PerplexityBot",
+  ],
+};
+
 interface SiteSettings {
   i18n: I18nSettings;
   home_page: HomePageSettings;
   optimization: OptimizationSettings;
   tracking: TrackingSettings;
+  robots: RobotsSettings;
+}
+
+/** Build robots.txt body from settings. `baseUrl` is used for the Sitemap line when included. */
+export function buildRobotsTxtContent(robots: RobotsSettings, baseUrl: string): string {
+  if (robots.block_indexing) {
+    return `# Site indexing blocked
+User-agent: *
+Disallow: /
+`;
+  }
+
+  const lines: string[] = [
+    "# Allow all crawlers",
+    "User-agent: *",
+    "Allow: /",
+  ];
+  for (const p of robots.disallow_paths) {
+    const path = p.trim();
+    if (path) lines.push(`Disallow: ${path}`);
+  }
+  lines.push("");
+
+  if (robots.ai_bots.length > 0) {
+    lines.push("# Allow AI/LLM crawlers explicitly");
+    for (const bot of robots.ai_bots) {
+      const name = bot.trim();
+      if (!name) continue;
+      lines.push(`User-agent: ${name}`);
+      lines.push("Allow: /");
+      lines.push("");
+    }
+  }
+
+  if (robots.include_sitemap && baseUrl) {
+    lines.push("# Sitemap location");
+    lines.push(`Sitemap: ${baseUrl.replace(/\/$/, "")}/sitemap.xml`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 const settingsCache = new Map<string, SiteSettings>();
@@ -116,6 +178,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
     tracking: {
       conversion_events: [],
     },
+    robots: { ...DEFAULT_ROBOTS_SETTINGS },
   };
 
   if (!fs.existsSync(settingsPath)) {
@@ -220,10 +283,29 @@ function loadSettings(contentRoot?: string): SiteSettings {
       webhook: parseWebhook(trackingRaw?.webhook),
     };
 
-    const result: SiteSettings = { ...defaults, i18n, home_page, optimization, tracking };
+    const robotsRaw = parsed.robots as Record<string, unknown> | undefined;
+    const defRobots = defaults.robots;
+    const robots: RobotsSettings = {
+      block_indexing:
+        typeof robotsRaw?.block_indexing === "boolean"
+          ? robotsRaw.block_indexing
+          : defRobots.block_indexing,
+      include_sitemap:
+        typeof robotsRaw?.include_sitemap === "boolean"
+          ? robotsRaw.include_sitemap
+          : defRobots.include_sitemap,
+      disallow_paths: Array.isArray(robotsRaw?.disallow_paths)
+        ? (robotsRaw.disallow_paths as unknown[]).filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+        : [...defRobots.disallow_paths],
+      ai_bots: Array.isArray(robotsRaw?.ai_bots)
+        ? (robotsRaw.ai_bots as unknown[]).filter((b): b is string => typeof b === "string" && b.trim().length > 0)
+        : [...defRobots.ai_bots],
+    };
+
+    const result: SiteSettings = { ...defaults, i18n, home_page, optimization, tracking, robots };
     settingsCache.set(key, result);
     log.info(
-      `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}`
+      `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}, block_indexing=${robots.block_indexing}`
     );
     return result;
   } catch (err) {
@@ -346,6 +428,93 @@ export function getOptimizationSettings(contentRoot?: string): OptimizationSetti
 
 export function getTrackingSettings(contentRoot?: string): TrackingSettings {
   return loadSettings(contentRoot).tracking;
+}
+
+export function getRobotsSettings(contentRoot?: string): RobotsSettings {
+  return loadSettings(contentRoot).robots;
+}
+
+export function isIndexingBlocked(contentRoot?: string): boolean {
+  return loadSettings(contentRoot).robots.block_indexing;
+}
+
+/** When sitewide indexing is blocked, always return noindex; otherwise use pageRobots or default. */
+export function resolveEffectiveRobots(
+  pageRobots: string | undefined | null,
+  contentRoot?: string,
+): string {
+  if (isIndexingBlocked(contentRoot)) return "noindex, nofollow";
+  return typeof pageRobots === "string" && pageRobots.trim()
+    ? pageRobots
+    : "index, follow";
+}
+
+export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot?: string): RobotsSettings {
+  if (input.block_indexing !== undefined && typeof input.block_indexing !== "boolean") {
+    throw new Error("block_indexing must be a boolean");
+  }
+  if (input.include_sitemap !== undefined && typeof input.include_sitemap !== "boolean") {
+    throw new Error("include_sitemap must be a boolean");
+  }
+  if (input.disallow_paths !== undefined) {
+    if (!Array.isArray(input.disallow_paths)) {
+      throw new Error("disallow_paths must be an array of strings");
+    }
+    for (const p of input.disallow_paths) {
+      if (typeof p !== "string" || !p.trim()) {
+        throw new Error("Each disallow path must be a non-empty string");
+      }
+      if (!p.trim().startsWith("/")) {
+        throw new Error(`Disallow path must start with /: "${p}"`);
+      }
+    }
+  }
+  if (input.ai_bots !== undefined) {
+    if (!Array.isArray(input.ai_bots)) {
+      throw new Error("ai_bots must be an array of strings");
+    }
+    for (const b of input.ai_bots) {
+      if (typeof b !== "string" || !b.trim()) {
+        throw new Error("Each AI bot name must be a non-empty string");
+      }
+    }
+  }
+
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = loadSettings(contentRoot).robots;
+  const updated: RobotsSettings = {
+    block_indexing: typeof input.block_indexing === "boolean" ? input.block_indexing : current.block_indexing,
+    include_sitemap: typeof input.include_sitemap === "boolean" ? input.include_sitemap : current.include_sitemap,
+    disallow_paths: Array.isArray(input.disallow_paths)
+      ? input.disallow_paths.map((p) => p.trim()).filter(Boolean)
+      : [...current.disallow_paths],
+    ai_bots: Array.isArray(input.ai_bots)
+      ? input.ai_bots.map((b) => b.trim()).filter(Boolean)
+      : [...current.ai_bots],
+  };
+
+  existing.robots = {
+    block_indexing: updated.block_indexing,
+    include_sitemap: updated.include_sitemap,
+    disallow_paths: updated.disallow_paths,
+    ai_bots: updated.ai_bots,
+  };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated robots: block_indexing=${updated.block_indexing}, include_sitemap=${updated.include_sitemap}, disallow_paths=${updated.disallow_paths.length}, ai_bots=${updated.ai_bots.length}`
+  );
+  return updated;
 }
 
 export function updateTrackingSettings(input: {

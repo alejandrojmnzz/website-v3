@@ -17,11 +17,12 @@ import {
   IconScale,
   IconMessage,
   IconServer,
+  IconRobot,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { LinkPicker } from "@/components/editing/LinkPicker";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,18 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ServerTab } from "@/components/settings/ServerTab";
+import { RobotsTab } from "@/components/settings/RobotsTab";
+
+const SETTINGS_TABS = ["locales", "migrations", "brand", "robots", "legal", "server"] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+function resolveSettingsTab(search: string): SettingsTab {
+  const tab = new URLSearchParams(search).get("tab");
+  if (tab && (SETTINGS_TABS as readonly string[]).includes(tab)) {
+    return tab as SettingsTab;
+  }
+  return "locales";
+}
 
 interface LocaleEntry {
   code: string;
@@ -77,6 +90,13 @@ interface BrandSettings {
 export default function SettingsPage() {
   const { toast } = useToast();
   const { hasCapability, isValidated } = useDebugAuth();
+  const searchString = useSearch();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => resolveSettingsTab(searchString));
+
+  useEffect(() => {
+    setActiveTab(resolveSettingsTab(searchString));
+  }, [searchString]);
+
   const { data, isLoading } = useQuery<LocaleSettings>({
     queryKey: ["/api/settings/locales"],
   });
@@ -392,8 +412,21 @@ export default function SettingsPage() {
           </Link>
         </div>
 
-        <Tabs defaultValue="locales">
-          <TabsList className="flex w-full">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => {
+            const next = v as SettingsTab;
+            setActiveTab(next);
+            const url = new URL(window.location.href);
+            if (next === "locales") {
+              url.searchParams.delete("tab");
+            } else {
+              url.searchParams.set("tab", next);
+            }
+            window.history.replaceState({}, "", url.pathname + url.search);
+          }}
+        >
+          <TabsList className="flex w-full flex-wrap h-auto gap-1">
             <TabsTrigger value="locales" data-testid="tab-locales">
               <IconLanguage className="h-4 w-4 mr-1.5" />
               Locales
@@ -405,6 +438,10 @@ export default function SettingsPage() {
             <TabsTrigger value="brand" data-testid="tab-brand">
               <IconPhoto className="h-4 w-4 mr-1.5" />
               Brand
+            </TabsTrigger>
+            <TabsTrigger value="robots" data-testid="tab-robots">
+              <IconRobot className="h-4 w-4 mr-1.5" />
+              Robots
             </TabsTrigger>
             <TabsTrigger value="legal" data-testid="tab-legal">
               <IconScale className="h-4 w-4 mr-1.5" />
@@ -811,6 +848,10 @@ export default function SettingsPage() {
                 await handleBrandSave(src);
               }}
             />
+          </TabsContent>
+
+          <TabsContent value="robots" className="mt-4">
+            <RobotsTab />
           </TabsContent>
 
           <TabsContent value="legal" className="mt-4">

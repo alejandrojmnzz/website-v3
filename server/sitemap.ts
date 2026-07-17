@@ -1,12 +1,13 @@
 import { contentIndex, MARKETING_CONTENT_PATH as BASE_CONTENT_PATH } from "./content-index";
 import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, resolveUrlPatternWithMapping, getAllConfigs, getDirectory } from "./content-types";
-import { getSupportedLocales } from "./settings";
+import { getSupportedLocales, isIndexingBlocked } from "./settings";
 import { applyTransformIfNeeded } from "./transform";
 import { getFileLastmod } from "./sync-state";
 import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 import type { SiteContext } from "./site-manager";
 import { getDefaultContentFolder } from "./site-config";
+import path from "path";
 const log = child({ module: "sitemap" });
 
 // Per-request site context for per-site sitemap generation.
@@ -238,9 +239,15 @@ function getAvailableTemplatePages(ci: typeof contentIndex = _ci(), cf: string =
 // Helper Functions
 // ============================================================================
 
-function shouldIndex(robots?: string): boolean {
+function shouldIndex(robots?: string, contentRoot?: string): boolean {
+  if (isIndexingBlocked(contentRoot)) return false;
   if (!robots) return true;
   return !robots.toLowerCase().includes("noindex");
+}
+
+function resolveSitemapContentRoot(ctx?: ActiveSiteCtx): string {
+  const name = ctx?.contentRootName ?? getDefaultContentFolder();
+  return path.isAbsolute(name) ? name : path.join(process.cwd(), name);
 }
 
 function getCurrentDate(): string {
@@ -281,6 +288,11 @@ function buildMapKey(entry: CanonicalSitemapEntry): string {
 function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, CanonicalSitemapEntry> {
   _activeSiteCtx = ctx ?? null;
   try {
+  const contentRoot = resolveSitemapContentRoot(ctx);
+  if (isIndexingBlocked(contentRoot)) {
+    log.info(`[Sitemap] Indexing blocked — returning empty sitemap (${ctx?.contentRootName ?? "__global__"})`);
+    return new Map();
+  }
   const ci = ctx?.contentIndex ?? contentIndex;
   const db = ctx?.database ?? databaseManager;
   const cf = ctx?.contentRootName ?? getDefaultContentFolder();
@@ -309,7 +321,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
   // Dynamic career program pages
   const programs = getAvailablePrograms(ci);
   for (const program of programs) {
-    if (!shouldIndex(program.meta.robots)) {
+    if (!shouldIndex(program.meta.robots, contentRoot)) {
       log.info(
         `[Sitemap] Skipping noindex program: ${program.slug} (${program.locale})`,
       );
@@ -331,7 +343,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
   // Dynamic location pages
   const locations = getAvailableLocations(ci);
   for (const location of locations) {
-    if (!shouldIndex(location.meta.robots)) {
+    if (!shouldIndex(location.meta.robots, contentRoot)) {
       log.info(
         `[Sitemap] Skipping noindex location: ${location.slug} (${location.locale})`,
       );
@@ -353,7 +365,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
   // Dynamic template pages
   const templatePages = getAvailableTemplatePages(ci, cf);
   for (const page of templatePages) {
-    if (!shouldIndex(page.meta.robots)) {
+    if (!shouldIndex(page.meta.robots, contentRoot)) {
       log.info(
         `[Sitemap] Skipping noindex template page: ${page.slug} (${page.locale})`,
       );
@@ -432,7 +444,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
           if (!merged) continue;
 
           const meta = (merged.meta as ContentMeta) || {};
-          if (!shouldIndex(meta.robots)) {
+          if (!shouldIndex(meta.robots, contentRoot)) {
             log.info(`[Sitemap] Skipping noindex ${typeName}: ${slug} (${locale})`);
             continue;
           }
@@ -686,7 +698,7 @@ function buildSingleEntry(type: string, dirSlug: string, locale: string): Canoni
   if (!merged) return null;
 
   const meta = (merged.meta as ContentMeta) || {};
-  if (!shouldIndex(meta.robots)) return null;
+  if (!shouldIndex(meta.robots, resolveSitemapContentRoot(_activeSiteCtx ?? undefined))) return null;
 
   if (type === "location") {
     const visibility = (merged.visibility as string) || "listed";

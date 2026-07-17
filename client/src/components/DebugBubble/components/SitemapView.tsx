@@ -1,8 +1,11 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, Home, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
 import type { MenuView, SitemapUrl } from "../types";
 import { StatusCountBadge } from "./StatusCountBadge";
+import type { RobotsSettingsResponse } from "@/components/settings/RobotsTab";
 
 export interface SitemapFolder {
   name: string;
@@ -79,6 +82,10 @@ export function SitemapView({
   onOpenDiagnosticsForUrl,
 }: SitemapViewProps) {
   const { toast } = useToast();
+  const { data: robotsSettings } = useQuery<RobotsSettingsResponse>({
+    queryKey: ["/api/settings/robots"],
+  });
+  const siteDisallowed = !!robotsSettings?.block_indexing;
 
   const copyUrl = async (loc: string) => {
     await navigator.clipboard.writeText(loc);
@@ -190,6 +197,20 @@ export function SitemapView({
               >
                 <Home className="h-4 w-4 text-primary flex-shrink-0" />
                 <span className="font-medium flex-1 min-w-0 truncate">Home</span>
+                {siteDisallowed && (
+                  <Badge
+                    variant="destructive"
+                    className="shrink-0 cursor-pointer"
+                    data-testid="badge-sitemap-home-disallowed"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      window.location.href = "/private/settings?tab=robots";
+                    }}
+                  >
+                    Site disallowed
+                  </Badge>
+                )}
               </a>
               {filteredSitemapUrls.length === 0 ? (
                 <div className="text-center py-8 text-sm text-muted-foreground">

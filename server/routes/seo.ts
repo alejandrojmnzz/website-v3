@@ -137,6 +137,8 @@ import {
   getHomePage,
   getOptimizationSettings,
   updateOptimizationSettings,
+  getRobotsSettings,
+  buildRobotsTxtContent,
 } from "../settings";
 import { variableManager } from "../variable-manager";
 import { getValidationService } from "../../scripts/validation/service";
@@ -241,36 +243,8 @@ export function registerSeoRoutes(app: Express): void {
       return "http://localhost:5000";
     }
     const baseUrl = getRobotsBaseUrl();
-    const content = `# Allow all crawlers
-User-agent: *
-Allow: /
-Disallow: /api/
-Disallow: /private/
-Disallow: /preview-frame
-Disallow: /health
-
-# Allow AI/LLM crawlers explicitly
-User-agent: GPTBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
-
-User-agent: anthropic-ai
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-# Sitemap location
-Sitemap: ${baseUrl}/sitemap.xml
-`;
+    const robots = getRobotsSettings(getContentRoot(res));
+    const content = buildRobotsTxtContent(robots, baseUrl);
     res.set("Content-Type", "text/plain");
     res.set("Cache-Control", "public, max-age=3600");
     res.send(content);
