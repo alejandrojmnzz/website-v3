@@ -10,7 +10,7 @@ import type { HeroSingleColumn } from "@shared/schema";
 import { createElement } from "react";
 import { getIcon } from "@/lib/icons";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { resolveTemplateFallback } from "@/lib/variable-manager";
+import { resolveTemplateFallback, coerceToText } from "@/lib/variable-manager";
 
 const BLOG_IMAGE_FALLBACK = "https://storage.googleapis.com/4geeks-academy-website/media/Group-original_1765419144159.webp";
 
@@ -52,16 +52,7 @@ export default function HeroSingleColumn({ data }: HeroSingleColumnProps) {
   // Badge values can arrive as plain strings or as objects (e.g. a category
   // entry like { slug: "..." } from static YAML content) — coerce to a
   // renderable string so React never receives a raw object child.
-  const badgeText = (() => {
-    const b = data.badge as unknown;
-    if (typeof b === "string" || typeof b === "number") return String(b);
-    if (b && typeof b === "object") {
-      const obj = b as Record<string, unknown>;
-      const candidate = obj.text ?? obj.label ?? obj.name ?? obj.title ?? obj.slug;
-      if (typeof candidate === "string" || typeof candidate === "number") return String(candidate);
-    }
-    return "";
-  })();
+  const badgeText = coerceToText(data.badge);
 
   return (
     <section 
