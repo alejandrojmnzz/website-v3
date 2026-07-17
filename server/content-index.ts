@@ -7,7 +7,7 @@ import type { ZodSchema } from "zod";
 import { escapeTemplateVars, unescapeObjectVars, escapeObjectVars, unescapeYamlDump } from "../shared/templateVars";
 import { deepMerge } from "./utils/deepMerge";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
-import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping } from "./content-types";
+import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, extractUrlPatternParams } from "./content-types";
 import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 const log = child({ module: "content-index" });
@@ -564,6 +564,27 @@ export class ContentIndex {
     }
   }
 
+  /**
+   * Resolves extra url_pattern variables (e.g. :category) from the merged
+   * entry data so URLs match what the sitemap/router emit.
+   */
+  private resolveUrlPatternParamsForEntry(
+    contentType: string,
+    slug: string,
+    locale: string,
+  ): Record<string, string> | undefined {
+    const config = this.contentTypeConfigs[this.normalizeType(contentType)];
+    const pattern = config?.url_pattern?.[locale] || config?.url_pattern?.["default"];
+    if (!pattern || !/:(?!slug\b|locale\b)[a-zA-Z_]+/.test(pattern)) return undefined;
+    try {
+      const { data } = this.loadMergedContent(contentType, slug, locale);
+      if (data) {
+        return extractUrlPatternParams(pattern, data).params;
+      }
+    } catch {}
+    return undefined;
+  }
+
   private buildLocaleUrlsInternal(slug: string, contentType: string): Record<string, string> {
     const matches = this.bySlug.get(slug) || [];
     const entry = matches.find(e => e.contentType === contentType);
@@ -591,7 +612,7 @@ export class ContentIndex {
         }
       }
 
-      urls[locale] = this.buildUrl(contentType, locale, localeSlug);
+      urls[locale] = this.buildUrl(contentType, locale, localeSlug, this.resolveUrlPatternParamsForEntry(contentType, slug, locale));
     }
 
     return urls;
@@ -916,7 +937,7 @@ export class ContentIndex {
         }
       }
 
-      urls[locale] = this.buildUrl(contentType, locale, localeSlug);
+      urls[locale] = this.buildUrl(contentType, locale, localeSlug, this.resolveUrlPatternParamsForEntry(contentType, slug, locale));
     }
 
     return urls;
