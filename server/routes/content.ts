@@ -1102,6 +1102,78 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/content-types/:type/backfill-property", (req, res) => {
+    try {
+      const { type } = req.params;
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      if (config.database?.slug) {
+        res.status(400).json({ error: "Backfill is only supported for YAML-backed content types" });
+        return;
+      }
+      const { source, value } = req.body || {};
+      if (typeof source !== "string" || !source.trim()) {
+        res.status(400).json({ error: "source string is required in body" });
+        return;
+      }
+      if (value === undefined || value === null || (typeof value === "string" && !value.trim())) {
+        res.status(400).json({ error: "value is required in body" });
+        return;
+      }
+      const effectiveSource = source.startsWith("?") ? source.slice(1) : source;
+      const ci = getCI(res);
+      const slugs = ci.listContentSlugs(type as ContentType);
+      const failed: { slug: string; error: string }[] = [];
+      let updated = 0;
+      let alreadySet = 0;
+
+      for (const slug of slugs) {
+        const locales = ci.getAvailableLocalesOrVariants(type as ContentType, slug);
+        const locale = locales.includes("en") ? "en" : locales[0];
+        const { data } = locale
+          ? ci.loadMergedContent(type, slug, locale)
+          : { data: null };
+        if (data && extractByDotPath(data, effectiveSource) !== undefined) {
+          alreadySet++;
+          continue;
+        }
+        const result = editCommonContent({
+          contentType: type,
+          slug,
+          operations: [{ action: "update_field", path: effectiveSource, value }],
+          author: "backfill-property",
+          ci,
+          contentRootName: getContentRootName(res),
+        });
+        if (result.success) {
+          updated++;
+        } else {
+          failed.push({ slug, error: result.error || "Unknown error" });
+        }
+      }
+
+      ci.refresh();
+      ci.invalidateCommonFields(type);
+
+      if (failed.length > 0) {
+        res.status(500).json({
+          error: `Failed to update ${failed.length} of ${slugs.length} entries`,
+          updated,
+          already_set: alreadySet,
+          failed,
+          total: slugs.length,
+        });
+        return;
+      }
+      res.json({ success: true, updated, already_set: alreadySet, total: slugs.length });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   app.put("/api/content-types/:type/config", (req, res) => {
     try {
       const { type } = req.params;
@@ -1189,9 +1261,10 @@ export function registerContentRoutes(app: Express): void {
       const excludeMapped = req.query.exclude_mapped === "true";
       if (excludeMapped && config.field_mapping) {
         const mappedSources = new Set(
-          Object.values(config.field_mapping).map((v) =>
-            typeof v === "string" ? (v.startsWith("function:") ? null : v) : (v as { source: string }).source
-          ).filter(Boolean)
+          Object.values(config.field_mapping).map((v) => {
+            const src = typeof v === "string" ? (v.startsWith("function:") ? null : v) : (v as { source: string }).source;
+            return src && src.startsWith("?") ? src.slice(1) : src;
+          }).filter(Boolean)
         );
         return res.json({
           common: result.common.filter((k) => !mappedSources.has(k)),
