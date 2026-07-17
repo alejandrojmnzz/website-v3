@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
@@ -80,6 +81,7 @@ interface ContentTypeConfig {
   unique_fields?: string[];
   database: DatabaseConfig | null;
   url_pattern: Record<string, string>;
+  single_template?: boolean;
   static_entry_count?: number;
 }
 
@@ -3330,6 +3332,35 @@ export default function ContentTypeManagePage() {
   })();
 
   const hasDb = !!typeConfig?.database?.slug;
+  const singleTemplateEnabled = !!typeConfig?.single_template;
+  const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
+  const [singleTemplateAdvancedOpen, setSingleTemplateAdvancedOpen] = useState(false);
+
+  const handleToggleSingleTemplate = async (checked: boolean) => {
+    setSingleTemplateSaving(true);
+    try {
+      await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
+        single_template: checked,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
+      toast({
+        title: checked ? "Single template on" : "Single template off",
+        description: checked
+          ? "All entries share one layout. You can still override one entry when needed."
+          : "Each entry keeps its own full layout.",
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to update single template",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSingleTemplateSaving(false);
+    }
+  };
+
   const staticEntryCount =
     typeConfig?.static_entry_count !== undefined
       ? typeConfig.static_entry_count
@@ -3620,6 +3651,39 @@ export default function ContentTypeManagePage() {
     }
   };
 
+  const handleOpenSingleTemplate = async () => {
+    const token = getDebugToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Token ${token}`;
+    try {
+      const res = await fetch(
+        `/api/content/raw-file?contentType=${encodeURIComponent(contentType)}&slug=${encodeURIComponent("_common.single")}&locale=en`,
+        { headers },
+      );
+      if (!res.ok) {
+        toast({
+          title: "No template found",
+          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const data = await res.json();
+      if (!data.exists) {
+        toast({
+          title: "No template found",
+          description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setYamlEditorInfo({ contentType, slug: "_common.single", locale: "en" });
+      setShowYamlEditor(true);
+    } catch {
+      toast({ title: "Error", description: "Failed to open the single template", variant: "destructive" });
+    }
+  };
+
   const handleDuplicate = async (entry: StaticEntry) => {
     const firstLocale = entry.locales[0] || "en";
     const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || `/${firstLocale}/${entry.slug}`;
@@ -3834,6 +3898,55 @@ export default function ContentTypeManagePage() {
             })}
           </div>
         )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <Card data-testid="card-kpi-single-template">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Single template
+              </CardTitle>
+              <Switch
+                checked={singleTemplateEnabled}
+                disabled={singleTemplateSaving || typeConfig === undefined}
+                onCheckedChange={handleToggleSingleTemplate}
+                data-testid="switch-single-template"
+              />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Share one layout across every entry. Turn overrides on only when one page needs to look different.
+              </p>
+              <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => setSingleTemplateAdvancedOpen((open) => !open)}
+                data-testid="button-single-template-advanced"
+              >
+                {singleTemplateAdvancedOpen ? "Hide advanced" : "Read advanced"}
+              </button>
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={handleOpenSingleTemplate}
+                data-testid="button-open-single-template"
+              >
+                Open template
+              </button>
+              </div>
+              {singleTemplateAdvancedOpen && (
+                <p className="text-xs text-muted-foreground leading-relaxed border-t border-border pt-2" data-testid="text-single-template-advanced">
+                  On: load merges <code className="text-[11px]">_common.single.yml</code> (and{" "}
+                  <code className="text-[11px]">single.&#123;locale&#125;.yml</code> if present) as the shared
+                  section template; each entry’s YAML applies id-based patches (
+                  <code className="text-[11px]">_remove</code>, field overrides, or new sections). Off:{" "}
+                  <code className="text-[11px]">deepMerge</code> replaces the whole{" "}
+                  <code className="text-[11px]">sections</code> array from the entry file.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader className="pb-3">
@@ -4763,7 +4876,15 @@ export default function ContentTypeManagePage() {
             slug={yamlEditorInfo.slug}
             locale={yamlEditorInfo.locale}
             onClose={() => setShowYamlEditor(false)}
-            onSaved={() => window.location.reload()}
+            onSaved={() => {
+              setShowYamlEditor(false);
+              if (yamlEditorInfo?.slug === "_common.single") {
+                queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+                toast({ title: "Template saved" });
+              } else {
+                window.location.reload();
+              }
+            }}
           />
         </Suspense>
       )}

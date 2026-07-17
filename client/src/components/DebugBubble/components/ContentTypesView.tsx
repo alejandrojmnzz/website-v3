@@ -24,6 +24,7 @@ interface ContentTypeSummary {
   directory: string;
   has_database: boolean;
   database_slug: string | null;
+  single_template?: boolean;
   database_entry_count: number | null;
   has_field_mapping: boolean;
   static_entry_count: number;

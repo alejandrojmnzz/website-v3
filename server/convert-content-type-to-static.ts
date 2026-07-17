@@ -121,7 +121,7 @@ function listSharedTemplateFiles(typeDir: string): string[] {
   if (!fs.existsSync(typeDir)) return [];
   return fs
     .readdirSync(typeDir)
-    .filter((f) => f === "_common.single.yml" || f === "_common.single.yaml" || /^single\.[a-z0-9-]+\.ya?ml$/i.test(f))
+    .filter((f) => /^single\.[a-z0-9-]+\.ya?ml$/i.test(f))
     .map((f) => path.join(typeDir, f));
 }
 
@@ -323,7 +323,8 @@ export async function convertContentTypeToStatic(
       skipped,
       message:
         `Will convert ${bySlug.size} slug(s) / ${localeCount} locale file(s) from database "${dbName}" ` +
-        `into ${directory}/, unlink the database, and delete ${templateFiles.length} shared template file(s). ` +
+        `into ${directory}/, unlink the database, set single_template: true, preserve _common.single.yml, ` +
+        `and delete ${templateFiles.length} single.*.yml template file(s). ` +
         `Existing per-entry overlay patches will be merged into full static YAML and overwritten.`,
     };
   }
@@ -408,13 +409,14 @@ export async function convertContentTypeToStatic(
       refreshSitemapEntriesForContentKey(contentType, slug, Array.from(locales.keys()));
     }
 
-    // Unlink database and rewrite field_mapping to identity keys
+    // Unlink database, enable single-template inheritance, rewrite field_mapping to identity keys
     const newMapping = buildIdentityFieldMapping(config.field_mapping);
     updateContentTypeConfig(
       contentType,
       {
         database: null,
         field_mapping: newMapping,
+        single_template: true,
       },
       contentRoot,
     );

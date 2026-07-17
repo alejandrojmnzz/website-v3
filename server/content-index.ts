@@ -7,8 +7,10 @@ import type { ZodSchema } from "zod";
 import { escapeTemplateVars, unescapeObjectVars, escapeObjectVars, unescapeYamlDump } from "../shared/templateVars";
 import { deepMerge } from "./utils/deepMerge";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
-import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, extractUrlPatternParams } from "./content-types";
+import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, extractUrlPatternParams, getContentTypeConfig } from "./content-types";
 import { databaseManager, type DatabaseManager } from "./database";
+import { applyPerEntryLayer } from "./section-merge";
+import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { child } from "./logger";
 const log = child({ module: "content-index" });
 
@@ -1309,30 +1311,58 @@ export class ContentIndex {
 
       const folder = this.getFolderName(contentType);
       const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
+      const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
+      const useSingleTemplate = !!getContentTypeConfig(contentType, this.contentRoot)?.single_template;
+
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {
         const singleCommonContent = fs.readFileSync(singleCommonPath, "utf-8");
-        baseData = this.safeYamlLoad(singleCommonContent) as Record<string, unknown>;
+        baseData = (this.safeYamlLoad(singleCommonContent) as Record<string, unknown>) || {};
       }
 
       const contentFolder = this.getContentFolderPath(contentType, slug);
       const commonPath = path.join(contentFolder, "_common.yml");
-      if (fs.existsSync(commonPath)) {
-        const commonContent = fs.readFileSync(commonPath, "utf-8");
-        const commonData = this.safeYamlLoad(commonContent) as Record<string, unknown>;
-        baseData = Object.keys(baseData).length > 0
-          ? deepMerge(baseData, commonData)
-          : commonData;
-      }
-
       const raw = fs.readFileSync(filePath, "utf-8");
       const localeData = this.safeYamlLoad(raw) as Record<string, unknown>;
 
-      const merged = Object.keys(baseData).length > 0
-        ? deepMerge(baseData, localeData)
-        : localeData;
+      let merged: Record<string, unknown>;
+      if (useSingleTemplate) {
+        if (fs.existsSync(typeCommonPath)) {
+          const typeCommon = this.safeYamlLoad(fs.readFileSync(typeCommonPath, "utf-8")) as Record<string, unknown> | null;
+          if (typeCommon) {
+            baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, typeCommon) : typeCommon;
+          }
+        }
+        let singleLocalePath = path.join(this.contentRoot, folder, `single.${locale}.yml`);
+        if (!fs.existsSync(singleLocalePath)) {
+          singleLocalePath = path.join(this.contentRoot, folder, "single.en.yml");
+        }
+        if (fs.existsSync(singleLocalePath) && path.resolve(singleLocalePath) !== path.resolve(filePath)) {
+          const singleLocale = this.safeYamlLoad(fs.readFileSync(singleLocalePath, "utf-8")) as Record<string, unknown> | null;
+          if (singleLocale) {
+            baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, singleLocale) : singleLocale;
+          }
+        }
+        merged = { ...baseData };
+        if (fs.existsSync(commonPath)) {
+          const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null;
+          if (commonData) merged = applyPerEntryLayer(merged, commonData);
+        }
+        if (localeData) merged = applyPerEntryLayer(merged, localeData);
+      } else {
+        if (fs.existsSync(commonPath)) {
+          const commonContent = fs.readFileSync(commonPath, "utf-8");
+          const commonData = this.safeYamlLoad(commonContent) as Record<string, unknown>;
+          baseData = Object.keys(baseData).length > 0
+            ? deepMerge(baseData, commonData)
+            : commonData;
+        }
+        merged = Object.keys(baseData).length > 0
+          ? deepMerge(baseData, localeData)
+          : localeData;
+      }
 
-      const isSharedTemplate = path.basename(filePath).startsWith("single.");
+      const isSharedTemplate = useSingleTemplate || path.basename(filePath).startsWith("single.");
       return { data: merged, filePath, isSharedTemplate };
     } catch (error) {
       return { data: null, filePath: "", error: `Error loading merged content: ${error}` };
@@ -1363,25 +1393,60 @@ export class ContentIndex {
       }
 
       const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
+      const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
+      const useSingleTemplate = !!getContentTypeConfig(contentType, this.contentRoot)?.single_template;
+
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {
         const singleCommonContent = fs.readFileSync(singleCommonPath, "utf-8");
-        baseData = this.safeYamlLoad(singleCommonContent) as Record<string, unknown>;
+        baseData = (this.safeYamlLoad(singleCommonContent) as Record<string, unknown>) || {};
       }
 
-      if (fs.existsSync(commonPath)) {
-        const commonContent = fs.readFileSync(commonPath, "utf8");
-        const commonData = this.safeYamlLoad(commonContent) as Record<string, unknown>;
-        baseData = Object.keys(baseData).length > 0
-          ? deepMerge(baseData, commonData)
-          : commonData;
+      let cleanedData: Record<string, unknown>;
+
+      if (useSingleTemplate) {
+        // Shared-template mode: mirror DB mergeSingleTemplate base layers, then
+        // id-patch entry _common.yml + locale (instead of replacing sections arrays).
+        if (fs.existsSync(typeCommonPath)) {
+          const typeCommon = this.safeYamlLoad(fs.readFileSync(typeCommonPath, "utf-8")) as Record<string, unknown> | null;
+          if (typeCommon) {
+            baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, typeCommon) : typeCommon;
+          }
+        }
+        let singleLocalePath = path.join(this.contentRoot, folder, `single.${localeOrVariant}.yml`);
+        if (!fs.existsSync(singleLocalePath)) {
+          singleLocalePath = path.join(this.contentRoot, folder, "single.en.yml");
+        }
+        if (fs.existsSync(singleLocalePath)) {
+          const singleLocale = this.safeYamlLoad(fs.readFileSync(singleLocalePath, "utf-8")) as Record<string, unknown> | null;
+          if (singleLocale) {
+            baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, singleLocale) : singleLocale;
+          }
+        }
+
+        let merged: Record<string, unknown> = { ...baseData };
+        if (fs.existsSync(commonPath)) {
+          const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf8")) as Record<string, unknown> | null;
+          if (commonData) merged = applyPerEntryLayer(merged, commonData);
+        }
+        const contentData = this.safeYamlLoad(fs.readFileSync(contentPath, "utf8")) as Record<string, unknown> | null;
+        if (contentData) merged = applyPerEntryLayer(merged, contentData);
+        cleanedData = stripNullValues(applySectionLayoutDefaults(merged));
+      } else {
+        if (fs.existsSync(commonPath)) {
+          const commonContent = fs.readFileSync(commonPath, "utf8");
+          const commonData = this.safeYamlLoad(commonContent) as Record<string, unknown>;
+          baseData = Object.keys(baseData).length > 0
+            ? deepMerge(baseData, commonData)
+            : commonData;
+        }
+
+        const contentContent = fs.readFileSync(contentPath, "utf8");
+        const contentData = this.safeYamlLoad(contentContent) as Record<string, unknown>;
+
+        const mergedData = deepMerge(baseData, contentData);
+        cleanedData = stripNullValues(applySectionLayoutDefaults(mergedData));
       }
-
-      const contentContent = fs.readFileSync(contentPath, "utf8");
-      const contentData = this.safeYamlLoad(contentContent) as Record<string, unknown>;
-
-      const mergedData = deepMerge(baseData, contentData);
-      const cleanedData = stripNullValues(mergedData);
 
       if (schema) {
         const result = schema.safeParse(cleanedData);

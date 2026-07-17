@@ -244,7 +244,7 @@ export default function PrivatePreview() {
           locale={locale}
           variant={variant ?? undefined}
           version={version ? Number(version) : undefined}
-          isSharedTemplate={!!typeInfo?.has_database}
+          isSharedTemplate={!!(typeInfo?.has_database || typeInfo?.single_template)}
           singleEntry={(content as any).singleEntry}
         />
       </MenuVisualContextProvider>

@@ -31,6 +31,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
+import { SECTION_LAYOUT_DEFAULT_KEYS } from "../section-layout-defaults";
 import { databaseManager, DatabaseManager, getCachedDatabaseEntryCount } from "../database";
 
 function getDB(res: import("express").Response): DatabaseManager {
@@ -868,6 +869,7 @@ export function registerContentRoutes(app: Express): void {
           directory: config.directory,
           has_database: !!config.database?.slug,
           database_slug: config.database?.slug || null,
+          single_template: !!config.single_template,
           has_field_mapping: !!(
             config.field_mapping &&
             Object.keys(config.field_mapping).filter(
@@ -1055,6 +1057,7 @@ export function registerContentRoutes(app: Express): void {
         indexes: config.indexes || null,
         database: config.database || null,
         url_pattern: config.url_pattern,
+        single_template: !!config.single_template,
         static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {
@@ -1208,6 +1211,7 @@ export function registerContentRoutes(app: Express): void {
       if (body.indexes !== undefined) update.indexes = body.indexes;
       if (body.unique_fields !== undefined) update.unique_fields = body.unique_fields;
       if (body.database !== undefined) update.database = body.database;
+      if (body.single_template !== undefined) update.single_template = !!body.single_template;
       updateContentTypeConfig(type, update, getContentRoot(res));
       getCI(res).invalidateCommonFields(type);
       res.json({ success: true });
@@ -1492,7 +1496,18 @@ export function registerContentRoutes(app: Express): void {
         const raw = fs.readFileSync(filePath, "utf-8");
         existing = getCI(res).safeYamlLoad(raw) || {};
       }
-      const merged = deepMerge(existing, body);
+      const { author: _authorIgnored, ...bodyWithoutAuthor } = body as Record<string, unknown>;
+      const merged = deepMerge(existing, bodyWithoutAuthor);
+      // Clear legacy nested layout keys when writing top-level layout defaults
+      const wroteLayoutKey = SECTION_LAYOUT_DEFAULT_KEYS.some((k) => k in bodyWithoutAuthor);
+      if (wroteLayoutKey && merged.section_defaults && typeof merged.section_defaults === "object" && !Array.isArray(merged.section_defaults)) {
+        const sd = { ...(merged.section_defaults as Record<string, unknown>) };
+        for (const key of SECTION_LAYOUT_DEFAULT_KEYS) {
+          if (key in bodyWithoutAuthor) delete sd[key];
+        }
+        if (Object.keys(sd).length === 0) delete merged.section_defaults;
+        else merged.section_defaults = sd;
+      }
       const { escaped, map } = escapeObjectVars(merged);
       const dumped = yaml.dump(escaped, { lineWidth: 120, noRefs: true });
       const yamlStr = unescapeYamlDump(dumped, map);

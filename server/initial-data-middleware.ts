@@ -666,6 +666,7 @@ function buildContentTypesPayload(
       directory: config.directory,
       has_database: !!config.database?.slug,
       database_slug: config.database?.slug || null,
+      single_template: !!config.single_template,
       has_field_mapping: !!(
         config.field_mapping &&
         Object.keys(config.field_mapping).filter(

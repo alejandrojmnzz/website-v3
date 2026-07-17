@@ -30,6 +30,12 @@ export interface ContentTypeEntry {
   indexes?: string[];
   database?: DatabaseConfig;
   layout?: { menu?: { top?: string | null; bottom?: string | null } };
+  /**
+   * When true (static types), `_common.single.yml` (+ optional `single.{locale}.yml`)
+   * is the shared section template; entry YAML id-patches sections instead of replacing them.
+   * DB-backed types already use this merge model via mergeSingleTemplate.
+   */
+  single_template?: boolean;
 }
 
 interface ContentTypesRegistry {
@@ -79,6 +85,11 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     bottom: menu ID for footer (e.g., "main-footer") or null for no footer
 #   System default (when absent): { menu: { top: null, bottom: null } }
 #   Per-entry override: set layout.menu.top / layout.menu.bottom in _common.yml or locale files
+#
+# single_template (optional, default false):
+#   When true, static entries inherit sections from _common.single.yml (and single.{locale}.yml
+#   if present) and apply per-entry section patches by id — same model as DB-backed singles.
+#   Set automatically when converting a DB-backed type to static.
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {

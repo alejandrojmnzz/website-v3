@@ -38,6 +38,9 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
   // Default to database-backed until content types load (matches historical behavior);
   // once loaded, static types are fetched from the content-pages endpoint instead.
   const isDbBacked = contentTypeInfo ? contentTypeInfo.has_database : true;
+  const isSharedTemplate = contentTypeInfo
+    ? !!(contentTypeInfo.has_database || contentTypeInfo.single_template)
+    : true;
   const staticApiPath = getApiPath(contentType);
 
   const { data: page, isLoading, error, refetch } = useQuery<TemplatePage>({
@@ -145,7 +148,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
             slug={slug}
             locale={locale}
             onMenuChange={() => refetch()}
-            isSharedTemplate
+            isSharedTemplate={isSharedTemplate}
           />
         </div>
         <SectionRenderer
@@ -154,7 +157,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           contentType={contentType}
           slug={slug}
           locale={locale}
-          isSharedTemplate
+          isSharedTemplate={isSharedTemplate}
           singleEntry={page.singleEntry}
           perEntryRemovedSections={page.perEntryRemovedSections}
         />
@@ -172,7 +175,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           slug={slug}
           locale={locale}
           onMenuChange={() => refetch()}
-          isSharedTemplate
+          isSharedTemplate={isSharedTemplate}
         />
       </div>
     </div>

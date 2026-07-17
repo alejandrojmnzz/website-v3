@@ -214,7 +214,7 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
               data-testid="tab-locale-file"
             >
               <File className="h-3.5 w-3.5 inline mr-1.5" />
-              {variantSlug ? `${variantSlug}.${locale}.yml` : `${locale}.yml`}
+              {localeFile.path.split("/").pop() || (variantSlug ? `${variantSlug}.${locale}.yml` : `${locale}.yml`)}
             </button>
             <button
               type="button"
@@ -223,7 +223,7 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
               data-testid="tab-common-file"
             >
               <File className="h-3.5 w-3.5 inline mr-1.5" />
-              _common.yml
+              {commonFile.path.split("/").pop() || "_common.yml"}
             </button>
           </div>
         )}
