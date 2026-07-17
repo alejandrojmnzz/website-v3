@@ -301,6 +301,21 @@ function planQsFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("plan");
 }
 
+/** Remove stale callback_label_* from the page QS (labels are only sent on CTA click). */
+function clearCallbackLabelsFromUrl() {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("callback_label_en") && !params.has("callback_label_es")) return;
+  params.delete("callback_label_en");
+  params.delete("callback_label_es");
+  const qs = params.toString();
+  history.replaceState(
+    null,
+    "",
+    window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
+  );
+}
+
 /** Querystring link navigated when the toggle turns ON (defaults to ?addon=<id>) */
 function addonOnUrl(addon: AddonConfig): string {
   return addon.on?.url ?? `?addon=${addon.id}`;
@@ -411,7 +426,11 @@ function UnlocksList({ unlocks }: { unlocks: { icon?: string; text: string }[] }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSelectorDefault }) {
-  const nav = useInternalNav();
+  const callbackLabelsRef = useRef<{ en?: string; es?: string }>({});
+  const nav = useInternalNav({
+    appendCallback: true,
+    getCallbackLabels: () => callbackLabelsRef.current,
+  });
   const { locale } = useSectionContext();
 
   const [selectedProgramIdx, setSelectedProgramIdx] = useState(0);
@@ -438,7 +457,9 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
       }
     }
     const activeProgram = data.programs[activeIdx];
-    setSelectedPlanIdx(resolvePlanIdx(activeProgram?.plans, planQs));
+    const planIdx = resolvePlanIdx(activeProgram?.plans, planQs);
+    setSelectedPlanIdx(planIdx);
+    clearCallbackLabelsFromUrl();
     const addon = activeProgram?.addon;
     if (addon) {
       const onParams = new URLSearchParams(addonOnUrl(addon).replace(/^\?/, ""));
@@ -502,6 +523,12 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const activeBenefits = plan?.benefits?.length ? plan.benefits : (program?.benefits ?? []);
   const activeUnlocks = plan?.unlocks?.length ? plan.unlocks : (program?.unlocks ?? []);
 
+  // Source of truth for CTA callback labels (not the page URL).
+  callbackLabelsRef.current = {
+    en: plan?.callback_label_en ?? program?.callback_label_en,
+    es: plan?.callback_label_es ?? program?.callback_label_es,
+  };
+
   function triggerFlash(id: string) {
     if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlashId(id);
@@ -523,8 +550,9 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   }
 
   /** Ensure the current (default) selection's query params are in the URL
-   *  before the CTA link resolves its {qs:} tokens. Uses history.replaceState
-   *  under the hood for `?` URLs, so it causes no re-render. */
+   *  before the CTA link resolves its {qs:} tokens / appends callback.
+   *  Uses history.replaceState under the hood for `?` URLs, so it causes no re-render.
+   *  Callback labels are not written to the page URL — only attached on CTA click. */
   function applySelectionParams() {
     const d = displayDates[selectedDateIdx];
     if (d?.url) nav.navigate(d.url);
@@ -612,7 +640,8 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                         triggerFlash(fid);
                         setSelectedProgramIdx(i);
                         setSelectedDateIdx(0);
-                        setSelectedPlanIdx(resolvePlanIdx(prog.plans, planQsFromUrl()));
+                        const nextPlanIdx = resolvePlanIdx(prog.plans, planQsFromUrl());
+                        setSelectedPlanIdx(nextPlanIdx);
                         if (addonEnabled && program?.addon) {
                           nav.navigate(addonOffUrl(program.addon));
                         }

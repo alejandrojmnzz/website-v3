@@ -72,10 +72,58 @@ function mergeSearch(existing: string, extra: string): string {
   return str ? `?${str}` : "";
 }
 
+/** Append callback=<encoded current page URL> plus callback_label_* as top-level params.
+ *  Labels come from getCallbackLabels (selection), not the page QS — so stale URL values
+ *  cannot override the current program/plan. Labels are also stripped from the encoded callback. */
+function withCallbackParam(
+  href: string,
+  enabled: boolean,
+  labels?: { en?: string; es?: string },
+): string {
+  if (!enabled) return href;
+  if (!href || href.startsWith("#") || href.startsWith("?") || href.startsWith("inline#")) {
+    return href;
+  }
+
+  const pageParams = new URLSearchParams(window.location.search);
+  pageParams.delete("callback_label_en");
+  pageParams.delete("callback_label_es");
+  const qs = pageParams.toString();
+  const callbackUrl =
+    window.location.origin +
+    window.location.pathname +
+    (qs ? `?${qs}` : "") +
+    window.location.hash;
+
+  const join = href.includes("?") ? "&" : "?";
+  let out = `${href}${join}callback=${encodeURIComponent(callbackUrl)}`;
+  if (labels?.en) out += `&callback_label_en=${labels.en}`;
+  if (labels?.es) out += `&callback_label_es=${labels.es}`;
+  return out;
+}
+
+export type CallbackLabels = { en?: string; es?: string };
+
+export type UseInternalNavOptions = {
+  onNavigate?: () => void;
+  /** When true, outbound links get callback= plus optional callback_label_en/es. */
+  appendCallback?: boolean;
+  /** Source of truth for labels on CTA click (e.g. current program/plan). Not read from the URL. */
+  getCallbackLabels?: () => CallbackLabels;
+};
+
 /** Module-level flag so we only register the global middle-click listener once */
 let _globalMiddleClickInstalled = false;
 
-export function useInternalNav(onNavigate?: () => void) {
+export function useInternalNav(
+  optionsOrOnNavigate?: (() => void) | UseInternalNavOptions,
+) {
+  const options: UseInternalNavOptions =
+    typeof optionsOrOnNavigate === "function"
+      ? { onNavigate: optionsOrOnNavigate }
+      : optionsOrOnNavigate ?? {};
+  const { onNavigate, appendCallback = false, getCallbackLabels } = options;
+
   const [, setLocation] = useLocation();
   const pageSections = usePageSections();
 
@@ -108,7 +156,11 @@ export function useInternalNav(onNavigate?: () => void) {
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
 
-    const href = resolveQsTokens(resolveGlobalTemplate(rawHref));
+    const href = withCallbackParam(
+      resolveQsTokens(resolveGlobalTemplate(rawHref)),
+      appendCallback,
+      appendCallback ? getCallbackLabels?.() : undefined,
+    );
 
     if (href === "#top") {
       e.preventDefault();
@@ -160,8 +212,7 @@ export function useInternalNav(onNavigate?: () => void) {
       window.scrollTo(0, 0);
       onNavigate?.();
     } else if (href !== rawHref) {
-      // External URL had {qs:} tokens — browser would use the raw href (literal tokens).
-      // Intercept and open the resolved URL instead.
+      // External URL had {qs:} tokens and/or callback — browser would use the raw href.
       e.preventDefault();
       window.open(href, anchor.target || "_blank");
       onNavigate?.();
@@ -234,17 +285,20 @@ export function useInternalNav(onNavigate?: () => void) {
     return null;
   };
 
-  /** Intercept middle-click (button 1) on anchors that contain {qs:} tokens.
-   *  Modern browsers open-in-new-tab on `auxclick`, not `mousedown`, so
-   *  preventDefault on mousedown is too early. Instead we temporarily swap
-   *  the href to the resolved URL so the browser reads the correct value
-   *  when it processes auxclick, then restore immediately after. */
+  /** Intercept middle-click (button 1) on anchors that contain {qs:} tokens
+   *  (or when appendCallback is on). Swap href temporarily so auxclick sees
+   *  the resolved URL, then restore. */
   const handleMouseDown = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 1) return; // only middle-click
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
-    if (!rawHref || !rawHref.includes("{qs:")) return;
-    const href = resolveQsTokens(rawHref);
+    if (!rawHref) return;
+    if (!appendCallback && !rawHref.includes("{qs:")) return;
+    const href = withCallbackParam(
+      resolveQsTokens(rawHref),
+      appendCallback,
+      appendCallback ? getCallbackLabels?.() : undefined,
+    );
     if (href === rawHref) return; // nothing changed, let browser handle it
     anchor.setAttribute("href", href);
     setTimeout(() => anchor.setAttribute("href", rawHref), 0);
