@@ -148,9 +148,7 @@ export function useInternalNav(
   }, []);
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-      return;
-    }
+    if (e.altKey || e.button !== 0) return;
 
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
@@ -161,6 +159,15 @@ export function useInternalNav(
       appendCallback,
       appendCallback ? getCallbackLabels?.() : undefined,
     );
+
+    // Ctrl/Cmd/Shift+click: resolve {qs:}/callback then open in new tab (browser would use raw href).
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      if (href === rawHref || href.startsWith("#") || href.startsWith("?")) return;
+      e.preventDefault();
+      window.open(href, "_blank", "noopener,noreferrer");
+      onNavigate?.();
+      return;
+    }
 
     if (href === "#top") {
       e.preventDefault();

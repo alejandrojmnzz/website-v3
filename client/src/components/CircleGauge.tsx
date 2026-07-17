@@ -16,7 +16,9 @@ interface CircleGaugeProps {
   highlightInner?: boolean;
   /** When false, the circle SVG is hidden and only bars are shown. Default: true. */
   showGauge?: boolean;
+  /** Outer bar label. Bar omitted when absent (no default). */
   bar1Label?: string;
+  /** Inner bar label. Bar omitted when absent (no default). */
   bar2Label?: string;
   accentColor?: string;
   variant?: "full" | "circle-only" | "bars-only";
@@ -29,9 +31,9 @@ export function CircleGauge({
   innerStatPct,
   outerStatPct,
   gaugeLabel,
-  gaugeSubLabel  = "not ready for AI roles today",
-  bar1Label      = "Traditional workforce",
-  bar2Label      = "AI-ready professionals",
+  gaugeSubLabel,
+  bar1Label,
+  bar2Label,
   accentColor    = "hsl(var(--color-orange))",
   highlightInner = true,
   showGauge      = true,
@@ -117,60 +119,65 @@ export function CircleGauge({
     </div>
   ) : null;
 
-  // ── Bars ─────────────────────────────────────────────────────────────────────
-  // When inner is absent: single bar for outer relative to 100
-  const barsEl = !hasInner ? (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-slate-400">{bar1Label}</span>
-        <span style={{ color: accentCss }}>{outer}%</span>
-      </div>
-      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: trackColor }}>
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${outer}%`, background: accentCss }}
-        />
-      </div>
-    </div>
-  ) : (
-    <div className="flex flex-col gap-2.5">
-      {/* bar1 = outer */}
+  // ── Bars (only when labels are provided — no defaults) ───────────────────────
+  const showBar1 = !!bar1Label;
+  const showBar2 = hasInner && !!bar2Label;
+
+  const barsEl =
+    !showBar1 && !showBar2 ? null : !hasInner && showBar1 ? (
       <div className="flex flex-col gap-1">
         <div className="flex justify-between text-xs">
           <span className="text-slate-400">{bar1Label}</span>
-          <span style={{ color: highlightInner ? "#94a3b8" : accentCss }}>{outer}%</span>
+          <span style={{ color: accentCss }}>{outer}%</span>
         </div>
-        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: bar1Track }}>
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: trackColor }}>
           <div
             className="h-full rounded-full"
-            style={{
-              width: `${highlightInner ? faintVisual : accentVisual}%`,
-              background: highlightInner ? barFaint : accentCss,
-            }}
+            style={{ width: `${outer}%`, background: accentCss }}
           />
         </div>
       </div>
-      {/* bar2 = inner */}
-      <div className="flex flex-col gap-1">
-        <div className="flex justify-between text-xs">
-          <span className="text-slate-400">{bar2Label}</span>
-          <span style={{ color: highlightInner ? accentCss : "#94a3b8" }}>{inner}%</span>
-        </div>
-        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: bar2Track }}>
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${highlightInner ? accentVisual : faintVisual}%`,
-              background: highlightInner ? accentCss : barFaint,
-            }}
-          />
-        </div>
+    ) : (
+      <div className="flex flex-col gap-2.5">
+        {showBar1 && (
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400">{bar1Label}</span>
+              <span style={{ color: highlightInner ? "#94a3b8" : accentCss }}>{outer}%</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: bar1Track }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${highlightInner ? faintVisual : accentVisual}%`,
+                  background: highlightInner ? barFaint : accentCss,
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {showBar2 && (
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400">{bar2Label}</span>
+              <span style={{ color: highlightInner ? accentCss : "#94a3b8" }}>{inner}%</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: bar2Track }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${highlightInner ? accentVisual : faintVisual}%`,
+                  background: highlightInner ? accentCss : barFaint,
+                }}
+              />
+            </div>
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
 
   if (variant === "circle-only") return circleEl ?? <></>;
-  if (variant === "bars-only")   return barsEl;
+  if (variant === "bars-only")   return barsEl ?? <></>;
 
   // ── Full ─────────────────────────────────────────────────────────────────────
   return (
@@ -182,9 +189,11 @@ export function CircleGauge({
             <div className="text-4xl font-black tracking-tight leading-none" style={{ color: accentCss }}>
               {outer}%
             </div>
-            <p className="text-sm text-muted-foreground mt-1.5 leading-snug">
-              {gaugeSubLabel}
-            </p>
+            {gaugeSubLabel && (
+              <p className="text-sm text-muted-foreground mt-1.5 leading-snug">
+                {gaugeSubLabel}
+              </p>
+            )}
           </div>
         </div>
       ) : (

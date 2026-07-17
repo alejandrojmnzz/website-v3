@@ -917,9 +917,8 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                 <a
                   href={activeSummary.cta.url}
                   onClick={(e) => {
-                    if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) {
-                      applySelectionParams();
-                    }
+                    // Apply selection (cohort/addon) before resolve — including ctrl/cmd+click.
+                    if (e.button === 0 && !e.altKey) applySelectionParams();
                     nav(e);
                   }}
                   onMouseDown={(e) => {
