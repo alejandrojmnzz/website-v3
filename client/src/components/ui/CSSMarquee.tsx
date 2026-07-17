@@ -49,7 +49,8 @@ export function CSSMarquee({
       onMouseLeave={() => pauseOnHover && setHovered(false)}
     >
       <div className={`flex w-max marquee-${direction}`} style={trackStyle}>
-        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+        {/* Two copies are enough for a seamless CSS loop; more clones inflate SSR HTML/DOM. */}
+        {[0, 1].map((i) => (
           <div
             key={i}
             className="flex items-center"

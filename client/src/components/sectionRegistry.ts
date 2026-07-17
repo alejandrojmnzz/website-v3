@@ -172,6 +172,29 @@ export function extractSectionsFromInitialData(
   return sections;
 }
 
+/**
+ * Collects only eager/priority section refs (first eager_count per page).
+ * Used to unblock hydrateRoot sooner; remaining sections idle-prefetch after.
+ */
+export function extractEagerSectionsFromInitialData(
+  payload: InitialDataPayload | null,
+): SectionRef[] {
+  const sections: SectionRef[] = [];
+  for (const pageData of pageDataListFromPayload(payload)) {
+    if (!pageData || typeof pageData !== "object") continue;
+    const record = pageData as Record<string, unknown>;
+    if (!Array.isArray(record.sections)) continue;
+    const eagerCount = getEagerCountFromPageData(pageData);
+    for (const section of record.sections.slice(0, eagerCount)) {
+      if (section && typeof section === "object" && "type" in section) {
+        const s = section as { type: string; variant?: string };
+        sections.push({ type: s.type, variant: s.variant });
+      }
+    }
+  }
+  return sections;
+}
+
 /** Preloads unique section chunks for the given refs (deduped by type + variant). */
 export async function preloadSections(sections: SectionRef[]): Promise<void> {
   const seen = new Set<string>();
@@ -255,21 +278,48 @@ export function shouldPreloadLeadFormFromInitialData(
 }
 
 /**
- * Entry point for bootstrap: preloads all page sections from SSR initial data, plus
+ * Entry point for bootstrap: preloads eager page sections from SSR initial data, plus
  * LeadFormDefault when shouldPreloadLeadFormFromInitialData is true.
+ * Pass `{ eagerOnly: true }` (client hydrate) to avoid waiting on below-fold chunks.
  */
 export async function preloadSectionsFromInitialData(
   payload: InitialDataPayload | null,
+  options?: { eagerOnly?: boolean },
 ): Promise<void> {
-  const loads: Promise<unknown>[] = [
-    preloadSections(extractSectionsFromInitialData(payload)),
-  ];
+  const refs = options?.eagerOnly
+    ? extractEagerSectionsFromInitialData(payload)
+    : extractSectionsFromInitialData(payload);
+  const loads: Promise<unknown>[] = [preloadSections(refs)];
 
   if (shouldPreloadLeadFormFromInitialData(payload) && hasSectionType("lead_form")) {
     loads.push(loadSectionComponent("lead_form", "default"));
   }
 
   await Promise.all(loads);
+}
+
+/** Idle-prefetch remaining (non-eager) section chunks after hydration. */
+export function prefetchRemainingSectionsFromInitialData(
+  payload: InitialDataPayload | null,
+): void {
+  const all = extractSectionsFromInitialData(payload);
+  const eager = extractEagerSectionsFromInitialData(payload);
+  const eagerKeys = new Set(
+    eager.map((s) => `${s.type}::${s.variant ?? "default"}`),
+  );
+  const remaining = all.filter(
+    (s) => !eagerKeys.has(`${s.type}::${s.variant ?? "default"}`),
+  );
+  if (remaining.length === 0) return;
+
+  const run = () => {
+    void preloadSections(remaining);
+  };
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(run, { timeout: 2500 });
+  } else {
+    setTimeout(run, 1);
+  }
 }
 
 /** True if the glob indexed at least one variant for this component type folder. */

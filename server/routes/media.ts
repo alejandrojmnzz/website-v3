@@ -274,7 +274,17 @@ export function registerMediaRoutes(app: Express): void {
       res.status(500).json({ error: "Failed to load image registry" });
       return;
     }
-    res.json(registry);
+    // Full registry for editors / client refetch. Long cache + weak ETag so
+    // revisits after SSR subset hydration are cheap when content is unchanged.
+    const body = JSON.stringify(registry);
+    const etag = `W/"imgreg-${body.length.toString(16)}-${Buffer.byteLength(body).toString(16)}"`;
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
+    if (_req.headers["if-none-match"] === etag) {
+      res.status(304).end();
+      return;
+    }
+    res.type("json").send(body);
   });
 
   app.get("/api/image-registry/family-usage", (req, res) => {

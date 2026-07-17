@@ -137,9 +137,8 @@ export default defineConfig(async () => ({
           if (id.includes('react-icons')) {
             return 'icons-react';
           }
-          if (id.includes('lucide-react')) {
-            return 'icons-lucide';
-          }
+          // lucide-react is intentionally NOT forced into a single chunk — that
+          // pulled ~500KB onto every public page. Let Rolldown split per-importer.
           if (id.includes('@radix-ui')) {
             return 'radix-ui';
           }

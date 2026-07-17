@@ -5,7 +5,10 @@ import {
   clearSSRHydration,
   readInitialDataPayload,
 } from "./lib/initialData";
-import { preloadSectionsFromInitialData } from "@/components/sectionRegistry";
+import {
+  preloadSectionsFromInitialData,
+  prefetchRemainingSectionsFromInitialData,
+} from "@/components/sectionRegistry";
 import { injectDevSite, resumePendingDomainNavigation } from "./lib/devSite";
 
 // ─── Global fetch interceptor ────────────────────────────────────────────────
@@ -93,7 +96,12 @@ const rootEl = document.getElementById("root")!;
       ];
     }
 
-    const sectionPreload = preloadSectionsFromInitialData(initialDataPayload);
+    // Await only eager/above-fold section chunks so hydrateRoot can start sooner.
+    // Below-fold sections stay in the SSR HTML (DeferredSection keeps them visible
+    // during data-ssr-hydrating) and their JS chunks idle-prefetch after hydrate.
+    const sectionPreload = preloadSectionsFromInitialData(initialDataPayload, {
+      eagerOnly: true,
+    });
 
     // Gracefully handle preload failure — hydration still proceeds but may briefly
     // flash for that route. Better than blocking hydration globally.
@@ -104,6 +112,7 @@ const rootEl = document.getElementById("root")!;
     }
 
     hydrateRoot(rootEl, <App />);
+    prefetchRemainingSectionsFromInitialData(initialDataPayload);
 
     requestAnimationFrame(() => {
       if (typeof requestIdleCallback !== "undefined") {

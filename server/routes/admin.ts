@@ -2154,10 +2154,13 @@ export function registerAdminRoutes(app: Express): void {
           resolved.patternLocale && resolved.patternLocale !== "default"
             ? resolved.patternLocale
             : getDefaultLocale();
+        // Fetch only the single entry needed for JSON-LD — not the whole content type.
         const { items: posts } = await queryEntries(
           {
             from: { contentType: resolved.contentType },
             locale,
+            filters: [{ field: "slug", value: resolved.slug }],
+            limit: 5,
           },
           {
             db: getDB(res),
@@ -2199,6 +2202,8 @@ export function registerAdminRoutes(app: Express): void {
           {
             from: { contentType: "blog" },
             locale,
+            filters: [{ field: "slug", value: slug }],
+            limit: 5,
           },
           {
             db: getDB(res),

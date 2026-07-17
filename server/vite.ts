@@ -28,24 +28,57 @@ import { createServer as createViteServer, createLogger, type ViteDevServer } fr
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { contentIndex } from "./content-index";
-import { resolveInitialData, resolvePreloadHints, injectSsrMetaTags, type PreloadHint } from "./initial-data-middleware";
+import { resolveInitialData, resolvePreloadHints, injectSsrMetaTags, type PreloadHint, type InitialDataPayload } from "./initial-data-middleware";
 import { applyNonBlockingCss, applyEntryModulePreload } from "./utils/html-transforms";
 import { getEntryAssets, buildEntryPreloadTags, buildEntryLinkHeader } from "./utils/vite-manifest";
+import {
+  buildHtmlCacheKey,
+  setCachedHtml,
+  shouldBypassHtmlCache,
+} from "./html-page-cache";
 import { child as loggerChild } from "./logger";
 
 const ssrLogger = loggerChild({ module: "ssr" });
 
+async function getInitialDataForRequest(
+  url: string,
+  res: import("express").Response,
+): Promise<InitialDataPayload | null> {
+  const locals = res.locals as {
+    initialDataPromise?: Promise<InitialDataPayload | null>;
+    site?: { contentIndex?: unknown; database?: unknown };
+  };
+  if (locals.initialDataPromise) {
+    return locals.initialDataPromise;
+  }
+  const site = locals.site as import("./site-manager").SiteContext | undefined;
+  const promise = resolveInitialData(
+    url,
+    site?.contentIndex as any,
+    site?.database as any,
+    site,
+  ).catch(() => null);
+  locals.initialDataPromise = promise;
+  return promise;
+}
+
 function buildPreloadTags(hints: PreloadHint[]): string {
   if (hints.length === 0) return "";
+  // Only the first (true LCP) candidate gets fetchpriority=high; siblings stay
+  // as plain preloads so they don't contend for bandwidth with the hero.
   return hints
-    .map((hint) => {
+    .map((hint, index) => {
       const href = `href="${hint.src.replace(/"/g, "&quot;")}"`;
+      const priority =
+        index === 0 || hint.highPriority
+          ? ` fetchpriority="high"`
+          : "";
       if (hint.srcset) {
         const imagesrcset = `imagesrcset="${hint.srcset.replace(/"/g, "&quot;")}"`;
         const imagesizes = `imagesizes="${(hint.sizes ?? "100vw").replace(/"/g, "&quot;")}"`;
-        return `<link rel="preload" as="image" fetchpriority="high" ${href} ${imagesrcset} ${imagesizes}>`;
+        return `<link rel="preload" as="image"${priority} ${href} ${imagesrcset} ${imagesizes}>`;
       }
-      return `<link rel="preload" as="image" fetchpriority="high" ${href}>`;
+      return `<link rel="preload" as="image"${priority} ${href}>`;
     })
     .join("\n");
 }
@@ -163,7 +196,7 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
       const template = await fs.promises.readFile(clientTemplate, "utf-8");
       const page = await vite.transformIndexHtml(url, template);
 
-      const initialDataPayload = await resolveInitialData(url, (res.locals as any).site?.contentIndex).catch(() => null);
+      const initialDataPayload = await getInitialDataForRequest(url, res);
 
       let appHtml = "";
       const cleanUrlForSsr = url.split("?")[0].split("#")[0];
@@ -277,11 +310,20 @@ export function serveStatic(app: Express) {
     const cleanUrlForSsr = url.split("?")[0].split("#")[0];
     const skipSsr = cleanUrlForSsr.startsWith("/private/");
 
+    const site = (res.locals as any).site;
+    const siteId =
+      site?.contentRootName ||
+      site?.contentRoot ||
+      site?.domain ||
+      "default";
+    const cacheKey = buildHtmlCacheKey(siteId, cleanUrlForSsr);
+    const bypassCache = skipSsr || shouldBypassHtmlCache(_req);
+
     try {
       const render = !skipSsr ? await getSsrRender() : null;
       if (render) {
         const indexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
-        const initialDataPayload = await resolveInitialData(url, (res.locals as any).site?.contentIndex).catch(() => null);
+        const initialDataPayload = await getInitialDataForRequest(url, res);
         const appHtml = await render(url, initialDataPayload);
 
         let html = indexHtml.replace(
@@ -306,6 +348,11 @@ export function serveStatic(app: Express) {
         html = applyNonBlockingCss(html);
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
+
+        if (!bypassCache && status === 200) {
+          setCachedHtml(cacheKey, html, status);
+          res.setHeader("X-HTML-Cache", "MISS");
+        }
 
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;

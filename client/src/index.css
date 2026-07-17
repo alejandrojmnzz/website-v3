@@ -6,6 +6,25 @@
    Radius: 12px, Shadow: subtle single shadow
    ============================================================================= */
 
+/* Metric-compatible system fallbacks reduce CLS while webfonts load. */
+@font-face {
+  font-family: 'Archivo Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Helvetica');
+  size-adjust: 104%;
+  ascent-override: 94%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Lato Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Helvetica');
+  size-adjust: 97%;
+  ascent-override: 98%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+
 /* Lato - Headings (H1: 50px/700, H2: 30px/700) */
 @font-face {
   font-family: 'Lato';
@@ -31,16 +50,16 @@
   src: url('/fonts/lato-bold.woff2') format('woff2');
 }
 
-/* Inter Variable - Stats/Numbers */
+/* Inter Variable - Stats/Numbers (not preloaded; loads when .font-inter is used) */
 @font-face {
   font-family: 'Inter Variable';
   font-style: normal;
   font-weight: 100 900;
-  font-display: swap;
+  font-display: optional;
   src: url('/fonts/inter-variable.woff2') format('woff2');
 }
 
-/* Archivo - Body text (16px/400) */
+/* Archivo - Body text (16px/400), latin subset ~15KB each */
 @font-face {
   font-family: 'Archivo';
   font-style: normal;
@@ -141,8 +160,8 @@
   --chart-5: 40 80% 55%;
   
   /* Typography - Lato for headings, Archivo for body */
-  --font-heading: 'Lato', "Noto Color Emoji", sans-serif;
-  --font-sans: 'Archivo', 'Lato', "Noto Color Emoji", sans-serif;
+  --font-heading: 'Lato', 'Lato Fallback', "Noto Color Emoji", sans-serif;
+  --font-sans: 'Archivo', 'Archivo Fallback', 'Lato Fallback', "Noto Color Emoji", sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   
@@ -952,12 +971,13 @@
 }
 
 /* ─── BannerMarqueeBadges marquee animations ─────────────────── */
+/* Distance matches CSSMarquee's 2-track duplication (50% of total width). */
 @keyframes marquee-scroll-fwd {
   from { transform: translateX(0); }
-  to   { transform: translateX(-25%); }
+  to   { transform: translateX(-50%); }
 }
 @keyframes marquee-scroll-rev {
-  from { transform: translateX(-25%); }
+  from { transform: translateX(-50%); }
   to   { transform: translateX(0); }
 }
 .marquee-fwd {

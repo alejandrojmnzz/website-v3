@@ -1012,6 +1012,9 @@ function formatValidationError(type: string, raw: string): string {
 function invalidateContentCaches(contentType?: string): void {
   if (contentType) contentIndex.invalidateCommonFields(contentType);
   clearSsrSchemaCache();
+  void import("./html-page-cache").then(({ invalidateHtmlPageCache }) => {
+    invalidateHtmlPageCache();
+  }).catch(() => {});
 }
 
 type ContentLifecycleResult<T extends Record<string, unknown>> =

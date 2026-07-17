@@ -564,8 +564,8 @@ export default function TestimonialsSlide({ data }: TestimonialsSlideProps) {
           >
             <CSSMarquee gradient={false} speed={600} play={isPlaying && !prefersReducedMotion}>
               <div className="flex items-start py-4">
-                {/* Duplicate columns 3x to ensure seamless loop on ultra-wide screens */}
-                {[...masonryColumns, ...masonryColumns, ...masonryColumns].map((column, index) => (
+                {/* CSSMarquee duplicates the track; keep one column set here to avoid SSR DOM bloat. */}
+                {masonryColumns.map((column, index) => (
                   <MasonryColumnComponent key={index} column={column} />
                 ))}
               </div>

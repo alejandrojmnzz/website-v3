@@ -326,6 +326,43 @@ app.use((req, res, next) => {
   // Registered before Vite's catch-all so they can intercept unknown routes
   app.use(fallbackRedirectMiddleware);
 
+  // Serve cached anonymous HTML before initial-data resolution / SSR work.
+  // Only active in production — development always re-renders for HMR accuracy.
+  if (app.get("env") !== "development") {
+    const {
+      buildHtmlCacheKey,
+      getCachedHtml,
+      shouldBypassHtmlCache,
+    } = await import("./html-page-cache");
+    app.use((req, res, next) => {
+      if (req.path.startsWith("/api/") || req.path.startsWith("/private/")) {
+        return next();
+      }
+      const ext = req.path.split(".").pop();
+      if (
+        ext &&
+        ["js", "css", "woff2", "woff", "png", "jpg", "jpeg", "webp", "svg", "ico", "json", "map"].includes(ext)
+      ) {
+        return next();
+      }
+      if (shouldBypassHtmlCache(req)) return next();
+
+      const site = (res.locals as any).site;
+      const siteId =
+        site?.contentRootName || site?.contentRoot || site?.domain || "default";
+      const cleanUrl = (req.originalUrl || req.url || "/")
+        .split("?")[0]
+        .split("#")[0];
+      const cached = getCachedHtml(buildHtmlCacheKey(siteId, cleanUrl));
+      if (!cached) return next();
+
+      res
+        .status(cached.status)
+        .set({ "Content-Type": "text/html", "X-HTML-Cache": "HIT" })
+        .send(cached.html);
+    });
+  }
+
   app.use(initialDataMiddleware);
 
   // importantly only setup vite in development and after

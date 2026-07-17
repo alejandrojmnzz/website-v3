@@ -373,6 +373,10 @@ export function invalidateContentCaches(contentType?: string, ci: typeof content
     ci.invalidateCommonFields(contentType);
   }
   clearSsrSchemaCache();
+  // Drop rendered HTML pages so anonymous visitors get fresh SSR after edits/sync.
+  void import("../html-page-cache").then(({ invalidateHtmlPageCache }) => {
+    invalidateHtmlPageCache();
+  }).catch(() => {});
 }
 
 export type FixerItemStatus = "ok" | "skipped" | "failed";

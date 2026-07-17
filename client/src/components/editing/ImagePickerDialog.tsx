@@ -90,6 +90,10 @@ export function ImagePickerDialog({
 
   const { data: imageRegistry } = useQuery<ImageRegistry>({
     queryKey: ["/api/image-registry"],
+    // SSR may have seeded a page-local subset; always refetch the full catalog when the picker opens.
+    staleTime: 0,
+    refetchOnMount: "always",
+    enabled: open,
   });
 
   const { data: mediaStatus } = useQuery<{

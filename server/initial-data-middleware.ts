@@ -317,6 +317,8 @@ export interface PreloadHint {
   src: string;
   srcset?: string;
   sizes?: string;
+  /** When true, emit fetchpriority=high. Only the LCP candidate should set this. */
+  highPriority?: boolean;
 }
 
 const IMAGE_URL_PATTERN = /\.(png|jpe?g|webp|avif|gif|svg)(\?|$)/i;
@@ -407,10 +409,16 @@ export function resolvePreloadHints(
   const settings = pageData.settings as { loading?: { eager_count?: number } } | undefined;
   const eagerCount = settings?.loading?.eager_count ?? DEFAULT_EAGER_COUNT;
 
-  const refs: ImageRefs = { ids: new Map(), directUrls: new Set() };
+  // Prefer images from the first (hero) section as the LCP candidate; collect
+  // remaining eager-window images as secondary preloads without high priority.
+  const lcpRefs: ImageRefs = { ids: new Map(), directUrls: new Set() };
+  const secondaryRefs: ImageRefs = { ids: new Map(), directUrls: new Set() };
   const prioritySections = sections.slice(0, eagerCount);
-  for (const section of prioritySections) {
-    extractImageRefsFromValue(section, refs);
+  if (prioritySections[0]) {
+    extractImageRefsFromValue(prioritySections[0], lcpRefs);
+  }
+  for (const section of prioritySections.slice(1)) {
+    extractImageRefsFromValue(section, secondaryRefs);
   }
 
   const schemaIdToSizes = new Map<string, string>();
@@ -434,42 +442,94 @@ export function resolvePreloadHints(
     if (entry.src) srcToEntry.set(entry.src, entry);
   }
 
-  for (const [id, preset] of refs.ids) {
-    const entry = registryData.images[id];
-    if (entry?.src && !seen.has(entry.src)) {
-      seen.add(entry.src);
-      const hint: PreloadHint = { src: entry.src };
-      if (entry.srcset && entry.srcset.length > 0) {
-        hint.srcset = entry.srcset.map((s: { w: number; url: string }) => `${s.url} ${s.w}w`).join(", ");
-        const presetConfig = preset ? registryData.presets?.[preset] : undefined;
-        const schemaSizes = schemaIdToSizes.get(id);
-        const fromImagePresets = firstPresetSizesFromImageEntry(entry, registryData.presets);
-        hint.sizes =
-          schemaSizes ??
-          fromImagePresets ??
-          presetConfig?.sizes ??
-          DEFAULT_SRCSET_SIZES;
-      }
-      hints.push(hint);
+  const pushHint = (
+    id: string | null,
+    src: string,
+    preset: string | undefined,
+    highPriority: boolean,
+  ) => {
+    if (seen.has(src)) return;
+    seen.add(src);
+    const entry = (id && registryData.images[id]) || srcToEntry.get(src);
+    const hint: PreloadHint = { src, highPriority };
+    if (entry?.srcset && entry.srcset.length > 0) {
+      hint.srcset = entry.srcset
+        .map((s: { w: number; url: string }) => `${s.url} ${s.w}w`)
+        .join(", ");
+      const presetConfig = preset ? registryData.presets?.[preset] : undefined;
+      const schemaSizes = id ? schemaIdToSizes.get(id) : undefined;
+      const fromImagePresets = firstPresetSizesFromImageEntry(entry, registryData.presets);
+      hint.sizes =
+        schemaSizes ??
+        fromImagePresets ??
+        presetConfig?.sizes ??
+        DEFAULT_SRCSET_SIZES;
     }
+    hints.push(hint);
+  };
+
+  // First image from the hero section is the sole high-priority LCP preload.
+  let lcpAssigned = false;
+  for (const [id, preset] of lcpRefs.ids) {
+    const entry = registryData.images[id];
+    if (!entry?.src) continue;
+    pushHint(id, entry.src, preset, !lcpAssigned);
+    lcpAssigned = true;
+  }
+  for (const url of lcpRefs.directUrls) {
+    pushHint(null, url, undefined, !lcpAssigned);
+    lcpAssigned = true;
   }
 
-  for (const url of refs.directUrls) {
-    if (!seen.has(url)) {
-      seen.add(url);
-      const entry = srcToEntry.get(url);
-      const hint: PreloadHint = { src: url };
-      if (entry?.srcset && entry.srcset.length > 0) {
-        hint.srcset = entry.srcset.map((s: { w: number; url: string }) => `${s.url} ${s.w}w`).join(", ");
-        hint.sizes =
-          firstPresetSizesFromImageEntry(entry, registryData.presets) ??
-          DEFAULT_SRCSET_SIZES;
-      }
-      hints.push(hint);
-    }
+  for (const [id, preset] of secondaryRefs.ids) {
+    const entry = registryData.images[id];
+    if (entry?.src) pushHint(id, entry.src, preset, false);
+  }
+  for (const url of secondaryRefs.directUrls) {
+    pushHint(null, url, undefined, false);
   }
 
   return hints;
+}
+
+function buildPageImageRegistrySubset(
+  fullRegistry: {
+    presets?: Record<string, unknown>;
+    images: Record<string, unknown>;
+    tagDefinitions?: unknown;
+  },
+  pageData: unknown,
+  extraData: unknown[],
+): typeof fullRegistry {
+  const refs: ImageRefs = { ids: new Map(), directUrls: new Set() };
+  extractImageRefsFromValue(pageData, refs);
+  for (const extra of extraData) {
+    extractImageRefsFromValue(extra, refs);
+  }
+
+  const images: Record<string, unknown> = {};
+  const srcToId = new Map<string, string>();
+  for (const [id, entry] of Object.entries(fullRegistry.images || {})) {
+    const src = (entry as { src?: string })?.src;
+    if (src) srcToId.set(src, id);
+  }
+
+  for (const id of refs.ids.keys()) {
+    if (fullRegistry.images[id]) images[id] = fullRegistry.images[id];
+  }
+  for (const url of refs.directUrls) {
+    const id = srcToId.get(url);
+    if (id && fullRegistry.images[id]) images[id] = fullRegistry.images[id];
+  }
+
+  // Always keep presets — small, and UniversalImage resolves sizes from them.
+  return {
+    presets: fullRegistry.presets ?? {},
+    images: images as typeof fullRegistry.images,
+    ...(fullRegistry.tagDefinitions
+      ? { tagDefinitions: fullRegistry.tagDefinitions }
+      : {}),
+  };
 }
 
 function escapeAttr(str: string): string {
@@ -668,9 +728,16 @@ export async function resolveInitialData(
     ? getMergedImageRegistry(site)
     : loadImageRegistry(ci.contentRoot);
   if (registry) {
+    // Inline only images referenced by this page + menus (not the full ~500KB registry).
+    // Editors refetch the full registry via /api/image-registry when edit mode opens.
+    const pageData = pageQuery?.data ?? null;
+    const menuDatas = queries
+      .filter((q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/menus")
+      .map((q) => q.data);
+    const subset = buildPageImageRegistrySubset(registry as any, pageData, menuDatas);
     queries.push({
       queryKey: ["/api/image-registry"],
-      data: registry,
+      data: subset,
     });
   }
 
@@ -785,7 +852,12 @@ export function initialDataMiddleware(
   const ci = ((res.locals as any).site?.contentIndex ?? contentIndex) as ContentIndex;
   const dbm = ((res.locals as any).site?.database ?? databaseManager) as DatabaseManager;
   const site = (res.locals as any).site as SiteContext | undefined;
-  const payloadPromise = resolveInitialData(req.originalUrl, ci, dbm, site).catch(() => null);
+  // Resolve once per request; SSR catch-all reuses res.locals.initialDataPromise.
+  const locals = res.locals as { initialDataPromise?: Promise<InitialDataPayload | null> };
+  const payloadPromise =
+    locals.initialDataPromise ??
+    resolveInitialData(req.originalUrl, ci, dbm, site).catch(() => null);
+  locals.initialDataPromise = payloadPromise;
 
   const originalEnd = res.end;
   res.end = function (this: Response, chunk?: any, ...args: any[]) {

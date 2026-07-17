@@ -1183,6 +1183,9 @@ export class ContentIndex {
   refresh(): void {
     this.scan();
     invalidateStaticListingCache(undefined, this.contentRoot);
+    void import("./html-page-cache")
+      .then(({ invalidateHtmlPageCache }) => invalidateHtmlPageCache())
+      .catch(() => {});
   }
 
   getStats(): { total: number; byType: Record<string, number> } {

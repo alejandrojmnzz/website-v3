@@ -441,6 +441,8 @@ export default function MediaGallery() {
 
   const { data: registry, isLoading, error } = useQuery<ImageRegistry>({
     queryKey: ["/api/image-registry"],
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: fixerList = [] } = useQuery<FixerMeta[]>({

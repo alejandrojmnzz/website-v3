@@ -3,6 +3,7 @@ import type { Section, EditOperation } from "@shared/schema";
 import { editContent } from "@/lib/contentApi";
 import { navigate } from "wouter/use-browser-location";
 import { useContentTypes } from "@/hooks/useContentTypes";
+import { queryClient } from "@/lib/queryClient";
 
 export type PreviewBreakpoint = 'desktop' | 'mobile';
 
@@ -217,6 +218,12 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   useEffect(() => {
     contentTypesRef.current = contentTypesMap;
   }, [contentTypesMap]);
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    // SSR seeds a per-page image-registry subset; editors need the full catalog.
+    void queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+  }, [isEditMode]);
 
   useEffect(() => {
     if (!isEditMode) return;
