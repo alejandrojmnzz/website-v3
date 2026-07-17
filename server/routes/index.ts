@@ -423,7 +423,6 @@ export async function startBackgroundSync(): Promise<void> {
         bootstrapContentFromRemote,
         isGitHubConfigured,
         isBootstrapComplete,
-        writeBootstrapCompleteFlag,
       } = await import("../github");
 
       await Promise.all(syncTargets.map(async (target) => {
@@ -433,55 +432,43 @@ export async function startBackgroundSync(): Promise<void> {
         const pfx = ` [${target.label}]`;
         const contentFolder = target.contentRoot ?? getDefaultContentFolder();
 
-        // Bootstrap pull: run when GitHub sync is configured AND the bootstrap-complete
-        // flag is absent.  The flag is written only after a fully successful pull, so
-        // any partial / failed bootstrap from a previous startup will be re-attempted.
+        // When .bootstrap-complete is absent (fresh VM / republish), align disk to
+        // GitHub via hash-diff (GitHub wins). Shows BootstrapModal while running.
         const syncEnabled = process.env.GITHUB_SYNC_ENABLED === "true";
         if (syncEnabled && isGitHubConfigured(target.repoUrl) && !isBootstrapComplete(target.contentRoot)) {
-          // Migration path: check if the content folder already has files on disk.
-          // Uses a per-site filesystem check rather than the shared global sync-state
-          // so that one site's committed SHA cannot skip bootstrap for a different site.
-          const absContentPath = path.join(process.cwd(), contentFolder);
-          const alreadyPopulated = (() => {
-            if (!fs.existsSync(absContentPath)) return false;
-            const dirEntries = fs.readdirSync(absContentPath, { withFileTypes: true });
-            return dirEntries.some(
-              (e) =>
-                (e.isFile() && (e.name.endsWith(".yml") || e.name.endsWith(".yaml"))) ||
-                (e.isDirectory() && !e.name.startsWith(".")),
-            );
-          })();
-
-          if (alreadyPopulated) {
-            routesLogger.info(
-              `Bootstrap${pfx}: flag absent but content already exists — writing flag (one-time migration, skipping bootstrap)`,
-            );
-            writeBootstrapCompleteFlag(target.contentRoot);
-            logSync("AUTO-PULL", `Bootstrap${pfx}: migration — existing content detected, bootstrap-complete flag written`);
-          } else {
-            routesLogger.info(`Bootstrap${pfx}: flag absent and content uninitialized — running bootstrap pull from remote...`);
-            try {
-              const bootstrapResult = await bootstrapContentFromRemote(opts);
-              if (bootstrapResult.pulled > 0) {
-                logSync("AUTO-PULL", `Bootstrap${pfx}: pulled ${bootstrapResult.pulled} files from remote content repo`);
-                // Re-scan the per-site ContentIndex so pulled files are immediately
-                // reflected in memory rather than waiting for the next file-watcher cycle.
-                if (target.contentRoot) {
-                  const siteCtx = Array.from(getSiteContextMap().values()).find(
-                    (ctx) => ctx.contentRootName === target.contentRoot
-                  );
-                  if (siteCtx?.contentIndex) {
-                    (siteCtx.contentIndex as any).refresh?.();
-                    routesLogger.info(`Bootstrap${pfx}: triggered ContentIndex refresh after pulling ${bootstrapResult.pulled} file(s)`);
-                  }
+          routesLogger.info(
+            `Bootstrap${pfx}: .bootstrap-complete absent — hash-diff pull from remote...`,
+          );
+          try {
+            const bootstrapResult = await bootstrapContentFromRemote({
+              ...opts,
+              force: false,
+            });
+            if (bootstrapResult.cancelled) {
+              logSync(
+                "AUTO-PULL",
+                `Bootstrap${pfx}: cancelled (pulled=${bootstrapResult.pulled} skipped=${bootstrapResult.skipped}) — flag not written`,
+              );
+            } else if (bootstrapResult.pulled > 0 || bootstrapResult.skipped > 0) {
+              logSync(
+                "AUTO-PULL",
+                `Bootstrap${pfx}: pulled=${bootstrapResult.pulled} skipped=${bootstrapResult.skipped}${bootstrapResult.commitSha ? ` — aligned to ${bootstrapResult.commitSha.slice(0, 7)}` : ""}`,
+              );
+              if (bootstrapResult.pulled > 0 && target.contentRoot) {
+                const siteCtx = Array.from(getSiteContextMap().values()).find(
+                  (ctx) => ctx.contentRootName === target.contentRoot
+                );
+                if (siteCtx?.contentIndex) {
+                  (siteCtx.contentIndex as any).refresh?.();
+                  routesLogger.info(`Bootstrap${pfx}: ContentIndex refresh after pulling ${bootstrapResult.pulled} file(s)`);
                 }
               }
-              if (bootstrapResult.errors.length > 0) {
-                logSync("ERROR", `Bootstrap${pfx}: ${bootstrapResult.errors.length} file(s) still failed after retries — ${bootstrapResult.errors.slice(0, 3).join("; ")}`);
-              }
-            } catch (e) {
-              logSync("ERROR", `Bootstrap pull${pfx} failed: ${e instanceof Error ? e.message : String(e)}`);
             }
+            if (bootstrapResult.errors.length > 0) {
+              logSync("ERROR", `Bootstrap${pfx}: ${bootstrapResult.errors.length} file(s) failed — ${bootstrapResult.errors.slice(0, 3).join("; ")}`);
+            }
+          } catch (e) {
+            logSync("ERROR", `Bootstrap pull${pfx} failed: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
 
