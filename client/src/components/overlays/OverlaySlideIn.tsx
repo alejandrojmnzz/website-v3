@@ -1,10 +1,10 @@
 import { createPortal } from "react-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
 import { IconX } from "@tabler/icons-react";
 import type { Overlay } from "@/hooks/useOverlays";
 import { markOverlaySeen } from "@/hooks/useOverlays";
+import { OverlayActionButtons } from "./OverlayActionButtons";
 
 interface OverlaySlideInProps {
   overlay: Overlay;
@@ -18,6 +18,8 @@ export function OverlaySlideIn({ overlay, onDismiss }: OverlaySlideInProps) {
     markOverlaySeen(overlay);
     onDismiss();
   }
+
+  const hasButtons = (content.buttons ?? []).some((b) => b.label);
 
   const panel = (
     <div
@@ -42,13 +44,13 @@ export function OverlaySlideIn({ overlay, onDismiss }: OverlaySlideInProps) {
             <p className="text-sm text-muted-foreground">{content.body}</p>
           </CardContent>
         )}
-        {(content.buttons ?? []).filter((b) => b.href && b.label).length > 0 && (
-          <CardContent className="pt-0 pb-4 flex flex-wrap gap-2">
-            {(content.buttons ?? []).filter((b) => b.href && b.label).map((btn, i) => (
-              <Button key={i} variant={btn.variant ?? "default"} asChild className="flex-1" onClick={handleDismiss}>
-                <Link href={btn.href}>{btn.label}</Link>
-              </Button>
-            ))}
+        {hasButtons && (
+          <CardContent className="pt-0 pb-4">
+            <OverlayActionButtons
+              buttons={content.buttons}
+              onDismiss={handleDismiss}
+              buttonClassName="flex-1"
+            />
           </CardContent>
         )}
       </Card>

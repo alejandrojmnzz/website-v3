@@ -1,9 +1,9 @@
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
 import { IconX } from "@tabler/icons-react";
 import type { Overlay } from "@/hooks/useOverlays";
 import { markOverlaySeen } from "@/hooks/useOverlays";
+import { OverlayActionButtons } from "./OverlayActionButtons";
 
 interface OverlayTopBannerProps {
   overlay: Overlay;
@@ -30,18 +30,14 @@ export function OverlayTopBanner({ overlay, onDismiss }: OverlayTopBannerProps) 
         {content.body && (
           <span className="text-sm opacity-90">{content.body}</span>
         )}
-        {(content.buttons ?? []).filter((b) => b.href && b.label).map((btn, i) => (
-          <Button
-            key={i}
-            asChild
-            size="sm"
-            variant={btn.variant ?? "secondary"}
-            className="shrink-0"
-            onClick={handleDismiss}
-          >
-            <Link href={btn.href}>{btn.label}</Link>
-          </Button>
-        ))}
+        <OverlayActionButtons
+          buttons={content.buttons}
+          onDismiss={handleDismiss}
+          size="sm"
+          className="shrink-0"
+          buttonClassName="shrink-0"
+          defaultVariant="secondary"
+        />
       </div>
       <Button
         size="icon"

@@ -1,4 +1,4 @@
-import { useState, useRef, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import {
   IconArrowLeft,
   IconPlus,
@@ -156,6 +156,86 @@ function PreviewButtons({ buttons }: { buttons?: OverlayButton[] }) {
           {btn.label || "Button"}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** Close modal vs link destination — overlay editor only (does not change shared LinkPicker). */
+function OverlayButtonDestination({
+  href,
+  onChange,
+  portalContainer,
+  testId,
+}: {
+  href: string;
+  onChange: (href: string) => void;
+  portalContainer?: HTMLElement | null;
+  testId: string;
+}) {
+  const [picking, setPicking] = useState(!!href);
+
+  useEffect(() => {
+    if (href) setPicking(true);
+  }, [href]);
+
+  const mode = !href && !picking ? "close" : "destination";
+
+  return (
+    <div className="space-y-2">
+      <div
+        className="flex rounded-md border overflow-hidden"
+        role="radiogroup"
+        aria-label="Button destination"
+        data-testid={`${testId}-mode`}
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === "close"}
+          className={`flex-1 text-xs py-1.5 px-2 transition-colors ${
+            mode === "close"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover-elevate"
+          }`}
+          onClick={() => {
+            onChange("");
+            setPicking(false);
+          }}
+          data-testid={`${testId}-close-modal`}
+        >
+          Close modal
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === "destination"}
+          className={`flex-1 text-xs py-1.5 px-2 transition-colors border-l border-border ${
+            mode === "destination"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover-elevate"
+          }`}
+          onClick={() => setPicking(true)}
+          data-testid={`${testId}-choose-destination`}
+        >
+          Choose destination
+        </button>
+      </div>
+      {mode === "close" ? (
+        <p className="text-xs text-muted-foreground">
+          Button will dismiss the overlay without navigating.
+        </p>
+      ) : (
+        <LinkPicker
+          value={href}
+          onChange={(v) => {
+            onChange(v);
+            setPicking(true);
+          }}
+          allowedTypes={["internal", "external"]}
+          portalContainer={portalContainer}
+          testId={testId}
+        />
+      )}
     </div>
   );
 }
@@ -728,10 +808,9 @@ export default function PrivateOverlays() {
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs">Destination</Label>
-                              <LinkPicker
-                                value={btn.href}
+                              <OverlayButtonDestination
+                                href={btn.href}
                                 onChange={(v) => updateBtn({ href: v })}
-                                allowedTypes={["internal", "external"]}
                                 portalContainer={sheetContainer}
                                 testId={`link-picker-overlay-button-${i}`}
                               />
