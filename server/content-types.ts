@@ -550,6 +550,52 @@ function resolveFieldValue(value: unknown): string {
   return String(value);
 }
 
+/**
+ * Extract all `:variable` params (besides `slug` and `locale`) from a URL pattern
+ * and resolve each from the entry's merged data. Supports nested values like a
+ * `category` object whose `slug` should be used, as well as plain string fields
+ * and dot-notation lookups via an optional field mapping.
+ *
+ * Returns the resolved params plus a list of variables that could not be
+ * resolved (missing or empty), so callers can skip entries instead of emitting
+ * malformed URLs.
+ */
+export function extractUrlPatternParams(
+  pattern: string,
+  record: Record<string, unknown>,
+  fieldMapping?: Record<string, string | null> | null,
+): { params: Record<string, string>; missing: string[] } {
+  const params: Record<string, string> = {};
+  const missing: string[] = [];
+
+  const paramMatches = pattern.match(/:([a-zA-Z_]+)/g) || [];
+  for (const param of paramMatches) {
+    const key = param.slice(1);
+    if (key === "slug" || key === "locale") continue;
+
+    let rawValue: unknown;
+    const mappingKey = fieldMapping && `_${key}` in fieldMapping ? `_${key}` : key;
+    if (fieldMapping && mappingKey in fieldMapping) {
+      const sourceField = fieldMapping[mappingKey];
+      if (sourceField) {
+        rawValue = extractDotPath(record, sourceField);
+      }
+    }
+    if (rawValue === undefined) {
+      rawValue = extractDotPath(record, key);
+    }
+
+    const resolved = resolveFieldValue(rawValue);
+    if (!resolved) {
+      if (!missing.includes(key)) missing.push(key);
+      continue;
+    }
+    params[key] = resolved;
+  }
+
+  return { params, missing };
+}
+
 export function resolveUrlPatternWithMapping(
   pattern: string,
   record: Record<string, unknown>,

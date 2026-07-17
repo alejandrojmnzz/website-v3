@@ -169,10 +169,18 @@ export class ContentIndex {
         url = url.replace(`:${key}`, value);
       }
     }
+    const unresolved: string[] = [];
     url = url.replace(/:([a-zA-Z_]+)/g, (_m, paramName) => {
       if (paramName === "slug") return slug;
+      unresolved.push(paramName);
       return "";
     });
+    if (unresolved.length > 0) {
+      log.warn(
+        `[ContentIndex] buildUrl(${normalized}, ${locale}, ${slug}): unresolved URL pattern variable(s) ${unresolved.map((p) => `:${p}`).join(", ")} — pass them via params`,
+      );
+      url = url.replace(/\/\/+/g, "/");
+    }
     return url;
   }
 
