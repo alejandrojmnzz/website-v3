@@ -1,6 +1,14 @@
+import { useState } from "react";
 import { AlertTriangle, Check, CloudDownload, Github, RefreshCw } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { GitHubSyncStatus } from "../types";
 
 export interface GitHubSyncChipProps {
@@ -12,14 +20,60 @@ export interface GitHubSyncChipProps {
   setCommitModalOpen: (v: boolean) => void;
 }
 
+function StatusErrorModal({
+  label,
+  title,
+  error,
+  testId,
+}: {
+  label: string;
+  title: string;
+  error?: string;
+  testId: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="text-[10px] text-amber-600 dark:text-amber-400 truncate cursor-pointer underline-offset-2 hover:underline"
+        data-testid={testId}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        {label}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm" data-testid={`${testId}-dialog`}>
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              {title}
+            </DialogTitle>
+            <DialogDescription className="text-sm whitespace-pre-wrap break-words pt-1">
+              {error || "Could not compare local and remote commits."}
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function GitHubStatusBadge({
   status,
   behindBy,
   aheadBy,
+  error,
 }: {
   status: GitHubSyncStatus["status"];
   behindBy?: number;
   aheadBy?: number;
+  error?: string;
 }) {
   if (status === "in-sync") {
     return (
@@ -54,20 +108,35 @@ function GitHubStatusBadge({
   }
   if (status === "invalid-credentials") {
     return (
-      <span className="text-[10px] text-destructive flex items-center gap-0.5 truncate font-medium">
-        <AlertTriangle className="h-3 w-3 shrink-0" />
-        Invalid
-      </span>
+      <StatusErrorModal
+        label="Invalid"
+        title="Invalid credentials"
+        error={error || "Invalid or expired GITHUB_TOKEN"}
+        testId="badge-github-invalid-credentials"
+      />
     );
   }
   if (status === "not-configured") {
     return <span className="text-[10px] text-muted-foreground truncate">Not configured</span>;
   }
+  if (status === "rate-limited") {
+    return (
+      <StatusErrorModal
+        label="Rate limited"
+        title="GitHub rate limit"
+        error={error || "GitHub API rate limit exceeded — try again later."}
+        testId="badge-github-rate-limited"
+      />
+    );
+  }
   if (status === "unknown") {
     return (
-      <span className="text-[10px] text-amber-600 dark:text-amber-400 truncate" title="Could not compare local and remote commits">
-        Check failed
-      </span>
+      <StatusErrorModal
+        label="Check failed"
+        title="Sync check failed"
+        error={error || "Could not compare local and remote commits."}
+        testId="badge-github-check-failed"
+      />
     );
   }
   return null;
@@ -82,6 +151,9 @@ export function GitHubSyncChip({
   setCommitModalOpen,
 }: GitHubSyncChipProps) {
   const [, navigate] = useLocation();
+  const status = githubSyncStatus?.status;
+  const hasErrorDetail =
+    status === "unknown" || status === "rate-limited" || status === "invalid-credentials";
 
   return (
     <div
@@ -106,25 +178,43 @@ export function GitHubSyncChip({
         )}
       </button>
       <div className="flex items-center gap-0.5 shrink-0">
-        <button
-          type="button"
-          onClick={() => navigate("/private/repository-sync")}
-          className="flex items-center gap-1 cursor-pointer"
-          title="Open repository sync"
-          data-testid="button-sync-status-popover"
-        >
-          {syncStatusLoading ? (
-            <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
-          ) : githubSyncStatus ? (
-            <GitHubStatusBadge
-              status={githubSyncStatus.status}
-              behindBy={githubSyncStatus.behindBy}
-              aheadBy={githubSyncStatus.aheadBy}
-            />
-          ) : (
-            <span className="text-[10px] text-muted-foreground">--</span>
-          )}
-        </button>
+        {hasErrorDetail ? (
+          <div className="flex items-center gap-1" data-testid="button-sync-status-popover">
+            {syncStatusLoading ? (
+              <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
+            ) : githubSyncStatus ? (
+              <GitHubStatusBadge
+                status={githubSyncStatus.status}
+                behindBy={githubSyncStatus.behindBy}
+                aheadBy={githubSyncStatus.aheadBy}
+                error={githubSyncStatus.error}
+              />
+            ) : (
+              <span className="text-[10px] text-muted-foreground">--</span>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => navigate("/private/repository-sync")}
+            className="flex items-center gap-1 cursor-pointer"
+            title="Open repository sync"
+            data-testid="button-sync-status-popover"
+          >
+            {syncStatusLoading ? (
+              <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
+            ) : githubSyncStatus ? (
+              <GitHubStatusBadge
+                status={githubSyncStatus.status}
+                behindBy={githubSyncStatus.behindBy}
+                aheadBy={githubSyncStatus.aheadBy}
+                error={githubSyncStatus.error}
+              />
+            ) : (
+              <span className="text-[10px] text-muted-foreground">--</span>
+            )}
+          </button>
+        )}
         <button
           onClick={refreshSyncStatus}
           disabled={syncStatusLoading}

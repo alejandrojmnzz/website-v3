@@ -275,13 +275,17 @@ interface GitHubBranchRef {
 export interface GitHubSyncStatus {
   configured: boolean;
   syncEnabled: boolean;
+  autoCommitEnabled?: boolean;
+  autoPullEnabled?: boolean;
   localCommit: string | null;
   remoteCommit: string | null;
-  status: 'in-sync' | 'behind' | 'ahead' | 'diverged' | 'unknown' | 'not-configured' | 'invalid-credentials';
+  status: 'in-sync' | 'behind' | 'ahead' | 'diverged' | 'unknown' | 'not-configured' | 'invalid-credentials' | 'rate-limited';
   behindBy?: number;
   aheadBy?: number;
   repoUrl?: string;
   branch?: string;
+  /** Human-readable detail when status is unknown / rate-limited / invalid-credentials. */
+  error?: string;
 }
 
 /**
@@ -504,11 +508,14 @@ async function getFileCommitDate(config: GitHubConfig, filePath: string): Promis
 }
 
 /**
- * Get the current branch HEAD SHA
+ * Get the current branch HEAD SHA, reporting whether a failure was caused by
+ * GitHub API rate limiting (429, or 403 with the rate-limit header/message).
  */
-async function getBranchHeadSha(config: GitHubConfig): Promise<string | null> {
+async function fetchBranchHead(
+  config: GitHubConfig,
+): Promise<{ sha: string | null; rateLimited: boolean; error?: string }> {
   const url = `https://api.github.com/repos/${config.owner}/${config.repo}/git/ref/heads/${config.branch}`;
-  
+
   try {
     const response = await fetch(url, {
       headers: {
@@ -517,27 +524,54 @@ async function getBranchHeadSha(config: GitHubConfig): Promise<string | null> {
         'X-GitHub-Api-Version': '2022-11-28',
       },
     });
-    
+
     if (!response.ok) {
-      const hint =
-        response.status === 401
-          ? 'invalid or expired GITHUB_TOKEN'
+      let bodyMessage = '';
+      try {
+        bodyMessage = ((await response.json()) as { message?: string })?.message || '';
+      } catch {}
+      const rateLimited =
+        response.status === 429 ||
+        (response.status === 403 &&
+          (response.headers.get('x-ratelimit-remaining') === '0' || /rate limit/i.test(bodyMessage)));
+      const resetHeader = response.headers.get('x-ratelimit-reset');
+      const resetHint = resetHeader
+        ? ` Resets around ${new Date(Number(resetHeader) * 1000).toLocaleTimeString()}.`
+        : '';
+      const hint = rateLimited
+        ? `GitHub API rate limit exceeded.${resetHint}`
+        : response.status === 401
+          ? 'Invalid or expired GITHUB_TOKEN'
           : response.status === 404
-            ? 'repo or branch not found (or token lacks access)'
-            : 'see GitHub API status';
+            ? `Repo or branch not found (or token lacks access): ${config.owner}/${config.repo}@${config.branch}`
+            : bodyMessage
+              ? `GitHub API ${response.status}: ${bodyMessage}`
+              : `GitHub API error ${response.status}`;
       log.error(
         { status: response.status, owner: config.owner, repo: config.repo, branch: config.branch, hint },
         'GitHub API error getting branch head',
       );
-      return null;
+      return { sha: null, rateLimited, error: hint };
     }
-    
+
     const data = await response.json();
-    return data.object?.sha || null;
+    const sha = data.object?.sha || null;
+    if (!sha) {
+      return { sha: null, rateLimited: false, error: 'Branch ref response did not include a commit SHA' };
+    }
+    return { sha, rateLimited: false };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     log.error({ err: error }, 'Error getting branch head:');
-    return null;
+    return { sha: null, rateLimited: false, error: `Network error: ${message}` };
   }
+}
+
+/**
+ * Get the current branch HEAD SHA
+ */
+async function getBranchHeadSha(config: GitHubConfig): Promise<string | null> {
+  return (await fetchBranchHead(config)).sha;
 }
 
 /**
@@ -678,8 +712,8 @@ export async function getGitHubSyncStatus(opts?: { repoUrl?: string; contentRoot
   try {
     const localCommit = getLastSyncedCommit(opts?.contentRoot);
     
-    const remoteCommit = await getBranchHeadSha(config);
-    
+    const { sha: remoteCommit, rateLimited, error: fetchError } = await fetchBranchHead(config);
+
     if (!remoteCommit) {
       return {
         configured: true,
@@ -688,9 +722,12 @@ export async function getGitHubSyncStatus(opts?: { repoUrl?: string; contentRoot
         autoPullEnabled,
         localCommit,
         remoteCommit: null,
-        status: 'unknown',
+        status: rateLimited ? 'rate-limited' : 'unknown',
         repoUrl,
         branch: config.branch,
+        error: fetchError || (rateLimited
+          ? 'GitHub API rate limit exceeded'
+          : 'Could not compare local and remote commits'),
       };
     }
     
@@ -763,6 +800,7 @@ export async function getGitHubSyncStatus(opts?: { repoUrl?: string; contentRoot
       branch: config.branch,
     };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     log.error({ err: error }, 'Error checking GitHub sync status:');
     return {
       configured: true,
@@ -774,6 +812,7 @@ export async function getGitHubSyncStatus(opts?: { repoUrl?: string; contentRoot
       status: 'unknown',
       repoUrl,
       branch: config?.branch,
+      error: message,
     };
   }
 }

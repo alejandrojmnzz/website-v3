@@ -95,11 +95,13 @@ export interface GitHubSyncStatus {
   autoPullEnabled?: boolean;
   localCommit: string | null;
   remoteCommit: string | null;
-  status: 'in-sync' | 'behind' | 'ahead' | 'diverged' | 'unknown' | 'not-configured' | 'invalid-credentials';
+  status: 'in-sync' | 'behind' | 'ahead' | 'diverged' | 'unknown' | 'not-configured' | 'invalid-credentials' | 'rate-limited';
   behindBy?: number;
   aheadBy?: number;
   repoUrl?: string;
   branch?: string;
+  /** Human-readable detail when status is unknown / rate-limited / invalid-credentials. */
+  error?: string;
 }
 
 export interface PendingChange {
