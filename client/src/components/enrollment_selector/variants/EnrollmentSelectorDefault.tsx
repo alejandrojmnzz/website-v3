@@ -279,6 +279,27 @@ function BenefitsList({
 }
 
 type AddonConfig = NonNullable<EnrollmentSelectorProgram["addon"]>;
+type EnrollmentPlan = NonNullable<EnrollmentSelectorProgram["plans"]>[number];
+
+/** Priority: ?plan=<id> → plan.default === true → first plan */
+function resolvePlanIdx(
+  plans: EnrollmentPlan[] | undefined,
+  planQs: string | null,
+): number {
+  if (!plans?.length) return 0;
+  if (planQs) {
+    const fromQs = plans.findIndex((p) => p.id === planQs);
+    if (fromQs !== -1) return fromQs;
+  }
+  const fromDefault = plans.findIndex((p) => p.default === true);
+  if (fromDefault !== -1) return fromDefault;
+  return 0;
+}
+
+function planQsFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("plan");
+}
 
 /** Querystring link navigated when the toggle turns ON (defaults to ?addon=<id>) */
 function addonOnUrl(addon: AddonConfig): string {
@@ -401,11 +422,12 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const [addonEnabled, setAddonEnabled] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // On mount: read ?program, ?cohort and ?addon from URL
+  // On mount: read ?program, ?plan, ?cohort and ?addon from URL
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const programQs = params.get("program");
+    const planQs = params.get("plan");
     let activeIdx = 0;
     if (programQs) {
       const idx = data.programs.findIndex((p) => p.id === programQs);
@@ -415,7 +437,9 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
         setFilteredByQs(true);
       }
     }
-    const addon = data.programs[activeIdx]?.addon;
+    const activeProgram = data.programs[activeIdx];
+    setSelectedPlanIdx(resolvePlanIdx(activeProgram?.plans, planQs));
+    const addon = activeProgram?.addon;
     if (addon) {
       const onParams = new URLSearchParams(addonOnUrl(addon).replace(/^\?/, ""));
       let matches = false;
@@ -588,7 +612,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                         triggerFlash(fid);
                         setSelectedProgramIdx(i);
                         setSelectedDateIdx(0);
-                        setSelectedPlanIdx(0);
+                        setSelectedPlanIdx(resolvePlanIdx(prog.plans, planQsFromUrl()));
                         if (addonEnabled && program?.addon) {
                           nav.navigate(addonOffUrl(program.addon));
                         }
@@ -911,8 +935,6 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
 }
 
 // ─── Sub-component: plan selector ─────────────────────────────────────────────
-
-type EnrollmentPlan = NonNullable<EnrollmentSelectorProgram["plans"]>[number];
 
 function PlanSelectorBlock({
   plans,
