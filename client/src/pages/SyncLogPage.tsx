@@ -159,6 +159,21 @@ function shortenPullPath(filePath: string, contentFolder?: string | null): strin
   return filePath;
 }
 
+function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatElapsedSince(startedAt: number | null | undefined): string {
+  if (!startedAt) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
 interface SitemapEntry {
   loc: string;
   label: string;
@@ -322,6 +337,13 @@ export default function SyncLogPage() {
     success: boolean | null;
     commitSha: string | null;
     cancelled: boolean;
+    mode?: "files" | "archive";
+    phase?: "listing" | "downloading" | "extracting" | "replacing" | "finalizing" | "complete";
+    archiveBytesDownloaded?: number;
+    archiveBytesTotal?: number | null;
+    extracted?: number;
+    replaced?: number;
+    lastReplacedFile?: string | null;
   } | null>({
     queryKey: ["/api/github/pull-all-status"],
     enabled: forcePullOpen || pullStarted,
@@ -826,7 +848,7 @@ export default function SyncLogPage() {
                 <p>Overwrite local content with what is on GitHub. Choose how much to download:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                   <li><span className="font-medium text-foreground">Pull only changed</span> — only missing files and files whose hash differs from remote.</li>
-                  <li><span className="font-medium text-foreground">Pull all files</span> — re-download every remote content file (slower; use for recovery).</li>
+                  <li><span className="font-medium text-foreground">Pull all files</span> — download one repository archive, extract this site’s content folder, and replace those files (fewer API calls; use for recovery).</li>
                   <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed will be lost for downloaded files.</li>
                 </ul>
               </div>
@@ -836,27 +858,88 @@ export default function SyncLogPage() {
 
         {/* Live progress — shown while running */}
         {pullStatus?.running && (() => {
+          const isArchive = pullStatus.mode === "archive";
+          const phase = pullStatus.phase ?? "listing";
           const processed = (pullStatus.pulled ?? 0) + (pullStatus.skipped ?? 0);
+          const elapsed = formatElapsedSince(pullStatus.startedAt);
+          const downloadedBytes = pullStatus.archiveBytesDownloaded ?? 0;
+          const totalBytes = pullStatus.archiveBytesTotal ?? null;
+          const bytePct =
+            totalBytes && totalBytes > 0
+              ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
+              : null;
+          const extracted = pullStatus.extracted ?? 0;
+          const replaced = pullStatus.replaced ?? pullStatus.pulled ?? 0;
+          const lastFile = pullStatus.lastReplacedFile
+            ? shortenPullPath(pullStatus.lastReplacedFile, siteInfo?.contentFolder)
+            : null;
+
+          let statusLine: string;
+          let barWidth: string;
+          let detailLine: string | null = null;
+
+          if (!isArchive) {
+            statusLine =
+              pullStatus.total > 0
+                ? `Checking/downloading… ${processed} of ${pullStatus.total}`
+                : "Fetching file list from GitHub…";
+            barWidth =
+              pullStatus.total > 0
+                ? `${Math.round((processed / pullStatus.total) * 100)}%`
+                : "10%";
+            detailLine =
+              pullStatus.total > 0
+                ? `${pullStatus.pulled} downloaded, ${pullStatus.skipped ?? 0} skipped / ${pullStatus.total} files`
+                : null;
+          } else if (phase === "downloading") {
+            statusLine = "Downloading repository archive…";
+            barWidth = bytePct != null ? `${bytePct}%` : "15%";
+            detailLine =
+              totalBytes != null
+                ? `${formatByteSize(downloadedBytes)} / ${formatByteSize(totalBytes)}${elapsed ? ` · ${elapsed}` : ""}`
+                : `${formatByteSize(downloadedBytes)} downloaded${elapsed ? ` · ${elapsed}` : ""}`;
+          } else if (phase === "extracting") {
+            statusLine = "Archive downloaded. Extracting content…";
+            barWidth =
+              pullStatus.total > 0
+                ? `${Math.min(100, Math.round((extracted / pullStatus.total) * 100))}%`
+                : "40%";
+            detailLine =
+              pullStatus.total > 0
+                ? `${extracted} / ${pullStatus.total} files extracted`
+                : `${extracted} files extracted`;
+          } else if (phase === "replacing") {
+            statusLine = "Replacing local files…";
+            barWidth =
+              pullStatus.total > 0
+                ? `${Math.min(100, Math.round((replaced / pullStatus.total) * 100))}%`
+                : "70%";
+            detailLine =
+              pullStatus.total > 0
+                ? `${replaced} / ${pullStatus.total} files${lastFile ? ` · ${lastFile}` : ""}`
+                : `${replaced} files${lastFile ? ` · ${lastFile}` : ""}`;
+          } else if (phase === "finalizing") {
+            statusLine = "Files replaced. Updating sync state…";
+            barWidth = "95%";
+            detailLine = `${replaced} files replaced`;
+          } else {
+            statusLine = "Preparing archive download…";
+            barWidth = "10%";
+            detailLine = elapsed ? `Elapsed ${elapsed}` : null;
+          }
+
           return (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {pullStatus.total > 0
-                ? `Checking/downloading… ${processed} of ${pullStatus.total}`
-                : "Fetching file list from GitHub…"}
-            </p>
+            <p className="text-sm text-muted-foreground">{statusLine}</p>
             <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{
-                  width: pullStatus.total > 0
-                    ? `${Math.round((processed / pullStatus.total) * 100)}%`
-                    : "10%",
-                }}
+                style={{ width: barWidth }}
               />
             </div>
-            {pullStatus.total > 0 && (
-              <p className="text-xs text-muted-foreground text-right">
-                {pullStatus.pulled} downloaded, {pullStatus.skipped ?? 0} skipped / {pullStatus.total} files
+            {detailLine && (
+              <p className="text-xs text-muted-foreground text-right truncate" title={detailLine}>
+                {detailLine}
               </p>
             )}
           </div>

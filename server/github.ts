@@ -10,6 +10,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as os from 'os';
+import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
+import * as tar from 'tar';
 import { getAllDirectories } from './content-types';
 import {
   detectPendingChanges,
@@ -24,6 +28,9 @@ import {
 import { child } from "./logger";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 const log = child({ module: "github" });
+
+const FORCE_PULL_TMP_PREFIX = 'website-v3-force-pull-';
+const ARCHIVE_DOWNLOAD_STALL_MS = 120_000;
 
 
 interface GitHubCommitOptions {
@@ -1847,7 +1854,14 @@ export async function getRemoteFileContent(
  */
 export async function pullSingleFile(
   filePath: string,
-  opts?: { repoUrl?: string; contentRoot?: string },
+  opts?: {
+    repoUrl?: string;
+    contentRoot?: string;
+    /** When set, skip getBranchHeadSha and use this for updateFileAfterPull */
+    remoteCommitSha?: string;
+    /** When true, skip getFileCommitDate (bulk bootstrap / force pull) */
+    skipCommitDate?: boolean;
+  },
 ): Promise<{
   success: boolean;
   error?: string;
@@ -1865,8 +1879,8 @@ export async function pullSingleFile(
     return { success: false, error: "GitHub not configured" };
   }
 
-  // Get current remote commit SHA for tracking
-  const remoteCommit = await getBranchHeadSha(config);
+  // Reuse caller-provided SHA (e.g. bootstrap already fetched HEAD once)
+  const remoteCommit = opts?.remoteCommitSha ?? await getBranchHeadSha(config);
 
   // Fetch file content from remote
   const remoteResult = await getRemoteFileContent(filePath, {
@@ -1927,8 +1941,10 @@ export async function pullSingleFile(
     // Fetch file-specific commit date from GitHub API for accurate lastmod in sitemap.
     // We use the commits-by-path API so that unrelated newer commits on the branch
     // do not inflate the lastmod date for this file.
+    // Bulk bootstrap skips this (~1 REST call per file); rebuildSyncStateFromLocal
+    // advances sync state from the known headSha instead.
     let committedAt: string | undefined;
-    if (config) {
+    if (!opts?.skipCommitDate) {
       const date = await getFileCommitDate(config, filePath);
       if (date) committedAt = date;
     }
@@ -2133,6 +2149,15 @@ export async function getRemoteFileStatus(filePath: string): Promise<{
  * Live progress state for bootstrapContentFromRemote().
  * Keyed by content folder so multi-site pulls do not clobber each other.
  */
+export type BootstrapPullMode = "files" | "archive";
+export type BootstrapPullPhase =
+  | "listing"
+  | "downloading"
+  | "extracting"
+  | "replacing"
+  | "finalizing"
+  | "complete";
+
 export interface BootstrapState {
   running: boolean;
   total: number;
@@ -2148,6 +2173,14 @@ export interface BootstrapState {
   success: boolean | null;
   commitSha: string | null;
   cancelled: boolean;
+  /** files = hash-diff / Contents API; archive = force tarball pull */
+  mode: BootstrapPullMode;
+  phase: BootstrapPullPhase;
+  archiveBytesDownloaded: number;
+  archiveBytesTotal: number | null;
+  extracted: number;
+  replaced: number;
+  lastReplacedFile: string | null;
 }
 
 function emptyBootstrapState(): BootstrapState {
@@ -2164,6 +2197,13 @@ function emptyBootstrapState(): BootstrapState {
     success: null,
     commitSha: null,
     cancelled: false,
+    mode: "files",
+    phase: "listing",
+    archiveBytesDownloaded: 0,
+    archiveBytesTotal: null,
+    extracted: 0,
+    replaced: 0,
+    lastReplacedFile: null,
   };
 }
 
@@ -2177,6 +2217,7 @@ function bootstrapStateKey(contentRoot?: string): string {
 
 const _bootstrapStates = new Map<string, BootstrapState>();
 const _bootstrapCancelRequested = new Map<string, boolean>();
+const _bootstrapAbortControllers = new Map<string, AbortController>();
 
 function getOrCreateBootstrapState(contentRoot?: string): BootstrapState {
   const key = bootstrapStateKey(contentRoot);
@@ -2200,7 +2241,7 @@ export function getBootstrapState(contentRoot?: string): Readonly<BootstrapState
 
 /**
  * Request cooperative cancel of an in-progress bootstrap/pull for a site.
- * The loop stops between files after the current file finishes.
+ * Aborts in-flight tarball download immediately; file loops stop between entries.
  */
 export function requestBootstrapCancel(contentRoot?: string): { ok: boolean; running: boolean } {
   const key = bootstrapStateKey(contentRoot);
@@ -2209,6 +2250,14 @@ export function requestBootstrapCancel(contentRoot?: string): { ok: boolean; run
     return { ok: false, running: false };
   }
   _bootstrapCancelRequested.set(key, true);
+  const ac = _bootstrapAbortControllers.get(key);
+  if (ac) {
+    try {
+      ac.abort();
+    } catch {
+      // ignore
+    }
+  }
   return { ok: true, running: true };
 }
 
@@ -2217,7 +2266,13 @@ function isBootstrapCancelRequested(contentRoot?: string): boolean {
 }
 
 function clearBootstrapCancelRequested(contentRoot?: string): void {
-  _bootstrapCancelRequested.delete(bootstrapStateKey(contentRoot));
+  const key = bootstrapStateKey(contentRoot);
+  _bootstrapCancelRequested.delete(key);
+  _bootstrapAbortControllers.delete(key);
+}
+
+function registerBootstrapAbortController(contentRoot: string | undefined, ac: AbortController): void {
+  _bootstrapAbortControllers.set(bootstrapStateKey(contentRoot), ac);
 }
 
 /**
@@ -2251,7 +2306,12 @@ async function pullWithRetry(
   filePath: string,
   maxRetries: number = 3,
   baseDelayMs: number = 1000,
-  opts?: { repoUrl?: string; contentRoot?: string },
+  opts?: {
+    repoUrl?: string;
+    contentRoot?: string;
+    remoteCommitSha?: string;
+    skipCommitDate?: boolean;
+  },
 ): Promise<{ success: boolean; error?: string }> {
   let lastError: string | undefined;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -2281,6 +2341,391 @@ function failBootstrapState(state: BootstrapState, errors: string[]): void {
   state.doneAt = Date.now();
   state.success = false;
   state.cancelled = false;
+  state.phase = "complete";
+}
+
+function resetBootstrapProgressFields(state: BootstrapState, mode: BootstrapPullMode): void {
+  state.mode = mode;
+  state.phase = "listing";
+  state.archiveBytesDownloaded = 0;
+  state.archiveBytesTotal = null;
+  state.extracted = 0;
+  state.replaced = 0;
+  state.lastReplacedFile = null;
+}
+
+function sweepForcePullTempArtifacts(siteKey: string): void {
+  const tmp = os.tmpdir();
+  let entries: string[] = [];
+  try {
+    entries = fs.readdirSync(tmp);
+  } catch {
+    return;
+  }
+  const sitePrefix = `${FORCE_PULL_TMP_PREFIX}${siteKey}-`;
+  for (const name of entries) {
+    if (!name.startsWith(FORCE_PULL_TMP_PREFIX)) continue;
+    // Prefer deleting this site's leftovers; also sweep any orphaned force-pull temps.
+    if (!name.startsWith(sitePrefix) && !name.startsWith(FORCE_PULL_TMP_PREFIX)) continue;
+    const full = path.join(tmp, name);
+    try {
+      fs.rmSync(full, { recursive: true, force: true });
+    } catch (err) {
+      log.warn({ err, full }, "Force-pull: failed to sweep leftover temp artifact");
+    }
+  }
+}
+
+function rmForcePullPath(target: string | null | undefined): void {
+  if (!target) return;
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+  } catch (err) {
+    log.warn({ err, target }, "Force-pull: failed to remove temp path");
+  }
+}
+
+function walkFilesRecursive(dir: string, baseDir: string, out: string[]): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      walkFilesRecursive(full, baseDir, out);
+    } else if (entry.isFile()) {
+      out.push(path.relative(baseDir, full).split(path.sep).join("/"));
+    }
+  }
+}
+
+async function downloadGithubTarball(
+  config: GitHubConfig,
+  headSha: string,
+  destPath: string,
+  opts: {
+    signal: AbortSignal;
+    abort: () => void;
+    onBytes?: (downloaded: number, total: number | null) => void;
+  },
+): Promise<void> {
+  const url = `https://api.github.com/repos/${config.owner}/${config.repo}/tarball/${headSha}`;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "website-v3-force-pull",
+    },
+    signal: opts.signal,
+    redirect: "follow",
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`GitHub tarball download failed: ${response.status} ${body.slice(0, 300)}`);
+  }
+  if (!response.body) {
+    throw new Error("GitHub tarball download returned an empty body");
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  const totalBytes =
+    contentLengthHeader && /^\d+$/.test(contentLengthHeader)
+      ? Number(contentLengthHeader)
+      : null;
+
+  const fileHandle = fs.createWriteStream(destPath);
+  let downloaded = 0;
+  let lastByteAt = Date.now();
+  opts.onBytes?.(0, totalBytes);
+
+  const stallTimer = setInterval(() => {
+    if (Date.now() - lastByteAt > ARCHIVE_DOWNLOAD_STALL_MS) {
+      opts.abort();
+      fileHandle.destroy(new Error("Archive download stalled (no bytes received for 120s)"));
+    }
+  }, 5_000);
+
+  try {
+    const nodeStream = Readable.fromWeb(response.body as import("stream/web").ReadableStream);
+    nodeStream.on("data", (chunk: Buffer | string) => {
+      const size = typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+      downloaded += size;
+      lastByteAt = Date.now();
+      opts.onBytes?.(downloaded, totalBytes);
+    });
+    await pipeline(nodeStream, fileHandle);
+  } finally {
+    clearInterval(stallTimer);
+  }
+}
+
+/**
+ * Force-pull site content by downloading the repo tarball once, extracting the
+ * content folder into staging, then atomically replacing live files.
+ */
+async function forcePullContentFromTarball(
+  config: GitHubConfig,
+  headSha: string,
+  contentFolder: string,
+  opts: {
+    contentRoot?: string;
+    state: BootstrapState;
+    expectedFileCount: number;
+  },
+): Promise<{
+  success: boolean;
+  cancelled?: boolean;
+  pulled: number;
+  pulledFiles: string[];
+  error?: string;
+}> {
+  const siteKey = bootstrapStateKey(opts.contentRoot).replace(/[^a-zA-Z0-9._-]/g, "_");
+  sweepForcePullTempArtifacts(siteKey);
+
+  const runId = `${siteKey}-${process.pid}-${Date.now()}`;
+  const archivePath = path.join(os.tmpdir(), `${FORCE_PULL_TMP_PREFIX}${runId}.tar.gz`);
+  const stagingDir = path.join(os.tmpdir(), `${FORCE_PULL_TMP_PREFIX}${runId}`);
+  const folder = contentFolder.replace(/^\/+|\/+$/g, "");
+  const ac = new AbortController();
+  registerBootstrapAbortController(opts.contentRoot, ac);
+
+  const pulledFiles: string[] = [];
+  let cancelled = false;
+  let downloadStalled = false;
+
+  try {
+    if (isBootstrapCancelRequested(opts.contentRoot)) {
+      return { success: false, cancelled: true, pulled: 0, pulledFiles };
+    }
+
+    fs.mkdirSync(stagingDir, { recursive: true });
+
+    opts.state.phase = "downloading";
+    opts.state.archiveBytesDownloaded = 0;
+    opts.state.archiveBytesTotal = null;
+
+    try {
+      await downloadGithubTarball(config, headSha, archivePath, {
+        signal: ac.signal,
+        abort: () => {
+          downloadStalled = true;
+          ac.abort();
+        },
+        onBytes: (downloaded, total) => {
+          opts.state.archiveBytesDownloaded = downloaded;
+          opts.state.archiveBytesTotal = total;
+        },
+      });
+    } catch (err) {
+      if (downloadStalled) {
+        return {
+          success: false,
+          pulled: 0,
+          pulledFiles,
+          error: "Archive download stalled (no bytes received for 120s)",
+        };
+      }
+      if (ac.signal.aborted || isBootstrapCancelRequested(opts.contentRoot)) {
+        return { success: false, cancelled: true, pulled: 0, pulledFiles };
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, pulled: 0, pulledFiles, error: msg };
+    }
+
+    if (isBootstrapCancelRequested(opts.contentRoot) || ac.signal.aborted) {
+      return { success: false, cancelled: true, pulled: 0, pulledFiles };
+    }
+
+    opts.state.phase = "extracting";
+    opts.state.extracted = 0;
+
+    try {
+      await tar.x({
+        file: archivePath,
+        cwd: stagingDir,
+        strip: 1,
+        preservePaths: false,
+        // Only materialize regular files/dirs under the site content folder.
+        filter: (entryPath, entry) => {
+          const normalized = entryPath.replace(/\\/g, "/").replace(/^\.?\//, "");
+          if (normalized.includes("..") || path.isAbsolute(entryPath)) {
+            return false;
+          }
+          const type = String((entry as { type?: string }).type ?? "");
+          if (
+            type === "SymbolicLink" ||
+            type === "Link" ||
+            type === "BlockDevice" ||
+            type === "CharacterDevice" ||
+            type === "FIFO"
+          ) {
+            return false;
+          }
+          // Archive paths are either `{contentFolder}/...` (after strip) or
+          // `{repoRoot}/{contentFolder}/...` (before strip, depending on tar version).
+          const parts = normalized.split("/").filter(Boolean);
+          const withoutRoot = parts.length > 1 ? parts.slice(1).join("/") : normalized;
+          return (
+            normalized === folder ||
+            normalized.startsWith(`${folder}/`) ||
+            withoutRoot === folder ||
+            withoutRoot.startsWith(`${folder}/`)
+          );
+        },
+        onentry: (entry) => {
+          const type = String((entry as { type?: string }).type ?? "");
+          const isFile = type === "File" || type === "0" || type === "";
+          if (!isFile) return;
+          opts.state.extracted += 1;
+        },
+      });
+    } catch (err) {
+      if (isBootstrapCancelRequested(opts.contentRoot) || ac.signal.aborted) {
+        return { success: false, cancelled: true, pulled: 0, pulledFiles };
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, pulled: 0, pulledFiles, error: `Archive extraction failed: ${msg}` };
+    }
+
+    if (isBootstrapCancelRequested(opts.contentRoot)) {
+      return { success: false, cancelled: true, pulled: 0, pulledFiles };
+    }
+
+    const contentStagingRoot = path.join(stagingDir, folder);
+    if (!fs.existsSync(contentStagingRoot)) {
+      return {
+        success: false,
+        pulled: 0,
+        pulledFiles,
+        error: `Archive did not contain content folder "${folder}"`,
+      };
+    }
+
+    const relativeFiles: string[] = [];
+    walkFilesRecursive(contentStagingRoot, stagingDir, relativeFiles);
+    // Reconcile extracted count with walked files (authoritative).
+    opts.state.extracted = relativeFiles.length;
+
+    opts.state.phase = "replacing";
+    opts.state.replaced = 0;
+    opts.state.pulled = 0;
+    opts.state.pulledFiles = [];
+    opts.state.lastReplacedFile = null;
+
+    for (const relativePath of relativeFiles) {
+      if (isBootstrapCancelRequested(opts.contentRoot)) {
+        cancelled = true;
+        break;
+      }
+
+      const normalized = relativePath.replace(/\\/g, "/");
+      if (!normalized.startsWith(`${folder}/`) && normalized !== folder) {
+        continue;
+      }
+      if (normalized.includes("..")) {
+        continue;
+      }
+
+      const stagedFile = path.join(stagingDir, normalized);
+      const destFile = path.join(process.cwd(), normalized);
+      const destDir = path.dirname(destFile);
+      const tmpPath = `${destFile}.pulltmp`;
+
+      try {
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        if (fs.existsSync(tmpPath)) {
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch {
+            /* ignore */
+          }
+        }
+        // Binary-safe copy into same-directory temp, then atomic rename (avoids EXDEV).
+        fs.copyFileSync(stagedFile, tmpPath);
+        fs.renameSync(tmpPath, destFile);
+
+        pulledFiles.push(normalized);
+        opts.state.replaced = pulledFiles.length;
+        opts.state.pulled = pulledFiles.length;
+        opts.state.pulledFiles = [...pulledFiles];
+        opts.state.lastReplacedFile = normalized;
+      } catch (err) {
+        try {
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch {
+          /* ignore */
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          success: false,
+          pulled: pulledFiles.length,
+          pulledFiles,
+          error: `${normalized}: ${msg}`,
+        };
+      }
+    }
+
+    if (cancelled) {
+      return { success: false, cancelled: true, pulled: pulledFiles.length, pulledFiles };
+    }
+
+    if (
+      opts.expectedFileCount > 0 &&
+      pulledFiles.length !== opts.expectedFileCount
+    ) {
+      log.warn(
+        {
+          expected: opts.expectedFileCount,
+          replaced: pulledFiles.length,
+          contentFolder: folder,
+        },
+        "Force-pull: replaced file count differs from remote tree listing",
+      );
+    }
+
+    return { success: true, pulled: pulledFiles.length, pulledFiles };
+  } finally {
+    rmForcePullPath(archivePath);
+    rmForcePullPath(stagingDir);
+  }
+}
+
+async function refreshContentAfterBootstrapPull(
+  contentFolder: string,
+  pulledCount: number,
+): Promise<void> {
+  if (pulledCount <= 0) return;
+  try {
+    const { getSiteContextMap } = await import("./site-manager");
+    const { clearRedirectCache } = await import("./redirects");
+    const siteCtx = Array.from(getSiteContextMap().values()).find(
+      (ctx) => ctx.contentRootName === contentFolder || ctx.contentRoot.endsWith(contentFolder),
+    );
+    if (siteCtx?.contentIndex) {
+      siteCtx.contentIndex.refresh();
+      clearRedirectCache();
+      log.info(
+        `[GitHub] Refreshed ContentIndex + redirect cache for ${siteCtx.contentRootName} after bootstrap pull of ${pulledCount} file(s)`,
+      );
+    } else {
+      clearRedirectCache();
+    }
+  } catch (e) {
+    log.warn(
+      { err: e },
+      "[GitHub] Failed to refresh ContentIndex after bootstrap pull — may be stale until restart",
+    );
+  }
 }
 
 export async function bootstrapContentFromRemote(opts?: {
@@ -2317,6 +2762,7 @@ export async function bootstrapContentFromRemote(opts?: {
   state.success = null;
   state.commitSha = null;
   state.cancelled = false;
+  resetBootstrapProgressFields(state, force ? "archive" : "files");
 
   try {
   const config = getGitHubConfig(opts?.repoUrl);
@@ -2335,7 +2781,7 @@ export async function bootstrapContentFromRemote(opts?: {
 
   logSync(
     'AUTO-PULL',
-    `Bootstrap: starting ${force ? 'full' : 'partial (hash-diff)'} content pull from ${config.owner}/${config.repo}@${config.branch}...`,
+    `Bootstrap: starting ${force ? 'full (tarball)' : 'partial (hash-diff)'} content pull from ${config.owner}/${config.repo}@${config.branch}...`,
   );
 
   const headSha = await getBranchHeadSha(config);
@@ -2370,6 +2816,7 @@ export async function bootstrapContentFromRemote(opts?: {
     // Mark as complete even when there's nothing to pull — directory is in sync.
     writeBootstrapCompleteFlag(opts?.contentRoot);
     state.running = false;
+    state.phase = "complete";
     state.doneAt = Date.now();
     state.success = true;
     return { success: true, pulled: 0, skipped: 0, errors: [], commitSha: headSha };
@@ -2378,7 +2825,7 @@ export async function bootstrapContentFromRemote(opts?: {
   state.total = remoteEntries.length;
   logSync(
     'AUTO-PULL',
-    `Bootstrap: found ${remoteEntries.length} files on remote, ${force ? 'downloading all...' : 'diffing local hashes...'}`,
+    `Bootstrap: found ${remoteEntries.length} files on remote, ${force ? 'downloading archive...' : 'diffing local hashes...'}`,
   );
 
   let pulled = 0;
@@ -2388,14 +2835,105 @@ export async function bootstrapContentFromRemote(opts?: {
   const skippedFiles: string[] = [];
   let wasCancelled = false;
 
-  const pullOpts = { repoUrl: opts?.repoUrl, contentRoot: opts?.contentRoot };
+  if (force) {
+    const archiveResult = await forcePullContentFromTarball(config, headSha, contentFolder, {
+      contentRoot: opts?.contentRoot,
+      state,
+      expectedFileCount: remoteEntries.length,
+    });
+
+    clearBootstrapCancelRequested(opts?.contentRoot);
+
+    if (archiveResult.cancelled) {
+      logSync('AUTO-PULL', `Bootstrap cancelled (tarball): pulled=${archiveResult.pulled}`);
+      log.info(`Bootstrap cancelled (tarball): pulled=${archiveResult.pulled}, sha=${headSha}`);
+      state.running = false;
+      state.pulled = archiveResult.pulled;
+      state.pulledFiles = [...archiveResult.pulledFiles];
+      state.skipped = 0;
+      state.doneAt = Date.now();
+      state.success = false;
+      state.cancelled = true;
+      state.phase = "complete";
+      return {
+        success: false,
+        pulled: archiveResult.pulled,
+        skipped: 0,
+        errors: [],
+        commitSha: headSha,
+        cancelled: true,
+      };
+    }
+
+    if (!archiveResult.success) {
+      const errMsg = archiveResult.error || "Force pull via tarball failed";
+      errors.push(errMsg);
+      state.errors = [...errors];
+      state.pulled = archiveResult.pulled;
+      state.pulledFiles = [...archiveResult.pulledFiles];
+      state.running = false;
+      state.doneAt = Date.now();
+      state.success = false;
+      state.cancelled = false;
+      state.phase = "complete";
+      logSync('ERROR', `Bootstrap tarball pull failed: ${errMsg}`);
+      return {
+        success: false,
+        pulled: archiveResult.pulled,
+        skipped: 0,
+        errors,
+        commitSha: headSha,
+      };
+    }
+
+    pulled = archiveResult.pulled;
+    pulledFiles.push(...archiveResult.pulledFiles);
+    if (
+      remoteEntries.length > 0 &&
+      pulled !== remoteEntries.length
+    ) {
+      const notice = `Replaced ${pulled} files from archive but remote tree listed ${remoteEntries.length} (non-fatal)`;
+      logSync('AUTO-PULL', `Bootstrap: ${notice}`);
+    }
+
+    state.phase = "finalizing";
+    const { rebuildSyncStateFromLocal } = await import('./sync-state');
+    rebuildSyncStateFromLocal(headSha, opts?.contentRoot, {
+      syncedRemotePaths: pulledFiles.length > 0 ? pulledFiles : remoteEntries.map((e) => e.path),
+    });
+    writeBootstrapCompleteFlag(opts?.contentRoot);
+    await refreshContentAfterBootstrapPull(contentFolder, pulled);
+    logSync(
+      'AUTO-PULL',
+      `Bootstrap: tarball pulled=${pulled} — sync state updated to ${headSha.slice(0, 7)}`,
+    );
+    log.info(`Bootstrap complete (tarball): pulled=${pulled}, sha=${headSha}`);
+
+    state.running = false;
+    state.pulled = pulled;
+    state.skipped = 0;
+    state.pulledFiles = [...pulledFiles];
+    state.doneAt = Date.now();
+    state.success = true;
+    state.cancelled = false;
+    state.phase = "complete";
+
+    return { success: true, pulled, skipped: 0, errors: [], commitSha: headSha };
+  }
+
+  const pullOpts = {
+    repoUrl: opts?.repoUrl,
+    contentRoot: opts?.contentRoot,
+    remoteCommitSha: headSha,
+    skipCommitDate: true,
+  };
   for (const { path: filePath, sha: remoteSha } of remoteEntries) {
     if (isBootstrapCancelRequested(opts?.contentRoot)) {
       wasCancelled = true;
       break;
     }
 
-    if (!force && remoteSha) {
+    if (remoteSha) {
       const fullPath = path.join(process.cwd(), filePath);
       if (fs.existsSync(fullPath)) {
         try {
@@ -2437,6 +2975,7 @@ export async function bootstrapContentFromRemote(opts?: {
     state.doneAt = Date.now();
     state.success = false;
     state.cancelled = true;
+    state.phase = "complete";
     // Do not update sync state / bootstrap-complete — next Pull changed resumes via hash skip.
     return {
       success: false,
@@ -2453,11 +2992,13 @@ export async function bootstrapContentFromRemote(opts?: {
   // If any files failed, leave lastSyncedCommit unset so the next startup
   // (or the next reconcile/auto-pull run) can detect and recover the missing files.
   if (errors.length === 0) {
+    state.phase = "finalizing";
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
     rebuildSyncStateFromLocal(headSha, opts?.contentRoot, {
       syncedRemotePaths: remoteEntries.map((e) => e.path),
     });
     writeBootstrapCompleteFlag(opts?.contentRoot);
+    await refreshContentAfterBootstrapPull(contentFolder, pulled);
     logSync(
       'AUTO-PULL',
       `Bootstrap: pulled=${pulled} skipped=${skipped} — sync state updated to ${headSha.slice(0, 7)}`,
@@ -2483,6 +3024,7 @@ export async function bootstrapContentFromRemote(opts?: {
   state.doneAt = Date.now();
   state.success = errors.length === 0;
   state.cancelled = false;
+  state.phase = "complete";
 
   return { success: errors.length === 0, pulled, skipped, errors, commitSha: headSha };
   } catch (error) {
