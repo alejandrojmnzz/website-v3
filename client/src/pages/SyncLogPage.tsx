@@ -273,6 +273,7 @@ export default function SyncLogPage() {
   const [forcePullOpen, setForcePullOpen] = useState(false);
   const [pullStarted, setPullStarted] = useState(false);
   const [pullResultTab, setPullResultTab] = useState<"downloaded" | "skipped" | "errors">("downloaded");
+  const [pullResultSearch, setPullResultSearch] = useState("");
   const pullToastShown = useRef(false);
   const pullStartAt = useRef<number | null>(null);
   const pullStartedRef = useRef(false);
@@ -286,6 +287,7 @@ export default function SyncLogPage() {
       pullStartAt.current = Date.now();
       setPullStarted(true);
       setPullResultTab("downloaded");
+      setPullResultSearch("");
       qc.invalidateQueries({ queryKey: ["/api/github/pull-all-status"] });
     },
     onError: (err: Error) => {
@@ -344,6 +346,7 @@ export default function SyncLogPage() {
     extracted?: number;
     replaced?: number;
     lastReplacedFile?: string | null;
+    replaceTotal?: number | null;
   } | null>({
     queryKey: ["/api/github/pull-all-status"],
     enabled: forcePullOpen || pullStarted,
@@ -807,7 +810,12 @@ export default function SyncLogPage() {
     </div>
 
     {/* Force Pull Modal */}
-    <Dialog open={forcePullOpen} onOpenChange={(open) => { if (!open && !pullStatus?.running) { setForcePullOpen(false); } }}>
+    <Dialog open={forcePullOpen} onOpenChange={(open) => {
+      if (!open && !pullStatus?.running) {
+        setForcePullOpen(false);
+        setPullResultSearch("");
+      }
+    }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -909,14 +917,15 @@ export default function SyncLogPage() {
                 ? `${extracted} / ${pullStatus.total} files extracted`
                 : `${extracted} files extracted`;
           } else if (phase === "replacing") {
+            const replaceDenom = pullStatus.replaceTotal ?? pullStatus.total;
             statusLine = "Replacing local files…";
             barWidth =
-              pullStatus.total > 0
-                ? `${Math.min(100, Math.round((replaced / pullStatus.total) * 100))}%`
+              replaceDenom > 0
+                ? `${Math.min(100, Math.round((replaced / replaceDenom) * 100))}%`
                 : "70%";
             detailLine =
-              pullStatus.total > 0
-                ? `${replaced} / ${pullStatus.total} files${lastFile ? ` · ${lastFile}` : ""}`
+              replaceDenom > 0
+                ? `${replaced} / ${replaceDenom} files${lastFile ? ` · ${lastFile}` : ""}`
                 : `${replaced} files${lastFile ? ` · ${lastFile}` : ""}`;
           } else if (phase === "finalizing") {
             statusLine = "Files replaced. Updating sync state…";
@@ -952,11 +961,29 @@ export default function SyncLogPage() {
           const skipped = pullStatus.skippedFiles ?? [];
           const errors = pullStatus.errors ?? [];
           const folder = siteInfo?.contentFolder;
+          const downloadedList = downloaded.map((p) => shortenPullPath(p, folder));
+          const skippedList = skipped.map((p) => shortenPullPath(p, folder));
+          const errorsList = errors.map((e) => {
+            const colon = e.indexOf(": ");
+            if (colon > 0) {
+              const pathPart = e.slice(0, colon);
+              const msg = e.slice(colon + 2);
+              return `${shortenPullPath(pathPart, folder)}: ${msg}`;
+            }
+            return e;
+          });
+          const searchQ = pullResultSearch.trim().toLowerCase();
+          const matchesSearch = (line: string) =>
+            !searchQ || line.toLowerCase().includes(searchQ);
+          const downloadedFiltered = downloadedList.filter(matchesSearch);
+          const skippedFiltered = skippedList.filter(matchesSearch);
+          const errorsFiltered = errorsList.filter(matchesSearch);
           const tabs = [
             {
               id: "downloaded" as const,
               label: "Downloaded",
-              count: pullStatus.pulled ?? downloaded.length,
+              count: searchQ ? downloadedFiltered.length : (pullStatus.pulled ?? downloadedList.length),
+              total: pullStatus.pulled ?? downloadedList.length,
               icon: IconCloudDownload,
               activeClass: "border-primary bg-primary/10 text-primary",
               countClass: "",
@@ -964,7 +991,8 @@ export default function SyncLogPage() {
             {
               id: "skipped" as const,
               label: "Skipped",
-              count: pullStatus.skipped ?? skipped.length,
+              count: searchQ ? skippedFiltered.length : (pullStatus.skipped ?? skippedList.length),
+              total: pullStatus.skipped ?? skippedList.length,
               icon: IconMinus,
               activeClass: "border-muted-foreground/40 bg-muted text-foreground",
               countClass: "",
@@ -972,32 +1000,33 @@ export default function SyncLogPage() {
             {
               id: "errors" as const,
               label: "Errors",
-              count: errors.length,
+              count: searchQ ? errorsFiltered.length : errorsList.length,
+              total: errorsList.length,
               icon: IconAlertTriangle,
               activeClass: "border-destructive bg-destructive/10 text-destructive",
-              countClass: errors.length > 0 ? "text-destructive" : "",
+              countClass: errorsList.length > 0 ? "text-destructive" : "",
             },
           ];
-          const activeList =
+          const filteredList =
             pullResultTab === "downloaded"
-              ? downloaded.map((p) => shortenPullPath(p, folder))
+              ? downloadedFiltered
               : pullResultTab === "skipped"
-                ? skipped.map((p) => shortenPullPath(p, folder))
-                : errors.map((e) => {
-                    const colon = e.indexOf(": ");
-                    if (colon > 0) {
-                      const pathPart = e.slice(0, colon);
-                      const msg = e.slice(colon + 2);
-                      return `${shortenPullPath(pathPart, folder)}: ${msg}`;
-                    }
-                    return e;
-                  });
+                ? skippedFiltered
+                : errorsFiltered;
+          const activeTotal =
+            pullResultTab === "downloaded"
+              ? downloadedList.length
+              : pullResultTab === "skipped"
+                ? skippedList.length
+                : errorsList.length;
           const emptyLabel =
             pullResultTab === "downloaded"
               ? "No files downloaded"
               : pullResultTab === "skipped"
                 ? "No files skipped"
                 : "No errors";
+          const hasAnyResults =
+            downloadedList.length > 0 || skippedList.length > 0 || errorsList.length > 0;
 
           return (
             <div className="space-y-3">
@@ -1023,6 +1052,9 @@ export default function SyncLogPage() {
                       <Icon size={16} className="shrink-0" />
                       <span className={cn("text-base font-medium tabular-nums leading-none", selected ? tab.countClass : "")}>
                         {tab.count}
+                        {searchQ && tab.total !== tab.count ? (
+                          <span className="text-[10px] font-normal text-muted-foreground">/{tab.total}</span>
+                        ) : null}
                       </span>
                       <span className="text-[10px] leading-tight">{tab.label}</span>
                     </button>
@@ -1030,12 +1062,27 @@ export default function SyncLogPage() {
                 })}
               </div>
 
+              {hasAnyResults && (
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={pullResultSearch}
+                    onChange={(e) => setPullResultSearch(e.target.value)}
+                    placeholder="Search downloaded, skipped, or errors…"
+                    className="h-7 pl-7 text-xs"
+                    data-testid="input-pull-result-search"
+                  />
+                </div>
+              )}
+
               <ScrollArea className="h-40 rounded-md border bg-muted/30">
                 <div className="p-2.5 space-y-1" role="tabpanel" data-testid={`pull-result-list-${pullResultTab}`}>
-                  {activeList.length === 0 ? (
+                  {activeTotal === 0 ? (
                     <p className="text-xs text-muted-foreground py-6 text-center">{emptyLabel}</p>
+                  ) : filteredList.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-6 text-center">No matches in {pullResultTab}</p>
                   ) : (
-                    activeList.map((line, i) => (
+                    filteredList.map((line, i) => (
                       <p
                         key={`${pullResultTab}-${i}`}
                         className={cn(

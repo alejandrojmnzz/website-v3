@@ -32,6 +32,13 @@ const log = child({ module: "github" });
 const FORCE_PULL_TMP_PREFIX = 'website-v3-force-pull-';
 const ARCHIVE_DOWNLOAD_STALL_MS = 120_000;
 
+/** Soft pull switches to tarball when changed file count exceeds this (default 20). */
+function getSoftPullArchiveThreshold(): number {
+  const raw = process.env.GITHUB_SOFT_PULL_ARCHIVE_THRESHOLD;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 20;
+}
+
 
 interface GitHubCommitOptions {
   filePath: string;
@@ -2181,6 +2188,8 @@ export interface BootstrapState {
   extracted: number;
   replaced: number;
   lastReplacedFile: string | null;
+  /** When set, replacing-phase denominator (changed files only). Null = use total. */
+  replaceTotal: number | null;
 }
 
 function emptyBootstrapState(): BootstrapState {
@@ -2204,6 +2213,7 @@ function emptyBootstrapState(): BootstrapState {
     extracted: 0,
     replaced: 0,
     lastReplacedFile: null,
+    replaceTotal: null,
   };
 }
 
@@ -2352,6 +2362,7 @@ function resetBootstrapProgressFields(state: BootstrapState, mode: BootstrapPull
   state.extracted = 0;
   state.replaced = 0;
   state.lastReplacedFile = null;
+  state.replaceTotal = null;
 }
 
 function sweepForcePullTempArtifacts(siteKey: string): void {
@@ -2479,6 +2490,8 @@ async function forcePullContentFromTarball(
     contentRoot?: string;
     state: BootstrapState;
     expectedFileCount: number;
+    /** When set, only replace these normalized paths (soft-pull archive fast path). */
+    onlyPaths?: Set<string>;
   },
 ): Promise<{
   success: boolean;
@@ -2633,6 +2646,9 @@ async function forcePullContentFromTarball(
       if (normalized.includes("..")) {
         continue;
       }
+      if (opts.onlyPaths && !opts.onlyPaths.has(normalized)) {
+        continue;
+      }
 
       const stagedFile = path.join(stagingDir, normalized);
       const destFile = path.join(process.cwd(), normalized);
@@ -2679,17 +2695,19 @@ async function forcePullContentFromTarball(
       return { success: false, cancelled: true, pulled: pulledFiles.length, pulledFiles };
     }
 
-    if (
-      opts.expectedFileCount > 0 &&
-      pulledFiles.length !== opts.expectedFileCount
-    ) {
+    const expected =
+      opts.onlyPaths && opts.onlyPaths.size > 0
+        ? opts.onlyPaths.size
+        : opts.expectedFileCount;
+    if (expected > 0 && pulledFiles.length !== expected) {
       log.warn(
         {
-          expected: opts.expectedFileCount,
+          expected,
           replaced: pulledFiles.length,
           contentFolder: folder,
+          filtered: !!opts.onlyPaths,
         },
-        "Force-pull: replaced file count differs from remote tree listing",
+        "Force-pull: replaced file count differs from expected",
       );
     }
 
@@ -2921,18 +2939,14 @@ export async function bootstrapContentFromRemote(opts?: {
     return { success: true, pulled, skipped: 0, errors: [], commitSha: headSha };
   }
 
-  const pullOpts = {
-    repoUrl: opts?.repoUrl,
-    contentRoot: opts?.contentRoot,
-    remoteCommitSha: headSha,
-    skipCommitDate: true,
-  };
-  for (const { path: filePath, sha: remoteSha } of remoteEntries) {
+  // Soft pull: hash-diff pre-pass, then per-file or archive fast path.
+  const changedEntries: Array<{ path: string; sha: string | null }> = [];
+  for (const entry of remoteEntries) {
     if (isBootstrapCancelRequested(opts?.contentRoot)) {
       wasCancelled = true;
       break;
     }
-
+    const { path: filePath, sha: remoteSha } = entry;
     if (remoteSha) {
       const fullPath = path.join(process.cwd(), filePath);
       if (fs.existsSync(fullPath)) {
@@ -2946,40 +2960,28 @@ export async function bootstrapContentFromRemote(opts?: {
             continue;
           }
         } catch {
-          // Fall through to pull if local read fails
+          // Fall through — treat as changed if local read fails
         }
       }
     }
-
-    const result = await pullWithRetry(filePath, 3, 1000, pullOpts);
-    if (result.success) {
-      pulled++;
-      pulledFiles.push(filePath);
-      state.pulled = pulled;
-      state.pulledFiles = [...pulledFiles];
-    } else {
-      const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
-      errors.push(errMsg);
-      state.errors = [...errors];
-    }
+    changedEntries.push(entry);
   }
 
-  clearBootstrapCancelRequested(opts?.contentRoot);
-
   if (wasCancelled) {
-    logSync('AUTO-PULL', `Bootstrap cancelled: pulled=${pulled} skipped=${skipped}`);
-    log.info(`Bootstrap cancelled: pulled=${pulled}, skipped=${skipped}, sha=${headSha}`);
+    clearBootstrapCancelRequested(opts?.contentRoot);
+    logSync('AUTO-PULL', `Bootstrap cancelled during diff: skipped=${skipped}`);
+    log.info(`Bootstrap cancelled during soft-pull diff: skipped=${skipped}, sha=${headSha}`);
     state.running = false;
-    state.pulled = pulled;
+    state.pulled = 0;
     state.skipped = skipped;
+    state.skippedFiles = [...skippedFiles];
     state.doneAt = Date.now();
     state.success = false;
     state.cancelled = true;
     state.phase = "complete";
-    // Do not update sync state / bootstrap-complete — next Pull changed resumes via hash skip.
     return {
       success: false,
-      pulled,
+      pulled: 0,
       skipped,
       errors: [],
       commitSha: headSha,
@@ -2987,10 +2989,136 @@ export async function bootstrapContentFromRemote(opts?: {
     };
   }
 
-  // Only mark sync state as up-to-date when every required file was pulled successfully.
-  // Skipped (hash-matched) files are already correct locally.
-  // If any files failed, leave lastSyncedCommit unset so the next startup
-  // (or the next reconcile/auto-pull run) can detect and recover the missing files.
+  const threshold = getSoftPullArchiveThreshold();
+  const useArchive = changedEntries.length > threshold;
+
+  if (changedEntries.length === 0) {
+    logSync(
+      'AUTO-PULL',
+      `Bootstrap: diff changed=0 skipped=${skipped} → no-op`,
+    );
+  } else if (useArchive) {
+    logSync(
+      'AUTO-PULL',
+      `Bootstrap: diff changed=${changedEntries.length} skipped=${skipped} → archive (threshold=${threshold})`,
+    );
+    state.mode = "archive";
+    state.replaceTotal = changedEntries.length;
+
+    const onlyPaths = new Set(changedEntries.map((e) => e.path.replace(/\\/g, "/")));
+    const archiveResult = await forcePullContentFromTarball(config, headSha, contentFolder, {
+      contentRoot: opts?.contentRoot,
+      state,
+      expectedFileCount: changedEntries.length,
+      onlyPaths,
+    });
+
+    clearBootstrapCancelRequested(opts?.contentRoot);
+
+    if (archiveResult.cancelled) {
+      logSync(
+        'AUTO-PULL',
+        `Bootstrap cancelled (soft archive): pulled=${archiveResult.pulled} skipped=${skipped}`,
+      );
+      state.running = false;
+      state.pulled = archiveResult.pulled;
+      state.pulledFiles = [...archiveResult.pulledFiles];
+      state.skipped = skipped;
+      state.skippedFiles = [...skippedFiles];
+      state.doneAt = Date.now();
+      state.success = false;
+      state.cancelled = true;
+      state.phase = "complete";
+      return {
+        success: false,
+        pulled: archiveResult.pulled,
+        skipped,
+        errors: [],
+        commitSha: headSha,
+        cancelled: true,
+      };
+    }
+
+    if (!archiveResult.success) {
+      const errMsg = archiveResult.error || "Soft pull via tarball failed";
+      errors.push(errMsg);
+      state.errors = [...errors];
+      state.pulled = archiveResult.pulled;
+      state.pulledFiles = [...archiveResult.pulledFiles];
+      state.skipped = skipped;
+      state.skippedFiles = [...skippedFiles];
+      state.running = false;
+      state.doneAt = Date.now();
+      state.success = false;
+      state.cancelled = false;
+      state.phase = "complete";
+      logSync('ERROR', `Bootstrap soft-archive pull failed: ${errMsg}`);
+      return {
+        success: false,
+        pulled: archiveResult.pulled,
+        skipped,
+        errors,
+        commitSha: headSha,
+      };
+    }
+
+    pulled = archiveResult.pulled;
+    pulledFiles.push(...archiveResult.pulledFiles);
+  } else {
+    logSync(
+      'AUTO-PULL',
+      `Bootstrap: diff changed=${changedEntries.length} skipped=${skipped} → per-file (threshold=${threshold})`,
+    );
+
+    const pullOpts = {
+      repoUrl: opts?.repoUrl,
+      contentRoot: opts?.contentRoot,
+      remoteCommitSha: headSha,
+      skipCommitDate: true,
+    };
+    for (const { path: filePath } of changedEntries) {
+      if (isBootstrapCancelRequested(opts?.contentRoot)) {
+        wasCancelled = true;
+        break;
+      }
+
+      const result = await pullWithRetry(filePath, 3, 1000, pullOpts);
+      if (result.success) {
+        pulled++;
+        pulledFiles.push(filePath);
+        state.pulled = pulled;
+        state.pulledFiles = [...pulledFiles];
+      } else {
+        const errMsg = `${filePath}: ${result.error || 'unknown error'}`;
+        errors.push(errMsg);
+        state.errors = [...errors];
+      }
+    }
+
+    clearBootstrapCancelRequested(opts?.contentRoot);
+
+    if (wasCancelled) {
+      logSync('AUTO-PULL', `Bootstrap cancelled: pulled=${pulled} skipped=${skipped}`);
+      log.info(`Bootstrap cancelled: pulled=${pulled}, skipped=${skipped}, sha=${headSha}`);
+      state.running = false;
+      state.pulled = pulled;
+      state.skipped = skipped;
+      state.doneAt = Date.now();
+      state.success = false;
+      state.cancelled = true;
+      state.phase = "complete";
+      return {
+        success: false,
+        pulled,
+        skipped,
+        errors: [],
+        commitSha: headSha,
+        cancelled: true,
+      };
+    }
+  }
+
+  // Soft-pull finalize (shared by no-op / per-file / archive).
   if (errors.length === 0) {
     state.phase = "finalizing";
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
@@ -3004,7 +3132,6 @@ export async function bootstrapContentFromRemote(opts?: {
       `Bootstrap: pulled=${pulled} skipped=${skipped} — sync state updated to ${headSha.slice(0, 7)}`,
     );
   } else {
-    // Log each failed file clearly so operators know exactly what is missing.
     logSync(
       'ERROR',
       `Bootstrap: pulled=${pulled} skipped=${skipped} of ${remoteEntries.length}; ${errors.length} failed after retries — ${errors.join(' | ')}`,
@@ -3021,6 +3148,8 @@ export async function bootstrapContentFromRemote(opts?: {
   state.running = false;
   state.pulled = pulled;
   state.skipped = skipped;
+  state.skippedFiles = [...skippedFiles];
+  state.pulledFiles = [...pulledFiles];
   state.doneAt = Date.now();
   state.success = errors.length === 0;
   state.cancelled = false;
