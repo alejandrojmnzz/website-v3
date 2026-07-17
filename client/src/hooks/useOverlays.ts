@@ -28,6 +28,7 @@ export interface OverlayGeoTargeting {
 
 export interface OverlayTargeting {
   pages: "all" | string[];
+  exclude_pages?: string[];
   geo?: OverlayGeoTargeting;
 }
 
@@ -86,19 +87,39 @@ function isRegexPattern(p: string): boolean {
   return p.startsWith("^") || p.includes(".*") || p.includes("(") || p.includes("[");
 }
 
-function matchesPage(targeting: OverlayTargeting, pathname: string): boolean {
-  if (targeting.pages === "all") return true;
-  if (!Array.isArray(targeting.pages)) return true;
-  return targeting.pages.some((p) => {
-    if (isRegexPattern(p)) {
-      try {
-        return new RegExp(p).test(pathname);
-      } catch {
-        return false;
-      }
+export function pathnameMatchesEntry(pathname: string, entry: string): boolean {
+  if (isRegexPattern(entry)) {
+    try {
+      return new RegExp(entry).test(pathname);
+    } catch {
+      return false;
     }
-    return pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p);
-  });
+  }
+  // "/" is only the homepage — bare startsWith("/") would match every path
+  if (entry === "/") {
+    return pathname === "/";
+  }
+  return pathname === entry || pathname.startsWith(entry + "/");
+}
+
+function matchesPage(targeting: OverlayTargeting, pathname: string): boolean {
+  let included = false;
+  if (targeting.pages === "all") {
+    included = true;
+  } else if (!Array.isArray(targeting.pages)) {
+    included = true;
+  } else {
+    included = targeting.pages.some((p) => pathnameMatchesEntry(pathname, p));
+  }
+  if (!included) return false;
+
+  const excludePages = targeting.exclude_pages;
+  if (Array.isArray(excludePages) && excludePages.length > 0) {
+    if (excludePages.some((p) => pathnameMatchesEntry(pathname, p))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function matchesGeo(targeting: OverlayTargeting, geo: GeoData | null): boolean {

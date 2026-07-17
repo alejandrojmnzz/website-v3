@@ -4,6 +4,7 @@ import { IconX, IconPlus, IconCheck, IconAlertCircle } from "@tabler/icons-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LinkPicker } from "@/components/editing/LinkPicker";
+import { pathnameMatchesEntry } from "@/hooks/useOverlays";
 
 interface SitemapEntry { loc: string; label: string; }
 
@@ -45,15 +46,12 @@ export function PageTargetingChips({ pages, onChange, portalContainer }: PageTar
     return Array.from(new Set(paths));
   }, [enUrls, esUrls]);
 
-  const matchCount = useMemo(() => {
-    if (!regexValid || !regexInput.trim() || allPaths.length === 0) return null;
-    try {
-      const re = new RegExp(regexInput.trim());
-      return allPaths.filter((p) => re.test(p)).length;
-    } catch {
-      return null;
-    }
-  }, [regexValid, regexInput, allPaths]);
+  const chipMatchCount = useMemo(() => {
+    if (pages.length === 0 || allPaths.length === 0) return null;
+    return allPaths.filter((pathname) =>
+      pages.some((entry) => pathnameMatchesEntry(pathname, entry)),
+    ).length;
+  }, [pages, allPaths]);
 
   const handleRemove = (entry: string) => {
     onChange(pages.filter((p) => p !== entry));
@@ -159,15 +157,19 @@ export function PageTargetingChips({ pages, onChange, portalContainer }: PageTar
         {regexError && (
           <p className="text-xs text-destructive" data-testid="text-regex-error">{regexError}</p>
         )}
-        {matchCount !== null && (
-          <p
-            className={`text-xs ${matchCount > 0 ? "text-muted-foreground" : "text-muted-foreground/60"}`}
-            data-testid="text-regex-match-count"
-          >
-            {matchCount > 0
-              ? `Matches ${matchCount} page${matchCount === 1 ? "" : "s"}`
-              : "No pages match"}
-          </p>
+        {chipMatchCount !== null && (
+          <div className="space-y-0.5" data-testid="text-chip-match-count">
+            <p
+              className={`text-xs ${chipMatchCount > 0 ? "text-muted-foreground" : "text-muted-foreground/60"}`}
+            >
+              {chipMatchCount > 0
+                ? `Matches ${chipMatchCount} page${chipMatchCount === 1 ? "" : "s"}`
+                : "No pages match"}
+            </p>
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Count is only known for pages in the sitemap (noindex, private, and non-indexed routes are excluded).
+            </p>
+          </div>
         )}
       </div>
     </div>

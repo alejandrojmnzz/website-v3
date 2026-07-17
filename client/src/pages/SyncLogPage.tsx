@@ -82,15 +82,35 @@ interface ParsedEntry {
   meta?: Record<string, unknown>;
 }
 
+function formatLogTime(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) {
+    return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  }
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function formatLogDate(date: Date): string {
+  const today = startOfDay(new Date());
+  const entryDay = startOfDay(date);
+  const dayDiff = Math.round((today - entryDay) / 86_400_000);
+  if (dayDiff === 0) return "today";
+  if (dayDiff === 1) return "yesterday";
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
 function toParseEntry(entry: SyncLogEntry): ParsedEntry {
   const date = new Date(entry.ts);
   const isValidDate = !isNaN(date.getTime());
-  const timeOnly = isValidDate
-    ? date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-    : entry.ts;
-  const dateOnly = isValidDate
-    ? date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })
-    : "";
+  const timeOnly = isValidDate ? formatLogTime(date) : entry.ts;
+  const dateOnly = isValidDate ? formatLogDate(date) : "";
   return { ts: entry.ts, timeOnly, dateOnly, category: entry.category, message: entry.message, person: entry.person, meta: entry.meta };
 }
 
@@ -779,7 +799,7 @@ export default function SyncLogPage() {
                         }`}
                         data-testid={`log-entry-${i}`}
                       >
-                        <span className="text-muted-foreground shrink-0 tabular-nums w-[68px]">
+                        <span className="text-muted-foreground shrink-0 tabular-nums w-[80px]">
                           {entry.timeOnly}
                         </span>
                         <span className="text-muted-foreground shrink-0 tabular-nums w-[80px]">

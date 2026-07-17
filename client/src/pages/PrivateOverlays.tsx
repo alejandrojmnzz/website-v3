@@ -104,13 +104,37 @@ function triggerDelayLabel(overlay: Overlay): string {
 
 function pageTargetingLabel(overlay: Overlay): string {
   const pages = overlay.targeting.pages;
-  if (pages === "all") return "All pages";
+  const exclude = overlay.targeting.exclude_pages ?? [];
+  const exclSuffix =
+    exclude.length === 0
+      ? ""
+      : exclude.length === 1
+        ? ` · Excl. ${exclude[0]}`
+        : ` · Excl. ${exclude.length}`;
+
+  if (pages === "all") return `All pages${exclSuffix}`;
   if (Array.isArray(pages)) {
-    if (pages.length === 0) return "No pages";
-    if (pages.length === 1) return pages[0];
-    return `${pages.length} pages`;
+    if (pages.length === 0) return `No pages${exclSuffix}`;
+    if (pages.length === 1) return `${pages[0]}${exclSuffix}`;
+    return `${pages.length} pages${exclSuffix}`;
   }
-  return "All pages";
+  return `All pages${exclSuffix}`;
+}
+
+function pageTargetingConflicts(include: string[], exclude: string[]): string[] {
+  if (include.length === 0 || exclude.length === 0) return [];
+  const excludeSet = new Set(exclude.map((e) => e.trim()).filter(Boolean));
+  const seen = new Set<string>();
+  const conflicts: string[] = [];
+  for (const entry of include) {
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    if (excludeSet.has(trimmed)) {
+      seen.add(trimmed);
+      conflicts.push(trimmed);
+    }
+  }
+  return conflicts;
 }
 
 function geoTargetingLabel(overlay: Overlay): string {
@@ -430,6 +454,10 @@ export default function PrivateOverlays() {
   const pagesIsAll = sheetDraft?.targeting.pages === "all";
   const pagesArray = Array.isArray(sheetDraft?.targeting.pages)
     ? sheetDraft!.targeting.pages
+    : [];
+  const excludePagesArray = sheetDraft?.targeting.exclude_pages ?? [];
+  const pageConflicts = !pagesIsAll
+    ? pageTargetingConflicts(pagesArray, excludePagesArray)
     : [];
   const isNewOverlay = sheetDraft ? !overlays.find((o) => o.id === sheetDraft.id) : false;
 
@@ -1026,20 +1054,50 @@ export default function PrivateOverlays() {
                   </div>
 
                   {!pagesIsAll && (
-                    <div className="space-y-1.5">
-                      <Label>Page paths</Label>
-                      <PageTargetingChips
-                        pages={pagesArray}
-                        onChange={(pages) =>
-                          patchOverlay({
-                            targeting: {
-                              ...sheetDraft.targeting,
-                              pages,
-                            },
-                          })
-                        }
-                        portalContainer={sheetContainer}
-                      />
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Include on</Label>
+                          <PageTargetingChips
+                            pages={pagesArray}
+                            onChange={(pages) =>
+                              patchOverlay({
+                                targeting: {
+                                  ...sheetDraft.targeting,
+                                  pages,
+                                },
+                              })
+                            }
+                            portalContainer={sheetContainer}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Exclude from</Label>
+                          <PageTargetingChips
+                            pages={excludePagesArray}
+                            onChange={(exclude_pages) =>
+                              patchOverlay({
+                                targeting: {
+                                  ...sheetDraft.targeting,
+                                  exclude_pages,
+                                },
+                              })
+                            }
+                            portalContainer={sheetContainer}
+                          />
+                        </div>
+                      </div>
+                      {pageConflicts.length > 0 && (
+                        <p
+                          className="text-xs text-amber-600 dark:text-amber-400"
+                          data-testid="text-page-targeting-conflict"
+                        >
+                          Conflict:{" "}
+                          {pageConflicts.map((c) => `"${c}"`).join(", ")}{" "}
+                          {pageConflicts.length === 1 ? "is" : "are"} in both Include and Exclude
+                          (Exclude wins)
+                        </p>
+                      )}
                     </div>
                   )}
 
