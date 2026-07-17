@@ -11,6 +11,7 @@ const LOGO_ID = "4geeks-devs-logo-1763162063433";
 interface FooterColumn {
   title: string;
   items: { label: string; href: string }[];
+  items_per_column?: number;
 }
 
 interface FooterSocial {
@@ -128,7 +129,12 @@ export default function Footer({ menuId = "main-footer" }: FooterProps) {
         <div className="flex flex-col md:flex md:flex-row md:justify-between gap-8 md:gap-4">
           {config.columns?.map((column) => {
             const itemCount = column.items?.length || 0;
-            const subCols = Math.ceil(itemCount / colDivisor);
+            const divisor =
+              typeof column.items_per_column === "number" &&
+              column.items_per_column >= 1
+                ? column.items_per_column
+                : colDivisor;
+            const subCols = Math.ceil(itemCount / divisor);
 
             return (
               <div

@@ -11,6 +11,7 @@ import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternW
 import { databaseManager, type DatabaseManager } from "./database";
 import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
+import { invalidateStaticListingCache } from "./static-listing-cache";
 import { child } from "./logger";
 const log = child({ module: "content-index" });
 
@@ -1181,6 +1182,7 @@ export class ContentIndex {
 
   refresh(): void {
     this.scan();
+    invalidateStaticListingCache(undefined, this.contentRoot);
   }
 
   getStats(): { total: number; byType: Record<string, number> } {
@@ -1581,6 +1583,7 @@ export class ContentIndex {
   invalidateCommonFields(contentType: string): void {
     const normalized = this.normalizeType(contentType);
     this.commonFieldsCache.delete(normalized);
+    invalidateStaticListingCache(normalized, this.contentRoot);
   }
 
   duplicateWithTypeChange(opts: {

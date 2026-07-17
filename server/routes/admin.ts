@@ -186,6 +186,7 @@ import {
   clearMarkdownCacheByUrl,
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
+import { queryEntries } from "../query-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
@@ -1167,8 +1168,13 @@ export function registerAdminRoutes(app: Express): void {
           result.destinationExists = false;
         } else if (resolved.fromDatabase) {
           try {
-            const items = await getDB(res).fetchMappedItems(
-              resolved.contentType,
+            const { items } = await queryEntries(
+              { from: { contentType: resolved.contentType } },
+              {
+                db: getDB(res),
+                contentIndex: ci,
+                contentRoot: getContentRoot(res),
+              },
             );
             const exists = items.some(
               (item) => String(item.slug) === resolved.slug,
@@ -2144,14 +2150,22 @@ export function registerAdminRoutes(app: Express): void {
 
     if (isDatabaseRoute && resolved) {
       try {
-        const posts = await getDB(res).fetchMappedItems(
-          resolved.contentType,
-        );
-        const localeKey = getLocaleKey(resolved.contentType) || "lang";
         const locale =
           resolved.patternLocale && resolved.patternLocale !== "default"
             ? resolved.patternLocale
             : getDefaultLocale();
+        const { items: posts } = await queryEntries(
+          {
+            from: { contentType: resolved.contentType },
+            locale,
+          },
+          {
+            db: getDB(res),
+            contentIndex: getCI(res),
+            contentRoot: getContentRoot(res),
+          },
+        );
+        const localeKey = getLocaleKey(resolved.contentType) || "lang";
         const post =
           posts.find(
             (p) => p.slug === resolved.slug && (p as any)[localeKey] === locale,
@@ -2181,7 +2195,17 @@ export function registerAdminRoutes(app: Express): void {
       try {
         const locale = blogUrlMatch[1];
         const slug = blogUrlMatch[2];
-        const posts = await getDB(res).fetchMappedItems("blog");
+        const { items: posts } = await queryEntries(
+          {
+            from: { contentType: "blog" },
+            locale,
+          },
+          {
+            db: getDB(res),
+            contentIndex: getCI(res),
+            contentRoot: getContentRoot(res),
+          },
+        );
         const localeKey = getLocaleKey("blog") || "lang";
         const post =
           posts.find((p) => p.slug === slug && (p as any)[localeKey] === locale) ||

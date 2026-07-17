@@ -1,5 +1,5 @@
 import { useParams, useLocation } from "wouter";
-import { ArrowLeft, Braces, Check, ChevronDown, ChevronRight, Code, ExternalLink, FileCode, GripVertical, Info, Link as LinkIcon, Megaphone, Menu, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Braces, Check, ChevronDown, ChevronRight, Code, ExternalLink, FileCode, GripVertical, Info, Link as LinkIcon, Megaphone, Menu, Pencil, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
@@ -124,6 +124,7 @@ interface FooterColumnItem {
 interface FooterColumn {
   title: string;
   items: FooterColumnItem[];
+  items_per_column?: number;
 }
 
 interface FooterSocial {
@@ -599,6 +600,96 @@ function SortableFooterItem({
   );
 }
 
+function EditableFooterColumnTitle({
+  title,
+  itemsPerColumn,
+  onSave,
+  testId,
+}: {
+  title: string;
+  itemsPerColumn?: number;
+  onSave: (title: string, itemsPerColumn: number | undefined) => void;
+  testId: string;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempTitle, setTempTitle] = useState(title);
+  const [tempItemsPerColumn, setTempItemsPerColumn] = useState(
+    itemsPerColumn != null ? String(itemsPerColumn) : "",
+  );
+
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      setTempTitle(title);
+      setTempItemsPerColumn(itemsPerColumn != null ? String(itemsPerColumn) : "");
+    }
+    setIsEditing(open);
+  };
+
+  const handleSave = () => {
+    const parsed = tempItemsPerColumn.trim() === "" ? NaN : Number(tempItemsPerColumn);
+    const nextItemsPerColumn =
+      Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : undefined;
+    onSave(tempTitle, nextItemsPerColumn);
+    setIsEditing(false);
+  };
+
+  return (
+    <Popover open={isEditing} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <h4
+          className="group relative cursor-pointer inline-flex items-center gap-1 font-semibold text-foreground flex-1"
+          onClick={() => handleOpenChange(true)}
+          data-testid={testId}
+        >
+          {title || <span className="text-muted-foreground italic">Column title</span>}
+          <Pencil className="h-3 w-3 text-primary opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+        </h4>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start">
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              value={tempTitle}
+              onChange={(e) => setTempTitle(e.target.value)}
+              placeholder="Column title"
+              className="h-8 text-sm"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") setIsEditing(false);
+              }}
+              data-testid={`${testId}-input`}
+            />
+            <Button size="sm" className="h-8" onClick={handleSave} data-testid={`${testId}-save`}>
+              Save
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor={`${testId}-items-per-column`} className="text-xs text-muted-foreground whitespace-nowrap">
+              Items per column
+            </Label>
+            <Input
+              id={`${testId}-items-per-column`}
+              type="number"
+              min={1}
+              step={1}
+              value={tempItemsPerColumn}
+              onChange={(e) => setTempItemsPerColumn(e.target.value)}
+              placeholder="Default"
+              className="h-8 text-sm w-20"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") setIsEditing(false);
+              }}
+              data-testid={`${testId}-items-per-column`}
+            />
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function SortableFooterColumn({
   id,
   column,
@@ -648,12 +739,15 @@ function SortableFooterColumn({
         >
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </button>
-        <EditableText
-          value={column.title}
-          onChange={(title) => onUpdateColumn(colIndex, { title })}
-          placeholder="Column title"
-          className="font-semibold text-foreground block flex-1"
-          as="h4"
+        <EditableFooterColumnTitle
+          title={column.title}
+          itemsPerColumn={column.items_per_column}
+          onSave={(nextTitle, nextItemsPerColumn) =>
+            onUpdateColumn(colIndex, {
+              title: nextTitle,
+              items_per_column: nextItemsPerColumn,
+            })
+          }
           testId={`footer-column-${colIndex}-title`}
         />
         <button
@@ -1264,7 +1358,22 @@ export default function MenuEditor() {
   const updateFooterColumn = (colIndex: number, updates: Partial<FooterColumn>) => {
     if (!footerData) return;
     const newColumns = [...footerData.columns];
-    newColumns[colIndex] = { ...newColumns[colIndex], ...updates };
+    const current = newColumns[colIndex];
+    const next: FooterColumn = {
+      title: updates.title ?? current.title,
+      items: current.items,
+    };
+    if ("items_per_column" in updates) {
+      if (
+        typeof updates.items_per_column === "number" &&
+        updates.items_per_column >= 1
+      ) {
+        next.items_per_column = updates.items_per_column;
+      }
+    } else if (typeof current.items_per_column === "number") {
+      next.items_per_column = current.items_per_column;
+    }
+    newColumns[colIndex] = next;
     updateFooter({ columns: newColumns });
   };
 

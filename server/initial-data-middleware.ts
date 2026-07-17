@@ -5,6 +5,7 @@ import * as yaml from "js-yaml";
 import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
+import { queryEntries } from "./query-entries";
 import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig } from "./content-types";
 import {
   applyComponentSectionDefaults,
@@ -54,26 +55,39 @@ async function fetchBlogListingPage(
   category: string,
   dbm: DatabaseManager = databaseManager,
   contentRoot?: string,
+  ci: ContentIndex = contentIndex,
 ): Promise<Record<string, unknown> | null> {
   try {
-    const posts = await dbm.fetchMappedItems("blog");
-    const localeKey = getLocaleKey("blog", contentRoot) || "lang";
-    const normalizedLocale = normalizeLocale(locale);
-    let filtered = posts.filter((p) => (p as any)[localeKey] === normalizedLocale);
-    if (category && category !== "all") {
-      filtered = filtered.filter((p: any) => (p.category?.slug || "") === category);
-    }
+    const filters =
+      category && category !== "all"
+        ? [{ field: "category", value: category }]
+        : undefined;
+    const { items: posts } = await queryEntries(
+      {
+        from: { contentType: "blog" },
+        locale: normalizeLocale(locale),
+        filters,
+        sort: "-published_at",
+      },
+      { db: dbm, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
+    );
+    const { items: allLocalePosts } = await queryEntries(
+      {
+        from: { contentType: "blog" },
+        locale: normalizeLocale(locale),
+      },
+      { db: dbm, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
+    );
     const categories = Array.from(
       new Set(
-        posts
-          .filter((p) => (p as any)[localeKey] === normalizedLocale)
+        allLocalePosts
           .map((p: any) => p.category?.slug || "")
           .filter(Boolean),
       ),
     ).sort();
     const limit = 12;
-    const total = filtered.length;
-    const stripped = filtered.map((p: any) => {
+    const total = posts.length;
+    const stripped = posts.map((p: any) => {
       const { content, readme, ...rest } = p;
       return rest;
     });
@@ -142,7 +156,7 @@ export async function resolvePageQuery(
         data.sections = (await resolveDynamicEntries(
           data.sections,
           locale,
-          { db: dbm, contentRoot: ci.contentRoot },
+          { db: dbm, contentRoot: ci.contentRoot, contentIndex: ci },
         )) as any;
         applyComponentImageSizes(data.sections);
       }
@@ -213,7 +227,7 @@ export async function resolvePageQuery(
         data.sections = (await resolveDynamicEntries(
           data.sections,
           locale,
-          { db: dbm, contentRoot: ci.contentRoot },
+          { db: dbm, contentRoot: ci.contentRoot, contentIndex: ci },
         )) as any;
         applyComponentImageSizes(data.sections);
       }

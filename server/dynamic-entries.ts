@@ -1,20 +1,16 @@
 import { databaseManager, type DatabaseManager } from "./database";
-import {
-  getLocaleKey,
-  getLocaleDefault,
-  getLocaleSource,
-  resolveContentTypeUrl,
-} from "./content-types";
+import { contentIndex, type ContentIndex } from "./content-index";
+import { resolveContentTypeUrl } from "./content-types";
+import { queryEntries, type QueryFilter } from "./query-entries";
+import { child } from "./logger";
+
+const log = child({ module: "dynamic-entries" });
 
 export interface ResolveDynamicEntriesOptions {
   db?: DatabaseManager;
   contentRoot?: string;
+  contentIndex?: ContentIndex;
 }
-import { applyTransformIfNeeded } from "./transform";
-import { child } from "./logger";
-const log = child({ module: "dynamic-entries" });
-
-
 
 const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}/g;
 const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
@@ -57,7 +53,7 @@ function resolveTemplateValue(template: unknown, item: Record<string, unknown>):
   }
 
   if (Array.isArray(template)) {
-    return template.map(t => resolveTemplateValue(t, item));
+    return template.map((t) => resolveTemplateValue(t, item));
   }
 
   if (template !== null && typeof template === "object") {
@@ -69,27 +65,6 @@ function resolveTemplateValue(template: unknown, item: Record<string, unknown>):
   }
 
   return template;
-}
-
-function sortItems(items: Record<string, unknown>[], sortField: string): Record<string, unknown>[] {
-  const desc = sortField.startsWith("-");
-  const field = desc ? sortField.slice(1) : sortField;
-
-  return [...items].sort((a, b) => {
-    const aVal = a[field];
-    const bVal = b[field];
-    if (aVal == null && bVal == null) return 0;
-    if (aVal == null) return 1;
-    if (bVal == null) return -1;
-
-    let cmp = 0;
-    if (typeof aVal === "number" && typeof bVal === "number") {
-      cmp = aVal - bVal;
-    } else {
-      cmp = String(aVal).localeCompare(String(bVal));
-    }
-    return desc ? -cmp : cmp;
-  });
 }
 
 interface PermanentFilter {
@@ -131,6 +106,7 @@ export async function resolveDynamicEntries(
 
   const db = options.db ?? databaseManager;
   const contentRoot = options.contentRoot;
+  const ci = options.contentIndex ?? contentIndex;
 
   const resolved = [];
   for (const section of sections) {
@@ -140,8 +116,15 @@ export async function resolveDynamicEntries(
     }
 
     const sec = section as Record<string, unknown>;
-    const dynamicEntries = sec.dynamic_entries as (DynamicEntriesConfig & { item_template?: Record<string, unknown>; hardcoded_entries?: unknown[] }) | undefined;
-    const itemTemplate = (dynamicEntries?.item_template || sec.item_template) as Record<string, unknown> | undefined;
+    const dynamicEntries = sec.dynamic_entries as
+      | (DynamicEntriesConfig & {
+          item_template?: Record<string, unknown>;
+          hardcoded_entries?: unknown[];
+        })
+      | undefined;
+    const itemTemplate = (dynamicEntries?.item_template || sec.item_template) as
+      | Record<string, unknown>
+      | undefined;
 
     if (!dynamicEntries || (!dynamicEntries.content_type && !dynamicEntries.database)) {
       resolved.push(section);
@@ -150,134 +133,71 @@ export async function resolveDynamicEntries(
 
     try {
       const contentType = dynamicEntries.content_type || "";
-      let items: Record<string, unknown>[];
+      const hardcodedEntries = (dynamicEntries?.hardcoded_entries || sec.hardcoded_entries) as
+        | unknown[]
+        | undefined;
+      const hardcodedCount = Array.isArray(hardcodedEntries) ? hardcodedEntries.length : 0;
+      const hasIgnored =
+        Array.isArray(dynamicEntries.ignored_entries) &&
+        dynamicEntries.ignored_entries.length > 0;
 
-      if (contentType) {
-        items = await db.fetchMappedItems(contentType);
-      } else if (dynamicEntries.database) {
-        const rawItems = await db.fetchItems(dynamicEntries.database);
-        items = rawItems.items as Record<string, unknown>[];
-        try {
-          const dbConfig = db.get(dynamicEntries.database);
-          if (dbConfig.filter_by_locale !== false && dbConfig.field_mapping?.locale) {
-            const localeField = dbConfig.field_mapping.locale;
-            items = items.filter(item => String(item[localeField] ?? "") === locale);
-          }
-        } catch {
-          // DB not registered or no config — skip locale filter
-        }
-      } else {
-        items = [];
-      }
+      const filters: QueryFilter[] | undefined = dynamicEntries.permanent_filters?.map((pf) => ({
+        field: pf.item_property_slug,
+        value: pf.value,
+      }));
 
-      if (contentType) {
-        const localeKey = getLocaleKey(contentType, contentRoot) || "lang";
-        const localeDefault = getLocaleDefault(contentType, contentRoot);
-        const localeSource = getLocaleSource(contentType, contentRoot);
-        const normalizedLocale = localeSource ? applyTransformIfNeeded(localeSource, locale) : locale;
-        items = items.filter(item => {
-          const rawItemLocale = String((item as any)[localeKey] || localeDefault);
-          const itemLocale = localeSource ? applyTransformIfNeeded(localeSource, rawItemLocale) : rawItemLocale;
-          return itemLocale === normalizedLocale;
-        });
-      }
+      // When ignored_entries exist, fetch without limit so FAQ ignores apply before slicing.
+      const queryLimit =
+        !hasIgnored && dynamicEntries.limit && dynamicEntries.limit > 0
+          ? Math.max(0, dynamicEntries.limit - hardcodedCount)
+          : undefined;
 
-      const permanentFilters = dynamicEntries.permanent_filters;
-      if (permanentFilters && Array.isArray(permanentFilters) && permanentFilters.length > 0) {
-        for (const pf of permanentFilters) {
-          items = items.filter(item => {
-            const itemVal = item[pf.item_property_slug];
-            const values = Array.isArray(pf.value) ? pf.value : [pf.value];
-            return values.some((v: unknown) => {
-              if (itemVal && typeof itemVal === "object" && "slug" in (itemVal as any)) {
-                return String((itemVal as any).slug) === String(v);
-              }
-              if (Array.isArray(itemVal)) {
-                return itemVal.map(String).includes(String(v));
-              }
-              return String(itemVal) === String(v);
-            });
-          });
-        }
-      }
+      const from = contentType
+        ? ({ contentType } as const)
+        : ({ database: dynamicEntries.database! } as const);
 
-      if (dynamicEntries.ignored_entries && Array.isArray(dynamicEntries.ignored_entries) && dynamicEntries.ignored_entries.length > 0) {
-        const ignoredSet = new Set(dynamicEntries.ignored_entries.map((k: string) => k.toLowerCase().trim()));
-        items = items.filter(item => {
-          const q = String((item as Record<string, unknown>).question ?? "");
+      const result = await queryEntries(
+        {
+          from,
+          locale,
+          filters,
+          sort: dynamicEntries.sort,
+          limit: queryLimit,
+        },
+        { db, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
+      );
+
+      let items = result.items;
+
+      if (hasIgnored) {
+        const ignoredSet = new Set(
+          dynamicEntries.ignored_entries!.map((k: string) => k.toLowerCase().trim()),
+        );
+        items = items.filter((item) => {
+          const q = String(item.question ?? "");
           return !ignoredSet.has(faqItemKey(q));
         });
-      }
-
-      // Match-count sort: when a permanent_filter has multiple values, items that
-      // match more of those values float to the top. If an explicit sort is also
-      // configured it becomes the tiebreaker within each match-count group.
-      // If no multi-value filter exists, fall back to the explicit sort alone.
-      const multiValueFilter = permanentFilters && Array.isArray(permanentFilters)
-        ? permanentFilters.find(
-            (pf: PermanentFilter) => Array.isArray(pf.value) && (pf.value as unknown[]).length > 1
-          )
-        : null;
-
-      if (multiValueFilter) {
-        const filterValues = (multiValueFilter.value as unknown[]).map(String);
-        const slug = multiValueFilter.item_property_slug;
-        const explicitSortDesc = dynamicEntries.sort?.startsWith("-") ?? false;
-        const explicitSortField = dynamicEntries.sort
-          ? (explicitSortDesc ? dynamicEntries.sort.slice(1) : dynamicEntries.sort)
-          : null;
-
-        items = [...items].sort((a, b) => {
-          const aVal = a[slug];
-          const bVal = b[slug];
-          const aArr = Array.isArray(aVal) ? aVal.map(String) : [String(aVal ?? "")];
-          const bArr = Array.isArray(bVal) ? bVal.map(String) : [String(bVal ?? "")];
-          const aCount = filterValues.filter(v => aArr.includes(v)).length;
-          const bCount = filterValues.filter(v => bArr.includes(v)).length;
-          if (bCount !== aCount) return bCount - aCount;
-
-          // Tiebreaker: explicit sort field, or priority as default
-          const tieField = explicitSortField ?? "priority";
-          const aT = a[tieField];
-          const bT = b[tieField];
-          if (aT == null && bT == null) return 0;
-          if (aT == null) return 1;
-          if (bT == null) return -1;
-          let cmp = 0;
-          if (typeof aT === "number" && typeof bT === "number") {
-            cmp = aT - bT;
-          } else {
-            cmp = String(aT).localeCompare(String(bT));
-          }
-          return explicitSortField && explicitSortDesc ? -cmp : cmp;
-        });
-      } else if (dynamicEntries.sort) {
-        items = sortItems(items, dynamicEntries.sort);
-      }
-
-      const hardcodedEntries = (dynamicEntries?.hardcoded_entries || sec.hardcoded_entries) as unknown[] | undefined;
-      const hardcodedCount = Array.isArray(hardcodedEntries) ? hardcodedEntries.length : 0;
-
-      if (dynamicEntries.limit && dynamicEntries.limit > 0) {
-        const remainingSlots = Math.max(0, dynamicEntries.limit - hardcodedCount);
-        items = items.slice(0, remainingSlots);
+        if (dynamicEntries.limit && dynamicEntries.limit > 0) {
+          const remainingSlots = Math.max(0, dynamicEntries.limit - hardcodedCount);
+          items = items.slice(0, remainingSlots);
+        }
       }
 
       let resolvedItems: unknown[];
       if (itemTemplate) {
-        resolvedItems = items.map(item => {
+        resolvedItems = items.map((item) => {
           const enriched = { ...item };
-          if (contentType) {
+          if (contentType && !enriched._resolved_url) {
             const url = resolveContentTypeUrl(contentType, item, locale, contentRoot);
             if (url) enriched._resolved_url = url;
           }
-          return resolveTemplateValue(itemTemplate, enriched as Record<string, unknown>);
+          return resolveTemplateValue(itemTemplate, enriched);
         });
       } else {
-        resolvedItems = items.map(item => {
-          if (contentType) {
+        resolvedItems = items.map((item) => {
+          if (contentType && !(item as { _resolved_url?: string })._resolved_url) {
             const url = resolveContentTypeUrl(contentType, item, locale, contentRoot);
-            if (url) (item as any)._resolved_url = url;
+            if (url) (item as Record<string, unknown>)._resolved_url = url;
           }
           return item;
         });

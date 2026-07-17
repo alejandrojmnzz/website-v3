@@ -1440,16 +1440,33 @@ export function registerSettingsRoutes(app: Express): void {
 
       for (const masterCol of mf.columns) {
         const prevIndex = prevColTitleToIndex.get(masterCol.title);
+        const itemsPerColumn =
+          typeof masterCol.items_per_column === "number" &&
+          masterCol.items_per_column >= 1
+            ? masterCol.items_per_column
+            : undefined;
 
         if (prevIndex === undefined) {
-          result.columns.push({
+          const newCol: any = {
             title: `[TRANSLATE] ${masterCol.title}`,
             items: (masterCol.items || []).map((item: any) => ({
               label: `[TRANSLATE] ${item.label}`,
               href: item.href,
             })),
-          });
+          };
+          if (itemsPerColumn !== undefined) {
+            newCol.items_per_column = itemsPerColumn;
+          }
+          result.columns.push(newCol);
         } else {
+          if (result.columns[prevIndex]) {
+            if (itemsPerColumn !== undefined) {
+              result.columns[prevIndex].items_per_column = itemsPerColumn;
+            } else {
+              delete result.columns[prevIndex].items_per_column;
+            }
+          }
+
           const prevItems = prevItemsByIndex.get(prevIndex) || new Set();
           const newItems = (masterCol.items || []).filter(
             (item: any) => !prevItems.has(item.label),

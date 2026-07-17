@@ -175,6 +175,8 @@ import {
   clearMarkdownCacheByUrl,
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
+import { queryEntries, type QueryFilter } from "../query-entries";
+import { invalidateStaticListingCache } from "../static-listing-cache";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
@@ -237,7 +239,11 @@ function ctRoot(res: Response): string {
 }
 
 function dynamicEntriesOptions(res: Response) {
-  return { db: getDB(res), contentRoot: getContentRoot(res) };
+  return {
+    db: getDB(res),
+    contentRoot: getContentRoot(res),
+    contentIndex: getCI(res),
+  };
 }
 
 export function registerContentRoutes(app: Express): void {
@@ -690,33 +696,57 @@ export function registerContentRoutes(app: Express): void {
         parseInt(req.query.limit as string, 10) || 12,
         100,
       );
-      const posts = await getDB(res).fetchMappedItems("blog");
-      const localeKey = getLocaleKey("blog", ctRoot(res)) || "lang";
-      let filtered = locale
-        ? posts.filter((p) => (p as any)[localeKey] === normalizeLocale(locale))
-        : posts;
-
+      const filters: QueryFilter[] = [];
       if (category) {
-        filtered = filtered.filter((p: any) => {
-          return (p.category?.slug || "") === category;
-        });
+        filters.push({ field: "category", value: category });
       }
+      const { items: posts } = await queryEntries(
+        {
+          from: { contentType: "blog" },
+          locale: locale ? normalizeLocale(locale) : undefined,
+          filters: filters.length ? filters : undefined,
+          sort: "-published_at",
+        },
+        {
+          db: getDB(res),
+          contentIndex: getCI(res),
+          contentRoot: getContentRoot(res),
+        },
+      );
 
       const categories = Array.from(
         new Set(
-          (locale
-            ? posts.filter(
-                (p) => (p as any)[localeKey] === normalizeLocale(locale),
-              )
-            : posts
-          )
+          posts
             .map((p: any) => p.category?.slug || "")
             .filter(Boolean),
         ),
       ).sort();
 
-      const total = filtered.length;
-      const stripped = filtered.map((p: any) => {
+      // Re-query without category filter for category facet list when filtered
+      let categoryList = categories;
+      if (category) {
+        const { items: allLocalePosts } = await queryEntries(
+          {
+            from: { contentType: "blog" },
+            locale: locale ? normalizeLocale(locale) : undefined,
+          },
+          {
+            db: getDB(res),
+            contentIndex: getCI(res),
+            contentRoot: getContentRoot(res),
+          },
+        );
+        categoryList = Array.from(
+          new Set(
+            allLocalePosts
+              .map((p: any) => p.category?.slug || "")
+              .filter(Boolean),
+          ),
+        ).sort();
+      }
+
+      const total = posts.length;
+      const stripped = posts.map((p: any) => {
         const { content, readme, ...rest } = p;
         return rest;
       });
@@ -732,14 +762,14 @@ export function registerContentRoutes(app: Express): void {
           totalPages,
           hasNext: page < totalPages,
           hasPrev: page > 1,
-          categories,
+          categories: categoryList,
           results: paginated,
         });
       } else {
         res.json({
           count: total,
           total,
-          categories,
+          categories: categoryList,
           results: stripped,
         });
       }
@@ -753,7 +783,17 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { slug } = req.params;
       const locale = req.query.locale as string | undefined;
-      const posts = await getDB(res).fetchMappedItems("blog");
+      const { items: posts } = await queryEntries(
+        {
+          from: { contentType: "blog" },
+          locale: locale ? normalizeLocale(locale) : undefined,
+        },
+        {
+          db: getDB(res),
+          contentIndex: getCI(res),
+          contentRoot: getContentRoot(res),
+        },
+      );
       const localeKey = getLocaleKey("blog", ctRoot(res)) || "lang";
       const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
       const post = normalizedLocale
@@ -772,6 +812,15 @@ export function registerContentRoutes(app: Express): void {
       if (!content && (post as any).readme_url) {
         content = await fetchMarkdownContent((post as any).readme_url);
       }
+      // Static posts keep markdown in the locale YAML; load if omitted from listing projection
+      if (!content) {
+        const { data } = getCI(res).loadMergedContent(
+          "blog",
+          slug,
+          normalizedLocale || "en",
+        );
+        if (typeof data?.content === "string") content = data.content;
+      }
 
       const blogLayout = resolveLayout("blog", post as unknown as Record<string, unknown>, getContentRoot(res));
       res.json({ ...post, content, layout: blogLayout });
@@ -784,7 +833,8 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/blog/cache-status", (_req, res) => {
     const dbName = getDatabaseName("blog", ctRoot(res));
     if (!dbName) {
-      res.json({ exists: false, age_hours: null, post_count: null });
+      // Static content type — report projection cache via a lightweight query
+      res.json({ exists: true, age_hours: 0, post_count: null, source: "static" });
       return;
     }
     const info = getDB(res).getCacheInfo(dbName);
@@ -804,12 +854,20 @@ export function registerContentRoutes(app: Express): void {
   app.delete("/api/blog/cache/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
-      const posts = await getDB(res).fetchMappedItems("blog");
+      const { items: posts } = await queryEntries(
+        { from: { contentType: "blog" } },
+        {
+          db: getDB(res),
+          contentIndex: getCI(res),
+          contentRoot: getContentRoot(res),
+        },
+      );
       const post = posts.find((p) => p.slug === slug);
       if ((post as any)?.readme_url) {
         clearMarkdownCacheByUrl((post as any).readme_url);
       }
       clearMarkdownCache(slug);
+      invalidateStaticListingCache("blog", getContentRoot(res));
       res.json({ success: true, message: `Cache cleared for "${slug}"` });
     } catch (error) {
       log.error({ err: error }, "[Blog] Error clearing post cache:");
@@ -822,6 +880,7 @@ export function registerContentRoutes(app: Express): void {
     if (dbName && getDB(res).exists(dbName)) {
       await getDB(res).fetchItems(dbName, true).catch(() => {});
     }
+    invalidateStaticListingCache("blog", getContentRoot(res));
     clearMarkdownCache();
     res.json({
       success: true,
@@ -1525,142 +1584,89 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type } = req.params;
       const config = getContentTypeConfig(type, ctRoot(res));
-      if (!config?.database?.slug) {
-        res
-          .status(400)
-          .json({ error: `Content type "${type}" has no database configured` });
-        return;
-      }
-      const dbName = config.database.slug;
-      if (!getDB(res).exists(dbName)) {
-        res.status(404).json({ error: `Database "${dbName}" not found` });
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
 
       const locale = req.query.locale as string | undefined;
+      const sort = typeof req.query.sort === "string" ? req.query.sort : undefined;
+      const limitRaw = req.query.limit
+        ? parseInt(String(req.query.limit), 10)
+        : undefined;
+      const limit =
+        limitRaw !== undefined && !Number.isNaN(limitRaw) && limitRaw > 0
+          ? limitRaw
+          : undefined;
 
-      const result = await getDB(res).fetchItems(dbName);
-      let items = result.items as Record<string, unknown>[];
-
-      const mapping = config.field_mapping;
-      const regularMapping: Record<string, string> = {};
-      const rawFieldRefs: Record<string, string> = {};
-      if (mapping) {
-        for (const [key, value] of Object.entries(mapping)) {
-          if (key.startsWith("_")) continue;
-          const sourcePath = typeof value === "object" ? value.source : value;
-          if (sourcePath.startsWith("raw.")) {
-            rawFieldRefs[key] = sourcePath.slice(4);
-          } else if (sourcePath.startsWith("db.")) {
-            regularMapping[key] = sourcePath.slice(3);
-          } else {
-            regularMapping[key] = sourcePath;
-          }
-        }
-      }
-
-      let rawItems: Record<string, unknown>[] | null = null;
-      if (Object.keys(rawFieldRefs).length > 0) {
-        rawItems = getDB(res).getRawItems(dbName);
-      }
-
-      const localeFieldKey = getLocaleKey(type, ctRoot(res));
-      const localeDefault = getLocaleDefault(type, ctRoot(res));
-
-      if (
-        Object.keys(regularMapping).length > 0 ||
-        Object.keys(rawFieldRefs).length > 0
-      ) {
-        items = items.map((item, idx) => {
-          const mapped: Record<string, unknown> = { ...item };
-          const itemSlug = String(item.slug ?? item.id ?? idx);
-          for (const [targetField, sourcePath] of Object.entries(
-            regularMapping,
-          )) {
-            const value = resolveFieldValue(sourcePath, item, targetField, {
-              contentType: type,
-              slug: itemSlug,
-              fieldPath: targetField,
-            });
-            if (value !== undefined) mapped[targetField] = value;
-          }
-          if (rawItems && rawItems[idx]) {
-            for (const [targetField, sourcePath] of Object.entries(
-              rawFieldRefs,
-            )) {
-              const value = resolveFieldValue(
-                sourcePath,
-                rawItems[idx],
-                targetField,
-                { contentType: type, slug: itemSlug, fieldPath: targetField },
-              );
-              if (value !== undefined) mapped[targetField] = value;
-            }
-          }
-          return mapped;
-        });
-      }
-
-      const localeSource = getLocaleSource(type);
-      if (localeFieldKey) {
-        items = items.map((item) => {
-          const locVal = String(item[localeFieldKey] || "");
-          const normalized = localeSource
-            ? applyTransformIfNeeded(localeSource, locVal)
-            : locVal;
-          return { ...item, [localeFieldKey]: normalized || localeDefault };
-        });
-      }
-
-      if (locale && localeFieldKey) {
-        const normalizedLocale = normalizeLocale(locale);
-        items = items.filter((item) => {
-          const val = String(item[localeFieldKey] || localeDefault);
-          return val === normalizedLocale;
-        });
-      }
-
-      const indexes = getIndexes(type);
+      const filters: QueryFilter[] = [];
+      const indexes = getIndexes(type, ctRoot(res));
       for (const idx of indexes) {
         const filterVal = req.query[idx] as string | undefined;
         if (filterVal !== undefined && filterVal !== "") {
-          items = items.filter((item) => {
-            const val = String(item[idx] || "").toLowerCase();
-            return val === filterVal.toLowerCase();
-          });
+          filters.push({ field: idx, value: filterVal });
         }
       }
+
+      const { items, meta } = await queryEntries(
+        {
+          from: { contentType: type },
+          locale: locale ? normalizeLocale(locale) : undefined,
+          filters: filters.length ? filters : undefined,
+          sort,
+          limit,
+        },
+        {
+          db: getDB(res),
+          contentIndex: getCI(res),
+          contentRoot: getContentRoot(res),
+        },
+      );
 
       const stripped = items.map((item) => {
         const { content, readme, ...rest } = item as Record<string, unknown>;
         return rest;
       });
 
-      let facets = result.facets;
-      if (!facets) {
-        const dbConfig = getDB(res).get(dbName);
-        if (dbConfig.editor) {
-          const computed: Record<string, string[]> = {};
-          for (const [field, hint] of Object.entries(dbConfig.editor)) {
-            if (hint.type === "tags" || hint.type === "select") {
-              const valueSet = new Set<string>();
-              for (const item of result.items) {
-                const v = item[field];
-                if (Array.isArray(v)) {
-                  for (const el of v) { if (el != null && el !== "") valueSet.add(String(el)); }
-                } else if (v != null && v !== "") {
-                  valueSet.add(String(v));
+      let facets: Record<string, string[]> | undefined;
+      if (config.database?.slug && getDB(res).exists(config.database.slug)) {
+        const dbResult = await getDB(res).fetchItems(config.database.slug);
+        facets = dbResult.facets;
+        if (!facets) {
+          const dbConfig = getDB(res).get(config.database.slug);
+          if (dbConfig.editor) {
+            const computed: Record<string, string[]> = {};
+            for (const [field, hint] of Object.entries(dbConfig.editor)) {
+              if (hint.type === "tags" || hint.type === "select") {
+                const valueSet = new Set<string>();
+                for (const item of dbResult.items) {
+                  const v = item[field];
+                  if (Array.isArray(v)) {
+                    for (const el of v) {
+                      if (el != null && el !== "") valueSet.add(String(el));
+                    }
+                  } else if (v != null && v !== "") {
+                    valueSet.add(String(v));
+                  }
+                }
+                if (valueSet.size > 0) {
+                  computed[field] = [...valueSet].sort((a, b) =>
+                    a.localeCompare(b),
+                  );
                 }
               }
-              if (valueSet.size > 0) {
-                computed[field] = [...valueSet].sort((a, b) => a.localeCompare(b));
-              }
             }
+            if (Object.keys(computed).length > 0) facets = computed;
           }
-          if (Object.keys(computed).length > 0) facets = computed;
         }
       }
-      res.json({ count: stripped.length, results: stripped, ...(facets ? { facets } : {}) });
+
+      res.json({
+        count: stripped.length,
+        results: stripped,
+        source: meta.source,
+        ...(facets ? { facets } : {}),
+      });
     } catch (err) {
       log.error(
         `[ContentTypes] Error fetching items for ${req.params.type}:`,
