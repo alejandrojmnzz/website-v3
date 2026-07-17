@@ -6,7 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
 import { queryEntries } from "./query-entries";
-import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig } from "./content-types";
+import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getFieldMapping } from "./content-types";
 import {
   applyComponentSectionDefaults,
   applyComponentImageSizes,
@@ -21,6 +21,7 @@ import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./set
 import { getApiPath } from "../shared/api-paths";
 import { loadDatabaseSinglePage } from "./database-single-loader";
 import { resolveSingleVars } from "./single-resolver";
+import { resolveFieldValue } from "./transform";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyNonBlockingCss, applyEntryModulePreload } from "./utils/html-transforms";
 
@@ -239,6 +240,23 @@ export async function resolvePageQuery(
       const layout = resolveLayout(contentType, rawContent.data || {}, ci.contentRoot);
       data.layout = layout;
       data.locale = locale;
+
+      // Match /api/content-pages: attach singleEntry and resolve {{ single.* }} so
+      // SSR/hydration (e.g. blog article body) is not left on pipe fallbacks.
+      const mapping = getFieldMapping(contentType, ci.contentRoot);
+      if (mapping && Object.keys(mapping).length > 0) {
+        const singleEntry: Record<string, unknown> = {};
+        for (const [key, source] of Object.entries(mapping)) {
+          if (typeof source !== "string") continue;
+          const value = resolveFieldValue(source, data as Record<string, unknown>);
+          if (value !== undefined) singleEntry[key] = value;
+        }
+        if (Object.keys(singleEntry).length > 0) {
+          data.singleEntry = singleEntry;
+          const resolved = resolveSingleVars(data, singleEntry) as Record<string, unknown>;
+          Object.assign(data, resolved);
+        }
+      }
 
       return {
         queryKey: [apiPath, slug, isNonLocalized ? "auto" : locale],

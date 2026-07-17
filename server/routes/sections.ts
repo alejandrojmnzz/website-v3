@@ -164,7 +164,7 @@ import {
   clearMarkdownCacheByUrl,
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
-import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
+import { loadMergedSinglePage, mergeSingleTemplate } from "../database-single-loader";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -258,8 +258,8 @@ export function registerSectionsRoutes(app: Express): void {
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
-      // Load the current merged page to get the section
-      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+      // Load the current merged page to get the section (DB or static single_template)
+      const mergedPage = await loadMergedSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       if (!mergedPage) {
         res.status(404).json({ error: "Entry not found" });
         return;
@@ -570,7 +570,7 @@ export function registerSectionsRoutes(app: Express): void {
           // Insert before all sections
           newSection._insertAfterSectionId = null;
         } else {
-          const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+          const mergedPage = await loadMergedSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
           const mergedSections = Array.isArray(mergedPage?.sections)
             ? (mergedPage!.sections as Record<string, unknown>[])
             : [];
@@ -626,7 +626,7 @@ export function registerSectionsRoutes(app: Express): void {
       }
 
       // Return updated merged section list so the client can update without a full page reload
-      const updatedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+      const updatedPage = await loadMergedSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       res.json({ success: true, sections: updatedPage?.sections ?? [] });
     } catch (error) {
       log.error({ err: error }, "[per-entry-section-add] Error:");
@@ -798,8 +798,8 @@ export function registerSectionsRoutes(app: Express): void {
       const entryDir = path.join(templateDir, slug);
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
-      // Load the current merged page to get the section and its id
-      const mergedPage = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+      // Load the current merged page to get the section and its id (DB or static single_template)
+      const mergedPage = await loadMergedSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
       if (!mergedPage) {
         res.status(404).json({ error: "Entry not found" });
         return;

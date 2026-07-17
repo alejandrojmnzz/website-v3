@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BarChart3, Brain, Building, ChevronRight, Code, GraduationCap, GripVertical, Link, Medal, Pencil, Plus, Shield, Trash2, X } from "lucide-react";
+import { BarChart3, Brain, Briefcase, Building, ChevronRight, Code, GraduationCap, GripVertical, Link, Medal, Pencil, Plus, Puzzle, Settings, Shield, Trash2, Wifi, X } from "lucide-react";
 import { RichTextArea } from "@/components/editing/RichTextArea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,22 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SitemapSearch } from "./SitemapSearch";
+import {
+  cardsGridColsClass,
+  cardsPanelNominalWidthPx,
+  resolveCardsLayout,
+  type CardsLayoutConfig,
+  type CardsLayoutMode,
+  CARDS_COLUMN_WIDTH_PX,
+} from "./cardsLayout";
 import {
   DndContext,
   closestCenter,
@@ -36,6 +51,9 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   medal: Medal,
   "graduation-cap": GraduationCap,
   building: Building,
+  briefcase: Briefcase,
+  puzzle: Puzzle,
+  wifi: Wifi,
 };
 
 const iconOptions = [
@@ -46,6 +64,9 @@ const iconOptions = [
   { value: "medal", label: "Medal" },
   { value: "graduation-cap", label: "Graduation Cap" },
   { value: "building", label: "Building" },
+  { value: "briefcase", label: "Briefcase" },
+  { value: "puzzle", label: "Puzzle" },
+  { value: "wifi", label: "Wifi" },
 ];
 
 interface EditableTextProps {
@@ -277,6 +298,7 @@ interface CardsDropdownData {
   type: "cards";
   title?: string;
   description?: string;
+  layout?: CardsLayoutConfig;
   items?: CardItem[];
   footer?: {
     text: string;
@@ -502,8 +524,28 @@ function EditableCardsPreview({
     onChange({ ...dropdown, items: newItems });
   };
 
+  const { mode, cols } = resolveCardsLayout(items.length, dropdown.layout);
+  const colsClass = cardsGridColsClass(cols);
+  const panelWidth =
+    mode === "max" ? cardsPanelNominalWidthPx(items.length, dropdown.layout) : undefined;
+
+  const updateLayout = (updates: Partial<CardsLayoutConfig>) => {
+    const nextMode = (updates.mode ?? dropdown.layout?.mode ?? "max") as CardsLayoutMode;
+    const nextCount = updates.count ?? dropdown.layout?.count ?? 4;
+    onChange({
+      ...dropdown,
+      layout: {
+        mode: nextMode,
+        count: Math.min(Math.max(nextCount, 1), 4),
+      },
+    });
+  };
+
   return (
-    <div className="p-6 bg-popover border border-border rounded-lg">
+    <div
+      className="p-6 bg-popover border border-border rounded-lg min-w-0 max-w-full"
+      style={panelWidth != null ? { width: panelWidth } : undefined}
+    >
       <div className="mb-6">
         <EditableText
           value={dropdown.title || ""}
@@ -529,29 +571,93 @@ function EditableCardsPreview({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={itemIds} strategy={rectSortingStrategy}>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className={`grid gap-4 ${colsClass}`}>
             {items.map((item, index) => (
-              <SortableCardItem
+              <div
                 key={`card-${index}`}
-                id={`card-${index}`}
-                item={item}
-                index={index}
-                onUpdate={(updates) => updateItem(index, updates)}
-                onDelete={() => deleteItem(index)}
-                isReadOnlyStructure={isReadOnlyStructure}
-                locale={locale}
-              />
+                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined}
+                className="min-w-0"
+              >
+                <SortableCardItem
+                  id={`card-${index}`}
+                  item={item}
+                  index={index}
+                  onUpdate={(updates) => updateItem(index, updates)}
+                  onDelete={() => deleteItem(index)}
+                  isReadOnlyStructure={isReadOnlyStructure}
+                  locale={locale}
+                />
+              </div>
             ))}
             
             {!isReadOnlyStructure && (
-              <button
-                onClick={addItem}
-                className="flex flex-col items-center justify-center rounded-lg p-4 border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 hover:bg-primary/5 transition-colors min-h-[200px]"
-                data-testid="editable-cards-add"
+              <div
+                className="flex flex-col rounded-lg border-2 border-dashed border-muted-foreground/30 min-h-[200px] overflow-hidden min-w-0"
+                style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined}
+                data-testid="editable-cards-actions"
               >
-                <Plus className="h-8 w-8 text-muted-foreground mb-2" />
-                <span className="text-sm text-muted-foreground">Add Card</span>
-              </button>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 border-b border-dashed border-muted-foreground/30 text-sm text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground transition-colors"
+                      data-testid="editable-cards-layout-settings"
+                    >
+                      <Settings className="h-4 w-4" />
+                      <span>Layout</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 space-y-3" align="start">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cards-layout-mode">Mode</Label>
+                      <Select
+                        value={mode}
+                        onValueChange={(value) => updateLayout({ mode: value as CardsLayoutMode })}
+                      >
+                        <SelectTrigger id="cards-layout-mode" data-testid="editable-cards-layout-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="max">Max (hug)</SelectItem>
+                          <SelectItem value="fixed">Fixed (fill)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cards-layout-count">Columns</Label>
+                      <Select
+                        value={String(dropdown.layout?.count ?? 4)}
+                        onValueChange={(value) => updateLayout({ count: Number(value) })}
+                      >
+                        <SelectTrigger id="cards-layout-count" data-testid="editable-cards-layout-count">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 4].map((n) => (
+                            <SelectItem key={n} value={String(n)}>
+                              {n}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {mode === "max"
+                        ? "Up to N columns; shrinks when fewer cards."
+                        : "Always N columns; cards share full width."}
+                    </p>
+                  </PopoverContent>
+                </Popover>
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="flex flex-1 flex-col items-center justify-center gap-2 p-4 hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                  data-testid="editable-cards-add"
+                >
+                  <Plus className="h-8 w-8 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Add Card</span>
+                </button>
+              </div>
             )}
           </div>
         </SortableContext>

@@ -11,6 +11,8 @@ import {
   getFieldMapping,
   getLocaleKey,
   getLocaleSource,
+  hasDatabaseSingle,
+  getContentTypeConfig,
 } from "./content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
 import { fetchMarkdownContent } from "./markdown";
@@ -141,6 +143,62 @@ export function mergeSingleTemplate(
   }
 
   return applySectionLayoutDefaults(merged);
+}
+
+/**
+ * Load a merged single-entry page for per-entry section ops.
+ * Works for both DB-backed types and static types with `single_template: true`
+ * (e.g. blog after convert-to-static). Prefer this over `loadDatabaseSinglePage`
+ * in edit/delete routes that must support both.
+ */
+export async function loadMergedSinglePage(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot?: string,
+  db: DatabaseManager = databaseManager,
+): Promise<TemplatePage | null> {
+  const resolvedRoot = contentRoot ?? getDefaultContentRoot();
+
+  if (hasDatabaseSingle(contentType, resolvedRoot)) {
+    return loadDatabaseSinglePage(contentType, slug, locale, resolvedRoot, db);
+  }
+
+  const config = getContentTypeConfig(contentType, resolvedRoot);
+  if (!config?.single_template) return null;
+
+  const folder = getFolder(contentType, resolvedRoot);
+  const entryLocalePath = path.join(resolvedRoot, folder, slug, `${locale}.yml`);
+  if (!fs.existsSync(entryLocalePath)) {
+    log.info(
+      `[MergedSingle] Static entry not found: ${contentType}/${slug}/${locale}.yml`,
+    );
+    return null;
+  }
+
+  const accum: PerEntryAccum = { removedSections: [] };
+  const merged = mergeSingleTemplate(contentType, locale, slug, accum, resolvedRoot);
+  if (!merged) {
+    log.error(
+      `[MergedSingle] Template not found for static single_template type: ${contentType}`,
+    );
+    return null;
+  }
+
+  const sections = (merged.sections as TemplatePage["sections"]) || [];
+  applyComponentSectionDefaults(sections as unknown[]);
+  applyComponentImageSizes(sections as unknown[]);
+
+  return {
+    slug: (merged.slug as string) || slug,
+    title: (merged.title as string) || slug,
+    meta: (merged.meta as TemplatePage["meta"]) || {},
+    sections,
+    settings: (merged.settings as TemplatePage["settings"]) || undefined,
+    schema: (merged.schema as TemplatePage["schema"]) || undefined,
+    perEntryRemovedSections:
+      accum.removedSections.length > 0 ? accum.removedSections : undefined,
+  };
 }
 
 export async function loadDatabaseSinglePage(

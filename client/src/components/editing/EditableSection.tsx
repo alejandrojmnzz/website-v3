@@ -1743,7 +1743,7 @@ export function EditableSection({ children, section, index, sectionType, content
         return (
           <div 
             className="absolute right-2 z-30 flex flex-col items-end gap-0.5 px-2 py-1 bg-amber-500/90 text-amber-950 text-xs font-medium rounded"
-            style={{ top: (section as any)._perEntryPatched ? "4.5rem" : (section as any)._perEntrySource ? "3.5rem" : "3rem" }}
+            style={{ top: ((section as any)._perEntryPatched || (section as any)._perEntrySource) ? "4.5rem" : "3rem" }}
             title="Special Visibility Conditions"
             data-testid={`badge-visibility-${index}`}
           >
@@ -1784,10 +1784,11 @@ export function EditableSection({ children, section, index, sectionType, content
         </div>
       )}
 
-      {/* Per-entry origin badge (always visible when section is from per-entry override) */}
+      {/* Per-entry origin badge — below toolbar (same row as "Overridden" / above visibility) */}
       {(section as any)._perEntrySource && (
         <div
-          className="absolute top-2 right-2 z-30 flex items-center gap-1 px-2 py-1 bg-primary/90 text-primary-foreground text-xs font-medium rounded"
+          className="absolute right-2 z-30 flex items-center gap-1 px-2 py-1 bg-primary/90 text-primary-foreground text-xs font-medium rounded"
+          style={{ top: "3rem" }}
           title="This section is specific to this entry only"
           data-testid={`badge-per-entry-${index}`}
         >

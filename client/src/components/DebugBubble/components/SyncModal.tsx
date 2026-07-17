@@ -666,17 +666,26 @@ export function SyncModal({
                   ) : (
                     <>
                       <div className="flex items-center gap-3">
-                        {queueFilter.trim() && selectableFiltered.length > 0 && (
+                        {selectableFiltered.length > 0 && (
                           <label
                             className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none shrink-0"
                             data-testid="label-select-all-filtered"
                           >
                             <Checkbox
-                              checked={allFilteredSelected}
+                              checked={
+                                allFilteredSelected
+                                  ? true
+                                  : selectableFiltered.some((c) => selectedFiles.has(c.file))
+                                    ? "indeterminate"
+                                    : false
+                              }
                               onCheckedChange={(checked) => toggleSelectAllFiltered(checked === true)}
-                              data-testid="checkbox-select-all-filtered"
+                              data-testid="checkbox-select-all"
                             />
-                            Select all filtered ({selectableFiltered.length})
+                            Check all
+                            {queueFilter.trim() && (
+                              <span>({selectableFiltered.length})</span>
+                            )}
                             {hasSelection && (
                               <span className="text-foreground">· {selectedFiles.size} selected</span>
                             )}

@@ -473,14 +473,31 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   Edit
                 </button>
                 <button
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    if (props.editMode!.isEditMode) {
-                      props.editMode!.toggleEditMode();
-                      if (props.publicPageUrl) {
-                        props.navigate(props.publicPageUrl);
+                    if (!props.editMode!.isEditMode) return;
+                    props.editMode!.toggleEditMode();
+                    let targetUrl = props.publicPageUrl;
+                    if (!targetUrl && props.pathname.startsWith("/private/preview/")) {
+                      try {
+                        const searchParams = new URLSearchParams(window.location.search);
+                        const locale = normalizeLocale(searchParams.get("locale") || "en");
+                        const res = await fetch(`/api/locale-urls?url=${encodeURIComponent(props.pathname)}`);
+                        if (res.ok) {
+                          const data = await res.json() as { urls?: Record<string, string> };
+                          targetUrl =
+                            data.urls?.[locale] ||
+                            data.urls?.en ||
+                            Object.values(data.urls || {})[0] ||
+                            null;
+                        }
+                      } catch {
+                        // stay on preview if resolution fails
                       }
+                    }
+                    if (targetUrl) {
+                      props.navigate(targetUrl);
                     }
                   }}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${

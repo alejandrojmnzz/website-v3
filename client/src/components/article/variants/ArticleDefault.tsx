@@ -22,6 +22,20 @@ function slugify(text: string): string {
     .trim();
 }
 
+/** Strip inline markdown markers so TOC labels read as plain text. */
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1") // images → alt text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links → label
+    .replace(/`([^`]+)`/g, "$1") // inline code
+    .replace(/(\*\*|__)(.*?)\1/g, "$2") // bold
+    .replace(/(\*|_)(.*?)\1/g, "$2") // italic
+    .replace(/~~(.*?)~~/g, "$1") // strikethrough
+    .replace(/<\/?[^>]+>/g, "") // HTML tags
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractTocItems(markdown: string): TocItem[] {
   const lines = markdown.split("\n");
   const items: TocItem[] = [];
@@ -38,7 +52,7 @@ function extractTocItems(markdown: string): TocItem[] {
     const match = line.match(/^(#{1,3})\s+(.+)$/);
     if (match) {
       const level = match[1].length;
-      const text = match[2].trim();
+      const text = stripInlineMarkdown(match[2].trim());
       let id = slugify(text);
 
       if (slugCounts[id] !== undefined) {

@@ -332,6 +332,39 @@ export function DebugBubble() {
   // Detect current content info from URL
   const contentInfo = detectContentInfo(pathname, contentTypesMap, homePageSettings ?? null);
 
+  const isPreviewPath = pathname.startsWith("/private/preview/");
+  const { data: previewLocaleUrls } = useQuery<{ urls: Record<string, string>; contentType: string; slug: string } | null>({
+    queryKey: ["/api/locale-urls", pathname],
+    queryFn: async () => {
+      const res = await fetch(`/api/locale-urls?url=${encodeURIComponent(pathname)}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: isPreviewPath && !!contentInfo.type && !!contentInfo.slug,
+    staleTime: 60_000,
+  });
+
+  const resolvedPublicPageUrl = (() => {
+    if (!isPreviewPath || !contentInfo.type || !contentInfo.slug) return null;
+    const searchParams = new URLSearchParams(
+      typeof window !== "undefined" ? window.location.search : "",
+    );
+    const locale = normalizeLocale(searchParams.get("locale") || "en");
+    // Prefer server-resolved URLs (fills :category and other pattern params)
+    const fromApi =
+      previewLocaleUrls?.urls?.[locale] ||
+      previewLocaleUrls?.urls?.en ||
+      Object.values(previewLocaleUrls?.urls || {})[0];
+    if (fromApi) return fromApi;
+    // Fallback only when the pattern has no extra params beyond :slug/:locale
+    const ct = contentTypesMap?.[contentInfo.type];
+    if (!ct?.url_pattern) return null;
+    const pattern = ct.url_pattern[locale] || ct.url_pattern["default"] || ct.url_pattern["en"];
+    if (!pattern) return null;
+    if (/:(?!slug\b|locale\b)[a-zA-Z_]/.test(pattern)) return null;
+    return pattern.replace(/:slug/g, contentInfo.slug).replace(/:locale/g, locale);
+  })();
+
   useEffect(() => {
     setNewSlugValue("");
     setSlugCheckStatus("idle");
@@ -383,18 +416,13 @@ export function DebugBubble() {
 
     let diagnosticsUrl: string | null = null;
 
-    if (pathname.startsWith('/private/preview/') && contentInfo.type && contentInfo.slug) {
-      const searchParams = new URLSearchParams(window.location.search);
-      const locale = normalizeLocale(searchParams.get('locale') || 'en');
-      if (contentTypesMap && contentInfo.type) {
-        const ct = contentTypesMap[contentInfo.type];
-        if (ct?.url_pattern) {
-          const pattern = ct.url_pattern[locale] || ct.url_pattern['default'] || ct.url_pattern['en'];
-          if (pattern) {
-            diagnosticsUrl = pattern.replace(':slug', contentInfo.slug);
-          }
-        }
+    if (isPreviewPath && contentInfo.type && contentInfo.slug) {
+      // Wait for server-resolved public URL so :category / other params are filled
+      if (!resolvedPublicPageUrl) {
+        setPageDiagnostics(null);
+        return;
       }
+      diagnosticsUrl = resolvedPublicPageUrl;
     } else if (!pathname.startsWith('/private/')) {
       diagnosticsUrl = pathname;
     }
@@ -424,7 +452,7 @@ export function DebugBubble() {
       })
       .catch(() => {})
       .finally(() => setPageDiagnosticsLoading(false));
-  }, [pathname, isDebugMode, contentInfo.type, contentInfo.slug, contentTypesMap]);
+  }, [pathname, isDebugMode, contentInfo.type, contentInfo.slug, isPreviewPath, resolvedPublicPageUrl]);
 
   const pageErrorCount = !pageDiagnostics ? 0 : (pageDiagnostics.issues?.filter(i => i.type === "error").length || 0);
 
@@ -1931,16 +1959,7 @@ export function DebugBubble() {
     setSessionModalOpen,
     onOpenSiteManager: () => setSiteManagerModalOpen(true),
     onOpenSwitchSite: () => setSwitchSiteModalOpen(true),
-    publicPageUrl: (() => {
-      if (!pathname.startsWith('/private/preview/') || !contentInfo.type || !contentInfo.slug) return null;
-      const searchParams = new URLSearchParams(window.location.search);
-      const locale = normalizeLocale(searchParams.get('locale') || 'en');
-      const ct = contentTypesMap?.[contentInfo.type];
-      if (!ct?.url_pattern) return null;
-      const pattern = ct.url_pattern[locale] || ct.url_pattern['default'] || ct.url_pattern['en'];
-      if (!pattern) return null;
-      return pattern.replace(':slug', contentInfo.slug);
-    })(),
+    publicPageUrl: resolvedPublicPageUrl,
   };
 
   // Don't render if hide_debug param is set (for embedded previews)

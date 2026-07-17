@@ -1,6 +1,14 @@
 import { useState, useRef, useLayoutEffect as _useLayoutEffect, useEffect } from "react";
-import { ChevronDown, ChevronRight, Code, BarChart3, Shield, Brain, Medal, GraduationCap, Building } from "lucide-react";
+import { ChevronDown, ChevronRight, Code, BarChart3, Shield, Brain, Medal, GraduationCap, Building, Briefcase, Puzzle, Wifi } from "lucide-react";
 import { InternalLink } from "@/components/InternalLink";
+import {
+  cardsGridColsClass,
+  cardsPanelNominalWidthPx,
+  resolveCardsLayout,
+  type CardsLayoutConfig,
+  CARDS_COLUMN_WIDTH_PX,
+  CARDS_FIXED_WIDTH_PX,
+} from "./cardsLayout";
 
 // Falls back to useEffect during SSR to suppress the useLayoutEffect server warning
 const useLayoutEffect = typeof window !== "undefined" ? _useLayoutEffect : useEffect;
@@ -13,6 +21,9 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   medal: Medal,
   "graduation-cap": GraduationCap,
   building: Building,
+  briefcase: Briefcase,
+  puzzle: Puzzle,
+  wifi: Wifi,
 };
 
 interface CardItem {
@@ -47,6 +58,7 @@ interface CardsDropdownData {
   type: "cards";
   title?: string;
   description?: string;
+  layout?: CardsLayoutConfig;
   items: CardItem[];
   footer?: {
     text: string;
@@ -86,10 +98,13 @@ export interface DropdownProps {
 }
 
 function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; onNavigate?: () => void }) {
+  const { mode, cols } = resolveCardsLayout(dropdown.items?.length ?? 0, dropdown.layout);
+  const colsClass = cardsGridColsClass(cols);
+
   return (
-    <div className="p-6 bg-white dark:bg-zinc-900">
+    <div className="w-full min-w-0 p-6 bg-white dark:bg-zinc-900">
       {(dropdown.title || dropdown.description) && (
-        <div className="mb-6">
+        <div className="mb-6 min-w-0">
           {dropdown.title && (
             <h3 className="text-lg font-semibold text-foreground mb-1">{dropdown.title}</h3>
           )}
@@ -99,7 +114,7 @@ function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; 
         </div>
       )}
       
-      <div className="grid grid-cols-4 gap-6">
+      <div className={`grid gap-6 ${colsClass}`}>
         {dropdown.items.map((item, index) => {
           const IconComponent = item.icon ? iconMap[item.icon] : null;
           return (
@@ -107,8 +122,9 @@ function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; 
               key={index}
               href={item.href}
               onNavigate={onNavigate}
-              className="block hover-elevate rounded-lg p-2 -m-2"
+              className="block min-w-0 hover-elevate rounded-lg p-2 -m-2"
               data-testid={`dropdown-card-${(item.title || "card").toLowerCase().replace(/\s+/g, "-")}`}
+              style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined}
             >
               {IconComponent && (
                 <div className="mb-3 w-12 h-12 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -131,7 +147,7 @@ function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; 
       
       {dropdown.footer?.text && (
         <div
-          className="mt-6 pt-4 border-t text-center text-sm text-muted-foreground [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline"
+          className="mt-6 pt-4 border-t text-center text-sm text-muted-foreground break-words [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline"
           dangerouslySetInnerHTML={{ __html: dropdown.footer.text }}
         />
       )}
@@ -297,13 +313,20 @@ function GroupedListDropdown({ dropdown, onNavigate }: { dropdown: GroupedListDr
 }
 
 const DROPDOWN_WIDTH_PX: Record<string, number> = {
-  cards: 900,
   columns: 800,
   "simple-list": 288,
   "grouped-list": 550,
 };
 
 const VIEWPORT_PADDING = 16;
+
+function getCardsLayoutFromDropdown(dropdown: DropdownData): CardsLayoutConfig | undefined {
+  return dropdown.type === "cards" ? dropdown.layout : undefined;
+}
+
+function getCardsItemCount(dropdown: DropdownData): number {
+  return dropdown.type === "cards" ? (dropdown.items?.length ?? 0) : 0;
+}
 
 export function Dropdown({ label, href, dropdown, controlledOpen, onOpenChange }: DropdownProps & { controlledOpen?: boolean; onOpenChange?: (open: boolean) => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
@@ -315,6 +338,10 @@ export function Dropdown({ label, href, dropdown, controlledOpen, onOpenChange }
   const triggerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const isWideDropdown = dropdown.type === "cards" || dropdown.type === "columns";
+  const cardsLayout =
+    dropdown.type === "cards"
+      ? resolveCardsLayout(getCardsItemCount(dropdown), getCardsLayoutFromDropdown(dropdown))
+      : null;
   
   useEffect(() => {
     return () => {
@@ -338,10 +365,18 @@ export function Dropdown({ label, href, dropdown, controlledOpen, onOpenChange }
     }, 75);
   };
   
+  const cardsNominalWidth =
+    dropdown.type === "cards"
+      ? cardsLayout?.mode === "max"
+        ? cardsPanelNominalWidthPx(getCardsItemCount(dropdown), getCardsLayoutFromDropdown(dropdown))
+        : CARDS_FIXED_WIDTH_PX
+      : null;
+
   const getDropdownWidth = () => {
     switch (dropdown.type) {
       case "cards":
-        return "w-[900px]";
+        // Width set via inline style from cardsNominalWidth so max mode hugs the card grid
+        return cardsLayout?.mode === "max" ? "max-w-[calc(100vw-32px)]" : "w-[900px]";
       case "columns":
         return "w-[800px]";
       case "simple-list":
@@ -361,13 +396,24 @@ export function Dropdown({ label, href, dropdown, controlledOpen, onOpenChange }
     const triggerRect = trigger.getBoundingClientRect();
     const viewportW = window.innerWidth;
     const maxAvailable = viewportW - VIEWPORT_PADDING * 2;
-    const nominalW = DROPDOWN_WIDTH_PX[dropdown.type] || panel.offsetWidth;
+
+    const nominalW =
+      dropdown.type === "cards"
+        ? (cardsNominalWidth ?? CARDS_FIXED_WIDTH_PX)
+        : DROPDOWN_WIDTH_PX[dropdown.type] || panel.offsetWidth;
+
     const dropdownW = Math.min(nominalW, maxAvailable);
 
     if (dropdownW < nominalW) {
       panel.style.maxWidth = `${maxAvailable}px`;
     } else {
       panel.style.maxWidth = "";
+    }
+
+    if (dropdown.type === "cards" && cardsLayout?.mode === "max") {
+      panel.style.width = `${dropdownW}px`;
+    } else {
+      panel.style.width = "";
     }
 
     const triggerCenter = triggerRect.left + triggerRect.width / 2;
@@ -386,7 +432,7 @@ export function Dropdown({ label, href, dropdown, controlledOpen, onOpenChange }
 
     window.addEventListener("resize", positionPanel);
     return () => window.removeEventListener("resize", positionPanel);
-  }, [isOpen]);
+  }, [isOpen, cardsLayout?.mode, cardsLayout?.cols]);
   
   const closeOnNavigate = () => {
     setIsOpen(false);
@@ -434,7 +480,12 @@ export function Dropdown({ label, href, dropdown, controlledOpen, onOpenChange }
           <div
             ref={panelRef}
             className={`absolute top-full z-50 mt-1 bg-white dark:bg-zinc-900 border border-border rounded-lg shadow-lg ${getDropdownWidth()}`}
-            style={{ left: 0 }}
+            style={{
+              left: 0,
+              ...(dropdown.type === "cards" && cardsLayout?.mode === "max" && cardsNominalWidth != null
+                ? { width: cardsNominalWidth }
+                : {}),
+            }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >

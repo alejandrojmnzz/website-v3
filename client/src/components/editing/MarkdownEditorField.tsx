@@ -19,6 +19,19 @@ interface TocPreviewItem {
   level: number;
 }
 
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/~~(.*?)~~/g, "$1")
+    .replace(/<\/?[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractTocFromMarkdown(markdown: string): TocPreviewItem[] {
   const lines = markdown.split("\n");
   const items: TocPreviewItem[] = [];
@@ -35,7 +48,7 @@ function extractTocFromMarkdown(markdown: string): TocPreviewItem[] {
     if (match) {
       items.push({
         level: match[1].length,
-        text: match[2].trim(),
+        text: stripInlineMarkdown(match[2].trim()),
       });
     }
   }
