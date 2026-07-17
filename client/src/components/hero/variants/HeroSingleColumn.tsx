@@ -49,18 +49,32 @@ export default function HeroSingleColumn({ data }: HeroSingleColumnProps) {
     setFallbackSrc(data.image?.fallback ?? BLOG_IMAGE_FALLBACK);
   };
 
+  // Badge values can arrive as plain strings or as objects (e.g. a category
+  // entry like { slug: "..." } from static YAML content) — coerce to a
+  // renderable string so React never receives a raw object child.
+  const badgeText = (() => {
+    const b = data.badge as unknown;
+    if (typeof b === "string" || typeof b === "number") return String(b);
+    if (b && typeof b === "object") {
+      const obj = b as Record<string, unknown>;
+      const candidate = obj.text ?? obj.label ?? obj.name ?? obj.title ?? obj.slug;
+      if (typeof candidate === "string" || typeof candidate === "number") return String(candidate);
+    }
+    return "";
+  })();
+
   return (
     <section 
       data-testid="section-hero"
     >
       <div className="max-w-6xl mx-auto px-4 text-center">
-        {data.badge && (
+        {badgeText && (
           <Badge 
             variant="secondary" 
             className="mb-6"
             data-testid="badge-hero"
           >
-            {data.badge}
+            {badgeText}
           </Badge>
         )}
         
