@@ -5,11 +5,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
 import type { Overlay } from "@/hooks/useOverlays";
 import { markOverlaySeen } from "@/hooks/useOverlays";
 import { UniversalImage } from "@/components/UniversalImage";
+import { OverlayActionButtons } from "./OverlayActionButtons";
 
 interface OverlayModalProps {
   overlay: Overlay;
@@ -42,13 +41,12 @@ export function OverlayModal({ overlay, onDismiss }: OverlayModalProps) {
             <DialogDescription>{content.body}</DialogDescription>
           )}
         </DialogHeader>
-        <div className="flex flex-wrap justify-end gap-2 pt-2">
-          {(content.buttons ?? []).filter((b) => b.href && b.label).map((btn, i) => (
-            <Button key={i} variant={btn.variant ?? "default"} size="sm" asChild onClick={handleDismiss}>
-              <Link href={btn.href}>{btn.label}</Link>
-            </Button>
-          ))}
-        </div>
+        <OverlayActionButtons
+          buttons={content.buttons}
+          onDismiss={handleDismiss}
+          size="sm"
+          className="justify-end pt-2"
+        />
       </DialogContent>
     </Dialog>
   );
