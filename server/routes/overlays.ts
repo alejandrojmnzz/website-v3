@@ -33,6 +33,63 @@ export function registerOverlaysRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/overlays/yml", (_req: Request, res: Response) => {
+    try {
+      const contentRoot = getContentRoot(res);
+      const overlaysFile = getOverlaysFile(contentRoot);
+      const contentFolder = path.basename(contentRoot);
+      const relativePath = `${contentFolder}/overlays.yml`;
+      if (!fs.existsSync(overlaysFile)) {
+        res.json({
+          exists: true,
+          path: relativePath,
+          content: "overlays: []\n",
+        });
+        return;
+      }
+      res.json({
+        exists: true,
+        path: relativePath,
+        content: fs.readFileSync(overlaysFile, "utf-8"),
+      });
+    } catch {
+      res.status(500).json({ error: "Failed to read overlays.yml" });
+    }
+  });
+
+  app.put("/api/overlays/yml", async (req: Request, res: Response) => {
+    const { authorized, author } = await requireCapability(req, res, "content_editor");
+    if (!authorized) return;
+
+    try {
+      const { content, author: requestAuthor } = req.body as {
+        content?: string;
+        author?: string;
+      };
+      if (typeof content !== "string") {
+        res.status(400).json({ error: "content is required" });
+        return;
+      }
+
+      const parsed = safeYamlLoad(content);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        res.status(400).json({ error: "overlays.yml must be a YAML object (e.g. overlays: [])" });
+        return;
+      }
+
+      const contentRoot = getContentRoot(res);
+      const contentFolder = path.basename(contentRoot);
+      const overlaysFile = getOverlaysFile(contentRoot);
+      fs.writeFileSync(overlaysFile, content, "utf-8");
+      const authorName =
+        author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
+      markFileAsModified(`${contentFolder}/overlays.yml`, authorName);
+      res.json({ success: true, path: `${contentFolder}/overlays.yml` });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to save overlays.yml" });
+    }
+  });
+
   app.put("/api/overlays", async (req: Request, res: Response) => {
     const { authorized } = await requireCapability(req, res, "content_editor");
     if (!authorized) return;

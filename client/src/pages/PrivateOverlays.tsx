@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, lazy, Suspense } from "react";
 import {
   IconArrowLeft,
   IconPlus,
@@ -15,6 +15,7 @@ import {
   IconPhoto,
   IconArrowUp,
   IconArrowDown,
+  IconCode,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -68,6 +69,8 @@ import { useToast } from "@/hooks/use-toast";
 import type { Overlay, OverlayButton, OverlayConfig } from "@/hooks/useOverlays";
 import { LinkPicker } from "@/components/editing/LinkPicker";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
+
+const OverlaysYmlEditorPanel = lazy(() => import("@/components/editing/OverlaysYmlEditorPanel"));
 
 const COMPONENT_LABELS: Record<string, string> = {
   modal: "Modal",
@@ -239,6 +242,7 @@ export default function PrivateOverlays() {
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [sheetSaving, setSheetSaving] = useState(false);
   const [sheetContainer, setSheetContainer] = useState<HTMLDivElement | null>(null);
+  const [showYmlEditor, setShowYmlEditor] = useState(false);
 
   const { data, isLoading } = useQuery<OverlayConfig>({
     queryKey: ["/api/overlays"],
@@ -368,10 +372,20 @@ export default function PrivateOverlays() {
             </p>
           </div>
         </div>
-        <Button onClick={() => openSheet(null)} data-testid="button-create-overlay">
-          <IconPlus size={16} />
-          New overlay
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowYmlEditor(true)}
+            data-testid="button-edit-overlays-yml"
+          >
+            <IconCode size={16} />
+            Code
+          </Button>
+          <Button onClick={() => openSheet(null)} data-testid="button-create-overlay">
+            <IconPlus size={16} />
+            New overlay
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -1014,6 +1028,17 @@ export default function PrivateOverlays() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {showYmlEditor && (
+        <Suspense fallback={null}>
+          <OverlaysYmlEditorPanel
+            onClose={() => setShowYmlEditor(false)}
+            onSaved={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/overlays"] });
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
