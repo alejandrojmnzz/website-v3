@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import "./prose-preview.css";
 
 interface TocPreviewItem {
   text: string;

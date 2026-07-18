@@ -5,7 +5,9 @@
   "license": "MIT",
   "scripts": {
     "check:sites": "tsx scripts/check-sites.ts",
-    "predev": "npm run check:sites",
+    "generate:icon-map": "tsx scripts/generate-icon-map.ts",
+    "predev": "npm run check:sites && npm run generate:icon-map",
+    "prebuild": "npm run generate:icon-map",
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "vite build && vite build --ssr src/entry-server.tsx && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",

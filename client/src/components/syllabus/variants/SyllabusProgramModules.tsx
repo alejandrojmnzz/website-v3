@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/comp
 import type { ComponentType } from "react";
 import { getIcon as getLucideIcon } from "@/lib/icons";
 import { getTechBrandIcon } from "@/lib/tech-brand-icons";
-import { Matplotlib } from "@/components/custom-icons";
+import Matplotlib from "@/components/custom-icons/Matplotlib";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { useInternalNav } from "@/hooks/useInternalNav";
 interface ModuleAccordionProps {

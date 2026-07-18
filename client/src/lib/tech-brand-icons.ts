@@ -42,7 +42,7 @@ import { TiHtml5 } from "react-icons/ti";
 import { RiClaudeFill, RiNextjsFill } from "react-icons/ri";
 import { FaAws, FaGitAlt } from "react-icons/fa";
 import { IoLogoVercel } from "react-icons/io5";
-import { Matplotlib } from "@/components/custom-icons";
+import Matplotlib from "@/components/custom-icons/Matplotlib";
 
 type TechIconComponent = ComponentType<{ className?: string }>;
 

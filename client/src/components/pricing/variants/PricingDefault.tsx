@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import type { PricingSection as PricingSectionType } from "@shared/schema";
-import { Matplotlib } from "@/components/custom-icons";
+import Matplotlib from "@/components/custom-icons/Matplotlib";
 import { CSSMarquee } from "@/components/ui/CSSMarquee";
 import { getIcon } from "@/lib/icons";
 import { getTechBrandIcon } from "@/lib/tech-brand-icons";

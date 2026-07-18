@@ -4,7 +4,6 @@ import { useInternalNav } from "@/hooks/useInternalNav";
 import { Check } from "lucide-react";
 import { getIcon as resolveIcon } from "@/lib/icons";
 import type { ComponentType, CSSProperties } from "react";
-import { getCustomIcon } from "@/components/custom-icons";
 import UniversalImage from "@/components/UniversalImage";
 import type { HumanAndAIDuoSection } from "@shared/schema";
 import { UniversalVideo } from "@/components/UniversalVideo";

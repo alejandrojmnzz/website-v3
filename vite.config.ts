@@ -137,11 +137,10 @@ export default defineConfig(async () => ({
           if (id.includes('react-icons')) {
             return 'icons-react';
           }
-          // lucide-react is intentionally NOT forced into a single chunk — that
-          // pulled ~500KB onto every public page. Let Rolldown split per-importer.
-          if (id.includes('@radix-ui')) {
-            return 'radix-ui';
-          }
+          // lucide-react, @radix-ui, and react-markdown are intentionally NOT
+          // forced into shared chunks — that pulled large unused payloads onto
+          // every public page (JSX runtime even landed inside the markdown chunk).
+          // Let Rolldown split them per-importer.
           if (id.includes('i18next') || id.includes('react-i18next')) {
             return 'i18n';
           }
@@ -160,18 +159,6 @@ export default defineConfig(async () => ({
           }
           if (id.includes('node_modules/embla-carousel')) {
             return 'carousel';
-          }
-          if (
-            id.includes('node_modules/react-markdown') ||
-            id.includes('node_modules/remark') ||
-            id.includes('node_modules/micromark') ||
-            id.includes('node_modules/mdast') ||
-            id.includes('node_modules/unified') ||
-            id.includes('node_modules/hast') ||
-            id.includes('node_modules/rehype') ||
-            id.includes('node_modules/vfile')
-          ) {
-            return 'markdown';
           }
         },
       },

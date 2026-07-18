@@ -309,6 +309,31 @@ function ClientOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Mount children after hydration idle so their chunks don't compete with INP/TBT. */
+function IdleMounted({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const enable = () => {
+      if (!cancelled) setReady(true);
+    };
+    if (typeof requestIdleCallback !== "undefined") {
+      const id = requestIdleCallback(enable, { timeout: 1500 });
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(id);
+      };
+    }
+    const t = setTimeout(enable, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, []);
+  if (!ready) return null;
+  return <>{children}</>;
+}
+
 interface AppProps {
   ssrQueryClient?: QueryClient;
 }
@@ -347,11 +372,13 @@ function App({ ssrQueryClient }: AppProps = {}) {
             <Router />
             <ClientOnly>
               <Toaster />
-              <Suspense fallback={null}><ChatWidget /></Suspense>
-              <DebugBubbleGate />
-              <Suspense fallback={null}><VariableModalHost /></Suspense>
-              <Suspense fallback={null}><OverlayRuntime /></Suspense>
-              <Suspense fallback={null}><BootstrapModal /></Suspense>
+              <IdleMounted>
+                <Suspense fallback={null}><ChatWidget /></Suspense>
+                <DebugBubbleGate />
+                <Suspense fallback={null}><VariableModalHost /></Suspense>
+                <Suspense fallback={null}><OverlayRuntime /></Suspense>
+                <Suspense fallback={null}><BootstrapModal /></Suspense>
+              </IdleMounted>
             </ClientOnly>
             </ImagePickerProvider>
           </EditModeWrapper>
