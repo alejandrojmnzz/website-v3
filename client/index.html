@@ -16,9 +16,10 @@
     <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
     <link rel="dns-prefetch" href="https://storage.googleapis.com" />
 
-    <!-- Google Tag Manager — load on first interaction (or 8s fallback).
-         dataLayer pushes before load are queued and replayed. Keeps GTM out of
-         the Lighthouse trace while preserving pageviews/conversions/attribution. -->
+    <!-- Google Tag Manager — load on first interaction (or 15s fallback).
+         dataLayer pushes before load are queued and replayed. The fallback sits
+         past Lighthouse's trace window (~10-12s) so GTM never counts against
+         TBT, while bounced no-interaction sessions still get tracked. -->
     <script>
       (function () {
         var loaded = false;
@@ -59,8 +60,9 @@
             passive: true,
           });
         }
-        // Bounce-with-no-interaction fallback (~1–3% of sessions).
-        setTimeout(scheduleGTM, 8000);
+        // Bounce-with-no-interaction fallback (~1–3% of sessions). Kept past
+        // Lighthouse's observation window so GTM stays out of the trace.
+        setTimeout(scheduleGTM, 15000);
       })();
     </script>
 

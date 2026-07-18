@@ -381,13 +381,35 @@ function extractImageRefsFromValue(value: unknown, refs: ImageRefs, parentKey?: 
   }
 }
 
+type PreloadRegistryImageEntry = {
+  src: string;
+  preset?: string[];
+  srcset?: Array<{ w: number; url: string }>;
+  width?: number;
+};
+
 type PreloadRegistryPayload = {
   presets?: Record<string, { sizes?: string }>;
-  images: Record<
-    string,
-    { src: string; preset?: string[]; srcset?: Array<{ w: number; url: string }> }
-  >;
+  images: Record<string, PreloadRegistryImageEntry>;
 };
+
+/**
+ * Total cap on <link rel="preload" as="image"> hints per page. Preloads compete
+ * with the render-blocking CSS for bandwidth; on pages whose LCP is text (e.g.
+ * the home hero headline), a large preload fan-out delays first paint.
+ */
+const MAX_IMAGE_PRELOADS = 6;
+
+/**
+ * Small logos/icons (hero partner pills, badges) are never the LCP element.
+ * Preloading them with fetchpriority=high starves the critical CSS request.
+ */
+function isSmallLogoEntry(entry: PreloadRegistryImageEntry | undefined): boolean {
+  if (!entry) return false;
+  if (entry.preset?.some((p) => p === "logo" || p === "icon")) return true;
+  if (typeof entry.width === "number" && entry.width > 0 && entry.width < 400) return true;
+  return false;
+}
 
 export function resolvePreloadHints(
   payload: InitialDataPayload | null,
@@ -463,6 +485,7 @@ export function resolvePreloadHints(
     highPriority: boolean,
   ) => {
     if (seen.has(src)) return;
+    if (hints.length >= MAX_IMAGE_PRELOADS) return;
     seen.add(src);
     const entry = (id && registryData.images[id]) || srcToEntry.get(src);
     const hint: PreloadHint = { src, highPriority };
@@ -482,17 +505,21 @@ export function resolvePreloadHints(
     hints.push(hint);
   };
 
-  // First image from the hero section is the sole high-priority LCP preload.
+  // First non-logo image from the hero section is the sole high-priority LCP
+  // preload. Small logos (partner pills, badges) are preloaded at normal
+  // priority only — they are never the LCP element.
   let lcpAssigned = false;
   for (const [id, preset] of lcpRefs.ids) {
     const entry = registryData.images[id];
     if (!entry?.src) continue;
-    pushHint(id, entry.src, preset, !lcpAssigned);
-    lcpAssigned = true;
+    const high = !lcpAssigned && !isSmallLogoEntry(entry);
+    pushHint(id, entry.src, preset, high);
+    if (high) lcpAssigned = true;
   }
   for (const url of lcpRefs.directUrls) {
-    pushHint(null, url, undefined, !lcpAssigned);
-    lcpAssigned = true;
+    const high = !lcpAssigned && !isSmallLogoEntry(srcToEntry.get(url));
+    pushHint(null, url, undefined, high);
+    if (high) lcpAssigned = true;
   }
 
   for (const [id, preset] of secondaryRefs.ids) {

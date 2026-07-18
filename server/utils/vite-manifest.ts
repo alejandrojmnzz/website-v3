@@ -57,11 +57,14 @@ export function getEntryAssets(distPublicPath: string): ManifestEntryAssets {
 /** Build `<link>` modulepreload tags for entry chunks.
  * CSS is intentionally NOT preloaded: the blocking <link rel="stylesheet"> in
  * <head> is discovered by the preload scanner anyway, and a duplicate
- * fetchpriority=high preload only competes with LCP resources. */
+ * fetchpriority=high preload only competes with LCP resources.
+ * JS preloads are marked fetchpriority=low for the same reason: the page is
+ * server-rendered, so scripts are only needed for hydration and must not
+ * contend with the render-blocking CSS. */
 export function buildEntryPreloadTags(assets: ManifestEntryAssets): string {
   const tags: string[] = [];
   for (const href of assets.js) {
-    tags.push(`<link rel="modulepreload" crossorigin href="${escapeAttr(href)}">`);
+    tags.push(`<link rel="modulepreload" crossorigin href="${escapeAttr(href)}" fetchpriority="low">`);
   }
   return tags.join("\n");
 }
@@ -70,7 +73,7 @@ export function buildEntryPreloadTags(assets: ManifestEntryAssets): string {
 export function buildEntryLinkHeader(assets: ManifestEntryAssets): string {
   const parts: string[] = [];
   for (const href of assets.js) {
-    parts.push(`<${escapeAttr(href)}>; rel=modulepreload; crossorigin`);
+    parts.push(`<${escapeAttr(href)}>; rel=modulepreload; crossorigin; fetchpriority=low`);
   }
   return parts.join(", ");
 }
