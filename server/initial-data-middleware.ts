@@ -23,7 +23,7 @@ import { loadDatabaseSinglePage } from "./database-single-loader";
 import { resolveSingleVars } from "./single-resolver";
 import { resolveFieldValue } from "./transform";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
-import { applyNonBlockingCss, applyEntryModulePreload } from "./utils/html-transforms";
+import { applyEntryModulePreload } from "./utils/html-transforms";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -887,7 +887,6 @@ export function initialDataMiddleware(
                 injected = injected.replace("</head>", themeStyle + "</head>");
               }
             }
-            injected = applyNonBlockingCss(injected);
             injected = applyEntryModulePreload(injected);
 
             const newLength = Buffer.byteLength(injected, "utf-8");

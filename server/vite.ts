@@ -29,7 +29,7 @@ import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { contentIndex } from "./content-index";
 import { resolveInitialData, resolvePreloadHints, injectSsrMetaTags, type PreloadHint, type InitialDataPayload } from "./initial-data-middleware";
-import { applyNonBlockingCss, applyEntryModulePreload } from "./utils/html-transforms";
+import { applyEntryModulePreload } from "./utils/html-transforms";
 import { getEntryAssets, buildEntryPreloadTags, buildEntryLinkHeader } from "./utils/vite-manifest";
 import {
   buildHtmlCacheKey,
@@ -345,7 +345,6 @@ export function serveStatic(app: Express) {
           html = html.replace("</body>", scriptTag + "</body>");
         }
 
-        html = applyNonBlockingCss(html);
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
 
@@ -367,7 +366,6 @@ export function serveStatic(app: Express) {
         if (html.includes("</head>")) {
           html = html.replace("</head>", `${ssrSchemaHtml}\n</head>`);
         }
-        html = applyNonBlockingCss(html);
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
@@ -379,7 +377,6 @@ export function serveStatic(app: Express) {
 
     try {
       let html = await fs.promises.readFile(indexHtmlPath, "utf-8");
-      html = applyNonBlockingCss(html);
       html = applyEntryModulePreload(html);
       html = applyEntryPreloads(html, res);
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
