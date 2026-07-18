@@ -58,19 +58,26 @@ function getValidationCache(res: Response) {
 /**
  * Returns a valid ValidationContext for the current request's site.
  *
- * Reuses the cached context only when it was built for the same site
- * (matched by contentRoot). If the cached context belongs to a different
- * site — e.g. after a dev-site switch — it clears the stale context and
- * rebuilds with the correct ContentIndex and contentRoot.
+ * Handlers construct a fresh ValidationService per request, so caching on the
+ * service instance never hits. Keep a short-lived per-contentRoot cache here
+ * so DebugBubble diagnostics don't re-parse every YAML on every page view.
  */
+const siteContextCache = new Map<
+  string,
+  { context: Awaited<ReturnType<ValidationService["buildContext"]>>; builtAt: number }
+>();
+const SITE_CONTEXT_TTL_MS = 60_000;
+
 async function ensureSiteContext(service: ValidationService, res: Response) {
   const contentRoot = getContentRoot(res);
-  const existing = service.getContext();
-  if (existing && existing.contentRoot === contentRoot) {
-    return existing;
+  const cached = siteContextCache.get(contentRoot);
+  if (cached && Date.now() - cached.builtAt < SITE_CONTEXT_TTL_MS) {
+    return cached.context;
   }
   service.clearContext();
-  return service.buildContext({ contentRoot, ci: getCI(res) });
+  const context = await service.buildContext({ contentRoot, ci: getCI(res) });
+  siteContextCache.set(contentRoot, { context, builtAt: Date.now() });
+  return context;
 }
 
 export function registerValidationRoutes(app: Express): void {
@@ -684,7 +691,7 @@ export function registerValidationRoutes(app: Express): void {
       try {
         schemaHtml = generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
         const scriptRegex =
-          /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
+          /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
         let match: RegExpExecArray | null;
         while ((match = scriptRegex.exec(schemaHtml)) !== null) {
           try {

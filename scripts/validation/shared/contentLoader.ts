@@ -11,6 +11,10 @@
  */
 
 import { contentIndex as defaultContentIndex } from "../../../server/content-index";
+import {
+  extractUrlPatternParams,
+  getFullFieldMapping,
+} from "../../../server/content-types";
 import type { ContentFile } from "./types";
 
 export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
@@ -26,6 +30,19 @@ export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
       if (!result.data) continue;
 
       const data = result.data as Record<string, unknown>;
+      const config = index.getContentTypeConfig(entry.contentType);
+      const pattern =
+        config?.url_pattern?.[locale] ||
+        config?.url_pattern?.["default"] ||
+        config?.url_pattern?.["en"];
+      const localeSlug =
+        typeof data.slug === "string" && data.slug ? data.slug : entry.slug;
+      let url: string | undefined;
+      if (pattern) {
+        const mapping = getFullFieldMapping(entry.contentType, index.contentRoot);
+        const { params } = extractUrlPatternParams(pattern, data, mapping);
+        url = index.buildUrl(entry.contentType, locale, localeSlug, params);
+      }
 
       files.push({
         slug: entry.slug,
@@ -36,6 +53,7 @@ export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
         type: entry.contentType,
         locale,
         filePath: result.filePath,
+        url,
       });
     }
   }

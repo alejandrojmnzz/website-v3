@@ -622,7 +622,12 @@ export class ContentIndex {
   }
 
   private getCanonicalUrl(contentType: string, slug: string, locale: string): string {
-    return this.buildUrl(contentType, locale, slug);
+    return this.buildUrl(
+      contentType,
+      locale,
+      slug,
+      this.resolveUrlPatternParamsForEntry(contentType, slug, locale),
+    );
   }
 
   private extractRedirects(

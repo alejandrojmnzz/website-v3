@@ -159,6 +159,7 @@ import {
   loadRawYaml,
   resolveFaqItems,
   buildFaqPageSchema,
+  dedupeFaqItems,
   resolvePageRobots,
   type FaqSection,
 } from "../ssr-schema";
@@ -617,8 +618,9 @@ export function registerSeoRoutes(app: Express): void {
             allFaqItems.push(...items);
           }
         }
-        if (allFaqItems.length > 0) {
-          faqSchema = buildFaqPageSchema(allFaqItems);
+        const dedupedFaqItems = dedupeFaqItems(allFaqItems);
+        if (dedupedFaqItems.length > 0) {
+          faqSchema = buildFaqPageSchema(dedupedFaqItems);
         }
       }
 

@@ -5,6 +5,7 @@
 
 import { deepMerge } from "./utils/deepMerge";
 import { resolveAnchorAlias } from "./utils/sectionAnchors";
+import { canonicalSectionId, sectionIdCandidates } from "./utils/sectionIdentity";
 
 /**
  * Accumulator for per-entry layer metadata collected during merge.
@@ -24,12 +25,13 @@ export interface PerEntryAccum {
 /**
  * Applies a single per-entry layer (either _common.yml or {locale}.yml) on top
  * of the accumulated merged template. Non-sections fields are deep-merged normally.
- * If the layer declares a `sections` array, it is applied as an id-based patch:
- *   - Entries with `_remove: true` remove the matching base section by id.
- *   - Other entries deep-merge their properties into the matching base section by id.
- *   - Entries whose id does not match any base section are treated as new per-entry
- *     sections and appended to the result with `_perEntrySource: true`.
- * Sections without an id in either layer or base are left unchanged.
+ * If the layer declares a `sections` array, it is applied as an identity-based patch
+ * keyed on the canonical section id (`section_id`, with legacy `id` as fallback):
+ *   - Entries with `_remove: true` remove the matching base section.
+ *   - Other entries deep-merge their properties into the matching base section.
+ *   - Entries whose identity does not match any base section are treated as new
+ *     per-entry sections and appended to the result with `_perEntrySource: true`.
+ * Sections without an identity in either layer or base are left unchanged.
  */
 export function applyPerEntryLayer(
   base: Record<string, unknown>,
@@ -55,25 +57,32 @@ export function applyPerEntryLayer(
     ? (result.sections as unknown[]).filter((s): s is Record<string, unknown> => s != null && typeof s === "object")
     : [];
 
-  // Build set of base section IDs for fast lookup
-  const baseSectionIds = new Set<string>(
-    baseSections
-      .map((s) => (typeof s.id === "string" ? s.id : null))
-      .filter(Boolean) as string[],
-  );
+  // Map every identity a base section answers to (canonical `section_id` plus
+  // legacy `id` alias) onto its canonical key, so layer references written
+  // against either field resolve to the same base section.
+  const baseKeyByCandidate = new Map<string, string>();
+  for (const s of baseSections) {
+    const canonical = canonicalSectionId(s);
+    if (!canonical) continue;
+    for (const candidate of sectionIdCandidates(s)) {
+      if (!baseKeyByCandidate.has(candidate)) baseKeyByCandidate.set(candidate, canonical);
+    }
+  }
 
+  // Sets/maps below are keyed by the base section's canonical id
   const removeIds = new Set<string>();
   const patchById = new Map<string, Record<string, unknown>>();
   const perEntryNewSections: Record<string, unknown>[] = [];
 
   for (const s of layerSections) {
     if (!s || typeof s !== "object") continue;
-    const id = typeof s.id === "string" ? s.id : undefined;
-    if (!id) continue;
+    const candidates = sectionIdCandidates(s);
+    if (candidates.length === 0) continue;
+    const baseKey = candidates.map((c) => baseKeyByCandidate.get(c)).find(Boolean);
     if (s._remove) {
-      removeIds.add(id);
-    } else if (baseSectionIds.has(id)) {
-      patchById.set(id, s);
+      if (baseKey) removeIds.add(baseKey);
+    } else if (baseKey) {
+      patchById.set(baseKey, s);
     } else {
       // Section exists in per-entry layer only — it's a new per-entry addition
       perEntryNewSections.push(s);
@@ -86,11 +95,11 @@ export function applyPerEntryLayer(
   // partially-filtered base of a subsequent layer call.
   if (accum) {
     baseSections.forEach((s, idx) => {
-      const id = typeof s.id === "string" ? s.id : undefined;
+      const id = canonicalSectionId(s);
       if (id && removeIds.has(id)) {
         // Avoid duplicates when both _common.yml and {locale}.yml mark the same section removed
         const alreadyRecorded = accum.removedSections.some(
-          (r) => typeof r.section.id === "string" && r.section.id === id,
+          (r) => canonicalSectionId(r.section) === id,
         );
         if (!alreadyRecorded) {
           const originalIndex = accum.baseIndexById?.get(id) ?? idx;
@@ -102,11 +111,11 @@ export function applyPerEntryLayer(
 
   const filteredAndPatched = baseSections
     .filter((s) => {
-      const id = typeof s.id === "string" ? s.id : undefined;
+      const id = canonicalSectionId(s);
       return !id || !removeIds.has(id);
     })
     .map((s) => {
-      const id = typeof s.id === "string" ? s.id : undefined;
+      const id = canonicalSectionId(s);
       if (!id) return s;
       const patch = patchById.get(id);
       if (!patch) return s;
@@ -123,9 +132,7 @@ export function applyPerEntryLayer(
   // Build a set of current base section IDs for fast lookup.
   if (aliases && Object.keys(aliases).length > 0) {
     const patchedIds = new Set<string>(
-      filteredAndPatched
-        .map((s) => (typeof s.id === "string" ? s.id : null))
-        .filter(Boolean) as string[],
+      filteredAndPatched.flatMap((s) => sectionIdCandidates(s)),
     );
     for (const s of taggedNew) {
       const anchorId = s._insertAfterSectionId;
@@ -166,26 +173,21 @@ export function applyPerEntryLayer(
     return rest;
   };
 
-  // Helper: resolve a section's lookup key — prefer `id`, fall back to `section_id`.
-  // Template sections created before the `id` field was introduced only have `section_id`.
-  const sectionKey = (s: Record<string, unknown>): string | undefined => {
-    if (typeof s.id === "string" && s.id) return s.id;
-    if (typeof s.section_id === "string" && s.section_id) return s.section_id;
-    return undefined;
-  };
-
-  // Phase 1: Build finalSections using base section anchors
+  // Phase 1: Build finalSections using base section anchors.
+  // Anchors may have been written against either identity field (canonical
+  // `section_id` or legacy `id`), so match against all candidates.
   const finalSections: Record<string, unknown>[] = [
     ...insertBeforeAll.map(stripHint),
   ];
   for (const s of filteredAndPatched) {
     finalSections.push(s);
-    const id = sectionKey(s);
-    if (id && insertAfterMap.has(id)) {
-      for (const newS of insertAfterMap.get(id)!) {
-        finalSections.push(stripHint(newS));
+    for (const candidate of sectionIdCandidates(s)) {
+      if (insertAfterMap.has(candidate)) {
+        for (const newS of insertAfterMap.get(candidate)!) {
+          finalSections.push(stripHint(newS));
+        }
+        insertAfterMap.delete(candidate);
       }
-      insertAfterMap.delete(id);
     }
   }
 
@@ -196,7 +198,7 @@ export function applyPerEntryLayer(
     madeProgress = false;
     for (const [anchorId, sections] of [...insertAfterMap.entries()]) {
       const anchorIdx = finalSections.findIndex(
-        (s) => sectionKey(s) === anchorId,
+        (s) => sectionIdCandidates(s).includes(anchorId),
       );
       if (anchorIdx !== -1) {
         // Insert immediately after the anchor (in reverse to preserve order when splicing)

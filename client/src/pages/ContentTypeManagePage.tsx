@@ -62,6 +62,7 @@ interface StaticEntry {
   locales: string[];
   urls: Record<string, string>;
   versionCounts?: Record<string, number>;
+  mappingErrors?: string[];
 }
 
 interface FieldMapping {
@@ -3079,6 +3080,7 @@ export default function ContentTypeManagePage() {
   const label = contentType.charAt(0).toUpperCase() + contentType.slice(1);
 
   const [search, setSearch] = useState("");
+  const [errorsOnly, setErrorsOnly] = useState(false);
   const [tagFilters, setTagFilters] = useState<Record<string, string[]>>({});
   const [clearing, setClearing] = useState(false);
   const [dsDialogOpen, setDsDialogOpen] = useState(false);
@@ -3323,10 +3325,17 @@ export default function ContentTypeManagePage() {
   })();
 
   const staticEntries = staticEntriesData?.results || [];
+  const staticEntriesWithErrors = staticEntries.filter(
+    (e) => (e.mappingErrors?.length ?? 0) > 0,
+  ).length;
   const filteredStatic = (() => {
-    if (!search.trim()) return staticEntries;
+    let list = staticEntries;
+    if (errorsOnly) {
+      list = list.filter((e) => (e.mappingErrors?.length ?? 0) > 0);
+    }
+    if (!search.trim()) return list;
     const q = search.toLowerCase();
-    return staticEntries.filter(
+    return list.filter(
       (e) => e.title.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
     );
   })();
@@ -4017,6 +4026,18 @@ export default function ContentTypeManagePage() {
                   </div>
                 )}
               </div>
+              {viewMode === "static" && staticEntriesWithErrors > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`gap-1.5 ${errorsOnly ? "border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15" : "text-muted-foreground"}`}
+                  onClick={() => setErrorsOnly((v) => !v)}
+                  data-testid="button-filter-errors-only"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Errors only ({staticEntriesWithErrors})
+                </Button>
+              )}
               {(() => {
                 const facets = allItemsData?.facets;
                 if (viewMode !== "db" || !facets || Object.keys(facets).length === 0) return null;
@@ -4187,6 +4208,45 @@ export default function ContentTypeManagePage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
+                                {(entry.mappingErrors?.length ?? 0) > 0 && (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        data-testid={`button-errors-${entry.slug}`}
+                                      >
+                                        <AlertTriangle className="h-3.5 w-3.5" />
+                                        Errors {entry.mappingErrors!.length}
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="min-w-[200px]">
+                                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                        Missing mapped fields
+                                      </div>
+                                      {entry.mappingErrors!.map((field) => (
+                                        <div
+                                          key={field}
+                                          className="flex items-center gap-2 px-2 py-1 text-[13px]"
+                                          data-testid={`text-error-field-${entry.slug}-${field}`}
+                                        >
+                                          <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                                          <code className="text-xs">{field}</code>
+                                        </div>
+                                      ))}
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => handleEditYaml(entry)}
+                                        className="text-[13px]"
+                                        data-testid={`menu-fix-yaml-${entry.slug}`}
+                                      >
+                                        <Code className="h-4 w-4 mr-2" />
+                                        Edit YAML
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                )}
                                 {Object.keys(entry.urls).length > 0 && (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -4547,6 +4607,9 @@ export default function ContentTypeManagePage() {
             {viewMode === "static" && !staticLoading && filteredStatic.length > 0 && (
               <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
                 Showing {filteredStatic.length} of {staticEntries.length} entries
+                {staticEntriesWithErrors > 0 && (
+                  <span data-testid="text-error-count"> · {staticEntriesWithErrors} with mapping errors</span>
+                )}
               </div>
             )}
             {viewMode === "db" && !allLoading && filtered.length > 0 && (

@@ -63,7 +63,7 @@ export default function PrivatePreview() {
 
   const { data: content, isLoading, error, refetch } = useQuery<ContentData>({
     queryKey: ["/api/preview", normalizedType, slug, variant, version, locale],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       let url: string;
       if (staticApiPath) {
         url = `/api/${staticApiPath}/${slug}?locale=${locale}`;
@@ -72,11 +72,28 @@ export default function PrivatePreview() {
       }
       if (variant) url += `&force_variant=${variant}`;
       if (version) url += `&force_version=${version}`;
-      const response = await apiFetch(url);
-      if (!response.ok) {
-        throw new Error("Content not found");
+
+      // Bound the wait so a hung fetch cannot leave the page on "Loading…" forever.
+      const timeoutMs = 20_000;
+      const timeoutCtrl = new AbortController();
+      const timer = setTimeout(() => timeoutCtrl.abort(), timeoutMs);
+      const onAbort = () => timeoutCtrl.abort();
+      signal?.addEventListener("abort", onAbort);
+      try {
+        const response = await apiFetch(url, { signal: timeoutCtrl.signal });
+        if (!response.ok) {
+          throw new Error("Content not found");
+        }
+        return response.json();
+      } catch (err) {
+        if (timeoutCtrl.signal.aborted && !signal?.aborted) {
+          throw new Error(`Timed out loading ${normalizedType} preview`);
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
       }
-      return response.json();
     },
     enabled: !!slug && isValidContentType && !typesLoading,
   });

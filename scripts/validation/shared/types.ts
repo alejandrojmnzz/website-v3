@@ -79,6 +79,8 @@ export interface ContentFile {
   type: string;
   locale: string;
   filePath: string;
+  /** Resolved public path including url_pattern params (e.g. :category). */
+  url?: string;
   variant?: string;
   version?: number;
 }

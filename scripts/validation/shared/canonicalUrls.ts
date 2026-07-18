@@ -8,7 +8,11 @@ import type { ContentFile } from "./types";
 import { contentIndex } from "../../../server/content-index";
 
 export function getCanonicalUrl(file: ContentFile): string {
+  if (file.url) return file.url;
   const locale = file.locale === "_common" ? "en" : file.locale;
+  // Prefer locale URLs that resolve pattern params (e.g. blog :category).
+  const localeUrls = contentIndex.getLocaleUrls(file.slug, file.type);
+  if (localeUrls[locale]) return localeUrls[locale];
   return contentIndex.buildUrl(file.type, locale, file.slug);
 }
 

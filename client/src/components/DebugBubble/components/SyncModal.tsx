@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ExternalLink, Github, Pencil, RefreshCw, Save, Search, Trash2, Undo2, Webhook, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ExternalLink, FileDiff, Github, Pencil, RefreshCw, Save, Search, Trash2, Undo2, Webhook, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +59,7 @@ export interface SyncModalProps {
   advancedOptionsOpen: boolean;
   setAdvancedOptionsOpen: (v: boolean) => void;
   getDebugToken: () => string | null;
+  onViewDiff: (filePath: string) => void;
   toast: any;
 }
 
@@ -94,6 +95,7 @@ export function SyncModal({
   advancedOptionsOpen,
   setAdvancedOptionsOpen,
   getDebugToken,
+  onViewDiff,
   toast,
 }: SyncModalProps) {
   const [bulkPullPromptFile, setBulkPullPromptFile] = useState<string | null>(null);
@@ -832,6 +834,20 @@ export function SyncModal({
                                 )}
                                 <div className="flex-1" />
                                 <div className="flex items-center gap-1">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-6 w-6"
+                                        onClick={() => onViewDiff(change.file)}
+                                        data-testid={`button-view-diff-${index}`}
+                                      >
+                                        <FileDiff className="h-3 w-3" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top"><p>View diff</p></TooltipContent>
+                                  </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <Button

@@ -1681,6 +1681,27 @@ export function registerContentRoutes(app: Express): void {
       const { type } = req.params;
       const entries = getCI(res).findByType(type);
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+
+      // Per-slug mapping gaps: invert validateFieldMapping's per-field missing
+      // lists into slug → missing mapped-field names (e.g. ["image"]).
+      // Only meaningful for YAML-backed types; DB-backed entries are validated
+      // against the database, not per-entry YAML.
+      const missingBySlug = new Map<string, string[]>();
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (config && !config.database?.slug) {
+        const mapping = getFieldMapping(type, ctRoot(res));
+        if (mapping) {
+          const { results: mappingResults } = validateFieldMapping(type, mapping);
+          for (const [field, result] of Object.entries(mappingResults)) {
+            for (const missing of result.missing) {
+              const list = missingBySlug.get(missing.slug);
+              if (list) list.push(field);
+              else missingBySlug.set(missing.slug, [field]);
+            }
+          }
+        }
+      }
+
       const results = entries.map((entry) => {
         const urls = getCI(res).getLocaleUrls(entry.slug, type);
         const versionCounts = versioningManager.getVersionCounts(type, entry.slug);
@@ -1692,6 +1713,7 @@ export function registerContentRoutes(app: Express): void {
           ),
           urls,
           versionCounts,
+          mappingErrors: missingBySlug.get(entry.slug) ?? [],
         };
       });
       res.json({ count: results.length, results });

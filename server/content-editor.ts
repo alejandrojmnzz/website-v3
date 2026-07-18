@@ -31,6 +31,7 @@ import { mergeSingleTemplate, extractVariableFields, TEMPLATE_EXPR_RE } from "./
 import { getDatabaseName, getLookupKey, getFieldMapping, isValidType, getAllTypes, getFolder, getContentTypeConfig } from "./content-types";
 import { databaseManager, DatabaseManager } from "./database";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
+import { canonicalSectionId, sectionIdCandidates, sectionMatchesId } from "./utils/sectionIdentity";
 import {
   refreshSitemapEntry,
   refreshSitemapEntriesForContentKey,
@@ -232,12 +233,17 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author, contentRoot, database: request.database, ci });
     }
 
-    // For DB-backed entries that have their own per-entry file (isSharedTemplate=false),
+    // For shared-template entries that have their own per-entry file (isSharedTemplate=false),
     // the client sends indices relative to the fully merged view (template + per-entry).
+    // This applies to DB-backed types AND static types with single_template: true —
+    // both use the same merge model via mergeSingleTemplate.
     // Translate update_section indices from the merged view to the per-entry local indices
     // before applying, so we write to the correct section in the per-entry file.
+    const usesSharedTemplate =
+      ci.isDatabaseBacked(contentType) ||
+      !!getContentTypeConfig(contentType, contentRoot)?.single_template;
     let resolvedOperations = operations;
-    if (ci.isDatabaseBacked(contentType) && operations.some(op => op.action === "update_section")) {
+    if (usesSharedTemplate && operations.some(op => op.action === "update_section")) {
       const mergedTemplate = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedTemplate?.sections)
         ? (mergedTemplate!.sections as Record<string, unknown>[])
@@ -258,15 +264,12 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
 
           // Resolve the section identity from the merged view.
           const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
-          const sectionId = mergedSection
-            ? ((mergedSection.id as string | undefined) || (mergedSection.section_id as string | undefined))
-            : undefined;
+          const sectionCandidates = sectionIdCandidates(mergedSection);
 
-          // Try to find it by ID in the per-entry local file.
-          const localIdx = sectionId !== undefined
+          // Try to find it by identity in the per-entry local file (either field).
+          const localIdx = sectionCandidates.length > 0
             ? localSections.findIndex(
-                s => (s as Record<string, unknown>).id === sectionId ||
-                     (s as Record<string, unknown>).section_id === sectionId
+                s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
               )
             : -1;
 
@@ -312,25 +315,24 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       }
     }
 
-    // Handle reorder_sections for DB-backed per-entry pages.
-    // The client sends merged-view indices. We must translate them appropriately:
+    // Handle reorder_sections for shared-template per-entry pages (DB-backed or
+    // static single_template types). The client sends merged-view indices. We must
+    // translate them appropriately:
     //   • Both template sections   → forward reorder to the shared template file; swap
     //                                _insertAfterSectionId anchors in the per-entry data.
     //   • Both per-entry sections  → translate merged indices to local per-entry indices
     //                                and apply the reorder directly to localeData.
     //   • Boundary (mixed)         → explicit error; moving across template/per-entry
     //                                boundary is not supported.
-    if (ci.isDatabaseBacked(contentType) && resolvedOperations.some(op => op.action === "reorder_sections")) {
+    if (usesSharedTemplate && resolvedOperations.some(op => op.action === "reorder_sections")) {
       const mergedView = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedView?.sections)
         ? (mergedView!.sections as Record<string, unknown>[])
         : [];
 
-      // Helper: return the first non-empty string ID from a section object
+      // Helper: canonical section identity (section_id, legacy id fallback) as string|null
       const getSectionId = (s: Record<string, unknown>): string | null =>
-        typeof s.id === "string" && s.id ? s.id
-          : typeof s.section_id === "string" && s.section_id ? s.section_id
-          : null;
+        canonicalSectionId(s) ?? null;
 
       const opsToRemove = new Set<number>();
 
@@ -367,15 +369,16 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
             ? (templateData.sections as Record<string, unknown>[])
             : [];
 
-          const fromId = typeof fromSection.id === "string" ? fromSection.id : null;
-          const toId = typeof toSection.id === "string" ? toSection.id : null;
+          const fromId = getSectionId(fromSection);
+          const toId = getSectionId(toSection);
 
-          // Resolve template-file indices by section ID (avoids merged-vs-template index divergence)
-          const tplFrom = fromId ? templateSections.findIndex(s => s.id === fromId) : -1;
-          const tplTo = toId ? templateSections.findIndex(s => s.id === toId) : -1;
+          // Resolve template-file indices by section identity (avoids merged-vs-template
+          // index divergence). Match either identity field on the template side.
+          const tplFrom = fromId ? templateSections.findIndex(s => sectionMatchesId(s, fromId)) : -1;
+          const tplTo = toId ? templateSections.findIndex(s => sectionMatchesId(s, toId)) : -1;
 
           if (tplFrom === -1 || tplTo === -1) {
-            throw new Error(`Could not find template sections by ID (from="${fromId}", to="${toId}") — sections may lack id fields`);
+            throw new Error(`Could not find template sections by ID (from="${fromId}", to="${toId}") — sections may lack identity fields`);
           }
 
           const [moved] = templateSections.splice(tplFrom, 1);
@@ -392,15 +395,20 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
           markFileAsModified(templateFilePath, request.author, undefined, contentRoot);
 
           // Swap _insertAfterSectionId anchors that pointed to either moved section,
-          // so per-entry sections keep their intended visual position relative to neighbours.
+          // so per-entry sections keep their intended visual position relative to
+          // neighbours. Anchors may have been written against either identity field,
+          // so match all candidates; rewrite to the canonical id.
           if (fromId && toId) {
+            const fromCandidates = sectionIdCandidates(fromSection);
+            const toCandidates = sectionIdCandidates(toSection);
             const localSections = Array.isArray(localeData.sections)
               ? (localeData.sections as Record<string, unknown>[])
               : [];
             for (const s of localSections) {
               const anchor = s._insertAfterSectionId;
-              if (anchor === fromId) s._insertAfterSectionId = toId;
-              else if (anchor === toId) s._insertAfterSectionId = fromId;
+              if (typeof anchor !== "string") continue;
+              if (fromCandidates.includes(anchor)) s._insertAfterSectionId = toId;
+              else if (toCandidates.includes(anchor)) s._insertAfterSectionId = fromId;
             }
           }
 
@@ -412,10 +420,10 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
           const localSections = Array.isArray(localeData.sections)
             ? (localeData.sections as Record<string, unknown>[])
             : [];
-          const fromId = typeof fromSection.id === "string" ? fromSection.id : null;
-          const toId = typeof toSection.id === "string" ? toSection.id : null;
-          const localFrom = fromId ? localSections.findIndex(s => s.id === fromId) : -1;
-          const localTo = toId ? localSections.findIndex(s => s.id === toId) : -1;
+          const fromId = getSectionId(fromSection);
+          const toId = getSectionId(toSection);
+          const localFrom = fromId ? localSections.findIndex(s => sectionMatchesId(s, fromId)) : -1;
+          const localTo = toId ? localSections.findIndex(s => sectionMatchesId(s, toId)) : -1;
 
           if (localFrom === -1 || localTo === -1) {
             throw new Error(`Per-entry sections not found in local file (from="${fromId}", to="${toId}")`);
@@ -467,7 +475,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
             throw new Error("Cannot resolve per-entry section ID for boundary reorder");
           }
 
-          const localSection = localSections.find(s => getSectionId(s) === perEntrySectionId);
+          const localSection = localSections.find(s => sectionMatchesId(s, perEntrySectionId));
           if (!localSection) {
             throw new Error(`Per-entry section "${perEntrySectionId}" not found in local per-entry file`);
           }

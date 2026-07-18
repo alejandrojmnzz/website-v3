@@ -3,6 +3,7 @@ import { AlertTriangle, Link, Loader2, Trash2 } from "lucide-react";
 import { useState, useRef, useEffect, lazy, Suspense, useMemo } from "react";
 import { useContentTypesRaw } from "@/hooks/useContentTypes";
 import type { Section, EditOperation, SectionLayout, ResponsiveSpacing, ShowOn, PageSettings } from "@shared/schema";
+import { canonicalSectionId } from "@shared/sectionIdentity";
 import { useSession } from "@/contexts/SessionContext";
 import { PageSectionsProvider } from "@/contexts/PageSectionsContext";
 import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
@@ -836,7 +837,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     if (isSharedTemplate) {
       // On the shared template admin page: always show confirmation (with dependants info)
       const rawSection = sections[index] as Record<string, unknown>;
-      const sectionId = typeof rawSection?.id === "string" ? rawSection.id : null;
+      const sectionId = canonicalSectionId(rawSection) ?? null;
       let dependants: string[] = [];
       if (sectionId) {
         try {
@@ -882,7 +883,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     if (isSharedTemplate) {
       // On the shared template admin page: always show confirmation (with dependants info)
       const rawSection = sections[index] as Record<string, unknown>;
-      const sectionId = typeof rawSection?.id === "string" ? rawSection.id : null;
+      const sectionId = canonicalSectionId(rawSection) ?? null;
       let dependants: string[] = [];
       if (sectionId) {
         try {
@@ -957,7 +958,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       // On a specific DB entry page — check if section is per-entry-only
       const rawSection = sections[index] as Record<string, unknown>;
       const isPerEntry = !!(rawSection?._perEntrySource);
-      const sectionId = typeof rawSection?.id === "string" ? rawSection.id : undefined;
+      const sectionId = canonicalSectionId(rawSection);
 
       if (isPerEntry) {
         // Per-entry sections: delete directly — no scope dialog needed
@@ -1262,7 +1263,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   // Restore a ghost section (per-entry removed section)
   const handleRestoreConfirm = async () => {
     if (!contentType || !slug || !locale) return;
-    const sectionId = typeof restoreDialog.section.id === "string" ? restoreDialog.section.id : null;
+    const sectionId = canonicalSectionId(restoreDialog.section) ?? null;
     if (!sectionId) {
       toast({ title: "Cannot restore: section has no id", variant: "destructive" });
       setRestoreDialog({ open: false, section: {}, isRestoring: false });
@@ -1419,8 +1420,8 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                   <Trash2 className="h-4 w-4 shrink-0 text-muted-foreground/60" />
                   <div>
                     <p className="text-sm font-medium">{ghostLabel} — hidden for this entry</p>
-                    {typeof section.id === 'string' && (
-                      <p className="text-xs text-muted-foreground/60 font-mono">#{section.id}</p>
+                    {canonicalSectionId(section as Record<string, unknown>) && (
+                      <p className="text-xs text-muted-foreground/60 font-mono">#{canonicalSectionId(section as Record<string, unknown>)}</p>
                     )}
                   </div>
                 </div>

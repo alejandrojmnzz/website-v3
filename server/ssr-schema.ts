@@ -9,6 +9,8 @@ import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { getFolder, getContentTypeConfig, resolveUrlPatternWithMapping } from "./content-types";
 import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generateHomepageHreflangTags } from "./hreflang";
 import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
+import { applyFilters, applyMatchCountSort, type QueryFilter } from "./query-entries";
+import { faqItemKey } from "./dynamic-entries";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
 
@@ -55,11 +57,23 @@ interface FaqItem {
   priority?: number;
 }
 
+interface FaqDynamicEntries {
+  database?: string;
+  content_type?: string;
+  limit?: number;
+  sort?: string;
+  permanent_filters?: Array<{ item_property_slug: string; value: unknown }>;
+  ignored_entries?: string[];
+  hardcoded_entries?: FaqItem[];
+}
+
 export interface FaqSection {
   type: "faq";
   title?: string;
   items?: FaqItem[];
   related_features?: string[];
+  dynamic_entries?: FaqDynamicEntries;
+  hardcoded_entries?: FaqItem[];
 }
 
 export interface BreadcrumbSectionItem {
@@ -103,9 +117,68 @@ function loadCentralizedFaqs(locale: string, contentRoot: string): FaqItem[] {
   }
 }
 
+interface LocalDbEntries {
+  entries: Record<string, unknown>[];
+  localeField: string | null;
+}
+
+const localDbCacheByRoot = new Map<string, Map<string, LocalDbEntries>>();
+
+/**
+ * Synchronously loads entries from a local-source database
+ * (e.g. db/frequently_asked_questions/faqs.yml). Remote databases are not
+ * supported here; SSR schema generation must stay synchronous.
+ */
+function loadLocalDatabaseEntries(database: string, contentRoot: string): LocalDbEntries {
+  if (!localDbCacheByRoot.has(contentRoot)) localDbCacheByRoot.set(contentRoot, new Map());
+  const rootCache = localDbCacheByRoot.get(contentRoot)!;
+  const cached = rootCache.get(database);
+  if (cached) return cached;
+
+  const empty: LocalDbEntries = { entries: [], localeField: null };
+  try {
+    const dbDir = path.join(contentRoot, "db", database);
+    const configPath = path.join(dbDir, "config.yml");
+    if (!fs.existsSync(configPath)) return empty;
+
+    const config = safeYamlLoad(fs.readFileSync(configPath, "utf-8")) as {
+      source?: { type?: string; local?: { filename?: string; results_path?: string } };
+      field_mapping?: Record<string, string>;
+      filter_by_locale?: boolean;
+    } | null;
+    if (!config || config.source?.type !== "local" || !config.source.local?.filename) return empty;
+
+    const dataPath = path.join(dbDir, config.source.local.filename);
+    if (!fs.existsSync(dataPath)) return empty;
+
+    const raw = safeYamlLoad(fs.readFileSync(dataPath, "utf-8"));
+    const resultsPath = config.source.local.results_path;
+    let entries: unknown = raw;
+    if (resultsPath && raw && typeof raw === "object" && !Array.isArray(raw)) {
+      entries = (raw as Record<string, unknown>)[resultsPath];
+    }
+    if (!Array.isArray(entries)) return empty;
+
+    const localeField =
+      config.filter_by_locale !== false && config.field_mapping?.locale
+        ? config.field_mapping.locale
+        : null;
+
+    const result: LocalDbEntries = {
+      entries: entries as Record<string, unknown>[],
+      localeField,
+    };
+    rootCache.set(database, result);
+    return result;
+  } catch {
+    return empty;
+  }
+}
+
 export function clearSsrSchemaCache(): void {
   faqCacheByRoot.clear();
   imageRegistryByRoot.clear();
+  localDbCacheByRoot.clear();
 }
 
 function parseRoute(url: string, ci: typeof contentIndex = contentIndex): ParsedRoute | null {
@@ -254,7 +327,54 @@ export function resolveFaqItems(section: FaqSection, locale: string, locationSlu
     return filtered.map(({ question, answer }) => ({ question, answer }));
   }
 
+  const dyn = section.dynamic_entries;
+  if (dyn?.database) {
+    const { entries, localeField } = loadLocalDatabaseEntries(dyn.database, contentRoot);
+
+    let items = localeField
+      ? entries.filter((item) => String(item[localeField] ?? "") === locale)
+      : [...entries];
+
+    const filters: QueryFilter[] | undefined = dyn.permanent_filters?.map((pf) => ({
+      field: pf.item_property_slug,
+      value: pf.value,
+    }));
+    items = applyFilters(items, filters);
+    items = applyMatchCountSort(items, filters, dyn.sort);
+
+    const hardcodedEntries = dyn.hardcoded_entries || section.hardcoded_entries || [];
+    const hardcodedCount = hardcodedEntries.length;
+
+    if (dyn.ignored_entries && dyn.ignored_entries.length > 0) {
+      const ignoredSet = new Set(dyn.ignored_entries.map((k) => k.toLowerCase().trim()));
+      items = items.filter((item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))));
+    }
+
+    if (dyn.limit && dyn.limit > 0) {
+      items = items.slice(0, Math.max(0, dyn.limit - hardcodedCount));
+    }
+
+    return [...hardcodedEntries, ...(items as unknown as FaqItem[])]
+      .filter((item) => typeof item?.question === "string" && typeof item?.answer === "string")
+      .map(({ question, answer }) => ({ question, answer }));
+  }
+
   return [];
+}
+
+/** Dedupe FAQ items by normalized question text, preserving first occurrence. */
+export function dedupeFaqItems(
+  items: Array<{ question: string; answer: string }>,
+): Array<{ question: string; answer: string }> {
+  const seen = new Set<string>();
+  const result: Array<{ question: string; answer: string }> = [];
+  for (const item of items) {
+    const key = item.question.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
 }
 
 export function generateDatabaseSsrHtml(
@@ -451,14 +571,12 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
       const programSlug = route.contentType === "program" ? route.slug : undefined;
       const baseUrl = getBaseUrl();
 
+      const allFaqItems: Array<{ question: string; answer: string }> = [];
       for (const section of sections) {
         if (section.type === "faq") {
-          const faqItems = resolveFaqItems(section as unknown as FaqSection, route.locale, locationSlug, programSlug, contentRoot);
-          if (faqItems.length > 0) {
-            scripts.push(
-              `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildFaqPageSchema(faqItems))}</script>`
-            );
-          }
+          allFaqItems.push(
+            ...resolveFaqItems(section as unknown as FaqSection, route.locale, locationSlug, programSlug, contentRoot),
+          );
         }
 
         if (section.type === "breadcrumb") {
@@ -470,6 +588,13 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
             );
           }
         }
+      }
+
+      const dedupedFaqItems = dedupeFaqItems(allFaqItems);
+      if (dedupedFaqItems.length > 0) {
+        scripts.push(
+          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildFaqPageSchema(dedupedFaqItems))}</script>`
+        );
       }
     }
 

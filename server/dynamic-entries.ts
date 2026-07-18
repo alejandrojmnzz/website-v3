@@ -89,7 +89,7 @@ interface DynamicEntriesConfig {
   ignored_entries?: string[];
 }
 
-function faqItemKey(question: string): string {
+export function faqItemKey(question: string): string {
   return question
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")

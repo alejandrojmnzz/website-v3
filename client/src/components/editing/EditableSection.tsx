@@ -21,6 +21,7 @@ import { emitContentUpdated, emitEditStarted } from "@/lib/contentEvents";
 import { renderSection } from "@/components/SectionRenderer";
 import yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { canonicalSectionId } from "@shared/sectionIdentity";
 import * as CountryFlags from "country-flag-icons/react/3x2";
 
 const LazyYamlEditor = lazy(() => import("./YamlEditor"));
@@ -1031,9 +1032,7 @@ export function EditableSection({ children, section, index, sectionType, content
 
   const handleResetPatch = async () => {
     if (!contentType || !slug || !locale) return;
-    const sectionId = typeof (section as Record<string, unknown>).id === "string"
-      ? (section as Record<string, unknown>).id as string
-      : null;
+    const sectionId = canonicalSectionId(section as Record<string, unknown>) ?? null;
     if (!sectionId) return;
     setIsResettingPatch(true);
     try {

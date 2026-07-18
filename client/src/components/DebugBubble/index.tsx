@@ -53,6 +53,7 @@ import { SessionModal } from "./components/SessionModal";
 import { SyncModal } from "./components/SyncModal";
 import { PullConflictModal } from "./components/PullConflictModal";
 import { ConfirmPullFileModal } from "./components/ConfirmPullFileModal";
+import { FileDiffModal } from "./components/FileDiffModal";
 import { DeletePageModal } from "./components/DeletePageModal";
 import { CreateContentModal } from "./components/CreateContentModal";
 import { PageErrorsModal } from "./components/PageErrorsModal";
@@ -216,6 +217,7 @@ export function DebugBubble() {
   const [fileCommitting, setFileCommitting] = useState<string | null>(null);
   const [filePulling, setFilePulling] = useState<string | null>(null);
   const [confirmPullFile, setConfirmPullFile] = useState<string | null>(null);
+  const [diffFile, setDiffFile] = useState<string | null>(null);
   
   // Advanced options state
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
@@ -2181,7 +2183,21 @@ export function DebugBubble() {
         advancedOptionsOpen={advancedOptionsOpen}
         setAdvancedOptionsOpen={setAdvancedOptionsOpen}
         getDebugToken={getDebugToken}
+        onViewDiff={(filePath) => {
+          // Close Sync before opening the diff — avoids stacking two Radix dialogs
+          setCommitModalOpen(false);
+          setDiffFile(filePath);
+        }}
         toast={toast}
+      />
+      <FileDiffModal
+        filePath={diffFile}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiffFile(null);
+            setCommitModalOpen(true);
+          }
+        }}
       />
       <PullConflictModal
         open={pullConflictModalOpen}

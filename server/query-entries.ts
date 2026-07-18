@@ -102,7 +102,7 @@ function itemMatchesFilter(item: Record<string, unknown>, filter: QueryFilter): 
   });
 }
 
-function applyFilters(
+export function applyFilters(
   items: Record<string, unknown>[],
   filters: QueryFilter[] | undefined,
 ): Record<string, unknown>[] {
@@ -118,7 +118,7 @@ function applyFilters(
  * When a filter has multiple values, items matching more values float to the top.
  * Explicit sort is the tiebreaker (default field: priority).
  */
-function applyMatchCountSort(
+export function applyMatchCountSort(
   items: Record<string, unknown>[],
   filters: QueryFilter[] | undefined,
   sort: string | undefined,

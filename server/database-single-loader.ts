@@ -18,6 +18,7 @@ import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
 import { fetchMarkdownContent } from "./markdown";
 import { applyComponentSectionDefaults, applyComponentImageSizes } from "./component-registry";
 import { readSectionAnchors, writeSectionAnchors } from "./utils/sectionAnchors";
+import { canonicalSectionId, sectionIdCandidates } from "./utils/sectionIdentity";
 import { applyPerEntryLayer, type PerEntryAccum } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import type { TemplatePage } from "@shared/schema";
@@ -90,7 +91,7 @@ export function mergeSingleTemplate(
       : [];
     const baseIndexById = new Map<string, number>();
     baseSectionsSnapshot.forEach((s, idx) => {
-      const id = typeof s.id === "string" ? s.id : undefined;
+      const id = canonicalSectionId(s);
       if (id) baseIndexById.set(id, idx);
     });
     accum.baseIndexById = baseIndexById;
@@ -109,9 +110,9 @@ export function mergeSingleTemplate(
         // This handles the case where a section was deleted and then re-created with the same ID.
         const baseSectionIds = new Set<string>(
           Array.isArray(merged.sections)
-            ? (merged.sections as Record<string, unknown>[])
-                .map((s) => (typeof s.id === "string" ? s.id : null))
-                .filter(Boolean) as string[]
+            ? (merged.sections as Record<string, unknown>[]).flatMap((s) =>
+                sectionIdCandidates(s),
+              )
             : [],
         );
         const staleKeys = Object.keys(anchors.aliases).filter((k) => baseSectionIds.has(k));

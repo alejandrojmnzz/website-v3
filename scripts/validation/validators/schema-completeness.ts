@@ -100,7 +100,7 @@ export const schemaCompletenessValidator: Validator = {
 
       pagesWithSchema++;
 
-      const scriptRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
+      const scriptRegex = /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
       let match: RegExpExecArray | null;
       const parsedSchemas: Record<string, unknown>[] = [];
 

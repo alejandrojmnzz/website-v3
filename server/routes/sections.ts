@@ -32,6 +32,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
+import { canonicalSectionId, sectionMatchesId } from "../utils/sectionIdentity";
 import { databaseManager, type DatabaseManager } from "../database";
 import {
   redirectMiddleware,
@@ -290,17 +291,17 @@ export function registerSectionsRoutes(app: Express): void {
         : [];
 
       if (isPerEntry) {
-        // Remove the section from the per-entry file's sections array by id
-        const sectionId = typeof targetSection.id === "string" ? targetSection.id : null;
+        // Remove the section from the per-entry file's sections array by canonical identity
+        const sectionId = canonicalSectionId(targetSection) ?? null;
         if (sectionId) {
           // Find the per-entry section in the entry file to get its anchor before removing it
           const perEntryRecord = entrySections.find(
-            (s) => typeof s.id === "string" && s.id === sectionId,
+            (s) => sectionMatchesId(s, sectionId),
           );
           const anchorId = perEntryRecord?._insertAfterSectionId;
 
           entryData.sections = entrySections.filter(
-            (s) => !(typeof s.id === "string" && s.id === sectionId),
+            (s) => !sectionMatchesId(s, sectionId),
           );
 
           // Remove from dependants index if it was anchored to a template section
@@ -313,11 +314,11 @@ export function registerSectionsRoutes(app: Express): void {
           return;
         }
       } else {
-        // Shared template section — ensure it has an id, then write _remove: true
-        let sectionId = typeof targetSection.id === "string" ? targetSection.id : null;
+        // Shared template section — ensure it has an identity, then write _remove: true
+        let sectionId = canonicalSectionId(targetSection) ?? null;
 
         if (!sectionId) {
-          // Auto-generate an id and patch the shared template.
+          // Auto-generate a section_id and patch the shared template.
           // We must resolve the correct TEMPLATE index (not the merged index) because
           // per-entry removals can shift section positions in the merged view.
           const { generateSectionId } = await import("../utils/generateSectionId");
@@ -359,7 +360,7 @@ export function registerSectionsRoutes(app: Express): void {
 
             const patchIdx = tplIdx !== -1 ? tplIdx : sectionIndex; // fallback: direct index
             if (templateSections[patchIdx]) {
-              templateSections[patchIdx] = { ...templateSections[patchIdx], id: sectionId };
+              templateSections[patchIdx] = { ...templateSections[patchIdx], section_id: sectionId };
               templateData.sections = templateSections;
               const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
               const { escaped, map } = escapeObjectVars(templateData);
@@ -372,10 +373,10 @@ export function registerSectionsRoutes(app: Express): void {
 
         // Write _remove: true into per-entry file
         const alreadyRemoved = entrySections.some(
-          (s) => typeof s.id === "string" && s.id === sectionId && s._remove === true,
+          (s) => sectionMatchesId(s, sectionId) && s._remove === true,
         );
         if (!alreadyRemoved) {
-          entryData.sections = [...entrySections, { id: sectionId, _remove: true }];
+          entryData.sections = [...entrySections, { section_id: sectionId, _remove: true }];
         }
       }
 
@@ -432,9 +433,9 @@ export function registerSectionsRoutes(app: Express): void {
         ? (entryData.sections as Record<string, unknown>[])
         : [];
 
-      // Remove the _remove: true entry for this sectionId
+      // Remove the _remove: true entry for this sectionId (either identity field)
       entryData.sections = entrySections.filter(
-        (s) => !(typeof s.id === "string" && s.id === sectionId && s._remove === true),
+        (s) => !(sectionMatchesId(s, sectionId) && s._remove === true),
       );
 
       const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
@@ -493,7 +494,7 @@ export function registerSectionsRoutes(app: Express): void {
 
       // Remove any patch entry (non-_remove) with this sectionId — restores shared template content
       entryData.sections = entrySections.filter(
-        (s) => !(typeof s.id === "string" && s.id === sectionId && !s._remove),
+        (s) => !(sectionMatchesId(s, sectionId) && !s._remove),
       );
 
       const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
@@ -557,13 +558,17 @@ export function registerSectionsRoutes(app: Express): void {
       const { generateSectionId } = await import("../utils/generateSectionId");
       const newSection: Record<string, unknown> = {
         ...sectionData,
-        id: (sectionData.id as string) || generateSectionId((sectionData.type as string) || "section"),
+        section_id:
+          canonicalSectionId(sectionData) ||
+          generateSectionId((sectionData.type as string) || "section"),
       };
+      // Never persist the legacy `id` field on new sections
+      delete newSection.id;
 
       // Resolve _insertAfterSectionId from insertIndex using the current merged page.
       // insertIndex is the position in the merged list where the new section should appear.
       //   insertIndex === 0        → insert before all sections → _insertAfterSectionId: null
-      //   insertIndex > 0         → look at sections[insertIndex - 1].id as the anchor
+      //   insertIndex > 0         → look at the preceding section's identity as the anchor
       //   insertIndex === undefined → no positioning metadata → append at end (backward compat)
       if (insertIndex !== undefined) {
         if (insertIndex === 0) {
@@ -574,19 +579,14 @@ export function registerSectionsRoutes(app: Express): void {
           const mergedSections = Array.isArray(mergedPage?.sections)
             ? (mergedPage!.sections as Record<string, unknown>[])
             : [];
-          // Walk backward from insertIndex - 1 to find the nearest section that has an id.
-          // This handles id-less sections gracefully: we anchor after the closest preceding
-          // named section so the new section lands at (or near) the intended position.
+          // Walk backward from insertIndex - 1 to find the nearest section that has an
+          // identity. This handles id-less sections gracefully: we anchor after the closest
+          // preceding named section so the new section lands at (or near) the intended position.
           let insertAfterSectionId: string | null | undefined = undefined; // undefined = append
           let anchorIsTemplateSectionId = false;
           for (let i = insertIndex - 1; i >= 0; i--) {
             const candidate = mergedSections[i];
-            // Prefer `id`; fall back to `section_id` for legacy template sections
-            // that were created before the `id` field was introduced.
-            const candidateId =
-              (typeof candidate?.id === "string" && candidate.id) ? candidate.id
-              : (typeof candidate?.section_id === "string" && candidate.section_id) ? candidate.section_id
-              : null;
+            const candidateId = canonicalSectionId(candidate) ?? null;
             if (candidateId) {
               insertAfterSectionId = candidateId;
               // Only template-sourced sections should be indexed in dependants;
@@ -677,9 +677,9 @@ export function registerSectionsRoutes(app: Express): void {
       let templateIndex: number;
 
       if (sectionId) {
-        // Preferred: id-based lookup on the base template (no per-entry overlay)
+        // Preferred: identity-based lookup on the base template (no per-entry overlay)
         templateIndex = baseSections.findIndex(
-          (s) => typeof s.id === "string" && s.id === sectionId,
+          (s) => sectionMatchesId(s, sectionId),
         );
         if (templateIndex === -1) {
           res.status(404).json({ error: `Section with id '${sectionId}' not found in shared template` });
@@ -723,9 +723,9 @@ export function registerSectionsRoutes(app: Express): void {
         ? [...(templateData.sections as Record<string, unknown>[])]
         : [];
 
-      // Find the section in the template file by id (file may differ from merged if _common overlays)
+      // Find the section in the template file by identity (file may differ from merged if _common overlays)
       const fileIndex = sectionId
-        ? templateSections.findIndex((s) => typeof s.id === "string" && s.id === sectionId)
+        ? templateSections.findIndex((s) => sectionMatchesId(s, sectionId))
         : -1;
 
       const effectiveIndex = fileIndex !== -1 ? fileIndex : templateIndex;
@@ -733,11 +733,9 @@ export function registerSectionsRoutes(app: Express): void {
       // Capture the deleted section's actual ID and its predecessor ID before splicing
       const deletedSection = templateSections[effectiveIndex];
       const actualDeletedId: string | null =
-        sectionId ||
-        (typeof deletedSection?.id === "string" ? deletedSection.id : null);
+        sectionId || canonicalSectionId(deletedSection) || null;
       const predecessorSection = effectiveIndex > 0 ? templateSections[effectiveIndex - 1] : null;
-      const predecessorId: string | null =
-        typeof predecessorSection?.id === "string" ? predecessorSection.id : null;
+      const predecessorId: string | null = canonicalSectionId(predecessorSection) ?? null;
 
       if (fileIndex !== -1) {
         templateSections.splice(fileIndex, 1);
@@ -812,10 +810,10 @@ export function registerSectionsRoutes(app: Express): void {
         return;
       }
 
-      let sectionId = typeof targetSection.id === "string" ? targetSection.id : null;
+      let sectionId = canonicalSectionId(targetSection) ?? null;
 
       if (!sectionId) {
-        // Auto-generate an id and patch the shared template so applyPerEntryLayer can match it
+        // Auto-generate a section_id and patch the shared template so applyPerEntryLayer can match it
         const { generateSectionId } = await import("../utils/generateSectionId");
         sectionId = generateSectionId((targetSection.type as string) || "section");
 
@@ -852,7 +850,7 @@ export function registerSectionsRoutes(app: Express): void {
 
           const patchIdx = tplIdx !== -1 ? tplIdx : sectionIndex;
           if (templateSections[patchIdx]) {
-            templateSections[patchIdx] = { ...templateSections[patchIdx], id: sectionId };
+            templateSections[patchIdx] = { ...templateSections[patchIdx], section_id: sectionId };
             templateData.sections = templateSections;
             const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
             const { escaped, map } = escapeObjectVars(templateData);
@@ -882,9 +880,11 @@ export function registerSectionsRoutes(app: Express): void {
 
       // Remove any existing entry for this section id (patch or _remove) then add the new patch
       const filtered = entrySections.filter(
-        (s) => !(typeof s.id === "string" && s.id === sectionId),
+        (s) => !sectionMatchesId(s, sectionId),
       );
-      filtered.push({ id: sectionId, ...sectionData });
+      const patchEntry: Record<string, unknown> = { ...sectionData, section_id: sectionId };
+      delete patchEntry.id; // never persist the legacy identity field
+      filtered.push(patchEntry);
       entryData.sections = filtered;
 
       const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");

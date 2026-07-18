@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
 import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -425,7 +425,21 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
 
       <div className="p-3 border-b pl-[8px] pr-[8px] pt-[3px] pb-[3px]">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">Dev Tools</h3>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                props.navigate("/");
+              }}
+              className="p-1 rounded-md hover-elevate"
+              data-testid="button-home"
+              title="Go to public home"
+            >
+              <Home className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+            <h3 className="font-semibold text-sm">Dev Tools</h3>
+          </div>
           <div className="flex items-center gap-2">
             {props.contentInfo.type && props.contentInfo.slug && (
               <button

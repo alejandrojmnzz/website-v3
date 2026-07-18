@@ -14,6 +14,7 @@ import {
 } from "@shared/gcsKeys";
 import { gcs } from "./gcs";
 import { safeYamlLoad } from "./routes/_helpers";
+import { canonicalSectionId } from "./utils/sectionIdentity";
 import { child } from "./logger";
 import { getDefaultContentRoot, getSiteConfigs } from "./site-config";
 const log = child({ module: "form-state" });
@@ -272,7 +273,7 @@ function scanFile(absPath: string, contentDir: string): FormStateEntry[] {
   for (const section of sections) {
     if (!section || typeof section !== "object" || Array.isArray(section)) continue;
     const sec = section as Record<string, unknown>;
-    const section_id = typeof sec.id === "string" ? sec.id : "";
+    const section_id = canonicalSectionId(sec) ?? "";
     const section_type = typeof sec.type === "string" ? sec.type : "";
     const variant = typeof sec.variant === "string" ? sec.variant : undefined;
 
