@@ -11,6 +11,9 @@ import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generate
 import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
 import { applyFilters, applyMatchCountSort, type QueryFilter } from "./query-entries";
 import { faqItemKey } from "./dynamic-entries";
+import { mergeSingleTemplate } from "./database-single-loader";
+import { resolveSingleVars } from "./single-resolver";
+import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
 
@@ -359,6 +362,14 @@ export function resolveFaqItems(section: FaqSection, locale: string, locationSlu
       .map(({ question, answer }) => ({ question, answer }));
   }
 
+  // Standalone root hardcoded_entries (no dynamic database, no related_features):
+  // mirrors FaqDefault, which falls back to hardcoded_entries when items is empty.
+  if (section.hardcoded_entries && section.hardcoded_entries.length > 0) {
+    return section.hardcoded_entries
+      .filter((item) => typeof item?.question === "string" && typeof item?.answer === "string")
+      .map(({ question, answer }) => ({ question, answer }));
+  }
+
   return [];
 }
 
@@ -450,6 +461,34 @@ export function generateDatabaseSsrHtml(
     scripts.push(
       `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildBreadcrumbListSchema(breadcrumbItems, baseUrl))}</script>`
     );
+  }
+
+  // Section-driven schema contributions from the fully merged single template
+  // (shared template layers + per-entry overrides), with {{ single.* }} vars
+  // resolved against this record — same sections the page renders.
+  try {
+    const template = mergeSingleTemplate(contentType, locale, (record.slug as string) || undefined, undefined, contentRoot);
+    const templateSections = template?.sections;
+    if (Array.isArray(templateSections)) {
+      const resolvedSections = resolveSingleVars(templateSections, record) as Array<Record<string, unknown>>;
+      const context: SchemaComponentContext = {
+        locale,
+        contentRoot,
+        baseUrl,
+      };
+      for (const sectionSchema of collectSectionSchemas(resolvedSections, context)) {
+        // Blog already emits a synthetic BreadcrumbList above; skip
+        // section-driven trails so we never publish two competing ones.
+        if (contentType === "blog" && (sectionSchema as Record<string, unknown>)["@type"] === "BreadcrumbList") {
+          continue;
+        }
+        scripts.push(
+          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
+        );
+      }
+    }
+  } catch (err) {
+    log.error({ err }, `[SSR-Schema] Error collecting section schemas for ${contentType}`);
   }
 
   const robots = resolveEffectiveRobots(
@@ -550,8 +589,16 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
     const route = parseRoute(url, ci);
     if (!route) return "";
 
-    const pageData = loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
+    // Use fully merged content (shared single_template + per-entry layers) so
+    // schema contributors see the same sections the page actually renders.
+    const merged = ci.loadMergedContent(route.contentType, route.slug, route.locale);
+    let pageData = merged.data ?? loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
     if (!pageData) return "";
+    if (merged.data && merged.isSharedTemplate) {
+      // Shared-template pages may reference {{ single.* }} vars; the merged
+      // entry data itself is the "single" record for static entries.
+      pageData = resolveSingleVars(pageData, pageData) as Record<string, unknown>;
+    }
 
     const scripts: string[] = [];
 
@@ -566,34 +613,17 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
     }
 
     const sections = pageData.sections as Array<Record<string, unknown>> | undefined;
-    if (sections) {
-      const locationSlug = route.contentType === "location" ? route.slug : undefined;
-      const programSlug = route.contentType === "program" ? route.slug : undefined;
-      const baseUrl = getBaseUrl();
-
-      const allFaqItems: Array<{ question: string; answer: string }> = [];
-      for (const section of sections) {
-        if (section.type === "faq") {
-          allFaqItems.push(
-            ...resolveFaqItems(section as unknown as FaqSection, route.locale, locationSlug, programSlug, contentRoot),
-          );
-        }
-
-        if (section.type === "breadcrumb") {
-          const bc = section as unknown as BreadcrumbSection;
-          const resolvedItems = (bc.items || []).filter((item) => item.label);
-          if (resolvedItems.length > 0) {
-            scripts.push(
-              `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildBreadcrumbListSchema(resolvedItems, baseUrl))}</script>`
-            );
-          }
-        }
-      }
-
-      const dedupedFaqItems = dedupeFaqItems(allFaqItems);
-      if (dedupedFaqItems.length > 0) {
+    if (Array.isArray(sections)) {
+      const context: SchemaComponentContext = {
+        locale: route.locale,
+        contentRoot,
+        baseUrl: getBaseUrl(),
+        locationSlug: route.contentType === "location" ? route.slug : undefined,
+        programSlug: route.contentType === "program" ? route.slug : undefined,
+      };
+      for (const sectionSchema of collectSectionSchemas(sections, context)) {
         scripts.push(
-          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildFaqPageSchema(dedupedFaqItems))}</script>`
+          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
         );
       }
     }
@@ -624,7 +654,7 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
       : generateHreflangTags(route.contentType, route.slug, route.locale, undefined, undefined, ci);
     return [...hreflangTags, robotsTag, ...socialTags, ...scripts].join("\n");
   } catch (err) {
-    log.error("[SSR-Schema] Error generating schema for", url, err);
+    log.error({ err }, `[SSR-Schema] Error generating schema for ${url}`);
     return "";
   }
 }

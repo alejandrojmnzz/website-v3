@@ -1,17 +1,10 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, FileText, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, FileText, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -436,128 +429,19 @@ function OldLayoutPendingDeletionWarning({
           <span className="font-mono">media/</span>,{" "}
           <span className="font-mono">sync/{"{site}/"}</span>, etc.) are still present
           {hasNewLayout
-            ? " alongside the new multisite keys. The copy step may already be done — "
-            : ". After you run migration step 2, "}
-          those legacy objects remain until you complete step 3 with{" "}
-          <span className="font-mono">--delete-source</span>.
+            ? " alongside the new multisite keys. "
+            : ". "}
+          Remove them with{" "}
+          <span className="font-mono">scripts/admin/migrate-gcs-multisite.ts --execute --delete-source</span>
+          {" "}after confirming the new layout looks correct.
         </p>
         {!compact && (
           <p className="text-muted-foreground">
-            Only run cleanup after refreshing this page and confirming the new layout looks correct.
             Deletion cannot be undone without bucket versioning.
           </p>
         )}
       </div>
     </div>
-  );
-}
-
-function MigrateMultisiteDialog({
-  open,
-  onOpenChange,
-  currentBucket,
-  hasOldLayout,
-  hasNewLayout,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  currentBucket: string | null;
-  hasOldLayout: boolean;
-  hasNewLayout: boolean;
-}) {
-  const bucketPlaceholder = currentBucket ?? "<bucket>";
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-migrate-multisite">
-        <DialogHeader>
-          <DialogTitle>Migrate to multisite layout</DialogTitle>
-          <DialogDescription>
-            Run these commands on a machine with GCS credentials and access to this repo. The script
-            unifies your bucket to the <span className="font-mono">{"{site}/..."}</span> prefix model
-            (media, sync state, conversations, and platform globals).
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 text-sm">
-          {hasOldLayout && (
-            <OldLayoutPendingDeletionWarning
-              hasNewLayout={hasNewLayout}
-              testId="migrate-multisite-old-layout-warning"
-            />
-          )}
-
-          {currentBucket && (
-            <p className="text-muted-foreground text-xs">
-              Current bucket: <span className="font-mono text-foreground">{currentBucket}</span>
-            </p>
-          )}
-
-          <div>
-            <p className="font-medium mb-1">What gets migrated</p>
-            <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
-              <li>Flat <span className="font-mono">media/</span> → <span className="font-mono">{"{site}/media/"}</span></li>
-              <li>Legacy sync keys → <span className="font-mono">{"{site}/sync/*"}</span></li>
-              <li>User store → <span className="font-mono">multisite-global/</span></li>
-              <li>Conversations, Lighthouse, and form state to per-site prefixes</li>
-            </ul>
-          </div>
-
-          <div>
-            <p className="font-medium mb-2">1. Dry run (no changes)</p>
-            <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap">
-{`npx tsx scripts/admin/migrate-gcs-multisite.ts \\
-  --from-bucket=${bucketPlaceholder} \\
-  --to-bucket=<target-bucket>`}
-            </pre>
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Use the same bucket for both flags to migrate in place. You can also set a different{" "}
-              <span className="font-mono">--to-bucket</span> when copying into a new bucket (layout
-              migration only — not a full bucket clone if already on multisite).
-            </p>
-          </div>
-
-          <div>
-            <p className="font-medium mb-2">2. Apply migration</p>
-            <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap">
-{`npx tsx scripts/admin/migrate-gcs-multisite.ts \\
-  --from-bucket=${bucketPlaceholder} \\
-  --to-bucket=<target-bucket> \\
-  --execute`}
-            </pre>
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Resumable with <span className="font-mono">--resume</span>. One site only:{" "}
-              <span className="font-mono">--site=site_4geeks-com</span>.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-medium mb-2">3. Verify, then remove legacy keys</p>
-            <p className="text-xs text-muted-foreground mb-2">
-              Refresh this page and confirm Bucket architecture shows the new layout. Only then run
-              cleanup — this deletes old keys and cannot be undone without bucket versioning.
-            </p>
-            <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap">
-{`npx tsx scripts/admin/migrate-gcs-multisite.ts \\
-  --from-bucket=${bucketPlaceholder} \\
-  --to-bucket=<target-bucket> \\
-  --execute --delete-source`}
-            </pre>
-          </div>
-
-          <div>
-            <p className="font-medium mb-1">4. After migration</p>
-            <p className="text-xs text-muted-foreground">
-              Refresh this page and confirm <strong>New layout</strong> is detected under Bucket
-              architecture. If you changed buckets, update <span className="font-mono">bucket_name</span> in the
-              site registry (<span className="font-mono">sites.yml</span>, synced to GCS in production) and restart
-              the server. Use{" "}
-              <strong>Re-check migration</strong> if the banner is still shown.
-            </p>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -719,7 +603,6 @@ export default function CloudSyncPage() {
   const { recheckGcsMigration, recheckingGcs, recheckMessage } = useSystemAlerts();
   const formatSitePath = useFormatSitePath();
   const [siteFilter, setSiteFilter] = useState<string>("all");
-  const [migrateOpen, setMigrateOpen] = useState(false);
 
   const inventorySiteFolders = useMemo(() => {
     const folders = new Set<string>();
@@ -746,12 +629,6 @@ export default function CloudSyncPage() {
 
   const pendingRows = filteredInventoryRows.filter((r) => r.status === "pending");
   const diagnostics = status?.diagnostics;
-  const needsMultisiteMigration =
-    Boolean(
-      status?.available &&
-        diagnostics &&
-        (!diagnostics.hasNewLayout || diagnostics.hasOldLayout),
-    );
   const lastRefreshedAt = Math.max(statusUpdatedAt ?? 0, inventoryUpdatedAt ?? 0);
   const isRefreshing = isFetching || inventoryFetching;
 
@@ -782,16 +659,6 @@ export default function CloudSyncPage() {
         </div>
         <div className="flex flex-col items-start sm:items-end gap-1 shrink-0 sm:justify-self-end">
           <div className="flex items-center gap-2">
-            {needsMultisiteMigration && (
-              <Button
-                variant="outline"
-                onClick={() => setMigrateOpen(true)}
-                data-testid="button-migrate-multisite"
-              >
-                <ArrowRightLeft className="h-4 w-4 mr-2" />
-                Migrate to multisite
-              </Button>
-            )}
             <Button
               variant="outline"
               onClick={handleRefresh}
@@ -811,14 +678,6 @@ export default function CloudSyncPage() {
           </p>
         </div>
       </div>
-
-      <MigrateMultisiteDialog
-        open={migrateOpen}
-        onOpenChange={setMigrateOpen}
-        currentBucket={status?.bucketName ?? null}
-        hasOldLayout={diagnostics?.hasOldLayout ?? false}
-        hasNewLayout={diagnostics?.hasNewLayout ?? false}
-      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -899,7 +758,11 @@ export default function CloudSyncPage() {
           <CardContent className="pt-6">
             <p className="text-sm text-foreground font-medium">GCS migration required</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Bucket uses the old flat layout. GCS writes are blocked until migration completes.
+              Bucket uses the old flat layout. GCS writes are blocked until migration completes. Run{" "}
+              <span className="font-mono text-xs">
+                npx tsx scripts/admin/migrate-gcs-multisite.ts --to-bucket=&lt;bucket&gt; --execute
+              </span>
+              .
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <Button

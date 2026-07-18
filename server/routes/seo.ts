@@ -157,12 +157,9 @@ import {
   generateListingSsrHtml,
   clearSsrSchemaCache,
   loadRawYaml,
-  resolveFaqItems,
-  buildFaqPageSchema,
-  dedupeFaqItems,
   resolvePageRobots,
-  type FaqSection,
 } from "../ssr-schema";
+import { collectSectionSchemas } from "../schema-components";
 import {
   fetchMarkdownContent,
   clearMarkdownCache,
@@ -551,6 +548,18 @@ export function registerSeoRoutes(app: Express): void {
         const singleEntry = (page.singleEntry as Record<string, unknown>) || {};
         const resolvedPage = resolveSingleVars(page, singleEntry) as typeof page;
 
+        let faqSchema: Record<string, unknown> | null = null;
+        const dbSections = resolvedPage.sections as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(dbSections)) {
+          const sectionSchemas = collectSectionSchemas(dbSections, {
+            locale,
+            contentRoot: getContentRoot(res),
+            baseUrl: getBaseUrl(),
+          });
+          faqSchema =
+            sectionSchemas.find((s) => s["@type"] === "FAQPage") ?? null;
+        }
+
         const meta = (resolvedPage.meta as Record<string, unknown>) || {};
         const schema = resolvedPage.schema as
           | {
@@ -570,7 +579,7 @@ export function registerSeoRoutes(app: Express): void {
 
         res.json({
           meta,
-          faqSchema: null,
+          faqSchema,
           schemaOrg,
           schemaInclude,
           schemaOverrides,
@@ -595,33 +604,25 @@ export function registerSeoRoutes(app: Express): void {
         | undefined;
 
       let faqSchema: Record<string, unknown> | null = null;
-      const sections = pageData.sections as
+      // Use fully merged sections (shared single_template + per-entry layers)
+      // so the preview matches what SSR actually emits.
+      const mergedContent = getCI(res).loadMergedContent(contentType, slug, locale);
+      let sectionsSource = mergedContent.data ?? pageData;
+      if (mergedContent.data && mergedContent.isSharedTemplate) {
+        sectionsSource = resolveSingleVars(sectionsSource, sectionsSource) as Record<string, unknown>;
+      }
+      const sections = sectionsSource.sections as
         | Array<Record<string, unknown>>
         | undefined;
-      if (sections) {
-        // Extract location slug if we're on a location page
-        const locationSlug =
-          getType(contentType) === "location" ? slug : undefined;
-        // Extract program slug if we're on a program page
-        const programSlug =
-          getType(contentType) === "program" ? slug : undefined;
-
-        const allFaqItems: Array<{ question: string; answer: string }> = [];
-        for (const section of sections) {
-          if (section.type === "faq") {
-            const items = resolveFaqItems(
-              section as unknown as FaqSection,
-              locale,
-              locationSlug,
-              programSlug,
-            );
-            allFaqItems.push(...items);
-          }
-        }
-        const dedupedFaqItems = dedupeFaqItems(allFaqItems);
-        if (dedupedFaqItems.length > 0) {
-          faqSchema = buildFaqPageSchema(dedupedFaqItems);
-        }
+      if (Array.isArray(sections)) {
+        const sectionSchemas = collectSectionSchemas(sections, {
+          locale,
+          contentRoot: getContentRoot(res),
+          baseUrl: getBaseUrl(),
+          locationSlug: getType(contentType) === "location" ? slug : undefined,
+          programSlug: getType(contentType) === "program" ? slug : undefined,
+        });
+        faqSchema = sectionSchemas.find((s) => s["@type"] === "FAQPage") ?? null;
       }
 
       let schemaOrg: Record<string, unknown>[] = [];

@@ -44,6 +44,11 @@ export interface ComponentSchema {
   when_to_use: string;
   section_defaults?: Record<string, unknown>;
   image_sizes?: Record<string, string>;
+  /**
+   * Advisory: this section type contributes schema.org JSON-LD during SSR.
+   * The executable mapping lives in `server/schema-components/index.ts`.
+   */
+  schema_org?: { handler: string; description?: string };
   props: Record<string, unknown>;
 }
 

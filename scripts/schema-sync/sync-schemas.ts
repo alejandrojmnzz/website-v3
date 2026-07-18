@@ -33,6 +33,7 @@ interface SchemaYml {
   file?: string;
   description?: string;
   when_to_use?: string;
+  schema_org?: { handler?: string; description?: string };
   variants?: Record<string, { description?: string; best_for?: string }>;
   props?: Record<string, PropDef>;
   variant_props?: Record<string, Record<string, PropDef>>;
@@ -294,6 +295,8 @@ async function processComponent(componentPath: string, dryRun: boolean): Promise
       file: existing?.file || `client/src/components/${componentName}/${componentName.charAt(0).toUpperCase() + componentName.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase())}.tsx`,
       description: existing?.description || "",
       when_to_use: existing?.when_to_use || "",
+      // Advisory SSR schema.org metadata is hand-authored; always preserve it.
+      ...(existing?.schema_org ? { schema_org: existing.schema_org } : {}),
     };
 
     // Handle variants
