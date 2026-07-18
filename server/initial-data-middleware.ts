@@ -323,7 +323,11 @@ export interface PreloadHint {
 
 const IMAGE_URL_PATTERN = /\.(png|jpe?g|webp|avif|gif|svg)(\?|$)/i;
 
-const IMAGE_ID_KEY_PATTERN = /(?:^|_)image_id$/;
+/** Matches snake_case `image_id` / `*_image_id` and camelCase `imageId` (navbar Logo). */
+const IMAGE_ID_KEY_PATTERN = /(?:^|_)image_id$|^imageId$/;
+
+/** Fallback used by LogoItem when menu YAML omits imageId (e.g. localized menus). */
+const DEFAULT_NAVBAR_LOGO_ID = "4geeks-devs-logo-1763162063433";
 
 function extractImageRefsFromValue(value: unknown, refs: ImageRefs, parentKey?: string): void {
   if (!value || typeof value !== "object") return;
@@ -352,6 +356,16 @@ function extractImageRefsFromValue(value: unknown, refs: ImageRefs, parentKey?: 
       const preset = typeof img.preset === "string" ? img.preset : undefined;
       refs.ids.set(img.id, preset);
     }
+  }
+
+  // Navbar Logo items use component: Logo + optional imageId (camelCase).
+  // Always include them so the SSR registry subset keeps the brand mark visible.
+  if (obj.component === "Logo") {
+    const logoId =
+      typeof obj.imageId === "string" && obj.imageId.trim()
+        ? obj.imageId.trim()
+        : DEFAULT_NAVBAR_LOGO_ID;
+    if (!refs.ids.has(logoId)) refs.ids.set(logoId, undefined);
   }
 
   if (typeof obj.src === "string" && obj.src.startsWith("http") && IMAGE_URL_PATTERN.test(obj.src)) {
