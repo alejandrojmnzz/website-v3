@@ -8,8 +8,10 @@ packages = ["imagemagick", "libwebp", "unzip"]
 
 [deployment]
 deploymentTarget = "vm"
-build = ["npm", "run", "build"]
-run = ["node", "dist/index.js"]
+# Symlink lets Vite/esbuild resolve @shared during build (see .agents/memory/prod-build-shared-alias.md).
+# npm run build also emits dist/mcp-server.js; start-production.sh runs main + MCP together.
+build = ["bash", "-c", "ln -sfn \"$(pwd)/shared\" node_modules/@shared && npm run build"]
+run = ["bash", "scripts/start-production.sh"]
 
 [[ports]]
 localPort = 3001

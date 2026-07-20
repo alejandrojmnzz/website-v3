@@ -78,6 +78,7 @@ import { AutomationsTagsCard } from "./AutomationsTagsCard";
 import { ConsentCard } from "./ConsentCard";
 import type { ConsentValues } from "./ConsentCard";
 import { WebhookCard, type WebhookSource } from "./WebhookCard";
+import { SuccessCard } from "./SuccessCard";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import CodeMirror from "@uiw/react-codemirror";
 import type { EditorView } from "@codemirror/view";
@@ -550,6 +551,7 @@ export function SectionEditorPanel({
   const [conversionNameEditing, setConversionNameEditing] = useState(false);
   const [consentsEditing, setConsentsEditing] = useState(false);
   const [webhookEditing, setWebhookEditing] = useState(false);
+  const [successEditing, setSuccessEditing] = useState(false);
 
   const sectionComponentType = (section as Record<string, unknown>)?.type as string || "";
 
@@ -1757,6 +1759,7 @@ export function SectionEditorPanel({
         tags: event.tags,
         consent: event.consent,
         webhook: event.webhook,
+        success: event.success,
       },
       formSettingsPath
     );
@@ -6614,6 +6617,40 @@ export function SectionEditorPanel({
                       GTM event fired on form submission. Must match a configured conversion event.
                     </p>
                   </div>
+                );
+              })()}
+
+              {/* Success behavior (post-submit message or redirect) */}
+              {(() => {
+                const successMessage = String(
+                  getValueAtFieldPath(parsedSection, `${formSettingsPath}.success.message`) ?? ""
+                );
+                const successUrl = String(
+                  getValueAtFieldPath(parsedSection, `${formSettingsPath}.success.url`) ?? ""
+                );
+                const convName = String(
+                  getValueAtFieldPath(parsedSection, `${formSettingsPath}.conversion_name`) ?? ""
+                );
+                const convEvent = convName
+                  ? trackingSettings?.conversion_events?.find((e) => e.name === convName)
+                  : undefined;
+                return (
+                  <SuccessCard
+                    message={successMessage}
+                    url={successUrl}
+                    editing={successEditing}
+                    onEditingChange={setSuccessEditing}
+                    locale={locale}
+                    allSections={allSections}
+                    inheritedMessage={convEvent?.success?.message}
+                    inheritedUrl={convEvent?.success?.url}
+                    onChange={(field, value) => {
+                      // updateProperty deletes the key on empty values and prunes
+                      // empty parents, so clearing both removes `success` entirely
+                      // and falls back to the conversion event default.
+                      updateProperty(`${formSettingsPath}.success.${field}`, value);
+                    }}
+                  />
                 );
               })()}
 

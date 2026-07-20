@@ -59,6 +59,11 @@ export interface ConsentDefaults {
   privacy_url?: string;
 }
 
+export interface SuccessDefaults {
+  message?: string;
+  url?: string;
+}
+
 export interface ConversionEventEntry {
   name: string;
   description?: string;
@@ -66,6 +71,7 @@ export interface ConversionEventEntry {
   tags?: string[];
   consent?: ConsentDefaults;
   webhook?: WebhookConfig;
+  success?: SuccessDefaults;
 }
 
 export interface TrackingWebhook {
@@ -265,6 +271,19 @@ function loadSettings(contentRoot?: string): SiteSettings {
         ? (conversionEventsRaw as Array<Record<string, unknown>>)
             .filter((e) => e && typeof e.name === "string")
             .map((e) => {
+              const successRaw = e.success && typeof e.success === "object"
+                ? (e.success as Record<string, unknown>)
+                : null;
+              const success: SuccessDefaults | undefined = successRaw
+                ? {
+                    ...(typeof successRaw.message === "string" && successRaw.message
+                      ? { message: successRaw.message }
+                      : {}),
+                    ...(typeof successRaw.url === "string" && successRaw.url
+                      ? { url: successRaw.url }
+                      : {}),
+                  }
+                : undefined;
               const entry: ConversionEventEntry = {
                 name: e.name as string,
                 ...(typeof e.description === "string" ? { description: e.description } : {}),
@@ -276,6 +295,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
                   ? { consent: parseConsent(e.consent as Record<string, unknown>) }
                   : {}),
                 ...(parseWebhookConfig(e.webhook) ? { webhook: parseWebhookConfig(e.webhook) } : {}),
+                ...(success && (success.message || success.url) ? { success } : {}),
               };
               return entry;
             })
@@ -570,6 +590,12 @@ export function updateTrackingSettings(input: {
           url: e.webhook.url.trim(),
           method: e.webhook.method ?? "POST",
           ...(e.webhook.auth_header?.trim() ? { auth_header: e.webhook.auth_header.trim() } : {}),
+        };
+      }
+      if (e.success?.message?.trim() || e.success?.url?.trim()) {
+        serialized.success = {
+          ...(e.success.message?.trim() ? { message: e.success.message.trim() } : {}),
+          ...(e.success.url?.trim() ? { url: e.success.url.trim() } : {}),
         };
       }
       return serialized;

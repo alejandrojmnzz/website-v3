@@ -27,6 +27,10 @@ export interface ConversionEventDefaults {
     method?: "POST" | "GET";
     auth_header?: string;
   };
+  success?: {
+    message?: string;
+    url?: string;
+  };
 }
 
 /**
@@ -98,6 +102,22 @@ export function resolveFormDefaults(
     const existingUrl = get(result, `${formSettingsPath}.webhook.url`);
     if (!existingUrl) {
       result = set(result, `${formSettingsPath}.webhook`, conversionEvent.webhook);
+    }
+  }
+
+  if (conversionEvent.success) {
+    const existingUrl = get(result, `${formSettingsPath}.success.url`);
+    const existingMessage = get(result, `${formSettingsPath}.success.message`);
+    const hasFormSuccess =
+      (typeof existingUrl === "string" && existingUrl.trim() !== "") ||
+      (typeof existingMessage === "string" && existingMessage.trim() !== "");
+    if (!hasFormSuccess) {
+      const success: { message?: string; url?: string } = {};
+      if (conversionEvent.success.url?.trim()) success.url = conversionEvent.success.url.trim();
+      if (conversionEvent.success.message?.trim()) success.message = conversionEvent.success.message.trim();
+      if (success.url || success.message) {
+        result = set(result, `${formSettingsPath}.success`, success);
+      }
     }
   }
 

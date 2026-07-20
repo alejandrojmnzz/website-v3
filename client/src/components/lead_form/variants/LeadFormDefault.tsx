@@ -349,6 +349,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         tags: eventEntry.tags,
         consent: eventEntry.consent,
         webhook: eventEntry.webhook,
+        success: eventEntry.success,
       },
       "_f"
     );
@@ -628,11 +629,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         }
       }
 
-      if (data.success?.url) {
-        window.location.href = data.success.url;
+      if (resolvedData.success?.url) {
+        window.location.href = resolvedData.success.url;
       } else {
         setIsSuccess(true);
-        setSuccessMessage(data.success?.message || (locale === "es" 
+        setSuccessMessage(resolvedData.success?.message || (locale === "es" 
           ? "¡Gracias! Te contactaremos pronto." 
           : "Thanks! We'll contact you soon."));
       }

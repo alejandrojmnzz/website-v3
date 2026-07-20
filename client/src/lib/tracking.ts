@@ -75,6 +75,11 @@ export interface ConsentDefaults {
   privacy_url?: string;
 }
 
+export interface SuccessDefaults {
+  message?: string;
+  url?: string;
+}
+
 export interface ConversionEventEntry {
   name: string;
   description?: string;
@@ -82,6 +87,7 @@ export interface ConversionEventEntry {
   tags?: string[];
   consent?: ConsentDefaults;
   webhook?: WebhookConfig;
+  success?: SuccessDefaults;
 }
 
 export interface TrackingWebhook {

@@ -5,7 +5,9 @@ import { z } from "zod";
 import yaml from "js-yaml";
 import { MARKETING_CONTENT_PATH } from "../lib/content.js";
 
-const EXPLAIN_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "explain");
+// Use cwd so this resolves correctly both under tsx (mcp-server/…) and the
+// production bundle (dist/mcp-server.js).
+const EXPLAIN_DIR = path.join(process.cwd(), "mcp-server", "explain");
 
 const VALID_TOPICS = ["overview", "content_system", "routing", "images", "sections"] as const;
 type Topic = (typeof VALID_TOPICS)[number];

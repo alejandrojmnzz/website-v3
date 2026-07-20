@@ -54,6 +54,7 @@ import { AutomationsTagsCard } from "@/components/editing/AutomationsTagsCard";
 import { ConsentCard } from "@/components/editing/ConsentCard";
 import type { ConsentValues } from "@/components/editing/ConsentCard";
 import { WebhookCard } from "@/components/editing/WebhookCard";
+import { SuccessCard } from "@/components/editing/SuccessCard";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { type TrackingSettingsResponse, type ConversionEventEntry } from "@/lib/tracking";
@@ -68,6 +69,9 @@ interface EditingEventState {
   automations: string;
   tags: string[];
   consent: ConsentValues;
+  successMessage: string;
+  successUrl: string;
+  successEditing: boolean;
   webhookUrl: string;
   webhookMethod: "POST" | "GET";
   webhookAuthHeader: string;
@@ -89,6 +93,9 @@ function makeEditingState(entry: ConversionEventEntry): EditingEventState {
       termsUrl: entry.consent?.terms_url ?? "",
       privacyUrl: entry.consent?.privacy_url ?? "",
     },
+    successMessage: entry.success?.message ?? "",
+    successUrl: entry.success?.url ?? "",
+    successEditing: false,
     webhookUrl: entry.webhook?.url ?? "",
     webhookMethod: entry.webhook?.method ?? "POST",
     webhookAuthHeader: entry.webhook?.auth_header ?? "",
@@ -530,6 +537,18 @@ export default function ConversionsPage() {
               ...(event.automations.trim() ? { automations: event.automations.trim() } : {}),
               ...(event.tags.length > 0 ? { tags: event.tags } : {}),
               ...(Object.keys(consent).length > 0 ? { consent } : {}),
+              ...(event.successMessage.trim() || event.successUrl.trim()
+                ? {
+                    success: {
+                      ...(event.successMessage.trim()
+                        ? { message: event.successMessage.trim() }
+                        : {}),
+                      ...(event.successUrl.trim()
+                        ? { url: event.successUrl.trim() }
+                        : {}),
+                    },
+                  }
+                : {}),
               ...(event.webhookUrl.trim()
                 ? {
                     webhook: {
@@ -1474,6 +1493,34 @@ export default function ConversionsPage() {
                   }
                   automationSuggestions={formStateSuggestions?.automations ?? []}
                   tagSuggestions={formStateSuggestions?.tags ?? []}
+                />
+              )}
+
+              {/* Success defaults — applied to all forms using this conversion event */}
+              {editingEvent && (
+                <SuccessCard
+                  message={editingEvent.successMessage}
+                  url={editingEvent.successUrl}
+                  editing={editingEvent.successEditing}
+                  onEditingChange={(val) =>
+                    setEditingEvent({ ...editingEvent, successEditing: val })
+                  }
+                  onChange={(field, value) => {
+                    if (field === "message") {
+                      setEditingEvent({
+                        ...editingEvent,
+                        successMessage: value,
+                        ...(value.trim() ? { successUrl: "" } : {}),
+                      });
+                    } else {
+                      setEditingEvent({
+                        ...editingEvent,
+                        successUrl: value,
+                        ...(value.trim() ? { successMessage: "" } : {}),
+                      });
+                    }
+                  }}
+                  testIdPrefix="event-success"
                 />
               )}
 
