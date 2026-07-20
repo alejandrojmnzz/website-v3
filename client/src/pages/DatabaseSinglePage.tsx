@@ -81,7 +81,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
 
   const alternates = useAlternateUrls(location);
   const metaWithAlternates = resolvedMeta ? { ...resolvedMeta, alternates } : undefined;
-  usePageMeta(metaWithAlternates);
+  usePageMeta(metaWithAlternates, locale);
   useSchemaOrg(resolvedSchema);
 
   const handleRefetch = () => {

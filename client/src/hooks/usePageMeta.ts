@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { toOgLocale } from "@shared/locale";
 
 export interface PageMeta {
   page_title?: string;
@@ -14,7 +15,7 @@ export interface PageMeta {
   alternates?: Record<string, string>;
 }
 
-export function usePageMeta(meta: PageMeta | undefined) {
+export function usePageMeta(meta: PageMeta | undefined, locale?: string) {
   useEffect(() => {
     if (!meta) return;
 
@@ -58,6 +59,11 @@ export function usePageMeta(meta: PageMeta | undefined) {
     if (meta.page_title && !meta.page_title.includes("{{")) {
       setMeta("og:title", meta.page_title, true);
       setMeta("twitter:title", meta.page_title);
+    }
+
+    if (locale) {
+      setMeta("og:locale", toOgLocale(locale), true);
+      document.documentElement.lang = locale;
     }
 
     let originalCanonical: string | null = null;
@@ -143,5 +149,5 @@ export function usePageMeta(meta: PageMeta | undefined) {
         }
       }
     };
-  }, [meta]);
+  }, [meta, locale]);
 }

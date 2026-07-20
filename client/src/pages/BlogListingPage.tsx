@@ -123,7 +123,7 @@ export default function BlogListingPage() {
     pagination_prev: prevUrl,
     pagination_next: nextUrl,
     robots: currentPage > 5 ? "noindex, follow" : undefined,
-  });
+  }, locale);
 
   const { data: blogConfig } = useQuery<BlogConfig>({
     queryKey: ["/api/blog/config"],

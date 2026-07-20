@@ -63,7 +63,8 @@ export default function BlogPostPage() {
           description: post.description || "",
           og_image: post.preview || undefined,
         }
-      : undefined
+      : undefined,
+    locale
   );
 
   if (isLoading) {

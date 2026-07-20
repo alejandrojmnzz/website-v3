@@ -19,6 +19,7 @@ import type { SiteContext } from "./site-manager";
 import { readNavigationEagerManifest } from "./navigation-eager-manifest";
 import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./settings";
 import { getApiPath } from "../shared/api-paths";
+import { toOgLocale } from "../shared/locale";
 import { loadDatabaseSinglePage } from "./database-single-loader";
 import { resolveSingleVars } from "./single-resolver";
 import { resolveFieldValue } from "./transform";
@@ -595,6 +596,7 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
 
   const lang = payload.locale || "en";
   html = html.replace(/(<html\s[^>]*lang=")[^"]*(")/i, `$1${lang}$2`);
+  html = replaceMetaContent(html, "property", "og:locale", toOgLocale(lang));
 
   const knownPageApiPaths = new Set(
     Object.keys(getAllConfigs()).map((type) => getApiPath(type)),

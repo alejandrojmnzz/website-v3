@@ -74,7 +74,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
 
   const alternates = useAlternateUrls(currentLocation);
   const metaWithAlternates = data?.meta ? { ...(data.meta as object), alternates } : undefined;
-  usePageMeta(metaWithAlternates);
+  usePageMeta(metaWithAlternates, effectiveLocale);
   useSchemaOrg(data?.schema);
 
   const handleRefetch = () => {

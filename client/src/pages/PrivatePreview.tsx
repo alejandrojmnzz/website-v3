@@ -109,7 +109,7 @@ export default function PrivatePreview() {
     enabled: !!slug && isValidContentType && (!!error || !content),
   });
 
-  usePageMeta(content?.meta);
+  usePageMeta(content?.meta, locale);
   useSchemaOrg(content?.schema);
 
   const handleRefetch = () => {

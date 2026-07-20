@@ -84,7 +84,7 @@ export default function Page() {
 
   const alternates = useAlternateUrls(location);
   const metaWithAlternates = page?.meta ? { ...page.meta, alternates } : undefined;
-  usePageMeta(metaWithAlternates);
+  usePageMeta(metaWithAlternates, locale);
   useSchemaOrg(page?.schema);
 
   const handleRefetch = () => {
