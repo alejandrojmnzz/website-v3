@@ -881,6 +881,7 @@ export default function CareerSupportExplain({ data }: CareerSupportExplainProps
                   onClick={() =>
                     setActiveTab((activeTab - 1 + tabs.length) % tabs.length)
                   }
+                  aria-label="Previous tab"
                   data-testid="button-tab-prev-mobile"
                 >
                   <ChevronLeft className="w-4 h-4 text-primary-foreground" />
@@ -893,6 +894,7 @@ export default function CareerSupportExplain({ data }: CareerSupportExplainProps
                   variant="ghost"
                   className="rounded-lg"
                   onClick={() => setActiveTab((activeTab + 1) % tabs.length)}
+                  aria-label="Next tab"
                   data-testid="button-tab-next-mobile"
                 >
                   <ChevronRight className="w-4 h-4 text-primary-foreground" />
@@ -904,7 +906,7 @@ export default function CareerSupportExplain({ data }: CareerSupportExplainProps
                 className="flex md:hidden items-center justify-center gap-2 mt-4"
                 data-testid="tab-tracking-dots"
               >
-                {tabs.map((_, i) => (
+                {tabs.map((tab, i) => (
                   <button
                     key={i}
                     type="button"
@@ -913,6 +915,7 @@ export default function CareerSupportExplain({ data }: CareerSupportExplainProps
                       "w-2 h-2 rounded-full transition-colors",
                       i === activeTab ? "bg-primary" : "bg-muted-foreground/40",
                     )}
+                    aria-label={tab.tab_label ? `Go to tab: ${tab.tab_label}` : `Go to tab ${i + 1}`}
                     data-testid={`tab-dot-${i}`}
                   />
                 ))}

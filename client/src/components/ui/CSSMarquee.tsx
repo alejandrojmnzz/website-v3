@@ -55,6 +55,9 @@ export function CSSMarquee({
             key={i}
             className="flex items-center"
             aria-hidden={i > 0 ? true : undefined}
+            // `inert` removes the aria-hidden clone from the tab order so focus
+            // can never land inside it. React 18 lacks the boolean typing.
+            {...(i > 0 ? ({ inert: "" } as React.HTMLAttributes<HTMLDivElement>) : {})}
           >
             {children}
           </div>
