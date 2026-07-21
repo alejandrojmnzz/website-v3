@@ -205,8 +205,19 @@ import {
   FixerItemStatus,
 } from "./_helpers";
 import { child } from "../logger";
+import { getAuthSettings, isSignupConfigured } from "../settings";
+import { getDefaultContentRoot } from "../site-config";
 const log = child({ module: "routes/auth" });
 
+function getAuthContentRoot(res: Response): string {
+  return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
+}
+
+/** Resolve a configured path (relative to host) or absolute URL against the auth host. */
+function resolveAuthUrl(pathOrUrl: string, host: string): string {
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  return `${host.replace(/\/$/, "")}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+}
 
 export function registerAuthRoutes(app: Express): void {
   app.get("/api/auth/check-capability", async (req, res) => {
@@ -372,6 +383,212 @@ export function registerAuthRoutes(app: Express): void {
       roles: record.roles,
       capabilities: userStore.getEffectiveCapabilities(resolvedUsername),
     });
+  });
+
+  // Consumer profile — used by signup-aware forms (is_signup) to skip known fields.
+  // Reads the profile endpoint from site auth settings (settings.yml `auth`).
+  // Unlike /api/auth/user-info, this never touches the staff user-store.
+  app.get("/api/auth/profile", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.replace(/^(Token|Bearer)\s+/i, "").trim();
+      if (!token) {
+        res.status(401).json({ valid: false, error: "Authorization required" });
+        return;
+      }
+
+      const auth = getAuthSettings(getAuthContentRoot(res));
+      const host = auth.host || process.env.VITE_BREATHECODE_HOST || BREATHECODE_HOST;
+      const mePath = auth.profile?.path || "/v1/auth/user/me";
+      const meMethod = auth.profile?.method || "GET";
+
+      const meRes = await fetch(resolveAuthUrl(mePath, host), {
+        method: meMethod,
+        headers: {
+          Authorization: `Token ${token}`,
+          ...((meMethod === "POST" || meMethod === "PUT")
+            ? { "Content-Type": "application/json" }
+            : {}),
+        },
+        ...((meMethod === "POST" || meMethod === "PUT") ? { body: "{}" } : {}),
+      });
+      if (!meRes.ok) {
+        res.json({ valid: false });
+        return;
+      }
+      const me = (await meRes.json()) as {
+        id?: number;
+        username?: string;
+        email?: string;
+        first_name?: string;
+        last_name?: string;
+      };
+      res.json({
+        valid: true,
+        id: me.id,
+        username: me.username,
+        email: me.email ?? "",
+        first_name: me.first_name ?? "",
+        last_name: me.last_name ?? "",
+      });
+    } catch (error) {
+      log.error({ err: error }, "Profile fetch error:");
+      res.status(502).json({ valid: false, error: "Failed to fetch profile" });
+    }
+  });
+
+  // Consumer login proxy — authenticates email/password against the login endpoint
+  // from site auth settings (settings.yml `auth.login.path`) and returns the token.
+  const consumerLoginHandler = async (req: import("express").Request, res: import("express").Response) => {
+    try {
+      const { email, password } = (req.body ?? {}) as {
+        email?: string;
+        password?: string;
+      };
+      if (!email || !password) {
+        res.status(400).json({ error: "Email and password are required" });
+        return;
+      }
+
+      const auth = getAuthSettings(getAuthContentRoot(res));
+      const host = (auth.host || process.env.VITE_BREATHECODE_HOST || BREATHECODE_HOST || "").replace(/\/$/, "");
+      if (!host || !/^https?:\/\//i.test(host)) {
+        res.status(500).json({
+          error: "Auth host is not configured. Set auth.host in settings or VITE_BREATHECODE_HOST.",
+        });
+        return;
+      }
+
+      const loginPath = auth.login?.path || "/v1/auth/login/";
+      const loginMethod = auth.login?.method || "POST";
+      const upstreamUrl = resolveAuthUrl(loginPath, host);
+
+      const upstream = await fetch(upstreamUrl, {
+        method: loginMethod,
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email, password }),
+        redirect: "manual",
+      });
+
+      const contentType = upstream.headers.get("content-type") || "";
+      const text = await upstream.text();
+
+      // Follow one redirect only if it still looks like an API URL (avoid HTML login pages).
+      if (
+        [301, 302, 303, 307, 308].includes(upstream.status) &&
+        upstream.headers.get("location")
+      ) {
+        res.status(502).json({
+          error: "Login endpoint redirected instead of returning a token. Check auth.login.path.",
+        });
+        return;
+      }
+
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        log.warn(
+          { upstreamUrl, status: upstream.status, contentType, preview: text.slice(0, 120) },
+          "Login upstream returned non-JSON",
+        );
+        res.status(502).json({
+          error: "Login service returned an unexpected response. Check auth host and login path.",
+        });
+        return;
+      }
+
+      if (!upstream.ok) {
+        const detail =
+          (typeof json.detail === "string" && json.detail) ||
+          (typeof json.error === "string" && json.error) ||
+          (typeof json.non_field_errors === "object" &&
+            Array.isArray(json.non_field_errors) &&
+            String(json.non_field_errors[0])) ||
+          "Invalid credentials";
+        res.status(upstream.status === 400 || upstream.status === 401 ? 401 : upstream.status).json({ error: detail });
+        return;
+      }
+
+      const token =
+        (typeof json.token === "string" && json.token) ||
+        (typeof json.key === "string" && json.key) ||
+        (typeof (json as { access_token?: unknown }).access_token === "string" &&
+          (json as { access_token: string }).access_token) ||
+        "";
+      if (!token) {
+        res.status(502).json({ error: "Login succeeded but no token was returned" });
+        return;
+      }
+
+      res.json({ token });
+    } catch (error) {
+      log.error({ err: error }, "Login proxy error:");
+      res.status(502).json({ error: "Failed to reach login service" });
+    }
+  };
+
+  app.post("/api/auth/login", consumerLoginHandler);
+  // Alias in case an older process/proxy special-cases the /login path.
+  app.post("/api/auth/password-login", consumerLoginHandler);
+
+  // Consumer signup proxy — forwards the mapped payload to the endpoint configured
+  // in site auth settings (settings.yml `auth.signup.path`, e.g. /v1/auth/subscribe/).
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const contentRoot = getAuthContentRoot(res);
+      if (!isSignupConfigured(contentRoot)) {
+        res.status(400).json({ error: "Signup is not configured for this site" });
+        return;
+      }
+
+      const auth = getAuthSettings(contentRoot);
+      const host = auth.host || process.env.VITE_BREATHECODE_HOST || BREATHECODE_HOST;
+      let signupUrl = resolveAuthUrl(auth.signup!.path!, host);
+      const signupMethod = auth.signup?.method || "POST";
+      const payload = (req.body ?? {}) as Record<string, unknown>;
+
+      if (signupMethod === "GET") {
+        const u = new URL(signupUrl);
+        for (const [key, value] of Object.entries(payload)) {
+          if (value === null || value === undefined) continue;
+          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            u.searchParams.set(key, String(value));
+          }
+        }
+        signupUrl = u.toString();
+      }
+
+      const upstream = await fetch(signupUrl, {
+        method: signupMethod,
+        headers:
+          signupMethod === "GET"
+            ? {}
+            : { "Content-Type": "application/json" },
+        ...(signupMethod === "GET"
+          ? {}
+          : { body: JSON.stringify(payload) }),
+      });
+
+      const text = await upstream.text();
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { raw: text };
+      }
+
+      if (!upstream.ok) {
+        log.warn(`[Signup] Upstream ${signupUrl} responded ${upstream.status}`);
+        res.status(upstream.status).json({ error: "Signup failed", details: json });
+        return;
+      }
+
+      res.json({ success: true, data: json });
+    } catch (error) {
+      log.error({ err: error }, "Signup proxy error:");
+      res.status(502).json({ error: "Failed to reach signup service" });
+    }
   });
 
   // Check token validity without full re-validation (for session refresh)

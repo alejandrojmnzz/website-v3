@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   IconArrowLeft,
   IconCheck,
@@ -20,12 +20,11 @@ import {
   IconInfoCircle,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,7 +33,31 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
 import { CAPABILITY_REGISTRY } from "@shared/capabilities";
 import { IconLock } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { AuthTab } from "@/components/settings/AuthTab";
 
+type SecurityTab = "roles" | "users" | "auth" | "captcha";
+
+const SECURITY_TABS: {
+  id: SecurityTab;
+  href: string;
+  label: string;
+  Icon: typeof IconShield;
+  requiresManage: boolean;
+}[] = [
+  { id: "roles", href: "/private/security/roles", label: "Roles", Icon: IconShield, requiresManage: true },
+  { id: "users", href: "/private/security/users", label: "Users", Icon: IconUsers, requiresManage: true },
+  { id: "auth", href: "/private/security/auth", label: "Auth", Icon: IconUserCheck, requiresManage: false },
+  { id: "captcha", href: "/private/security/captcha", label: "Captcha", Icon: IconShieldCheck, requiresManage: false },
+];
+
+function resolveSecurityTab(pathname: string): SecurityTab | null {
+  if (pathname === "/private/security/roles") return "roles";
+  if (pathname === "/private/security/users") return "users";
+  if (pathname === "/private/security/auth") return "auth";
+  if (pathname === "/private/security/captcha") return "captcha";
+  return null;
+}
 interface CapabilityGrant {
   name: string;
   contentTypes?: string[] | "*";
@@ -1129,6 +1152,22 @@ function CaptchaTab() {
 export default function SecurityPage() {
   const { hasCapability } = useDebugAuth();
   const canManageUsers = hasCapability("users_manage");
+  const [pathname, setLocation] = useLocation();
+  const activeTab = resolveSecurityTab(pathname);
+
+  useEffect(() => {
+    if (pathname === "/private/security" || pathname === "/private/security/") {
+      setLocation(canManageUsers ? "/private/security/roles" : "/private/security/captcha");
+    }
+  }, [pathname, canManageUsers, setLocation]);
+
+  if (!activeTab) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -1145,24 +1184,55 @@ export default function SecurityPage() {
           </div>
         </div>
 
-        <Tabs defaultValue={canManageUsers ? "roles" : "captcha"}>
-          <TabsList className="flex w-full">
-            <TabsTrigger value="roles" disabled={!canManageUsers} data-testid="tab-roles">
-              <IconShield className="h-4 w-4 mr-1.5" />
-              Roles
-            </TabsTrigger>
-            <TabsTrigger value="users" disabled={!canManageUsers} data-testid="tab-users">
-              <IconUsers className="h-4 w-4 mr-1.5" />
-              Users
-            </TabsTrigger>
-            <TabsTrigger value="captcha" data-testid="tab-captcha">
-              <IconShieldCheck className="h-4 w-4 mr-1.5" />
-              Captcha
-            </TabsTrigger>
-          </TabsList>
+        <div
+          className="inline-flex h-10 w-full items-center justify-center rounded-md bg-muted p-1 text-muted-foreground"
+          role="tablist"
+          data-testid="security-tablist"
+        >
+          {SECURITY_TABS.map(({ id, href, label, Icon, requiresManage }) => {
+            const disabled = requiresManage && !canManageUsers;
+            const isActive = activeTab === id;
+            if (disabled) {
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  disabled
+                  role="tab"
+                  aria-selected={false}
+                  className="inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
+                  data-testid={`tab-${id}`}
+                >
+                  <Icon className="h-4 w-4 mr-1.5" />
+                  {label}
+                </button>
+              );
+            }
+            return (
+              <Link key={id} href={href} className="flex-1">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  className={cn(
+                    "inline-flex w-full items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    isActive
+                      ? "bg-background text-foreground shadow-sm"
+                      : "hover:text-foreground",
+                  )}
+                  data-testid={`tab-${id}`}
+                >
+                  <Icon className="h-4 w-4 mr-1.5" />
+                  {label}
+                </button>
+              </Link>
+            );
+          })}
+        </div>
 
-          <TabsContent value="roles" className="mt-4">
-            {canManageUsers ? (
+        <div className="mt-4" role="tabpanel">
+          {activeTab === "roles" && (
+            canManageUsers ? (
               <RolesTab />
             ) : (
               <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted-foreground" data-testid="div-security-access-denied">
@@ -1172,11 +1242,11 @@ export default function SecurityPage() {
                   You don't have permission to manage roles and users. Contact a webmaster to request access.
                 </p>
               </div>
-            )}
-          </TabsContent>
+            )
+          )}
 
-          <TabsContent value="users" className="mt-4">
-            {canManageUsers ? (
+          {activeTab === "users" && (
+            canManageUsers ? (
               <UsersTab />
             ) : (
               <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted-foreground">
@@ -1186,13 +1256,13 @@ export default function SecurityPage() {
                   You don't have permission to manage roles and users. Contact a webmaster to request access.
                 </p>
               </div>
-            )}
-          </TabsContent>
+            )
+          )}
 
-          <TabsContent value="captcha" className="mt-4">
-            <CaptchaTab />
-          </TabsContent>
-        </Tabs>
+          {activeTab === "auth" && <AuthTab />}
+
+          {activeTab === "captcha" && <CaptchaTab />}
+        </div>
       </div>
     </div>
   );

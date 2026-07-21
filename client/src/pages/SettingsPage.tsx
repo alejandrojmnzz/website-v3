@@ -22,7 +22,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { LinkPicker } from "@/components/editing/LinkPicker";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -91,11 +91,17 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const { hasCapability, isValidated } = useDebugAuth();
   const searchString = useSearch();
+  const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => resolveSettingsTab(searchString));
 
   useEffect(() => {
+    const tab = new URLSearchParams(searchString).get("tab");
+    if (tab === "auth") {
+      setLocation("/private/security/auth");
+      return;
+    }
     setActiveTab(resolveSettingsTab(searchString));
-  }, [searchString]);
+  }, [searchString, setLocation]);
 
   const { data, isLoading } = useQuery<LocaleSettings>({
     queryKey: ["/api/settings/locales"],

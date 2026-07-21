@@ -23,10 +23,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { buildContentUrlFromPattern } from "@/lib/locale";
+import { buildContentUrlFromPattern, listExtraUrlPatternParams } from "@/lib/locale";
 import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import type { ContentTypeValue, SlugCheckStatus, SitemapUrl } from "../types";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 
 export interface CreateContentModalProps {
   open: boolean;
@@ -91,8 +99,131 @@ function humanizeField(field: string): string {
     city: "City",
     region: "Region",
     timezone: "Timezone",
+    category: "Category",
   };
   return map[field] ?? field.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function slugifyParamValue(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+interface UrlParamOptionsResponse {
+  params: string[];
+  options: Record<string, string[]>;
+  optionsByLocale?: Record<string, Record<string, string[]>>;
+  shapes: Record<string, "object_slug" | "string">;
+}
+
+function UrlParamCombobox({
+  param,
+  locale,
+  value,
+  options,
+  onChange,
+  portalContainer,
+}: {
+  param: string;
+  locale: string;
+  value: string;
+  options: string[];
+  onChange: (next: string) => void;
+  portalContainer?: HTMLElement | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const filtered = options.filter((opt) =>
+    !value ? true : opt.toLowerCase().includes(value.toLowerCase()),
+  );
+  const showCreate =
+    !!value && !options.some((opt) => opt.toLowerCase() === value.toLowerCase());
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-mono text-muted-foreground w-8 shrink-0 text-right">
+        {locale}
+      </span>
+      <Popover open={open} onOpenChange={setOpen} modal={false}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            role="combobox"
+            aria-expanded={open}
+            className="flex-1 flex items-center gap-1 px-2 py-1 text-xs font-mono rounded-md border bg-background text-left hover-elevate focus:outline-none focus:ring-1 focus:ring-ring"
+            data-testid={`combobox-url-param-${param}-${locale}`}
+          >
+            <span className={cn("flex-1 truncate", !value && "text-muted-foreground")}>
+              {value || `Select or type ${humanizeField(param).toLowerCase()}…`}
+            </span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[--radix-popover-trigger-width] p-0 z-[10001] pointer-events-auto"
+          align="start"
+          container={portalContainer}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <Command shouldFilter={false}>
+            <div className="flex items-center border-b px-2">
+              <input
+                value={value}
+                onChange={(e) => onChange(slugifyParamValue(e.target.value))}
+                placeholder={`Search or create…`}
+                className="flex h-8 w-full bg-transparent py-2 text-xs font-mono outline-none placeholder:text-muted-foreground"
+                data-testid={`input-url-param-${param}-${locale}`}
+                autoFocus
+              />
+            </div>
+            <CommandList>
+              <CommandEmpty className="py-2 text-xs text-muted-foreground">
+                {value ? `Press to use “${value}”` : "Type a value…"}
+              </CommandEmpty>
+              <CommandGroup>
+                {showCreate && (
+                  <CommandItem
+                    value={`create-${value}`}
+                    onSelect={() => {
+                      onChange(value);
+                      setOpen(false);
+                    }}
+                    data-testid={`option-url-param-create-${param}-${locale}`}
+                  >
+                    <Plus className="mr-2 h-3.5 w-3.5" />
+                    <span className="font-mono text-xs">Use “{value}”</span>
+                  </CommandItem>
+                )}
+                {filtered.map((opt) => (
+                  <CommandItem
+                    key={opt}
+                    value={opt}
+                    onSelect={() => {
+                      onChange(opt);
+                      setOpen(false);
+                    }}
+                    data-testid={`option-url-param-${param}-${locale}-${opt}`}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-3.5 w-3.5",
+                        value === opt ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="font-mono text-xs">{opt}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
 }
 
 type TokenType = "keyword" | "string" | "number" | "comment" | "operator" | "plain";
@@ -282,6 +413,8 @@ export function CreateContentModal({
   const [agnosticLocale, setAgnosticLocale] = useState<string | null>(null);
   const [showTypeChangeDetails, setShowTypeChangeDetails] = useState(false);
   const [uniqueFieldValues, setUniqueFieldValues] = useState<Record<string, string>>({});
+  // locale → param → value (URL params like :category may differ per locale)
+  const [urlParamValues, setUrlParamValues] = useState<Record<string, Record<string, string>>>({});
   const [localeTitles, setLocaleTitles] = useState<Record<string, string>>({});
   const [manualTitleLocales, setManualTitleLocales] = useState<Set<string>>(new Set());
 
@@ -290,6 +423,7 @@ export function CreateContentModal({
   const [showNonUnique, setShowNonUnique] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [exampleOpen, setExampleOpen] = useState(false);
+  const [dialogPortalEl, setDialogPortalEl] = useState<HTMLDivElement | null>(null);
 
   const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
@@ -338,6 +472,69 @@ export function CreateContentModal({
   const isTypeChanged = !!(duplicatingPage && createContentType !== duplicatingPage.contentType);
 
   const creatableTypes = !rawContentTypes ? [] : rawContentTypes.filter((ct) => !ct.has_database);
+
+  const urlPattern = contentTypesMap?.[createContentType]?.url_pattern;
+  const urlParams = useMemo(
+    () => listExtraUrlPatternParams(urlPattern),
+    [urlPattern],
+  );
+
+  const { data: urlParamOptionsData } = useQuery<UrlParamOptionsResponse>({
+    queryKey: ["/api/content-types", createContentType, "url-param-options"],
+    queryFn: () =>
+      fetch(`/api/content-types/${createContentType}/url-param-options`).then((r) => r.json()),
+    enabled: open && urlParams.length > 0,
+    staleTime: 60000,
+  });
+
+  useEffect(() => {
+    setUrlParamValues({});
+  }, [createContentType]);
+
+  // Prefill URL params when duplicating by matching the source URL against the pattern
+  useEffect(() => {
+    if (!open || !duplicatingPage || urlParams.length === 0 || !urlPattern) return;
+    const path = duplicatingPage.loc.split("?")[0].replace(/\/$/, "") || "/";
+    const locale =
+      duplicatingPage.locale ||
+      supportedLocales.find((l) => path.includes(`/${l.code}/`))?.code ||
+      loc0;
+    const pattern =
+      urlPattern[locale] || urlPattern["default"] || urlPattern["en"] || Object.values(urlPattern)[0];
+    if (!pattern) return;
+
+    const keys: string[] = [];
+    const built = pattern
+      .split(/(:[a-zA-Z_]+)/g)
+      .map((part) => {
+        if (/^:[a-zA-Z_]+$/.test(part)) {
+          keys.push(part.slice(1));
+          return "([^/]+)";
+        }
+        return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      })
+      .join("");
+    const match = path.match(new RegExp(`^${built}/?$`));
+    if (!match) return;
+    const extracted: Record<string, string> = {};
+    keys.forEach((key, i) => {
+      if (key === "slug" || key === "locale") return;
+      const val = match[i + 1];
+      if (val) extracted[key] = slugifyParamValue(decodeURIComponent(val));
+    });
+    if (Object.keys(extracted).length === 0) return;
+    setUrlParamValues((prev) => {
+      const forLocale = { ...(prev[locale] ?? {}) };
+      let changed = false;
+      for (const [k, v] of Object.entries(extracted)) {
+        if (!forLocale[k]) {
+          forLocale[k] = v;
+          changed = true;
+        }
+      }
+      return changed ? { ...prev, [locale]: forLocale } : prev;
+    });
+  }, [open, duplicatingPage, urlParams, urlPattern, supportedLocales, loc0]);
 
   const selectedTypeData = rawContentTypes?.find((ct) => ct.name === createContentType);
 
@@ -478,6 +675,7 @@ export function CreateContentModal({
       setAgnosticLocale(null);
       setShowTypeChangeDetails(false);
       setUniqueFieldValues({});
+      setUrlParamValues({});
       setStep(1);
       setNonUniqueValues({});
       setShowNonUnique(false);
@@ -487,7 +685,6 @@ export function CreateContentModal({
     }
   };
 
-  const urlPattern = contentTypesMap?.[createContentType]?.url_pattern;
   const isLocaleAgnosticPattern =
     !!urlPattern?.["default"] && !urlPattern?.[loc0] && !urlPattern?.[loc1];
 
@@ -518,10 +715,17 @@ export function CreateContentModal({
   })();
 
   const uniqueFieldsFilled = extraUniqueFields.every((f) => !!uniqueFieldValues[f]);
+  const activeParamLocales = supportedLocales
+    .map((l) => l.code)
+    .filter((c) => isLocaleVisible(c) && !excludedLocales.has(c));
+  const urlParamsFilled = urlParams.every((p) =>
+    activeParamLocales.every((loc) => !!urlParamValues[loc]?.[p]?.trim()),
+  );
 
   const handleConfirm = async () => {
     if (!slugsReady) return;
     if (!uniqueFieldsFilled) return;
+    if (!urlParamsFilled) return;
 
     setCreateError(null);
     setIsCreatingContent(true);
@@ -549,6 +753,7 @@ export function CreateContentModal({
           })(),
           ...(isTypeChanged ? { changeContentType: true } : {}),
           ...(Object.keys(allFieldValues).length > 0 ? { uniqueFieldValues: allFieldValues } : {}),
+          ...(urlParams.length > 0 ? { urlParamValues } : {}),
           ...(() => {
             const extra = Object.fromEntries(
               Object.entries(localeTitles).filter(
@@ -567,7 +772,7 @@ export function CreateContentModal({
         const loc0Active = !excludedLocales.has(loc0) && isLocaleVisible(loc0);
         const activeSlug = loc0Active ? createContentSlugEn : createContentSlugEs;
         const activeLocaleCode = loc0Active ? loc0 : loc1;
-        const newUrl = buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode);
+        const newUrl = buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode, urlParamValues[activeLocaleCode]);
         toast({
           title: duplicatingPage ? "Page duplicated" : "Content created",
           description: duplicatingPage
@@ -584,6 +789,7 @@ export function CreateContentModal({
         setSlugEsConflictReason(null);
         setDuplicatingPage(null);
         setUniqueFieldValues({});
+        setUrlParamValues({});
         setStep(1);
         setNonUniqueValues({});
         setLocaleTitles({});
@@ -628,7 +834,7 @@ export function CreateContentModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent ref={setDialogPortalEl} className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {duplicatingPage ? (
@@ -778,11 +984,19 @@ export function CreateContentModal({
                         : `Title in ${supportedLocales.find((l) => l.code === visibleLocales[0])?.label ?? visibleLocales[0]}:`}
                     </p>
                     {visibleLocales.map((loc) => (
-                      <div key={loc} className="flex items-center gap-2">
+                      <div key={loc} className={`flex items-center gap-2 transition-opacity ${excludedLocales.has(loc) ? "opacity-40" : ""}`}>
                         {visibleLocales.length > 1 && (
                           <span className="text-xs font-mono text-muted-foreground w-8 shrink-0 text-right">{loc}</span>
                         )}
-                        {loc === primaryLocale ? (
+                        {excludedLocales.has(loc) ? (
+                          <input
+                            type="text"
+                            value={loc === loc0 ? createContentTitle : (localeTitles[loc] ?? "")}
+                            disabled
+                            className="flex-1 px-2 py-1 text-xs rounded border bg-background line-through text-muted-foreground cursor-not-allowed"
+                            data-testid={`input-title-${loc}`}
+                          />
+                        ) : loc === primaryLocale ? (
                           <input
                             type="text"
                             value={loc === loc0 ? createContentTitle : (localeTitles[loc] ?? createContentTitle)}
@@ -863,6 +1077,26 @@ export function CreateContentModal({
                             data-testid={`input-title-${loc}`}
                           />
                         )}
+                        {visibleLocales.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleLocale(loc)}
+                            disabled={!excludedLocales.has(loc) && isLastActive}
+                            className="p-1 rounded hover-elevate disabled:opacity-30 disabled:cursor-not-allowed"
+                            title={
+                              excludedLocales.has(loc)
+                                ? `Restore ${supportedLocales.find((l) => l.code === loc)?.label ?? loc}`
+                                : `Skip ${supportedLocales.find((l) => l.code === loc)?.label ?? loc}`
+                            }
+                            data-testid={`button-toggle-locale-${loc}`}
+                          >
+                            {excludedLocales.has(loc) ? (
+                              <Undo2 className="h-3 w-3 text-muted-foreground" />
+                            ) : (
+                              <Trash2 className="h-3 w-3 text-muted-foreground" />
+                            )}
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -870,21 +1104,50 @@ export function CreateContentModal({
 
                   {(isLocaleVisible(loc0) ? createContentSlugEn : createContentSlugEs) && (
                     <>
+                      {urlParams.length > 0 && (
+                        <div className="space-y-2">
+                          {urlParams.map((param) => (
+                            <div key={param} className="space-y-1.5">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                {humanizeField(param)} per locale (required for URL):
+                              </p>
+                              {activeLocales.map((loc) => (
+                                <UrlParamCombobox
+                                  key={loc}
+                                  param={param}
+                                  locale={loc}
+                                  value={urlParamValues[loc]?.[param] ?? ""}
+                                  options={
+                                    urlParamOptionsData?.optionsByLocale?.[param]?.[loc] ??
+                                    urlParamOptionsData?.options?.[param] ??
+                                    []
+                                  }
+                                  portalContainer={dialogPortalEl}
+                                  onChange={(next) => {
+                                    setUrlParamValues((prev) => ({
+                                      ...prev,
+                                      [loc]: { ...(prev[loc] ?? {}), [param]: next },
+                                    }));
+                                    setCreateError(null);
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       <div className="space-y-2">
                         <p className="text-xs font-medium text-muted-foreground">URLs that will be created:</p>
 
-                        {isLocaleVisible(loc0) && (
+                        {isLocaleVisible(loc0) && !loc0Excluded && (
                           <>
-                            <div className={`flex items-center gap-2 transition-opacity ${loc0Excluded ? "opacity-40" : ""}`}>
+                            <div className="flex items-center gap-2">
                               <span className="text-xs font-mono text-muted-foreground w-8 shrink-0 text-right">{loc0}</span>
-                              {loc0Excluded ? (
-                                <code className="flex-1 text-xs bg-background px-2 py-1 rounded line-through text-muted-foreground">
-                                  {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, createContentSlugEn, loc0)}
-                                </code>
-                              ) : editingSlugEn ? (
+                              {editingSlugEn ? (
                                 <div className="flex-1 flex items-center gap-1">
                                   <span className="text-xs font-mono text-muted-foreground">
-                                    {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, "", loc0).slice(0, -1)}
+                                    {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, "", loc0, urlParamValues[loc0]).replace(/\/$/, "")}/
                                   </span>
                                   <input
                                     type="text"
@@ -917,68 +1180,44 @@ export function CreateContentModal({
                                   onClick={() => setEditingSlugEn(true)}
                                   data-testid="url-preview-en"
                                 >
-                                  {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, createContentSlugEn, loc0)}
+                                  {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, createContentSlugEn, loc0, urlParamValues[loc0])}
                                 </code>
                               )}
-                              {!loc0Excluded && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingSlugEn(!editingSlugEn)}
-                                  className="p-1 rounded hover-elevate"
-                                  title={`Edit ${supportedLocales[0]?.label ?? loc0} slug`}
-                                  data-testid="button-edit-slug-en"
-                                >
-                                  <Pencil className="h-3 w-3 text-muted-foreground" />
-                                </button>
-                              )}
-                              {visibleLocales.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleLocale(loc0)}
-                                  disabled={!loc0Excluded && isLastActive}
-                                  className="p-1 rounded hover-elevate disabled:opacity-30 disabled:cursor-not-allowed"
-                                  title={loc0Excluded ? `Restore ${supportedLocales[0]?.label ?? loc0}` : `Skip ${supportedLocales[0]?.label ?? loc0}`}
-                                  data-testid="button-toggle-locale-en"
-                                >
-                                  {loc0Excluded ? (
-                                    <Undo2 className="h-3 w-3 text-muted-foreground" />
-                                  ) : (
-                                    <Trash2 className="h-3 w-3 text-muted-foreground" />
-                                  )}
-                                </button>
-                              )}
-                              {!loc0Excluded && (
-                                <div className="w-4">
-                                  {createContentSlugEnStatus === "checking" && (
-                                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                                  )}
-                                  {createContentSlugEnStatus === "available" && !slugsConflict && (
-                                    <Check className="h-4 w-4 text-green-600" />
-                                  )}
-                                  {(createContentSlugEnStatus === "taken" || (createContentSlugEnStatus === "available" && slugsConflict)) && (
-                                    <X className="h-4 w-4 text-red-600" />
-                                  )}
-                                </div>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setEditingSlugEn(!editingSlugEn)}
+                                className="p-1 rounded hover-elevate"
+                                title={`Edit ${supportedLocales[0]?.label ?? loc0} slug`}
+                                data-testid="button-edit-slug-en"
+                              >
+                                <Pencil className="h-3 w-3 text-muted-foreground" />
+                              </button>
+                              <div className="w-4">
+                                {createContentSlugEnStatus === "checking" && (
+                                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                                )}
+                                {createContentSlugEnStatus === "available" && !slugsConflict && (
+                                  <Check className="h-4 w-4 text-green-600" />
+                                )}
+                                {(createContentSlugEnStatus === "taken" || (createContentSlugEnStatus === "available" && slugsConflict)) && (
+                                  <X className="h-4 w-4 text-red-600" />
+                                )}
+                              </div>
                             </div>
-                            {!loc0Excluded && createContentSlugEnStatus === "taken" && (
+                            {createContentSlugEnStatus === "taken" && (
                               <p className="text-xs text-red-600 pl-1">{slugEnConflictReason || `${supportedLocales[0]?.label ?? loc0} slug is taken`}</p>
                             )}
                           </>
                         )}
 
-                        {isLocaleVisible(loc1) && (
+                        {isLocaleVisible(loc1) && !loc1Excluded && (
                           <>
-                            <div className={`flex items-center gap-2 transition-opacity ${loc1Excluded ? "opacity-40" : ""}`}>
+                            <div className="flex items-center gap-2">
                               <span className="text-xs font-mono text-muted-foreground w-8 shrink-0 text-right">{loc1}</span>
-                              {loc1Excluded ? (
-                                <code className="flex-1 text-xs bg-background px-2 py-1 rounded line-through text-muted-foreground">
-                                  {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, createContentSlugEs || createContentSlugEn, loc1)}
-                                </code>
-                              ) : editingSlugEs ? (
+                              {editingSlugEs ? (
                                 <div className="flex-1 flex items-center gap-1">
                                   <span className="text-xs font-mono text-muted-foreground">
-                                    {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, "", loc1).slice(0, -1)}
+                                    {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, "", loc1, urlParamValues[loc1]).replace(/\/$/, "")}/
                                   </span>
                                   <input
                                     type="text"
@@ -1011,51 +1250,31 @@ export function CreateContentModal({
                                   onClick={() => setEditingSlugEs(true)}
                                   data-testid="url-preview-es"
                                 >
-                                  {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, createContentSlugEs, loc1)}
+                                  {buildContentUrlFromPattern(contentTypesMap?.[createContentType]?.url_pattern, createContentSlugEs, loc1, urlParamValues[loc1])}
                                 </code>
                               )}
-                              {!loc1Excluded && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingSlugEs(!editingSlugEs)}
-                                  className="p-1 rounded hover-elevate"
-                                  title={`Edit ${supportedLocales[1]?.label ?? loc1} slug`}
-                                  data-testid="button-edit-slug-es"
-                                >
-                                  <Pencil className="h-3 w-3 text-muted-foreground" />
-                                </button>
-                              )}
-                              {visibleLocales.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleLocale(loc1)}
-                                  disabled={!loc1Excluded && isLastActive}
-                                  className="p-1 rounded hover-elevate disabled:opacity-30 disabled:cursor-not-allowed"
-                                  title={loc1Excluded ? `Restore ${supportedLocales[1]?.label ?? loc1}` : `Skip ${supportedLocales[1]?.label ?? loc1}`}
-                                  data-testid="button-toggle-locale-es"
-                                >
-                                  {loc1Excluded ? (
-                                    <Undo2 className="h-3 w-3 text-muted-foreground" />
-                                  ) : (
-                                    <Trash2 className="h-3 w-3 text-muted-foreground" />
-                                  )}
-                                </button>
-                              )}
-                              {!loc1Excluded && (
-                                <div className="w-4">
-                                  {createContentSlugEsStatus === "checking" && (
-                                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                                  )}
-                                  {createContentSlugEsStatus === "available" && !slugsConflict && (
-                                    <Check className="h-4 w-4 text-green-600" />
-                                  )}
-                                  {(createContentSlugEsStatus === "taken" || (createContentSlugEsStatus === "available" && slugsConflict)) && (
-                                    <X className="h-4 w-4 text-red-600" />
-                                  )}
-                                </div>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setEditingSlugEs(!editingSlugEs)}
+                                className="p-1 rounded hover-elevate"
+                                title={`Edit ${supportedLocales[1]?.label ?? loc1} slug`}
+                                data-testid="button-edit-slug-es"
+                              >
+                                <Pencil className="h-3 w-3 text-muted-foreground" />
+                              </button>
+                              <div className="w-4">
+                                {createContentSlugEsStatus === "checking" && (
+                                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                                )}
+                                {createContentSlugEsStatus === "available" && !slugsConflict && (
+                                  <Check className="h-4 w-4 text-green-600" />
+                                )}
+                                {(createContentSlugEsStatus === "taken" || (createContentSlugEsStatus === "available" && slugsConflict)) && (
+                                  <X className="h-4 w-4 text-red-600" />
+                                )}
+                              </div>
                             </div>
-                            {!loc1Excluded && createContentSlugEsStatus === "taken" && (
+                            {createContentSlugEsStatus === "taken" && (
                               <p className="text-xs text-red-600 pl-1">{slugEsConflictReason || `${supportedLocales[1]?.label ?? loc1} slug is taken`}</p>
                             )}
                           </>
@@ -1081,17 +1300,48 @@ export function CreateContentModal({
                           <ChevronDown className={`h-3 w-3 transition-transform ${showFiles ? "" : "-rotate-90"}`} />
                           Files that will be created
                         </button>
-                        {showFiles && (
-                          <div className="space-y-0.5 font-mono text-xs text-muted-foreground pl-4 pt-1">
-                            <div>4geeks-com/{contentTypesMap?.[createContentType]?.directory || createContentType}/{createContentSlugEn || createContentSlugEs}/</div>
-                            <div className="pl-4">├── _common.yml</div>
-                            {activeLocales.map((loc, i) => (
-                              <div key={loc} className="pl-4">
-                                {i === activeLocales.length - 1 ? "└── " : "├── "}{loc}.yml
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {showFiles && (() => {
+                          const fmtParam = (k: string, v: string) =>
+                            urlParamOptionsData?.shapes?.[k] === "object_slug"
+                              ? `${k}: { slug: ${v} }`
+                              : `${k}: ${v}`;
+                          const commonNotes: string[] = [];
+                          const localeNotes: Record<string, string[]> = {};
+                          for (const param of urlParams) {
+                            const vals = activeLocales.map((l) => urlParamValues[l]?.[param] ?? "");
+                            const allFilledSame = vals.every((v) => v && v === vals[0]);
+                            if (allFilledSame) {
+                              commonNotes.push(fmtParam(param, vals[0]));
+                            } else {
+                              activeLocales.forEach((l, i) => {
+                                if (vals[i]) (localeNotes[l] ??= []).push(fmtParam(param, vals[i]));
+                              });
+                            }
+                          }
+                          return (
+                            <div className="space-y-0.5 font-mono text-xs text-muted-foreground pl-4 pt-1">
+                              <div>4geeks-com/{contentTypesMap?.[createContentType]?.directory || createContentType}/{createContentSlugEn || createContentSlugEs}/</div>
+                              <div className="pl-4">├── _common.yml</div>
+                              {commonNotes.length > 0 && (
+                                <div className="pl-8 text-[11px] text-muted-foreground/80">
+                                  ← {commonNotes.join(", ")}
+                                </div>
+                              )}
+                              {activeLocales.map((loc, i) => (
+                                <div key={loc}>
+                                  <div className="pl-4">
+                                    {i === activeLocales.length - 1 ? "└── " : "├── "}{loc}.yml
+                                  </div>
+                                  {(localeNotes[loc]?.length ?? 0) > 0 && (
+                                    <div className="pl-8 text-[11px] text-muted-foreground/80">
+                                      ← {localeNotes[loc].join(", ")}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </>
                   )}
@@ -1281,7 +1531,7 @@ export function CreateContentModal({
 
           {step === 1 && hasStep2 ? (
             <Button
-              disabled={!slugsReady}
+              disabled={!slugsReady || !urlParamsFilled}
               onClick={() => setStep(2)}
               data-testid="button-next-step"
             >
@@ -1290,7 +1540,7 @@ export function CreateContentModal({
           ) : (
             <Button
               onClick={handleConfirm}
-              disabled={isCreatingContent || !slugsReady || !uniqueFieldsFilled}
+              disabled={isCreatingContent || !slugsReady || !uniqueFieldsFilled || !urlParamsFilled}
               data-testid="button-confirm-create-content"
             >
               {confirmButtonLabel}

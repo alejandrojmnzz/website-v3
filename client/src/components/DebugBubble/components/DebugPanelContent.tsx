@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
-import { IconLogout, IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
+import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
 import { Badge, badgeVariants } from "@/components/ui/badge";
@@ -914,7 +914,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 <MenuItem
                   icon={IconShield}
                   label="Security"
-                  href="/private/security"
+                  href="/private/security/captcha"
                   indicator="arrow"
                   testId="link-security"
                 />
@@ -993,12 +993,12 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   </button>
                   {props.hasToken && (
                     <button
-                      onClick={props.clearToken}
+                      onClick={() => props.setSessionModalOpen(true)}
                       className="p-1 rounded hover-elevate"
-                      data-testid="button-logout"
-                      title="Logout"
+                      data-testid="button-session-settings"
+                      title="View session data"
                     >
-                      <IconLogout className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Cookie className="h-3.5 w-3.5 text-muted-foreground" />
                     </button>
                   )}
                 </div>

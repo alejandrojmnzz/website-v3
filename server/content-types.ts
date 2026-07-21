@@ -551,7 +551,7 @@ function extractDotPath(record: Record<string, unknown>, dotPath: string): unkno
   return current;
 }
 
-function resolveFieldValue(value: unknown): string {
+export function resolveFieldValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.join(",");
@@ -559,6 +559,66 @@ function resolveFieldValue(value: unknown): string {
     return String((value as Record<string, unknown>).slug || "");
   }
   return String(value);
+}
+
+export type UrlParamValueShape = "object_slug" | "string";
+
+/**
+ * Extra `:param` names from a content type's url_pattern (excludes slug / locale).
+ */
+export function listExtraUrlPatternParams(
+  urlPattern?: Record<string, string> | null,
+): string[] {
+  if (!urlPattern) return [];
+  const keys = new Set<string>();
+  for (const pattern of Object.values(urlPattern)) {
+    if (!pattern) continue;
+    const matches = pattern.match(/:([a-zA-Z_]+)/g) || [];
+    for (const m of matches) {
+      const key = m.slice(1);
+      if (key !== "slug" && key !== "locale") keys.add(key);
+    }
+  }
+  return [...keys];
+}
+
+export function detectUrlParamValueShape(rawValue: unknown): UrlParamValueShape {
+  if (
+    rawValue != null &&
+    typeof rawValue === "object" &&
+    !Array.isArray(rawValue) &&
+    "slug" in (rawValue as object)
+  ) {
+    return "object_slug";
+  }
+  return "string";
+}
+
+export function formatUrlParamFieldValue(
+  value: string,
+  shape: UrlParamValueShape,
+): string | { slug: string } {
+  if (shape === "object_slug") return { slug: value };
+  return value;
+}
+
+/**
+ * Resolve the raw YAML/DB value for a URL pattern param from an entry record.
+ */
+export function getRawUrlParamValue(
+  record: Record<string, unknown>,
+  param: string,
+  fieldMapping?: Record<string, string | null> | null,
+): unknown {
+  const mappingKey = fieldMapping && `_${param}` in fieldMapping ? `_${param}` : param;
+  if (fieldMapping && mappingKey in fieldMapping) {
+    const sourceField = fieldMapping[mappingKey];
+    if (sourceField) {
+      const mapped = extractDotPath(record, sourceField);
+      if (mapped !== undefined) return mapped;
+    }
+  }
+  return extractDotPath(record, param);
 }
 
 /**

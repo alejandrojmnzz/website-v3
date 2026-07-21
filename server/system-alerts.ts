@@ -13,7 +13,9 @@ export type SystemAlertCode =
   | "gcs_migration_required"
   | "database_auth_env_missing"
   | "database_auth_failed"
-  | "database_fetch_failed";
+  | "database_fetch_failed"
+  | "turnstile_env_missing"
+  | "turnstile_secret_invalid";
 
 export interface SystemAlert {
   id: string;
@@ -25,6 +27,109 @@ export interface SystemAlert {
   actionLabel?: string;
   site?: string;
   database?: string;
+}
+
+const TURNSTILE_SITEVERIFY_URL =
+  "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const TURNSTILE_DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
+const TURNSTILE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type TurnstileSecretCheck = "valid" | "invalid" | "unknown";
+
+let turnstileSecretCache: {
+  secret: string;
+  result: TurnstileSecretCheck;
+  checkedAt: number;
+} | null = null;
+
+/**
+ * Probe Cloudflare Siteverify with a dummy token. A real secret returns
+ * invalid-input-response (or success for test always-pass keys); a bad
+ * secret returns invalid-input-secret. Network failures return "unknown"
+ * so we do not raise false-positive critical alerts.
+ */
+async function checkTurnstileSecret(
+  secretKey: string,
+): Promise<TurnstileSecretCheck> {
+  const now = Date.now();
+  if (
+    turnstileSecretCache &&
+    turnstileSecretCache.secret === secretKey &&
+    now - turnstileSecretCache.checkedAt < TURNSTILE_CACHE_TTL_MS
+  ) {
+    return turnstileSecretCache.result;
+  }
+
+  let result: TurnstileSecretCheck = "unknown";
+  try {
+    const res = await fetch(TURNSTILE_SITEVERIFY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret: secretKey,
+        response: TURNSTILE_DUMMY_TOKEN,
+      }),
+    });
+    const body = (await res.json()) as { "error-codes"?: string[] };
+    const codes = body["error-codes"] ?? [];
+    if (
+      codes.includes("invalid-input-secret") ||
+      codes.includes("missing-input-secret")
+    ) {
+      result = "invalid";
+    } else {
+      // Secret accepted; token errors / success are fine for this probe.
+      result = "valid";
+    }
+  } catch {
+    result = "unknown";
+  }
+
+  turnstileSecretCache = { secret: secretKey, result, checkedAt: now };
+  return result;
+}
+
+async function collectTurnstileAlerts(): Promise<SystemAlert[]> {
+  const siteKey = process.env.TURNSTILE_SITE_KEY?.trim() ?? "";
+  const secretKey = process.env.TURNSTILE_SECRET_KEY?.trim() ?? "";
+  const actionHref = "/private/security/captcha";
+  const actionLabel = "Open security";
+
+  const missing: string[] = [];
+  if (!siteKey) missing.push("TURNSTILE_SITE_KEY");
+  if (!secretKey) missing.push("TURNSTILE_SECRET_KEY");
+
+  if (missing.length > 0) {
+    return [
+      {
+        id: "turnstile_env_missing",
+        severity: "critical",
+        code: "turnstile_env_missing",
+        title: "Turnstile keys not configured",
+        message: `${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} not set. Lead-form bot protection will not work.`,
+        actionHref,
+        actionLabel,
+      },
+    ];
+  }
+
+  const secretStatus = await checkTurnstileSecret(secretKey);
+  if (secretStatus === "invalid") {
+    return [
+      {
+        id: "turnstile_secret_invalid",
+        severity: "critical",
+        code: "turnstile_secret_invalid",
+        title: "Turnstile secret key is invalid",
+        message:
+          "TURNSTILE_SECRET_KEY was rejected by Cloudflare Siteverify. Check the secret in the Cloudflare Turnstile dashboard and update the env var / Replit Secret.",
+        actionHref,
+        actionLabel,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function issuesFromCacheOrEvaluate(
@@ -49,9 +154,11 @@ function issuesFromCacheOrEvaluate(
   return errors;
 }
 
-export function collectSystemAlerts(): SystemAlert[] {
+export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   const alerts: SystemAlert[] = [];
   const multiSite = hasMultipleSites();
+
+  alerts.push(...(await collectTurnstileAlerts()));
 
   if (gcs.migrationRequired) {
     alerts.push({

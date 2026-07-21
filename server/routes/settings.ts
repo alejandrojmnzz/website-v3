@@ -140,6 +140,9 @@ import {
   getRobotsSettings,
   updateRobotsSettings,
   buildRobotsTxtContent,
+  getAuthSettings,
+  updateAuthSettings,
+  isSignupConfigured,
 } from "../settings";
 import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
@@ -685,6 +688,246 @@ export function registerSettingsRoutes(app: Express): void {
       ...getTrackingSettings(getContentRoot(res)),
       has_env_webhook: !!process.env.DEFAULT_WEBHOOK_URL,
     });
+  });
+
+  app.get("/api/settings/auth", (req, res) => {
+    const contentRoot = getContentRoot(res);
+    const auth = getAuthSettings(contentRoot);
+    const effectiveHost = (auth.host || process.env.VITE_BREATHECODE_HOST || "").replace(/\/$/, "");
+    const loginPageUrl =
+      auth.login?.url?.trim() ||
+      (effectiveHost ? `${effectiveHost}/v1/auth/view/login` : "");
+    res.json({
+      ...auth,
+      host: auth.host || effectiveHost || undefined,
+      signup_configured: isSignupConfigured(contentRoot),
+      login_page_url: loginPageUrl || undefined,
+    });
+  });
+
+  app.put("/api/settings/auth", (req, res) => {
+    try {
+      const methodSchema = z.enum(["GET", "POST", "PUT"]).optional();
+      const endpointSchema = z.object({
+        path: z.string().optional(),
+        method: methodSchema,
+      });
+      const schema = z.object({
+        host: z.string().optional(),
+        login: endpointSchema.extend({
+          url: z.string().optional(),
+          payload: z.record(z.unknown()).optional(),
+        }).optional(),
+        signup: endpointSchema.extend({
+          payload: z.record(z.unknown()).optional(),
+        }).optional(),
+        profile: endpointSchema.optional(),
+      }).nullable();
+      const parsed = schema.safeParse(req.body?.auth === undefined ? req.body : req.body.auth);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body" });
+      }
+      const updated = updateAuthSettings(parsed.data, getContentRoot(res));
+      res.json({
+        success: true,
+        ...updated,
+        signup_configured: isSignupConfigured(getContentRoot(res)),
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  /**
+   * POST /api/settings/auth/test
+   * Probe a site auth endpoint using saved settings, with optional unsaved overrides.
+   * Body: { target: "login"|"signup"|"profile", host?, login?, signup?, profile?, token?, email?, password?, payload? }
+   * Returns: { ok, status, url, method, body, error?, elapsed_ms }
+   */
+  app.post("/api/settings/auth/test", async (req, res) => {
+    const started = Date.now();
+    try {
+      const target = req.body?.target as string | undefined;
+      if (!target || !["login", "signup", "profile"].includes(target)) {
+        return res.status(400).json({
+          ok: false,
+          error: 'target must be one of "login", "signup", "profile"',
+        });
+      }
+
+      const saved = getAuthSettings(getContentRoot(res));
+      const str = (v: unknown, fallback?: string) =>
+        typeof v === "string" && v.trim() ? v.trim() : fallback;
+      const parseMethod = (v: unknown, fallback: "GET" | "POST" | "PUT"): "GET" | "POST" | "PUT" => {
+        if (typeof v === "string") {
+          const m = v.trim().toUpperCase();
+          if (m === "GET" || m === "POST" || m === "PUT") return m;
+        }
+        return fallback;
+      };
+
+      const host =
+        str(req.body?.host) ||
+        saved.host ||
+        process.env.VITE_BREATHECODE_HOST ||
+        BREATHECODE_HOST;
+
+      const loginOverride = req.body?.login && typeof req.body.login === "object" ? req.body.login : {};
+      const signupOverride = req.body?.signup && typeof req.body.signup === "object" ? req.body.signup : {};
+      const profileOverride = req.body?.profile && typeof req.body.profile === "object" ? req.body.profile : {};
+
+      const loginPath = str(loginOverride.path, saved.login?.path);
+      const loginMethod = parseMethod(loginOverride.method ?? saved.login?.method, "POST");
+      const signupPath = str(signupOverride.path, saved.signup?.path);
+      const signupMethod = parseMethod(signupOverride.method ?? saved.signup?.method, "POST");
+      const profilePath = str(profileOverride.path, saved.profile?.path) || "/v1/auth/user/me";
+      const profileMethod = parseMethod(profileOverride.method ?? saved.profile?.method, "GET");
+
+      const resolveUrl = (pathOrUrl: string) => {
+        if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+        return `${host.replace(/\/$/, "")}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+      };
+
+      const flattenScalarsToQuery = (baseUrl: string, payload: Record<string, unknown>) => {
+        const u = new URL(baseUrl);
+        for (const [key, value] of Object.entries(payload)) {
+          if (value === null || value === undefined) continue;
+          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            u.searchParams.set(key, String(value));
+          }
+        }
+        return u.toString();
+      };
+
+      let url = "";
+      let method: "GET" | "POST" | "PUT" = "GET";
+      const headers: Record<string, string> = {};
+      let body: string | undefined;
+
+      if (target === "login") {
+        if (!loginPath) {
+          return res.status(400).json({ ok: false, error: "login.path is not set" });
+        }
+        url = resolveUrl(loginPath);
+        method = loginMethod;
+
+        let payload: Record<string, unknown> =
+          req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload)
+            ? (req.body.payload as Record<string, unknown>)
+            : loginOverride.payload && typeof loginOverride.payload === "object" && !Array.isArray(loginOverride.payload)
+              ? (loginOverride.payload as Record<string, unknown>)
+              : saved.login?.payload
+                ? { ...saved.login.payload }
+                : {};
+
+        const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+        const password = typeof req.body?.password === "string" ? req.body.password : "";
+        if (email) payload = { ...payload, email };
+        if (password) payload = { ...payload, password };
+
+        if (!payload.email || !payload.password) {
+          return res.status(400).json({
+            ok: false,
+            error: "email and password are required to test login (set login.payload or pass email/password)",
+          });
+        }
+
+        if (method === "GET") {
+          url = flattenScalarsToQuery(url, payload);
+        } else {
+          headers["Content-Type"] = "application/json";
+          body = JSON.stringify(payload);
+        }
+      } else if (target === "signup") {
+        if (!signupPath) {
+          return res.status(400).json({ ok: false, error: "signup.path is not set" });
+        }
+        url = resolveUrl(signupPath);
+        method = signupMethod;
+        const payload =
+          req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload)
+            ? req.body.payload
+            : signupOverride.payload && typeof signupOverride.payload === "object" && !Array.isArray(signupOverride.payload)
+              ? signupOverride.payload
+              : saved.signup?.payload || {
+                  first_name: "Test",
+                  last_name: "User",
+                  email: `auth-test-${Date.now()}@example.com`,
+                  phone: "",
+                  course: "",
+                  country: "",
+                  city: "",
+                  plan: "",
+                  language: "en",
+                  has_marketing_consent: false,
+                  conversion_info: {
+                    user_agent: "website-v3-auth-test",
+                    landing_url: "/private/security/auth",
+                    conversion_url: "/private/security/auth",
+                  },
+                };
+        if (method === "GET") {
+          url = flattenScalarsToQuery(url, payload as Record<string, unknown>);
+        } else {
+          headers["Content-Type"] = "application/json";
+          body = JSON.stringify(payload);
+        }
+      } else if (target === "profile") {
+        const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+        if (!token) {
+          return res.status(400).json({ ok: false, error: "token is required to test the profile endpoint" });
+        }
+        url = resolveUrl(profilePath);
+        method = profileMethod;
+        headers.Authorization = `Token ${token}`;
+        if (method === "POST" || method === "PUT") {
+          headers["Content-Type"] = "application/json";
+          body = "{}";
+        }
+      }
+
+      try {
+        const upstream = await fetch(url, { method, headers, body });
+        const text = await upstream.text();
+        let parsedBody: unknown = text;
+        try {
+          parsedBody = JSON.parse(text);
+        } catch {
+          // keep raw text
+        }
+        const elapsed_ms = Date.now() - started;
+        const truncated =
+          typeof parsedBody === "string" && parsedBody.length > 4000
+            ? `${parsedBody.slice(0, 4000)}…`
+            : parsedBody;
+
+        res.json({
+          ok: upstream.ok,
+          status: upstream.status,
+          url,
+          method,
+          body: truncated,
+          elapsed_ms,
+          ...(upstream.ok ? {} : { error: `Upstream returned HTTP ${upstream.status}` }),
+        });
+      } catch (err) {
+        res.json({
+          ok: false,
+          status: 0,
+          url,
+          method,
+          body: null,
+          elapsed_ms: Date.now() - started,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } catch (err: any) {
+      res.status(500).json({
+        ok: false,
+        error: err?.message || String(err),
+        elapsed_ms: Date.now() - started,
+      });
+    }
   });
 
   app.put("/api/settings/tracking", async (req, res) => {

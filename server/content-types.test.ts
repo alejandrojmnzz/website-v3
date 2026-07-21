@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   extractUrlPatternParams,
   getContentTypeConfig,
+  listExtraUrlPatternParams,
   resetRegistry,
   updateContentTypeConfig,
 } from "./content-types";
@@ -121,5 +122,28 @@ describe("extractUrlPatternParams", () => {
     );
     expect(missing).toEqual([]);
     expect(params).toEqual({ category: "trends-and-tech" });
+  });
+});
+
+describe("listExtraUrlPatternParams", () => {
+  it("collects unique extra params across locale patterns", () => {
+    expect(
+      listExtraUrlPatternParams({
+        en: "/en/blog/:category/:slug",
+        es: "/es/blog/:category/:slug",
+      }),
+    ).toEqual(["category"]);
+  });
+
+  it("ignores slug and locale placeholders", () => {
+    expect(
+      listExtraUrlPatternParams({
+        default: "/:locale/posts/:author/:slug",
+      }),
+    ).toEqual(["author"]);
+  });
+
+  it("returns empty for slug-only patterns", () => {
+    expect(listExtraUrlPatternParams({ en: "/en/:slug" })).toEqual([]);
   });
 });

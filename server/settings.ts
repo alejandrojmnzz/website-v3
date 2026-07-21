@@ -85,6 +85,163 @@ export interface TrackingSettings {
   webhook?: TrackingWebhook;
 }
 
+/** GET | POST | PUT for auth API endpoints */
+export type AuthHttpMethod = "GET" | "POST" | "PUT";
+
+export interface AuthEndpoint {
+  /** Path relative to auth.host, or absolute URL */
+  path?: string;
+  /** HTTP method (login/signup default POST; profile default GET) */
+  method?: AuthHttpMethod;
+}
+
+/**
+ * Consumer auth (lead forms with is_signup, login redirect, profile prefill).
+ * Nested login / signup / profile each own path + method.
+ */
+export interface AuthSettings {
+  /** API base host, e.g. https://breathecode.herokuapp.com */
+  host?: string;
+  login?: AuthEndpoint & {
+    /** Hosted login page; redirects back with ?token= */
+    url?: string;
+    /** Example credentials / body for login Test */
+    payload?: Record<string, unknown>;
+  };
+  signup?: AuthEndpoint & {
+    /** Template merged with live form values on is_signup submit */
+    payload?: Record<string, unknown>;
+  };
+  profile?: AuthEndpoint;
+}
+
+export const DEFAULT_LOGIN_PAYLOAD: Record<string, unknown> = {
+  email: "bob@gmail.com",
+  password: "********",
+};
+
+export const DEFAULT_SIGNUP_PAYLOAD: Record<string, unknown> = {
+  first_name: "bob",
+  last_name: "dylan",
+  email: "bob@gmail.com",
+  phone: "+574589459854",
+  course: "",
+  country: "Colombia",
+  city: "Bogotá",
+  plan: "ai-fluency",
+  language: "en",
+  has_marketing_consent: true,
+  conversion_info: {
+    user_agent: "Mozilla/5.0 …",
+    landing_url: "/login",
+    conversion_url: "/interactive-exercise/python-beginner-exercises",
+    internal_cta_placement: "navbar-bootcamp-options-start-practicing-with-challenges",
+  },
+};
+
+/** Re-injected above `auth:` on save (yaml.dump strips comments). */
+export const AUTH_YAML_COMMENT_HEADER = `# Consumer auth (lead forms with is_signup, login redirect, profile prefill).
+# Paths are relative to host, or absolute URLs. method: GET | POST | PUT.
+`;
+
+function parseAuthMethod(v: unknown): AuthHttpMethod | undefined {
+  if (typeof v !== "string") return undefined;
+  const m = v.trim().toUpperCase();
+  return m === "GET" || m === "POST" || m === "PUT" ? m : undefined;
+}
+
+function parsePayload(v: unknown): Record<string, unknown> | undefined {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    return v as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function authStr(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+/** Normalize nested or legacy-flat auth YAML into AuthSettings. */
+export function normalizeAuthSettings(authRaw: Record<string, unknown> | undefined | null): AuthSettings {
+  if (!authRaw || typeof authRaw !== "object") return {};
+
+  const host = authStr(authRaw.host);
+
+  // Nested preferred
+  const loginRaw = authRaw.login && typeof authRaw.login === "object" && !Array.isArray(authRaw.login)
+    ? (authRaw.login as Record<string, unknown>)
+    : undefined;
+  const signupRaw = authRaw.signup && typeof authRaw.signup === "object" && !Array.isArray(authRaw.signup)
+    ? (authRaw.signup as Record<string, unknown>)
+    : undefined;
+  const profileRaw = authRaw.profile && typeof authRaw.profile === "object" && !Array.isArray(authRaw.profile)
+    ? (authRaw.profile as Record<string, unknown>)
+    : undefined;
+
+  // Legacy flat keys (migrate on read)
+  const legacyLoginUrl = authStr(authRaw.login_url);
+  const legacyLoginPath = authStr(authRaw.login_path);
+  const legacyLoginMethod = parseAuthMethod(authRaw.login_method);
+  const legacySignupPath = authStr(authRaw.signup_path);
+  const legacyMePath = authStr(authRaw.me_path);
+  const legacySignupPayload = parsePayload(authRaw.signup_payload);
+
+  const loginUrl = authStr(loginRaw?.url) || legacyLoginUrl;
+  const loginPath = authStr(loginRaw?.path) || legacyLoginPath;
+  const loginMethod = parseAuthMethod(loginRaw?.method) || legacyLoginMethod;
+  const loginPayload = parsePayload(loginRaw?.payload);
+
+  const signupPath = authStr(signupRaw?.path) || legacySignupPath;
+  const signupMethod = parseAuthMethod(signupRaw?.method);
+  const signupPayload = parsePayload(signupRaw?.payload) || legacySignupPayload;
+
+  const profilePath = authStr(profileRaw?.path) || legacyMePath;
+  const profileMethod = parseAuthMethod(profileRaw?.method);
+
+  const login =
+    loginUrl || loginPath || loginMethod || loginPayload
+      ? {
+          ...(loginUrl ? { url: loginUrl } : {}),
+          ...(loginPath ? { path: loginPath } : {}),
+          ...(loginMethod ? { method: loginMethod } : {}),
+          ...(loginPayload ? { payload: loginPayload } : {}),
+        }
+      : undefined;
+
+  const signup =
+    signupPath || signupMethod || signupPayload
+      ? {
+          ...(signupPath ? { path: signupPath } : {}),
+          ...(signupMethod ? { method: signupMethod } : {}),
+          ...(signupPayload ? { payload: signupPayload } : {}),
+        }
+      : undefined;
+
+  const profile =
+    profilePath || profileMethod
+      ? {
+          ...(profilePath ? { path: profilePath } : {}),
+          ...(profileMethod ? { method: profileMethod } : {}),
+        }
+      : undefined;
+
+  return {
+    ...(host ? { host } : {}),
+    ...(login ? { login } : {}),
+    ...(signup ? { signup } : {}),
+    ...(profile ? { profile } : {}),
+  };
+}
+
+function injectAuthYamlComments(dumped: string): string {
+  // Strip a previously injected header, then insert a fresh one above `auth:`.
+  const stripped = dumped.replace(
+    /(?:^|\n)# Consumer auth \(lead forms with is_signup[\s\S]*?# Paths are relative to host[^\n]*\n+(?=auth:)/m,
+    (m) => (m.startsWith("\n") ? "\n" : ""),
+  );
+  return stripped.replace(/(^|\n)(auth:)/, `$1${AUTH_YAML_COMMENT_HEADER}$2`);
+}
+
 export interface RobotsSettings {
   block_indexing: boolean;
   include_sitemap: boolean;
@@ -112,6 +269,7 @@ interface SiteSettings {
   optimization: OptimizationSettings;
   tracking: TrackingSettings;
   robots: RobotsSettings;
+  auth: AuthSettings;
 }
 
 /** Build robots.txt body from settings. `baseUrl` is used for the Sitemap line when included. */
@@ -185,6 +343,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       conversion_events: [],
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
+    auth: {},
   };
 
   if (!fs.existsSync(settingsPath)) {
@@ -322,7 +481,10 @@ function loadSettings(contentRoot?: string): SiteSettings {
         : [...defRobots.ai_bots],
     };
 
-    const result: SiteSettings = { ...defaults, i18n, home_page, optimization, tracking, robots };
+    const authRaw = parsed.auth as Record<string, unknown> | undefined;
+    const auth = normalizeAuthSettings(authRaw);
+
+    const result: SiteSettings = { ...defaults, i18n, home_page, optimization, tracking, robots, auth };
     settingsCache.set(key, result);
     log.info(
       `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}, block_indexing=${robots.block_indexing}`
@@ -452,6 +614,157 @@ export function getTrackingSettings(contentRoot?: string): TrackingSettings {
 
 export function getRobotsSettings(contentRoot?: string): RobotsSettings {
   return loadSettings(contentRoot).robots;
+}
+
+export function getAuthSettings(contentRoot?: string): AuthSettings {
+  return loadSettings(contentRoot).auth;
+}
+
+/** Signup is available only when both a host (explicit or env fallback) and a signup path are configured. */
+export function isSignupConfigured(contentRoot?: string): boolean {
+  const auth = getAuthSettings(contentRoot);
+  const host = auth.host || process.env.VITE_BREATHECODE_HOST;
+  return !!(host && auth.signup?.path);
+}
+
+export function updateAuthSettings(
+  input: Partial<AuthSettings> | null,
+  contentRoot?: string,
+): AuthSettings {
+  const validateUrl = (value: string, field: string) => {
+    try {
+      new URL(value);
+    } catch {
+      throw new Error(`${field} must be a valid absolute URL`);
+    }
+  };
+  const validatePathOrUrl = (value: string, field: string) => {
+    if (value.startsWith("/")) return;
+    validateUrl(value, field);
+  };
+  const validateMethod = (value: unknown, field: string) => {
+    if (value === undefined || value === null || value === "") return;
+    const m = parseAuthMethod(value);
+    if (!m) throw new Error(`${field} must be "GET", "POST", or "PUT"`);
+  };
+  const validatePayload = (value: unknown, field: string) => {
+    if (value === undefined || value === null) return;
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`${field} must be a plain object`);
+    }
+  };
+
+  if (input) {
+    if (input.host !== undefined && input.host !== "" && typeof input.host === "string") {
+      validateUrl(input.host.trim(), "auth.host");
+    }
+    if (input.login) {
+      if (input.login.url !== undefined && input.login.url !== "") {
+        validateUrl(String(input.login.url).trim(), "auth.login.url");
+      }
+      if (input.login.path !== undefined && input.login.path !== "") {
+        validatePathOrUrl(String(input.login.path).trim(), "auth.login.path");
+      }
+      validateMethod(input.login.method, "auth.login.method");
+      validatePayload(input.login.payload, "auth.login.payload");
+    }
+    if (input.signup) {
+      if (input.signup.path !== undefined && input.signup.path !== "") {
+        validatePathOrUrl(String(input.signup.path).trim(), "auth.signup.path");
+      }
+      validateMethod(input.signup.method, "auth.signup.method");
+      validatePayload(input.signup.payload, "auth.signup.payload");
+    }
+    if (input.profile) {
+      if (input.profile.path !== undefined && input.profile.path !== "") {
+        validatePathOrUrl(String(input.profile.path).trim(), "auth.profile.path");
+      }
+      validateMethod(input.profile.method, "auth.profile.method");
+    }
+  }
+
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  if (input === null) {
+    delete existing.auth;
+  } else {
+    // Full replace with normalized nested shape from the request (merged with current for undefined sections).
+    const current = loadSettings(contentRoot).auth;
+    const mergeEndpoint = <T extends AuthEndpoint & { url?: string; payload?: Record<string, unknown> }>(
+      incoming: T | undefined,
+      prev: T | undefined,
+      opts: { includeUrl?: boolean; includePayload?: boolean },
+    ): T | undefined => {
+      if (incoming === undefined) return prev;
+      if (incoming === null) return undefined;
+
+      const nextPath =
+        incoming.path !== undefined
+          ? (String(incoming.path ?? "").trim() || undefined)
+          : prev?.path;
+      const nextMethod =
+        incoming.method !== undefined
+          ? parseAuthMethod(incoming.method) ?? undefined
+          : prev?.method;
+      const nextUrl = opts.includeUrl
+        ? incoming.url !== undefined
+          ? (String(incoming.url ?? "").trim() || undefined)
+          : prev?.url
+        : undefined;
+      const nextPayload = opts.includePayload
+        ? incoming.payload !== undefined
+          ? (incoming.payload ?? undefined)
+          : prev?.payload
+        : undefined;
+
+      const next = {
+        ...(nextPath ? { path: nextPath } : {}),
+        ...(nextMethod ? { method: nextMethod } : {}),
+        ...(opts.includeUrl && nextUrl ? { url: nextUrl } : {}),
+        ...(opts.includePayload && nextPayload ? { payload: nextPayload } : {}),
+      } as T;
+      return Object.keys(next).length > 0 ? next : undefined;
+    };
+
+    const nextHost =
+      input.host !== undefined
+        ? (String(input.host ?? "").trim() || undefined)
+        : current.host;
+
+    const nextLogin = mergeEndpoint(input.login, current.login, { includeUrl: true, includePayload: true });
+    const nextSignup = mergeEndpoint(input.signup, current.signup, { includePayload: true });
+    const nextProfile = mergeEndpoint(input.profile, current.profile, {});
+
+    const next: AuthSettings = {
+      ...(nextHost ? { host: nextHost } : {}),
+      ...(nextLogin ? { login: nextLogin } : {}),
+      ...(nextSignup ? { signup: nextSignup } : {}),
+      ...(nextProfile ? { profile: nextProfile } : {}),
+    };
+
+    if (Object.keys(next).length === 0) {
+      delete existing.auth;
+    } else {
+      existing.auth = next;
+    }
+  }
+
+  const dumped = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  const output = injectAuthYamlComments(dumped);
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  const updated = loadSettings(contentRoot).auth;
+  log.info(
+    `[Settings] Updated auth: host="${updated.host ?? ""}", login.path="${updated.login?.path ?? ""}", signup.path="${updated.signup?.path ?? ""}", profile.path="${updated.profile?.path ?? ""}"`,
+  );
+  return updated;
 }
 
 export function isIndexingBlocked(contentRoot?: string): boolean {

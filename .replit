@@ -10,7 +10,7 @@ packages = ["imagemagick", "libwebp", "unzip"]
 deploymentTarget = "vm"
 # Symlink lets Vite/esbuild resolve @shared during build (see .agents/memory/prod-build-shared-alias.md).
 # npm run build also emits dist/mcp-server.js; start-production.sh runs main + MCP together.
-build = ["bash", "-c", "ln -sfn \"$(pwd)/shared\" node_modules/@shared && npm run build"]
+build = ["bash", "-c", "if [ -z \"${TURNSTILE_SITE_KEY:-}\" ] || [ -z \"${TURNSTILE_SECRET_KEY:-}\" ]; then echo 'ERROR: TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are required for production deploy. Set both as Replit Secrets and redeploy.' >&2; exit 1; fi && ln -sfn \"$(pwd)/shared\" node_modules/@shared && npm run build"]
 run = ["bash", "scripts/start-production.sh"]
 
 [[ports]]

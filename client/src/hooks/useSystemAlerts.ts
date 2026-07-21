@@ -9,7 +9,9 @@ export type SystemAlertCode =
   | "gcs_migration_required"
   | "database_auth_env_missing"
   | "database_auth_failed"
-  | "database_fetch_failed";
+  | "database_fetch_failed"
+  | "turnstile_env_missing"
+  | "turnstile_secret_invalid";
 
 export interface SystemAlert {
   id: string;

@@ -29,11 +29,22 @@ import {
 } from "@/components/ui/form";
 import { useSession, useLocation as useSessionLocation, useUTM } from "@/contexts/SessionContext";
 import { useSectionContext } from "@/contexts/SectionContext";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiFetch } from "@/lib/queryClient";
 import { PhoneInput } from "@/components/ui/phone-input";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
+import { useAuthUser } from "@/hooks/useAuthUser";
+import { resolveFormFields, type IdentityField } from "@/lib/resolveFormFields";
+import {
+  resolveLeadFormPhase,
+  resolveLeadFormCopy,
+} from "@/lib/resolveLeadFormCopy";
+import {
+  parseFormFieldSource,
+  buildQueryOptionsUrl,
+  type FormFieldSourceInput,
+} from "@shared/parseFormFieldSource";
 
 interface FieldConfig {
   visible?: boolean;
@@ -45,12 +56,18 @@ interface FieldConfig {
   show_label?: boolean;
   label?: string;
   rows?: number;
-  slugs?: string[]; // For program field: limits which programs appear in the dropdown
+  slugs?: string[]; // Legacy: limits which programs appear when `source` is omitted
+  /** When set, options come from `/api/query-options` (content type or database). */
+  source?: FormFieldSourceInput;
 }
 
 export interface LeadFormData {
   variant?: "stacked" | "inline";
   conversion_name?: ConversionName;
+  /** Signup mode: guests are registered via site auth settings; logged-in users skip known fields. */
+  is_signup?: boolean;
+  /** @deprecated Prefer `fields.plan.default`. Legacy fallback when fields.plan is omitted. */
+  plan?: string;
   title?: string;
   subtitle?: string;
   submit_label?: string;
@@ -66,6 +83,7 @@ export interface LeadFormData {
     last_name?: FieldConfig;
     phone?: FieldConfig;
     program?: FieldConfig;
+    plan?: FieldConfig;
     region?: FieldConfig;
     location?: FieldConfig;
     coupon?: FieldConfig;
@@ -74,6 +92,30 @@ export interface LeadFormData {
   success?: {
     url?: string;
     message?: string;
+  };
+  /** Phase copy for signup forms. Locale defaults apply when a stage is omitted. */
+  messages?: {
+    guest?: {
+      title?: string;
+      subtitle?: string;
+      submit_label?: string;
+    };
+    login?: {
+      title?: string;
+      subtitle?: string;
+      submit_label?: string;
+      back_label?: string;
+    };
+    incomplete?: {
+      title?: string;
+      subtitle?: string;
+      submit_label?: string;
+    };
+    ready?: {
+      title?: string;
+      subtitle?: string;
+      submit_label?: string;
+    };
   };
   consent?: {
     email?: boolean;
@@ -114,6 +156,7 @@ interface FormValues {
   last_name: string;
   phone: string;
   program: string;
+  plan: string;
   region: string;
   location: string;
   coupon: string;
@@ -309,6 +352,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [turnstileError, setTurnstileError] = useState<string | null>(null);
   const [showTurnstileModal, setShowTurnstileModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<FormValues | null>(null);
+  const [loginMode, setLoginMode] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [pendingAutoSubmit, setPendingAutoSubmit] = useState(false);
 
   const turnstileEnabled = data.turnstile?.enabled ?? true;
 
@@ -330,6 +378,64 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     queryKey: ["/api/settings/consent"],
     staleTime: 5 * 60 * 1000,
   });
+
+  // Signup mode (is_signup): active only when site auth settings are configured,
+  // so a stale YAML flag can never break submissions.
+  const isSignupRequested = data.is_signup === true;
+  const { data: authSettings } = useQuery<{
+    signup_configured: boolean;
+    host?: string;
+    login?: { url?: string };
+    signup?: { payload?: Record<string, unknown> };
+  }>({
+    queryKey: ["/api/settings/auth"],
+    enabled: isSignupRequested,
+    staleTime: 5 * 60 * 1000,
+  });
+  const signupActive = isSignupRequested && authSettings?.signup_configured === true;
+
+  const {
+    profile: authProfile,
+    isLoggedIn,
+    isLoading: authProfileLoading,
+    setToken: setConsumerToken,
+  } = useAuthUser({
+    enabled: isSignupRequested,
+  });
+
+  // Show for any signup form guest (is_signup), even if signup API isn't fully configured.
+  const showSignupLoginPrompt = isSignupRequested && !isLoggedIn && !loginMode;
+
+  const signupLoginPrompt = showSignupLoginPrompt ? (
+    <p
+      className="text-sm text-center text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2"
+      data-testid="text-signup-login-prompt"
+    >
+      {locale === "es" ? "¿Ya tienes una cuenta? " : "Already have an account? "}
+      <button
+        type="button"
+        onClick={() => {
+          setLoginError(null);
+          setLoginPassword("");
+          setLoginMode(true);
+        }}
+        className="underline hover:text-foreground font-medium text-primary"
+        data-testid="button-signup-login"
+      >
+        {locale === "es" ? "Inicia sesión aquí" : "Login here"}
+      </button>
+    </p>
+  ) : null;
+
+  // Identity fields already known from the logged-in profile: hidden from the UI
+  // but prefilled so they are still part of the submitted payload.
+  // Use is_signup (not signup API configured) so in-place login still skips known fields.
+  const { hidden: hiddenIdentityFields, prefill: identityPrefill } = resolveFormFields(
+    isSignupRequested && isLoggedIn,
+    authProfile
+      ? { email: authProfile.email, first_name: authProfile.first_name, last_name: authProfile.last_name }
+      : null,
+  );
 
   const variant = data.variant || "stacked";
   const fields = data.fields || {};
@@ -377,6 +483,61 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     queryKey: ["/api/form-options", locale],
   });
 
+  const programSourceRaw = fields.program?.source;
+  const programSource = programSourceRaw
+    ? parseFormFieldSource(programSourceRaw)
+    : null;
+
+  const { data: programQueryOptions } = useQuery<{
+    options: Array<{ value: string; label: string }>;
+  }>({
+    queryKey: [
+      "/api/query-options",
+      programSource?.name,
+      programSource?.query,
+      programSource?.value,
+      programSource?.label,
+      locale,
+    ],
+    enabled: !!programSource?.name,
+    queryFn: async () => {
+      if (!programSource) return { options: [] };
+      const url = buildQueryOptionsUrl(programSource, locale);
+      const res = await apiFetch(url);
+      if (!res.ok) {
+        throw new Error(`${res.status}: ${await res.text()}`);
+      }
+      return res.json();
+    },
+  });
+
+  const planSourceRaw = fields.plan?.source;
+  const planSource = planSourceRaw ? parseFormFieldSource(planSourceRaw) : null;
+
+  const { data: planQueryOptions } = useQuery<{
+    options: Array<{ value: string; label: string }>;
+  }>({
+    queryKey: [
+      "/api/query-options",
+      "plan",
+      planSource?.name,
+      planSource?.query,
+      planSource?.value,
+      planSource?.label,
+      locale,
+    ],
+    enabled: !!planSource?.name,
+    queryFn: async () => {
+      if (!planSource) return { options: [] };
+      const url = buildQueryOptionsUrl(planSource, locale);
+      const res = await apiFetch(url);
+      if (!res.ok) {
+        throw new Error(`${res.status}: ${await res.text()}`);
+      }
+      return res.json();
+    },
+  });
+
   const landingRegions = (() => {
     if (!hasLandingLocations || !formOptions?.locations) return null;
     const regionSlugs = new Set<string>();
@@ -397,12 +558,20 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       last_name: { visible: false, required: false },
       phone: { visible: false, required: false },
       program: { visible: false, required: false, default: "auto" },
+      // Legacy top-level `plan` seeds the default when fields.plan is omitted.
+      plan: { visible: false, required: false, default: data.plan || "" },
       region: { visible: false, required: false, default: "auto" },
       location: { visible: false, required: false, default: "auto" },
       coupon: { visible: false, required: false, default: "auto" },
       client_comments: { visible: false, required: false },
     };
     const baseConfig = { ...defaults[fieldName], ...fields[fieldName] };
+
+    // Signup mode: identity fields already known from the profile are hidden
+    // (their values are prefilled and still submitted).
+    if (hiddenIdentityFields.has(fieldName as IdentityField)) {
+      return { ...baseConfig, visible: false, required: false };
+    }
 
     if (fieldName === "location" && hasLandingLocations) {
       if (singleLandingLocation) {
@@ -447,6 +616,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const programFieldSlugs = getFieldConfig("program").slugs;
   const visiblePrograms = (() => {
+    if (programSource) {
+      return (programQueryOptions?.options ?? []).map((o) => ({
+        slug: o.value,
+        bc_slug: o.value,
+        title: o.label,
+      }));
+    }
     if (!formOptions?.programs) return [];
     // An empty slugs array is treated the same as "not configured" — show all programs.
     // This avoids an empty dropdown when slugs is accidentally set to [].
@@ -456,6 +632,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       .filter((p): p is NonNullable<typeof p> => p !== undefined);
   })();
 
+  const planFieldSlugs = getFieldConfig("plan").slugs;
+  const visiblePlans = (() => {
+    if (planSource) {
+      return planQueryOptions?.options ?? [];
+    }
+    if (planFieldSlugs && planFieldSlugs.length > 0) {
+      return planFieldSlugs.map((slug) => ({ value: slug, label: slug }));
+    }
+    return [] as Array<{ value: string; label: string }>;
+  })();
+
   const form = useForm<FormValues>({
     defaultValues: {
       email: "",
@@ -463,6 +650,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       last_name: resolveDefault("last_name", getFieldConfig("last_name").default),
       phone: resolveDefault("phone", getFieldConfig("phone").default),
       program: resolveDefault("program", getFieldConfig("program").default),
+      plan: resolveDefault("plan", getFieldConfig("plan").default),
       region: resolveDefault("region", getFieldConfig("region").default),
       location: resolveDefault("location", getFieldConfig("location").default),
       coupon: resolveDefault("coupon", getFieldConfig("coupon").default),
@@ -470,6 +658,71 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       consent_email: false,
       consent_sms: false,
       consent_whatsapp: false,
+    },
+  });
+
+  // Prefill identity fields from the logged-in profile (signup mode). The values
+  // stay in the form state so hidden fields are still included in the payload.
+  useEffect(() => {
+    if (identityPrefill.email) form.setValue("email", identityPrefill.email);
+    if (identityPrefill.first_name) form.setValue("first_name", identityPrefill.first_name);
+    if (identityPrefill.last_name) form.setValue("last_name", identityPrefill.last_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityPrefill.email, identityPrefill.first_name, identityPrefill.last_name, form]);
+
+  // Carry email into the in-place login form when switching views.
+  useEffect(() => {
+    if (!loginMode) return;
+    const email = form.getValues("email");
+    if (email) setLoginEmail(email);
+  }, [loginMode, form]);
+
+  const loginMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auth/password-login", {
+        email: loginEmail.trim(),
+        password: loginPassword,
+      });
+      const text = await res.text();
+      try {
+        return JSON.parse(text) as { token: string };
+      } catch {
+        throw new Error(
+          locale === "es"
+            ? "El servidor de login devolvió una respuesta inválida. Reinicia el servidor de desarrollo e inténtalo de nuevo."
+            : "Login server returned an invalid response. Restart the dev server and try again.",
+        );
+      }
+    },
+    onSuccess: (data) => {
+      if (!data?.token) {
+        setLoginError(locale === "es" ? "Login sin token" : "Login succeeded but no token returned");
+        return;
+      }
+      setConsumerToken(data.token);
+      setLoginMode(false);
+      setLoginPassword("");
+      setLoginError(null);
+      setPendingAutoSubmit(true);
+    },
+    onError: (error: Error) => {
+      let message = error.message || (locale === "es" ? "No se pudo iniciar sesión" : "Login failed");
+      try {
+        const jsonPart = message.replace(/^\d+:\s*/, "");
+        const parsed = JSON.parse(jsonPart) as { error?: string };
+        if (parsed.error) message = parsed.error;
+      } catch {
+        // keep message
+      }
+      if (
+        message.length > 200 ||
+        /<[^>]+>/.test(message) ||
+        /unexpected token/i.test(message) ||
+        /<!doctype/i.test(message)
+      ) {
+        message = locale === "es" ? "No se pudo iniciar sesión" : "Login failed";
+      }
+      setLoginError(message);
     },
   });
 
@@ -493,6 +746,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   }, [sessionLocation, utm, programContext, form, singleLandingLocation, singleLandingRegion]);
 
   useEffect(() => {
+    if (programSource) {
+      if (!programQueryOptions?.options) return;
+      const currentValue = form.getValues("program");
+      if (!currentValue) return;
+      const isValid = visiblePrograms.some(p => (p.bc_slug || p.slug) === currentValue);
+      if (!isValid) form.setValue("program", "");
+      return;
+    }
     if (!programFieldSlugs?.length || !formOptions?.programs) return;
     const currentValue = form.getValues("program");
     if (!currentValue) return;
@@ -500,7 +761,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (!isValid) {
       form.setValue("program", "");
     }
-  }, [visiblePrograms, programFieldSlugs, formOptions?.programs, form]);
+  }, [visiblePrograms, programFieldSlugs, formOptions?.programs, programSource, programQueryOptions?.options, form]);
 
   const submitMutation = useMutation({
     mutationFn: async (values: FormValues) => {
@@ -541,6 +802,53 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         conversion_name: data.conversion_name,
         token: turnstileToken,
       };
+
+      // Signup mode: guests are registered first via the site auth endpoint;
+      // logged-in users skip this and go straight to the lead/conversion flow.
+      if (signupActive && !isLoggedIn) {
+        const liveSignup = {
+          first_name: values.first_name,
+          last_name: values.last_name,
+          email: values.email,
+          phone: values.phone,
+          course: payload.program || "",
+          country: session.geo?.country || "",
+          city: session.geo?.city || "",
+          plan: values.plan || resolveDefault("plan", getFieldConfig("plan").default) || "",
+          language: session.language,
+          has_marketing_consent: effectiveEmailConsent,
+          conversion_info: {
+            user_agent: navigator.userAgent,
+            landing_url: utm.utm_url || window.location.pathname,
+            conversion_url: window.location.pathname,
+            ...(utm.utm_placement ? { internal_cta_placement: utm.utm_placement } : {}),
+          },
+        };
+        // Merge live values over the site auth example payload template
+        const template = authSettings?.signup?.payload || {};
+        const templateInfo =
+          template.conversion_info && typeof template.conversion_info === "object"
+            ? (template.conversion_info as Record<string, unknown>)
+            : {};
+        const signupPayload = {
+          ...template,
+          ...liveSignup,
+          conversion_info: {
+            ...templateInfo,
+            ...liveSignup.conversion_info,
+          },
+        };
+        const signupRes = await apiRequest("POST", "/api/auth/signup", signupPayload);
+        try {
+          const signupJson = (await signupRes.json()) as {
+            data?: { access_token?: string; token?: string };
+          };
+          const newToken = signupJson?.data?.access_token || signupJson?.data?.token;
+          if (newToken) setConsumerToken(newToken);
+        } catch {
+          // Signup succeeded but response was not JSON — continue as guest
+        }
+      }
 
       // Webhook priority: per-form (YAML) → per-event → global.
       // Any configured level sends the full lead payload instead of Breathecode.
@@ -723,50 +1031,98 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     return loc.region === selectedRegion;
   }) || [];
 
-  // Watch all form values to determine if required fields are filled
+  // Watch all form values to determine if required / visible fields are filled
   const watchedValues = form.watch();
-  
-  const allRequiredFieldsFilled = (() => {
-    const requiredFields: (keyof FormValues)[] = [];
-    
-    if (getFieldConfig("email").visible && getFieldConfig("email").required) {
-      requiredFields.push("email");
+
+  const isFieldValueFilled = (field: keyof FormValues): boolean => {
+    const value = watchedValues[field];
+    if (typeof value === "string") {
+      if (field === "email") {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      }
+      return value.trim() !== "";
     }
-    if (getFieldConfig("first_name").visible && getFieldConfig("first_name").required) {
-      requiredFields.push("first_name");
-    }
-    if (getFieldConfig("last_name").visible && getFieldConfig("last_name").required) {
-      requiredFields.push("last_name");
-    }
-    if (getFieldConfig("phone").visible && getFieldConfig("phone").required) {
-      requiredFields.push("phone");
-    }
-    if (getFieldConfig("program").visible && getFieldConfig("program").required) {
-      requiredFields.push("program");
-    }
-    if (getFieldConfig("region").visible && getFieldConfig("region").required) {
-      requiredFields.push("region");
-    }
-    if (getFieldConfig("location").visible && getFieldConfig("location").required) {
-      requiredFields.push("location");
-    }
-    if (getFieldConfig("client_comments").visible && getFieldConfig("client_comments").required) {
-      requiredFields.push("client_comments");
-    }
-    
-    // Check if all required fields have values
-    return requiredFields.every(field => {
-      const value = watchedValues[field];
+    return !!value;
+  };
+
+  const collectVisibleFields = (onlyRequired: boolean): (keyof FormValues)[] => {
+    const names: (keyof FormValues)[] = [
+      "email",
+      "first_name",
+      "last_name",
+      "phone",
+      "program",
+      "plan",
+      "region",
+      "location",
+      "client_comments",
+    ];
+    return names.filter((name) => {
+      const cfg = getFieldConfig(name as keyof NonNullable<LeadFormData["fields"]>);
+      if (!cfg.visible) return false;
+      return onlyRequired ? !!cfg.required : true;
+    });
+  };
+
+  const allRequiredFieldsFilled = collectVisibleFields(true).every(isFieldValueFilled);
+  // Messaging phase: any still-visible empty field (e.g. optional phone) means incomplete.
+  const allVisibleFieldsFilled = collectVisibleFields(false).every(isFieldValueFilled);
+
+  const formPhase = resolveLeadFormPhase({
+    isSignup: isSignupRequested,
+    loginMode,
+    isLoggedIn,
+    allVisibleFieldsFilled,
+  });
+  const formCopy = resolveLeadFormCopy(formPhase, data, locale);
+
+  // After in-place login: if profile filled every required field, finish submission
+  // (redirect / success message). Otherwise stay on the form for remaining fields.
+  useEffect(() => {
+    if (!pendingAutoSubmit || !isLoggedIn || authProfileLoading) return;
+    // Ensure identity prefill has been applied to form state
+    if (identityPrefill.email) form.setValue("email", identityPrefill.email);
+    if (identityPrefill.first_name) form.setValue("first_name", identityPrefill.first_name);
+    if (identityPrefill.last_name) form.setValue("last_name", identityPrefill.last_name);
+
+    const values = form.getValues();
+    const requiredKeys: (keyof FormValues)[] = [];
+    const check = (name: keyof FormValues) => {
+      const cfg = getFieldConfig(name as keyof NonNullable<LeadFormData["fields"]>);
+      if (cfg.visible && cfg.required) requiredKeys.push(name);
+    };
+    check("email");
+    check("first_name");
+    check("last_name");
+    check("phone");
+    check("program");
+    check("plan");
+    check("region");
+    check("location");
+    check("client_comments");
+
+    const ready = requiredKeys.every((field) => {
+      const value = values[field];
       if (typeof value === "string") {
-        // For email, also validate format
-        if (field === "email") {
-          return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-        }
+        if (field === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
         return value.trim() !== "";
       }
       return !!value;
     });
-  })();
+
+    setPendingAutoSubmit(false);
+    if (ready) {
+      onSubmit(values);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    pendingAutoSubmit,
+    isLoggedIn,
+    authProfileLoading,
+    identityPrefill.email,
+    identityPrefill.first_name,
+    identityPrefill.last_name,
+  ]);
 
   const isInline = variant === "inline";
 
@@ -798,12 +1154,102 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     );
   }
 
+  if (loginMode) {
+    return (
+      <div className={data.className} data-testid="lead-form-login">
+        <div className="mb-4 space-y-1">
+          {formCopy.title && (
+            <h3 className="text-lg font-semibold text-foreground" data-testid="text-login-title">
+              {formCopy.title}
+            </h3>
+          )}
+          {formCopy.subtitle && (
+            <p className="text-sm text-muted-foreground" data-testid="text-login-subtitle">
+              {formCopy.subtitle}
+            </p>
+          )}
+        </div>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setLoginError(null);
+            loginMutation.mutate();
+          }}
+          data-testid="form-inplace-login"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="inplace-login-email">
+              {locale === "es" ? "Correo" : "Email"}
+            </Label>
+            <Input
+              id="inplace-login-email"
+              type="email"
+              autoComplete="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              placeholder={locale === "es" ? "tu@email.com" : "you@email.com"}
+              required
+              data-testid="input-login-email"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inplace-login-password">
+              {locale === "es" ? "Contraseña" : "Password"}
+            </Label>
+            <Input
+              id="inplace-login-password"
+              type="password"
+              autoComplete="current-password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              required
+              data-testid="input-login-password"
+            />
+          </div>
+          {loginError && (
+            <p className="text-sm text-destructive" data-testid="text-login-error">
+              {loginError}
+            </p>
+          )}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loginMutation.isPending || !loginEmail.trim() || !loginPassword}
+            data-testid="button-login-submit"
+          >
+            {loginMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              formCopy.submit_label
+            )}
+          </Button>
+          <p className="text-sm text-center text-muted-foreground">
+            <button
+              type="button"
+              className="underline hover:text-foreground"
+              onClick={() => {
+                setLoginMode(false);
+                setLoginError(null);
+                setLoginPassword("");
+              }}
+              data-testid="button-back-to-signup"
+            >
+              {formCopy.back_label}
+            </button>
+          </p>
+        </form>
+      </div>
+    );
+  }
+
   const emailConfig = getFieldConfig("email");
 
-  const hasVisibleFieldsBeyondEmailAndFirstName = 
+  const hasVisibleFieldsBeyondEmailAndFirstName =
     getFieldConfig("last_name").visible ||
     getFieldConfig("phone").visible ||
     getFieldConfig("program").visible ||
+    getFieldConfig("plan").visible ||
     getFieldConfig("region").visible ||
     getFieldConfig("location").visible ||
     getFieldConfig("coupon").visible ||
@@ -868,10 +1314,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                 {submitMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  data.submit_label || (locale === "es" ? "Enviar" : "Submit")
+                  formCopy.submit_label
                 )}
               </Button>
             </div>
+            {signupLoginPrompt && (
+              <div className="mt-3">{signupLoginPrompt}</div>
+            )}
             {turnstileEnabled && turnstileSiteKey?.siteKey && showTurnstileModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                 <div className="bg-card p-card-padding rounded-card shadow-card">
@@ -935,20 +1384,20 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   return (
     <div className={data.className} data-testid="lead-form">
-      {data.title && (
+      {formCopy.title && (
         <h2 
           className="mb-2 text-center text-foreground"
           data-testid="text-form-title"
         >
-          {data.title}
+          {formCopy.title}
         </h2>
       )}
-      {data.subtitle && (
+      {formCopy.subtitle && (
         <p 
           className="text-body text-muted-foreground text-center mb-6"
           data-testid="text-form-subtitle"
         >
-          {data.subtitle}
+          {formCopy.subtitle}
         </p>
       )}
       <Form {...form}>
@@ -1190,6 +1639,67 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
+            {getFieldConfig("plan").visible && (
+              <FormField
+                control={form.control}
+                name="plan"
+                rules={{
+                  required: getFieldConfig("plan").required
+                    ? locale === "es"
+                      ? "Plan requerido"
+                      : "Plan is required"
+                    : false,
+                }}
+                render={({ field }) => (
+                  <FormItem>
+                    {getFieldConfig("plan").show_label && (
+                      <FormLabel>
+                        {getFieldConfig("plan").label || (locale === "es" ? "Plan" : "Plan")}
+                      </FormLabel>
+                    )}
+                    {visiblePlans.length > 0 ? (
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-plan">
+                            <SelectValue
+                              placeholder={
+                                getFieldConfig("plan").placeholder ||
+                                (locale === "es" ? "Selecciona un plan" : "Select a plan")
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {visiblePlans.map((plan) => (
+                            <SelectItem key={plan.value} value={plan.value}>
+                              {plan.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <FormControl>
+                        <Input
+                          placeholder={
+                            getFieldConfig("plan").placeholder ||
+                            (locale === "es" ? "Plan" : "Plan")
+                          }
+                          {...field}
+                          data-testid="input-plan"
+                        />
+                      </FormControl>
+                    )}
+                    {getFieldConfig("plan").helper_text && (
+                      <p className="text-sm text-muted-foreground">
+                        {getFieldConfig("plan").helper_text}
+                      </p>
+                    )}
+                    <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
+                  </FormItem>
+                )}
+              />
+            )}
+
             {getFieldConfig("coupon").visible && (
               <FormField
                 control={form.control}
@@ -1290,7 +1800,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             {submitMutation.isPending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              data.submit_label || (locale === "es" ? "Enviar" : "Submit")
+              formCopy.submit_label
             )}
           </Button>
 
@@ -1318,6 +1828,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               </a>
             </p>
           )}
+
+          {signupLoginPrompt}
         </form>
       </Form>
     </div>

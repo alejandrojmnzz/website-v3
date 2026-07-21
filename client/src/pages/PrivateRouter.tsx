@@ -89,6 +89,10 @@ export default function PrivateRouter() {
         <Route path="/private/store/conversions" component={ConversionsPage} />
         <Route path="/private/tracking/sgtm" component={TrackingPage} />
         <Route path="/private/tracking" component={TrackingPage} />
+        <Route path="/private/security/roles" component={SecurityPage} />
+        <Route path="/private/security/users" component={SecurityPage} />
+        <Route path="/private/security/auth" component={SecurityPage} />
+        <Route path="/private/security/captcha" component={SecurityPage} />
         <Route path="/private/security" component={SecurityPage} />
         <Route path="/private/mcp-server" component={McpServerPage} />
         <Route path="/private/error-log" component={ErrorLogPage} />

@@ -134,6 +134,11 @@ import {
   getDirectory,
   readRawContentTypesYml,
   writeRawContentTypesYml,
+  listExtraUrlPatternParams,
+  resolveFieldValue as resolveUrlFieldValue,
+  detectUrlParamValueShape,
+  getRawUrlParamValue,
+  type UrlParamValueShape,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
@@ -1335,6 +1340,79 @@ export function registerContentRoutes(app: Express): void {
         });
       }
       res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/url-param-options", (req, res) => {
+    try {
+      const { type } = req.params;
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+
+      const params = listExtraUrlPatternParams(config.url_pattern);
+      const options: Record<string, string[]> = {};
+      const optionsByLocale: Record<string, Record<string, string[]>> = {};
+      const shapes: Record<string, UrlParamValueShape> = {};
+      for (const param of params) {
+        options[param] = [];
+        optionsByLocale[param] = {};
+        shapes[param] = "string";
+      }
+
+      if (params.length === 0) {
+        res.json({ params, options, optionsByLocale, shapes });
+        return;
+      }
+
+      const mapping = getFieldMapping(type, ctRoot(res));
+      const valueSets: Record<string, Set<string>> = {};
+      const localeSets: Record<string, Record<string, Set<string>>> = {};
+      const shapeVotes: Record<string, { object_slug: number; string: number }> = {};
+      for (const param of params) {
+        valueSets[param] = new Set();
+        localeSets[param] = {};
+        shapeVotes[param] = { object_slug: 0, string: 0 };
+      }
+
+      const ci = getCI(res);
+      const slugs = ci.listContentSlugs(type as ContentType);
+      for (const slug of slugs) {
+        const locales = ci
+          .getAvailableLocalesOrVariants(type as ContentType, slug)
+          .filter((l) => !l.startsWith("_") && !l.includes("."));
+        for (const locale of locales) {
+          const { data } = ci.loadMergedContent(type, slug, locale);
+          if (!data) continue;
+          const record = data as Record<string, unknown>;
+          for (const param of params) {
+            const raw = getRawUrlParamValue(record, param, mapping);
+            if (raw === undefined || raw === null) continue;
+            shapeVotes[param][detectUrlParamValueShape(raw)] += 1;
+            const resolved = resolveUrlFieldValue(raw);
+            if (resolved) {
+              valueSets[param].add(resolved);
+              (localeSets[param][locale] ??= new Set()).add(resolved);
+            }
+          }
+        }
+      }
+
+      for (const param of params) {
+        options[param] = [...valueSets[param]].sort((a, b) => a.localeCompare(b));
+        for (const [locale, set] of Object.entries(localeSets[param])) {
+          optionsByLocale[param][locale] = [...set].sort((a, b) => a.localeCompare(b));
+        }
+        const votes = shapeVotes[param];
+        shapes[param] =
+          votes.object_slug > votes.string ? "object_slug" : "string";
+      }
+
+      res.json({ params, options, optionsByLocale, shapes });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Copy, LogOut } from "lucide-react";
 import { IconRefresh } from "@tabler/icons-react";
 import {
   Dialog,
@@ -10,6 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { getConsumerToken, clearConsumerToken } from "@/hooks/useAuthUser";
 
 interface SessionModalProps {
   open: boolean;
@@ -21,6 +23,82 @@ interface SessionModalProps {
   clearToken: () => void;
   handleCheckSession: () => void;
   isCheckingSession: boolean;
+}
+
+interface SessionTokenCardProps {
+  title: string;
+  token: string | null;
+  onLogout: () => void;
+  testIdPrefix: string;
+}
+
+function SessionTokenCard({ title, token, onLogout, testIdPrefix }: SessionTokenCardProps) {
+  const [copied, setCopied] = useState(false);
+  const active = !!token;
+
+  return (
+    <div className="rounded-md border p-3 space-y-2" data-testid={`card-${testIdPrefix}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <h4 className="text-sm font-semibold text-foreground truncate">{title}</h4>
+          {active ? (
+            <Badge
+              className="border-transparent bg-status-online/15 text-status-online"
+              data-testid={`badge-${testIdPrefix}-status`}
+            >
+              Active
+            </Badge>
+          ) : (
+            <Badge variant="secondary" data-testid={`badge-${testIdPrefix}-status`}>
+              Inactive
+            </Badge>
+          )}
+        </div>
+        {active && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-destructive"
+            onClick={onLogout}
+            title={`Log out (destroy ${title.toLowerCase()} token)`}
+            data-testid={`button-${testIdPrefix}-logout`}
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+      {active ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground flex-shrink-0">Token</span>
+          <code
+            className="flex-1 bg-muted px-2 py-1.5 rounded text-xs font-mono truncate"
+            data-testid={`text-${testIdPrefix}-token`}
+          >
+            {token}
+          </code>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 flex-shrink-0"
+            onClick={() => {
+              navigator.clipboard.writeText(token!);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            data-testid={`button-${testIdPrefix}-copy`}
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-status-online" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No active session.</p>
+      )}
+    </div>
+  );
 }
 
 export function SessionModal(props: SessionModalProps) {
@@ -36,7 +114,14 @@ export function SessionModal(props: SessionModalProps) {
     isCheckingSession,
   } = props;
 
-  const [tokenCopied, setTokenCopied] = useState(false);
+  // Consumer token kept in state so logout re-renders the card immediately.
+  const [consumerToken, setConsumerTokenState] = useState<string | null>(() => getConsumerToken());
+  const debugToken = hasToken ? getDebugToken() : null;
+
+  // Re-read on open in case the user logged in/out since the modal mounted.
+  useEffect(() => {
+    if (open) setConsumerTokenState(getConsumerToken());
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -48,41 +133,29 @@ export function SessionModal(props: SessionModalProps) {
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-4 py-4">
-          {hasToken && getDebugToken() && (
-            <div className="space-y-3">
-              <h4 className="text-sm font-semibold text-foreground">Authentication Token</h4>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 bg-muted px-2 py-1.5 rounded text-xs font-mono truncate" data-testid="text-session-token">
-                  {getDebugToken()}
-                </code>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 flex-shrink-0"
-                  onClick={() => {
-                    const token = getDebugToken();
-                    if (token) {
-                      navigator.clipboard.writeText(token);
-                      setTokenCopied(true);
-                      setTimeout(() => setTokenCopied(false), 2000);
-                    }
-                  }}
-                  data-testid="button-copy-token"
-                >
-                  {tokenCopied ? (
-                    <Check className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
-          
-          <div className={`space-y-3 ${hasToken && getDebugToken() ? 'border-t pt-3' : ''}`}>
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SessionTokenCard
+              title="Staff Session"
+              token={debugToken}
+              onLogout={clearToken}
+              testIdPrefix="staff-session"
+            />
+
+            <SessionTokenCard
+              title="Consumer Session"
+              token={consumerToken}
+              onLogout={() => {
+                clearConsumerToken();
+                setConsumerTokenState(null);
+              }}
+              testIdPrefix="consumer-session"
+            />
+          </div>
+
+          <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Geolocation</h4>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-2 gap-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Country:</span>
                 <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{session.geo?.country || 'N/A'}</code>
@@ -102,9 +175,9 @@ export function SessionModal(props: SessionModalProps) {
             </div>
           </div>
           
-          <div className="border-t pt-3 space-y-3">
+          <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Device</h4>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-2 gap-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Category:</span>
                 <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{session.device?.deviceCategory || 'N/A'}</code>
@@ -128,9 +201,9 @@ export function SessionModal(props: SessionModalProps) {
             </div>
           </div>
           
-          <div className="border-t pt-3 space-y-3">
+          <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">UTM Parameters</h4>
-            <div className="space-y-1.5 text-sm">
+            <div className="space-y-1 text-sm">
               {(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'utm_placement', 'utm_plan'] as const).map(key => (
                 <div key={key} className="flex justify-between">
                   <span className="text-muted-foreground">{key}:</span>
@@ -140,9 +213,9 @@ export function SessionModal(props: SessionModalProps) {
             </div>
           </div>
           
-          <div className="border-t pt-3 space-y-3">
+          <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Tracking</h4>
-            <div className="space-y-1.5 text-sm">
+            <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">PPC Tracking ID:</span>
                 <code className="bg-muted px-1.5 py-0.5 rounded text-xs max-w-[150px] truncate">{session.utm?.ppc_tracking_id || '—'}</code>
@@ -158,9 +231,9 @@ export function SessionModal(props: SessionModalProps) {
             </div>
           </div>
           
-          <div className="border-t pt-3 space-y-3">
+          <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Session Info</h4>
-            <div className="space-y-1.5 text-sm">
+            <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">User ID:</span>
                 <code className="bg-muted px-1.5 py-0.5 rounded text-xs max-w-[180px] truncate" title={session.userId} data-testid="text-user-id">{session.userId || 'N/A'}</code>

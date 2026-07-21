@@ -5,6 +5,8 @@
  * This merge happens at read/resolve time — no YML files are modified.
  */
 
+import { joinFormSettingsPath } from "./joinFormSettingsPath";
+
 export interface ConsentDefaults {
   marketing?: boolean;
   sms?: boolean;
@@ -80,34 +82,35 @@ export function resolveFormDefaults(
   };
 
   let result = { ...formSection };
+  const fp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
 
   if (conversionEvent.automations !== undefined) {
-    const existing = get(result, `${formSettingsPath}.automations`);
+    const existing = get(result, fp("automations"));
     if (existing === undefined || existing === null || existing === "") {
-      result = set(result, `${formSettingsPath}.automations`, conversionEvent.automations);
+      result = set(result, fp("automations"), conversionEvent.automations);
     }
   }
 
   if (conversionEvent.tags !== undefined && conversionEvent.tags.length > 0) {
-    const existing = get(result, `${formSettingsPath}.tags`);
+    const existing = get(result, fp("tags"));
     const hasFormTags =
       (Array.isArray(existing) && existing.length > 0) ||
       (typeof existing === "string" && existing.trim() !== "");
     if (!hasFormTags) {
-      result = set(result, `${formSettingsPath}.tags`, conversionEvent.tags);
+      result = set(result, fp("tags"), conversionEvent.tags);
     }
   }
 
   if (conversionEvent.webhook?.url) {
-    const existingUrl = get(result, `${formSettingsPath}.webhook.url`);
+    const existingUrl = get(result, fp("webhook.url"));
     if (!existingUrl) {
-      result = set(result, `${formSettingsPath}.webhook`, conversionEvent.webhook);
+      result = set(result, fp("webhook"), conversionEvent.webhook);
     }
   }
 
   if (conversionEvent.success) {
-    const existingUrl = get(result, `${formSettingsPath}.success.url`);
-    const existingMessage = get(result, `${formSettingsPath}.success.message`);
+    const existingUrl = get(result, fp("success.url"));
+    const existingMessage = get(result, fp("success.message"));
     const hasFormSuccess =
       (typeof existingUrl === "string" && existingUrl.trim() !== "") ||
       (typeof existingMessage === "string" && existingMessage.trim() !== "");
@@ -116,7 +119,7 @@ export function resolveFormDefaults(
       if (conversionEvent.success.url?.trim()) success.url = conversionEvent.success.url.trim();
       if (conversionEvent.success.message?.trim()) success.message = conversionEvent.success.message.trim();
       if (success.url || success.message) {
-        result = set(result, `${formSettingsPath}.success`, success);
+        result = set(result, fp("success"), success);
       }
     }
   }
@@ -133,28 +136,28 @@ export function resolveFormDefaults(
     ];
     for (const field of consentFields) {
       if (consentDefaults[field] !== undefined) {
-        const existing = get(result, `${formSettingsPath}.consent.${field}`);
+        const existing = get(result, fp(`consent.${field}`));
         if (existing === undefined || existing === null) {
-          result = set(result, `${formSettingsPath}.consent.${field}`, consentDefaults[field]);
+          result = set(result, fp(`consent.${field}`), consentDefaults[field]);
         }
       }
     }
     if (consentDefaults.show_terms !== undefined) {
-      const existing = get(result, `${formSettingsPath}.show_terms`);
+      const existing = get(result, fp("show_terms"));
       if (existing === undefined || existing === null) {
-        result = set(result, `${formSettingsPath}.show_terms`, consentDefaults.show_terms);
+        result = set(result, fp("show_terms"), consentDefaults.show_terms);
       }
     }
     if (consentDefaults.terms_url) {
-      const existing = get(result, `${formSettingsPath}.terms_url`);
+      const existing = get(result, fp("terms_url"));
       if (!existing) {
-        result = set(result, `${formSettingsPath}.terms_url`, consentDefaults.terms_url);
+        result = set(result, fp("terms_url"), consentDefaults.terms_url);
       }
     }
     if (consentDefaults.privacy_url) {
-      const existing = get(result, `${formSettingsPath}.privacy_url`);
+      const existing = get(result, fp("privacy_url"));
       if (!existing) {
-        result = set(result, `${formSettingsPath}.privacy_url`, consentDefaults.privacy_url);
+        result = set(result, fp("privacy_url"), consentDefaults.privacy_url);
       }
     }
   }

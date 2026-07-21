@@ -374,7 +374,7 @@ export function registerAdminRoutes(app: Express): void {
     const auth = await requireStaffSession(req, res);
     if (!auth.authorized) return;
     await gcs.checkArchitecture();
-    res.json({ alerts: collectSystemAlerts() });
+    res.json({ alerts: await collectSystemAlerts() });
   });
 
   app.post("/api/admin/database-recheck", async (req, res) => {
@@ -392,7 +392,7 @@ export function registerAdminRoutes(app: Express): void {
       res.status(404).json(result);
       return;
     }
-    res.json({ ...result, alerts: collectSystemAlerts() });
+    res.json({ ...result, alerts: await collectSystemAlerts() });
   });
 
   // ─── Server controls (staff-only) ─────────────────────────────────────────
@@ -2476,17 +2476,18 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/mcp/tools", async (_req, res) => {
+    const siteUrl = (process.env.SITE_URL || "").replace(/\/$/, "") || null;
     try {
       const mcpPort = process.env.MCP_PORT || "3001";
       const response = await fetch(`http://localhost:${mcpPort}/tools`);
       if (!response.ok) {
-        res.status(502).json({ tools: [], error: "MCP server unavailable" });
+        res.status(502).json({ tools: [], error: "MCP server unavailable", siteUrl });
         return;
       }
       const data = await response.json();
-      res.json(data);
+      res.json({ ...data, siteUrl });
     } catch {
-      res.status(502).json({ tools: [], error: "MCP server unavailable" });
+      res.status(502).json({ tools: [], error: "MCP server unavailable", siteUrl });
     }
   });
 

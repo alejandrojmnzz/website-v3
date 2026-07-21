@@ -207,12 +207,29 @@ import {
 import { getTrackingSettings } from "../settings";
 import { buildLeadPayload } from "../utils/buildLeadPayload";
 import { isPrivateDestination } from "./webhooks";
+import { DatabaseManager } from "../database";
+import {
+  fetchQueryOptions,
+  parseFilterQueryParams,
+  logSourceNameCollisions,
+} from "../query-options";
 import { child } from "../logger";
 const log = child({ module: "routes/forms" });
 
+function getDB(res: Response): DatabaseManager {
+  return (res.locals.site as { database?: DatabaseManager } | undefined)?.database ?? databaseManager;
+}
 
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as { contentIndex?: typeof contentIndex } | undefined)?.contentIndex ?? contentIndex;
+}
+
+function getContentRoot(res: Response): string {
+  return (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot ?? getDefaultContentRoot();
+}
 
 export function registerFormsRoutes(app: Express): void {
+  logSourceNameCollisions(getDefaultContentRoot(), databaseManager);
   app.get("/api/turnstile/status", (_req, res) => {
     const siteKey = process.env.TURNSTILE_SITE_KEY;
     const secretKey = process.env.TURNSTILE_SECRET_KEY;
@@ -414,6 +431,48 @@ export function registerFormsRoutes(app: Express): void {
       locations: locationsList,
       regions,
     });
+  });
+
+  // Query-driven dropdown options (content type or database via `source`)
+  app.get("/api/query-options", async (req, res) => {
+    try {
+      const parsed = parseFilterQueryParams(req.query as Record<string, unknown>);
+      if (!parsed.source) {
+        res.status(400).json({ error: "source query parameter is required" });
+        return;
+      }
+
+      const locale = parsed.locale
+        ? normalizeLocale(parsed.locale)
+        : undefined;
+
+      const result = await fetchQueryOptions(
+        {
+          source: parsed.source,
+          filters: parsed.filters,
+          sort: parsed.sort,
+          limit: parsed.limit,
+          locale,
+          valuePath: parsed.valuePath,
+          labelPath: parsed.labelPath,
+        },
+        {
+          db: getDB(res),
+          contentIndex: getCI(res),
+          contentRoot: getContentRoot(res),
+        },
+      );
+
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error });
+        return;
+      }
+
+      res.json({ options: result.options, meta: result.meta });
+    } catch (error) {
+      log.error({ err: error }, "Error loading query options:");
+      res.status(500).json({ error: "Failed to load query options" });
+    }
   });
 
   // Submit lead form

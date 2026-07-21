@@ -28,7 +28,7 @@ import { markFileAsModified } from "./sync-state";
 import { contentIndex, ContentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
 import { mergeSingleTemplate, extractVariableFields, TEMPLATE_EXPR_RE } from "./database-single-loader";
-import { getDatabaseName, getLookupKey, getFieldMapping, isValidType, getAllTypes, getFolder, getContentTypeConfig } from "./content-types";
+import { getDatabaseName, getLookupKey, getFieldMapping, isValidType, getAllTypes, getFolder, getContentTypeConfig, listExtraUrlPatternParams, detectUrlParamValueShape, formatUrlParamFieldValue, getRawUrlParamValue, type UrlParamValueShape } from "./content-types";
 import { databaseManager, DatabaseManager } from "./database";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import { canonicalSectionId, sectionIdCandidates, sectionMatchesId } from "./utils/sectionIdentity";
@@ -996,6 +996,14 @@ function coerceToOriginalType(newValue: string, originalValue: unknown): unknown
     return Number.isNaN(n) ? newValue : n;
   }
   if (typeof originalValue === "boolean") return newValue === "true";
+  if (
+    originalValue != null &&
+    typeof originalValue === "object" &&
+    !Array.isArray(originalValue) &&
+    "slug" in (originalValue as object)
+  ) {
+    return { slug: newValue };
+  }
   return newValue;
 }
 
@@ -1015,6 +1023,51 @@ function formatValidationError(type: string, raw: string): string {
     }
   } catch {}
   return `Cannot save ${type}: ${raw}`;
+}
+
+function inferUrlParamShapes(
+  type: string,
+  params: string[],
+  contentRootName?: string,
+): Record<string, UrlParamValueShape> {
+  const shapes: Record<string, UrlParamValueShape> = {};
+  for (const param of params) shapes[param] = "string";
+  if (params.length === 0) return shapes;
+
+  const mapping = getFieldMapping(type, contentRootName);
+  const votes: Record<string, { object_slug: number; string: number }> = {};
+  for (const param of params) votes[param] = { object_slug: 0, string: 0 };
+
+  const slugs = contentIndex.listContentSlugs(type as import("./content-index").ContentType);
+  for (const slug of slugs.slice(0, 50)) {
+    const locales = contentIndex.getAvailableLocalesOrVariants(
+      type as import("./content-index").ContentType,
+      slug,
+    );
+    const entryLocale = locales.find((l) => !l.startsWith("_") && !l.includes(".")) ?? locales[0];
+    if (!entryLocale) continue;
+    const { data } = contentIndex.loadMergedContent(type, slug, entryLocale);
+    if (!data) continue;
+    const record = data as Record<string, unknown>;
+    for (const param of params) {
+      const raw = getRawUrlParamValue(record, param, mapping);
+      if (raw === undefined || raw === null) continue;
+      votes[param][detectUrlParamValueShape(raw)] += 1;
+    }
+  }
+
+  for (const param of params) {
+    shapes[param] =
+      votes[param].object_slug > votes[param].string ? "object_slug" : "string";
+  }
+  return shapes;
+}
+
+function normalizeUrlParamInput(value: unknown): string | null {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function invalidateContentCaches(contentType?: string): void {
@@ -1240,6 +1293,8 @@ export interface CreateContentEntryInput {
   changeContentType?: boolean;
   skipLocales?: string[];
   uniqueFieldValues?: Record<string, string | boolean>;
+  /** locale → param → value for URL pattern params (e.g. :category), which may differ per locale */
+  urlParamValues?: Record<string, Record<string, string>>;
   localeTitles?: Record<string, string>;
   author?: string;
   contentRootName?: string;
@@ -1250,7 +1305,7 @@ export async function createContentEntry(
 ): Promise<ContentLifecycleResult<Record<string, unknown>>> {
   const {
     type, title, sourceUrl, changeContentType = false,
-    skipLocales = [], uniqueFieldValues = {}, localeTitles = {}, author,
+    skipLocales = [], uniqueFieldValues = {}, urlParamValues = {}, localeTitles = {}, author,
   } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
 
@@ -1259,6 +1314,45 @@ export async function createContentEntry(
   }
   if (!isValidType(type)) {
     return { success: false, statusCode: 400, error: `Invalid type. Must be one of: ${getAllTypes().join(", ")}` };
+  }
+
+  const typeConfigForParams = getContentTypeConfig(type);
+  const urlParams = listExtraUrlPatternParams(typeConfigForParams?.url_pattern);
+  const urlParamShapes = inferUrlParamShapes(type, urlParams);
+  const isFreshCreate = !sourceUrl;
+
+  const activeUrlLocales = getSupportedLocales().filter(l => !skipLocales.includes(l));
+  const urlParamValueForLocale = (param: string, loc: string): string | null =>
+    normalizeUrlParamInput(urlParamValues[loc]?.[param]) ??
+    normalizeUrlParamInput(uniqueFieldValues[param]);
+
+  // Params whose value is identical across active locales go to _common.yml;
+  // params that differ per locale are written into each locale file instead.
+  const uniformUrlParams: Record<string, string> = {};
+  const perLocaleUrlParams: string[] = [];
+  for (const param of urlParams) {
+    const vals = activeUrlLocales.map(l => urlParamValueForLocale(param, l));
+    if (vals.length > 0 && vals[0] && vals.every(v => v === vals[0])) {
+      uniformUrlParams[param] = vals[0];
+    } else if (vals.some(v => v)) {
+      perLocaleUrlParams.push(param);
+    }
+  }
+
+  if (isFreshCreate && urlParams.length > 0) {
+    const missing: string[] = [];
+    for (const param of urlParams) {
+      for (const loc of activeUrlLocales) {
+        if (!urlParamValueForLocale(param, loc)) missing.push(`${param} (${loc})`);
+      }
+    }
+    if (missing.length > 0) {
+      return {
+        success: false,
+        statusCode: 400,
+        error: `Missing required URL fields: ${missing.join(", ")}`,
+      };
+    }
   }
 
   const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -1382,7 +1476,13 @@ export async function createContentEntry(
             parsed.title = title;
             for (const [fieldName, newValue] of Object.entries(uniqueFieldValues)) {
               if (fieldName === "slug" || fieldName === "title") continue;
-              parsed[fieldName] = coerceToOriginalType(newValue as string, parsed[fieldName]);
+              parsed[fieldName] = coerceToOriginalType(String(newValue), parsed[fieldName]);
+            }
+            for (const [param, value] of Object.entries(uniformUrlParams)) {
+              const existing = parsed[param];
+              parsed[param] = existing !== undefined
+                ? coerceToOriginalType(value, existing)
+                : formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
             }
           } else if (file === "en.yml" || file === "es.yml") {
             const locTitle = localeTitles[fileLocale] || title;
@@ -1390,6 +1490,15 @@ export async function createContentEntry(
             if (locTitle) {
               if (!parsed.meta || typeof parsed.meta !== "object") parsed.meta = {};
               (parsed.meta as Record<string, unknown>).page_title = locTitle;
+            }
+            for (const param of perLocaleUrlParams) {
+              const v = urlParamValueForLocale(param, fileLocale);
+              if (v) {
+                const existing = parsed[param];
+                parsed[param] = existing !== undefined
+                  ? coerceToOriginalType(v, existing)
+                  : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+              }
             }
           }
           parsedDupFiles.push({ file, parsed });
@@ -1415,6 +1524,15 @@ export async function createContentEntry(
             if (clonedTitle) {
               if (!cloned.meta || typeof cloned.meta !== "object") cloned.meta = {};
               (cloned.meta as Record<string, unknown>).page_title = clonedTitle;
+            }
+            for (const param of perLocaleUrlParams) {
+              const v = urlParamValueForLocale(param, loc);
+              if (v) {
+                const existing = cloned[param];
+                cloned[param] = existing !== undefined
+                  ? coerceToOriginalType(v, existing)
+                  : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+              }
             }
             parsedDupFiles.push({ file: `${loc}.yml`, parsed: cloned });
           }
@@ -1460,7 +1578,7 @@ export async function createContentEntry(
   }
 
   // Fresh create from field_mapping
-  const typeConfig = getContentTypeConfig(type);
+  const typeConfig = typeConfigForParams;
   const fieldMappingRaw = typeConfig?.field_mapping ?? {};
   const fieldKeys = Object.keys(fieldMappingRaw).filter(k => !k.startsWith("_"));
   const activeLocale = getSupportedLocales().find(l => !skipLocales.includes(l)) ?? getDefaultLocale();
@@ -1470,12 +1588,22 @@ export async function createContentEntry(
     if (key === "slug") commonObj.slug = folderSlug;
     else if (key === "title") commonObj.title = title;
     else if (key === "locale") commonObj.locale = activeLocale;
-    else if (uniqueFieldValues[key] !== undefined) {
+    else if (urlParams.includes(key)) {
+      const uniform = uniformUrlParams[key];
+      commonObj[key] = uniform
+        ? formatUrlParamFieldValue(uniform, urlParamShapes[key] ?? "string")
+        : "";
+    } else if (uniqueFieldValues[key] !== undefined) {
       const ufv = uniqueFieldValues[key];
       commonObj[key] = typeof ufv === "boolean" ? ufv : coerceStringValue(ufv as string);
     } else {
       commonObj[key] = "";
     }
+  }
+  // Uniform URL pattern params must be present even if missing from field_mapping
+  for (const [param, value] of Object.entries(uniformUrlParams)) {
+    if (commonObj[param] !== undefined && commonObj[param] !== "") continue;
+    commonObj[param] = formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
   }
   const commonYml = yaml.dump(commonObj, { lineWidth: 120, noRefs: true, sortKeys: false });
 
@@ -1485,6 +1613,11 @@ export async function createContentEntry(
     const effectiveTitle = localeTitle || title;
     if (localeTitle) obj.title = localeTitle;
     if (effectiveTitle) obj.meta = { page_title: effectiveTitle };
+    // Locale-specific URL params (e.g. category slug that differs per language)
+    for (const param of perLocaleUrlParams) {
+      const v = urlParamValueForLocale(param, loc);
+      if (v) obj[param] = formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+    }
     return obj;
   };
   const enYml = yaml.dump(makeLocaleObj(enSlug || folderSlug, "en"), { lineWidth: 120, noRefs: true, sortKeys: false });

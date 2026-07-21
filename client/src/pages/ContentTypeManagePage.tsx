@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
@@ -40,7 +40,9 @@ import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageModal";
 import { CreateContentModal } from "@/components/DebugBubble/components/CreateContentModal";
 import type { SitemapUrl } from "@/components/DebugBubble/types";
+import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
+import { getMetaIssues } from "@/lib/metaIssues";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -63,6 +65,25 @@ interface StaticEntry {
   urls: Record<string, string>;
   versionCounts?: Record<string, number>;
   mappingErrors?: string[];
+}
+
+interface SeoEntry {
+  slug: string | null;
+  contentType: string;
+  locale: string | null;
+  url: string | null;
+  title: string | null;
+  meta: Record<string, unknown>;
+  schema?: Record<string, unknown> | null;
+  parse_error?: string;
+}
+
+interface SeoEntriesResponse {
+  contentType: string;
+  source: string;
+  count: number;
+  entries: SeoEntry[];
+  cache_missing?: boolean;
 }
 
 interface FieldMapping {
@@ -168,14 +189,16 @@ function formatDate(dateStr: string | null | undefined): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const normalized = status?.toLowerCase() || "unknown";
+  const label =
+    formatFieldValue(status) || (typeof status === "string" ? status : "");
+  const normalized = label.toLowerCase() || "unknown";
   if (normalized === "published") {
     return <Badge variant="default" data-testid="badge-status-published"><Check className="h-3 w-3 mr-1" />Published</Badge>;
   }
   if (normalized === "draft") {
     return <Badge variant="secondary" data-testid="badge-status-draft"><Clock className="h-3 w-3 mr-1" />Draft</Badge>;
   }
-  return <Badge variant="outline" data-testid={`badge-status-${normalized}`}>{status}</Badge>;
+  return <Badge variant="outline" data-testid={`badge-status-${normalized}`}>{label || "Unknown"}</Badge>;
 }
 
 function VisibilityIcon({ visibility }: { visibility: string }) {
@@ -1736,14 +1759,45 @@ function collectFieldPaths(obj: unknown, prefix: string, keys: Set<string>): voi
   }
 }
 
+function formatFieldValue(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(formatFieldValue).filter(Boolean).join(", ");
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    // Prefer common display keys; recurse when nested (e.g. { slug: { slug: "x" } })
+    for (const key of ["slug", "name", "title", "label", "value"] as const) {
+      if (key in obj) {
+        const nested = formatFieldValue(obj[key]);
+        if (nested) return nested;
+      }
+    }
+  }
+  return "";
+}
+
+/** Flatten a field into discrete display tokens for KPI counts / filters. */
+function fieldValueTokens(value: unknown): string[] {
+  if (value == null || value === "") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap(fieldValueTokens).filter(Boolean);
+  }
+  const formatted = formatFieldValue(value);
+  return formatted ? [formatted] : [];
+}
+
 function resolveItemField(item: Record<string, any>, field: string): string {
   switch (field) {
     case "slug": return item.slug || "";
-    case "category": return item.category?.slug || item.category || "";
-    case "lang": return item.lang || "";
-    case "status": return item.status || "";
-    case "tags": return (item.tags || []).join(",");
-    default: return String(item[field] || "");
+    case "category": return formatFieldValue(item.category);
+    case "lang": return item.lang || item.language || "";
+    case "status": return formatFieldValue(item.status) || "";
+    case "tags": return formatFieldValue(item.tags);
+    default: return formatFieldValue(item[field]);
   }
 }
 
@@ -3089,6 +3143,9 @@ export default function ContentTypeManagePage() {
   const [seoDialogOpen, setSeoDialogOpen] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"static" | "db">("static");
+  const [listPerspective, setListPerspective] = useState<"default" | "seo">("default");
+  const [seoModalOpen, setSeoModalOpen] = useState(false);
+  const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<StaticEntry | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
@@ -3165,6 +3222,13 @@ export default function ContentTypeManagePage() {
   const { data: staticEntriesData, isLoading: staticLoading } = useQuery<{ count: number; results: StaticEntry[] }>({
     queryKey: ["/api/content-types", contentType, "static-entries"],
     queryFn: () => fetch(`/api/content-types/${contentType}/static-entries`).then(r => r.json()),
+    staleTime: 60000,
+  });
+
+  const { data: seoEntriesData, isLoading: seoEntriesLoading } = useQuery<SeoEntriesResponse>({
+    queryKey: ["/api/content-types", contentType, "seo-entries"],
+    queryFn: () => fetch(`/api/content-types/${contentType}/seo-entries`).then(r => r.json()),
+    enabled: listPerspective === "seo",
     staleTime: 60000,
   });
 
@@ -3279,16 +3343,12 @@ export default function ContentTypeManagePage() {
   }, [search, viewMode, dbSlug, tagFilters, localeKey]);
 
   const matchesFilter = (item: Record<string, unknown>, field: string, value: string) => {
-    if (isTagsField(field)) {
-      const raw = item[field];
-      const tokens: string[] = Array.isArray(raw)
-        ? (raw as string[]).map((t) => t.toLowerCase())
-        : typeof raw === "string" && raw.trim()
-        ? raw.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)
-        : [];
-      return tokens.includes(value.toLowerCase());
+    const needle = value.toLowerCase();
+    const tokens = fieldValueTokens(item[field]).map((t) => t.toLowerCase());
+    if (tokens.length > 1 || isTagsField(field) || Array.isArray(item[field])) {
+      return tokens.includes(needle);
     }
-    return String(item[field] || "").toLowerCase() === value.toLowerCase();
+    return (tokens[0] || "") === needle;
   };
 
   const filtered = (() => {
@@ -3338,6 +3398,18 @@ export default function ContentTypeManagePage() {
     return list.filter(
       (e) => e.title.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
     );
+  })();
+
+  const seoEntries = seoEntriesData?.entries || [];
+  const filteredSeoEntries = (() => {
+    if (!search.trim()) return seoEntries;
+    const q = search.toLowerCase();
+    return seoEntries.filter((e) => {
+      const title = (e.title || "").toLowerCase();
+      const slug = (e.slug || "").toLowerCase();
+      const pageTitle = String(e.meta?.page_title || "").toLowerCase();
+      return title.includes(q) || slug.includes(q) || pageTitle.includes(q);
+    });
   })();
 
   const hasDb = !!typeConfig?.database?.slug;
@@ -3827,26 +3899,20 @@ export default function ContentTypeManagePage() {
           </div>
         </div>
 
-        {hasDb && allIndexFields.length > 0 && (
+        {allIndexFields.length > 0 && items.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {allIndexFields.map((idx) => {
               const isLocale = idx === localeKey;
               const counts: Record<string, number> = {};
               for (const item of items) {
-                if (isTagsField(idx)) {
-                  const raw = item[idx];
-                  const tokens: string[] = Array.isArray(raw)
-                    ? (raw as string[])
-                    : typeof raw === "string" && raw.trim()
+                const raw = item[idx];
+                const tokens =
+                  typeof raw === "string" && raw.includes(",")
                     ? raw.split(",").map((t) => t.trim()).filter(Boolean)
-                    : [];
-                  for (const token of tokens) {
-                    const t = token.toLowerCase();
-                    if (t) counts[t] = (counts[t] || 0) + 1;
-                  }
-                } else {
-                  const val = String(item[idx] || "").toLowerCase();
-                  if (val) counts[val] = (counts[val] || 0) + 1;
+                    : fieldValueTokens(raw);
+                for (const token of tokens) {
+                  const t = token.toLowerCase();
+                  if (t && t !== "[object object]") counts[t] = (counts[t] || 0) + 1;
                 }
               }
               const sortedEntries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -4026,6 +4092,36 @@ export default function ContentTypeManagePage() {
                   </div>
                 )}
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    title="List perspective"
+                    data-testid="button-list-perspective"
+                  >
+                    <Columns3 className="h-4 w-4" />
+                    {listPerspective === "seo" ? "SEO" : "Default"}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => setListPerspective("default")}
+                    data-testid="menu-perspective-default"
+                  >
+                    <Check className={`h-4 w-4 mr-2 ${listPerspective === "default" ? "opacity-100" : "opacity-0"}`} />
+                    Default
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setListPerspective("seo")}
+                    data-testid="menu-perspective-seo"
+                  >
+                    <Check className={`h-4 w-4 mr-2 ${listPerspective === "seo" ? "opacity-100" : "opacity-0"}`} />
+                    SEO
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {viewMode === "static" && staticEntriesWithErrors > 0 && (
                 <Button
                   variant="outline"
@@ -4135,7 +4231,191 @@ export default function ContentTypeManagePage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {viewMode === "static" ? (
+            {listPerspective === "seo" ? (
+              seoEntriesLoading ? (
+                <div className="flex items-center justify-center py-12" data-testid="loading-seo-entries">
+                  <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading SEO entries...</span>
+                </div>
+              ) : seoEntriesData?.cache_missing ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="text-seo-cache-missing">
+                  Database cache missing — refresh the DB cache to load SEO entries.
+                </div>
+              ) : filteredSeoEntries.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground" data-testid="text-no-seo-results">
+                  No SEO entries found
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="table-seo-entries">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground w-[220px]">Title</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Meta</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground w-[160px]">Link</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSeoEntries.map((entry) => {
+                        const slug = entry.slug || "unknown";
+                        const locale = entry.locale || "en";
+                        const meta = entry.meta || {};
+                        const issues = getMetaIssues(meta);
+                        const pageTitle = typeof meta.page_title === "string" ? meta.page_title : "";
+                        const description = typeof meta.description === "string" ? meta.description : "";
+                        const robots = typeof meta.robots === "string" ? meta.robots : "";
+                        const ogImage = typeof meta.og_image === "string" ? meta.og_image : "";
+                        const canonical = typeof meta.canonical_url === "string" ? meta.canonical_url : "";
+                        const priority = meta.priority != null && meta.priority !== "" ? String(meta.priority) : "";
+                        const changeFreq = typeof meta.change_frequency === "string" ? meta.change_frequency : "";
+                        const redirects = Array.isArray(meta.redirects) ? meta.redirects : [];
+                        const rowKey = `${slug}-${locale}`;
+                        return (
+                          <tr
+                            key={rowKey}
+                            className="border-b last:border-0 hover:bg-muted/30 transition-colors align-top"
+                            data-testid={`row-seo-${rowKey}`}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="min-w-0">
+                                <div className="font-medium truncate max-w-[200px]" title={entry.title || undefined}>
+                                  {entry.title || slug}
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                  <div className="text-xs text-muted-foreground truncate max-w-[160px]">{slug}</div>
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                                    {locale.toUpperCase()}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="space-y-1.5 text-xs min-w-0">
+                                <div>
+                                  <span className="text-muted-foreground mr-1.5">page_title</span>
+                                  <span className={pageTitle ? "text-foreground" : "text-muted-foreground"} title={pageTitle || undefined}>
+                                    {pageTitle || "—"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground mr-1.5">description</span>
+                                  <span
+                                    className={`inline ${description ? "text-foreground" : "text-muted-foreground"} line-clamp-2`}
+                                    title={description || undefined}
+                                  >
+                                    {description || "—"}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                                  <span>
+                                    <span className="mr-1">robots</span>
+                                    <span className={robots ? "text-foreground" : ""}>{robots || "—"}</span>
+                                  </span>
+                                  <span>
+                                    <span className="mr-1">og_image</span>
+                                    {(() => {
+                                      const isUsableOg =
+                                        !!ogImage &&
+                                        !/\{\{/.test(ogImage) &&
+                                        (/^https?:\/\//i.test(ogImage) || ogImage.startsWith("/"));
+                                      if (!isUsableOg) {
+                                        return <span className="text-destructive">not set</span>;
+                                      }
+                                      return (
+                                        <a
+                                          href={ogImage}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="lowercase text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:text-blue-700 dark:hover:text-blue-300"
+                                          data-testid={`link-og-image-${rowKey}`}
+                                        >
+                                          open
+                                        </a>
+                                      );
+                                    })()}
+                                  </span>
+                                  {canonical && (
+                                    <span>
+                                      <span className="mr-1">canonical</span>
+                                      <span className="text-foreground truncate max-w-[200px] inline-block align-bottom" title={canonical}>
+                                        {canonical}
+                                      </span>
+                                    </span>
+                                  )}
+                                  {priority && (
+                                    <span>
+                                      <span className="mr-1">priority</span>
+                                      <span className="text-foreground">{priority}</span>
+                                    </span>
+                                  )}
+                                  {changeFreq && (
+                                    <span>
+                                      <span className="mr-1">change_frequency</span>
+                                      <span className="text-foreground">{changeFreq}</span>
+                                    </span>
+                                  )}
+                                  {redirects.length > 0 && (
+                                    <span>
+                                      <span className="mr-1">redirects</span>
+                                      <span className="text-foreground">{redirects.length}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                {issues.length > 0 && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] px-1.5 py-0 h-5 border-destructive/50 text-destructive bg-destructive/10"
+                                    title={issues.map((i) => i.message).join("\n")}
+                                    data-testid={`badge-meta-errors-${rowKey}`}
+                                  >
+                                    <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                                    {issues.length}
+                                  </Badge>
+                                )}
+                                {entry.url && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs gap-1"
+                                    asChild
+                                  >
+                                    <a href={entry.url} target="_blank" rel="noopener noreferrer" data-testid={`button-open-seo-${rowKey}`}>
+                                      <ExternalLink className="h-3.5 w-3.5" />
+                                      Open
+                                    </a>
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs gap-1.5"
+                                  data-testid={`button-edit-meta-${rowKey}`}
+                                  onClick={() => {
+                                    setSeoModalTarget({
+                                      contentType,
+                                      slug,
+                                      locale,
+                                    });
+                                    setSeoModalOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  Edit Meta
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : viewMode === "static" ? (
               staticLoading ? (
                 <div className="flex items-center justify-center py-12" data-testid="loading-static">
                   <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
@@ -4527,7 +4807,7 @@ export default function ContentTypeManagePage() {
                               </td>
                             )}
                             {allIndexFields.map((idx) => {
-                              const val = String(item[idx] || "");
+                              const val = resolveItemField(item, idx);
                               const isLocale = idx === localeKey;
                               if (idx === "status") {
                                 return (
@@ -4604,7 +4884,12 @@ export default function ContentTypeManagePage() {
                 </div>
               )
             )}
-            {viewMode === "static" && !staticLoading && filteredStatic.length > 0 && (
+            {listPerspective === "seo" && !seoEntriesLoading && filteredSeoEntries.length > 0 && (
+              <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
+                Showing {filteredSeoEntries.length} of {seoEntries.length} SEO entries
+              </div>
+            )}
+            {listPerspective === "default" && viewMode === "static" && !staticLoading && filteredStatic.length > 0 && (
               <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
                 Showing {filteredStatic.length} of {staticEntries.length} entries
                 {staticEntriesWithErrors > 0 && (
@@ -4612,7 +4897,7 @@ export default function ContentTypeManagePage() {
                 )}
               </div>
             )}
-            {viewMode === "db" && !allLoading && filtered.length > 0 && (
+            {listPerspective === "default" && viewMode === "db" && !allLoading && filtered.length > 0 && (
               <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
                 Showing {filtered.length} of {items.length} entries
               </div>
@@ -4951,6 +5236,19 @@ export default function ContentTypeManagePage() {
           />
         </Suspense>
       )}
+
+      <ManagedSeoModal
+        open={seoModalOpen}
+        onOpenChange={(open) => {
+          setSeoModalOpen(open);
+          if (!open) setSeoModalTarget(null);
+        }}
+        target={seoModalTarget}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "seo-entries"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
+        }}
+      />
 
       <Dialog open={createVersionOpen} onOpenChange={(open) => {
         setCreateVersionOpen(open);

@@ -1,7 +1,9 @@
 import type { Session } from "@shared/session";
+import { joinFormSettingsPath } from "@shared/joinFormSettingsPath";
 import { buildSamplePayload } from "@/lib/tracking";
 
 function getValueAtPath(obj: unknown, fieldPath: string): unknown {
+  if (!fieldPath) return obj;
   const parts = fieldPath.split(".");
   let current: unknown = obj;
   for (const part of parts) {
@@ -21,6 +23,8 @@ function getValueAtPath(obj: unknown, fieldPath: string): unknown {
  *
  * Pass the result directly as `samplePayload` to WebhookCard and as the `payload`
  * body when calling the webhook test endpoint.
+ *
+ * `formSettingsPath` of `""` / `"."` means settings live at the section root (lead_form).
  */
 export function buildWebhookSamplePayload(
   sectionSource: unknown,
@@ -29,13 +33,14 @@ export function buildWebhookSamplePayload(
 ): Record<string, unknown> {
   const formSettingsOverrides: Partial<Record<string, unknown>> = {};
 
-  if (formSettingsPath) {
-    const program = getValueAtPath(sectionSource, `${formSettingsPath}.fields.program.default`) as string | undefined;
-    const tags = getValueAtPath(sectionSource, `${formSettingsPath}.tags`);
-    const automations = getValueAtPath(sectionSource, `${formSettingsPath}.automations`) as string | undefined;
-    const consentEmail = getValueAtPath(sectionSource, `${formSettingsPath}.consent.marketing`) as boolean | undefined;
-    const consentSms = getValueAtPath(sectionSource, `${formSettingsPath}.consent.sms`) as boolean | undefined;
-    const consentWhatsapp = getValueAtPath(sectionSource, `${formSettingsPath}.consent.whatsapp`) as boolean | undefined;
+  if (formSettingsPath != null) {
+    const fp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
+    const program = getValueAtPath(sectionSource, fp("fields.program.default")) as string | undefined;
+    const tags = getValueAtPath(sectionSource, fp("tags"));
+    const automations = getValueAtPath(sectionSource, fp("automations")) as string | undefined;
+    const consentEmail = getValueAtPath(sectionSource, fp("consent.marketing")) as boolean | undefined;
+    const consentSms = getValueAtPath(sectionSource, fp("consent.sms")) as boolean | undefined;
+    const consentWhatsapp = getValueAtPath(sectionSource, fp("consent.whatsapp")) as boolean | undefined;
 
     if (program) formSettingsOverrides.program = program;
     if (tags != null) formSettingsOverrides.tags = tags;

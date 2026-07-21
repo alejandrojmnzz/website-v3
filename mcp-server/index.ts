@@ -218,7 +218,10 @@ async function authMiddleware(
   }
 
   res.status(401).json({
-    error: "Unauthorized. Provide a valid OAuth Bearer token or a Breathecode API token via Authorization header or X-Api-Key.",
+    error:
+      "Unauthorized. This is an MCP endpoint — connect via an MCP client (Cursor, Claude, etc.) that completes the OAuth flow. Do not open /mcp directly in a browser.",
+    auth: "oauth",
+    authorize_hint: "/oauth/authorize",
   });
 }
 
@@ -525,9 +528,7 @@ app.all("/mcp", authMiddleware, async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[MCP] Content-pages MCP server running on port ${PORT}`);
   console.log(`[MCP] Endpoint: http://0.0.0.0:${PORT}/mcp`);
-  console.log(
-    `[MCP] Auth: OAuth 2.0 Bearer token or Breathecode token (Authorization header / X-Api-Key)`,
-  );
+  console.log(`[MCP] Auth: OAuth 2.0 (primary); legacy Breathecode token header still accepted`);
   console.log(`[MCP] OAuth: http://0.0.0.0:${PORT}/oauth/authorize`);
   console.log(
     `[MCP] OAuth registration: http://0.0.0.0:${PORT}/oauth/register`,

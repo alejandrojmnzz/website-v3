@@ -8,6 +8,15 @@ cd "$ROOT"
 
 export NODE_ENV="${NODE_ENV:-production}"
 
+if [[ -z "${TURNSTILE_SITE_KEY:-}" ]]; then
+  echo "ERROR: TURNSTILE_SITE_KEY is required in production. Set it and restart." >&2
+  exit 1
+fi
+if [[ -z "${TURNSTILE_SECRET_KEY:-}" ]]; then
+  echo "ERROR: TURNSTILE_SECRET_KEY is required in production. Set it and restart." >&2
+  exit 1
+fi
+
 MCP_PID=""
 
 cleanup() {

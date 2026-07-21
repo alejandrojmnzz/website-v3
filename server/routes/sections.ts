@@ -1332,12 +1332,26 @@ export function registerSectionsRoutes(app: Express): void {
       const skipLocales: string[] = Array.isArray(rawSkipLocales) ? rawSkipLocales.filter((l: unknown) => typeof l === "string") : [];
       const uniqueFieldValues: Record<string, string | boolean> = rawUniqueFieldValues && typeof rawUniqueFieldValues === "object"
         ? Object.fromEntries(Object.entries(rawUniqueFieldValues).filter(([, v]) => typeof v === "string" || typeof v === "boolean")) : {};
+      const rawUrlParamValues = req.body.urlParamValues;
+      const urlParamValues: Record<string, Record<string, string>> =
+        rawUrlParamValues && typeof rawUrlParamValues === "object"
+          ? Object.fromEntries(
+              Object.entries(rawUrlParamValues)
+                .filter(([, v]) => v && typeof v === "object" && !Array.isArray(v))
+                .map(([loc, v]) => [
+                  loc,
+                  Object.fromEntries(
+                    Object.entries(v as Record<string, unknown>).filter(([, val]) => typeof val === "string"),
+                  ) as Record<string, string>,
+                ]),
+            )
+          : {};
       const localeTitles: Record<string, string> = rawLocaleTitles && typeof rawLocaleTitles === "object"
         ? Object.fromEntries(Object.entries(rawLocaleTitles).filter(([, v]) => typeof v === "string")) : {};
       const result = await createContentEntry({
         type, title, sourceUrl, changeContentType: !!changeContentType,
         slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
-        skipLocales, uniqueFieldValues, localeTitles, author,
+        skipLocales, uniqueFieldValues, urlParamValues, localeTitles, author,
         contentRootName: getContentRootName(res),
       });
       if (!result.success) { res.status(result.statusCode).json({ error: result.error }); return; }
