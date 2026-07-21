@@ -360,13 +360,16 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const turnstileEnabled = data.turnstile?.enabled ?? true;
 
-  const { data: turnstileSiteKey } = useQuery<{ siteKey: string }>({
+  const { data: turnstileSiteKey, isLoading: turnstileSiteKeyLoading } = useQuery<{ siteKey: string }>({
     queryKey: ["/api/turnstile/site-key"],
     enabled: turnstileEnabled,
   });
   // Captcha only gates submit when a site key is actually available; otherwise
   // we'd open a modal that never renders and the form would appear stuck.
   const turnstileReady = turnstileEnabled && !!turnstileSiteKey?.siteKey;
+  // Enabled in YAML but no site key configured (keys missing / endpoint erroring).
+  const turnstileMisconfigured =
+    turnstileEnabled && !turnstileSiteKeyLoading && !turnstileSiteKey?.siteKey;
 
   const { data: trackingSettings } = useQuery<TrackingSettingsResponse>({
     queryKey: ["/api/settings/tracking"],
@@ -1000,9 +1003,20 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const onSubmit = (values: FormValues) => {
     setTurnstileError(null);
-    
-    // If turnstile is enabled and we don't have a token yet, show the modal and wait
-    if (turnstileEnabled && !turnstileToken) {
+
+    // Dev: surface the misconfiguration instead of silently skipping captcha.
+    // Prod: degrade gracefully and submit without captcha.
+    if (turnstileMisconfigured && import.meta.env.DEV) {
+      setTurnstileError(
+        locale === "es"
+          ? "Turnstile no está configurado: define TURNSTILE_SITE_KEY y TURNSTILE_SECRET_KEY (o desactiva turnstile en el YAML del formulario)."
+          : "Turnstile is not configured: set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY (or disable turnstile in the form YAML).",
+      );
+      return;
+    }
+
+    // If turnstile is ready and we don't have a token yet, show the modal and wait
+    if (turnstileReady && !turnstileToken) {
       setPendingFormData(values);
       setShowTurnstileModal(true);
       return;
@@ -1324,7 +1338,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             {signupLoginPrompt && (
               <div className="mt-3">{signupLoginPrompt}</div>
             )}
-            {turnstileEnabled && turnstileSiteKey?.siteKey && showTurnstileModal && (
+            {turnstileReady && showTurnstileModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                 <div className="bg-card p-card-padding rounded-card shadow-card">
                   <Turnstile
@@ -1767,7 +1781,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             />
           )}
 
-          {turnstileEnabled && turnstileSiteKey?.siteKey && showTurnstileModal && (
+          {turnstileReady && showTurnstileModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
               <div className="bg-card p-6 rounded-card shadow-card">
                 <Turnstile
