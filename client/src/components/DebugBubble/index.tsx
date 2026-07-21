@@ -56,7 +56,7 @@ import { ConfirmPullFileModal } from "./components/ConfirmPullFileModal";
 import { FileDiffModal } from "./components/FileDiffModal";
 import { DeletePageModal } from "./components/DeletePageModal";
 import { CreateContentModal } from "./components/CreateContentModal";
-import { PageErrorsModal } from "./components/PageErrorsModal";
+import { PageErrorsModal, PER_PAGE_VALIDATORS } from "./components/PageErrorsModal";
 import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
 import { SwitchSiteModal } from "./components/SwitchSiteModal";
@@ -331,6 +331,10 @@ export function DebugBubble() {
   // Validation cache summary for sitemap badges
   const [validationSummary, setValidationSummary] = useState<Record<string, { errorCount: number; warningCount: number }>>({});
 
+  // URLs already auto-validated this session — ensures the lazy per-page
+  // validation run fires at most once per URL even if the effect re-runs.
+  const autoValidatedUrlsRef = useRef<Set<string>>(new Set());
+
   // Detect current content info from URL
   const contentInfo = detectContentInfo(pathname, contentTypesMap, homePageSettings ?? null);
 
@@ -434,22 +438,45 @@ export function DebugBubble() {
       return;
     }
 
+    const url = diagnosticsUrl;
+
+    const fetchDiagnostics = async (): Promise<PageDiagnostics | null> => {
+      const res = await fetch(`/api/diagnostics/page?url=${encodeURIComponent(url)}`);
+      if (!res.ok) return null;
+      return res.json();
+    };
+
+    // Lazy validation: if this page has never been validated (no cache entry
+    // at all — a clean run still writes an entry with empty arrays), run the
+    // per-page validators once so issues like missing meta surface on first
+    // visit without a manual "Run validation" click.
+    const autoValidateIfNeverRun = async (data: PageDiagnostics): Promise<PageDiagnostics> => {
+      if (data.cached || autoValidatedUrlsRef.current.has(url)) return data;
+      autoValidatedUrlsRef.current.add(url);
+      try {
+        await fetch("/api/validation/run-page", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, validators: PER_PAGE_VALIDATORS }),
+        });
+        const refreshed = await fetchDiagnostics();
+        if (refreshed) return refreshed;
+      } catch {}
+      return data;
+    };
+
     setPageDiagnosticsLoading(true);
     setPageDiagnostics(null);
     setPageErrorsModalOpen(false);
-    fetch(`/api/diagnostics/page?url=${encodeURIComponent(diagnosticsUrl)}`)
-      .then((res) => {
-        if (!res.ok) return null;
-        return res.json();
-      })
-      .then((data) => {
-        if (data) {
-          setPageDiagnostics(data);
-          const cachedErrors = data.cached?.errors?.length ?? 0;
-          const cachedWarnings = data.cached?.warnings?.length ?? 0;
-          if (cachedErrors > 0 || cachedWarnings > 0) {
-            setPageErrorsModalOpen(true);
-          }
+    fetchDiagnostics()
+      .then(async (data) => {
+        if (!data) return;
+        const finalData = await autoValidateIfNeverRun(data);
+        setPageDiagnostics(finalData);
+        const cachedErrors = finalData.cached?.errors?.length ?? 0;
+        const cachedWarnings = finalData.cached?.warnings?.length ?? 0;
+        if (cachedErrors > 0 || cachedWarnings > 0) {
+          setPageErrorsModalOpen(true);
         }
       })
       .catch(() => {})

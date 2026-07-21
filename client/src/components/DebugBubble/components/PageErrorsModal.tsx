@@ -13,6 +13,16 @@ import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { IconAlertTriangle, IconRefresh, IconLoader2, IconClock } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
 
+/** Validators that make sense for a single page (site-wide ones are skipped server-side anyway). */
+export const PER_PAGE_VALIDATORS = [
+  "meta",
+  "seo-depth",
+  "seo-intent",
+  "schema-completeness",
+  "content-quality",
+  "images",
+];
+
 interface PageErrorsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -60,7 +70,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url,
-            validators: ["meta", "seo-depth", "seo-intent", "schema-completeness", "content-quality", "images"],
+            validators: PER_PAGE_VALIDATORS,
           }),
         });
       }

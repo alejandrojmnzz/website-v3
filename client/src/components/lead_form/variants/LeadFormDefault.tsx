@@ -364,6 +364,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     queryKey: ["/api/turnstile/site-key"],
     enabled: turnstileEnabled,
   });
+  // Captcha only gates submit when a site key is actually available; otherwise
+  // we'd open a modal that never renders and the form would appear stuck.
+  const turnstileReady = turnstileEnabled && !!turnstileSiteKey?.siteKey;
 
   const { data: trackingSettings } = useQuery<TrackingSettingsResponse>({
     queryKey: ["/api/settings/tracking"],
