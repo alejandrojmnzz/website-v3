@@ -4286,6 +4286,12 @@ export default function ContentTypeManagePage() {
                   <Database className="h-4 w-4 mr-2" />
                   Manage Connection
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild data-testid="button-open-database-page">
+                  <Link href={dbSlug ? `/private/databases/${dbSlug}` : "/private/databases"}>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    {dbSlug ? "Open Database" : "Open Databases"}
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setClearCacheConfirmOpen(true)}
                   disabled={clearing}
