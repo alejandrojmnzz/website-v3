@@ -234,7 +234,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
 
       {/* ── STATS BAR — overlaps hero bottom ── */}
       {stats && stats.length > 0 && (
-        <div className="mt-4 relative z-10">
+        <div className="mt-12 relative z-10">
           <div className="bg-card rounded-[16px] border border-border shadow-lg shadow-black/5 flex flex-col md:flex-row py-5 md:divide-x divide-y md:divide-y-0 divide-border">
             {stats.map((stat, i) => {
               const IconComponent = stat.icon ? getIcon(stat.icon) : null;
