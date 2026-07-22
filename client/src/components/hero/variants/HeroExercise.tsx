@@ -83,7 +83,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
   return (
     <div>
       {/* ── HERO ── */}
-      <div className="w-full pt-16 pb-24 relative">
+      <div className="w-full relative">
         <div className="flex flex-col lg:flex-row justify-between gap-12 items-stretch">
 
           {/* LEFT COLUMN */}
@@ -93,7 +93,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
             {(badge || exercise_type) && (
               <div className="flex items-center gap-2 mb-3">
                 {badge && (
-                  <span className="bg-primary text-primary-foreground text-[11px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">
+                  <span className="bg-primary text-primary-foreground text-[12px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">
                     {badge}
                   </span>
                 )}
@@ -162,7 +162,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                 )}
 
                 {features && features.length > 0 && (
-                  <div className="mx-3 mb-3 mt-3 rounded-[10px] px-2 pt-1.5 pb-1 bg-muted/30">
+                  <div className="mx-3 mb-3 mt-3 rounded-[10px] px-2 pt-1.5 pb-1" style={{ background: "hsl(var(--muted-foreground) / 0.07)" }}>
                     <div className="grid grid-cols-2 gap-x-3">
                       {features.map((item, i) => {
                         const IconComponent = item.icon
