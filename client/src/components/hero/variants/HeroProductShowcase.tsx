@@ -353,7 +353,7 @@ export default function HeroProductShowcase({
                           ...data.form,
                           variant: data.form.variant || "inline",
                           consent: data.form.consent,
-                          show_terms: data.form.show_terms ?? false,
+                          show_terms: data.form.show_terms ?? true,
                           className: "w-full max-w-md",
                         } as LeadFormData
                       }
@@ -595,7 +595,7 @@ export default function HeroProductShowcase({
                             ...data.form,
                             variant: data.form.variant || "stacked",
                             consent: data.form.consent,
-                            show_terms: data.form.show_terms ?? false,
+                            show_terms: data.form.show_terms ?? true,
                             className: "w-full",
                           } as LeadFormData
                         }
@@ -670,7 +670,7 @@ export default function HeroProductShowcase({
                         ...data.form,
                         variant: data.form.variant || "stacked",
                         consent: data.form.consent,
-                        show_terms: data.form.show_terms ?? false,
+                        show_terms: data.form.show_terms ?? true,
                         className: "w-full",
                       } as LeadFormData
                     }

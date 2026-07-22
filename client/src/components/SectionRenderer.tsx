@@ -556,15 +556,20 @@ export function renderSection(section: Section, index: number, pageContext?: Sec
     return null;
   }
 
+  // Strip editor-only metadata before passing props to section components
+  const { _label: _ignoredLabel, ...sectionProps } = section as Section & {
+    _label?: unknown;
+  };
+
   const Component =
     getCachedSectionComponent(sectionType, sectionVariant) ??
     getCachedSectionComponent(sectionType, "default");
 
   if (Component) {
-    return <Component key={index} data={section} />;
+    return <Component key={index} data={sectionProps as Section} />;
   }
 
-  return <LazySection key={index} section={section} index={index} />;
+  return <LazySection key={index} section={sectionProps as Section} index={index} />;
 }
 
 

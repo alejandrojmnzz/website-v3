@@ -33,6 +33,12 @@ import { databaseManager, DatabaseManager } from "./database";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import { canonicalSectionId, sectionIdCandidates, sectionMatchesId } from "./utils/sectionIdentity";
 import {
+  fanOutStructuralOpsToSiblings,
+  cleanSectionIdFromEntryOverlays,
+  isAllowlistedSectionFieldPath,
+} from "./shared-layout-sync";
+import { getOrCreateStaffUserId, getUser } from "./user-store";
+import {
   refreshSitemapEntry,
   refreshSitemapEntriesForContentKey,
   invalidateSitemapEntry,
@@ -588,6 +594,7 @@ function restoreTemplatePlaceholders(
  * Writes structural section changes (add/remove/swap) directly to the shared
  * `single.{locale}.yml` template file, preserving all `{{ }}` placeholder
  * expressions. Uses safe YAML load/dump to avoid template variable corruption.
+ * For shared-layout types, fans out allowlisted topology/layout to sibling singles.
  */
 function writeStructuralChangesToTemplate(opts: {
   operations: EditOperation[];
@@ -595,16 +602,31 @@ function writeStructuralChangesToTemplate(opts: {
   localeData: Record<string, unknown>;
   author?: string;
   contentRoot?: string;
+  contentType?: string;
+  locale?: string;
+  requesterId?: string;
   ci?: ContentIndex;
-}): { success: boolean; error?: string; updatedSections?: unknown[] } {
-  const { operations, filePath, localeData, author, contentRoot } = opts;
+}): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
+  const { operations, filePath, localeData, author, contentRoot, contentType, requesterId } = opts;
   const ci = opts.ci ?? contentIndex;
 
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const templateData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
+    const sectionsBefore = Array.isArray(templateData.sections)
+      ? [...(templateData.sections as Record<string, unknown>[])]
+      : [];
 
-    for (const op of operations) {
+    // Annotate remove ops with sectionId for sibling fan-out
+    const annotatedOps: EditOperation[] = operations.map((op) => {
+      if (op.action === "remove_item" && op.path === "sections" && typeof op.index === "number") {
+        const id = canonicalSectionId(sectionsBefore[op.index]);
+        return id ? ({ ...op, sectionId: id } as EditOperation & { sectionId: string }) : op;
+      }
+      return op;
+    });
+
+    for (const op of annotatedOps) {
       if (op.action === "update_section" && (op as { structural?: boolean }).structural) {
         const templateSections = Array.isArray(templateData.sections)
           ? (templateData.sections as Record<string, unknown>[])
@@ -642,13 +664,67 @@ function writeStructuralChangesToTemplate(opts: {
     fs.writeFileSync(filePath, updatedYaml, "utf-8");
     markFileAsModified(filePath, author, undefined, contentRoot);
 
+    let warning: string | undefined;
+
+    // Fan-out to sibling locale singles for shared-layout types
+    const localeFromPath =
+      opts.locale ||
+      (() => {
+        const m = /single\.([a-z]{2}(?:-[a-z]+)?)\.yml$/i.exec(path.basename(filePath));
+        return m ? m[1] : null;
+      })();
+    const typeConfig = contentType ? getContentTypeConfig(contentType, contentRoot) : null;
+    const isSharedLayout = !!(typeConfig?.database?.slug || typeConfig?.single_template);
+
+    if (isSharedLayout && contentType && localeFromPath) {
+      const templateDir = path.dirname(filePath);
+      const sourceSections = Array.isArray(templateData.sections)
+        ? (templateData.sections as Record<string, unknown>[])
+        : [];
+      const fan = fanOutStructuralOpsToSiblings({
+        templateDir,
+        sourceLocale: localeFromPath,
+        sourceSections,
+        operations: annotatedOps as unknown as Array<Record<string, unknown>>,
+        safeYamlLoad: (r) => ci.safeYamlLoad(r),
+        dumpYaml: (d) =>
+          safeYamlDump(d, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+        requesterId,
+        onSiblingWritten: (siblingPath) => {
+          markFileAsModified(siblingPath, author, undefined, contentRoot);
+        },
+        cleanEntryOverlaysForSectionIds: (ids) => {
+          cleanSectionIdFromEntryOverlays(
+            templateDir,
+            ids,
+            (r) => ci.safeYamlLoad(r),
+            (d) =>
+              safeYamlDump(d, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+            (p) => markFileAsModified(p, author, undefined, contentRoot),
+          );
+        },
+      });
+      if (fan.failed.length > 0) {
+        return {
+          success: false,
+          error: `Source locale updated but sibling fan-out failed for: ${fan.failed
+            .map((f) => `${f.locale} (${f.error})`)
+            .join("; ")}. Succeeded: ${fan.succeeded.join(", ") || "none"}`,
+        };
+      }
+      if (fan.manualVariantWarning) {
+        warning =
+          "type/version/variant changes are not auto-replicated to sibling locales. Update each locale's single template manually.";
+      }
+    }
+
     // Apply to localeData in-memory for immediate client-side update
     for (const op of operations) {
       try { applyOperation(localeData, op); } catch {}
     }
 
     const updatedSections = (localeData.sections as unknown[]) || [];
-    return { success: true, updatedSections };
+    return { success: true, updatedSections, warning };
   } catch (err) {
     log.error({ err: err }, "[editContent] Structural template write error:");
     return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
@@ -729,10 +805,23 @@ function handleSharedTemplateEdit(opts: {
   contentRoot?: string;
   database?: DatabaseManager;
   ci?: ContentIndex;
+  requesterId?: string;
 }): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
   const { contentType, slug, locale, operations, localeData, filePath, author, contentRoot } = opts;
   const ci = opts.ci ?? contentIndex;
   const db = opts.database ?? databaseManager;
+
+  // Resolve staff id for _label.requester when available
+  let requesterId = opts.requesterId;
+  if (!requesterId && author) {
+    try {
+      requesterId = getOrCreateStaffUserId(author) ?? undefined;
+      if (!requesterId) {
+        const u = getUser(author);
+        if (u?.id) requesterId = u.id;
+      }
+    } catch { /* optional */ }
+  }
 
   // update_section ops always write directly to the shared template YAML.
   // This function is only reached when the user explicitly chose "Update shared
@@ -742,7 +831,19 @@ function handleSharedTemplateEdit(opts: {
     op => isStructuralOp(op) || op.action === "update_section",
   );
   if (structuralOps.length > 0) {
-    return writeStructuralChangesToTemplate({ operations: structuralOps, filePath, localeData, author, contentRoot, ci });
+    // Only pure structural + structural update_section go through fan-out path;
+    // non-structural update_section still writes template but fan-out only layout keys.
+    return writeStructuralChangesToTemplate({
+      operations: structuralOps,
+      filePath,
+      localeData,
+      author,
+      contentRoot,
+      contentType,
+      locale,
+      requesterId,
+      ci,
+    });
   }
 
   const dbName = getDatabaseName(contentType);
@@ -869,6 +970,45 @@ function handleSharedTemplateEdit(opts: {
       });
       fs.writeFileSync(filePath, updatedYaml, "utf-8");
       markFileAsModified(filePath, author, undefined, contentRoot);
+
+      // Fan out allowlisted layout field updates to sibling singles
+      const typeConfig = getContentTypeConfig(contentType, contentRoot);
+      const isSharedLayout = !!(typeConfig?.database?.slug || typeConfig?.single_template);
+      const layoutOps = operations.filter((op) => {
+        if (op.action !== "update_field") return false;
+        const m = String(op.path).match(/^sections\.\d+\.(.+)$/);
+        if (!m) return false;
+        const { isAllowlistedSectionFieldPath: isLayoutPath } = {
+          isAllowlistedSectionFieldPath,
+        };
+        return isLayoutPath(m[1]);
+      });
+      if (isSharedLayout && layoutOps.length > 0) {
+        const sourceSections = Array.isArray(templateData.sections)
+          ? (templateData.sections as Record<string, unknown>[])
+          : [];
+        const fan = fanOutStructuralOpsToSiblings({
+          templateDir: path.dirname(filePath),
+          sourceLocale: locale,
+          sourceSections,
+          operations: layoutOps as unknown as Array<Record<string, unknown>>,
+          safeYamlLoad: (r) => ci.safeYamlLoad(r),
+          dumpYaml: (d) =>
+            safeYamlDump(d, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+          requesterId,
+          onSiblingWritten: (siblingPath) => {
+            markFileAsModified(siblingPath, author, undefined, contentRoot);
+          },
+        });
+        if (fan.failed.length > 0) {
+          return {
+            success: false,
+            error: `Layout updated but sibling fan-out failed for: ${fan.failed
+              .map((f) => `${f.locale} (${f.error})`)
+              .join("; ")}`,
+          };
+        }
+      }
     }
   } catch (err) {
     log.error("[editContent] Failed to write non-DB field changes to shared template:", err instanceof Error ? err.message : err);

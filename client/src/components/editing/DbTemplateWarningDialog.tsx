@@ -42,6 +42,17 @@ function operationVerb(op: DbTemplateOperation): string {
   }
 }
 
+function operationExtra(op: DbTemplateOperation): string {
+  switch (op) {
+    case "delete":
+      return " The section is removed from every locale's single template (sibling locales stay in sync).";
+    case "add":
+      return " The new section is mirrored to sibling locale singles; unfinished locales get a needs-edit label and stay hidden from the public until edited.";
+    case "update":
+      return " Allowlisted layout and visibility changes sync across locale singles. type/version/variant changes are not auto-replicated — update sibling locales manually.";
+  }
+}
+
 export function DbTemplateWarningDialog({
   open,
   onClose,
@@ -62,9 +73,10 @@ export function DbTemplateWarningDialog({
           </DialogTitle>
           <DialogDescription>
             This change affects the shared template and will apply to{" "}
-            <strong>all {typeName} entries</strong>.{" "}
-            Confirming will {operationVerb(operation)} the template for every{" "}
-            {typeName} entry on this site.
+            <strong>all {typeName} entries</strong> and every locale single template
+            on this site. Confirming will {operationVerb(operation)} the template for every{" "}
+            {typeName} entry.
+            {operationExtra(operation)}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">

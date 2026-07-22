@@ -1,8 +1,9 @@
 /**
- * Phase-driven title/subtitle/submit copy for LeadForm signup flows.
+ * Phase-driven subtitle/submit copy for LeadForm signup flows.
  *
- * Prefer nested YAML under `messages` (guest / login / incomplete / ready).
- * Top-level title/subtitle/submit_label remain as guest fallbacks for older forms.
+ * Nested YAML under `messages` (guest / login / incomplete / ready) carries
+ * subtitles and submit labels only. The form title always comes from the
+ * top-level `title`, so phase changes never swap the heading.
  */
 
 export type LeadFormPhase =
@@ -14,17 +15,18 @@ export type LeadFormPhase =
 export type LeadFormLocale = "en" | "es";
 
 export interface LeadFormCopyBlock {
-  title?: string;
-  subtitle?: string;
+  /** Set to null to explicitly hide the phase subtitle. */
+  subtitle?: string | null;
   submit_label?: string;
   back_label?: string;
 }
 
 export interface LeadFormMessages {
-  guest?: LeadFormCopyBlock;
-  login?: LeadFormCopyBlock;
-  incomplete?: LeadFormCopyBlock;
-  ready?: LeadFormCopyBlock;
+  /** Set an entire stage to null to hide its subtitle. */
+  guest?: LeadFormCopyBlock | null;
+  login?: LeadFormCopyBlock | null;
+  incomplete?: LeadFormCopyBlock | null;
+  ready?: LeadFormCopyBlock | null;
 }
 
 export interface LeadFormCopySource {
@@ -58,29 +60,25 @@ export function resolveLeadFormPhase(opts: {
 
 const DEFAULTS: Record<
   LeadFormPhase,
-  Record<LeadFormLocale, { title: string; subtitle: string; submit_label: string; back_label?: string }>
+  Record<LeadFormLocale, { subtitle: string; submit_label: string; back_label?: string }>
 > = {
   guest_signup: {
     en: {
-      title: "Create your account",
       subtitle: "Sign up to get started — if you're already logged in, we'll skip fields we already know",
       submit_label: "Submit",
     },
     es: {
-      title: "Crea tu cuenta",
       subtitle: "Regístrate para comenzar — si ya iniciaste sesión, omitiremos los campos que ya conocemos",
       submit_label: "Enviar",
     },
   },
   login: {
     en: {
-      title: "Log in",
       subtitle: "Use your 4Geeks account to continue",
       submit_label: "Log in",
       back_label: "Back to create account",
     },
     es: {
-      title: "Inicia sesión",
       subtitle: "Usa tu cuenta 4Geeks para continuar",
       submit_label: "Iniciar sesión",
       back_label: "Volver a crear cuenta",
@@ -88,24 +86,20 @@ const DEFAULTS: Record<
   },
   logged_in_incomplete: {
     en: {
-      title: "Almost there",
       subtitle: "We still need a couple of details to finish.",
       submit_label: "Continue",
     },
     es: {
-      title: "Casi listo",
       subtitle: "Todavía nos faltan un par de detalles para terminar.",
       submit_label: "Continuar",
     },
   },
   logged_in_ready: {
     en: {
-      title: "You're all set",
       subtitle: "Confirm to continue — we already have everything we need.",
       submit_label: "Confirm",
     },
     es: {
-      title: "Todo listo",
       subtitle: "Confirma para continuar — ya tenemos todo lo que necesitamos.",
       submit_label: "Confirmar",
     },
@@ -115,9 +109,12 @@ const DEFAULTS: Record<
 /**
  * Resolve display copy for the current form phase.
  *
- * Guest: `messages.guest` → top-level title/subtitle/submit_label → submit default only
- * (empty title/subtitle stay hidden when omitted).
- * Other phases: `messages.<phase>` → locale defaults (guest title/submit as soft fallback).
+ * Title: always the top-level `title` (hidden when omitted) — phases never
+ * introduce their own heading.
+ * Guest subtitle: `messages.guest` → top-level `subtitle` (hidden when both omitted).
+ * Other phase subtitles: `messages.<phase>` → locale defaults.
+ * A null stage or null subtitle explicitly hides that phase's subtitle.
+ * Submit labels: `messages.<phase>` → top-level `submit_label` → locale defaults.
  */
 export function resolveLeadFormCopy(
   phase: LeadFormPhase,
@@ -126,35 +123,46 @@ export function resolveLeadFormCopy(
 ): ResolvedLeadFormCopy {
   const defaults = DEFAULTS[phase][locale];
   const messages = data.messages || {};
+  const title = data.title;
 
   if (phase === "guest_signup") {
-    const block = messages.guest || {};
+    const block = messages.guest;
     return {
-      title: block.title ?? data.title,
-      subtitle: block.subtitle ?? data.subtitle,
-      submit_label: block.submit_label || data.submit_label || defaults.submit_label,
+      title,
+      subtitle:
+        block === null || block?.subtitle === null
+          ? undefined
+          : block?.subtitle ?? data.subtitle,
+      submit_label: block?.submit_label || data.submit_label || defaults.submit_label,
     };
   }
 
   if (phase === "login") {
-    const block = messages.login || data.login || {};
+    const block =
+      messages.login === undefined ? data.login : messages.login;
     return {
-      title: block.title || defaults.title,
-      subtitle: block.subtitle || defaults.subtitle,
-      submit_label: block.submit_label || defaults.submit_label,
-      back_label: block.back_label || defaults.back_label,
+      title,
+      subtitle:
+        block === null || block?.subtitle === null
+          ? undefined
+          : block?.subtitle ?? defaults.subtitle,
+      submit_label: block?.submit_label || defaults.submit_label,
+      back_label: block?.back_label || defaults.back_label,
     };
   }
 
   const block =
     phase === "logged_in_incomplete"
-      ? messages.incomplete || {}
-      : messages.ready || {};
+      ? messages.incomplete
+      : messages.ready;
   return {
-    title: block.title || messages.guest?.title || data.title || defaults.title,
-    subtitle: block.subtitle || defaults.subtitle,
+    title,
+    subtitle:
+      block === null || block?.subtitle === null
+        ? undefined
+        : block?.subtitle ?? defaults.subtitle,
     submit_label:
-      block.submit_label ||
+      block?.submit_label ||
       messages.guest?.submit_label ||
       data.submit_label ||
       defaults.submit_label,

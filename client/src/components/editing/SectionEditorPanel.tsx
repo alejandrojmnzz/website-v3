@@ -2101,7 +2101,7 @@ export function SectionEditorPanel({
           >
             <IconFileCode className="h-4 w-4" />
           </Button>
-          {contentType && slug && (
+          {contentType && slug && !isSharedTemplate && (
             <Button
               size="icon"
               variant="ghost"

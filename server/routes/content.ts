@@ -106,6 +106,10 @@ import {
   ConvertToStaticError,
 } from "../convert-content-type-to-static";
 import {
+  alignSiblingSinglesToBase,
+  summarizeSingleTemplateLocales,
+} from "../shared-layout-sync";
+import {
   getFolder,
   getType,
   isValidType,
@@ -1241,7 +1245,7 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/content-types/:type/config", (req, res) => {
+  app.put("/api/content-types/:type/config", async (req, res) => {
     try {
       const { type } = req.params;
       const config = getContentTypeConfig(type, ctRoot(res));
@@ -1278,7 +1282,96 @@ export function registerContentRoutes(app: Express): void {
       if (body.single_template !== undefined) update.single_template = !!body.single_template;
       updateContentTypeConfig(type, update, getContentRoot(res));
       getCI(res).invalidateCommonFields(type);
-      res.json({ success: true });
+
+      // When enabling shared layout, dissolve bindings for this type (bindings and templates don't mix)
+      let bindingsDissolved: unknown = undefined;
+      if (body.single_template === true) {
+        const dissolved = bindingManager.dissolveGroupsForContentType(type);
+        if (dissolved.count > 0) {
+          bindingsDissolved = {
+            count: dissolved.count,
+            groups: dissolved.dissolved.map((g) => ({
+              id: g.id,
+              name: g.name,
+              component: g.component,
+              locale: g.locale,
+              memberCount: g.members.length,
+              members: g.members.map((m) => ({
+                contentType: m.contentType,
+                slug: m.slug,
+                sectionId: m.sectionId,
+              })),
+            })),
+          };
+        }
+      }
+
+      // When enabling shared layout, optionally align sibling singles to a base locale
+      let alignResult: unknown = undefined;
+      if (
+        body.single_template === true &&
+        typeof body.shared_layout_base_locale === "string" &&
+        body.shared_layout_base_locale
+      ) {
+        const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
+        const yaml = await import("js-yaml");
+        const folder = getFolder(type, getContentRoot(res));
+        const templateDir = path.join(getContentRoot(res), folder);
+        const dumpYaml = (d: unknown) => {
+          const { escaped, map } = escapeObjectVars(d);
+          return unescapeYamlDump(
+            yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+            map,
+          );
+        };
+        alignResult = alignSiblingSinglesToBase({
+          templateDir,
+          baseLocale: body.shared_layout_base_locale,
+          safeYamlLoad: (r) => getCI(res).safeYamlLoad(r),
+          dumpYaml,
+          onWritten: (filePath) => markFileAsModified(filePath),
+        });
+      }
+
+      res.json({
+        success: true,
+        ...(alignResult ? { align: alignResult } : {}),
+        ...(bindingsDissolved ? { bindingsDissolved } : {}),
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/shared-layout-status", (req, res) => {
+    try {
+      const { type } = req.params;
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const folder = getFolder(type, getContentRoot(res));
+      const templateDir = path.join(getContentRoot(res), folder);
+      const locales = summarizeSingleTemplateLocales(templateDir, (r) => getCI(res).safeYamlLoad(r));
+      const bindingGroups = bindingManager.findGroupsForContentType(type).map((g) => ({
+        id: g.id,
+        name: g.name,
+        component: g.component,
+        locale: g.locale,
+        memberCount: g.members.length,
+        members: g.members.map((m) => ({
+          contentType: m.contentType,
+          slug: m.slug,
+          sectionId: m.sectionId,
+        })),
+      }));
+      res.json({
+        single_template: !!config.single_template,
+        database: !!config.database?.slug,
+        locales,
+        bindings: bindingGroups,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

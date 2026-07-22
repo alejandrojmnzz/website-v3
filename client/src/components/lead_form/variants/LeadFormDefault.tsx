@@ -96,26 +96,22 @@ export interface LeadFormData {
   /** Phase copy for signup forms. Locale defaults apply when a stage is omitted. */
   messages?: {
     guest?: {
-      title?: string;
-      subtitle?: string;
+      subtitle?: string | null;
       submit_label?: string;
-    };
+    } | null;
     login?: {
-      title?: string;
-      subtitle?: string;
+      subtitle?: string | null;
       submit_label?: string;
       back_label?: string;
-    };
+    } | null;
     incomplete?: {
-      title?: string;
-      subtitle?: string;
+      subtitle?: string | null;
       submit_label?: string;
-    };
+    } | null;
     ready?: {
-      title?: string;
-      subtitle?: string;
+      subtitle?: string | null;
       submit_label?: string;
-    };
+    } | null;
   };
   consent?: {
     email?: boolean;
@@ -1093,6 +1089,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   });
   const formCopy = resolveLeadFormCopy(formPhase, data, locale);
 
+  // Terms/consent belong to account creation: show them to guests signing up
+  // (and on regular non-signup forms), hide them once the visitor is logged in.
+  const showLegalAndConsent = formPhase === "guest_signup";
+
   // After in-place login: if profile filled every required field, finish submission
   // (redirect / success message). Otherwise stay on the form for remaining fields.
   useEffect(() => {
@@ -1195,35 +1195,28 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           }}
           data-testid="form-inplace-login"
         >
-          <div className="space-y-2">
-            <Label htmlFor="inplace-login-email">
-              {locale === "es" ? "Correo" : "Email"}
-            </Label>
-            <Input
-              id="inplace-login-email"
-              type="email"
-              autoComplete="email"
-              value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
-              placeholder={locale === "es" ? "tu@email.com" : "you@email.com"}
-              required
-              data-testid="input-login-email"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="inplace-login-password">
-              {locale === "es" ? "Contraseña" : "Password"}
-            </Label>
-            <Input
-              id="inplace-login-password"
-              type="password"
-              autoComplete="current-password"
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              required
-              data-testid="input-login-password"
-            />
-          </div>
+          <Input
+            id="inplace-login-email"
+            type="email"
+            autoComplete="email"
+            aria-label={locale === "es" ? "Correo" : "Email"}
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            placeholder={locale === "es" ? "Correo" : "Email"}
+            required
+            data-testid="input-login-email"
+          />
+          <Input
+            id="inplace-login-password"
+            type="password"
+            autoComplete="current-password"
+            aria-label={locale === "es" ? "Contraseña" : "Password"}
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            placeholder={locale === "es" ? "Contraseña" : "Password"}
+            required
+            data-testid="input-login-password"
+          />
           {loginError && (
             <p className="text-sm text-destructive" data-testid="text-login-error">
               {loginError}
@@ -1368,7 +1361,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                 {emailConfig.helper_text}
               </p>
             )}
-            {allRequiredFieldsFilled && consent.email && (
+            {showLegalAndConsent && allRequiredFieldsFilled && consent.email && (
               <FormField
                 control={form.control}
                 name="consent_email"
@@ -1770,7 +1763,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             />
           )}
 
-          {allRequiredFieldsFilled && (consent.email || consent.sms || consent.whatsapp || consent.marketing) && (
+          {showLegalAndConsent && allRequiredFieldsFilled && (consent.email || consent.sms || consent.whatsapp || consent.marketing) && (
             <ConsentSection 
               consent={consent}
               form={form}
@@ -1821,7 +1814,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
           </Button>
 
-          {showTerms && (
+          {showTerms && showLegalAndConsent && (
             <p className={`text-xs text-center ${data.terms_className || "text-muted-foreground"}`} style={termsStyle} data-testid="text-terms">
               {locale === "es" ? "Al registrarte, aceptas los " : "By signing up, you agree to the "}
               <a 

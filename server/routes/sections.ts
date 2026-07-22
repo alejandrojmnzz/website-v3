@@ -755,6 +755,51 @@ export function registerSectionsRoutes(app: Express): void {
       if (actualDeletedId) {
         const { recordSectionDeleted } = await import("../utils/sectionAnchors");
         recordSectionDeleted(contentType, actualDeletedId, predecessorId);
+
+        // Fan out delete to sibling locale singles + clean entry overlays
+        const typeConfig = getContentTypeConfig(contentType, getContentRoot(res));
+        const isSharedLayout = !!(typeConfig?.database?.slug || typeConfig?.single_template);
+        if (isSharedLayout) {
+          const {
+            fanOutStructuralOpsToSiblings,
+            cleanSectionIdFromEntryOverlays,
+          } = await import("../shared-layout-sync");
+          const dumpYaml = (d: unknown) => {
+            const { escaped: e2, map: m2 } = escapeObjectVars(d);
+            return unescapeYamlDump(
+              yaml.dump(e2, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+              m2,
+            );
+          };
+          const fan = fanOutStructuralOpsToSiblings({
+            templateDir,
+            sourceLocale: locale,
+            sourceSections: templateSections,
+            operations: [
+              { action: "remove_item", path: "sections", index: 0, sectionId: actualDeletedId },
+            ],
+            safeYamlLoad: (r) => getCI(res).safeYamlLoad(r),
+            dumpYaml,
+            onSiblingWritten: (p) => markFileAsModified(p, authorName),
+            cleanEntryOverlaysForSectionIds: (ids) => {
+              cleanSectionIdFromEntryOverlays(
+                templateDir,
+                ids,
+                (r) => getCI(res).safeYamlLoad(r),
+                dumpYaml,
+                (p) => markFileAsModified(p, authorName),
+              );
+            },
+          });
+          if (fan.failed.length > 0) {
+            res.status(500).json({
+              error: `Deleted from ${locale} but sibling fan-out failed: ${fan.failed
+                .map((f) => `${f.locale} (${f.error})`)
+                .join("; ")}`,
+            });
+            return;
+          }
+        }
       }
 
       res.json({ success: true });

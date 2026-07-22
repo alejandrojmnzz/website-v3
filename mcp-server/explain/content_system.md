@@ -45,9 +45,16 @@ Types are declared in `content-types.yml`. Each entry specifies:
 <!-- @dynamic:content_types -->
 <!-- /dynamic -->
 
-## Database-backed types
+## Database-backed / shared-layout types
 
-Types with a `database.slug` key (e.g. `blog`) store their entries in a relational database, not YAML files. The `sections` and `layout` for these types live in shared template files (`single.{locale}.yml`) that apply to all entries of that type. Do not attempt to edit per-entry `_common.yml` files for DB-backed types — they do not exist.
+Types with a `database.slug` key (or static types with `single_template: true`) use shared layout:
+
+- Structure lives in each `single.{locale}.yml` (kept structurally in sync by the structured UI).
+- `_common.single.yml` is **layout defaults only** — do not put `sections` there.
+- Empty `sections: []` stubs are invalid; new/missing locale singles should be mirrored from a sibling.
+- Content props stay locale-local. Topology + `showOn*` / generic layout sync across siblings in the structured UI.
+- Changing `type` / `version` / `variant` does **not** auto-replicate — update sibling locales manually.
+- **MCP does not auto-fan-out.** After a structural edit to one locale single, follow `next_actions` (tool + reason) to update sibling `single.*.yml` files yourself. Soft prose warnings alone are not enough.
 
 ## Template variables
 
