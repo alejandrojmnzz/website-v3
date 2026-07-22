@@ -433,11 +433,11 @@ function PathItem({
             : revealed && !cardEntered
               ? `path-card-reveal 420ms cubic-bezier(.4,0,.2,1) ${cardRevealDelay}ms both`
               : undefined,
-          cursor: isSwapMode ? "pointer" : undefined,
+          cursor: "pointer",
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={isSwapMode && onSwapSlotClick ? onSwapSlotClick : undefined}
+        onClick={isSwapMode && onSwapSlotClick ? onSwapSlotClick : (!showSwapMask && viewDetailsLabel ? () => setExpanded(x => !x) : undefined)}
       >
         {!showSwapMask && (
         <div className="md:hidden absolute top-3 right-3 z-20 flex items-center gap-[6px]">
