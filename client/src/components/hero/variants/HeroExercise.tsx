@@ -195,7 +195,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                 {(form_card_title || form_card_subtitle) && (
                   <div className="pb-3 pt-5 px-5">
                     {form_card_title && (
-                      <p className="text-[15px] font-bold text-foreground">
+                      <p className="text-[17px] font-bold text-foreground">
                         {form_card_title}
                       </p>
                     )}
