@@ -57,6 +57,17 @@ The schema defines:
 
 A single component can have multiple visual layouts controlled by the `variant` field in YAML. For example, `features_quad` might have `grid`, `list`, and `carousel` variants. Always consult the component schema (via the `get_component_schema` MCP tool) before writing a section to understand which variants are available.
 
+## Split articles and shared TOC (`toc_group`)
+
+Long-form pages often insert a CTA (or other section) between two halves of an article. Use **two `article` sections** on the same page rather than one oversized block.
+
+Before adding a second (or later) `article`, **ask the user** whether those articles should share one table of contents:
+
+- **Yes — share TOC:** set the same `toc_group` string on every article (e.g. `group_482910374`). Only the first article in page order should have `show_toc: true`; later ones use `show_toc: false`. Headings from all members merge into one TOC. See `get_component_variant` → article example `article_split_toc_group`.
+- **No — separate:** omit `toc_group` (each article can have its own TOC or none).
+
+A page should use at most **one** `toc_group` value across its articles (all share, or none share). The editor UI prompts for this when adding articles; MCP agents should ask proactively the same way. If you already added a second article without grouping, `add_section` may return warning `article_toc_group_suggested` with `next_actions` to apply `toc_group` via `update_section_fields`.
+
 ## Database-backed content types
 
 For DB-backed types (e.g. `blog`), sections are defined in shared template files (`single.en.yml`, `single.es.yml`) rather than per-entry files. Changes to these templates affect **all** entries of that content type. Never edit per-entry YAML for DB-backed types — it does not exist.

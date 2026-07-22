@@ -174,6 +174,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireStaffSession,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -316,12 +317,27 @@ export function registerAuthRoutes(app: Express): void {
 
       const capabilities = userStore.getEffectiveCapabilities(profile.username);
       const userName = profile.username;
+      const staffId = userStore.getOrCreateStaffUserId(profile.username);
 
-      res.json({ valid: true, capabilities, userName, username: profile.username, expiresAt: profile.expiresAt ?? null });
+      res.json({
+        valid: true,
+        capabilities,
+        userName,
+        username: profile.username,
+        staffId,
+        expiresAt: profile.expiresAt ?? null,
+      });
     } catch (error) {
       log.error({ err: error }, "Token validation error:");
       res.json({ valid: false, capabilities: [] });
     }
+  });
+
+  // Staff directory for label assignee pickers (any authenticated editor).
+  app.get("/api/staff", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+    res.json({ staff: userStore.getStaffDirectory() });
   });
 
   // Internal loopback: return identity + roles + capabilities for an authenticated MCP caller.

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   sectionIsTemplateExpressionsOnly,
   prepareSiblingMirroredSection,
+  assignSectionLabel,
   HIDDEN_LOCATION_SENTINEL,
   isHiddenViaSentinel,
   reorderSectionsByIds,
@@ -9,6 +10,7 @@ import {
   isAllowlistedSectionFieldPath,
   applyAllowlistedLayout,
   stripSectionLabels,
+  MIRRORED_SECTION_NEEDS_EDIT_NOTE,
 } from "./shared-layout-sync";
 
 describe("shared-layout-sync", () => {
@@ -42,8 +44,9 @@ describe("shared-layout-sync", () => {
     const mirrored = prepareSiblingMirroredSection(source, "jane.doe");
     expect(mirrored.section_id).toBe("cta-1");
     expect(mirrored.title).toBe("Join now");
-    expect((mirrored._label as { needs: string; requester: string }).needs).toBe("edit");
+    expect((mirrored._label as { needs: string }).needs).toBe("edit");
     expect((mirrored._label as { requester: string }).requester).toBe("jane.doe");
+    expect((mirrored._label as { note: string }).note).toBe(MIRRORED_SECTION_NEEDS_EDIT_NOTE);
     expect(isHiddenViaSentinel(mirrored)).toBe(true);
     expect(mirrored.showOnLocations).toEqual([HIDDEN_LOCATION_SENTINEL]);
   });
@@ -108,9 +111,51 @@ describe("shared-layout-sync", () => {
 
   it("strips _label from nested data", () => {
     const stripped = stripSectionLabels({
-      sections: [{ type: "hero", _label: { needs: "edit" }, title: "x" }],
+      sections: [{ type: "hero", _label: { needs: "edit", note: "x" }, title: "x" }],
     });
     expect((stripped.sections as Record<string, unknown>[])[0]._label).toBeUndefined();
     expect((stripped.sections as Record<string, unknown>[])[0].title).toBe("x");
+  });
+
+  it("requires a non-empty note when assigning _label", () => {
+    const section: Record<string, unknown> = { type: "hero" };
+    expect(() =>
+      assignSectionLabel(section, { needs: "edit", note: "   " }),
+    ).toThrow(/note/);
+    assignSectionLabel(section, { needs: "edit", note: "Translate this CTA" });
+    expect((section._label as { note: string }).note).toBe("Translate this CTA");
+    expect((section._label as { requester: string }).requester).toBe("system");
+  });
+
+  it("stores staff id requester and optional owner", () => {
+    const section: Record<string, unknown> = { type: "hero" };
+    assignSectionLabel(section, {
+      needs: "edit",
+      note: "Please translate",
+      requester: "alex",
+      owner: "maria",
+    });
+    expect(section._label).toEqual({
+      needs: "edit",
+      note: "Please translate",
+      requester: "alex",
+      owner: "maria",
+    });
+  });
+
+  it("coerces legacy { kind, id } actors to staff ids", () => {
+    const section: Record<string, unknown> = { type: "hero" };
+    assignSectionLabel(section, {
+      needs: "edit",
+      note: "Legacy shape",
+      requester: { kind: "staff", id: "alex" } as unknown as string,
+      owner: { kind: "staff", id: "maria" } as unknown as string,
+    });
+    expect(section._label).toEqual({
+      needs: "edit",
+      note: "Legacy shape",
+      requester: "alex",
+      owner: "maria",
+    });
   });
 });

@@ -42,6 +42,7 @@ import {
   REORDER_NO_BINDING_FANOUT,
   CREATE_PAGE_SHARED_LAYOUT_WARNING,
 } from "../lib/shared-layout.js";
+import { hintsAfterAddArticle, hintsAfterReplaceSections } from "../lib/article-hints.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
@@ -1621,6 +1622,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "add_section",
     "Add a new section to a page. Inserts at the given index (or appends if omitted). Section must include a 'type' field matching a component type. contentType is optional — omit it and the server will auto-detect it from the slug.\n\n" +
+    "IMPORTANT — article / TOC: Before adding a second (or later) article on a page, ask the user whether articles should share one table of contents. " +
+    "If yes, set the same toc_group on every article (e.g. group_123456789), with show_toc: true only on the first in page order. " +
+    "Call get_component_schema/get_component_variant for article, or explain_site topic 'sections'. " +
+    "If you add an article without grouping while others already exist, the response may include warning article_toc_group_suggested.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -1699,6 +1704,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         variant,
       });
 
+      // Snapshot sections before write (for article toc_group hints).
+      let existingSections: Array<Record<string, unknown>> = [];
+      if (fs.existsSync(pathInfo.filePath)) {
+        const before = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
+        if (Array.isArray(before.sections)) {
+          existingSections = before.sections as Array<Record<string, unknown>>;
+        }
+      }
+
       const operation: Record<string, unknown> = {
         action: "add_item",
         path: "sections",
@@ -1739,6 +1753,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         side_effects = env.side_effects;
         next_actions = env.next_actions;
       }
+
+      const articleHints = hintsAfterAddArticle({
+        existingSections,
+        newSection: section as Record<string, unknown>,
+        insertIndex: index,
+        slug,
+        locale,
+      });
+      warnings.push(...articleHints.warnings);
+      next_actions = [...next_actions, ...articleHints.next_actions];
 
       return ok(
         {
@@ -2219,6 +2243,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           args_hint: { contentType: resolved.contentType, slug, sectionIndex: 0, locale },
         }];
       }
+
+      const articleHints = hintsAfterReplaceSections({
+        sections: sections as Array<Record<string, unknown>>,
+        slug,
+        locale,
+      });
+      warnings.push(...articleHints.warnings);
+      next_actions = [...next_actions, ...articleHints.next_actions];
 
       const parts: string[] = [`sections (${sections.length} item${sections.length !== 1 ? "s" : ""})`];
       if (meta) parts.push(`meta (${Object.keys(meta).length} field${Object.keys(meta).length !== 1 ? "s" : ""})`);

@@ -14,7 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DbTemplateWarningDialog } from "@/components/editing/DbTemplateWarningDialog";
-import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
+import {
+  WorkLabelModal,
+  normalizeWorkLabel,
+  type WorkLabel,
+} from "@/components/editing/WorkLabelModal";
+import { getDebugToken, resolveAuthorName, resolveStaffId, getDebugStaffId } from "@/hooks/useDebugAuth";
 import { useContentTypes, useContentTypesRaw, getFolderFromType } from "@/hooks/useContentTypes";
 import { useToast } from "@/hooks/use-toast";
 import { emitContentUpdated, emitEditStarted } from "@/lib/contentEvents";
@@ -23,6 +28,14 @@ import yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { canonicalSectionId } from "@shared/sectionIdentity";
 import * as CountryFlags from "country-flag-icons/react/3x2";
+
+/** Matches server HIDDEN_LOCATION_SENTINEL — section hidden from public until label is cleared. */
+const HIDDEN_LOCATION_SENTINEL = "__none__";
+
+function isHiddenViaSentinel(section: Record<string, unknown>): boolean {
+  const locs = section.showOnLocations;
+  return Array.isArray(locs) && locs.length === 1 && locs[0] === HIDDEN_LOCATION_SENTINEL;
+}
 
 const LazyYamlEditor = lazy(() => import("./YamlEditor"));
 
@@ -422,6 +435,11 @@ export function EditableSection({ children, section, index, sectionType, content
   // Per-entry patch reset state
   const [resetPatchOpen, setResetPatchOpen] = useState(false);
   const [isResettingPatch, setIsResettingPatch] = useState(false);
+
+  // Work label (_label) modal
+  const [workLabelOpen, setWorkLabelOpen] = useState(false);
+  const [workLabelEditing, setWorkLabelEditing] = useState<WorkLabel | null>(null);
+  const [workLabelStaffId, setWorkLabelStaffId] = useState<string>(getDebugStaffId());
 
   // DB template structural warning dialog state
   const [swapWarnOpen, setSwapWarnOpen] = useState(false);
@@ -1112,6 +1130,76 @@ export function EditableSection({ children, section, index, sectionType, content
     setCurrentSection(updatedSection);
     setWasLocallyUpdated(true);
   };
+
+  const sectionWorkLabel = normalizeWorkLabel(
+    ((currentSection as Section & { _label?: Record<string, unknown> })._label ??
+      {}) as {
+      needs?: string;
+      note?: string;
+      requester?: unknown;
+      owner?: unknown;
+    },
+  );
+
+  const persistSectionFieldOps = async (
+    operations: Array<{ action: string; path?: string; value?: unknown; index?: number; section?: unknown }>,
+  ) => {
+    if (!contentType || !slug) throw new Error("Missing content type or slug");
+    const token = getDebugToken();
+    const author = await resolveAuthorName();
+    const res = await fetch("/api/content/edit-sections", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Token ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        contentType,
+        slug,
+        locale: locale || "en",
+        ...(variant ? { variant } : {}),
+        ...(version !== undefined ? { version } : {}),
+        author,
+        operations,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `Request failed (${res.status})`);
+    }
+    emitContentUpdated({ contentType, slug, locale: locale || "en" });
+    return data;
+  };
+
+  const handleSaveWorkLabel = async (next: WorkLabel) => {
+    await persistSectionFieldOps([
+      { action: "update_field", path: `sections.${index}._label`, value: next },
+    ]);
+    setCurrentSection({ ...currentSection, _label: next } as Section);
+    setWasLocallyUpdated(true);
+    toast({ title: "Label updated" });
+  };
+
+  const handleRemoveWorkLabel = async () => {
+    const ops: Array<{ action: string; path: string; value: unknown }> = [
+      { action: "update_field", path: `sections.${index}._label`, value: null },
+    ];
+    const raw = currentSection as Record<string, unknown>;
+    if (isHiddenViaSentinel(raw)) {
+      ops.push({
+        action: "update_field",
+        path: `sections.${index}.showOnLocations`,
+        value: null,
+      });
+    }
+    await persistSectionFieldOps(ops);
+    const next = { ...raw };
+    delete next._label;
+    if (isHiddenViaSentinel(raw)) delete next.showOnLocations;
+    setCurrentSection(next as Section);
+    setWasLocallyUpdated(true);
+    toast({ title: "Label removed", description: "Section is no longer marked for work." });
+  };
   
   const renderedContent = wasLocallyUpdated ? renderSection(currentSection, index) : children;
 
@@ -1791,23 +1879,49 @@ export function EditableSection({ children, section, index, sectionType, content
         </div>
       )}
 
-      {/* Locale work label — needs edit/review */}
-      {(section as { _label?: { needs?: string; requester?: string; note?: string } })._label?.needs && (
-        <div
-          className="absolute right-2 z-30 flex items-center gap-1 px-2 py-1 bg-rose-500/90 text-white text-xs font-medium rounded"
-          style={{ top: ((section as any)._perEntryPatched || (section as any)._perEntrySource) ? "4.5rem" : "3rem" }}
+      {/* Locale work label — needs edit/review (_label.note is required when writing labels) */}
+      {sectionWorkLabel?.needs ? (
+        <button
+          type="button"
+          className="absolute right-2 z-30 flex items-center gap-1 px-2 py-1 bg-rose-500/90 text-white text-xs font-medium rounded hover:bg-rose-500 cursor-pointer"
+          style={{ top: ((currentSection as any)._perEntryPatched || (currentSection as any)._perEntrySource) ? "4.5rem" : "3rem" }}
           title={
-            (section as { _label?: { note?: string; requester?: string } })._label?.note ||
-            `Needs ${(section as { _label?: { needs?: string } })._label?.needs}${(section as { _label?: { requester?: string } })._label?.requester ? ` (requested by ${(section as { _label?: { requester?: string } })._label?.requester})` : ""}`
+            sectionWorkLabel.note
+              ? `${sectionWorkLabel.note}${
+                  sectionWorkLabel.requester ? ` · by ${sectionWorkLabel.requester}` : ""
+                }${
+                  sectionWorkLabel.owner ? ` · assigned to ${sectionWorkLabel.owner}` : ""
+                }`
+              : `Needs ${sectionWorkLabel.needs}`
           }
           data-testid={`badge-section-label-${index}`}
+          onClick={async (e) => {
+            e.stopPropagation();
+            const staffId = (await resolveStaffId()) || getDebugStaffId();
+            setWorkLabelStaffId(staffId);
+            setWorkLabelEditing(sectionWorkLabel);
+            setWorkLabelOpen(true);
+          }}
         >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          <span className="hidden md:inline">
-            Needs {(section as { _label?: { needs?: string } })._label?.needs}
-          </span>
-        </div>
-      )}
+          <span className="hidden md:inline">Needs {sectionWorkLabel.needs}</span>
+        </button>
+      ) : null}
+
+      {workLabelEditing ? (
+        <WorkLabelModal
+          open={workLabelOpen}
+          onOpenChange={(open) => {
+            setWorkLabelOpen(open);
+            if (!open) setWorkLabelEditing(null);
+          }}
+          label={workLabelEditing}
+          currentStaffId={workLabelStaffId || undefined}
+          onSave={handleSaveWorkLabel}
+          onRemove={handleRemoveWorkLabel}
+          testIdPrefix={`section-label-${index}`}
+        />
+      ) : null}
 
       {/* Per-entry origin badge — below toolbar (same row as "Overridden" / above visibility) */}
       {(section as any)._perEntrySource && (

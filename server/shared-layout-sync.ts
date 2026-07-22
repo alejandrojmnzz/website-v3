@@ -32,11 +32,41 @@ export type SharedLayoutKey = (typeof SHARED_LAYOUT_KEYS)[number];
 /** Sentinel location slug: never matches a real location → section hidden publicly. */
 export const HIDDEN_LOCATION_SENTINEL = "__none__";
 
+/**
+ * Section work label (`_label` on YAML sections).
+ *
+ * `requester` / `owner` store **staff ids** (immutable ids from the user store),
+ * or special ids `"system"` / `"mcp"` for non-human actors.
+ */
 export interface SectionLabel {
   needs: "edit" | "review";
+  /** Required human-readable reason shown in the editor. */
+  note: string;
+  /** Staff id (or system/mcp) of who assigned / last wrote the note. */
   requester?: string;
+  /** Staff id of who must complete the work; null/omit = unassigned. */
   owner?: string | null;
-  note?: string | null;
+}
+
+/** Default note when a section is mirrored to a sibling locale and still needs copy work. */
+export const MIRRORED_SECTION_NEEDS_EDIT_NOTE =
+  "Mirrored from another locale — translate or adapt the copy, then save to clear this label and show the section publicly.";
+
+export const SYSTEM_REQUESTER_ID = "system";
+export const AGENT_REQUESTER_ID = "mcp";
+
+/** Coerce legacy `{ kind, id }` objects or plain strings into a staff/special id string. */
+export function coerceLabelActorId(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  if (typeof value === "string") {
+    const id = value.trim();
+    return id || undefined;
+  }
+  if (typeof value === "object" && value !== null) {
+    const id = (value as { id?: unknown }).id;
+    if (typeof id === "string" && id.trim()) return id.trim();
+  }
+  return undefined;
 }
 
 export function isSharedLayoutKey(key: string): key is SharedLayoutKey {
@@ -110,11 +140,25 @@ export function assignSectionLabel(
   section: Record<string, unknown>,
   label: SectionLabel,
 ): void {
+  const note = label.note?.trim();
+  if (!note) {
+    throw new Error('Section _label requires a non-empty "note" explaining why it needs work');
+  }
+  const requester =
+    coerceLabelActorId(label.requester) ?? SYSTEM_REQUESTER_ID;
+  const ownerRaw = label.owner;
+  const owner =
+    ownerRaw === null
+      ? null
+      : ownerRaw === undefined
+        ? undefined
+        : coerceLabelActorId(ownerRaw) ?? null;
+
   section._label = {
     needs: label.needs,
-    ...(label.requester ? { requester: label.requester } : {}),
-    ...(label.owner !== undefined ? { owner: label.owner } : {}),
-    ...(label.note !== undefined ? { note: label.note } : {}),
+    note,
+    requester,
+    ...(owner !== undefined ? { owner } : {}),
   };
 }
 
@@ -130,7 +174,8 @@ export function prepareSiblingMirroredSection(
   if (!sectionIsTemplateExpressionsOnly(sourceSection)) {
     assignSectionLabel(mirrored, {
       needs: "edit",
-      ...(requesterId ? { requester: requesterId } : {}),
+      note: MIRRORED_SECTION_NEEDS_EDIT_NOTE,
+      requester: requesterId || SYSTEM_REQUESTER_ID,
     });
     hideSectionFromPublic(mirrored);
   }
@@ -615,8 +660,8 @@ export function alignSiblingSinglesToBase(opts: {
           if (!leftover._label) {
             assignSectionLabel(leftover, {
               needs: "review",
-              ...(requesterId ? { requester: requesterId } : {}),
               note: "Unmatched after shared-layout align",
+              requester: requesterId || SYSTEM_REQUESTER_ID,
             });
           }
           next.push(leftover);
