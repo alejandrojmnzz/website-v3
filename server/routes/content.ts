@@ -1937,15 +1937,15 @@ export function registerContentRoutes(app: Express): void {
           res.status(404).json({ error: `Database "${dbName}" not found` });
           return;
         }
-        // Return cache_missing rather than erroring when no cache file exists
-        const cacheFilePath = path.join(process.cwd(), ".cache", `db-${dbName}.json`);
-        if (!fs.existsSync(cacheFilePath)) {
+        // Same path as the default DB list: fetchMappedItems refreshes when TTL expired.
+        // Do not gate on getCacheInfo() — expired TTL would falsely report cache_missing.
+        const items = await getDB(res).fetchMappedItems(type);
+        const cacheInfo = getDB(res).getCacheInfo(dbName);
+        if (items.length === 0 && !cacheInfo) {
           res.json({ contentType: type, source: "db", cache_missing: true, count: 0, entries: [] });
           return;
         }
-        const items = await getDB(res).fetchMappedItems(type);
         const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
-        const cacheInfo = getDB(res).getCacheInfo(dbName);
         const cacheAgeHours = cacheInfo?.fetched_at
           ? Math.round((Date.now() - new Date(cacheInfo.fetched_at).getTime()) / (60 * 60 * 1000) * 10) / 10
           : null;
@@ -2474,57 +2474,6 @@ Important: Only include mappings where you are confident the field exists. Use d
       res.json(parsed);
     } catch (err) {
       log.error({ err: err }, "AI analyze-fields error:");
-      res.status(500).json({ error: String(err) });
-    }
-  });
-
-  app.get("/api/blog/llm-config", async (_req, res) => {
-    try {
-      const { getLLMConfig } = await import("../ai/LLMService");
-      const config = getLLMConfig();
-      res.json({
-        model: config.model,
-        temperature: config.temperature,
-        max_tokens: config.max_tokens,
-        provider: {
-          api_key_env: config.provider?.api_key_env || "",
-          base_url_env: config.provider?.base_url_env || "",
-        },
-      });
-    } catch (err) {
-      res.status(500).json({ error: String(err) });
-    }
-  });
-
-  app.put("/api/blog/llm-config", async (req, res) => {
-    try {
-      const body = req.body;
-      if (!body) {
-        res.status(400).json({ error: "Body is required" });
-        return;
-      }
-
-      const configPath = path.join(getContentRoot(res), "llm.yml");
-      const newConfig: Record<string, unknown> = {
-        provider: {
-          api_key_env:
-            body.provider?.api_key_env || "AI_INTEGRATIONS_OPENAI_API_KEY",
-          base_url_env:
-            body.provider?.base_url_env || "AI_INTEGRATIONS_OPENAI_BASE_URL",
-        },
-        model: body.model || "gpt-4o-mini",
-        temperature: body.temperature ?? 0.3,
-        max_tokens: body.max_tokens || 4000,
-      };
-
-      const yamlStr = yaml.dump(newConfig, { lineWidth: -1 });
-      fs.writeFileSync(configPath, yamlStr, "utf-8");
-
-      const { reloadLLMConfig } = await import("../ai/LLMService");
-      reloadLLMConfig();
-
-      res.json({ success: true });
-    } catch (err) {
       res.status(500).json({ error: String(err) });
     }
   });

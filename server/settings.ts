@@ -255,11 +255,16 @@ export const DEFAULT_ROBOTS_SETTINGS: RobotsSettings = {
   disallow_paths: ["/api/", "/private/", "/preview-frame", "/health"],
   ai_bots: [
     "GPTBot",
+    "OAI-SearchBot",
     "ChatGPT-User",
     "Google-Extended",
     "anthropic-ai",
     "ClaudeBot",
+    "Claude-Web",
     "PerplexityBot",
+    "Meta-ExternalAgent",
+    "Applebot",
+    "Applebot-Extended",
   ],
 };
 

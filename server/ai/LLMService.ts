@@ -26,6 +26,20 @@ interface LLMYamlConfig {
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
+export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+
+/** Resolve API base URL from llm.yml env names, with OpenRouter soft-default. */
+export function resolveLLMBaseURL(baseUrlEnv: string): string | undefined {
+  const fromEnv = process.env[baseUrlEnv] || process.env.OPENAI_BASE_URL;
+  if (fromEnv) return fromEnv;
+  if (baseUrlEnv === "OPENROUTER_BASE_URL") return OPENROUTER_DEFAULT_BASE_URL;
+  return undefined;
+}
+
+/** Resolve API key from llm.yml env names, with OPENAI_API_KEY fallback. */
+export function resolveLLMApiKey(apiKeyEnv: string): string | undefined {
+  return process.env[apiKeyEnv] || process.env.OPENAI_API_KEY || undefined;
+}
 
 let instance: LLMService | null = null;
 let cachedConfigMtime: number | null = null;
@@ -62,9 +76,9 @@ function getConfigMtime(contentRoot?: string): number | null {
 function resolveModel(cfg: LLMYamlConfig | null): string {
   if (process.env.LLM_MODEL) return process.env.LLM_MODEL;
   if (cfg?.model && typeof cfg.model === "object") {
-    return cfg.model.default || "gpt-4o";
+    return cfg.model.default || "openai/gpt-4o-mini";
   }
-  return (cfg?.model as string | undefined) || "gpt-4o";
+  return (cfg?.model as string | undefined) || "openai/gpt-4o-mini";
 }
 
 export function getLLMConfig(): LLMYamlConfig {
@@ -94,8 +108,8 @@ export class LLMService implements ILLMClient {
     const apiKeyEnv = cfg?.provider?.api_key_env || "OPENAI_API_KEY";
     const baseUrlEnv = cfg?.provider?.base_url_env || "OPENAI_BASE_URL";
 
-    const apiKey = process.env[apiKeyEnv] || process.env.OPENAI_API_KEY;
-    const baseURL = process.env[baseUrlEnv] || process.env.OPENAI_BASE_URL;
+    const apiKey = resolveLLMApiKey(apiKeyEnv);
+    const baseURL = resolveLLMBaseURL(baseUrlEnv);
 
     if (!apiKey) {
       throw new Error(

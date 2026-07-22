@@ -822,6 +822,7 @@ function DataSourceDialog({
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [slugField, setSlugField] = useState("");
   const [localeField, setLocaleField] = useState("");
+  const [hreflangsField, setHreflangsField] = useState("");
   const [availableFields, setAvailableFields] = useState<string[]>([]);
   const [fieldMappingNotes, setFieldMappingNotes] = useState("");
   const [fieldMappingError, setFieldMappingError] = useState<string | null>(null);
@@ -837,6 +838,7 @@ function DataSourceDialog({
   const [transformerModes, setTransformerModes] = useState<Record<string, boolean>>({});
   const [localeIsTransformer, setLocaleIsTransformer] = useState(false);
   const [slugIsTransformer, setSlugIsTransformer] = useState(false);
+  const [hreflangsIsTransformer, setHreflangsIsTransformer] = useState(false);
 
   const markComplete = (s: WizardStep) => {
     setCompletedSteps((prev) => {
@@ -897,6 +899,20 @@ function DataSourceDialog({
         } else {
           setLocaleField(lmVal);
           setLocaleIsTransformer(false);
+        }
+
+        const hm = config.field_mapping._hreflangs;
+        const hmVal = hm ? (typeof hm === "object" ? hm.source : hm) : "";
+        if (hmVal && hmVal.startsWith("function:")) {
+          try {
+            setHreflangsField(atob(hmVal.slice("function:".length)));
+            setHreflangsIsTransformer(true);
+          } catch {
+            setHreflangsField(hmVal);
+          }
+        } else {
+          setHreflangsField(hmVal);
+          setHreflangsIsTransformer(false);
         }
       }
       setIndexedFields(config.indexes || []);
@@ -988,6 +1004,14 @@ function DataSourceDialog({
           setLocaleField(typeof aiMapping._locale === "object" ? aiMapping._locale.source : aiMapping._locale);
           delete aiMapping._locale;
         }
+        if (aiMapping._hreflangs) {
+          setHreflangsField(
+            typeof aiMapping._hreflangs === "object"
+              ? aiMapping._hreflangs.source
+              : aiMapping._hreflangs,
+          );
+          delete aiMapping._hreflangs;
+        }
         setFieldMapping(aiMapping);
         if (data.available_fields) {
           setAvailableFields(data.available_fields);
@@ -1011,12 +1035,19 @@ function DataSourceDialog({
       if (localeField) {
         fullMapping._locale = localeIsTransformer ? "function:" + btoa(localeField) : localeField;
       }
+      if (hreflangsField) {
+        fullMapping._hreflangs = hreflangsIsTransformer
+          ? "function:" + btoa(hreflangsField)
+          : hreflangsField;
+      }
       const localeSource = localeIsTransformer ? null : localeField;
+      const hreflangsSource = hreflangsIsTransformer ? null : hreflangsField;
       for (const [k, v] of Object.entries(fieldMapping)) {
         if (v != null && v !== "__none__") {
           // skip any regular mapping whose source is the same as the locale field —
           // it's already captured by _locale and would create a redundant duplicate
           if (!transformerModes[k] && localeSource && v === localeSource) continue;
+          if (!transformerModes[k] && hreflangsSource && v === hreflangsSource) continue;
           fullMapping[k] = transformerModes[k] ? "function:" + btoa(v) : v;
         }
       }
@@ -1381,7 +1412,65 @@ function DataSourceDialog({
                   </p>
                 </div>
 
-                {(slugIsTransformer || localeIsTransformer) && (
+                <div className="space-y-2 pt-2 border-t">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs font-medium text-muted-foreground flex-1">Hreflangs Field (_hreflangs)</Label>
+                    <Badge variant="outline" className="text-[10px] no-default-active-elevate">Recommended</Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={hreflangsIsTransformer ? "text-primary" : ""}
+                      onClick={() => {
+                        if (!hreflangsIsTransformer) {
+                          setHreflangsIsTransformer(true);
+                          if (!hreflangsField) {
+                            setHreflangsField("(value, item) => item.translations");
+                          }
+                        } else {
+                          setHreflangsIsTransformer(false);
+                          setHreflangsField("");
+                        }
+                      }}
+                      data-testid="button-toggle-hreflangs-transform"
+                    >
+                      <Code className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {hreflangsIsTransformer ? (
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-muted-foreground font-mono">(value, item) =&gt; ...</p>
+                      <Textarea
+                        value={hreflangsField}
+                        onChange={(e) => setHreflangsField(e.target.value)}
+                        placeholder="(value, item) => item.translations"
+                        className="text-xs font-mono min-h-[3rem] resize-y"
+                        data-testid="textarea-hreflangs-transform"
+                      />
+                    </div>
+                  ) : (
+                    <Select
+                      value={hreflangsField || "__none__"}
+                      onValueChange={(v) => {
+                        setHreflangsField(v === "__none__" ? "" : v);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs font-mono" data-testid="select-hreflangs-field">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">(none)</SelectItem>
+                        {availableFields.map((f) => (
+                          <SelectItem key={f} value={f}>{f}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Locale→slug map for alternate URLs (e.g. translations: {"{"} en: slug, es: slug {"}"})
+                  </p>
+                </div>
+
+                {(slugIsTransformer || localeIsTransformer || hreflangsIsTransformer) && (
                   <div className="rounded-md bg-muted px-3 py-2 space-y-1" data-testid="section-transform-help">
                     <p className="text-xs font-medium text-muted-foreground">About computed fields</p>
                     <p className="text-xs text-muted-foreground">
@@ -1814,6 +1903,146 @@ function buildItemUrl(pattern: string, item: Record<string, any>, locale: string
   return result;
 }
 
+function normalizeAuditLocaleKey(key: string): string {
+  const k = String(key || "").trim().toLowerCase();
+  if (!k) return "";
+  if (k === "us") return "en";
+  const m = k.match(/^([a-z]{2})/);
+  return m ? m[1] : k;
+}
+
+/** Locale → slug map from _hreflangs / translations, always including the current row. */
+function resolveItemLocaleSlugMap(
+  item: Record<string, any>,
+  localeKey: string | null,
+  hreflangsSource: string | null,
+): Record<string, string> {
+  const selfLocale = normalizeAuditLocaleKey(
+    String((localeKey && item[localeKey]) || item.language || item.lang || item.locale || "en"),
+  );
+  const selfSlug = String(item.slug || "").trim();
+  const out: Record<string, string> = {};
+
+  const candidates = [
+    hreflangsSource ? item[hreflangsSource] : undefined,
+    item.translations,
+    item._hreflangs,
+  ];
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof v !== "string" || !v.trim()) continue;
+      const loc = normalizeAuditLocaleKey(k);
+      if (loc) out[loc] = v.trim();
+    }
+    break;
+  }
+
+  if (selfLocale && selfSlug) out[selfLocale] = selfSlug;
+  return out;
+}
+
+function DbLangCell({
+  item,
+  localeKey,
+  hreflangsSource,
+  itemsBySlug,
+}: {
+  item: Record<string, any>;
+  localeKey: string | null;
+  hreflangsSource: string | null;
+  itemsBySlug: Map<string, Record<string, any>>;
+}) {
+  const selfLocale = normalizeAuditLocaleKey(
+    String((localeKey && item[localeKey]) || item.language || item.lang || "en"),
+  ) || "en";
+  const map = resolveItemLocaleSlugMap(item, localeKey, hreflangsSource);
+  const locales = Object.keys(map).sort((a, b) => {
+    if (a === selfLocale) return -1;
+    if (b === selfLocale) return 1;
+    return a.localeCompare(b);
+  });
+
+  if (locales.length === 0) {
+    return (
+      <Badge variant="outline" className="text-xs">
+        {selfLocale.toUpperCase()}
+      </Badge>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap" data-testid={`lang-cell-${item.slug || item.id}`}>
+      {locales.map((loc) => {
+        const slug = map[loc];
+        const isSelf = loc === selfLocale;
+        const counterpart = !isSelf ? itemsBySlug.get(slug) : null;
+        const missing = !isSelf && !counterpart;
+
+        if (isSelf) {
+          return (
+            <Badge key={loc} variant="outline" className="text-xs" data-testid={`badge-lang-self-${loc}`}>
+              {loc.toUpperCase()}
+            </Badge>
+          );
+        }
+
+        return (
+          <Popover key={loc}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
+                data-testid={`button-lang-alt-${item.slug}-${loc}`}
+              >
+                <Badge
+                  variant="outline"
+                  className={`text-xs cursor-pointer hover-elevate gap-1 ${
+                    missing
+                      ? "border-amber-500/50 text-amber-700 dark:text-amber-400"
+                      : ""
+                  }`}
+                >
+                  {loc.toUpperCase()}
+                  {missing && <AlertTriangle className="h-2.5 w-2.5" />}
+                </Badge>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-3 space-y-2" align="start" data-testid={`popover-lang-alt-${loc}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {loc.toUpperCase()} translation
+                </p>
+                {missing ? (
+                  <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-400">
+                    Missing in DB
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">Found</Badge>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground">Slug</p>
+                <p className="text-xs font-mono break-all">{slug || "—"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] text-muted-foreground">Title</p>
+                <p className="text-sm font-medium leading-snug">
+                  {counterpart
+                    ? String(counterpart.title || counterpart.slug || "—")
+                    : missing
+                      ? "No matching row for this slug"
+                      : "—"}
+                </p>
+              </div>
+            </PopoverContent>
+          </Popover>
+        );
+      })}
+    </div>
+  );
+}
+
 type MissingEntry = { slug: string; files: string[] };
 type FieldValidationResult = { valid: boolean; total: number; found: number; missing: MissingEntry[] };
 type ValidationState = Record<string, FieldValidationResult | "loading" | null>;
@@ -1947,6 +2176,130 @@ function FieldValidationMessage({
   );
 }
 
+const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs"] as const;
+const SPECIAL_FIELD_DEFAULTS: Record<string, string> = {
+  _hreflangs: "translations",
+};
+
+const SPECIAL_FIELD_INFO: Record<
+  string,
+  { title: string; summary: string; howItWorks: string[]; howToSet: string[]; expected: string }
+> = {
+  _slug: {
+    title: "_slug — Entry identity",
+    summary:
+      "Required for database-backed content types. Points at the field that uniquely identifies each item for URL routing and lookups.",
+    howItWorks: [
+      "The value is the source field (or computed function) on each database record that holds the entry’s URL slug.",
+      "The site uses it to resolve /en/…/:slug and /es/…/:slug to the correct row.",
+      "It is a system field: it is not exposed as {{ single._slug }} in templates.",
+    ],
+    howToSet: [
+      "Map it to a string field such as slug or id.",
+      "Or use a computed function: (value, item) => item.slug",
+      "In the identity wizard step, pick the Slug Field (_slug) control.",
+    ],
+    expected: "A non-empty string unique per locale (e.g. \"how-to-write-quizzes\").",
+  },
+  _locale: {
+    title: "_locale — Language of the row",
+    summary:
+      "Recommended for multi-locale database types. Identifies which language each database row belongs to.",
+    howItWorks: [
+      "Each DB row is one locale; _locale tells the system whether the row is en, es, etc.",
+      "Used when filtering items by locale and when building locale-aware URLs.",
+      "API values like \"us\" are often normalized to \"en\" via a transform function.",
+    ],
+    howToSet: [
+      "Map it to lang, language, or locale on the mapped item.",
+      "Or use a function: (value, item) => String(item.lang) === 'us' ? 'en' : String(item.lang)",
+      "In the identity wizard, use Locale Field (_locale).",
+    ],
+    expected: "A site locale code matching url_pattern keys (typically \"en\" or \"es\").",
+  },
+  _hreflangs: {
+    title: "_hreflangs — Locale → slug map",
+    summary:
+      "Recommended for multi-locale database types when EN/ES (or other) slugs differ. Links translation partners for language switching, hreflang tags, and sitemap alternates.",
+    howItWorks: [
+      "Expects a dictionary: { en: \"english-slug\", es: \"spanish-slug\" }.",
+      "Keys are site locales (us is normalized to en). Values are the counterpart entry’s slug.",
+      "getAlternateUrls reads this map to build alternate URLs; the same-slug hreflang fallback is skipped when _hreflangs is configured.",
+      "Converting the type to static uses this map to create one folder with per-locale slug: overrides.",
+    ],
+    howToSet: [
+      "Map it to a field that already holds the map (e.g. translations from the API).",
+      "Or compute it: (value, item) => item.translations",
+      "Keep the DB field_mapping so the source column exists on mapped items (e.g. translations: translations).",
+      "In the identity wizard, use Hreflangs Field (_hreflangs).",
+    ],
+    expected:
+      "Record<locale, slug>, e.g. { \"en\": \"how-to-write-quizzes\", \"es\": \"como-crear-qui\" }. Partial maps are fine; the current row’s locale/slug is merged in automatically.",
+  },
+};
+
+function SpecialFieldInfoDialog({
+  fieldKey,
+  open,
+  onOpenChange,
+}: {
+  fieldKey: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const info = fieldKey ? SPECIAL_FIELD_INFO[fieldKey] : null;
+  const title = info?.title ?? (fieldKey ? `${fieldKey} — Special field` : "Special field");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px] max-h-[85vh] overflow-y-auto" data-testid="dialog-special-field-info">
+        <DialogHeader>
+          <DialogTitle className="font-mono text-base">{title}</DialogTitle>
+          <DialogDescription>
+            {info?.summary ??
+              "Underscore-prefixed keys are system fields used for routing and locale linking. They are not exposed as {{ single.* }} template variables."}
+          </DialogDescription>
+        </DialogHeader>
+        {info ? (
+          <div className="space-y-4 text-sm">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">How it works</p>
+              <ul className="list-disc pl-4 space-y-1.5 text-muted-foreground">
+                {info.howItWorks.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">How to set its value</p>
+              <ul className="list-disc pl-4 space-y-1.5 text-muted-foreground">
+                {info.howToSet.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Expected value</p>
+              <p className="text-muted-foreground font-mono text-xs bg-muted rounded-md px-3 py-2">{info.expected}</p>
+            </div>
+          </div>
+        ) : fieldKey ? (
+          <p className="text-sm text-muted-foreground">
+            <code className="font-mono bg-muted px-1 rounded">{fieldKey}</code> is a custom special field.
+            Underscore keys are reserved for system use and are not available as{" "}
+            <code className="font-mono bg-muted px-1 rounded">{"{{ single.* }}"}</code> variables.
+          </p>
+        ) : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-special-field-info">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function FieldMappingDialog({
   open,
   onOpenChange,
@@ -1958,6 +2311,7 @@ function FieldMappingDialog({
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  const [specialInfoKey, setSpecialInfoKey] = useState<string | null>(null);
   const label = contentType.charAt(0).toUpperCase() + contentType.slice(1);
 
   const { data: config, isLoading } = useQuery<ContentTypeConfig>({
@@ -2023,6 +2377,14 @@ function FieldMappingDialog({
           } else {
             fm[k] = v.source;
           }
+        }
+      }
+    }
+    // DB types always expose known special fields in the UI (even if not yet mapped)
+    if (config.database?.slug) {
+      for (const key of KNOWN_SPECIAL_FIELDS) {
+        if (!(key in fm)) {
+          fm[key] = SPECIAL_FIELD_DEFAULTS[key] ?? "";
         }
       }
     }
@@ -2229,9 +2591,13 @@ function FieldMappingDialog({
   };
 
   const regularKeys = Object.keys(mappings).filter((k) => !k.startsWith("_"));
-  const specialKeys = Object.keys(mappings).filter((k) => k.startsWith("_"));
+  const specialKeysFromMappings = Object.keys(mappings).filter((k) => k.startsWith("_"));
+  const specialKeys = isDbBacked
+    ? Array.from(new Set<string>([...KNOWN_SPECIAL_FIELDS, ...specialKeysFromMappings]))
+    : specialKeysFromMappings;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -2262,7 +2628,21 @@ function FieldMappingDialog({
                 <Label className="text-xs text-muted-foreground">Special Fields</Label>
                 {specialKeys.map((key) => (
                   <div key={key} className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs font-mono flex-shrink-0">{key}</Badge>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      onClick={() => setSpecialInfoKey(key)}
+                      title={`About ${key}`}
+                      data-testid={`button-special-field-info-${key}`}
+                    >
+                      <Badge
+                        variant="outline"
+                        className="text-xs font-mono flex-shrink-0 cursor-pointer hover-elevate gap-1 pr-1.5"
+                      >
+                        {key}
+                        <Info className="h-3 w-3 text-muted-foreground" />
+                      </Badge>
+                    </button>
                     <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                     {transformerModes[key] ? (
                       <Textarea
@@ -2743,6 +3123,14 @@ function FieldMappingDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <SpecialFieldInfoDialog
+      fieldKey={specialInfoKey}
+      open={!!specialInfoKey}
+      onOpenChange={(next) => {
+        if (!next) setSpecialInfoKey(null);
+      }}
+    />
+    </>
   );
 }
 
@@ -3227,11 +3615,12 @@ export default function ContentTypeManagePage() {
     staleTime: 60000,
   });
 
-  const { data: seoEntriesData, isLoading: seoEntriesLoading } = useQuery<SeoEntriesResponse>({
+  const { data: seoEntriesData, isLoading: seoEntriesLoading, isFetching: seoEntriesFetching } = useQuery<SeoEntriesResponse>({
     queryKey: ["/api/content-types", contentType, "seo-entries"],
     queryFn: () => fetch(`/api/content-types/${contentType}/seo-entries`).then(r => r.json()),
     enabled: listPerspective === "seo",
-    staleTime: 60000,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: cacheStatus } = useQuery<CacheStatus>({
@@ -3262,8 +3651,24 @@ export default function ContentTypeManagePage() {
     return val;
   })();
 
+  const hreflangsSource = (() => {
+    const raw = typeConfig?.field_mapping?._hreflangs;
+    if (!raw) return "translations";
+    const val = typeof raw === "object" ? raw.source : raw;
+    if (typeof val === "string" && val.startsWith("function:")) return "translations";
+    return typeof val === "string" && val.trim() ? val : "translations";
+  })();
+
   const items = allItemsData?.results || [];
 
+  const itemsBySlug = (() => {
+    const map = new Map<string, Record<string, any>>();
+    for (const item of items) {
+      const slug = String(item.slug ?? "").trim();
+      if (slug) map.set(slug, item);
+    }
+    return map;
+  })();
   const dbSlug = typeConfig?.database?.slug || null;
   const hasDbConnection = !!dbSlug;
 
@@ -4262,14 +4667,14 @@ export default function ContentTypeManagePage() {
           </CardHeader>
           <CardContent className="p-0">
             {listPerspective === "seo" ? (
-              seoEntriesLoading ? (
+              seoEntriesLoading || (seoEntriesFetching && !seoEntriesData) ? (
                 <div className="flex items-center justify-center py-12" data-testid="loading-seo-entries">
                   <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-current border-r-transparent" />
                   <span className="ml-2 text-sm text-muted-foreground">Loading SEO entries...</span>
                 </div>
               ) : seoEntriesData?.cache_missing ? (
-                <div className="text-center py-12 text-muted-foreground" data-testid="text-seo-cache-missing">
-                  Database cache missing — refresh the DB cache to load SEO entries.
+                <div className="text-center py-12 text-muted-foreground space-y-3" data-testid="text-seo-cache-missing">
+                  <p>Database cache missing — refresh the DB cache to load SEO entries.</p>
                 </div>
               ) : filteredSeoEntries.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground" data-testid="text-no-seo-results">
@@ -4789,7 +5194,7 @@ export default function ContentTypeManagePage() {
                         {hasAuthorField && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Author</th>}
                         {allIndexFields.map((idx) => (
                           <th key={idx} className="text-left px-4 py-3 font-medium text-muted-foreground">
-                            {idx === localeKey ? "Lang" : idx.charAt(0).toUpperCase() + idx.slice(1)}
+                            {idx === localeKey ? "Locales" : idx.charAt(0).toUpperCase() + idx.slice(1)}
                           </th>
                         ))}
                         {hasPublishedAt && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Published</th>}
@@ -4846,10 +5251,22 @@ export default function ContentTypeManagePage() {
                                   </td>
                                 );
                               }
+                              if (isLocale) {
+                                return (
+                                  <td key={idx} className="px-4 py-3">
+                                    <DbLangCell
+                                      item={item}
+                                      localeKey={localeKey}
+                                      hreflangsSource={hreflangsSource}
+                                      itemsBySlug={itemsBySlug}
+                                    />
+                                  </td>
+                                );
+                              }
                               return (
                                 <td key={idx} className="px-4 py-3">
                                   <Badge variant="outline">
-                                    {isLocale ? val.toUpperCase() : val.charAt(0).toUpperCase() + val.slice(1)}
+                                    {val.charAt(0).toUpperCase() + val.slice(1)}
                                   </Badge>
                                 </td>
                               );

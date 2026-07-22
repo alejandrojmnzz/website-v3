@@ -688,12 +688,8 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      const baseSlug = getCI(res).resolveBaseSlug(
-        parsed.slug,
-        parsed.contentType,
-      );
-      const urls = getCI(res).getLocaleUrls(baseSlug, parsed.contentType);
-      res.json({ urls, contentType: parsed.contentType, slug: baseSlug });
+      const urls = getCI(res).getAlternateUrls(parsed.slug, parsed.contentType);
+      res.json({ urls, contentType: parsed.contentType, slug: parsed.slug });
     } catch (err) {
       log.error({ err: err }, "[API] Failed to resolve locale URLs:");
       res.status(500).json({ error: "Failed to resolve locale URLs" });
@@ -716,12 +712,8 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
-      const baseSlug = getCI(res).resolveBaseSlug(
-        parsed.slug,
-        parsed.contentType,
-      );
-      const urls = getCI(res).getLocaleUrls(baseSlug, parsed.contentType);
-      res.json({ urls, contentType: parsed.contentType, slug: baseSlug });
+      const urls = getCI(res).getAlternateUrls(parsed.slug, parsed.contentType);
+      res.json({ urls, contentType: parsed.contentType, slug: parsed.slug });
     } catch (err) {
       log.error({ err: err }, "[Debug] Failed to resolve locale URLs:");
       res.status(500).json({ error: "Failed to resolve locale URLs" });
@@ -1746,6 +1738,251 @@ export function registerAdminRoutes(app: Express): void {
   // ============================================
   // AI Admin Routes (webmaster capability required)
   // ============================================
+
+  let openRouterModelsCache: { fetchedAt: number; models: Array<{ id: string; name: string; context_length?: number }> } | null = null;
+  const OPENROUTER_MODELS_CACHE_MS = 10 * 60 * 1000;
+
+  app.get("/api/admin/ai/settings", async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const llmConfig = loadSiteLLMConfig(res);
+      const provider =
+        typeof llmConfig.provider === "object" && llmConfig.provider !== null
+          ? (llmConfig.provider as Record<string, string>)
+          : {};
+      const apiKeyEnv = provider.api_key_env || "OPENROUTER_API_KEY";
+      const baseUrlEnv = provider.base_url_env || "OPENROUTER_BASE_URL";
+
+      const { resolveLLMApiKey, resolveLLMBaseURL } = await import("../ai/LLMService");
+      const modelDefault =
+        typeof llmConfig.model === "object" && llmConfig.model !== null
+          ? (llmConfig.model as Record<string, string>).default || ""
+          : typeof llmConfig.model === "string"
+            ? llmConfig.model
+            : "";
+
+      res.json({
+        model_default: modelDefault,
+        provider: {
+          api_key_env: apiKeyEnv,
+          base_url_env: baseUrlEnv,
+          base_url: resolveLLMBaseURL(baseUrlEnv) || null,
+          api_key_configured: Boolean(resolveLLMApiKey(apiKeyEnv)),
+        },
+      });
+    } catch (err) {
+      log.error({ err }, "[AI Settings GET] Error:");
+      res.status(500).json({ error: "Failed to load AI settings" });
+    }
+  });
+
+  app.patch("/api/admin/ai/settings", async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const { model_default: modelDefault } = req.body || {};
+      if (typeof modelDefault !== "string" || !modelDefault.trim()) {
+        return res.status(400).json({ error: "model_default is required" });
+      }
+
+      const llmPath = path.join(getContentRoot(res), "llm.yml");
+      const llmConfig = loadSiteLLMConfig(res);
+      const mutableConfig: Record<string, unknown> = { ...llmConfig };
+      const existing =
+        typeof mutableConfig.model === "object" && mutableConfig.model !== null
+          ? (mutableConfig.model as Record<string, string>)
+          : { default: typeof mutableConfig.model === "string" ? mutableConfig.model : "" };
+      mutableConfig.model = { ...existing, default: modelDefault.trim() };
+
+      fs.writeFileSync(llmPath, yaml.dump(mutableConfig, { lineWidth: -1 }), "utf-8");
+
+      try {
+        markFileAsModified(llmPath, undefined, undefined, getContentRoot(res));
+      } catch (markErr) {
+        log.warn({ err: markErr }, "[AI Settings PATCH] Could not mark llm.yml modified (non-fatal)");
+      }
+
+      try {
+        const { reloadLLMConfig } = await import("../ai/LLMService");
+        reloadLLMConfig();
+      } catch (reloadErr) {
+        log.warn({ err: reloadErr }, "[AI Settings PATCH] LLM reload failed (non-fatal)");
+      }
+
+      try {
+        const { getAgentService } = await import("../ai/AgentService");
+        getAgentService().reload();
+      } catch (reloadErr) {
+        log.warn({ err: reloadErr }, "[AI Settings PATCH] Agent reload failed (non-fatal)");
+      }
+
+      res.json({ success: true, model_default: modelDefault.trim() });
+    } catch (err) {
+      log.error({ err }, "[AI Settings PATCH] Error:");
+      res.status(500).json({ error: "Failed to update AI settings" });
+    }
+  });
+
+  app.get("/api/admin/ai/openrouter/models", async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      if (
+        openRouterModelsCache &&
+        Date.now() - openRouterModelsCache.fetchedAt < OPENROUTER_MODELS_CACHE_MS
+      ) {
+        return res.json({ models: openRouterModelsCache.models });
+      }
+
+      const llmConfig = loadSiteLLMConfig(res);
+      const provider =
+        typeof llmConfig.provider === "object" && llmConfig.provider !== null
+          ? (llmConfig.provider as Record<string, string>)
+          : {};
+      const apiKeyEnv = provider.api_key_env || "OPENROUTER_API_KEY";
+      const baseUrlEnv = provider.base_url_env || "OPENROUTER_BASE_URL";
+
+      const { resolveLLMApiKey, resolveLLMBaseURL } = await import("../ai/LLMService");
+      const apiKey = resolveLLMApiKey(apiKeyEnv);
+      const baseURL = resolveLLMBaseURL(baseUrlEnv) || "https://openrouter.ai/api/v1";
+
+      if (!apiKey) {
+        return res.status(503).json({
+          error: `API key not configured. Set ${apiKeyEnv} in environment.`,
+          models: [],
+        });
+      }
+
+      const modelsUrl = `${baseURL.replace(/\/$/, "")}/models`;
+      const orRes = await fetch(modelsUrl, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+        },
+      });
+
+      if (!orRes.ok) {
+        const body = await orRes.text().catch(() => "");
+        log.error({ status: orRes.status, body: body.slice(0, 500) }, "[OpenRouter models] fetch failed");
+        return res.status(502).json({ error: `OpenRouter models request failed (${orRes.status})`, models: [] });
+      }
+
+      const payload = (await orRes.json()) as {
+        data?: Array<{
+          id?: string;
+          name?: string;
+          context_length?: number;
+          architecture?: { output_modalities?: string[] };
+        }>;
+      };
+
+      const models = (payload.data || [])
+        .filter((m) => {
+          if (!m.id) return false;
+          const outputs = m.architecture?.output_modalities;
+          if (!outputs || outputs.length === 0) return true;
+          return outputs.includes("text");
+        })
+        .map((m) => ({
+          id: m.id as string,
+          name: m.name || (m.id as string),
+          context_length: typeof m.context_length === "number" ? m.context_length : undefined,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      openRouterModelsCache = { fetchedAt: Date.now(), models };
+      res.json({ models });
+    } catch (err) {
+      log.error({ err }, "[OpenRouter models] Error:");
+      res.status(500).json({ error: "Failed to fetch OpenRouter models", models: [] });
+    }
+  });
+
+  app.get("/api/admin/ai/llm-yml", async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      const llmPath = path.join(contentRoot, "llm.yml");
+      const relativePath = `${contentFolder}/llm.yml`;
+
+      if (!fs.existsSync(llmPath)) {
+        return res.json({ exists: false, path: relativePath, content: "", error: "llm.yml not found" });
+      }
+
+      res.json({
+        exists: true,
+        path: relativePath,
+        content: fs.readFileSync(llmPath, "utf-8"),
+      });
+    } catch (err) {
+      log.error({ err }, "[AI llm.yml GET] Error:");
+      res.status(500).json({ error: "Failed to read llm.yml" });
+    }
+  });
+
+  app.put("/api/admin/ai/llm-yml", async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const { content, author: requestAuthor } = req.body || {};
+      if (typeof content !== "string") {
+        return res.status(400).json({ error: "content is required" });
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = safeYamlLoad(content);
+      } catch (parseErr) {
+        return res.status(400).json({
+          error: parseErr instanceof Error ? parseErr.message : "Invalid YAML",
+        });
+      }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return res.status(400).json({ error: "llm.yml must be a YAML object" });
+      }
+
+      const contentRoot = getContentRoot(res);
+      const contentFolder = getContentRootName(res);
+      const llmPath = path.join(contentRoot, "llm.yml");
+      fs.writeFileSync(llmPath, content, "utf-8");
+
+      const authorName =
+        typeof requestAuthor === "string" && requestAuthor.trim() ? requestAuthor.trim() : undefined;
+      try {
+        markFileAsModified(llmPath, authorName, undefined, contentRoot);
+      } catch (markErr) {
+        log.warn({ err: markErr }, "[AI llm.yml PUT] Could not mark llm.yml modified (non-fatal)");
+      }
+
+      try {
+        const { reloadLLMConfig } = await import("../ai/LLMService");
+        reloadLLMConfig();
+      } catch (reloadErr) {
+        log.warn({ err: reloadErr }, "[AI llm.yml PUT] LLM reload failed (non-fatal)");
+      }
+
+      try {
+        const { getAgentService } = await import("../ai/AgentService");
+        getAgentService().reload();
+      } catch (reloadErr) {
+        log.warn({ err: reloadErr }, "[AI llm.yml PUT] Agent reload failed (non-fatal)");
+      }
+
+      res.json({ success: true, path: `${contentFolder}/llm.yml` });
+    } catch (err) {
+      log.error({ err }, "[AI llm.yml PUT] Error:");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to save llm.yml" });
+    }
+  });
+
   app.get("/api/admin/ai/knowledge", async (req, res) => {
     try {
       const auth = await requireAdminAuth(req, res);

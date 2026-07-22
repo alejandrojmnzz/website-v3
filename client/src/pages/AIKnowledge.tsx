@@ -211,7 +211,6 @@ export default function AIKnowledge() {
   const [modelDefault, setModelDefault] = useState("");
   const [modelChat, setModelChat] = useState("");
   const [modelsOpen, setModelsOpen] = useState(false);
-  const [draftModelDefault, setDraftModelDefault] = useState("");
   const [draftModelChat, setDraftModelChat] = useState("");
   const [savingModels, setSavingModels] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string; trace?: AgentTrace }>>([]);
@@ -311,7 +310,6 @@ export default function AIKnowledge() {
 
   useEffect(() => {
     if (modelsOpen) {
-      setDraftModelDefault(modelDefault);
       setDraftModelChat(modelChat);
     }
   }, [modelsOpen]);
@@ -349,12 +347,10 @@ export default function AIKnowledge() {
         method: "PATCH",
         headers: knowledgeRequestHeaders(),
         body: JSON.stringify({
-          model_default: draftModelDefault,
           model_chat: draftModelChat,
         }),
       });
       if (!res.ok) throw new Error(await readKnowledgeError(res, `Save failed (${res.status})`));
-      setModelDefault(draftModelDefault);
       setModelChat(draftModelChat);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({ title: "Models saved", description: "Changes are instantly applied — test the agent now." });
@@ -555,7 +551,7 @@ export default function AIKnowledge() {
             >
               <Cpu className="h-4 w-4" />
               <span className="text-xs font-medium">Models</span>
-              <span className="text-[11px] text-muted-foreground truncate max-w-full">{modelDefault || "Not set"}</span>
+              <span className="text-[11px] text-muted-foreground truncate max-w-full">{modelChat || modelDefault || "Not set"}</span>
             </Button>
           </div>
 
@@ -946,18 +942,18 @@ export default function AIKnowledge() {
           <DialogHeader>
             <DialogTitle data-testid="text-models-dialog-title">Model Configuration</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground -mt-1">Configure which LLM models the agent uses. The default model handles background tasks (tagging, clustering). The chat model is used for live conversations — leave it blank to inherit the default.</p>
+          <p className="text-sm text-muted-foreground -mt-1">
+            Configure the chat model for live conversations. Completion / field-mapping models are managed in AI Settings.
+          </p>
           <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="model-default">Default Model</label>
-              <Input
-                id="model-default"
-                value={draftModelDefault}
-                onChange={e => setDraftModelDefault(e.target.value)}
-                placeholder="e.g. llama-3.3-70b-versatile"
-                data-testid="input-model-default"
-              />
-              <p className="text-xs text-muted-foreground">Used for auto-tagging and question clustering.</p>
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+              <p className="text-sm font-medium">Completion model (field mapping &amp; autocompletions)</p>
+              <p className="text-xs text-muted-foreground font-mono break-all">
+                {modelDefault || "Not set"}
+              </p>
+              <Button variant="outline" size="sm" asChild data-testid="link-ai-settings-from-models">
+                <Link href="/private/settings/ai">Open AI Settings</Link>
+              </Button>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="model-chat">Chat Model</label>
@@ -968,7 +964,7 @@ export default function AIKnowledge() {
                 placeholder="Leave blank to use default model"
                 data-testid="input-model-chat"
               />
-              <p className="text-xs text-muted-foreground">Used for live chat conversations. Falls back to the default model if empty.</p>
+              <p className="text-xs text-muted-foreground">Used for live chat conversations. Falls back to the completion model if empty. Use an OpenRouter model id (e.g. openai/gpt-4o).</p>
             </div>
           </div>
           <DialogFooter className="gap-2">
