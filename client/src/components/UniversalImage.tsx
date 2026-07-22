@@ -1,11 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ImageRef, ImageEntry, ImagePreset } from "@shared/schema";
 import SolidCard from "./SolidCard";
 import { useSectionContext } from "@/contexts/SectionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { Pencil, CheckCircle2, Clock, AlertCircle, Unlink, ExternalLink, ShieldCheck, Shield, ChevronDown } from "lucide-react";
-import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { editContent } from "@/lib/contentApi";
 import { emitContentUpdated } from "@/lib/contentEvents";
 import { resolveTemplateFallback } from "@/lib/variable-manager";
@@ -18,6 +17,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { queryClient } from "@/lib/queryClient";
+
+const ImagePickerDialog = lazy(() =>
+  import("@/components/editing/ImagePickerDialog").then((m) => ({
+    default: m.ImagePickerDialog,
+  })),
+);
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -571,16 +576,18 @@ export function UniversalImage({
     : undefined;
 
   const pickerDialog = canReplace ? (
-    <ImagePickerDialog
-      open={pickerOpen}
-      onOpenChange={setPickerOpen}
-      title="Replace Image"
-      initialSrc={src}
-      initialAlt={finalAlt}
-      onSave={handlePickerSave}
-      renderPreset={preset !== "full" ? preset : undefined}
-      renderedSize={renderedSize}
-    />
+    <Suspense fallback={null}>
+      <ImagePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        title="Replace Image"
+        initialSrc={src}
+        initialAlt={finalAlt}
+        onSave={handlePickerSave}
+        renderPreset={preset !== "full" ? preset : undefined}
+        renderedSize={renderedSize}
+      />
+    </Suspense>
   ) : null;
 
   if (useSolidCard) {

@@ -6,7 +6,7 @@ import { lazy, Suspense, useState, useEffect, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 import { SessionProvider } from "@/contexts/SessionContext";
 import { EditModeWrapper } from "@/components/editing/EditModeWrapper";
-import { DebugAuthProvider, isDebugModeActive } from "@/hooks/useDebugAuth";
+import { DebugAuthProvider, isDebugModeActive, useDebugAuth } from "@/hooks/useDebugAuth";
 import { ImagePickerProvider } from "@/contexts/ImagePickerContext";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import type { ContentTypeApiItem } from "@/hooks/useContentTypes";
@@ -51,8 +51,8 @@ if (typeof window !== "undefined") {
 
 function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
-  retries = 2,
-  delay = 500,
+  retries = 3,
+  delay = 600,
 ): React.LazyExoticComponent<T> {
   return lazy(() => {
     const attempt = (n: number): Promise<{ default: T }> =>
@@ -63,7 +63,9 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
         if (!_hmrConnected) {
           await _waitForHmrReconnect();
         }
-        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        // Back off on transient failures (edge 429 / aborted dynamic imports).
+        const backoff = delay * (4 - n);
+        await new Promise<void>((resolve) => setTimeout(resolve, backoff));
         return attempt(n - 1);
       });
     return attempt(retries);
@@ -102,6 +104,14 @@ const BootstrapModal = lazyWithRetry(() =>
 function DebugBubbleGate() {
   if (!isDebugModeActive()) return null;
   return <Suspense fallback={null}><DebugBubble /></Suspense>;
+}
+
+// Editor-only hosts (variable modals). Regular visitors must not download these
+// chunks on cold load — they contributed to /assets 429 fan-out on production.
+function VariableModalHostGate() {
+  const { canEdit, hasToken, isValidated, isDebugMode } = useDebugAuth();
+  if (!canEdit && !isDebugMode && !(hasToken && isValidated)) return null;
+  return <Suspense fallback={null}><VariableModalHost /></Suspense>;
 }
 
 // DeferredTooltipProvider: avoids loading @radix-ui/react-tooltip in the initial
@@ -375,7 +385,7 @@ function App({ ssrQueryClient }: AppProps = {}) {
               <IdleMounted>
                 <Suspense fallback={null}><ChatWidget /></Suspense>
                 <DebugBubbleGate />
-                <Suspense fallback={null}><VariableModalHost /></Suspense>
+                <VariableModalHostGate />
                 <Suspense fallback={null}><OverlayRuntime /></Suspense>
                 <Suspense fallback={null}><BootstrapModal /></Suspense>
               </IdleMounted>

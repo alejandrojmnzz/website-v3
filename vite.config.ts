@@ -137,10 +137,17 @@ export default defineConfig(async () => ({
           if (id.includes('react-icons')) {
             return 'icons-react';
           }
-          // lucide-react, @radix-ui, and react-markdown are intentionally NOT
-          // forced into shared chunks — that pulled large unused payloads onto
-          // every public page (JSX runtime even landed inside the markdown chunk).
-          // Let Rolldown split them per-importer.
+          // One shared Lucide chunk instead of one HTTP request per icon.
+          // Per-icon splitting looked good for unused-byte tree-shaking, but a
+          // cold load (esp. Shift+reload) fans out dozens of tiny /assets/*.js
+          // requests and trips the Google/Replit edge rate limit (HTTP 429).
+          // Tree-shaking still drops icons that nothing imports; this only
+          // coalesces the icons that are in the graph into a single download.
+          // @radix-ui and react-markdown stay per-importer (same unused-payload
+          // concern as before — they pull larger shared runtimes).
+          if (id.includes('node_modules/lucide-react') || id.includes('lucide-react/')) {
+            return 'lucide';
+          }
           if (id.includes('i18next') || id.includes('react-i18next')) {
             return 'i18n';
           }
