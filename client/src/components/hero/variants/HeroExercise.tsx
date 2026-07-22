@@ -109,7 +109,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
             )}
 
             {title && (
-              <h1 className="text-[28px] lg:text-[38px] font-black text-foreground leading-[1.12] tracking-tight mb-3">
+              <h1 className="font-inter text-[28px] lg:text-[38px] font-black text-foreground leading-[1.12] tracking-tight mb-3">
                 {title}
               </h1>
             )}
@@ -134,7 +134,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                   <>
                     <div className="flex items-center justify-between px-4 pt-3 pb-2.5">
                       {includes_title && (
-                        <p className="text-[13px] font-extrabold tracking-[1.5px] uppercase text-foreground mb-0">
+                        <p className="font-inter text-[13px] font-extrabold tracking-[1.5px] uppercase text-foreground mb-0">
                           {includes_title}
                         </p>
                       )}
@@ -256,7 +256,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                     </div>
                   )}
                   {stat.value && (
-                    <p className="text-[18px] font-bold text-foreground leading-tight">
+                    <p className="font-inter text-[18px] font-bold text-foreground leading-tight">
                       {stat.value}
                     </p>
                   )}
