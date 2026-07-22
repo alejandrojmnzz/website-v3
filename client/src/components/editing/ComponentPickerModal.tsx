@@ -43,6 +43,8 @@ interface ComponentPickerModalProps {
   isOpen: boolean;
   onClose: () => void;
   insertIndex: number;
+  /** Current page sections (used for article toc_group prompting). */
+  sections?: Array<Record<string, unknown>>;
   contentType?: string;
   slug?: string;
   locale?: string;
@@ -204,6 +206,51 @@ function slugify(text: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
+function newTocGroupId(): string {
+  return `group_${Math.floor(Math.random() * 1_000_000_000)}`;
+}
+
+type ArticleOnPage = { index: number; toc_group?: string };
+
+function listArticlesOnPage(sections: Array<Record<string, unknown>>): ArticleOnPage[] {
+  return sections
+    .map((s, index) => ({
+      index,
+      toc_group: typeof s.toc_group === "string" && s.toc_group ? s.toc_group : undefined,
+      type: s.type,
+    }))
+    .filter((s) => s.type === "article")
+    .map(({ index, toc_group }) => ({ index, toc_group }));
+}
+
+/** Resolve the single shared group for the page (first non-empty), or a new id. */
+function resolveTocGroupId(articles: ArticleOnPage[]): string {
+  return articles.find((a) => a.toc_group)?.toc_group ?? newTocGroupId();
+}
+
+/**
+ * Ops to assign toc_group / show_toc on existing articles before inserting a new one.
+ * Primary (lowest final index among articles) gets show_toc: true; others false.
+ */
+function buildSiblingTocGroupOps(
+  articles: ArticleOnPage[],
+  insertIndex: number,
+  groupId: string,
+): { ops: Array<{ action: "update_field"; path: string; value: unknown }>; newShowToc: boolean } {
+  const existingFirstIdx = articles.length > 0 ? Math.min(...articles.map((a) => a.index)) : Infinity;
+  const newIsPrimary = insertIndex <= existingFirstIdx;
+
+  const ops = articles.flatMap((a) => {
+    const isPrimary = !newIsPrimary && a.index === existingFirstIdx;
+    return [
+      { action: "update_field" as const, path: `sections.${a.index}.toc_group`, value: groupId },
+      { action: "update_field" as const, path: `sections.${a.index}.show_toc`, value: isPrimary },
+    ];
+  });
+
+  return { ops, newShowToc: newIsPrimary };
+}
+
 function parseYamlContent(yamlStr: string): Record<string, unknown> | null {
   try {
     const { escaped, map } = escapeTemplateVars(yamlStr);
@@ -227,6 +274,7 @@ export default function ComponentPickerModal({
   isOpen,
   onClose,
   insertIndex,
+  sections: sectionsProp = [],
   contentType,
   slug,
   locale,
@@ -253,11 +301,20 @@ export default function ComponentPickerModal({
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [isStartSuggestion, setIsStartSuggestion] = useState(false);
   const [addWarnOpen, setAddWarnOpen] = useState(false);
+  const [tocShareDialogOpen, setTocShareDialogOpen] = useState(false);
   /** Used by the DbTemplateWarningDialog confirm callback (template-only path, no singleEntry). */
   const pendingAddFn = useRef<(() => Promise<void>) | null>(null);
   const { toast } = useToast();
   const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
+
+  const pageSections = useMemo(() => {
+    if (sectionsProp.length > 0) return sectionsProp;
+    const fromEntry = singleEntry?.sections;
+    return Array.isArray(fromEntry) ? (fromEntry as Array<Record<string, unknown>>) : [];
+  }, [sectionsProp, singleEntry]);
+
+  const existingArticles = useMemo(() => listArticlesOnPage(pageSections), [pageSections]);
   const singularLabel = (() => {
     if (!contentType) return "entry";
     const found = rawContentTypes?.find((t) => t.name === contentType);
@@ -301,8 +358,7 @@ export default function ComponentPickerModal({
   })();
 
   const alreadyUsedTypes = (() => {
-    const sections = (singleEntry?.sections as Array<{ type: string }> | undefined) ?? [];
-    return new Set(sections.map((s) => s.type));
+    return new Set(pageSections.map((s) => s.type as string).filter(Boolean));
   })();
 
   const suggestedComponents = suggestions
@@ -314,11 +370,10 @@ export default function ComponentPickerModal({
     });
 
   const prevSectionLabel = (() => {
-    const sections = (singleEntry?.sections as Array<{ type: string }> | undefined) ?? [];
-    const prevSection = insertIndex > 0 ? sections[insertIndex - 1] : null;
+    const prevSection = insertIndex > 0 ? pageSections[insertIndex - 1] : null;
     if (!prevSection) return null;
     const comp = componentsList.find((c) => c.type === prevSection.type);
-    return comp?.label ?? prevSection.type;
+    return comp?.label ?? (prevSection.type as string);
   })();
 
   const intentLabel = (() => {
@@ -380,6 +435,7 @@ export default function ComponentPickerModal({
       setSelectedComponent(null);
       setActivePickerTab("suggested");
       setSuggestions([]);
+      setTocShareDialogOpen(false);
     }
   }, [isOpen]);
 
@@ -387,8 +443,7 @@ export default function ComponentPickerModal({
     if (!isOpen || step !== "select") return;
 
     const intent = contentType ? (CONTENT_TYPE_INTENT[contentType] ?? "brand_corporate") : undefined;
-    const sections = (singleEntry?.sections as Array<{ type: string }> | undefined) ?? [];
-    const prevSection = insertIndex > 0 ? sections[insertIndex - 1] : null;
+    const prevSection = insertIndex > 0 ? pageSections[insertIndex - 1] : null;
     const isStart = !prevSection?.type;
     setIsStartSuggestion(isStart);
     setSuggestionsLoading(true);
@@ -396,7 +451,7 @@ export default function ComponentPickerModal({
     const params = new URLSearchParams();
     if (intent) params.set("intent", intent);
     params.set("rankBy", "pmi");
-    if (prevSection?.type) params.set("after", prevSection.type);
+    if (prevSection?.type) params.set("after", String(prevSection.type));
 
     const applyHeuristics = () => {
       if (componentsList.length === 0) {
@@ -404,7 +459,7 @@ export default function ComponentPickerModal({
         return;
       }
       const availableTypes = new Set(componentsList.map((c) => c.type));
-      setSuggestions(buildPositionHeuristics(insertIndex, sections.length, availableTypes));
+      setSuggestions(buildPositionHeuristics(insertIndex, pageSections.length, availableTypes));
     };
 
     fetch(`/api/private/component-insights/suggest?${params}`)
@@ -414,7 +469,7 @@ export default function ComponentPickerModal({
           applyHeuristics();
           return;
         }
-        const alreadyUsed = new Set(sections.map((s) => s.type));
+        const alreadyUsed = new Set(pageSections.map((s) => s.type as string));
         const maxPmi = data.reduce((m, p) => Math.max(m, p.pmi), 0);
         const norm = maxPmi > 0 ? maxPmi : 1;
         const ALREADY_USED_PENALTY = 0.3;
@@ -431,18 +486,17 @@ export default function ComponentPickerModal({
       })
       .catch(() => applyHeuristics())
       .finally(() => setSuggestionsLoading(false));
-  }, [isOpen, step, contentType, insertIndex, singleEntry, componentsList]);
+  }, [isOpen, step, contentType, insertIndex, pageSections, componentsList]);
 
   // When registry loads after suggestions already resolved empty, re-apply heuristics
   useEffect(() => {
     if (!isOpen || step !== "select" || suggestionsLoading) return;
     if (suggestions.length > 0) return;
     if (componentsList.length === 0) return;
-    const sections = (singleEntry?.sections as Array<{ type: string }> | undefined) ?? [];
     const availableTypes = new Set(componentsList.map((c) => c.type));
-    const heuristics = buildPositionHeuristics(insertIndex, sections.length, availableTypes);
+    const heuristics = buildPositionHeuristics(insertIndex, pageSections.length, availableTypes);
     if (heuristics.length > 0) setSuggestions(heuristics);
-  }, [componentsList, isOpen, step, suggestionsLoading, suggestions.length, insertIndex, singleEntry]);
+  }, [componentsList, isOpen, step, suggestionsLoading, suggestions.length, insertIndex, pageSections]);
 
   // Auto-switch to All tab when loading is done and there are still no suggestions
   useEffect(() => {
@@ -597,7 +651,7 @@ export default function ComponentPickerModal({
     await executeWizardComplete(config);
   };
 
-  const executeAddSection = async () => {
+  const executeAddSection = async (opts?: { shareToc?: boolean }) => {
     if (!selectedExampleData || !selectedComponent || !contentType || !slug || !locale) {
       return;
     }
@@ -672,11 +726,35 @@ export default function ComponentPickerModal({
         };
       }
 
-      const sectionToAdd = {
+      const operations: Array<Record<string, unknown>> = [];
+      let sectionToAdd: Record<string, unknown> = {
         type: selectedComponent.type,
         version: selectedVersion,
         ...sectionContent,
       };
+
+      if (opts?.shareToc && selectedComponent.type === "article") {
+        const groupId = resolveTocGroupId(existingArticles);
+        const { ops: siblingOps, newShowToc } = buildSiblingTocGroupOps(
+          existingArticles,
+          insertIndex,
+          groupId,
+        );
+        operations.push(...siblingOps);
+        sectionToAdd = {
+          ...sectionToAdd,
+          toc_group: groupId,
+          show_toc: newShowToc,
+          ...(newShowToc && !sectionToAdd.toc_position ? { toc_position: "side" } : {}),
+        };
+      }
+
+      operations.push({
+        action: "add_item",
+        path: "sections",
+        item: sectionToAdd,
+        index: insertIndex,
+      });
 
       const token = getDebugToken();
       const author = await resolveAuthorName();
@@ -693,12 +771,7 @@ export default function ComponentPickerModal({
           variant,
           version,
           author,
-          operations: [{
-            action: "add_item",
-            path: "sections",
-            item: sectionToAdd,
-            index: insertIndex,
-          }],
+          operations,
         }),
       });
 
@@ -707,7 +780,9 @@ export default function ComponentPickerModal({
         emitContentUpdated({ contentType: contentType!, slug: slug!, locale: locale! });
         toast({
           title: "Section added",
-          description: `${selectedComponent?.label || "Section"} added to the page.`,
+          description: opts?.shareToc
+            ? `${selectedComponent?.label || "Section"} added with a shared table of contents.`
+            : `${selectedComponent?.label || "Section"} added to the page.`,
         });
       } else {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
@@ -722,10 +797,11 @@ export default function ComponentPickerModal({
       console.error("Error adding section:", error);
     } finally {
       setIsAdding(false);
+      setTocShareDialogOpen(false);
     }
   };
 
-  const executePerEntryAddSection = async () => {
+  const executePerEntryAddSection = async (opts?: { shareToc?: boolean }) => {
     if (!selectedExampleData || !selectedComponent || !contentType || !slug || !locale) return;
     setIsAdding(true);
     try {
@@ -736,7 +812,49 @@ export default function ComponentPickerModal({
           related_features: selectedRelatedFeatures,
         };
       }
-      const sectionData = { type: selectedComponent.type, version: selectedVersion, ...finalContent };
+      let sectionData: Record<string, unknown> = {
+        type: selectedComponent.type,
+        version: selectedVersion,
+        ...finalContent,
+      };
+
+      // Per-entry path: stamp toc_group on the new article; sibling updates go through
+      // edit-sections when possible so existing articles join the same group.
+      if (opts?.shareToc && selectedComponent.type === "article") {
+        const groupId = resolveTocGroupId(existingArticles);
+        const { ops: siblingOps, newShowToc } = buildSiblingTocGroupOps(
+          existingArticles,
+          insertIndex,
+          groupId,
+        );
+        sectionData = {
+          ...sectionData,
+          toc_group: groupId,
+          show_toc: newShowToc,
+          ...(newShowToc && !sectionData.toc_position ? { toc_position: "side" } : {}),
+        };
+        if (siblingOps.length > 0) {
+          const token = getDebugToken();
+          const author = await resolveAuthorName();
+          await fetch("/api/content/edit-sections", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Token ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              contentType,
+              slug,
+              locale,
+              variant,
+              version,
+              author,
+              operations: siblingOps,
+            }),
+          });
+        }
+      }
+
       const token = getDebugToken();
       const resp = await fetch("/api/per-entry-section-add", {
         method: "POST",
@@ -746,7 +864,12 @@ export default function ComponentPickerModal({
       if (resp.ok) {
         onClose();
         emitContentUpdated({ contentType, slug, locale });
-        toast({ title: "Section added", description: `${selectedComponent.label} added to this entry only.` });
+        toast({
+          title: "Section added",
+          description: opts?.shareToc
+            ? `${selectedComponent.label} added with a shared table of contents.`
+            : `${selectedComponent.label} added to this entry only.`,
+        });
       } else {
         const err = await resp.json().catch(() => ({}));
         toast({ title: "Failed to add section", description: err.error || "Unknown error", variant: "destructive" });
@@ -755,24 +878,42 @@ export default function ComponentPickerModal({
       toast({ title: "Error adding section", variant: "destructive" });
     } finally {
       setIsAdding(false);
+      setTocShareDialogOpen(false);
     }
   };
 
-  const handleAddSection = async () => {
+  const runAddSection = async (opts?: { shareToc?: boolean }) => {
     if (addScope === "entry") {
-      await executePerEntryAddSection();
+      await executePerEntryAddSection(opts);
       return;
     }
     if (addScope === "template") {
-      await executeAddSection();
+      await executeAddSection(opts);
       return;
     }
     if (isSharedTemplate) {
-      pendingAddFn.current = executeAddSection;
+      pendingAddFn.current = () => executeAddSection(opts);
       setAddWarnOpen(true);
       return;
     }
-    await executeAddSection();
+    await executeAddSection(opts);
+  };
+
+  const handleAddSection = async () => {
+    const shouldPromptTocShare =
+      selectedComponent?.type === "article" && existingArticles.length >= 1;
+
+    if (shouldPromptTocShare) {
+      setTocShareDialogOpen(true);
+      return;
+    }
+
+    await runAddSection();
+  };
+
+  const handleTocShareChoice = async (shareToc: boolean) => {
+    setTocShareDialogOpen(false);
+    await runAddSection({ shareToc });
   };
 
   const previewUrl = (() => {
@@ -1168,6 +1309,55 @@ export default function ComponentPickerModal({
       contentType={contentType || "page"}
       isLoading={isAdding}
     />
+
+    <Dialog
+      open={tocShareDialogOpen}
+      onOpenChange={(open) => {
+        if (!open && !isAdding) setTocShareDialogOpen(false);
+      }}
+    >
+      <DialogContent className="sm:max-w-md" data-testid="dialog-article-toc-share">
+        <DialogHeader>
+          <DialogTitle>Share table of contents?</DialogTitle>
+          <DialogDescription>
+            {existingArticles.length === 1
+              ? "This page already has an article. Should both articles share one table of contents?"
+              : `This page already has ${existingArticles.length} articles. Add this one to the same shared table of contents?`}
+            {" "}
+            {existingArticles.some((a) => a.toc_group)
+              ? "They’ll join the existing TOC group."
+              : "We’ll create a shared group for all of them."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 pt-1">
+          <Button
+            className="w-full"
+            disabled={isAdding}
+            data-testid="button-toc-share-yes"
+            onClick={() => handleTocShareChoice(true)}
+          >
+            Yes — share TOC
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={isAdding}
+            data-testid="button-toc-share-no"
+            onClick={() => handleTocShareChoice(false)}
+          >
+            No — keep separate
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full"
+            disabled={isAdding}
+            onClick={() => setTocShareDialogOpen(false)}
+          >
+            Cancel
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

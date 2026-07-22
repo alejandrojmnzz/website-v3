@@ -6,6 +6,7 @@ import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
 import { markFileAsModified } from "./sync-state";
 import { generateSectionId } from "./utils/generateSectionId";
 import { contentIndex } from "./content-index";
+import { getContentTypeConfig } from "./content-types";
 import { child } from "./logger";
 const log = child({ module: "bindings" });
 
@@ -19,6 +20,27 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
 
 function getBindingsFile(): string {
   return path.join(process.cwd(), getDefaultContentFolder(), "section-bindings.json");
+}
+
+/** True when the content type uses shared layout (DB-backed or single_template). */
+export function isSharedLayoutContentType(
+  contentType: string,
+  contentRoot?: string,
+): boolean {
+  const config = getContentTypeConfig(contentType, contentRoot);
+  if (!config) return false;
+  return !!(config.database?.slug || config.single_template);
+}
+
+function assertMembersNotOnSharedLayout(members: BindingMember[]): void {
+  for (const member of members) {
+    if (isSharedLayoutContentType(member.contentType)) {
+      throw new Error(
+        `Section bindings cannot be used on shared-layout content types (${member.contentType}). ` +
+          `Bindings only work on ordinary page types without a shared template.`,
+      );
+    }
+  }
 }
 
 const EXCLUDED_PROPERTIES = new Set([
@@ -248,6 +270,34 @@ class BindingManager {
     );
   }
 
+  /** All binding groups that include at least one member of this content type. */
+  findGroupsForContentType(contentType: string): BindingGroup[] {
+    this.ensureLoaded();
+    return this.data.groups.filter((g) =>
+      g.members.some((m) => m.contentType === contentType),
+    );
+  }
+
+  /**
+   * Dissolve every binding group that includes this content type.
+   * Used when enabling shared layout — bindings and shared templates do not mix.
+   */
+  dissolveGroupsForContentType(
+    contentType: string,
+    author?: string,
+  ): { dissolved: BindingGroup[]; count: number } {
+    this.ensureLoaded();
+    const toRemove = this.findGroupsForContentType(contentType);
+    if (toRemove.length === 0) {
+      return { dissolved: [], count: 0 };
+    }
+    const removeIds = new Set(toRemove.map((g) => g.id));
+    this.data.groups = this.data.groups.filter((g) => !removeIds.has(g.id));
+    this.rebuildIndex();
+    this.save(author);
+    return { dissolved: toRemove, count: toRemove.length };
+  }
+
   private validateMemberComponent(member: BindingMember, expectedComponent: string, locale: string): void {
     const idx = this.resolveSectionIndex(member.contentType, member.slug, member.sectionId, locale);
     if (idx === -1) {
@@ -276,6 +326,8 @@ class BindingManager {
     if (members.length < 2) {
       throw new Error("A binding group requires at least 2 members");
     }
+
+    assertMembersNotOnSharedLayout(members);
 
     for (const member of members) {
       this.validateMemberComponent(member, component, locale);
@@ -364,6 +416,8 @@ class BindingManager {
     this.ensureLoaded();
     const group = this.data.groups.find(g => g.id === groupId);
     if (!group) throw new Error(`Binding group ${groupId} not found`);
+
+    assertMembersNotOnSharedLayout([member]);
 
     this.validateMemberComponent(member, group.component, group.locale);
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,6 +6,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { ArticleSection } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { useOrderedPageSections } from "@/contexts/PageSectionsContext";
+import { useSectionContext } from "@/contexts/SectionContext";
 
 interface TocItem {
   id: string;
@@ -36,7 +38,7 @@ function stripInlineMarkdown(text: string): string {
     .trim();
 }
 
-function extractTocItems(markdown: string): TocItem[] {
+function extractTocItems(markdown: string, idPrefix = ""): TocItem[] {
   const lines = markdown.split("\n");
   const items: TocItem[] = [];
   const slugCounts: Record<string, number> = {};
@@ -53,7 +55,7 @@ function extractTocItems(markdown: string): TocItem[] {
     if (match) {
       const level = match[1].length;
       const text = stripInlineMarkdown(match[2].trim());
-      let id = slugify(text);
+      let id = `${idPrefix}${slugify(text)}`;
 
       if (slugCounts[id] !== undefined) {
         slugCounts[id]++;
@@ -177,7 +179,7 @@ function TocSide({ items }: { items: TocItem[] }) {
 }
 
 interface ArticleProps {
-  data: ArticleSection;
+  data: ArticleSection & { section_id?: string };
 }
 
 export function Article({ data }: ArticleProps) {
@@ -185,17 +187,57 @@ export function Article({ data }: ArticleProps) {
     content,
     show_toc = false,
     toc_position = "side",
+    toc_group,
+    section_id,
   } = data;
 
-  const tocItems = show_toc ? extractTocItems(content) : [];
+  const orderedSections = useOrderedPageSections();
+  const { sectionIndex } = useSectionContext();
 
-  const showSideToc = show_toc && toc_position === "side" && tocItems.length > 0;
-  const showTopToc = show_toc && toc_position === "top" && tocItems.length > 0;
+  const sectionKey = section_id || `article-${sectionIndex >= 0 ? sectionIndex : "0"}`;
+  const idPrefix = toc_group ? `${sectionKey}--` : "";
+
+  const groupMembers = useMemo(() => {
+    if (!toc_group) return null;
+    return orderedSections.filter(
+      (s) => s.data.type === "article" && s.data.toc_group === toc_group,
+    );
+  }, [orderedSections, toc_group]);
+
+  const isPrimaryInGroup =
+    !groupMembers ||
+    groupMembers.length === 0 ||
+    groupMembers[0].index === sectionIndex ||
+    (sectionIndex < 0 && groupMembers[0].sectionKey === sectionKey);
+
+  const tocItems = useMemo(() => {
+    // Secondary parts of a toc_group never render their own TOC UI.
+    if (toc_group && !isPrimaryInGroup) return [];
+
+    if (toc_group && groupMembers && groupMembers.length > 0) {
+      // Primary shows a merged TOC when it (or any sibling) opted in via show_toc.
+      const anyShowToc = groupMembers.some((m) => m.data.show_toc === true);
+      if (!anyShowToc && !show_toc) return [];
+
+      const items: TocItem[] = [];
+      for (const member of groupMembers) {
+        const memberContent = typeof member.data.content === "string" ? member.data.content : "";
+        const memberPrefix = `${member.sectionKey}--`;
+        items.push(...extractTocItems(memberContent, memberPrefix));
+      }
+      return items;
+    }
+
+    return show_toc ? extractTocItems(content) : [];
+  }, [toc_group, isPrimaryInGroup, groupMembers, show_toc, content]);
+
+  const showSideToc = tocItems.length > 0 && toc_position === "side";
+  const showTopToc = tocItems.length > 0 && toc_position === "top";
 
   const slugCountsRef = useRef<Record<string, number>>({});
 
   const getHeadingId = (text: string) => {
-    let id = slugify(text);
+    let id = `${idPrefix}${slugify(text)}`;
     const counts = slugCountsRef.current;
     if (counts[id] !== undefined) {
       counts[id]++;
@@ -212,6 +254,7 @@ export function Article({ data }: ArticleProps) {
     <div
       className="w-full px-4 py-8 md:px-6 lg:px-8"
       data-testid="article-section"
+      data-toc-group={toc_group || undefined}
     >
       {showSideToc ? (
         <>

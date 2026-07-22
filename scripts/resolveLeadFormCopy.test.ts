@@ -51,23 +51,34 @@ describe("resolveLeadFormPhase", () => {
 });
 
 describe("resolveLeadFormCopy", () => {
-  it("keeps guest title/subtitle optional when messages.guest is omitted", () => {
+  it("keeps guest title/subtitle optional when nothing is set", () => {
     const copy = resolveLeadFormCopy("guest_signup", {}, "en");
     expect(copy.title).toBeUndefined();
     expect(copy.subtitle).toBeUndefined();
     expect(copy.submit_label).toBe("Submit");
   });
 
-  it("uses messages.guest over top-level title/subtitle", () => {
+  it("always uses the top-level title regardless of phase", () => {
+    const data = { title: "Get free access" };
+    expect(resolveLeadFormCopy("guest_signup", data, "en").title).toBe("Get free access");
+    expect(resolveLeadFormCopy("login", data, "en").title).toBe("Get free access");
+    expect(resolveLeadFormCopy("logged_in_incomplete", data, "en").title).toBe("Get free access");
+    expect(resolveLeadFormCopy("logged_in_ready", data, "en").title).toBe("Get free access");
+  });
+
+  it("never invents a title for non-guest phases", () => {
+    expect(resolveLeadFormCopy("logged_in_ready", {}, "en").title).toBeUndefined();
+    expect(resolveLeadFormCopy("login", {}, "en").title).toBeUndefined();
+  });
+
+  it("uses messages.guest subtitle over top-level subtitle", () => {
     const copy = resolveLeadFormCopy(
       "guest_signup",
       {
-        title: "Top title",
         subtitle: "Top subtitle",
         submit_label: "Top submit",
         messages: {
           guest: {
-            title: "Nested title",
             subtitle: "Nested subtitle",
             submit_label: "Nested submit",
           },
@@ -75,11 +86,8 @@ describe("resolveLeadFormCopy", () => {
       },
       "en",
     );
-    expect(copy).toEqual({
-      title: "Nested title",
-      subtitle: "Nested subtitle",
-      submit_label: "Nested submit",
-    });
+    expect(copy.subtitle).toBe("Nested subtitle");
+    expect(copy.submit_label).toBe("Nested submit");
   });
 
   it("uses messages.incomplete overrides", () => {
@@ -88,7 +96,6 @@ describe("resolveLeadFormCopy", () => {
       {
         messages: {
           incomplete: {
-            title: "Custom almost",
             subtitle: "Custom missing",
             submit_label: "Go",
           },
@@ -96,16 +103,52 @@ describe("resolveLeadFormCopy", () => {
       },
       "en",
     );
-    expect(copy).toEqual({
-      title: "Custom almost",
-      subtitle: "Custom missing",
-      submit_label: "Go",
-    });
+    expect(copy.subtitle).toBe("Custom missing");
+    expect(copy.submit_label).toBe("Go");
+  });
+
+  it("hides a subtitle when the subtitle is null", () => {
+    const copy = resolveLeadFormCopy(
+      "logged_in_ready",
+      {
+        messages: {
+          ready: {
+            subtitle: null,
+            submit_label: "Start",
+          },
+        },
+      },
+      "en",
+    );
+    expect(copy.subtitle).toBeUndefined();
+    expect(copy.submit_label).toBe("Start");
+  });
+
+  it("hides a subtitle when the entire stage is null", () => {
+    const copy = resolveLeadFormCopy(
+      "login",
+      { messages: { login: null } },
+      "en",
+    );
+    expect(copy.subtitle).toBeUndefined();
+    expect(copy.submit_label).toBe("Log in");
+    expect(copy.back_label).toBe("Back to create account");
+  });
+
+  it("lets messages.guest null hide a legacy top-level subtitle", () => {
+    const copy = resolveLeadFormCopy(
+      "guest_signup",
+      {
+        subtitle: "Legacy subtitle",
+        messages: { guest: null },
+      },
+      "en",
+    );
+    expect(copy.subtitle).toBeUndefined();
   });
 
   it("falls back to locale defaults for ready", () => {
     const copy = resolveLeadFormCopy("logged_in_ready", {}, "es");
-    expect(copy.title).toBe("Todo listo");
     expect(copy.subtitle).toContain("Confirma");
     expect(copy.submit_label).toBe("Confirmar");
   });
@@ -116,16 +159,16 @@ describe("resolveLeadFormCopy", () => {
       { messages: { login: { back_label: "Volver" } } },
       "es",
     );
-    expect(copy.title).toBe("Inicia sesión");
+    expect(copy.subtitle).toBe("Usa tu cuenta 4Geeks para continuar");
     expect(copy.back_label).toBe("Volver");
   });
 
   it("falls back to deprecated top-level login block", () => {
     const copy = resolveLeadFormCopy(
       "login",
-      { login: { title: "Legacy login" } },
+      { login: { subtitle: "Legacy login subtitle" } },
       "en",
     );
-    expect(copy.title).toBe("Legacy login");
+    expect(copy.subtitle).toBe("Legacy login subtitle");
   });
 });

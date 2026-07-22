@@ -458,7 +458,7 @@ export function EditableSection({ children, section, index, sectionType, content
   const { data: bindingData, refetch: refetchBindingData } = useQuery<{ group: { id: string; members: unknown[] } | null }>({
     queryKey: ["/api/bindings/section", contentType, slug, index, locale],
     queryFn: () => fetch(`/api/bindings/section?contentType=${contentType}&slug=${slug}&sectionIndex=${index}&locale=${locale || ""}`).then(r => r.json()),
-    enabled: !!editMode?.isEditMode && !!contentType && !!slug,
+    enabled: !!editMode?.isEditMode && !!contentType && !!slug && !isSharedTemplate,
     staleTime: 30_000,
   });
   const isBound = !!bindingData?.group;
@@ -1155,6 +1155,7 @@ export function EditableSection({ children, section, index, sectionType, content
           <Pencil className="h-4 w-4" />
           <span className="hidden md:inline text-xs font-medium">{sectionType}</span>
         </button>
+        {!isSharedTemplate && (
         <button
           onClick={(e) => { e.stopPropagation(); openBindingDialog(); }}
           className={`hidden md:flex p-2 rounded-md shadow-lg hover-elevate items-center gap-1 ${
@@ -1163,7 +1164,11 @@ export function EditableSection({ children, section, index, sectionType, content
               : "bg-muted text-muted-foreground"
           }`}
           data-testid={`button-binding-indicator-${index}`}
-          title={isBound ? `Bound to ${boundSiblingCount} other page${boundSiblingCount !== 1 ? 's' : ''}` : "Not bound – click to manage bindings"}
+          title={
+            isBound
+              ? `Bound to ${boundSiblingCount} other page${boundSiblingCount !== 1 ? "s" : ""}`
+              : "Not bound – click to manage bindings"
+          }
         >
           {isBound ? (
             <>
@@ -1174,6 +1179,7 @@ export function EditableSection({ children, section, index, sectionType, content
             <Unlink className="h-4 w-4" />
           )}
         </button>
+        )}
         {onMoveUp && (
           <button
             onClick={(e) => { e.stopPropagation(); gatedAction(() => onMoveUp!(index)); }}
@@ -1375,6 +1381,7 @@ export function EditableSection({ children, section, index, sectionType, content
           </PopoverTrigger>
           <PopoverContent className="w-auto min-w-[160px] p-1" align="end" onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-col">
+              {!isSharedTemplate && (
               <button
                 onClick={(e) => { e.stopPropagation(); setMobileMoreOpen(false); openBindingDialog(); }}
                 className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md hover-elevate ${
@@ -1385,6 +1392,7 @@ export function EditableSection({ children, section, index, sectionType, content
                 {isBound ? <Link className="h-4 w-4" /> : <Unlink className="h-4 w-4" />}
                 {isBound ? `Bindings (${boundSiblingCount})` : "Bindings"}
               </button>
+              )}
               {onDelete && (
                 <button
                   onClick={(e) => { e.stopPropagation(); setMobileMoreOpen(false); gatedAction(() => onDelete!(index)); }}
@@ -1780,6 +1788,24 @@ export function EditableSection({ children, section, index, sectionType, content
         >
           <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
           <span className="hidden md:inline">Hidden until redirect</span>
+        </div>
+      )}
+
+      {/* Locale work label — needs edit/review */}
+      {(section as { _label?: { needs?: string; requester?: string; note?: string } })._label?.needs && (
+        <div
+          className="absolute right-2 z-30 flex items-center gap-1 px-2 py-1 bg-rose-500/90 text-white text-xs font-medium rounded"
+          style={{ top: ((section as any)._perEntryPatched || (section as any)._perEntrySource) ? "4.5rem" : "3rem" }}
+          title={
+            (section as { _label?: { note?: string; requester?: string } })._label?.note ||
+            `Needs ${(section as { _label?: { needs?: string } })._label?.needs}${(section as { _label?: { requester?: string } })._label?.requester ? ` (requested by ${(section as { _label?: { requester?: string } })._label?.requester})` : ""}`
+          }
+          data-testid={`badge-section-label-${index}`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="hidden md:inline">
+            Needs {(section as { _label?: { needs?: string } })._label?.needs}
+          </span>
         </div>
       )}
 

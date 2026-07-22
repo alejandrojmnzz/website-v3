@@ -213,6 +213,7 @@ export interface ContentTypeConfig {
   database?: { slug: string };
   field_mapping?: Record<string, unknown>;
   layout?: unknown;
+  single_template?: boolean;
 }
 
 export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {
@@ -228,6 +229,10 @@ export function isDbBacked(config: ContentTypeConfig): boolean {
   return !!config?.database?.slug;
 }
 
+export function isSharedLayoutConfig(config: ContentTypeConfig): boolean {
+  return !!(config?.database?.slug || config?.single_template);
+}
+
 export function getDirectory(contentType: string, config: ContentTypeConfig): string {
   return config.directory || contentType;
 }
@@ -236,18 +241,40 @@ export function resolveContentType(
   slug: string,
   hintContentType?: string,
   contentPath?: string,
+  opts?: { allowSharedLayout?: boolean },
 ): { contentType: string; config: ContentTypeConfig } | null {
   const basePath = contentPath || MARKETING_CONTENT_PATH;
   const configs = loadContentTypes(contentPath);
+  const allowShared = opts?.allowSharedLayout === true;
+
   if (hintContentType) {
     const config = configs[hintContentType];
-    if (!config || isDbBacked(config)) return null;
+    if (!config) return null;
+    if (isDbBacked(config) && !allowShared) return null;
+    if (allowShared && isSharedLayoutConfig(config)) {
+      // DB-backed / single_template: slug may be an entry or the sentinel "single"
+      if (slug === "single") {
+        const singlePath = path.join(basePath, getDirectory(hintContentType, config), `single.en.yml`);
+        const singleEs = path.join(basePath, getDirectory(hintContentType, config), `single.es.yml`);
+        if (fs.existsSync(singlePath) || fs.existsSync(singleEs)) {
+          return { contentType: hintContentType, config };
+        }
+      }
+      const dir = path.join(basePath, getDirectory(hintContentType, config), slug);
+      if (fs.existsSync(dir) || isDbBacked(config)) {
+        return { contentType: hintContentType, config };
+      }
+      return null;
+    }
     const dir = path.join(basePath, getDirectory(hintContentType, config), slug);
     if (fs.existsSync(dir)) return { contentType: hintContentType, config };
     return null;
   }
   for (const [ct, config] of Object.entries(configs)) {
-    if (isDbBacked(config)) continue;
+    if (isDbBacked(config) && !allowShared) continue;
+    if (allowShared && slug === "single" && isSharedLayoutConfig(config)) {
+      return { contentType: ct, config };
+    }
     const dir = path.join(basePath, getDirectory(ct, config), slug);
     if (fs.existsSync(dir)) return { contentType: ct, config };
   }

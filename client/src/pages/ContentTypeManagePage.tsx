@@ -41,6 +41,8 @@ import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageM
 import { CreateContentModal } from "@/components/DebugBubble/components/CreateContentModal";
 import type { SitemapUrl } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
+import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
+import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 
@@ -3415,21 +3417,40 @@ export default function ContentTypeManagePage() {
   const hasDb = !!typeConfig?.database?.slug;
   const singleTemplateEnabled = !!typeConfig?.single_template;
   const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
-  const [singleTemplateAdvancedOpen, setSingleTemplateAdvancedOpen] = useState(false);
+  const [explainSharedLayoutOpen, setExplainSharedLayoutOpen] = useState(false);
+  const [enableSharedLayoutOpen, setEnableSharedLayoutOpen] = useState(false);
+  const [sharedLayoutDivergences, setSharedLayoutDivergences] = useState<
+    Array<{ locale: string; sectionCount: number; sectionIds: string[] }>
+  >([]);
+  const [sharedLayoutBindings, setSharedLayoutBindings] = useState<
+    Array<{
+      id: string;
+      name?: string;
+      component: string;
+      locale: string;
+      memberCount: number;
+      members: Array<{ contentType: string; slug: string; sectionId: string }>;
+    }>
+  >([]);
 
-  const handleToggleSingleTemplate = async (checked: boolean) => {
+  const applySingleTemplateToggle = async (checked: boolean, baseLocale?: string) => {
     setSingleTemplateSaving(true);
     try {
-      await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
+      const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
         single_template: checked,
+        ...(checked && baseLocale ? { shared_layout_base_locale: baseLocale } : {}),
       });
+      const result = await res.json().catch(() => ({}));
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
+      const dissolvedCount = result?.bindingsDissolved?.count ?? 0;
       toast({
         title: checked ? "Single template on" : "Single template off",
         description: checked
-          ? "All entries share one layout. You can still override one entry when needed."
-          : "Each entry keeps its own full layout.",
+          ? dissolvedCount > 0
+            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}. Sibling locale singles were aligned to your base locale.`
+            : "All entries share one layout. Sibling locale singles were aligned to your base locale."
+          : "Each entry keeps its own full layout. Cross-locale sync is off.",
       });
     } catch (err) {
       toast({
@@ -3439,7 +3460,26 @@ export default function ContentTypeManagePage() {
       });
     } finally {
       setSingleTemplateSaving(false);
+      setEnableSharedLayoutOpen(false);
     }
+  };
+
+  const handleToggleSingleTemplate = async (checked: boolean) => {
+    if (!checked) {
+      await applySingleTemplateToggle(false);
+      return;
+    }
+    // Enabling: show divergence / base-locale modal (and bindings warning if any)
+    try {
+      const res = await apiRequest("GET", `/api/content-types/${contentType}/shared-layout-status`);
+      const data = await res.json();
+      setSharedLayoutDivergences(data.locales ?? []);
+      setSharedLayoutBindings(data.bindings ?? []);
+    } catch {
+      setSharedLayoutDivergences([]);
+      setSharedLayoutBindings([]);
+    }
+    setEnableSharedLayoutOpen(true);
   };
 
   const staticEntryCount =
@@ -3995,10 +4035,10 @@ export default function ContentTypeManagePage() {
               <button
                 type="button"
                 className="text-xs text-primary hover:underline"
-                onClick={() => setSingleTemplateAdvancedOpen((open) => !open)}
+                onClick={() => setExplainSharedLayoutOpen(true)}
                 data-testid="button-single-template-advanced"
               >
-                {singleTemplateAdvancedOpen ? "Hide advanced" : "Read advanced"}
+                How shared layout works
               </button>
               <button
                 type="button"
@@ -4009,16 +4049,6 @@ export default function ContentTypeManagePage() {
                 Open template
               </button>
               </div>
-              {singleTemplateAdvancedOpen && (
-                <p className="text-xs text-muted-foreground leading-relaxed border-t border-border pt-2" data-testid="text-single-template-advanced">
-                  On: load merges <code className="text-[11px]">_common.single.yml</code> (and{" "}
-                  <code className="text-[11px]">single.&#123;locale&#125;.yml</code> if present) as the shared
-                  section template; each entry’s YAML applies id-based patches (
-                  <code className="text-[11px]">_remove</code>, field overrides, or new sections). Off:{" "}
-                  <code className="text-[11px]">deepMerge</code> replaces the whole{" "}
-                  <code className="text-[11px]">sections</code> array from the entry file.
-                </p>
-              )}
             </CardContent>
           </Card>
         </div>
@@ -5162,6 +5192,24 @@ export default function ContentTypeManagePage() {
         contentType={contentType}
         staticCount={staticEntriesData?.count ?? 0}
         dbCount={allItemsData?.count ?? 0}
+      />
+      <SharedLayoutExplainDialog
+        open={explainSharedLayoutOpen}
+        onClose={() => setExplainSharedLayoutOpen(false)}
+        alwaysOn={hasDb}
+      />
+      <SharedLayoutEnableDialog
+        open={enableSharedLayoutOpen}
+        onClose={() => setEnableSharedLayoutOpen(false)}
+        onConfirm={(baseLocale) => applySingleTemplateToggle(true, baseLocale)}
+        locales={
+          sharedLayoutDivergences.length > 0
+            ? sharedLayoutDivergences.map((d) => d.locale)
+            : ["en", "es"]
+        }
+        divergences={sharedLayoutDivergences}
+        bindings={sharedLayoutBindings}
+        isLoading={singleTemplateSaving}
       />
       <DeletePageModal
         open={deleteModalOpen}

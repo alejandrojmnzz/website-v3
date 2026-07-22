@@ -9,6 +9,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 - **i18n** — pages exist in one or more locales. Each locale has its own YAML file (`en.yml`, `es.yml`). Shared fields live in `_common.yml` and are deep-merged at read time.
 - **Image registry** — all images are referenced by ID from `4geeks-com/image-registry.json`. Raw paths are never hardcoded in components.
 - **Routing** — URL patterns are defined per content type in `content-types.yml`. English pages use `/en/` and Spanish pages use `/es/` prefixes.
+- **MCP mutating tools** — success payloads always include `warnings` + `next_actions` (see `mcp-server/lib/respond.ts`). Shared-layout sibling locale sync is agent-driven via `next_actions`, not server fan-out; section bindings propagate on live single-section edits.
 
 ## Active content types
 

@@ -70,6 +70,7 @@ interface RoleDefinition {
 }
 
 interface UserRecord {
+  id?: string;
   username: string;
   firstName?: string;
   lastName?: string;

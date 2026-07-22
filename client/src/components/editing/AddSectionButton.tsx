@@ -148,6 +148,7 @@ export function AddSectionButton({
           isOpen={isModalOpen}
           onClose={handleCloseModal}
           insertIndex={insertIndex}
+          sections={sections}
           contentType={contentType}
           slug={slug}
           locale={locale}

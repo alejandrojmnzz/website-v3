@@ -56,6 +56,8 @@ export interface RoleDefinition {
 }
 
 export interface UserRecord {
+  /** Human-readable, unique, immutable staff id (email local-part based). */
+  id: string;
   username: string;
   firstName?: string;
   lastName?: string;
@@ -171,6 +173,8 @@ export async function loadUsersStateFromBucket(): Promise<void> {
     // Always sync built-in webmaster role from code
     if (!state.roles) state.roles = {};
     state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+    if (!state.users) state.users = {};
+    backfillMissingUserIds();
     saveLocal();
     loaded = true;
     return;
@@ -182,6 +186,8 @@ export async function loadUsersStateFromBucket(): Promise<void> {
     // Always sync built-in webmaster role from code
     if (!state.roles) state.roles = {};
     state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+    if (!state.users) state.users = {};
+    backfillMissingUserIds();
     saveLocal();
     loaded = true;
     return;
@@ -205,8 +211,9 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   // Always sync built-in webmaster role from code
   if (!state.roles) state.roles = {};
   state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
-  save();
   if (!state.users) state.users = {};
+  backfillMissingUserIds();
+  save();
 
   loaded = true;
 }
@@ -218,7 +225,75 @@ function ensureLoaded(): void {
     state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
     if (!state.users) state.users = {};
     if (!state.pendingUsers) state.pendingUsers = {};
+    backfillMissingUserIds();
     loaded = true;
+  }
+}
+
+function normalizeStaffIdBase(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/@.*$/, "")
+    .replace(/[^a-z0-9._-]+/g, ".")
+    .replace(/\.+/g, ".")
+    .replace(/^\.|\.$/g, "") || "user";
+}
+
+function collectExistingIds(exceptUsername?: string): Set<string> {
+  const ids = new Set<string>();
+  for (const [uname, user] of Object.entries(state.users)) {
+    if (exceptUsername && uname === exceptUsername) continue;
+    if (user.id) ids.add(user.id);
+  }
+  return ids;
+}
+
+/** Generate a unique human-readable staff id from email/username. */
+export function generateUniqueStaffId(
+  profile: { username: string; email?: string },
+  existingIds?: Set<string>,
+): string {
+  const taken = existingIds ?? collectExistingIds(profile.username);
+  const email = profile.email || profile.username;
+  let base = normalizeStaffIdBase(email.includes("@") ? email : profile.username);
+  if (!base) base = "user";
+  let candidate = base;
+  let n = 2;
+  while (taken.has(candidate)) {
+    candidate = `${base}-${n}`;
+    n += 1;
+  }
+  return candidate;
+}
+
+function ensureUserHasId(username: string): string {
+  const user = state.users[username];
+  if (!user) return generateUniqueStaffId({ username });
+  if (user.id) return user.id;
+  const id = generateUniqueStaffId({ username, email: user.email });
+  user.id = id;
+  return id;
+}
+
+/** Backfill missing ids for all users; persists when any were assigned. */
+function backfillMissingUserIds(): void {
+  if (!state.users) state.users = {};
+  let changed = false;
+  const taken = new Set<string>();
+  for (const user of Object.values(state.users)) {
+    if (user.id) taken.add(user.id);
+  }
+  for (const user of Object.values(state.users)) {
+    if (user.id) continue;
+    const id = generateUniqueStaffId({ username: user.username, email: user.email }, taken);
+    user.id = id;
+    taken.add(id);
+    changed = true;
+  }
+  if (changed) {
+    save();
+    log.info("[UserStore] Backfilled missing staff user ids");
   }
 }
 
@@ -252,7 +327,11 @@ export function upsertUser(profile: {
 }): UserRecord {
   ensureLoaded();
   const existing = state.users[profile.username];
+  const id =
+    existing?.id ??
+    generateUniqueStaffId({ username: profile.username, email: profile.email ?? existing?.email });
   const record: UserRecord = {
+    id,
     username: profile.username,
     firstName: profile.firstName ?? existing?.firstName,
     lastName: profile.lastName ?? existing?.lastName,
@@ -271,10 +350,30 @@ export function upsertUser(profile: {
 export function assignRoles(username: string, roleIds: string[]): void {
   ensureLoaded();
   if (!state.users[username]) {
-    state.users[username] = { username, roles: [] };
+    state.users[username] = {
+      id: generateUniqueStaffId({ username }),
+      username,
+      roles: [],
+    };
+  } else if (!state.users[username].id) {
+    ensureUserHasId(username);
   }
   state.users[username].roles = roleIds;
   save();
+}
+
+/** Resolve immutable staff id for labels; assigns one if missing. */
+export function getOrCreateStaffUserId(username: string): string | null {
+  ensureLoaded();
+  if (!state.users[username]) return null;
+  if (state.users[username].id) return state.users[username].id;
+  const id = generateUniqueStaffId({
+    username,
+    email: state.users[username].email,
+  });
+  state.users[username].id = id;
+  save();
+  return id;
 }
 
 /**

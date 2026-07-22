@@ -50,6 +50,24 @@
   src: url('/fonts/lato-bold.woff2') format('woff2');
 }
 
+/* Map Tailwind font-semibold (600) / medium (500) to real faces we ship —
+   no new files. Prevents browser faux-bold when those weights are missing. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/lato-regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/lato-bold.woff2') format('woff2');
+}
+
 /* Inter Variable - hero headlines + stats. Latin subset, wght 400-900 (~37KB),
    preloaded in index.html so the LCP heading paints in the real font. */
 @font-face {
@@ -76,6 +94,23 @@
   font-family: 'Archivo';
   font-style: normal;
   font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/archivo-medium.woff2') format('woff2');
+}
+
+/* font-semibold (600) and font-bold (700) → Medium; we only ship 400/500. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/archivo-medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 700;
   font-display: swap;
   src: url('/fonts/archivo-medium.woff2') format('woff2');
 }
@@ -313,6 +348,8 @@
     @apply font-sans antialiased bg-background text-foreground;
     font-size: 16px;
     line-height: 1.6;
+    /* Never synthesize missing weights — that causes the thick/overlapping look. */
+    font-synthesis-weight: none;
   }
   
   /* 4Geeks Brand Typography - Lato headings, Archivo body */

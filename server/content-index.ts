@@ -12,6 +12,11 @@ import { databaseManager, type DatabaseManager } from "./database";
 import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { invalidateStaticListingCache } from "./static-listing-cache";
+import {
+  findBestSingleMirrorSource,
+  buildMirroredLocaleSingle,
+  listAllSinglePaths,
+} from "./shared-layout-sync";
 import { child } from "./logger";
 const log = child({ module: "content-index" });
 
@@ -738,8 +743,12 @@ export class ContentIndex {
   }
 
   private autoCreateSingleTemplates(baseDir: string): void {
+    const yamlDump = (data: unknown) =>
+      yaml.dump(data, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
+
     for (const [contentType, config] of Object.entries(this.contentTypeConfigs)) {
-      if (!config.database?.slug) continue;
+      const isSharedLayout = !!(config.database?.slug || (config as { single_template?: boolean }).single_template);
+      if (!isSharedLayout) continue;
 
       const folder = config.directory || contentType;
       const typeDir = path.join(baseDir, folder);
@@ -751,16 +760,47 @@ export class ContentIndex {
 
       const commonPath = path.join(typeDir, "_common.single.yml");
       if (!fs.existsSync(commonPath)) {
-        fs.writeFileSync(commonPath, "# Common data shared across all single (database-backed) entries\n");
+        fs.writeFileSync(
+          commonPath,
+          "# Layout defaults for shared-layout singles (no sections — structure lives in single.{locale}.yml)\n",
+        );
         log.info(`[ContentIndex] Auto-created: ${this.contentRootName}/${folder}/_common.single.yml`);
       }
 
-      const locales = Object.keys(config.url_pattern).filter(k => k !== "default");
+      const locales = Object.keys(config.url_pattern || {}).filter((k) => k !== "default");
       if (locales.length === 0) locales.push("en");
+
+      const mirrorSource = findBestSingleMirrorSource(typeDir, (raw) => this.safeYamlLoad(raw));
 
       for (const locale of locales) {
         const singlePath = path.join(typeDir, `single.${locale}.yml`);
-        if (!fs.existsSync(singlePath)) {
+        const exists = fs.existsSync(singlePath);
+
+        if (exists) {
+          try {
+            const existing = this.safeYamlLoad(fs.readFileSync(singlePath, "utf-8"));
+            const sections = Array.isArray(existing?.sections) ? existing.sections : [];
+            if (sections.length === 0 && mirrorSource && mirrorSource.locale !== locale) {
+              const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
+              if (existing?.meta) mirrored.meta = existing.meta;
+              fs.writeFileSync(singlePath, yamlDump(mirrored) + "\n", "utf-8");
+              log.info(
+                `[ContentIndex] Repaired empty single stub from ${mirrorSource.locale}: ${this.contentRootName}/${folder}/single.${locale}.yml`,
+              );
+            }
+          } catch (err) {
+            log.warn(`[ContentIndex] Could not inspect single.${locale}.yml:`, err instanceof Error ? err.message : err);
+          }
+          continue;
+        }
+
+        if (mirrorSource) {
+          const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
+          fs.writeFileSync(singlePath, yamlDump(mirrored) + "\n", "utf-8");
+          log.info(
+            `[ContentIndex] Auto-created single template (mirrored from ${mirrorSource.locale}): ${this.contentRootName}/${folder}/single.${locale}.yml`,
+          );
+        } else {
           const template = [
             "meta:",
             '  page_title: "{{ single.title }}"',
@@ -769,8 +809,22 @@ export class ContentIndex {
             "",
           ].join("\n");
           fs.writeFileSync(singlePath, template);
-          log.info(`[ContentIndex] Auto-created single template: ${this.contentRootName}/${folder}/single.${locale}.yml`);
+          log.info(`[ContentIndex] Auto-created empty single template: ${this.contentRootName}/${folder}/single.${locale}.yml`);
         }
+      }
+
+      for (const { locale, filePath } of listAllSinglePaths(typeDir)) {
+        if (locales.includes(locale)) continue;
+        try {
+          const existing = this.safeYamlLoad(fs.readFileSync(filePath, "utf-8"));
+          const sections = Array.isArray(existing?.sections) ? existing.sections : [];
+          if (sections.length === 0 && mirrorSource && mirrorSource.locale !== locale) {
+            const mirrored = buildMirroredLocaleSingle(mirrorSource.data);
+            if (existing?.meta) mirrored.meta = existing.meta;
+            fs.writeFileSync(filePath, yamlDump(mirrored) + "\n", "utf-8");
+            log.info(`[ContentIndex] Repaired extra empty single.${locale}.yml from ${mirrorSource.locale}`);
+          }
+        } catch { /* non-fatal */ }
       }
     }
   }

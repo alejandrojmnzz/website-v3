@@ -70,11 +70,28 @@ export function mergeSingleTemplate(
   let baseData: Record<string, unknown> = {};
   if (fs.existsSync(singleCommonPath)) {
     const parsed = contentIndex.safeYamlLoad(fs.readFileSync(singleCommonPath, "utf-8"));
-    if (parsed) baseData = parsed;
+    if (parsed) {
+      // Shared-layout: _common.single.yml is layout defaults only — never carry sections
+      const { sections: _ignoredSections, ...rest } = parsed;
+      if (_ignoredSections !== undefined) {
+        log.warn(
+          `[mergeSingleTemplate] Ignoring sections in _common.single.yml for ${contentType} (structure lives in single.{locale}.yml)`,
+        );
+      }
+      baseData = rest;
+    }
   }
   if (fs.existsSync(commonPath)) {
     const parsed = contentIndex.safeYamlLoad(fs.readFileSync(commonPath, "utf-8"));
-    if (parsed) baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, parsed) : parsed;
+    if (parsed) {
+      const { sections: _ignoredSections, ...rest } = parsed;
+      if (_ignoredSections !== undefined) {
+        log.warn(
+          `[mergeSingleTemplate] Ignoring sections in type _common.yml for ${contentType}`,
+        );
+      }
+      baseData = Object.keys(baseData).length > 0 ? deepMerge(baseData, rest) : rest;
+    }
   }
   const localeData = contentIndex.safeYamlLoad(fs.readFileSync(localePath, "utf-8"));
   if (!localeData) return null;
