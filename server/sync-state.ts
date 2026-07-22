@@ -147,6 +147,11 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
     if (/component-registry\/[^/]+\/[^/]+\/schema\.ya?ml$/.test(filePath)) {
       return true;
     }
+    // Allow .ts files (schema.ts, field-editors.ts) so they appear in the sync modal
+    // Pattern: component-registry/{type}/{version}/*.ts
+    if (/component-registry\/[^/]+\/[^/]+\/[^/]+\.ts$/.test(filePath)) {
+      return true;
+    }
     return false;
   }
 
