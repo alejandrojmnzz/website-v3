@@ -1,0 +1,18 @@
+---
+description: MCP mutating tool responses must use respond helpers and declare next_actions
+globs: mcp-server/**/*
+alwaysApply: false
+---
+# MCP mutating tool responses
+
+When adding or changing tools under `mcp-server/`:
+
+1. Mutating tools **must** return via `ok` / `fail` / `actionRequired` from `mcp-server/lib/respond.ts` (or re-exports from `page-tool-helpers.ts`). Do not return ad-hoc `{ content: [...] }` success payloads from mutating handlers.
+2. Before shipping a mutate tool, document **side effects**, **warnings** (what does not happen), and **intended follow-ups**.
+3. Populate `next_actions` whenever another tool call is needed for correctness. Use `[]` only when nothing useful remains.
+4. Always include `warnings: []` (or populated). Use warnings for non-propagation facts (especially variants/promote) — do not bury those only in `message` prose.
+5. `tool` names in `next_actions` must be real registered MCP tool names; never invent tools (no `validate_content`, etc.).
+6. Do not add server-side **locale** fan-out for MCP; guide agents with `next_actions` instead. Loopback calls set `x-mcp-author` so the main app skips shared-layout fan-out.
+7. **Shared layout:** one tool set only. Detect shared layout; use `layout_target` / `action_required: confirm_layout_target` when ambiguous; never invent parallel `*_shared` tools.
+8. **Shared template (`type_single`) writes:** `reason` must state shared template + blast radius + sibling structure rules. Prefer `sharedStructuralEnvelope` / sibling helpers in `shared-layout.ts`.
+9. **Section bindings:** single-section live edits propagate on the server; `batch_update_fields` always warns `batch_update_no_binding_propagate` for `sections.*`. Variant edits: warn via `warnings` (`variant_no_binding_propagate`).

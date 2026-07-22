@@ -962,6 +962,7 @@ export function registerSectionsRoutes(app: Express): void {
         variant,
         version,
         author: requestAuthor,
+        layoutTarget,
       } = req.body;
 
       // Resolve effective variant before capability selection
@@ -1040,6 +1041,10 @@ export function registerSectionsRoutes(app: Express): void {
       const effectiveVersion =
         effectiveVariant && version !== undefined ? version : undefined;
 
+      const isMcpRequest = typeof req.headers["x-mcp-author"] === "string";
+      const resolvedLayoutTarget =
+        layoutTarget === "entry" || layoutTarget === "type_single" ? layoutTarget : undefined;
+
       const result = await editContent({
         contentType,
         slug,
@@ -1051,6 +1056,8 @@ export function registerSectionsRoutes(app: Express): void {
         contentRoot: getContentRoot(res),
         database: (res.locals.site as import("../site-manager").SiteContext)?.database,
         ci: getCI(res),
+        skipSharedLayoutFanOut: isMcpRequest,
+        layoutTarget: resolvedLayoutTarget,
       });
 
       if (result.success) {
@@ -1059,57 +1066,68 @@ export function registerSectionsRoutes(app: Express): void {
         getCI(res).refresh();
         invalidateContentCaches(contentType);
 
-        // Propagate to bound sections if this was a section update
+        // Propagate to bound sections on live single-section updates (update_section
+        // or update_field targeting sections.N.*). Skip variants and multi-section batches.
         let bindingWarnings: string[] = [];
-        const updateSectionOp = finalOperations.find(
-          (op: { action: string }) => op.action === "update_section",
-        );
-        if (updateSectionOp && !effectiveVariant) {
-          const sIdx = updateSectionOp.index as number;
-          const updatedSections = result.updatedSections as
-            | Record<string, unknown>[]
-            | undefined;
-          // For per-entry DB-backed sections the index in the operation is the merged
-          // index, but updatedSections reflects only the per-entry file. Look up by
-          // section_id/id first (works for any section with an ID), fall back to index.
-          const opSection = updateSectionOp.section as Record<string, unknown> | undefined;
-          const secId = (opSection?.section_id as string | undefined) || (opSection?.id as string | undefined);
-          const updatedSection = secId
-            ? updatedSections?.find(s => s.section_id === secId || s.id === secId)
-            : updatedSections?.[sIdx];
-          const resolvedIdx = secId && updatedSection
-            ? (updatedSections?.indexOf(updatedSection) ?? sIdx)
-            : sIdx;
-          if (updatedSection) {
-            const normalizedLocaleForBinding = normalizeLocale(locale);
-            const baseSlugForBinding = getCI(res).resolveBaseSlug(slug, contentType);
-            const propagation = bindingManager.propagateUpdate(
-              contentType,
-              baseSlugForBinding,
-              resolvedIdx,
-              updatedSection,
-              authorName,
-              normalizedLocaleForBinding,
-            );
-            if (propagation.errors.length > 0) {
-              bindingWarnings = propagation.errors;
-            }
-            if (propagation.updatedFiles.length > 0) {
-              getCI(res).refresh();
-            }
+        let boundUpdates: string[] = [];
+        const updatedSections = result.updatedSections as Record<string, unknown>[] | undefined;
 
-            // Audit log: EDIT entry with section context
-            try {
-              const { getSyncLogForResponse } = await import("../sync-log");
-              const sectionType = (updatedSection as Record<string, unknown>).type as string || `section-${resolvedIdx}`;
-              const affectedCount = propagation.updatedFiles.length;
-              const editMsg = `${sectionType} section updated on ${slug}/${locale}${affectedCount > 0 ? ` → propagated to ${affectedCount} bound page(s)` : ""}`;
-              const editMeta: Record<string, unknown> = { contentType, slug, locale, sectionIndex: resolvedIdx, sectionType };
-              if (affectedCount > 0) {
-                editMeta.affectedPages = propagation.updatedFiles.map(f => f.replace(getContentRootName(res) + "/", ""));
+        if (!effectiveVariant && updatedSections) {
+          const sectionIndexesToPropagate = new Set<number>();
+
+          for (const op of finalOperations as Array<{ action: string; index?: number; path?: string; section?: Record<string, unknown> }>) {
+            if (op.action === "update_section" && typeof op.index === "number") {
+              const opSection = op.section;
+              const secId = (opSection?.section_id as string | undefined) || (opSection?.id as string | undefined);
+              const updatedSection = secId
+                ? updatedSections.find(s => s.section_id === secId || s.id === secId)
+                : updatedSections[op.index];
+              const resolvedIdx = secId && updatedSection
+                ? (updatedSections.indexOf(updatedSection) ?? op.index)
+                : op.index;
+              sectionIndexesToPropagate.add(resolvedIdx);
+            } else if (op.action === "update_field" && typeof op.path === "string") {
+              const m = op.path.match(/^sections\.(\d+)(?:\.|$)/);
+              if (m) sectionIndexesToPropagate.add(parseInt(m[1], 10));
+            }
+          }
+
+          // Only auto-propagate when exactly one section was touched (batch multi-section
+          // is intentionally non-propagating for predictability — MCP warns separately).
+          if (sectionIndexesToPropagate.size === 1) {
+            const resolvedIdx = [...sectionIndexesToPropagate][0];
+            const updatedSection = updatedSections[resolvedIdx];
+            if (updatedSection) {
+              const normalizedLocaleForBinding = normalizeLocale(locale);
+              const baseSlugForBinding = getCI(res).resolveBaseSlug(slug, contentType);
+              const propagation = bindingManager.propagateUpdate(
+                contentType,
+                baseSlugForBinding,
+                resolvedIdx,
+                updatedSection,
+                authorName,
+                normalizedLocaleForBinding,
+              );
+              if (propagation.errors.length > 0) {
+                bindingWarnings = propagation.errors;
               }
-              getSyncLogForResponse(res).log("EDIT", editMsg, authorName, editMeta);
-            } catch { /* non-fatal */ }
+              if (propagation.updatedFiles.length > 0) {
+                boundUpdates = propagation.updatedFiles;
+                getCI(res).refresh();
+              }
+
+              try {
+                const { getSyncLogForResponse } = await import("../sync-log");
+                const sectionType = (updatedSection as Record<string, unknown>).type as string || `section-${resolvedIdx}`;
+                const affectedCount = propagation.updatedFiles.length;
+                const editMsg = `${sectionType} section updated on ${slug}/${locale}${affectedCount > 0 ? ` → propagated to ${affectedCount} bound page(s)` : ""}`;
+                const editMeta: Record<string, unknown> = { contentType, slug, locale, sectionIndex: resolvedIdx, sectionType };
+                if (affectedCount > 0) {
+                  editMeta.affectedPages = propagation.updatedFiles.map(f => f.replace(getContentRootName(res) + "/", ""));
+                }
+                getSyncLogForResponse(res).log("EDIT", editMsg, authorName, editMeta);
+              } catch { /* non-fatal */ }
+            }
           }
         }
 
@@ -1123,6 +1141,9 @@ export function registerSectionsRoutes(app: Express): void {
           success: true,
           updatedSections: result.updatedSections,
         };
+        if (boundUpdates.length > 0) {
+          response.boundUpdates = boundUpdates;
+        }
         if (result.warning) {
           response.warning = result.warning;
         }

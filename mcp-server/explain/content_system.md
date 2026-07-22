@@ -54,7 +54,7 @@ Types with a `database.slug` key (or static types with `single_template: true`) 
 - Empty `sections: []` stubs are invalid; new/missing locale singles should be mirrored from a sibling.
 - Content props stay locale-local. Topology + `showOn*` / generic layout sync across siblings in the structured UI.
 - Changing `type` / `version` / `variant` does **not** auto-replicate — update sibling locales manually.
-- **MCP does not auto-fan-out.** After a structural edit to one locale single, follow `next_actions` (tool + reason) to update sibling `single.*.yml` files yourself. Soft prose warnings alone are not enough.
+- **MCP does not auto-fan-out.** After a structural edit to one locale single, follow structured `next_actions` (exact tool name + `args_hint` + blast-radius `reason`) to update sibling `single.*.yml` files yourself. Soft prose warnings alone are not enough. Use `layout_target: "type_single"` | `"entry"` (or answer `confirm_layout_target`) so writes hit the shared single vs entry overlay intentionally. Mutating tool responses always include `warnings` and `next_actions` arrays via `ok()` / `actionRequired()`.
 
 ## Template variables
 

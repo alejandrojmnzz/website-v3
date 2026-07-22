@@ -62,6 +62,10 @@ interface ContentEditRequest {
   contentRoot?: string;
   database?: DatabaseManager;
   ci?: ContentIndex;
+  /** When true, skip sibling-locale shared-layout fan-out (MCP agents sync via next_actions). */
+  skipSharedLayoutFanOut?: boolean;
+  /** Force write layer for shared-layout types: type_single → single.{locale}.yml; entry → per-entry overlay. */
+  layoutTarget?: "entry" | "type_single";
 }
 
 function getValueAtPath(obj: Record<string, unknown>, pathStr: string): unknown {
@@ -218,6 +222,33 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
   }
   
   try {
+    // Forced type_single: load/write shared single.{locale}.yml regardless of entry slug
+    if (request.layoutTarget === "type_single" && !hasVariant) {
+      const folder = getFolder(contentType);
+      const rootPath = contentRoot
+        ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
+        : path.join(process.cwd(), getDefaultContentRootName());
+      const templateFilePath = path.join(rootPath, folder, `single.${locale}.yml`);
+      if (!fs.existsSync(templateFilePath)) {
+        return { success: false, error: `Shared template not found: ${folder}/single.${locale}.yml` };
+      }
+      const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
+      const templateLocaleData = (ci.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+      return handleSharedTemplateEdit({
+        contentType,
+        slug,
+        locale,
+        operations,
+        localeData: templateLocaleData,
+        filePath: templateFilePath,
+        author: request.author,
+        contentRoot,
+        database: request.database,
+        ci,
+        skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
+      });
+    }
+
     const { data: localeData, filePath, error: loadError, isSharedTemplate } = ci.loadLocaleData(contentType, slug, locale, variant, version);
     if (!localeData || loadError) {
       return { success: false, error: loadError || `Content file not found` };
@@ -226,7 +257,8 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     // For DB-backed single pages the localeData points at the shared template.
     // We must NOT write variable-field changes back to that shared file — instead
     // we patch only the specific entry in the database file cache.
-    if (isSharedTemplate) {
+    // layoutTarget "entry" forces per-entry overlay writes even when load hit the template.
+    if (isSharedTemplate && request.layoutTarget !== "entry") {
       // Top-level field ops (e.g. "meta", "schema") must NEVER touch the shared
       // template — they belong in the per-entry locale file for this slug.
       // Create it if it doesn't exist yet.
@@ -236,7 +268,27 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       if (allTopLevelFields) {
         return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot });
       }
-      return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author, contentRoot, database: request.database, ci });
+      return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author, contentRoot, database: request.database, ci, skipSharedLayoutFanOut: request.skipSharedLayoutFanOut });
+    }
+
+    // layoutTarget "entry" while load resolved to shared template: create/write per-entry file
+    if (isSharedTemplate && request.layoutTarget === "entry") {
+      const allTopLevelFields = operations.length > 0 && operations.every(
+        op => op.action === "update_field" && !op.path.startsWith("sections.")
+      );
+      if (allTopLevelFields) {
+        return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot });
+      }
+      // Section ops on entry overlay — writeTopLevel style for sections via per-entry path
+      return writeEntryOverlayOps({
+        contentType,
+        slug,
+        locale,
+        operations,
+        author: request.author,
+        contentRoot,
+        ci,
+      });
     }
 
     // For shared-template entries that have their own per-entry file (isSharedTemplate=false),
@@ -312,6 +364,7 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
               contentRoot,
               database: request.database,
               ci,
+              skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
             });
             if (!templateResult.success) {
               return { success: false, error: templateResult.error };
@@ -606,6 +659,7 @@ function writeStructuralChangesToTemplate(opts: {
   locale?: string;
   requesterId?: string;
   ci?: ContentIndex;
+  skipSharedLayoutFanOut?: boolean;
 }): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
   const { operations, filePath, localeData, author, contentRoot, contentType, requesterId } = opts;
   const ci = opts.ci ?? contentIndex;
@@ -676,7 +730,7 @@ function writeStructuralChangesToTemplate(opts: {
     const typeConfig = contentType ? getContentTypeConfig(contentType, contentRoot) : null;
     const isSharedLayout = !!(typeConfig?.database?.slug || typeConfig?.single_template);
 
-    if (isSharedLayout && contentType && localeFromPath) {
+    if (isSharedLayout && contentType && localeFromPath && !opts.skipSharedLayoutFanOut) {
       const templateDir = path.dirname(filePath);
       const sourceSections = Array.isArray(templateData.sections)
         ? (templateData.sections as Record<string, unknown>[])
@@ -787,6 +841,60 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
 }
 
 /**
+ * Apply arbitrary edit ops to a per-entry locale overlay (create file if needed).
+ * Used when layoutTarget is "entry" and load resolved to the shared template.
+ */
+function writeEntryOverlayOps(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  operations: EditOperation[];
+  author?: string;
+  contentRoot?: string;
+  ci?: ContentIndex;
+}): { success: boolean; error?: string; updatedSections?: unknown[] } {
+  const { contentType, slug, locale, operations, author } = opts;
+  const ci = opts.ci ?? contentIndex;
+  const rawRoot = opts.contentRoot ?? getDefaultContentRootName();
+  const rootPath = path.isAbsolute(rawRoot) ? rawRoot : path.join(process.cwd(), rawRoot);
+  try {
+    const perEntryDir = path.join(rootPath, getFolder(contentType), slug);
+    const perEntryPath = path.join(perEntryDir, `${locale}.yml`);
+    if (!fs.existsSync(perEntryDir)) {
+      fs.mkdirSync(perEntryDir, { recursive: true });
+    }
+    let entryData: Record<string, unknown> = {};
+    if (fs.existsSync(perEntryPath)) {
+      const raw = fs.readFileSync(perEntryPath, "utf-8");
+      entryData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
+    }
+    for (const op of operations) {
+      applyOperation(entryData, op);
+    }
+    if (Array.isArray(entryData.sections)) {
+      entryData.sections = (entryData.sections as unknown[]).filter(
+        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      );
+    }
+    const consentErr = getConsentKeyError(entryData);
+    if (consentErr) return { success: false, error: consentErr };
+    fs.writeFileSync(
+      perEntryPath,
+      safeYamlDump(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
+      "utf-8",
+    );
+    markFileAsModified(perEntryPath, author, undefined, opts.contentRoot);
+    return {
+      success: true,
+      updatedSections: Array.isArray(entryData.sections) ? (entryData.sections as unknown[]) : [],
+    };
+  } catch (err) {
+    log.error({ err }, "[writeEntryOverlayOps] Error:");
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+
+/**
  * Handles section/field saves for DB-backed single-page templates (e.g. blog posts,
  * programs). Instead of writing to the shared `single.en.yml` template, we identify
  * which changed fields are template variable expressions (`{{ single.X | ... }}`),
@@ -806,6 +914,7 @@ function handleSharedTemplateEdit(opts: {
   database?: DatabaseManager;
   ci?: ContentIndex;
   requesterId?: string;
+  skipSharedLayoutFanOut?: boolean;
 }): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
   const { contentType, slug, locale, operations, localeData, filePath, author, contentRoot } = opts;
   const ci = opts.ci ?? contentIndex;
@@ -843,6 +952,7 @@ function handleSharedTemplateEdit(opts: {
       locale,
       requesterId,
       ci,
+      skipSharedLayoutFanOut: opts.skipSharedLayoutFanOut,
     });
   }
 
@@ -983,7 +1093,7 @@ function handleSharedTemplateEdit(opts: {
         };
         return isLayoutPath(m[1]);
       });
-      if (isSharedLayout && layoutOps.length > 0) {
+      if (isSharedLayout && layoutOps.length > 0 && !opts.skipSharedLayoutFanOut) {
         const sourceSections = Array.isArray(templateData.sections)
           ? (templateData.sections as Record<string, unknown>[])
           : [];

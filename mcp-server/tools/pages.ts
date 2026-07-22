@@ -7,11 +7,11 @@ import {
   getDirectory,
   loadContentTypes,
   isDbBacked,
+  isSharedLayoutConfig,
   resolveContentType,
   scanPages,
   loadPage,
   loadVariantPage,
-  loadVersioning,
   safeLoad,
   safeDump,
   setValueAtPath,
@@ -20,6 +20,28 @@ import {
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { promoteWarnings, VARIANT_WARNINGS, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
+import {
+  ok,
+  fail,
+  confirmLiveEditGate,
+  resolveLayoutTargetGate,
+  LAYOUT_TARGET_DESC,
+  variantWarningsIfNeeded,
+  wrotePayload,
+  sharedStructuralEnvelope,
+  type LayoutTarget,
+} from "../lib/page-tool-helpers.js";
+import {
+  pathForLayoutTarget,
+  sharedTemplateBlastSideEffect,
+  BATCH_BINDING_WARNING,
+  ADD_SECTION_NO_BINDING_FANOUT,
+  REMOVE_SECTION_NO_BINDING_FANOUT,
+  REPLACE_NO_BINDING_FANOUT,
+  REORDER_NO_BINDING_FANOUT,
+  CREATE_PAGE_SHARED_LAYOUT_WARNING,
+} from "../lib/shared-layout.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
@@ -31,13 +53,16 @@ const SITE_PARAM_DESC = 'Domain of the target site from sites.yml, e.g. "4geeks.
 /**
  * Build the Authorization + author headers for loopback calls to the main
  * server's capability-gated endpoints (e.g. /api/content/edit-sections).
+ * Always sets x-mcp-author when MCP_SERVER_SECRET is set so the main server
+ * skips shared-layout locale fan-out (agent owns sibling sync via next_actions).
  */
 function internalHeaders(mcpToken?: string): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (MCP_SERVER_SECRET) {
     headers["Authorization"] = `Bearer ${MCP_SERVER_SECRET}`;
-  }
-  if (mcpToken) {
+    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
+    headers["x-mcp-author"] = username || "mcp";
+  } else if (mcpToken) {
     const username = getTokenUsername(mcpToken);
     if (username) headers["x-mcp-author"] = username;
   }
@@ -55,7 +80,7 @@ async function getConflictError(
   fieldEntries: Array<[string, unknown]>,
   intendedChangeLabel: Record<string, unknown>,
   domain?: string
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError: true } | null> {
+): Promise<McpTextResult | null> {
   const currentData = (fs.existsSync(filePath) ? safeLoad(fs.readFileSync(filePath, "utf-8")) : null) || {};
   for (const [fp, val] of fieldEntries) {
     setValueAtPath(currentData, fp, val);
@@ -75,13 +100,20 @@ async function getConflictError(
 
 /**
  * Call the main server's /api/content/edit-sections endpoint.
- * Returns an error response on failure, or null on success.
+ * Returns { error } on failure or { data } on success (may include boundUpdates).
  */
 async function callEditSectionsApi(
-  params: { contentType: string; slug: string; locale: string; variant?: string; operations: Record<string, unknown>[] },
+  params: {
+    contentType: string;
+    slug: string;
+    locale: string;
+    variant?: string;
+    operations: Record<string, unknown>[];
+    layoutTarget?: "entry" | "type_single";
+  },
   mcpToken?: string,
-  domain?: string
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError: true } | null> {
+  domain?: string,
+): Promise<{ error: McpTextResult } | { data: Record<string, unknown> }> {
   try {
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
@@ -93,15 +125,16 @@ async function callEditSectionsApi(
         locale: params.locale,
         operations: params.operations,
         ...(params.variant ? { variant: params.variant } : {}),
+        ...(params.layoutTarget ? { layoutTarget: params.layoutTarget } : {}),
       }),
     });
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
+      return { error: fail((data.error as string) || `Server error: ${res.status}`) };
     }
-    return null;
+    return { data };
   } catch (e) {
-    return { content: [{ type: "text", text: `Failed to call edit-sections API: ${(e as Error).message}` }], isError: true };
+    return { error: fail(`Failed to call edit-sections API: ${(e as Error).message}`) };
   }
 }
 
@@ -113,7 +146,7 @@ async function callEditCommonApi(
   params: { contentType: string; slug: string; operations: Record<string, unknown>[] },
   mcpToken?: string,
   domain?: string
-): Promise<{ content: Array<{ type: "text"; text: string }>; isError: true } | null> {
+): Promise<McpTextResult | null> {
   try {
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-common${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const res = await fetch(url, {
@@ -127,11 +160,11 @@ async function callEditCommonApi(
     });
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
+      return fail((data.error as string) || `Server error: ${res.status}`);
     }
     return null;
   } catch (e) {
-    return { content: [{ type: "text", text: `Failed to call edit-common API: ${(e as Error).message}` }], isError: true };
+    return fail(`Failed to call edit-common API: ${(e as Error).message}`);
   }
 }
 
@@ -213,10 +246,10 @@ function conflictError(opts: {
   remoteContent: string;
   intendedContent: string;
   intendedChange?: Record<string, unknown>;
-}) {
+}): McpTextResult {
   return {
     content: [{
-      type: "text" as const,
+      type: "text",
       text: JSON.stringify({
         error: "conflict",
         message:
@@ -638,6 +671,24 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   ]);
   const ALL_KNOWN_META_FIELDS = new Set([...META_COMMON_FIELDS, ...META_LOCALE_FIELDS]);
 
+  const layoutTargetSchema = z
+    .enum(["auto", "entry", "type_single"])
+    .optional()
+    .default("auto")
+    .describe(LAYOUT_TARGET_DESC);
+  const confirmLayoutTargetSchema = z
+    .boolean()
+    .optional()
+    .describe('Set true after choosing layout_target "entry" or "type_single" when confirm_layout_target was required.');
+
+  function bindingPropagateSideEffects(boundUpdates: unknown): McpSideEffect[] | undefined {
+    if (!Array.isArray(boundUpdates) || boundUpdates.length === 0) return undefined;
+    return [{
+      kind: "binding_propagate",
+      summary: `Server propagated bound section updates to ${boundUpdates.length} sibling file(s): ${boundUpdates.join(", ")}`,
+    }];
+  }
+
   // update_section_field
   mcp.tool(
     "update_section_field",
@@ -663,11 +714,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, field_path: fieldPath, value, contentType, variant, confirm_live_edit, site }) => {
+    async ({ slug, locale, field_path: fieldPath, value, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -675,25 +728,19 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       if (fieldPath.startsWith("meta.")) {
-        return {
-          content: [{ type: "text", text: `field_path '${fieldPath}' targets a meta field. Use update_meta_field instead.` }],
-          isError: true,
-        };
+        return fail(`field_path '${fieldPath}' targets a meta field. Use update_meta_field instead.`);
       }
       if (!fieldPath.startsWith("sections.") && !SAFE_TOP_LEVEL_FIELDS.has(fieldPath)) {
-        return {
-          content: [{ type: "text", text: `field_path '${fieldPath}' is not allowed. Must start with 'sections.' or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.` }],
-          isError: true,
-        };
+        return fail(`field_path '${fieldPath}' is not allowed. Must start with 'sections.' or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.`);
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -702,53 +749,82 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
+      const liveGate = confirmLiveEditGate({
+        tool: "update_section_field",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { field_path: fieldPath, value, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
+
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "update_section_field",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: fieldPath.startsWith("sections."),
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (!fs.existsSync(pathInfo.filePath)) {
+        return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 
-      const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
-      const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const filePath = path.join(dir, fileName);
-      try { assertWithinBase(filePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
-      }
-      if (!fs.existsSync(filePath)) {
-        return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
-      }
-
-      const relativePath = `${contentFolder}/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
-      const conflictErr = await getConflictError(filePath, relativePath, [[fieldPath, value]], { fieldPath, value }, domain);
+      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
+      const conflictErr = await getConflictError(pathInfo.filePath, relativePath, [[fieldPath, value]], { fieldPath, value }, domain);
       if (conflictErr) return conflictErr;
-      const apiErr = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, operations: [{ action: "update_field", path: fieldPath, value }] },
+      const apiResult = await callEditSectionsApi(
+        {
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          variant,
+          layoutTarget,
+          operations: [{ action: "update_field", path: fieldPath, value }],
+        },
         mcpToken,
-        domain
+        domain,
       );
-      if (apiErr) return apiErr;
-      return { content: [{ type: "text", text: `Updated '${fieldPath}' in ${resolved.contentType}/${slug}/${fileName}` }] };
+      if ("error" in apiResult) return apiResult.error;
+      const boundUpdates = apiResult.data.boundUpdates;
+      return ok(
+        {
+          message: `Updated '${fieldPath}' in ${pathInfo.relativeHint}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+          ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
+        },
+        {
+          warnings: variantWarningsIfNeeded(variant),
+          next_actions: [],
+          side_effects: bindingPropagateSideEffects(boundUpdates),
+        },
+      );
     }
   );
 
@@ -775,11 +851,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, fields, contentType, variant, confirm_live_edit, site }) => {
+    async ({ slug, locale, fields, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -787,27 +865,21 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       const metaPaths = Object.keys(fields).filter(fp => fp.startsWith("meta."));
       if (metaPaths.length > 0) {
-        return {
-          content: [{ type: "text", text: `field_path(s) target meta fields: ${metaPaths.join(", ")}. Use update_meta_fields instead.` }],
-          isError: true,
-        };
+        return fail(`field_path(s) target meta fields: ${metaPaths.join(", ")}. Use update_meta_fields instead.`);
       }
       const badPaths = Object.keys(fields).filter(fp => !fp.startsWith("sections.") && !SAFE_TOP_LEVEL_FIELDS.has(fp));
       if (badPaths.length > 0) {
-        return {
-          content: [{ type: "text", text: `Disallowed field_path(s): ${badPaths.join(", ")}. Must start with 'sections.' or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.` }],
-          isError: true,
-        };
+        return fail(`Disallowed field_path(s): ${badPaths.join(", ")}. Must start with 'sections.' or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.`);
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -816,56 +888,79 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
+      const liveGate = confirmLiveEditGate({
+        tool: "update_section_fields",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { fields, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
+
+      const touchesSections = Object.keys(fields).some(k => k.startsWith("sections."));
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "update_section_fields",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: touchesSections,
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (!fs.existsSync(pathInfo.filePath)) {
+        return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 
-      const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
-      const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const filePath = path.join(dir, fileName);
-      try { assertWithinBase(filePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
-      }
-      if (!fs.existsSync(filePath)) {
-        return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
-      }
-
-      const relativePath = `${contentFolder}/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
       const fieldEntries = Object.entries(fields);
-      const conflictErr = await getConflictError(filePath, relativePath, fieldEntries, { fields }, domain);
+      const conflictErr = await getConflictError(pathInfo.filePath, relativePath, fieldEntries, { fields }, domain);
       if (conflictErr) return conflictErr;
       const operations = fieldEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-      const apiErr = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, operations },
+      const apiResult = await callEditSectionsApi(
+        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations },
         mcpToken,
-        domain
+        domain,
       );
-      if (apiErr) return apiErr;
+      if ("error" in apiResult) return apiResult.error;
+      const boundUpdates = apiResult.data.boundUpdates;
       const count = Object.keys(fields).length;
-      return { content: [{ type: "text", text: `Updated ${count} field${count !== 1 ? "s" : ""} in ${resolved.contentType}/${slug}/${fileName}` }] };
+      return ok(
+        {
+          message: `Updated ${count} field${count !== 1 ? "s" : ""} in ${pathInfo.relativeHint}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+          ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
+        },
+        {
+          warnings: variantWarningsIfNeeded(variant),
+          next_actions: [],
+          side_effects: bindingPropagateSideEffects(boundUpdates),
+        },
+      );
     }
   );
 
@@ -908,7 +1003,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, field, value, locale, custom_fields, target, variant, confirm_live_edit, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -916,25 +1011,25 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       if (!field && !custom_fields) {
-        return { content: [{ type: "text", text: "Provide either 'field' + 'value' for a known meta field, or 'custom_fields' + 'target' for non-standard fields." }], isError: true };
+        return fail("Provide either 'field' + 'value' for a known meta field, or 'custom_fields' + 'target' for non-standard fields.");
       }
       if (custom_fields && !target) {
-        return { content: [{ type: "text", text: "'target' is required when providing 'custom_fields'. Set target to 'locale' or 'common'." }], isError: true };
+        return fail("'target' is required when providing 'custom_fields'. Set target to 'locale' or 'common'.");
       }
       if (custom_fields) {
         const knownInCustom = Object.keys(custom_fields).filter(k => ALL_KNOWN_META_FIELDS.has(k));
         if (knownInCustom.length > 0) {
-          return { content: [{ type: "text", text: `'custom_fields' contains known meta field(s): ${knownInCustom.join(", ")}. Use 'field' parameter instead for auto-routing.` }], isError: true };
+          return fail(`'custom_fields' contains known meta field(s): ${knownInCustom.join(", ")}. Use 'field' parameter instead for auto-routing.`);
         }
       }
 
       const resolved = resolveContentType(slug, contentType, contentPath);
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -943,32 +1038,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
-      }
+      const liveGate = confirmLiveEditGate({
+        tool: "update_meta_field",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { field, value, custom_fields, target },
+      });
+      if (liveGate) return liveGate;
 
       const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
       const ctDir = getDirectory(resolved.contentType, resolved.config);
@@ -976,16 +1056,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       if (field) {
         if (value === undefined) {
-          return { content: [{ type: "text", text: "'value' is required when 'field' is provided." }], isError: true };
+          return fail("'value' is required when 'field' is provided.");
         }
         const isCommon = META_COMMON_FIELDS.has(field);
         const fileName = isCommon ? "_common.yml" : (variant ? `${variant}.${locale}.yml` : `${locale}.yml`);
         const filePath = path.join(dir, fileName);
         try { assertWithinBase(filePath, contentPath); } catch (e) {
-          return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+          return fail((e as Error).message);
         }
         if (!isCommon && !fs.existsSync(filePath)) {
-          return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
+          return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
         }
         const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
         const conflictErrF = await getConflictError(filePath, relativePath, [[`meta.${field}`, value]], { field, value }, domain);
@@ -995,8 +1075,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const apiErrF = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: [metaOp] }, mcpToken, domain);
           if (apiErrF) return apiErrF;
         } else {
-          const apiErrF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: [metaOp] }, mcpToken, domain);
-          if (apiErrF) return apiErrF;
+          const apiResultF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: [metaOp] }, mcpToken, domain);
+          if ("error" in apiResultF) return apiResultF.error;
         }
         results.push(`meta.${field} → ${fileName}`);
       }
@@ -1005,10 +1085,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const fileName = target === "common" ? "_common.yml" : (variant ? `${variant}.${locale}.yml` : `${locale}.yml`);
         const filePath = path.join(dir, fileName);
         try { assertWithinBase(filePath, contentPath); } catch (e) {
-          return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+          return fail((e as Error).message);
         }
         if (target === "locale" && !fs.existsSync(filePath)) {
-          return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
+          return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
         }
         const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
         const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
@@ -1019,13 +1099,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const apiErrC = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: ops }, mcpToken, domain);
           if (apiErrC) return apiErrC;
         } else {
-          const apiErrC = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: ops }, mcpToken, domain);
-          if (apiErrC) return apiErrC;
+          const apiResultC = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: ops }, mcpToken, domain);
+          if ("error" in apiResultC) return apiResultC.error;
         }
         results.push(`${Object.keys(custom_fields).map(k => `meta.${k}`).join(", ")} → ${fileName}`);
       }
 
-      return { content: [{ type: "text", text: `Updated ${results.join("; ")} in ${resolved.contentType}/${slug}` }] };
+      return ok(
+        { message: `Updated ${results.join("; ")} in ${resolved.contentType}/${slug}` },
+        { warnings: variantWarningsIfNeeded(variant), next_actions: [] },
+      );
     }
   );
 
@@ -1063,7 +1146,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, fields, locale, custom_fields, target, variant, confirm_live_edit, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1071,31 +1154,31 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       if (!fields && !custom_fields) {
-        return { content: [{ type: "text", text: "Provide 'fields' for known meta fields, or 'custom_fields' + 'target' for non-standard fields, or both." }], isError: true };
+        return fail("Provide 'fields' for known meta fields, or 'custom_fields' + 'target' for non-standard fields, or both.");
       }
       if (custom_fields && !target) {
-        return { content: [{ type: "text", text: "'target' is required when providing 'custom_fields'. Set target to 'locale' or 'common'." }], isError: true };
+        return fail("'target' is required when providing 'custom_fields'. Set target to 'locale' or 'common'.");
       }
       if (fields) {
         const unknownFields = Object.keys(fields).filter(k => !ALL_KNOWN_META_FIELDS.has(k));
         if (unknownFields.length > 0) {
-          return { content: [{ type: "text", text: `Unknown meta field(s) in 'fields': ${unknownFields.join(", ")}. Use 'custom_fields' + 'target' for non-standard fields.` }], isError: true };
+          return fail(`Unknown meta field(s) in 'fields': ${unknownFields.join(", ")}. Use 'custom_fields' + 'target' for non-standard fields.`);
         }
       }
       if (custom_fields) {
         const knownInCustom = Object.keys(custom_fields).filter(k => ALL_KNOWN_META_FIELDS.has(k));
         if (knownInCustom.length > 0) {
-          return { content: [{ type: "text", text: `'custom_fields' contains known meta field(s): ${knownInCustom.join(", ")}. Use 'fields' instead for auto-routing.` }], isError: true };
+          return fail(`'custom_fields' contains known meta field(s): ${knownInCustom.join(", ")}. Use 'fields' instead for auto-routing.`);
         }
       }
 
       const resolved = resolveContentType(slug, contentType, contentPath);
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -1104,32 +1187,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
-      }
+      const liveGate = confirmLiveEditGate({
+        tool: "update_meta_fields",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { fields, custom_fields, target },
+      });
+      if (liveGate) return liveGate;
 
       const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
       const ctDir = getDirectory(resolved.contentType, resolved.config);
@@ -1150,7 +1218,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (commonEntries.length > 0) {
           const filePath = path.join(dir, "_common.yml");
           try { assertWithinBase(filePath, contentPath); } catch (e) {
-            return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+            return fail((e as Error).message);
           }
           const relativePath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
           const conflictErrCE = await getConflictError(filePath, relativePath, commonEntries, { fields: Object.fromEntries(commonEntries) }, domain);
@@ -1168,20 +1236,20 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
           const filePath = path.join(dir, fileName);
           try { assertWithinBase(filePath, contentPath); } catch (e) {
-            return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+            return fail((e as Error).message);
           }
           if (!fs.existsSync(filePath)) {
-            return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
+            return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
           }
           const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
           const conflictErrLE = await getConflictError(filePath, relativePath, localeEntries, { fields: Object.fromEntries(localeEntries) }, domain);
           if (conflictErrLE) return conflictErrLE;
-          const apiErrLE = await callEditSectionsApi(
+          const apiResultLE = await callEditSectionsApi(
             { contentType: resolved.contentType, slug, locale, variant, operations: localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v })) },
             mcpToken,
             domain
           );
-          if (apiErrLE) return apiErrLE;
+          if ("error" in apiResultLE) return apiResultLE.error;
           results.push(`${localeEntries.map(([k]) => k).join(", ")} → ${fileName}`);
         }
       }
@@ -1190,10 +1258,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const fileName = target === "common" ? "_common.yml" : (variant ? `${variant}.${locale}.yml` : `${locale}.yml`);
         const filePath = path.join(dir, fileName);
         try { assertWithinBase(filePath, contentPath); } catch (e) {
-          return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+          return fail((e as Error).message);
         }
         if (target === "locale" && !fs.existsSync(filePath)) {
-          return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
+          return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
         }
         const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
         const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
@@ -1204,13 +1272,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const apiErrMF = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: opsMF }, mcpToken, domain);
           if (apiErrMF) return apiErrMF;
         } else {
-          const apiErrMF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: opsMF }, mcpToken, domain);
-          if (apiErrMF) return apiErrMF;
+          const apiResultMF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: opsMF }, mcpToken, domain);
+          if ("error" in apiResultMF) return apiResultMF.error;
         }
         results.push(`${Object.keys(custom_fields).map(k => `meta.${k}`).join(", ")} → ${fileName}`);
       }
 
-      return { content: [{ type: "text", text: `Updated ${results.join("; ")} in ${resolved.contentType}/${slug}` }] };
+      return ok(
+        { message: `Updated ${results.join("; ")} in ${resolved.contentType}/${slug}` },
+        { warnings: variantWarningsIfNeeded(variant), next_actions: [] },
+      );
     }
   );
 
@@ -1272,7 +1343,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, variantSlug, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -1280,7 +1351,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         assertSafeSegment(variantSlug, "variantSlug");
         assertSafeLocale(locale);
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       if (mcpToken) {
@@ -1298,11 +1369,35 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
-          return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
+          return fail((data.error as string) || `Server error: ${res.status}`);
         }
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, variantSlug: data.variantSlug, locale: data.locale, filePath: data.filePath }, null, 2) }] };
+        return ok(
+          {
+            variantSlug: data.variantSlug,
+            locale: data.locale,
+            filePath: data.filePath,
+          },
+          {
+            warnings: [...VARIANT_WARNINGS],
+            side_effects: [{
+              kind: "variant_isolated",
+              summary: "Created draft only; live locale YAML unchanged",
+            }],
+            next_actions: [{
+              tool: "update_section_field",
+              priority: "recommended",
+              reason: "Edit the draft with variant set; live bindings/shared-layout will not run until promote + live edits.",
+              args_hint: {
+                contentType,
+                slug,
+                locale,
+                variant: data.variantSlug ?? variantSlug,
+              },
+            }],
+          },
+        );
       } catch (e) {
-        return { content: [{ type: "text", text: `Failed to create variant: ${(e as Error).message}` }], isError: true };
+        return fail(`Failed to create variant: ${(e as Error).message}`);
       }
     }
   );
@@ -1322,15 +1417,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, variantSlug, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
-      const { domain } = siteResult;
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { contentPath, domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
         assertSafeSegment(slug, "slug");
         assertSafeSegment(variantSlug, "variantSlug");
         assertSafeLocale(locale);
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       if (mcpToken) {
@@ -1338,6 +1433,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return denyResponse("content_promote_variant", contentType);
         }
       }
+
+      const configs = loadContentTypes(contentPath);
+      const config = configs[contentType];
+      const sharedLayout = config ? isSharedLayoutConfig(config) : false;
 
       try {
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
@@ -1347,11 +1446,22 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
-          return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
+          return fail((data.error as string) || `Server error: ${res.status}`);
         }
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` }, null, 2) }] };
+        const next_actions: NextAction[] = sharedLayout
+          ? [{
+              tool: "get_page_content",
+              priority: "recommended",
+              reason: "Shared-layout promote does not sync sibling singles — re-read live content and reconcile structure if needed.",
+              args_hint: { contentType, slug, locale },
+            }]
+          : [];
+        return ok(
+          { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
+          { warnings: promoteWarnings(sharedLayout), next_actions },
+        );
       } catch (e) {
-        return { content: [{ type: "text", text: `Failed to promote variant: ${(e as Error).message}` }], isError: true };
+        return fail(`Failed to promote variant: ${(e as Error).message}`);
       }
     }
   );
@@ -1384,33 +1494,33 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, common, locales, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
         assertSafeSegment(contentType, "contentType");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       const localeKeys = Object.keys(locales);
       if (localeKeys.length === 0) {
-        return { content: [{ type: "text", text: "'locales' must contain at least one locale." }], isError: true };
+        return fail("'locales' must contain at least one locale.");
       }
       try {
         for (const loc of localeKeys) assertSafeLocale(loc);
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       const configs = loadContentTypes(contentPath);
       const config = configs[contentType];
       if (!config) {
         const known = Object.keys(configs).filter(k => !isDbBacked(configs[k])).join(", ");
-        return { content: [{ type: "text", text: `Unknown contentType '${contentType}'. Known non-DB types: ${known}` }], isError: true };
+        return fail(`Unknown contentType '${contentType}'. Known non-DB types: ${known}`);
       }
       if (isDbBacked(config)) {
-        return { content: [{ type: "text", text: `Content type '${contentType}' is database-backed and cannot be created via this tool.` }], isError: true };
+        return fail(`Content type '${contentType}' is database-backed and cannot be created via this tool.`);
       }
 
       if (mcpToken) {
@@ -1422,27 +1532,24 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const ctDir = getDirectory(contentType, config);
       const pageDir = path.join(contentPath, ctDir, slug);
       try { assertWithinBase(pageDir, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
       if (fs.existsSync(pageDir)) {
-        return { content: [{ type: "text", text: `Page '${slug}' already exists for contentType '${contentType}'.` }], isError: true };
+        return fail(`Page '${slug}' already exists for contentType '${contentType}'.`);
       }
 
-      // Validate all locale file paths before creating anything
       for (const loc of localeKeys) {
         const lp = path.join(pageDir, `${loc}.yml`);
         try { assertWithinBase(lp, contentPath); } catch (e) {
-          return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+          return fail((e as Error).message);
         }
       }
 
       fs.mkdirSync(pageDir, { recursive: true });
 
-      // Write _common.yml
       const commonData: Record<string, unknown> = { slug, ...common };
       fs.writeFileSync(path.join(pageDir, "_common.yml"), safeDump(commonData), "utf-8");
 
-      // Write each locale file
       const createdLocales: string[] = [];
       for (const [loc, localeContent] of Object.entries(locales)) {
         const localeData: Record<string, unknown> = {
@@ -1454,7 +1561,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         createdLocales.push(loc);
       }
 
-      // Commit all written files to GitHub and refresh cache
       const commonRelPath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
       const localeRelPaths = createdLocales.map(loc => `${contentFolder}/${ctDir}/${slug}/${loc}.yml`);
       const allPaths = [commonRelPath, ...localeRelPaths];
@@ -1464,11 +1570,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         callRefreshCacheApi(contentType, domain),
       ]);
 
-      // Collect commit SHAs and warnings
       const commitShas = commitResults.map(r => r.commitSha).filter(Boolean) as string[];
       const commitWarnings = commitResults.map(r => r.warning).filter(Boolean) as string[];
 
-      // Build URL map across all created locales
       const urlPattern = config.url_pattern;
       let urls: Record<string, string> | undefined;
       if (urlPattern) {
@@ -1483,17 +1587,33 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (Object.keys(resolvedUrls).length > 0) urls = resolvedUrls;
       }
 
-      const entry = {
-        slug,
-        contentType,
-        directory: `${contentFolder}/${ctDir}/${slug}`,
-        locales: createdLocales,
-        ...(common.title ? { title: common.title } : {}),
-        ...(urls ? { urls } : {}),
-        ...(commitShas.length > 0 ? { commitShas } : {}),
-        ...(commitWarnings.length > 0 ? { warnings: commitWarnings } : {}),
-      };
-      return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
+      const warnings: McpWarning[] = commitWarnings.map(w => ({ code: "github_commit_failed", message: w }));
+      const side_effects: McpSideEffect[] = [];
+      const next_actions: NextAction[] = [];
+      if (isSharedLayoutConfig(config) || config.single_template) {
+        warnings.push(CREATE_PAGE_SHARED_LAYOUT_WARNING);
+        const primaryLocale = createdLocales[0] ?? "en";
+        side_effects.push(sharedTemplateBlastSideEffect(contentType, primaryLocale));
+        next_actions.push({
+          tool: "get_page_content",
+          priority: "recommended",
+          reason: "Shared-layout entry inherits structure from single.{locale}.yml — re-read merged content before editing sections.",
+          args_hint: { contentType, slug, locale: primaryLocale },
+        });
+      }
+
+      return ok(
+        {
+          slug,
+          contentType,
+          directory: `${contentFolder}/${ctDir}/${slug}`,
+          locales: createdLocales,
+          ...(common.title ? { title: common.title } : {}),
+          ...(urls ? { urls } : {}),
+          ...(commitShas.length > 0 ? { commitShas } : {}),
+        },
+        { warnings, next_actions, ...(side_effects.length > 0 ? { side_effects } : {}) },
+      );
     }
   );
 
@@ -1514,20 +1634,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, site }) => {
+    async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, domain } = siteResult;
       if (!MCP_SERVER_SECRET) {
-        return {
-          content: [{
-            type: "text",
-            text: "add_section is unavailable: MCP_SERVER_SECRET is not configured. Set MCP_SERVER_SECRET in your environment before using section-editing tools.",
-          }],
-          isError: true,
-        };
+        return fail("add_section is unavailable: MCP_SERVER_SECRET is not configured. Set MCP_SERVER_SECRET in your environment before using section-editing tools.");
       }
       try {
         assertSafeSegment(slug, "slug");
@@ -1535,11 +1651,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -1548,32 +1664,40 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
-      }
+      const liveGate = confirmLiveEditGate({
+        tool: "add_section",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { section, index, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
+
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "add_section",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: true,
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
 
       const operation: Record<string, unknown> = {
         action: "add_item",
@@ -1584,28 +1708,51 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         operation.index = index;
       }
 
-      try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: internalHeaders(mcpToken),
-          body: JSON.stringify({
-            contentType: resolved.contentType,
-            slug,
-            locale,
-            operations: [operation],
-            ...(variant ? { variant } : {}),
-          }),
+      const apiResult = await callEditSectionsApi(
+        {
+          contentType: resolved.contentType,
+          slug,
+          locale,
+          variant,
+          layoutTarget,
+          operations: [operation],
+        },
+        mcpToken,
+        domain,
+      );
+      if ("error" in apiResult) return apiResult.error;
+
+      const warnings: McpWarning[] = [ADD_SECTION_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      let side_effects: McpSideEffect[] | undefined;
+      let next_actions: NextAction[] = [];
+      if (pathInfo.layer === "type_single") {
+        const env = sharedStructuralEnvelope({
+          tool: "add_section",
+          contentType: resolved.contentType,
+          config: resolved.config,
+          contentPath,
+          sourceLocale: locale,
+          relativePath: pathInfo.relativeHint,
+          argsHintBase: { section, index, confirm_live_edit: true },
+          reasonPrefix: "Shared layout section was added.",
         });
-        const data = await res.json() as Record<string, unknown>;
-        if (!res.ok) {
-          return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
-        }
-        const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-        return { content: [{ type: "text", text: `Section of type '${section.type as string}' added to ${resolved.contentType}/${slug}/${fileName}` }] };
-      } catch (e) {
-        return { content: [{ type: "text", text: `Failed to call edit-sections API: ${(e as Error).message}` }], isError: true };
+        side_effects = env.side_effects;
+        next_actions = env.next_actions;
       }
+
+      return ok(
+        {
+          message: `Section of type '${section.type as string}' added to ${pathInfo.relativeHint}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+        },
+        { warnings, next_actions, side_effects },
+      );
     }
   );
 
@@ -1625,11 +1772,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, index, variant, confirm_live_edit, site }) => {
+    async ({ contentType, slug, locale, index, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1637,11 +1786,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -1650,56 +1799,59 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
+      const liveGate = confirmLiveEditGate({
+        tool: "remove_section",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { index, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
+
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "remove_section",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: true,
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (!fs.existsSync(pathInfo.filePath)) {
+        return fail(`Locale file not found: ${pathInfo.relativeHint}`);
       }
 
-      const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
-      const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const localePath = path.join(dir, fileName);
-      try { assertWithinBase(localePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
-      }
-      if (!fs.existsSync(localePath)) {
-        return { content: [{ type: "text", text: `Locale file not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
-      }
-
-      // Build intended content before the conflict check.
-      const localeData = safeLoad(fs.readFileSync(localePath, "utf-8")) || {};
+      const localeData = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
       if (!Array.isArray(localeData.sections)) {
-        return { content: [{ type: "text", text: "Page has no sections array." }], isError: true };
+        return fail("Page has no sections array.");
       }
       const sections = localeData.sections as unknown[];
       if (index < 0 || index >= sections.length) {
-        return { content: [{ type: "text", text: `Index ${index} out of range (0–${sections.length - 1}).` }], isError: true };
+        return fail(`Index ${index} out of range (0–${sections.length - 1}).`);
       }
       const removed = sections.splice(index, 1)[0] as Record<string, unknown>;
       const intendedContent = safeDump(localeData);
 
-      const relativePath = `${contentFolder}/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
       const conflictCheck = await checkRemoteConflict(relativePath, domain);
       if (conflictCheck.conflict) {
         return conflictError({
@@ -1710,13 +1862,51 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
       }
 
-      const removeApiErr = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, operations: [{ action: "remove_item", path: "sections", index }] },
+      const apiResult = await callEditSectionsApi(
+        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: [{ action: "remove_item", path: "sections", index }] },
         mcpToken,
-        domain
+        domain,
       );
-      if (removeApiErr) return removeApiErr;
-      return { content: [{ type: "text", text: `Removed section at index ${index} (type: ${removed?.type ?? "unknown"}) from ${resolved.contentType}/${slug}/${fileName}` }] };
+      if ("error" in apiResult) return apiResult.error;
+
+      const warnings: McpWarning[] = [REMOVE_SECTION_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      let side_effects: McpSideEffect[] | undefined;
+      let next_actions: NextAction[] = [];
+      if (pathInfo.layer === "type_single") {
+        const env = sharedStructuralEnvelope({
+          tool: "remove_section",
+          contentType: resolved.contentType,
+          config: resolved.config,
+          contentPath,
+          sourceLocale: locale,
+          relativePath: pathInfo.relativeHint,
+          argsHintBase: { index, confirm_live_edit: true },
+          reasonPrefix: "Shared layout section was removed.",
+        });
+        side_effects = env.side_effects;
+        next_actions = env.next_actions;
+      } else {
+        next_actions = [{
+          tool: "get_section_bindings",
+          priority: "recommended",
+          reason: "Inspect whether the removed section was bound; siblings keep the section until you remove it there.",
+          args_hint: { contentType: resolved.contentType, slug, sectionIndex: index, locale },
+        }];
+      }
+
+      return ok(
+        {
+          message: `Removed section at index ${index} (type: ${removed?.type ?? "unknown"}) from ${pathInfo.relativeHint}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+        },
+        { warnings, next_actions, side_effects },
+      );
     }
   );
 
@@ -1736,11 +1926,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, locale, order, variant, confirm_live_edit, site }) => {
+    async ({ contentType, slug, locale, order, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1748,11 +1940,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -1761,47 +1953,50 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
+      const liveGate = confirmLiveEditGate({
+        tool: "reorder_sections",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { order, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
+
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "reorder_sections",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: true,
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (!fs.existsSync(pathInfo.filePath)) {
+        return fail(`Locale file not found: ${pathInfo.relativeHint}`);
       }
 
-      const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
-      const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const localePath = path.join(dir, fileName);
-      try { assertWithinBase(localePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
-      }
-      if (!fs.existsSync(localePath)) {
-        return { content: [{ type: "text", text: `Locale file not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
-      }
-
-      // Validate permutation and build intended content before the conflict check.
-      const localeData = safeLoad(fs.readFileSync(localePath, "utf-8")) || {};
+      const localeData = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
       if (!Array.isArray(localeData.sections)) {
-        return { content: [{ type: "text", text: "Page has no sections array." }], isError: true };
+        return fail("Page has no sections array.");
       }
       const sections = localeData.sections as unknown[];
       const n = sections.length;
@@ -1812,12 +2007,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return true;
       });
       if (!isPermutation) {
-        return { content: [{ type: "text", text: `Order must be a permutation of [0..${n - 1}] with no repeats. Got: [${order.join(", ")}]` }], isError: true };
+        return fail(`Order must be a permutation of [0..${n - 1}] with no repeats. Got: [${order.join(", ")}]`);
       }
       const reorderedSections = order.map(i => sections[i]);
       const intendedContent = safeDump({ ...localeData, sections: reorderedSections });
 
-      const relativePath = `${contentFolder}/${getDirectory(resolved.contentType, resolved.config)}/${slug}/${fileName}`;
+      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
       const conflictCheck = await checkRemoteConflict(relativePath, domain);
       if (conflictCheck.conflict) {
         return conflictError({
@@ -1828,13 +2023,44 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
       }
 
-      const reorderApiErr = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, operations: [{ action: "replace_all_sections", sections: reorderedSections }] },
+      const apiResult = await callEditSectionsApi(
+        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: [{ action: "replace_all_sections", sections: reorderedSections }] },
         mcpToken,
-        domain
+        domain,
       );
-      if (reorderApiErr) return reorderApiErr;
-      return { content: [{ type: "text", text: `Sections reordered in ${resolved.contentType}/${slug}/${fileName}` }] };
+      if ("error" in apiResult) return apiResult.error;
+
+      const warnings: McpWarning[] = [REORDER_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      let side_effects: McpSideEffect[] | undefined;
+      let next_actions: NextAction[] = [];
+      if (pathInfo.layer === "type_single") {
+        const env = sharedStructuralEnvelope({
+          tool: "reorder_sections",
+          contentType: resolved.contentType,
+          config: resolved.config,
+          contentPath,
+          sourceLocale: locale,
+          relativePath: pathInfo.relativeHint,
+          argsHintBase: { order, confirm_live_edit: true },
+          reasonPrefix: "Shared layout section order changed.",
+        });
+        side_effects = env.side_effects;
+        next_actions = env.next_actions;
+      }
+
+      return ok(
+        {
+          message: `Sections reordered in ${pathInfo.relativeHint}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+        },
+        { warnings, next_actions, side_effects },
+      );
     }
   );
 
@@ -1865,11 +2091,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, site }) => {
+    async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1877,12 +2105,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -1891,48 +2119,50 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
+      const liveGate = confirmLiveEditGate({
+        tool: "replace_page_sections",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { sections, meta, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
+
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "replace_page_sections",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: true,
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (!fs.existsSync(pathInfo.filePath)) {
+        return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 
-      const ctDir = getDirectory(resolved.contentType, resolved.config);
-      const dir = path.join(contentPath, ctDir, slug);
-      const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const filePath = path.join(dir, fileName);
-      try { assertWithinBase(filePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
-      }
-      if (!fs.existsSync(filePath)) {
-        return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
-      }
+      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
 
-      const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
-
-      // Compute intended content for conflict check
-      const currentData = safeLoad(fs.readFileSync(filePath, "utf-8")) || {};
+      const currentData = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
       currentData.sections = sections;
       if (meta) {
         const existingMeta = (typeof currentData.meta === "object" && currentData.meta !== null && !Array.isArray(currentData.meta))
@@ -1951,7 +2181,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
       }
 
-      // Build operations: replace all sections, then apply any meta fields
       const operations: Record<string, unknown>[] = [{ action: "replace_all_sections", sections }];
       if (meta) {
         for (const [k, v] of Object.entries(meta)) {
@@ -1959,16 +2188,53 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const apiErr = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, operations },
+      const apiResult = await callEditSectionsApi(
+        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations },
         mcpToken,
-        domain
+        domain,
       );
-      if (apiErr) return apiErr;
+      if ("error" in apiResult) return apiResult.error;
+
+      const warnings: McpWarning[] = [REPLACE_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      let side_effects: McpSideEffect[] | undefined;
+      let next_actions: NextAction[] = [];
+      if (pathInfo.layer === "type_single") {
+        const env = sharedStructuralEnvelope({
+          tool: "replace_page_sections",
+          contentType: resolved.contentType,
+          config: resolved.config,
+          contentPath,
+          sourceLocale: locale,
+          relativePath: pathInfo.relativeHint,
+          argsHintBase: { sections, meta, confirm_live_edit: true },
+          reasonPrefix: "Shared layout sections were fully replaced.",
+        });
+        side_effects = env.side_effects;
+        next_actions = env.next_actions;
+      } else {
+        next_actions = [{
+          tool: "get_section_bindings",
+          priority: "optional",
+          reason: "Full replace does not sync bindings — inspect groups if bound section_ids may be stale.",
+          args_hint: { contentType: resolved.contentType, slug, sectionIndex: 0, locale },
+        }];
+      }
 
       const parts: string[] = [`sections (${sections.length} item${sections.length !== 1 ? "s" : ""})`];
       if (meta) parts.push(`meta (${Object.keys(meta).length} field${Object.keys(meta).length !== 1 ? "s" : ""})`);
-      return { content: [{ type: "text", text: `Replaced ${parts.join(" and ")} in ${resolved.contentType}/${slug}/${fileName}` }] };
+      return ok(
+        {
+          message: `Replaced ${parts.join(" and ")} in ${pathInfo.relativeHint}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+        },
+        { warnings, next_actions, side_effects },
+      );
     }
   );
 
@@ -2003,11 +2269,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file. Does not affect _common.yml routing."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      layout_target: layoutTargetSchema,
+      confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates, contentType, variant, confirm_live_edit, site }) => {
+    async ({ slug, locale, updates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2015,25 +2283,21 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
-      // Validate all field paths
       const badPaths = updates.filter(u =>
         !u.field_path.startsWith("sections.") &&
         !u.field_path.startsWith("meta.") &&
         !SAFE_TOP_LEVEL_FIELDS.has(u.field_path)
       );
       if (badPaths.length > 0) {
-        return {
-          content: [{ type: "text", text: `Disallowed field_path(s): ${badPaths.map(u => u.field_path).join(", ")}. Must start with 'sections.', 'meta.', or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.` }],
-          isError: true,
-        };
+        return fail(`Disallowed field_path(s): ${badPaths.map(u => u.field_path).join(", ")}. Must start with 'sections.', 'meta.', or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.`);
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -2042,43 +2306,47 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      if (!variant && !confirm_live_edit) {
-        const versioning = loadVersioning(resolved.contentType, slug, contentPath);
-        if (versioning) {
-          const availableVariants = Object.entries(versioning).flatMap(([loc, data]) =>
-            (data.variants || []).map(v => ({ locale: loc, slug: v.slug, allocation: v.allocation }))
-          );
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                action_required: "confirm_live_edit",
-                message:
-                  `Page '${slug}' has active variants. Before editing the live version, please ask the user: ` +
-                  `"Do you want to edit the live version directly, or create a new draft variant first?" ` +
-                  `To edit the live version, re-call with confirm_live_edit: true. ` +
-                  `To edit a draft, call create_variant then re-call with variant: <variantSlug>.`,
-                available_variants: availableVariants,
-                options: [
-                  "Pass confirm_live_edit: true to overwrite the live locale file directly",
-                  "Call create_variant to create a draft, then pass variant: <variantSlug> to edit the draft instead",
-                ],
-              }, null, 2),
-            }],
-          };
-        }
-      }
+      const liveGate = confirmLiveEditGate({
+        tool: "batch_update_fields",
+        slug,
+        contentType: resolved.contentType,
+        locale,
+        contentPath,
+        variant,
+        confirm_live_edit,
+        extraArgsHint: { updates, layout_target, confirm_layout_target },
+      });
+      if (liveGate) return liveGate;
 
-      const ctDir = getDirectory(resolved.contentType, resolved.config);
-      const dir = path.join(contentPath, ctDir, slug);
-      const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
-      const localeFilePath = path.join(dir, fileName);
+      const touchesSections = updates.some(u => u.field_path.startsWith("sections."));
+      const layoutGate = resolveLayoutTargetGate({
+        tool: "batch_update_fields",
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layout_target: layout_target as LayoutTarget | undefined,
+        confirm_layout_target,
+        requireConfirmWhenAuto: touchesSections,
+      });
+      if ("gate" in layoutGate) return layoutGate.gate;
+      const layoutTarget = layoutGate.target;
+
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      const localeFilePath = pathInfo.filePath;
       try { assertWithinBase(localeFilePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
-      const commonFilePath = path.join(dir, "_common.yml");
+      const commonFilePath = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug, "_common.yml");
 
-      // Split updates into locale-file paths vs _common.yml paths
       const localeEntries: Array<[string, unknown]> = [];
       const commonEntries: Array<[string, unknown]> = [];
       for (const { field_path, value } of updates) {
@@ -2090,16 +2358,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const localeRelPath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
+      const localeRelPath = `${contentFolder}/${pathInfo.relativeHint}`;
+      const ctDir = getDirectory(resolved.contentType, resolved.config);
       const commonRelPath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
 
-      // Validate file existence before any writes
       if (localeEntries.length > 0 && !fs.existsSync(localeFilePath)) {
-        return { content: [{ type: "text", text: `File not found: ${resolved.contentType}/${slug}/${fileName}` }], isError: true };
+        return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 
-      // Run ALL conflict checks upfront before any write, so we never produce partial state
-      // when updates span both the locale file and _common.yml.
       if (localeEntries.length > 0) {
         const conflictErr = await getConflictError(localeFilePath, localeRelPath, localeEntries, { updates: localeEntries.map(([p, v]) => ({ field_path: p, value: v })) }, domain);
         if (conflictErr) return conflictErr;
@@ -2109,18 +2375,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (conflictErr) return conflictErr;
       }
 
-      // Both conflict checks passed — now apply writes sequentially
       const results: string[] = [];
 
       if (localeEntries.length > 0) {
         const ops = localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-        const apiErr = await callEditSectionsApi(
-          { contentType: resolved.contentType, slug, locale, variant, operations: ops },
+        const apiResult = await callEditSectionsApi(
+          { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: ops },
           mcpToken,
-          domain
+          domain,
         );
-        if (apiErr) return apiErr;
-        results.push(`${localeEntries.length} field${localeEntries.length !== 1 ? "s" : ""} → ${fileName}`);
+        if ("error" in apiResult) return apiResult.error;
+        results.push(`${localeEntries.length} field${localeEntries.length !== 1 ? "s" : ""} → ${pathInfo.relativeHint}`);
       }
 
       if (commonEntries.length > 0) {
@@ -2134,8 +2399,38 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         results.push(`${commonEntries.length} field${commonEntries.length !== 1 ? "s" : ""} → _common.yml`);
       }
 
+      const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
+      const next_actions: NextAction[] = [];
+      if (touchesSections) {
+        warnings.push(BATCH_BINDING_WARNING);
+        next_actions.push({
+          tool: "get_section_bindings",
+          priority: "recommended",
+          reason: "batch_update_fields does not propagate bindings — inspect membership, then re-apply via update_section_field if needed.",
+          args_hint: { contentType: resolved.contentType, slug, sectionIndex: 0, locale },
+        });
+        next_actions.push({
+          tool: "update_section_field",
+          priority: "recommended",
+          reason: "For bound sections, re-apply field changes with update_section_field so server binding propagate runs.",
+          args_hint: { contentType: resolved.contentType, slug, locale, confirm_live_edit: true },
+        });
+      }
+
       const total = updates.length;
-      return { content: [{ type: "text", text: `Applied ${total} update${total !== 1 ? "s" : ""} to ${resolved.contentType}/${slug}: ${results.join("; ")}` }] };
+      return ok(
+        {
+          message: `Applied ${total} update${total !== 1 ? "s" : ""} to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
+          ...wrotePayload({
+            layer: pathInfo.layer,
+            contentType: resolved.contentType,
+            path: pathInfo.relativeHint,
+            locale,
+            slug,
+          }),
+        },
+        { warnings, next_actions },
+      );
     }
   );
 
@@ -2167,7 +2462,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, source_locale, target_locale, content, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return fail(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2175,16 +2470,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         assertSafeLocale(target_locale);
         if (contentType) assertSafeSegment(contentType, "contentType");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       if (source_locale === target_locale) {
-        return { content: [{ type: "text", text: `source_locale and target_locale must be different (both are '${source_locale}').` }], isError: true };
+        return fail(`source_locale and target_locale must be different (both are '${source_locale}').`);
       }
 
       const resolved = resolveContentType(slug, contentType, contentPath);
       if (!resolved) {
-        return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
 
       if (mcpToken) {
@@ -2196,31 +2491,28 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const ctDir = getDirectory(resolved.contentType, resolved.config);
       const dir = path.join(contentPath, ctDir, slug);
 
-      // Validate source locale exists
       const sourceFilePath = path.join(dir, `${source_locale}.yml`);
       try { assertWithinBase(sourceFilePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
       if (!fs.existsSync(sourceFilePath)) {
-        return { content: [{ type: "text", text: `Source locale '${source_locale}' not found for page '${slug}' (expected: ${resolved.contentType}/${slug}/${source_locale}.yml)` }], isError: true };
+        return fail(`Source locale '${source_locale}' not found for page '${slug}' (expected: ${resolved.contentType}/${slug}/${source_locale}.yml)`);
       }
 
       const targetFileName = `${target_locale}.yml`;
       const targetFilePath = path.join(dir, targetFileName);
       try { assertWithinBase(targetFilePath, contentPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       const targetRelPath = `${contentFolder}/${ctDir}/${slug}/${targetFileName}`;
 
-      // Build the full locale file content
       const localeData: Record<string, unknown> = { slug, sections: content.sections };
       if (content.meta && Object.keys(content.meta).length > 0) {
         localeData.meta = content.meta;
       }
       const intendedContent = safeDump(localeData);
 
-      // Conflict check only if target file already exists
       if (fs.existsSync(targetFilePath)) {
         const conflictCheck = await checkRemoteConflict(targetRelPath, domain);
         if (conflictCheck.conflict) {
@@ -2233,7 +2525,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      // Write the target locale file directly
       const isNew = !fs.existsSync(targetFilePath);
       fs.writeFileSync(targetFilePath, intendedContent, "utf-8");
 
@@ -2243,24 +2534,82 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         callRefreshCacheApi(resolved.contentType, domain),
       ]);
 
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            success: true,
-            message: `Translated content ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`,
-            slug,
+      const warnings: McpWarning[] = [];
+      if (commitResult.warning) {
+        warnings.push({ code: "github_commit_failed", message: commitResult.warning });
+      }
+
+      return ok(
+        {
+          message: `Translated content ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`,
+          slug,
+          contentType: resolved.contentType,
+          source_locale,
+          target_locale,
+          created: isNew,
+          sectionsCount: content.sections.length,
+          metaKeys: content.meta ? Object.keys(content.meta) : [],
+          ...(commitResult.commitSha ? { commitSha: commitResult.commitSha } : {}),
+          ...wrotePayload({
+            layer: "entry_locale",
             contentType: resolved.contentType,
-            source_locale,
-            target_locale,
-            created: isNew,
-            sectionsCount: content.sections.length,
-            metaKeys: content.meta ? Object.keys(content.meta) : [],
-            ...(commitResult.commitSha ? { commitSha: commitResult.commitSha } : {}),
-            ...(commitResult.warning ? { warning: commitResult.warning } : {}),
-          }, null, 2),
-        }],
-      };
+            path: `${ctDir}/${slug}/${targetFileName}`,
+            locale: target_locale,
+            slug,
+          }),
+        },
+        { warnings, next_actions: [] },
+      );
+    }
+  );
+
+  // get_section_bindings
+  mcp.tool(
+    "get_section_bindings",
+    "Read-only: look up the section-binding group for a section by contentType, slug, and sectionIndex. " +
+    "Returns { group: null } when the section is not bound, or the enriched binding group with members. " +
+    "Use after structural edits or batch_update_fields when you need membership context. " +
+    "Does not mutate content — binding content sync happens on live update_section_field / update_section_fields.",
+    {
+      contentType: z.string().describe("Content type, e.g. 'page' or 'program'"),
+      slug: z.string().describe("Page slug"),
+      sectionIndex: z.number().int().describe("0-based section index on the page"),
+      locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, slug, sectionIndex, locale, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(slug, "slug");
+        assertSafeLocale(locale);
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      try {
+        const params = new URLSearchParams({
+          contentType,
+          slug,
+          sectionIndex: String(sectionIndex),
+          locale,
+        });
+        if (domain) params.set("__site", domain);
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/bindings/section?${params}`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const data = await res.json() as Record<string, unknown>;
+        if (!res.ok) {
+          return fail((data.error as string) || `Server error: ${res.status}`);
+        }
+        return ok(
+          { contentType, slug, sectionIndex, locale, ...data },
+          { warnings: [], next_actions: [] },
+        );
+      } catch (e) {
+        return fail(`Failed to fetch section bindings: ${(e as Error).message}`);
+      }
     }
   );
 

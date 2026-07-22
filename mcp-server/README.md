@@ -2,6 +2,20 @@
 
 An MCP (Model Context Protocol) server that gives Claude read and write access to the platform's YAML-driven content pages. Works with both **Claude Desktop** (via a local URL) and **claude.com** (as a deployed custom connector).
 
+## Mutating response envelope
+
+Every **mutating** tool success payload is JSON inside `content[0].text` and always includes:
+
+| Field | Meaning |
+|---|---|
+| `warnings` | What did **not** / will not happen (e.g. no binding propagate on variants). Always an array (`[]` when none). |
+| `side_effects` | Optional blast radius beyond the obvious write (`bound_updates`, shared-template impact). |
+| `next_actions` | Exact registered tool names the agent should call next (`required` / `recommended` / `optional`), with optional `args_hint`. Always an array. |
+
+Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). Gates such as `confirm_live_edit` and `confirm_layout_target` use `actionRequired` (not errors).
+
+**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live single-section field edits **do** propagate section bindings on the server (`bound_updates`); `batch_update_fields` does not.
+
 ## Tools
 
 | Tool | Description |
@@ -16,6 +30,8 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 | `add_section` | Insert a new section at a given index (or append) |
 | `remove_section` | Remove a section by index |
 | `reorder_sections` | Reorder sections by supplying a new index order |
+| `batch_update_fields` | Bulk patch many paths on one page (does **not** propagate bindings) |
+| `get_section_bindings` | Read binding-group membership for a section |
 | `list_components` | List all available section component types with versions and variants |
 | `get_component_schema` | Get the top-level schema info for a component: name, description, when_to_use, and variant list |
 | `get_component_variant` | Get the field definitions and worked YAML example for a specific component variant |

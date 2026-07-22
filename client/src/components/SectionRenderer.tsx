@@ -771,17 +771,26 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     return result;
   })();
 
-  // Build sections-by-id map for PageSectionsContext (inline render targets)
-  const pageSectionsMap = useMemo(() => {
-    const map: Record<string, Record<string, unknown>> = {};
+  // Build sections maps for PageSectionsContext (inline render + cross-section features)
+  const pageSectionsContextValue = useMemo(() => {
+    const byId: Record<string, Record<string, unknown>> = {};
+    const ordered: Array<{
+      sectionKey: string;
+      index: number;
+      data: Record<string, unknown>;
+    }> = [];
     for (let i = 0; i < sections.length; i++) {
       const raw = sections[i] as Record<string, unknown>;
+      const data = (resolvedSections[i] as Record<string, unknown>) ?? raw;
+      const sectionType = (data.type as string) || "section";
       const sectionId = raw.section_id as string | undefined;
+      const sectionKey = sectionId || `${sectionType}-${i}`;
       if (sectionId) {
-        map[sectionId] = (resolvedSections[i] as Record<string, unknown>) ?? raw;
+        byId[sectionId] = data;
       }
+      ordered.push({ sectionKey, index: i, data });
     }
-    return map;
+    return { byId, ordered };
   }, [sections, resolvedSections]);
 
   // Dialog shown when a template section being moved has per-entry dependants
@@ -1653,7 +1662,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   ) || [];
 
   return (
-    <PageSectionsProvider value={pageSectionsMap}>
+    <PageSectionsProvider value={pageSectionsContextValue}>
       <>
         {content}
         {isEditMode && (
