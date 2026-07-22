@@ -139,7 +139,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                         </p>
                       )}
                       {category && (
-                        <span className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground">
+                        <span className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-[12.5px] font-medium text-primary-foreground">
                           {category}
                         </span>
                       )}
@@ -162,7 +162,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                 )}
 
                 {features && features.length > 0 && (
-                  <div className="mx-3 mb-3 mt-3 rounded-[10px] px-2 pt-1.5 pb-1" style={{ background: "hsl(var(--muted-foreground) / 0.07)" }}>
+                  <div className="mx-3 mb-3 mt-3 rounded-[10px] px-2 pt-1.5 pb-1" style={{ background: "hsl(var(--muted-foreground) / 0.04)" }}>
                     <div className="grid grid-cols-2 gap-x-3">
                       {features.map((item, i) => {
                         const IconComponent = item.icon
@@ -234,7 +234,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
 
       {/* ── STATS BAR — overlaps hero bottom ── */}
       {stats && stats.length > 0 && (
-        <div className="-mt-12 relative z-10">
+        <div className="mt-4 relative z-10">
           <div className="bg-card rounded-[16px] border border-border shadow-lg shadow-black/5 flex flex-col md:flex-row py-5 md:divide-x divide-y md:divide-y-0 divide-border">
             {stats.map((stat, i) => {
               const IconComponent = stat.icon ? getIcon(stat.icon) : null;
