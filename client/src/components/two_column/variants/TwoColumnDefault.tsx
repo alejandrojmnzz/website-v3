@@ -201,6 +201,7 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
   const handleLinkClick = useInternalNav();
   const [bulletsExpanded, setBulletsExpanded] = useState(false);
   const [expandedBullets, setExpandedBullets] = useState<Record<number, boolean>>({});
+  const [descExpanded, setDescExpanded] = useState(false);
   
   const toggleBullet = (index: number) => {
     setExpandedBullets(prev => ({
@@ -247,12 +248,61 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
             </p>
           )}
 
+          {column.description_extended && (
+            <>
+              {descExpanded && (
+                <p
+                  className={`${textFontSize} text-muted-foreground leading-relaxed`}
+                  data-testid="text-two-column-description-extended"
+                >
+                  {column.description_extended}
+                </p>
+              )}
+              <button
+                onClick={() => setDescExpanded(!descExpanded)}
+                className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
+                data-testid="button-toggle-description"
+              >
+                {descExpanded ? (
+                  <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
+                ) : (
+                  <>{renderIcon("ChevronDown", "w-4 h-4")} Read more</>
+                )}
+              </button>
+            </>
+          )}
+
           {column.html_content && (
             <div 
               className="text-muted-foreground leading-relaxed"
               dangerouslySetInnerHTML={{ __html: column.html_content }}
               data-testid="html-two-column-content"
             />
+          )}
+
+          {column.html_content_extended && (
+            <>
+              {descExpanded && (
+                <div
+                  className="text-muted-foreground leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: column.html_content_extended }}
+                  data-testid="html-two-column-content-extended"
+                />
+              )}
+              {!column.description_extended && (
+                <button
+                  onClick={() => setDescExpanded(!descExpanded)}
+                  className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
+                  data-testid="button-toggle-html-content"
+                >
+                  {descExpanded ? (
+                    <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
+                  ) : (
+                    <>{renderIcon("ChevronDown", "w-4 h-4")} Read more</>
+                  )}
+                </button>
+              )}
+            </>
           )}
           
           {column.bullets && column.bullets.length > 0 && (() => {
