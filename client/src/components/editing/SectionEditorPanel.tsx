@@ -528,9 +528,10 @@ export function SectionEditorPanel({
   const [resettingField, setResettingField] = useState<string | null>(null);
 
   const { data: templateSectionsData } = useQuery<{ sections: string[] }>({
-    queryKey: ["/api/content-types", contentType, "single-template-sections", locale ?? "en"],
+    queryKey: ["/api/content-types", contentType, "single-template-sections", locale ?? "en", variant ?? ""],
     queryFn: async () => {
       const params = new URLSearchParams({ locale: locale ?? "en" });
+      if (variant) params.set("variantSlug", variant);
       const res = await fetch(`/api/content-types/${contentType}/single-template-sections?${params}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ sections: string[] }>;

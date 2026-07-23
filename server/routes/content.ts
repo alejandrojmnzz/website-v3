@@ -1565,7 +1565,8 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
       }
-      const merged = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res));
+      const variantSlug = req.query.variantSlug as string | undefined;
+      const merged = mergeSingleTemplate(type, locale, undefined, variantSlug, getContentRoot(res));
       if (!merged) {
         res.status(404).json({ error: "Single template not found" });
         return;
