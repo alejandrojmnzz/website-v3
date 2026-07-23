@@ -408,7 +408,7 @@ function getAllContentFiles(contentRoot?: string): string[] {
         }
       } else {
         const ext = path.extname(entry.name).toLowerCase();
-        if (ext === '.yml' || ext === '.yaml' || ext === '.json') {
+        if (ext === '.yml' || ext === '.yaml' || ext === '.json' || ext === '.ts') {
           const relativePath = path.relative(process.cwd(), fullPath);
           if (shouldTrackFile(relativePath, undefined, contentRoot)) {
             files.push(relativePath);
