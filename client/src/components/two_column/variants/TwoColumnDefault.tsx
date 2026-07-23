@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import type { TwoColumnSection as TwoColumnSectionType, TwoColumnColumn, BenefitItem } from "@shared/schema";
@@ -7,6 +9,7 @@ import { getIcon } from "@/lib/icons";
 import { UniversalVideo } from "@/components/UniversalVideo";
 import { UniversalImage } from "@/components/UniversalImage";
 import { useInternalNav } from "@/hooks/useInternalNav";
+import { RichTextContent } from "@/components/ui/rich-text-content";
 
 export type { TwoColumnSectionType };
 
@@ -222,12 +225,11 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
       {hasTextContent && (
         <div className={`flex flex-col ${gapClass} w-full ${textAlignClass}`}>
           {column.heading && (
-            <h2 
+            <h2
               className="text-foreground text-[36px]"
               data-testid="text-two-column-heading"
-            >
-              {column.heading}
-            </h2>
+              dangerouslySetInnerHTML={{ __html: column.heading }}
+            />
           )}
           
           {column.sub_heading && (
@@ -240,12 +242,11 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
           )}
           
           {column.description && (
-            <p 
-              className={`${textFontSize} text-muted-foreground leading-relaxed`}
+            <RichTextContent
+              html={column.description}
+              className={`${textFontSize} text-muted-foreground`}
               data-testid="text-two-column-description"
-            >
-              {column.description}
-            </p>
+            />
           )}
 
           {column.description_extended && (
@@ -294,6 +295,34 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
                   onClick={() => setDescExpanded(!descExpanded)}
                   className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
                   data-testid="button-toggle-html-content"
+                >
+                  {descExpanded ? (
+                    <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
+                  ) : (
+                    <>{renderIcon("ChevronDown", "w-4 h-4")} Read more</>
+                  )}
+                </button>
+              )}
+            </>
+          )}
+
+          {column.description_extended_md && (
+            <>
+              {descExpanded && (
+                <div
+                  className="prose prose-sm max-w-none text-muted-foreground prose-a:text-primary prose-a:no-underline prose-a:hover:underline"
+                  data-testid="md-two-column-description-extended"
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {column.description_extended_md}
+                  </ReactMarkdown>
+                </div>
+              )}
+              {!column.description_extended && !column.html_content_extended && (
+                <button
+                  onClick={() => setDescExpanded(!descExpanded)}
+                  className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
+                  data-testid="button-toggle-description-md"
                 >
                   {descExpanded ? (
                     <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
