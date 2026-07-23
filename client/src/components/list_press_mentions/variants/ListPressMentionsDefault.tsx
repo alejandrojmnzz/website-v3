@@ -1,19 +1,41 @@
 
 import type { ListPressMentionsSection } from "@shared/schema";
 import { UniversalImage } from "@/components/UniversalImage";
+import { Badge } from "@/components/ui/badge";
+import { coerceToHtml, coerceToText } from "@/lib/variable-manager";
 
 interface ListPressMentionsCardsProps {
   data: ListPressMentionsSection;
 }
 
+function normalizeBadges(badges: unknown): string[] {
+  if (!Array.isArray(badges)) return [];
+  const result: string[] = [];
+  for (const badge of badges) {
+    if (typeof badge === "string" || typeof badge === "number") {
+      const text = coerceToText(badge);
+      if (text) result.push(text);
+      continue;
+    }
+    if (badge && typeof badge === "object") {
+      const obj = badge as Record<string, unknown>;
+      const text = coerceToText(obj.text ?? obj.label ?? obj.name ?? badge);
+      if (text) result.push(text);
+    }
+  }
+  return result;
+}
+
 export default function ListPressMentionsCards({ data }: ListPressMentionsCardsProps) {
   const items = data.items || [];
-  const title = data.title;
+  const titleHtml = coerceToHtml(data.title);
   const subtitle = data.subtitle;
   const defaultBoxColor = data.default_box_color || "hsl(var(--muted))";
   const defaultTitleColor = data.default_title_color;
   const defaultExcerptColor = data.default_excerpt_color;
   const defaultLinkColor = data.default_link_color;
+  const badgeColor = data.badge_color;
+  const badgeTextColor = data.badge_text_color;
   const defaultLogoHeight = data.default_logo_height;
   const columns = data.columns || 3;
   const background = data.background;
@@ -36,16 +58,15 @@ export default function ListPressMentionsCards({ data }: ListPressMentionsCardsP
       data-testid="section-press-mentions"
     >
       <div className="max-w-7xl mx-auto px-4 md:px-6">
-        {(title || subtitle) && (
+        {(titleHtml || subtitle) && (
           <div className="text-center mb-10">
-            {title && (
+            {titleHtml && (
               <h2
-                className="text-h2 mb-3 text-foreground"
+                className="text-h2 mb-3 text-foreground [&_p]:mb-0 [&_p]:inline [&_p]:m-0"
                 style={data.title_color ? { color: data.title_color } : undefined}
                 data-testid="text-press-mentions-title"
-              >
-                {title}
-              </h2>
+                dangerouslySetInnerHTML={{ __html: titleHtml }}
+              />
             )}
             {subtitle && (
               <p
@@ -87,6 +108,8 @@ export default function ListPressMentionsCards({ data }: ListPressMentionsCardsP
               defaultTitleColor={defaultTitleColor}
               defaultExcerptColor={defaultExcerptColor}
               defaultLinkColor={defaultLinkColor}
+              badgeColor={badgeColor}
+              badgeTextColor={badgeTextColor}
               defaultLogoHeight={defaultLogoHeight}
               index={index}
             />
@@ -103,6 +126,8 @@ interface PressMentionCardProps {
   defaultTitleColor?: string;
   defaultExcerptColor?: string;
   defaultLinkColor?: string;
+  badgeColor?: string;
+  badgeTextColor?: string;
   defaultLogoHeight?: number;
   index: number;
 }
@@ -113,6 +138,8 @@ function PressMentionCard({
   defaultTitleColor,
   defaultExcerptColor,
   defaultLinkColor,
+  badgeColor,
+  badgeTextColor,
   defaultLogoHeight,
   index,
 }: PressMentionCardProps) {
@@ -120,6 +147,7 @@ function PressMentionCard({
   const titleColor = item.title_color || defaultTitleColor;
   const excerptColor = item.excerpt_color || defaultExcerptColor;
   const linkColor = item.link_color || defaultLinkColor || "hsl(var(--primary))";
+  const badges = normalizeBadges(item.badges);
 
   return (
     <div
@@ -153,6 +181,28 @@ function PressMentionCard({
           >
             {item.title}
           </h3>
+        )}
+
+        {badges.length > 0 && (
+          <div
+            className="flex flex-wrap gap-2 -mt-2"
+            data-testid={`badges-press-mention-${index}`}
+          >
+            {badges.map((badge, badgeIndex) => (
+              <Badge
+                key={`${badge}-${badgeIndex}`}
+                variant="secondary"
+                className="text-xs font-medium border-transparent rounded-full"
+                style={{
+                  ...(badgeColor ? { backgroundColor: badgeColor } : {}),
+                  ...(badgeTextColor ? { color: badgeTextColor } : {}),
+                }}
+                data-testid={`badge-press-mention-${index}-${badgeIndex}`}
+              >
+                {badge}
+              </Badge>
+            ))}
+          </div>
         )}
 
         {item.excerpt && (
