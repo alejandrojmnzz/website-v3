@@ -481,6 +481,7 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
       {column.video && (() => {
         const videoIsObj = typeof column.video === "object" && column.video !== null;
         const videoUrl = videoIsObj ? (column.video as { url: string }).url : (column.video as string);
+        if (!videoUrl?.trim()) return null;
         const videoRatio = videoIsObj ? ((column.video as { ratio?: string }).ratio || "16:9") : (column.video_ratio || "16:9");
         const videoPreviewImage = videoIsObj ? (column.video as { preview_image_url?: string }).preview_image_url : column.video_preview_image;
         const videoWidth = videoIsObj ? ((column.video as { width?: string }).width || "100%") : (column.video_width || "100%");
@@ -588,6 +589,7 @@ function BenefitCardsVariant({ data }: TwoColumnProps) {
                     const rv = data.right!.video;
                     const rvIsObj = typeof rv === "object" && rv !== null;
                     const rvUrl = rvIsObj ? (rv as { url: string }).url : (rv as string);
+                    if (!rvUrl?.trim()) return null;
                     const rvRatio = rvIsObj ? ((rv as { ratio?: string }).ratio || "16:9") : (data.right!.video_ratio || "16:9");
                     const rvPreview = rvIsObj ? (rv as { preview_image_url?: string }).preview_image_url : data.right!.video_preview_image;
                     return (
