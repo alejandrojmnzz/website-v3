@@ -675,14 +675,25 @@ export function VersioningView({
                             {isActive && (
                               <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" data-testid={`dot-active-variant-${locale}-${variant.slug}`} />
                             )}
-                            <button
-                              onClick={() => handleEditVariant(locale, variant.slug)}
-                              title={`Edit variant: ${variant.slug}`}
-                              className={`truncate text-left hover:underline ${isActive ? "font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                              data-testid={`button-edit-variant-${locale}-${variant.slug}`}
-                            >
-                              {deslugify(variant.slug)}
-                            </button>
+                            <div className="flex flex-col min-w-0">
+                              <button
+                                onClick={() => handleEditVariant(locale, variant.slug)}
+                                title={`Edit variant: ${variant.slug}`}
+                                className={`truncate text-left hover:underline ${isActive ? "font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                data-testid={`button-edit-variant-${locale}-${variant.slug}`}
+                              >
+                                {deslugify(variant.slug)}
+                              </button>
+                              {isActive && isDatabaseSingle && contentInfo.slug && contentInfo.type && (
+                                <button
+                                  onClick={() => navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}`)}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground hover:underline text-left truncate leading-tight mt-0.5"
+                                  title={`Ver item original: ${contentInfo.slug}`}
+                                >
+                                  ↳ {contentInfo.slug}
+                                </button>
+                              )}
+                            </div>
                             {isActive && (
                               <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0" data-testid={`badge-active-variant-${locale}`}>
                                 active
