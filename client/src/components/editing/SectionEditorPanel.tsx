@@ -1872,7 +1872,8 @@ export function SectionEditorPanel({
       // When previewing a DB single template variant (?force_variant=...), route
       // the save directly to single-{variantSlug}.{locale}.yml on the server so
       // edits land in the variant file instead of the shared base template.
-      const forceVariantFromUrl = new URLSearchParams(window.location.search).get("force_variant");
+      const _urlParams = new URLSearchParams(window.location.search);
+      const forceVariantFromUrl = _urlParams.get("force_variant") || _urlParams.get("variant");
       const result = await editContent({
         contentType,
         slug,
