@@ -184,6 +184,7 @@ export default function Page() {
           contentType="page"
           slug={slug}
           locale={locale}
+          variant={forceVariant}
           singleEntry={page.singleEntry}
         />
       </MenuVisualContextProvider>
