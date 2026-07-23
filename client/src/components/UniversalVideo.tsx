@@ -74,7 +74,7 @@ const usesMobileLayout = (): boolean => {
   return window.matchMedia('(max-width: 768px)').matches;
 };
 
-function UniversalVideoInner({
+export function UniversalVideo({
   url,
   ratio = "16:9",
   mobileRatio,
@@ -335,12 +335,6 @@ function UniversalVideoInner({
       </Dialog>
     </>
   );
-}
-
-export function UniversalVideo(props: UniversalVideoProps) {
-  const url = props.url as unknown;
-  if (!url || url === "null" || url === "undefined" || (typeof url === "string" && !url.trim())) return null;
-  return <UniversalVideoInner {...props} />;
 }
 
 export default UniversalVideo;
