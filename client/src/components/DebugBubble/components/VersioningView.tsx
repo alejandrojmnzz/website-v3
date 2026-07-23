@@ -1041,59 +1041,42 @@ export function VersioningView({
 
       {/* DB-single scope selection dialog: choose between promoting to this item or the whole template */}
       <Dialog open={promoteScopeTarget !== null} onOpenChange={(open) => { if (!open && !isPromotingScope) setPromoteScopeTarget(null); }}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">Publicar variante "{promoteScopeTarget?.slug}"</DialogTitle>
-            <DialogDescription className="text-sm leading-relaxed">
-              Esta variante es un borrador del <strong>template compartido</strong> — el archivo <code className="bg-muted px-1 py-0.5 rounded text-xs">single.{promoteScopeTarget?.locale}.yml</code> que define la estructura visual de <em>todos</em> los items de <code className="bg-muted px-1 py-0.5 rounded text-xs">{contentInfo.type}</code>. Elige cómo aplicar los cambios:
-            </DialogDescription>
+            <DialogDescription>¿Dónde aplicar los cambios?</DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            {/* Option A — per-entry override */}
-            <button
-              className="w-full text-left rounded-lg border border-border bg-background hover:bg-muted/50 transition-colors p-4 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          <div className="space-y-2 py-1">
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-3 gap-3"
               disabled={isPromotingScope}
               onClick={() => handlePromoteWithScope("item")}
               data-testid="button-promote-scope-item"
             >
-              <div className="flex gap-3 items-start">
-                <span className="text-xl mt-0.5">👤</span>
-                <div>
-                  <p className="font-semibold text-sm">Solo este item — <span className="font-normal text-muted-foreground">"{contentInfo.slug}"</span></p>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Guarda la variante como un <strong>override per-entry</strong>: crea un archivo exclusivo para este item que sobreescribe el template compartido únicamente aquí. El resto de items del content type <em>no se ven afectados</em>. Ideal para personalizar un item puntual sin tocar los demás.
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1.5 font-mono bg-muted/60 rounded px-2 py-1 inline-block">
-                    {contentInfo.type}/{contentInfo.slug}/{promoteScopeTarget?.locale}.yml
-                  </p>
-                </div>
+              <div className="text-left">
+                <p className="font-medium text-sm">Solo "{contentInfo.slug}"</p>
+                <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                  Crea un override para este item. El resto de items no cambia.
+                </p>
               </div>
-            </button>
-
-            {/* Option B — full template */}
-            <button
-              className="w-full text-left rounded-lg border border-yellow-300 dark:border-yellow-700 bg-background hover:bg-yellow-50 dark:hover:bg-yellow-950/30 transition-colors p-4 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-3 gap-3 border-yellow-300 hover:bg-yellow-50 dark:border-yellow-700 dark:hover:bg-yellow-950/30"
               disabled={isPromotingScope}
               onClick={() => handlePromoteWithScope("template")}
               data-testid="button-promote-scope-template"
             >
-              <div className="flex gap-3 items-start">
-                <span className="text-xl mt-0.5">🌐</span>
-                <div>
-                  <p className="font-semibold text-sm text-yellow-700 dark:text-yellow-400">Template completo — todos los items de "{contentInfo.type}"</p>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Sobreescribe el <strong>template compartido</strong> con el contenido de esta variante. Todos los items que no tengan un override per-entry verán este cambio automáticamente. La variante borrador se elimina al publicar.
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1.5 font-mono bg-muted/60 rounded px-2 py-1 inline-block">
-                    {contentInfo.type}/single.{promoteScopeTarget?.locale}.yml
-                  </p>
-                </div>
+              <div className="text-left">
+                <p className="font-medium text-sm text-yellow-700 dark:text-yellow-400">Template completo</p>
+                <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                  Sobreescribe <code className="bg-muted px-0.5 rounded">single.{promoteScopeTarget?.locale}.yml</code>. Afecta a todos los items de "{contentInfo.type}".
+                </p>
               </div>
-            </button>
+            </Button>
           </div>
-
-          <DialogFooter className="flex items-center gap-2">
+          <DialogFooter>
             {isPromotingScope && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             <Button variant="ghost" onClick={() => setPromoteScopeTarget(null)} disabled={isPromotingScope} data-testid="button-cancel-promote-scope">
               Cancelar

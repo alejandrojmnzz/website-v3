@@ -553,7 +553,12 @@ export function registerVersioningRoutes(app: Express): void {
             res.status(400).json({ error: "contentSlug contains invalid characters" });
             return;
           }
-          // Create/overwrite a per-entry override for this specific DB item slug
+          // Create/overwrite a per-entry override for this specific DB item slug.
+          // Instead of dumping the full variant content, compute a proper diff vs the
+          // base template so the existing per-entry merge system handles it correctly:
+          // - sections present in variant with a matching section_id → override that section
+          // - sections in base NOT in variant → _remove: true
+          // - new sections in variant (no base match) → _insertAfterSectionId
           const entryDir = path.resolve(contentTypeDir, contentSlug);
           const entryFilePath = path.resolve(entryDir, `${locale}.yml`);
           // Path containment: both paths must remain within contentTypeDir
@@ -561,8 +566,55 @@ export function registerVersioningRoutes(app: Express): void {
             res.status(400).json({ error: "Invalid file path" });
             return;
           }
+
+          const getSectionId = (s: any) => s?.section_id ?? s?.id ?? null;
+          const baseTemplatePath = path.resolve(contentTypeDir, `single.${locale}.yml`);
+          const baseParsed: any = fs.existsSync(baseTemplatePath)
+            ? (safeYamlLoad(fs.readFileSync(baseTemplatePath, "utf-8")) as any) ?? {}
+            : {};
+          const variantParsed: any = (safeYamlLoad(variantContent) as any) ?? {};
+          const baseSections: any[] = baseParsed.sections ?? [];
+          const variantSections: any[] = variantParsed.sections ?? [];
+
+          const baseIds = new Set(baseSections.map(getSectionId).filter(Boolean));
+          const variantIds = new Set(variantSections.map(getSectionId).filter(Boolean));
+
+          const overrideSections: any[] = [];
+          // Mark sections removed in the variant
+          for (const baseSection of baseSections) {
+            const id = getSectionId(baseSection);
+            if (id && !variantIds.has(id)) {
+              overrideSections.push({ section_id: id, _remove: true });
+            }
+          }
+          // Add all variant sections with correct positioning for new ones
+          for (let i = 0; i < variantSections.length; i++) {
+            const section = variantSections[i];
+            const id = getSectionId(section);
+            if (id && baseIds.has(id)) {
+              overrideSections.push({ ...section });
+            } else {
+              // New section: find nearest preceding section that exists in base
+              let insertAfter: string | null = null;
+              for (let j = i - 1; j >= 0; j--) {
+                const prevId = getSectionId(variantSections[j]);
+                if (prevId && baseIds.has(prevId)) { insertAfter = prevId; break; }
+              }
+              overrideSections.push({
+                ...section,
+                ...(insertAfter ? { _insertAfterSectionId: insertAfter } : {}),
+              });
+            }
+          }
+
+          const { sections: _vs, ...variantNonSections } = variantParsed;
+          const perEntryContent = {
+            ...variantNonSections,
+            ...(overrideSections.length > 0 ? { sections: overrideSections } : {}),
+          };
+
           if (!fs.existsSync(entryDir)) fs.mkdirSync(entryDir, { recursive: true });
-          fs.writeFileSync(entryFilePath, variantContent, "utf-8");
+          fs.writeFileSync(entryFilePath, safeYamlDump(perEntryContent), "utf-8");
           markFileAsModified(`${folder}/${contentSlug}/${locale}.yml`, "api", undefined, getContentRoot(res));
         }
 

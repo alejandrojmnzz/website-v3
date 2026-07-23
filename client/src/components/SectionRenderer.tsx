@@ -988,16 +988,8 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       }
 
       if (variant) {
-        // In variant preview: delete directly from the variant template file, no dialog needed
-        const result = await sendEditOperation(contentType, slug, locale, [
-          { action: "remove_item", path: "sections", index }
-        ], { variant, layoutTarget: "type_single" });
-        if (result.success) {
-          toast({ title: "Section removed from variant" });
-          emitContentUpdated({ contentType, slug, locale });
-        } else {
-          toast({ title: "Failed to remove section", description: result.error, variant: "destructive" });
-        }
+        // In variant preview: show confirmation first, then delete from the variant template file
+        setSimpleDeleteDialog({ open: true, index, isDeleting: false });
         return;
       }
 
@@ -1047,7 +1039,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "remove_item", path: "sections", index }
-    ], { variant, version });
+    ], { variant, version, ...(variant ? { layoutTarget: "type_single" } : {}) });
 
     if (result.success) {
       // If the lookup failed entirely OR the member removal returned an error,
