@@ -388,14 +388,27 @@ export function registerVersioningRoutes(app: Express): void {
 
     // DB-single: copy single.{locale}.yml → single-{variantSlug}.{locale}.yml at content-type folder level
     if (hasDatabaseSingle(contentType, getContentRoot(res))) {
-      const contentTypeDir = path.join(getContentRoot(res), folder);
-      const variantFile = path.join(contentTypeDir, `single-${variantSlug}.${locale}.yml`);
+      if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
+        res.status(400).json({ error: "locale must be a valid language code (e.g. en, es, pt-BR)" });
+        return;
+      }
+
+      const contentTypeDir = path.resolve(getContentRoot(res), folder);
+      const variantFile = path.resolve(contentTypeDir, `single-${variantSlug}.${locale}.yml`);
+      const defaultSourceFile = path.resolve(contentTypeDir, `single.${locale}.yml`);
+      const enSourceFile = path.resolve(contentTypeDir, "single.en.yml");
+
+      // Path containment: ensure resolved paths stay within contentTypeDir
+      if (!variantFile.startsWith(contentTypeDir + path.sep)) {
+        res.status(400).json({ error: "Invalid file path" });
+        return;
+      }
+
       if (fs.existsSync(variantFile)) {
         res.status(409).json({ error: `Variant single-${variantSlug}.${locale}.yml already exists` });
         return;
       }
-      let sourceFile = path.join(contentTypeDir, `single.${locale}.yml`);
-      if (!fs.existsSync(sourceFile)) sourceFile = path.join(contentTypeDir, "single.en.yml");
+      const sourceFile = fs.existsSync(defaultSourceFile) ? defaultSourceFile : enSourceFile;
       if (!fs.existsSync(sourceFile)) {
         res.status(404).json({ error: `single.${locale}.yml not found for content type ${contentType}` });
         return;
@@ -528,13 +541,27 @@ export function registerVersioningRoutes(app: Express): void {
         if (scope === "template") {
           // Overwrite the shared template for all items
           const templateFilePath = path.resolve(contentTypeDir, `single.${locale}.yml`);
+          if (!templateFilePath.startsWith(contentTypeDir + path.sep)) {
+            res.status(400).json({ error: "Invalid file path" });
+            return;
+          }
           fs.writeFileSync(templateFilePath, variantContent, "utf-8");
           markFileAsModified(`${folder}/single.${locale}.yml`, "api", undefined, getContentRoot(res));
         } else {
+          // Validate contentSlug before using it as a directory name
+          if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(contentSlug)) {
+            res.status(400).json({ error: "contentSlug contains invalid characters" });
+            return;
+          }
           // Create/overwrite a per-entry override for this specific DB item slug
           const entryDir = path.resolve(contentTypeDir, contentSlug);
-          if (!fs.existsSync(entryDir)) fs.mkdirSync(entryDir, { recursive: true });
           const entryFilePath = path.resolve(entryDir, `${locale}.yml`);
+          // Path containment: both paths must remain within contentTypeDir
+          if (!entryDir.startsWith(contentTypeDir + path.sep) || !entryFilePath.startsWith(entryDir + path.sep)) {
+            res.status(400).json({ error: "Invalid file path" });
+            return;
+          }
+          if (!fs.existsSync(entryDir)) fs.mkdirSync(entryDir, { recursive: true });
           fs.writeFileSync(entryFilePath, variantContent, "utf-8");
           markFileAsModified(`${folder}/${contentSlug}/${locale}.yml`, "api", undefined, getContentRoot(res));
         }
