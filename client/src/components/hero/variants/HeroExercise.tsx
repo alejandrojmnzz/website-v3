@@ -62,7 +62,7 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
     description,
     includes_title,
     category,
-    technologies,
+    technologies: technologiesRaw,
     features,
     stats,
     form_card_title,
@@ -70,6 +70,12 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
     form_card_disclaimer,
     form,
   } = data;
+
+  const technologies: string[] | undefined = Array.isArray(technologiesRaw)
+    ? technologiesRaw
+    : typeof technologiesRaw === "string" && technologiesRaw.trim()
+      ? technologiesRaw.split(",").map((t) => t.trim()).filter(Boolean)
+      : undefined;
 
   const hasIncludesCard =
     includes_title ||
