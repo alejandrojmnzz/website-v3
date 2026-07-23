@@ -1869,12 +1869,17 @@ export function SectionEditorPanel({
     }
 
     try {
+      // When previewing a DB single template variant (?force_variant=...), route
+      // the save directly to single-{variantSlug}.{locale}.yml on the server so
+      // edits land in the variant file instead of the shared base template.
+      const forceVariantFromUrl = new URLSearchParams(window.location.search).get("force_variant");
       const result = await editContent({
         contentType,
         slug,
         locale,
-        variant,
-        version,
+        variant: forceVariantFromUrl ?? variant,
+        version: forceVariantFromUrl ? undefined : version,
+        ...(forceVariantFromUrl ? { layoutTarget: "type_single" } : {}),
         operations: [
           {
             action: "update_section",
@@ -1993,11 +1998,15 @@ export function SectionEditorPanel({
   const handleSave = async () => {
     const isPerEntrySection = !!(section as Record<string, unknown>)._perEntrySource;
     if (isSharedTemplate && singleEntry && !isPerEntrySection) {
-      // On a DB entry page with a shared-template section: ask scope first.
-      // Binding confirmation (if needed) is handled inside the scope dialog's
-      // "Update shared template" branch.
-      setScopeDialogOpen(true);
-      return;
+      // Skip the scope dialog when previewing a variant — the destination is
+      // already the variant file (single-{slug}.{locale}.yml), so asking scope
+      // would be confusing and wrong.
+      const inVariantPreview = !!new URLSearchParams(window.location.search).get("force_variant");
+      if (!inVariantPreview) {
+        setScopeDialogOpen(true);
+        return;
+      }
+      // Fall through to executeSave, which writes to the variant template.
     }
     if (boundSiblings.length > 0) {
       setBindingConfirmOpen(true);

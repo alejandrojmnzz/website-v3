@@ -227,15 +227,20 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
   }
   
   try {
-    // Forced type_single: load/write shared single.{locale}.yml regardless of entry slug
-    if (request.layoutTarget === "type_single" && !hasVariant) {
+    // Forced type_single: load/write shared single.{locale}.yml regardless of entry slug.
+    // When effectiveVariant is also set (DB single template variant preview), write to
+    // single-{variantSlug}.{locale}.yml instead of the base template.
+    if (request.layoutTarget === "type_single") {
       const folder = getFolder(contentType);
       const rootPath = contentRoot
         ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
         : path.join(process.cwd(), getDefaultContentRootName());
-      const templateFilePath = path.join(rootPath, folder, `single.${locale}.yml`);
+      const templateFileName = hasVariant
+        ? `single-${variant}.${locale}.yml`
+        : `single.${locale}.yml`;
+      const templateFilePath = path.join(rootPath, folder, templateFileName);
       if (!fs.existsSync(templateFilePath)) {
-        return { success: false, error: `Shared template not found: ${folder}/single.${locale}.yml` };
+        return { success: false, error: `Template not found: ${folder}/${templateFileName}` };
       }
       const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
       const templateLocaleData = (ci.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
