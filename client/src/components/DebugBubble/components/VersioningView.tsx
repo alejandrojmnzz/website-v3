@@ -1043,8 +1043,8 @@ export function VersioningView({
       <Dialog open={promoteScopeTarget !== null} onOpenChange={(open) => { if (!open && !isPromotingScope) setPromoteScopeTarget(null); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Publicar variante "{promoteScopeTarget?.slug}"</DialogTitle>
-            <DialogDescription>¿Dónde aplicar los cambios?</DialogDescription>
+            <DialogTitle className="text-base">Promote variant "{promoteScopeTarget?.slug}"</DialogTitle>
+            <DialogDescription>Where should the changes apply?</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-1">
             <Button
@@ -1055,9 +1055,9 @@ export function VersioningView({
               data-testid="button-promote-scope-item"
             >
               <div className="text-left">
-                <p className="font-medium text-sm">Solo "{contentInfo.slug}"</p>
+                <p className="font-medium text-sm">This entry only — "{contentInfo.slug}"</p>
                 <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                  Crea un override para este item. El resto de items no cambia.
+                  Creates an override for this item only. Other entries are not affected.
                 </p>
               </div>
             </Button>
@@ -1069,9 +1069,9 @@ export function VersioningView({
               data-testid="button-promote-scope-template"
             >
               <div className="text-left">
-                <p className="font-medium text-sm text-yellow-700 dark:text-yellow-400">Template completo</p>
+                <p className="font-medium text-sm text-yellow-700 dark:text-yellow-400">Full template — all "{contentInfo.type}" entries</p>
                 <p className="text-xs text-muted-foreground font-normal mt-0.5">
-                  Sobreescribe <code className="bg-muted px-0.5 rounded">single.{promoteScopeTarget?.locale}.yml</code>. Afecta a todos los items de "{contentInfo.type}".
+                  Overwrites <code className="bg-muted px-0.5 rounded">single.{promoteScopeTarget?.locale}.yml</code>. Affects every entry of this type.
                 </p>
               </div>
             </Button>
@@ -1079,7 +1079,7 @@ export function VersioningView({
           <DialogFooter>
             {isPromotingScope && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             <Button variant="ghost" onClick={() => setPromoteScopeTarget(null)} disabled={isPromotingScope} data-testid="button-cancel-promote-scope">
-              Cancelar
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>

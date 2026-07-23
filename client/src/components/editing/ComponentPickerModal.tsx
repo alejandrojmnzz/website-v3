@@ -643,7 +643,7 @@ export default function ComponentPickerModal({
       await executeWizardComplete(config);
       return;
     }
-    if (isSharedTemplate) {
+    if (isSharedTemplate && !variant) {
       pendingAddFn.current = () => executeWizardComplete(config);
       setAddWarnOpen(true);
       return;
@@ -771,6 +771,7 @@ export default function ComponentPickerModal({
           variant,
           version,
           author,
+          ...(variant ? { layoutTarget: "type_single" } : {}),
           operations,
         }),
       });
@@ -891,7 +892,7 @@ export default function ComponentPickerModal({
       await executeAddSection(opts);
       return;
     }
-    if (isSharedTemplate) {
+    if (isSharedTemplate && !variant) {
       pendingAddFn.current = () => executeAddSection(opts);
       setAddWarnOpen(true);
       return;
@@ -988,7 +989,7 @@ export default function ComponentPickerModal({
           </DialogDescription>
         </DialogHeader>
         
-        {isSharedTemplate && addScope !== "entry" && (
+        {isSharedTemplate && addScope !== "entry" && !variant && (
           <div className="mx-4 mt-3 flex items-start gap-2.5 rounded-md border bg-muted p-3" data-testid="text-shared-template-notice">
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
             <p className="text-sm text-foreground leading-snug">
