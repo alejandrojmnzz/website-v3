@@ -1,0 +1,34 @@
+Issue: utm_location en ActiveCampaign se queda/vuelve a barcelona-spain aunque el FormEntry nace con location de Madrid
+Contexto
+Al crear un lead desde Madrid:
+
+En BreatheCode, el FormEntry se crea con location correcto (Madrid).
+En ActiveCampaign, en la información del contacto, utm_location aparece como barcelona-spain.
+Prueba reciente:
+
+Entrar como usuario en Madrid.
+Llenar el formulario.
+Se crea un nuevo FormEntry en DB con location bueno (Madrid).
+Al abrir el contacto en ActiveCampaign, utm_location = barcelona-spain.
+Conclusión preliminar: algo está sobreescribiendo (o impidiendo actualizar) el utm_location del contacto en AC, no solo un desfase del deal/custom_fields["16"].
+
+Comportamiento esperado del código actual:
+
+Al persistir el lead, register_new_lead envía location al contacto como field[18] vía contact_sync.
+El valor enviado debería ser el active_campaign_slug del academy/alias (p. ej. Madrid), no Barcelona.
+FormEntry.location en BC se guarda bien; el problema se manifesta en AC (contacto).
+También se había visto antes:
+
+FormEntry.custom_fields["16"] (deal utm_location) con barcelona-spain mientras location era Madrid.
+Field 18 = contact utm_location; field 16 del deal = deal utm_location.
+Tarea
+Encontrar qué está dejando o reescribiendo utm_location = barcelona-spain en el contacto de ActiveCampaign después (o durante) de crear un FormEntry con location Madrid.
+
+Investigar en este orden:
+
+Outbound: qué valor exacto se manda en field[18] en register_new_lead / contact_sync para ese FormEntry (¿Madrid o Barcelona?).
+Overwrite en AC: si contact_sync realmente actualiza un contacto existente o si AC/automatizaciones conservan el valor previo.
+Post-sync: si hay automation, webhook, sync deal↔contact, o otro proceso que vuelva a poner barcelona-spain en el contacto.
+Contacto reutilizado: confirmar si el email ya existía en AC con Barcelona y qué ocurre en ese caso.
+Comparar en el mismo momento: FormEntry.location, contact field 18, deal field 16 / ac_deal_location.
+Criterio de éxito: identificar el paso concreto que escribe/conserva barcelona-spain en el contacto AC pese a un FormEntry nuevo con location Madrid, y proponer fix.

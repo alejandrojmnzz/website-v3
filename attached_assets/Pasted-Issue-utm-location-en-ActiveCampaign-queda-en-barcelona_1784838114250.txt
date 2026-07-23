@@ -1,0 +1,52 @@
+Issue: utm_location en ActiveCampaign queda en barcelona-spain aunque el lead llega y se guarda como Madrid
+Contexto
+Flujo observado desde 4geeks.com:
+
+El frontend llama a:
+POST https://4geeks.com/api/leads/webhook-delivery
+El payload incluye location correcta:
+"location": "madrid-spain"
+La respuesta es exitosa: { "success": true }
+En BreatheCode se crea un FormEntry con location correcto (Madrid).
+En ActiveCampaign, en el contacto, utm_location aparece como barcelona-spain.
+Payload de ejemplo (resumido):
+
+{
+  "payload": {
+    "email": "luismi+testing@gmail.com",
+    "first_name": "Luis Miguel",
+    "phone": "+3466666666",
+    "program": "ai-engineering",
+    "region": "europe",
+    "location": "madrid-spain",
+    "language": "en",
+    "utm_url": "https://4geeks.com/en/career-programs/ai-engineering",
+    "tags": "website-lead",
+    "automations": "strong",
+    "conversion_name": "student_application",
+    "token": "..."
+  }
+}
+Qué ya sabemos / descartamos:
+
+El origen en 4geeks.com sí manda Madrid.
+El FormEntry en DB sí guarda Madrid.
+El problema se ve en AC (contacto utm_location).
+Por lo tanto, la sobreescritura (o falta de overwrite) ocurre después de persistir el lead: en el sync a ActiveCampaign o en algo que corre sobre el contacto/deal en AC.
+En el modelo, contact utm_location = field 18; deal utm_location = field 16.
+El outbound usa contact_sync y debería mandar field[18] con el active_campaign_slug del academy/alias.
+Prueba manual: usuario en Madrid → form → FormEntry OK → AC contact sigue con barcelona-spain.
+
+Tarea
+Encontrar qué deja o reescribe utm_location = barcelona-spain en el contacto de ActiveCampaign, dado que:
+
+el webhook de 4geeks.com envía location: madrid-spain
+y el FormEntry se crea bien con Madrid
+Puntos a verificar:
+
+Tras webhook-delivery / persistencia del lead, qué valor exacto manda register_new_lead en field[18] a AC.
+Si el email ya existía en AC con Barcelona: ¿contact_sync actualiza el field 18 o AC lo conserva?
+Si hay automation / proceso post-sync en AC que vuelve a poner Barcelona.
+Comparar al momento: FormEntry.location vs contact field 18 vs deal field 16 / ac_deal_location / custom_fields["16"].
+Confirmar si el bug es de BreatheCode (no envía/no overwrites) o de AC (automation/reglas).
+Criterio de éxito: identificar el paso concreto que escribe o conserva barcelona-spain en el contacto AC pese a un lead nuevo con madrid-spain, y proponer fix.
