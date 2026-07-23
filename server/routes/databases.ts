@@ -255,9 +255,23 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
 
-      const dbSingleRaw = getCI(res).loadMergedContent(contentType, slug, locale);
-      const dbSingleLayout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>), getContentRoot(res));
       const dbSingleData = page as unknown as Record<string, unknown>;
+      const dbSingleEntry = (dbSingleData.singleEntry as Record<string, unknown>) || {};
+      if (page.sections && Array.isArray(page.sections)) {
+        page.sections = (await resolveDynamicEntries(page.sections, locale, {
+          db: getDB(res),
+          contentRoot: getContentRoot(res),
+          contentIndex: getCI(res),
+          singleEntry: dbSingleEntry,
+        })) as any;
+      }
+      if (Object.keys(dbSingleEntry).length > 0) {
+        const resolved = resolveSingleVars(dbSingleData, dbSingleEntry) as Record<string, unknown>;
+        Object.assign(dbSingleData, resolved);
+      }
+
+      const dbSingleRaw = getCI(res).loadMergedContent(contentType, slug, locale);
+      const dbSingleLayout = resolveLayout(contentType, dbSingleRaw.data || dbSingleData, getContentRoot(res));
       injectCanonicalIfMissing(dbSingleData, contentType, locale);
       const { layout: _dbSingleStripLayout, ...dbSingleRest } = dbSingleData;
       res.json({ ...dbSingleRest, layout: dbSingleLayout });

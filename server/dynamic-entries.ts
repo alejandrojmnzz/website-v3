@@ -10,6 +10,12 @@ export interface ResolveDynamicEntriesOptions {
   db?: DatabaseManager;
   contentRoot?: string;
   contentIndex?: ContentIndex;
+  /**
+   * Current page's single entry (DB or YAML-mapped fields).
+   * Used to resolve `{{ single.* }}` in permanent_filters before querying,
+   * so related listings can filter by the page's own tags/fields.
+   */
+  singleEntry?: Record<string, unknown>;
 }
 
 const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}/g;
@@ -107,6 +113,7 @@ export async function resolveDynamicEntries(
   const db = options.db ?? databaseManager;
   const contentRoot = options.contentRoot;
   const ci = options.contentIndex ?? contentIndex;
+  const singleEntry = options.singleEntry;
 
   const resolved = [];
   for (const section of sections) {
@@ -141,9 +148,14 @@ export async function resolveDynamicEntries(
         Array.isArray(dynamicEntries.ignored_entries) &&
         dynamicEntries.ignored_entries.length > 0;
 
+      // Resolve {{ single.* }} in filter values against the page's singleEntry
+      // before querying (resolveSingleVars runs too late for listing filters).
       const filters: QueryFilter[] | undefined = dynamicEntries.permanent_filters?.map((pf) => ({
         field: pf.item_property_slug,
-        value: pf.value,
+        value:
+          singleEntry && Object.keys(singleEntry).length > 0
+            ? resolveTemplateValue(pf.value, singleEntry)
+            : pf.value,
       }));
 
       // When ignored_entries exist, fetch without limit so FAQ ignores apply before slicing.

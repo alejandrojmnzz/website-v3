@@ -189,9 +189,24 @@ export async function resolvePageQuery(
         const normalizedLocale = normalizeLocale(locale);
         const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale, ci.contentRoot, dbm);
         if (!page) return null;
+        const pageData = page as unknown as Record<string, unknown>;
+        const singleEntry = (pageData.singleEntry as Record<string, unknown>) || {};
+        if (page.sections && Array.isArray(page.sections)) {
+          page.sections = (await resolveDynamicEntries(page.sections, normalizedLocale, {
+            db: dbm,
+            contentRoot: ci.contentRoot,
+            contentIndex: ci,
+            singleEntry,
+          })) as any;
+          applyComponentImageSizes(page.sections as unknown[]);
+        }
+        if (Object.keys(singleEntry).length > 0) {
+          const resolvedVars = resolveSingleVars(pageData, singleEntry) as Record<string, unknown>;
+          Object.assign(pageData, resolvedVars);
+        }
         const dbSingleRaw = ci.loadMergedContent(contentType, slug, normalizedLocale);
-        const layout = resolveLayout(contentType, dbSingleRaw.data || (page as unknown as Record<string, unknown>), ci.contentRoot);
-        const { layout: _strip, ...pageRest } = page as unknown as Record<string, unknown>;
+        const layout = resolveLayout(contentType, dbSingleRaw.data || pageData, ci.contentRoot);
+        const { layout: _strip, ...pageRest } = pageData;
         return {
           queryKey: ["/api/database-single", contentType, slug, normalizedLocale],
           data: { ...pageRest, layout },
@@ -226,12 +241,6 @@ export async function resolvePageQuery(
       const data = result.data as any;
       if (data.sections && Array.isArray(data.sections)) {
         applyComponentSectionDefaults(data.sections);
-        data.sections = (await resolveDynamicEntries(
-          data.sections,
-          locale,
-          { db: dbm, contentRoot: ci.contentRoot, contentIndex: ci },
-        )) as any;
-        applyComponentImageSizes(data.sections);
       }
       const rawContent = ci.loadMergedContent(
         contentType,
@@ -244,19 +253,32 @@ export async function resolvePageQuery(
 
       // Match /api/content-pages: attach singleEntry and resolve {{ single.* }} so
       // SSR/hydration (e.g. blog article body) is not left on pipe fallbacks.
+      // Build singleEntry before dynamic_entries so permanent_filters can use it.
       const mapping = getFieldMapping(contentType, ci.contentRoot);
+      let singleEntry: Record<string, unknown> | undefined;
       if (mapping && Object.keys(mapping).length > 0) {
-        const singleEntry: Record<string, unknown> = {};
+        singleEntry = {};
         for (const [key, source] of Object.entries(mapping)) {
           if (typeof source !== "string") continue;
           const value = resolveFieldValue(source, data as Record<string, unknown>);
           if (value !== undefined) singleEntry[key] = value;
         }
-        if (Object.keys(singleEntry).length > 0) {
-          data.singleEntry = singleEntry;
-          const resolved = resolveSingleVars(data, singleEntry) as Record<string, unknown>;
-          Object.assign(data, resolved);
-        }
+        if (Object.keys(singleEntry).length === 0) singleEntry = undefined;
+        else data.singleEntry = singleEntry;
+      }
+
+      if (data.sections && Array.isArray(data.sections)) {
+        data.sections = (await resolveDynamicEntries(
+          data.sections,
+          locale,
+          { db: dbm, contentRoot: ci.contentRoot, contentIndex: ci, singleEntry },
+        )) as any;
+        applyComponentImageSizes(data.sections);
+      }
+
+      if (singleEntry) {
+        const resolved = resolveSingleVars(data, singleEntry) as Record<string, unknown>;
+        Object.assign(data, resolved);
       }
 
       return {

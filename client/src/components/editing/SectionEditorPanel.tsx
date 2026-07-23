@@ -527,17 +527,47 @@ export function SectionEditorPanel({
   // Track which template key is currently being reset (to disable button and show spinner)
   const [resettingField, setResettingField] = useState<string | null>(null);
 
-  const { data: templateSectionsData } = useQuery<{ sections: string[] }>({
-    queryKey: ["/api/content-types", contentType, "single-template-sections", locale ?? "en", variant ?? ""],
+  const bindingQueryClient = useQueryClient();
+
+  // Match save destination: ?force_variant= / ?variant= writes to single-{slug}.{locale}.yml
+  const effectiveTemplateVariant = (() => {
+    if (typeof window === "undefined") return variant ?? "";
+    const params = new URLSearchParams(window.location.search);
+    return params.get("force_variant") || params.get("variant") || variant || "";
+  })();
+
+  const templateSectionsQueryKey = [
+    "/api/content-types",
+    contentType,
+    "single-template-sections",
+    locale ?? "en",
+    effectiveTemplateVariant,
+  ] as const;
+
+  const { data: templateSectionsData, refetch: refetchTemplateSections } = useQuery<{ sections: string[] }>({
+    queryKey: [...templateSectionsQueryKey],
     queryFn: async () => {
       const params = new URLSearchParams({ locale: locale ?? "en" });
-      if (variant) params.set("variantSlug", variant);
+      if (effectiveTemplateVariant) params.set("variantSlug", effectiveTemplateVariant);
       const res = await fetch(`/api/content-types/${contentType}/single-template-sections?${params}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ sections: string[] }>;
     },
     enabled: hasVariableFields && !!contentType,
   });
+
+  /** After saving shared-template sections, reload YAML from disk so the editor matches the template. */
+  const refreshTemplateYamlFromServer = async () => {
+    if (!hasVariableFields || !contentType) return;
+    await bindingQueryClient.invalidateQueries({ queryKey: [...templateSectionsQueryKey] });
+    const result = await refetchTemplateSections();
+    const templateYaml = result.data?.sections?.[sectionIndex];
+    if (templateYaml) {
+      setYamlContent(templateYaml);
+      initialYamlRef.current = templateYaml;
+      setHasChanges(false);
+    }
+  };
 
   useEffect(() => {
     if (!templateSectionsData) return;
@@ -548,7 +578,6 @@ export function SectionEditorPanel({
   }, [templateSectionsData, sectionIndex, slug]);
 
   // Binding state
-  const bindingQueryClient = useQueryClient();
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
   const [bindingConfirmOpen, setBindingConfirmOpen] = useState(false);
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false);
@@ -1906,6 +1935,10 @@ export function SectionEditorPanel({
 
         // Update initial state reference so next undo session starts from saved state
         initialYamlRef.current = yamlContent;
+
+        // Shared-template editor loads YAML from a cached query — refresh so
+        // reopening the editor shows what was actually written to the template.
+        await refreshTemplateYamlFromServer();
 
         // Emit event to trigger page refresh
         emitContentUpdated({ contentType, slug, locale });
