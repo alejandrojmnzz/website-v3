@@ -48,7 +48,7 @@ export default function SyllabusTimeline({ data }: { data: SyllabusTimeline }) {
         }
       `}</style>
 
-      <div className="max-w-[760px] mx-auto">
+      <div>
 
         {/* Header */}
         <div className="mb-8">
