@@ -1,0 +1,90 @@
+meta:
+  page_title: {{ single.title }}
+  description: {{ single.description }}
+sections:
+  - type: hero
+    version: "1.0"
+    variant: exercise
+    badge: Free
+    exercise_type: Interactive exercise dd
+    title: {{ single.title }}
+    description: {{ single.description }}
+    includes_title: This exercise includes
+    category: Hard Skills for developers
+    technologies: {{ single.tags }}
+    features:
+      - icon: Sparkles
+        text: AI assistance for guided help
+      - icon: Code
+        text: Real code, real-time output
+      - icon: test-tube
+        text: Instant test validation
+      - icon: Award
+        text: Progress saved to your path
+    stats:
+      - icon: ChartBar
+        label: Skill level
+        value: {{ single.difficulty }}
+      - icon: Clock
+        label: Time to complete
+        value: {{ single.duration }} hours
+      - icon: LayoutGrid
+        label: Exercises
+        value: 1 live
+      - icon: Check
+        label: Prerequisites
+        value: None
+    form_card_title: Keep your progress
+    form_card_subtitle: Save this exercise and unlock your full learning path with LearnPack.
+    form_card_disclaimer: No spam. Unsubscribe anytime.
+    form:
+      variant: stacked
+      conversion_name: request_more_info
+      submit_label: Save my progress
+      fields:
+        first_name:
+          visible: true
+          required: true
+        email:
+          visible: true
+          required: true
+        phone:
+          visible: true
+          required: true
+    section_id: hero-w33czq
+    paddingY:
+      desktop: md sm
+    maxWidth:
+      desktop: xl
+    background: linear-gradient(to bottom, hsl(210 100% 50% / 0.05), transparent)
+  - type: two_column
+    version: v1.0
+    proportions:
+      - 7
+      - 5
+    alignment: center
+    gap: "12"
+    left:
+      heading: "<span style=\"font-weight: 700;\"><span><span style=\"font-size: 1.5rem;\">About this exercise</span></span></span>"
+      description: {{ single.description }}
+      description_extended: {{ single.content}} }}
+      text_align: left
+    right:
+      image: https://images.unsplash.com/photo-1531482615713-2afd69097998?w=600&h=400&fit=crop
+      image_alt: Student coding on laptop
+      justify: end
+    section_id: two_column-4yashe
+    paddingY:
+      desktop: sm
+    maxWidth:
+      desktop: full
+  - type: article
+    version: v1.0
+    show_toc: false
+    max_width: lg
+    content: {{ single.content | exercise instructions }}
+    section_id: article-ulix1m
+    paddingY:
+      desktop: sm
+    maxWidth:
+      desktop: xl
