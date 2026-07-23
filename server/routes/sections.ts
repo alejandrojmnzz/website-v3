@@ -166,6 +166,7 @@ import {
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadMergedSinglePage, mergeSingleTemplate } from "../database-single-loader";
+import { rejectAttachedStructuralEdit } from "../shared-layout-entry";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -250,6 +251,12 @@ export function registerSectionsRoutes(app: Express): void {
 
       if (!contentType || !slug || !rawLocale || sectionIndex === undefined) {
         res.status(400).json({ error: "Missing required fields" });
+        return;
+      }
+
+      const attachedErr = rejectAttachedStructuralEdit(contentType, slug, getContentRoot(res));
+      if (attachedErr) {
+        res.status(400).json({ error: attachedErr });
         return;
       }
 
@@ -415,6 +422,12 @@ export function registerSectionsRoutes(app: Express): void {
         return;
       }
 
+      const attachedErr = rejectAttachedStructuralEdit(contentType, slug, getContentRoot(res));
+      if (attachedErr) {
+        res.status(400).json({ error: attachedErr });
+        return;
+      }
+
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
       const templateDir = path.join(getContentRoot(res), folder);
@@ -471,6 +484,12 @@ export function registerSectionsRoutes(app: Express): void {
 
       if (!contentType || !slug || !rawLocale || !sectionId) {
         res.status(400).json({ error: "Missing required fields" });
+        return;
+      }
+
+      const attachedErr = rejectAttachedStructuralEdit(contentType, slug, getContentRoot(res));
+      if (attachedErr) {
+        res.status(400).json({ error: attachedErr });
         return;
       }
 
@@ -533,6 +552,12 @@ export function registerSectionsRoutes(app: Express): void {
 
       if (!contentType || !slug || !rawLocale || !sectionData) {
         res.status(400).json({ error: "Missing required fields" });
+        return;
+      }
+
+      const attachedErr = rejectAttachedStructuralEdit(contentType, slug, getContentRoot(res));
+      if (attachedErr) {
+        res.status(400).json({ error: attachedErr });
         return;
       }
 
@@ -832,6 +857,12 @@ export function registerSectionsRoutes(app: Express): void {
 
       if (!contentType || !slug || !rawLocale || sectionIndex === undefined || !sectionData) {
         res.status(400).json({ error: "Missing required fields" });
+        return;
+      }
+
+      const attachedErr = rejectAttachedStructuralEdit(contentType, slug, getContentRoot(res));
+      if (attachedErr) {
+        res.status(400).json({ error: attachedErr });
         return;
       }
 

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -8,7 +8,7 @@ import { Badge, badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { normalizeLocale } from "@/lib/locale";
 import { GitHubSyncChip } from "./GitHubSyncChip";
@@ -98,6 +98,11 @@ export interface DebugPanelContentProps {
   versioningLoading: boolean;
   versioningData: unknown;
   onVersioningDataUpdate?: (data: unknown) => void;
+  pageIsSharedLayout?: boolean;
+  pageIsDetached?: boolean;
+  detachBusy?: boolean;
+  onDetachEntry?: () => void | Promise<void>;
+  onReattachEntry?: () => void | Promise<void>;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
   handleLinkClick: (href: string) => void;
 
@@ -224,12 +229,54 @@ function ExpandableMenuItem({ icon: Icon, label, expanded, onToggle, testId, act
 
 export function DebugPanelContent(props: DebugPanelContentProps) {
   const { i18n } = useTranslation();
+  const [reattachConfirmOpen, setReattachConfirmOpen] = useState(false);
+  const [reattachPreviewLoading, setReattachPreviewLoading] = useState(false);
+  const [sectionsThatWillBeLost, setSectionsThatWillBeLost] = useState<
+    Array<{ sectionId: string | null; type: string; label: string }>
+  >([]);
+  const [variantsThatWillBeLost, setVariantsThatWillBeLost] = useState<
+    Array<{ slug: string; locale: string; allocation: number }>
+  >([]);
+  const [hasLayoutOverride, setHasLayoutOverride] = useState(false);
   const { hasCapability } = useDebugAuth();
   const canManageUsers = hasCapability("users_manage");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [storeExpanded, setStoreExpanded] = useState(false);
   const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
+
+  const openReattachConfirm = useCallback(() => {
+    setReattachConfirmOpen(true);
+    setSectionsThatWillBeLost([]);
+    setVariantsThatWillBeLost([]);
+    setHasLayoutOverride(false);
+    const type = props.contentInfo.type;
+    const slug = props.contentInfo.slug;
+    if (!type || !slug) return;
+    const locale = normalizeLocale(
+      new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("locale") ||
+        props.contentLocale ||
+        i18n.language ||
+        "en",
+    );
+    setReattachPreviewLoading(true);
+    fetch(
+      `/api/content/${encodeURIComponent(type)}/${encodeURIComponent(slug)}/attach-status?locale=${encodeURIComponent(locale)}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setSectionsThatWillBeLost(
+          Array.isArray(data.sectionsThatWillBeLost) ? data.sectionsThatWillBeLost : [],
+        );
+        setVariantsThatWillBeLost(
+          Array.isArray(data.variantsThatWillBeLost) ? data.variantsThatWillBeLost : [],
+        );
+        setHasLayoutOverride(!!data.hasLayoutOverride);
+      })
+      .catch(() => {})
+      .finally(() => setReattachPreviewLoading(false));
+  }, [props.contentInfo.type, props.contentInfo.slug, props.contentLocale, i18n.language]);
 
   const { data: versionData } = useQuery<{ version: string }>({
     queryKey: ["/api/version"],
@@ -441,6 +488,11 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
             <h3 className="font-semibold text-sm">Dev Tools</h3>
           </div>
           <div className="flex items-center gap-2">
+            {props.contentInfo.type && props.contentInfo.slug && props.pageIsSharedLayout && props.pageIsDetached && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0" data-testid="badge-detached">
+                Detached
+              </Badge>
+            )}
             {props.contentInfo.type && props.contentInfo.slug && (
               <button
                 onClick={(e) => {
@@ -694,6 +746,28 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   indicator="chevron"
                   testId="button-versioning-menu"
                   rightContent={<span className="text-xs text-muted-foreground">{props.contentInfo.label}</span>}
+                />
+              )}
+              {props.contentInfo.type && props.contentInfo.slug && props.pageIsSharedLayout && (
+                <MenuItem
+                  icon={props.pageIsDetached ? Link2 : Unlink}
+                  label={props.pageIsDetached ? "Re-attach to template" : "Detach from template"}
+                  onClick={() => {
+                    if (props.pageIsDetached) {
+                      openReattachConfirm();
+                    } else {
+                      void props.onDetachEntry?.();
+                    }
+                  }}
+                  indicator="arrow"
+                  testId={props.pageIsDetached ? "button-reattach-entry" : "button-detach-entry"}
+                  rightContent={
+                    props.detachBusy ? (
+                      <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
+                    ) : props.pageIsDetached ? (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Detached</Badge>
+                    ) : undefined
+                  }
                 />
               )}
             </ExpandableMenuItem>
@@ -1066,6 +1140,9 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           pathname={props.pathname}
           onVersioningDataUpdate={props.onVersioningDataUpdate as any}
           onEditVariantYaml={props.onEditVariantYaml}
+          detachBusy={props.detachBusy}
+          onDetachEntry={props.onDetachEntry}
+          onRequestReattach={openReattachConfirm}
         />
       ) : props.menuView === "menus" ? (
         <>
@@ -1134,6 +1211,99 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           onOpenDiagnosticsForUrl={props.onOpenDiagnosticsForUrl}
         />
       )}
+
+      <Dialog open={reattachConfirmOpen} onOpenChange={setReattachConfirmOpen}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-reattach-confirm">
+          <DialogHeader>
+            <DialogTitle>Re-attach to shared template?</DialogTitle>
+            <DialogDescription>
+              This entry will use the shared template again. Custom sections, layout/menu overrides, and entry variants will be removed. Other data fields are kept. To undo, restore this entry’s folder from git history (DebugBubble Versions → Restore, or GitHub).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-sm space-y-3" data-testid="text-reattach-sections-preview">
+            {reattachPreviewLoading ? (
+              <p className="text-muted-foreground flex items-center gap-2">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Checking sections and variants…
+              </p>
+            ) : (
+              <>
+                {sectionsThatWillBeLost.length === 0 ? (
+                  <p className="text-muted-foreground">
+                    No sections will be lost — this entry’s sections already match the shared template (or has none of its own).
+                    {hasLayoutOverride ? " A layout/menu override will still be removed." : ""}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-muted-foreground">
+                      These sections are only on this detached page and will be lost:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-0.5 max-h-32 overflow-y-auto text-foreground">
+                      {sectionsThatWillBeLost.map((s, i) => (
+                        <li key={`${s.sectionId || s.type}-${i}`} className="text-xs">
+                          <span className="font-medium">{s.label}</span>
+                          {s.type ? (
+                            <span className="text-muted-foreground"> ({s.type})</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                    {hasLayoutOverride ? (
+                      <p className="text-xs text-muted-foreground">A layout/menu override will also be removed.</p>
+                    ) : null}
+                  </div>
+                )}
+
+                {variantsThatWillBeLost.length === 0 ? (
+                  <p className="text-muted-foreground" data-testid="text-reattach-no-variants">
+                    No entry variants will be lost.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5" data-testid="text-reattach-variants-preview">
+                    <p className="text-muted-foreground">
+                      These page versions will be deleted:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-0.5 max-h-32 overflow-y-auto text-foreground">
+                      {variantsThatWillBeLost.map((v, i) => (
+                        <li key={`${v.slug}-${v.locale}-${i}`} className="text-xs">
+                          <span className="font-medium">{v.slug}</span>
+                          <span className="text-muted-foreground">
+                            {" "}
+                            ({v.locale.toUpperCase()}
+                            {v.allocation > 0 ? ` · ${v.allocation}% traffic` : ""})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setReattachConfirmOpen(false)}
+              disabled={props.detachBusy}
+              data-testid="button-reattach-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={props.detachBusy}
+              data-testid="button-reattach-confirm"
+              onClick={async () => {
+                await props.onReattachEntry?.();
+                setReattachConfirmOpen(false);
+              }}
+            >
+              {props.detachBusy ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+              Re-attach
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

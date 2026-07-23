@@ -14,6 +14,7 @@ import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
+import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
 import type { MenuView, ContentInfo, VersioningResponse } from "../types";
 import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
 
@@ -26,6 +27,9 @@ interface VersioningViewProps {
   pathname: string;
   onVersioningDataUpdate?: (data: VersioningResponse) => void;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
+  detachBusy?: boolean;
+  onDetachEntry?: () => void | Promise<void>;
+  onRequestReattach?: () => void;
 }
 
 export function VersioningView({
@@ -37,10 +41,31 @@ export function VersioningView({
   pathname,
   onVersioningDataUpdate,
   onEditVariantYaml,
+  detachBusy,
+  onDetachEntry,
+  onRequestReattach,
 }: VersioningViewProps) {
   const { toast } = useToast();
   const locales = versioningData?.versioning ? Object.keys(versioningData.versioning) : [];
   const dialogLocales = locales.length > 0 ? locales : (versioningData?.availableLocales ?? ["en"]);
+
+  const isSharedLayout = !!versioningData?.isSharedLayout;
+  const isDetached = !!versioningData?.detached;
+  // Template versioning only when attached shared-layout (API returns versioningSlug "single")
+  const isTemplateVersioning =
+    isSharedLayout && !isDetached && versioningData?.versioningSlug === TEMPLATE_VERSIONING_SLUG;
+  // Mutations use the resolved slug from the API; never guess "single" while detached
+  const versioningWriteSlug =
+    versioningData?.versioningSlug ||
+    (contentInfo.slug
+      ? versioningContentSlug(contentInfo.slug, {
+          isSharedLayout,
+          isDetached,
+        })
+      : contentInfo.slug) ||
+    "";
+  const versionsTitle = isTemplateVersioning ? "Template Versions" : "Page Versions";
+  const contentTypeLabel = contentInfo.label || contentInfo.type || "entries";
 
   const searchString = useSearch();
   const activeVariant = new URLSearchParams(searchString).get("variant") ?? null;
@@ -129,13 +154,13 @@ export function VersioningView({
 
   const handleCreateVersion = async () => {
     const { type, slug } = contentInfo;
-    if (!type || !slug || !createVersionSlug) return;
+    if (!type || !slug || !createVersionSlug || !versioningWriteSlug) return;
     setIsCreatingVersion(true);
     try {
       const token = getDebugToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Token ${token}`;
-      const res = await fetch(`/api/versioning/${type}/${slug}`, {
+      const res = await fetch(`/api/versioning/${type}/${versioningWriteSlug}`, {
         method: "POST",
         headers,
         body: JSON.stringify({ variantSlug: createVersionSlug, locale: createVersionLocale }),
@@ -172,7 +197,7 @@ export function VersioningView({
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Token ${token}`;
       const res = await fetch(
-        `/api/versioning/${contentInfo.type}/${contentInfo.slug}/${promoteTarget.locale}/promote/${promoteTarget.slug}`,
+        `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${promoteTarget.locale}/promote/${promoteTarget.slug}`,
         { method: "POST", headers }
       );
       const data = await res.json();
@@ -204,7 +229,7 @@ export function VersioningView({
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Token ${token}`;
       const res = await fetch(
-        `/api/versioning/${contentInfo.type}/${contentInfo.slug}/${deleteTarget.locale}/${deleteTarget.slug}`,
+        `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${deleteTarget.locale}/${deleteTarget.slug}`,
         { method: "DELETE", headers }
       );
       const data = await res.json();
@@ -216,7 +241,10 @@ export function VersioningView({
       emitVariantDeleted({ contentType: contentInfo.type, slug: contentInfo.slug, locale: deleteTarget.locale, variantSlug: deleteTarget.slug });
       setDeleteTarget(null);
       if (onVersioningDataUpdate) {
-        onVersioningDataUpdate(data);
+        fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
+          .then((r) => r.json())
+          .then(onVersioningDataUpdate)
+          .catch(() => {});
       }
     } catch {
       toast({ title: "Failed to delete variant", variant: "destructive" });
@@ -260,7 +288,7 @@ export function VersioningView({
       })).filter((v) => v.slug !== "__default__");
 
       const res = await fetch(
-        `/api/versioning/${contentInfo.type}/${contentInfo.slug}/${editingLocale}`,
+        `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${editingLocale}`,
         {
           method: "PATCH",
           headers,
@@ -363,9 +391,10 @@ export function VersioningView({
             <IconArrowLeft className="h-4 w-4" />
           </button>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm">{showRestorePanel ? "Restore History" : "Versions"}</h3>
+            <h3 className="font-semibold text-sm">{showRestorePanel ? "Restore History" : versionsTitle}</h3>
             <p className="text-xs text-muted-foreground truncate">
               {contentInfo.label}: {contentInfo.slug}
+              {isDetached ? " · Detached" : isTemplateVersioning ? " · Shared template" : ""}
             </p>
           </div>
           {!showRestorePanel && (
@@ -399,8 +428,48 @@ export function VersioningView({
         </div>
       </div>
 
+      {!showRestorePanel && isTemplateVersioning && (
+        <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">
+          <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-template-versions-warning">
+            All {contentTypeLabel}&apos;s share the same template unless detached, versioning occurs on the template itself
+          </p>
+          {onDetachEntry && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 text-xs px-2"
+              disabled={detachBusy}
+              onClick={() => void onDetachEntry()}
+              data-testid="button-versioning-detach"
+            >
+              {detachBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Detach"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!showRestorePanel && isSharedLayout && isDetached && (
+        <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">
+          <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-detached-versions-notice">
+            This page is detached from the {contentTypeLabel} template, you can version manage its versions independently
+          </p>
+          {onRequestReattach && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 text-xs px-2"
+              disabled={detachBusy}
+              onClick={onRequestReattach}
+              data-testid="button-versioning-reattach"
+            >
+              {detachBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Re-attach"}
+            </Button>
+          )}
+        </div>
+      )}
+
       {showRestorePanel && (
-        <div className="overflow-y-auto overflow-x-hidden max-h-[380px]">
+        <div className="overflow-y-auto overflow-x-hidden max-h-[570px] min-h-[246px]">
           <div className="p-2 space-y-1">
             {restoreHistoryLoading ? (
               <div className="flex items-center justify-center py-8">
@@ -469,7 +538,7 @@ export function VersioningView({
       )}
 
       {!showRestorePanel && (
-      <div className="overflow-y-auto overflow-x-hidden max-h-[380px]">
+      <div className="overflow-y-auto overflow-x-hidden max-h-[570px] min-h-[246px]">
         <div className="p-2 space-y-1">
           {versioningLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -796,7 +865,9 @@ export function VersioningView({
               <div className="rounded-md bg-muted px-3 py-2 space-y-0.5">
                 <p className="text-xs font-medium">File that will be created:</p>
                 <p className="text-xs font-mono text-muted-foreground break-all">
-                  {contentInfo.slug}/{createVersionSlug}.{createVersionLocale}.yml
+                  {isTemplateVersioning
+                    ? `single.${createVersionSlug}.${createVersionLocale}.yml`
+                    : `${contentInfo.slug}/${createVersionSlug}.${createVersionLocale}.yml`}
                 </p>
               </div>
             )}

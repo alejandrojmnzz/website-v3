@@ -8,9 +8,9 @@ export const ARTICLE_TOC_GROUP_SUGGESTED: McpWarning = {
   code: "article_toc_group_suggested",
   message:
     "This page already has one or more article sections. To unify their tables of contents, " +
-    "set the same toc_group on every article (e.g. group_123456789), with show_toc: true only on " +
-    "the first article in page order and show_toc: false on the rest. See get_component_variant " +
-    "for article (example: article_split_toc_group) or explain_site topic 'sections'.",
+    "set the same toc_group on every article (e.g. group_123456789), with show_toc: true on " +
+    "every member so each piece shows the same merged TOC (sticky within that section). " +
+    "See get_component_variant for article (example: article_split_toc_group) or explain_site topic 'sections'.",
 };
 
 function articleEntries(
@@ -84,12 +84,10 @@ export function hintsAfterAddArticle(opts: {
   }
 
   const fields: Record<string, unknown> = {};
-  postArticles.forEach((a, order) => {
+  postArticles.forEach((a) => {
     fields[`sections.${a.index}.toc_group`] = preferredGroup;
-    fields[`sections.${a.index}.show_toc`] = order === 0;
-    if (order === 0) {
-      fields[`sections.${a.index}.toc_position`] = "side";
-    }
+    fields[`sections.${a.index}.show_toc`] = true;
+    fields[`sections.${a.index}.toc_position`] = "side";
   });
 
   return {
@@ -100,7 +98,8 @@ export function hintsAfterAddArticle(opts: {
         priority: "recommended",
         reason:
           "Ask the user if these articles should share one TOC. If yes, apply the same toc_group " +
-          "to all articles (show_toc only on the first). If they should stay separate, ignore this.",
+          "to all articles with show_toc: true on each (every piece shows the merged TOC). " +
+          "If they should stay separate, ignore this.",
         args_hint: {
           slug: opts.slug,
           locale: opts.locale,
@@ -143,12 +142,10 @@ export function hintsAfterReplaceSections(opts: {
   }
 
   const fields: Record<string, unknown> = {};
-  articles.forEach((a, order) => {
+  articles.forEach((a) => {
     fields[`sections.${a.index}.toc_group`] = preferredGroup;
-    fields[`sections.${a.index}.show_toc`] = order === 0;
-    if (order === 0) {
-      fields[`sections.${a.index}.toc_position`] = "side";
-    }
+    fields[`sections.${a.index}.show_toc`] = true;
+    fields[`sections.${a.index}.toc_position`] = "side";
   });
 
   return {
@@ -158,7 +155,7 @@ export function hintsAfterReplaceSections(opts: {
         tool: "update_section_fields",
         priority: "recommended",
         reason:
-          "Multiple articles on this page do not share one toc_group. Ask the user whether to unify their TOC, then apply these fields if yes.",
+          "Multiple articles on this page do not share one toc_group. Ask the user whether to unify their TOC, then apply these fields if yes (show_toc: true on every member).",
         args_hint: {
           slug: opts.slug,
           locale: opts.locale,

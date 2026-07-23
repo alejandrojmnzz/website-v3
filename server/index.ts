@@ -334,6 +334,7 @@ app.use((req, res, next) => {
       getCachedHtml,
       shouldBypassHtmlCache,
     } = await import("./html-page-cache");
+    const { resolveHtmlVariantKey } = await import("./html-variant-key");
     app.use((req, res, next) => {
       if (req.path.startsWith("/api/") || req.path.startsWith("/private/")) {
         return next();
@@ -353,7 +354,9 @@ app.use((req, res, next) => {
       const cleanUrl = (req.originalUrl || req.url || "/")
         .split("?")[0]
         .split("#")[0];
-      const cached = getCachedHtml(buildHtmlCacheKey(siteId, cleanUrl));
+      const variantKey = resolveHtmlVariantKey(req, res);
+      (res.locals as any).htmlVariantKey = variantKey;
+      const cached = getCachedHtml(buildHtmlCacheKey(siteId, cleanUrl, variantKey));
       if (!cached) return next();
 
       res

@@ -261,8 +261,15 @@ export default function PrivatePreview() {
           locale={locale}
           variant={variant ?? undefined}
           version={version ? Number(version) : undefined}
-          isSharedTemplate={!!(typeInfo?.has_database || typeInfo?.single_template)}
+          isSharedTemplate={
+            !!(typeInfo?.has_database || typeInfo?.single_template) &&
+            !(content as { detached?: boolean }).detached
+          }
           singleEntry={(content as any).singleEntry}
+          allowEntryStructuralOverrides={
+            !(typeInfo?.has_database || typeInfo?.single_template) ||
+            !!(content as { detached?: boolean }).detached
+          }
         />
       </MenuVisualContextProvider>
       <div className="group relative">

@@ -23,6 +23,8 @@ interface AddSectionButtonProps {
   version?: number;
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** When false, skip entry-scope choice (attached shared-layout). */
+  allowEntryStructuralOverrides?: boolean;
 }
 
 export function AddSectionButton({
@@ -35,6 +37,7 @@ export function AddSectionButton({
   version,
   isSharedTemplate,
   singleEntry,
+  allowEntryStructuralOverrides = true,
 }: AddSectionButtonProps) {
   const editMode = useEditModeOptional();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,8 +49,11 @@ export function AddSectionButton({
   }
 
   const handleOpenModal = () => {
-    if (isSharedTemplate && singleEntry) {
+    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides) {
       setScopeDialogOpen(true);
+    } else if (isSharedTemplate && singleEntry && !allowEntryStructuralOverrides) {
+      setAddScope("template");
+      setIsModalOpen(true);
     } else {
       setIsModalOpen(true);
     }
@@ -156,6 +162,7 @@ export function AddSectionButton({
           version={version}
           isSharedTemplate={isSharedTemplate}
           singleEntry={singleEntry}
+          allowEntryStructuralOverrides={allowEntryStructuralOverrides}
           addScope={addScope}
         />
       )}

@@ -167,6 +167,7 @@ import {
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
+import { isEntryDetached } from "../shared-layout-entry";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -237,6 +238,7 @@ export function registerDatabasesRoutes(app: Express): void {
     try {
       const { contentType, slug } = req.params;
       const locale = normalizeLocale(req.query.locale as string);
+      const forceVariant = req.query.force_variant as string | undefined;
 
       if (!hasDatabaseSingle(contentType, getContentRoot(res))) {
         res
@@ -247,7 +249,25 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
 
-      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+      const root = getContentRoot(res);
+      const detached = isEntryDetached(contentType, slug, root);
+      let templateVariant: string | undefined;
+      if (!detached) {
+        const { resolveAssignedVariantSlug } = await import("./_helpers");
+        templateVariant =
+          forceVariant ||
+          resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
+          undefined;
+      }
+
+      const page = await loadDatabaseSinglePage(
+        contentType,
+        slug,
+        locale,
+        root,
+        getDB(res),
+        templateVariant,
+      );
       if (!page) {
         res
           .status(404)
@@ -260,7 +280,11 @@ export function registerDatabasesRoutes(app: Express): void {
       const dbSingleData = page as unknown as Record<string, unknown>;
       injectCanonicalIfMissing(dbSingleData, contentType, locale);
       const { layout: _dbSingleStripLayout, ...dbSingleRest } = dbSingleData;
-      res.json({ ...dbSingleRest, layout: dbSingleLayout });
+      res.json({
+        ...dbSingleRest,
+        layout: dbSingleLayout,
+        detached,
+      });
     } catch (error) {
       log.error({ err: error }, "[DatabaseSingle] Error:");
       res.status(500).json({ error: "Failed to load database single page" });

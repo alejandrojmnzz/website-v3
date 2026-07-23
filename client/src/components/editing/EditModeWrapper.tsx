@@ -12,6 +12,11 @@ import { navigate } from "wouter/use-browser-location";
 import { useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { IconGitFork } from "@tabler/icons-react";
+import { useContentTypesRaw } from "@/hooks/useContentTypes";
+import {
+  isSharedLayoutType,
+  versioningContentSlug,
+} from "@/lib/sharedLayoutEntry";
 import type { Section } from "@shared/schema";
 
 interface EditModeWrapperProps {
@@ -59,6 +64,7 @@ interface PendingEdit {
 function FirstEditGate({ children }: { children: React.ReactNode }) {
   const editMode = useEditModeOptional();
   const searchString = useSearch();
+  const { data: contentTypesRaw } = useContentTypesRaw();
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [existingVariants, setExistingVariants] = useState<ExistingVariant[]>([]);
@@ -69,6 +75,31 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
     const params = new URLSearchParams(searchString);
     return params.get("variant") ?? params.get("force_variant") ?? null;
   })();
+
+  const resolveVersioningSlug = useCallback(
+    async (contentType: string, entrySlug: string): Promise<string> => {
+      const typeInfo = contentTypesRaw?.find((t) => t.name === contentType);
+      const shared = isSharedLayoutType(typeInfo);
+      if (!shared) return entrySlug;
+      try {
+        const res = await fetch(
+          `/api/content/${encodeURIComponent(contentType)}/${encodeURIComponent(entrySlug)}/attach-status`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          return versioningContentSlug(entrySlug, {
+            isSharedLayout: true,
+            isDetached: !!data.detached,
+          });
+        }
+      } catch {
+        // fall through
+      }
+      // Attached by default for shared-layout when status is unavailable
+      return versioningContentSlug(entrySlug, { isSharedLayout: true, isDetached: false });
+    },
+    [contentTypesRaw],
+  );
 
   useEffect(() => {
     return subscribeToEditStarted((payload) => {
@@ -100,18 +131,28 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
       setExistingVariants([]);
       setModalOpen(true);
 
-      // Fetch existing variants for this page in the background
-      fetch(`/api/versioning/${encodeURIComponent(payload.contentType)}/${encodeURIComponent(slug)}`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((data) => {
+      // Fetch existing variants (template slug when attached shared-layout)
+      void (async () => {
+        try {
+          const versioningSlug = await resolveVersioningSlug(payload.contentType, slug);
+          const r = await fetch(
+            `/api/versioning/${encodeURIComponent(payload.contentType)}/${encodeURIComponent(versioningSlug)}`,
+          );
+          if (!r.ok) return;
+          const data = await r.json();
           if (!data?.versioning) return;
-          const localeData = data.versioning[payload.locale] ?? data.versioning[Object.keys(data.versioning)[0]];
-          const variants: ExistingVariant[] = (localeData?.variants ?? []).map((v: { slug: string }) => ({ slug: v.slug }));
+          const localeData =
+            data.versioning[payload.locale] ?? data.versioning[Object.keys(data.versioning)[0]];
+          const variants: ExistingVariant[] = (localeData?.variants ?? []).map(
+            (v: { slug: string }) => ({ slug: v.slug }),
+          );
           setExistingVariants(variants);
-        })
-        .catch(() => {});
+        } catch {
+          // ignore
+        }
+      })();
     });
-  }, [editMode]);
+  }, [editMode, resolveVersioningSlug]);
 
   const handleEditLive = useCallback(() => {
     if (!editMode || !pendingRef.current) return;
@@ -150,7 +191,8 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Token ${token}`;
 
-    const res = await fetch(`/api/versioning/${contentType}/${slug}`, {
+    const versioningSlug = await resolveVersioningSlug(contentType, slug);
+    const res = await fetch(`/api/versioning/${contentType}/${versioningSlug}`, {
       method: "POST",
       headers,
       body: JSON.stringify({ variantSlug: variantName, locale }),
@@ -178,7 +220,7 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
 
     // Navigate to the new variant so subsequent edits happen in the variant context
     navigate(`/private/preview/${contentType}/${slug}?variant=${encodeURIComponent(variantName)}&locale=${locale}`);
-  }, [editMode]);
+  }, [editMode, resolveVersioningSlug]);
 
   return (
     <>

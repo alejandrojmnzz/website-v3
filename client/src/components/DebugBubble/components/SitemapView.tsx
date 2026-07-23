@@ -182,7 +182,7 @@ export function SitemapView({
         </div>
       </div>
       
-      <div className="overflow-y-auto overflow-x-hidden max-h-[240px]">
+      <div className="overflow-y-auto overflow-x-hidden max-h-[360px]">
         <div className="p-2 space-y-1">
           {sitemapLoading ? (
             <div className="flex items-center justify-center py-8">

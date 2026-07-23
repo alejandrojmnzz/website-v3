@@ -473,6 +473,21 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     merged.database = databaseUpdate;
   }
 
+  // Database-backed types always use a shared template.
+  if (merged.database?.slug) {
+    merged.single_template = true;
+  }
+
+  if (
+    existing.database?.slug &&
+    update.single_template === false &&
+    databaseUpdate !== null
+  ) {
+    throw new Error(
+      `Cannot disable shared layout (single_template) while content type "${singular}" is linked to a database. Unlink the database first.`,
+    );
+  }
+
   if (merged.url_pattern) {
     validateUrlPatterns(merged.url_pattern);
   }

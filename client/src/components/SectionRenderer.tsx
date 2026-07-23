@@ -394,6 +394,8 @@ interface SectionRendererProps {
   landingLocations?: string[];
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** When false, hide entry-scoped structural actions on attached shared-layout pages. */
+  allowEntryStructuralOverrides?: boolean;
   perEntryRemovedSections?: Array<{ section: Record<string, unknown>; originalIndex: number }>;
 }
 
@@ -667,7 +669,7 @@ function toSingularLabel(ct: string | undefined, rawTypes: { name: string; label
   return lower;
 }
 
-export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, perEntryRemovedSections }: SectionRendererProps) {
+export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, allowEntryStructuralOverrides = true, perEntryRemovedSections }: SectionRendererProps) {
   const { toast } = useToast();
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
@@ -824,7 +826,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   const handleMoveUp = async (index: number) => {
     if (!contentType || !slug || !locale || index <= 0) return;
 
-    if (isSharedTemplate && singleEntry) {
+    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides) {
       const rawSection = sections[index] as Record<string, unknown>;
       const adjacentSection = sections[index - 1] as Record<string, unknown>;
       const isPerEntry = !!rawSection?._perEntrySource;
@@ -870,7 +872,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   const handleMoveDown = async (index: number) => {
     if (!contentType || !slug || !locale || index >= sections.length - 1) return;
 
-    if (isSharedTemplate && singleEntry) {
+    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides) {
       const rawSection = sections[index] as Record<string, unknown>;
       const adjacentSection = sections[index + 1] as Record<string, unknown>;
       const isPerEntry = !!rawSection?._perEntrySource;
@@ -968,7 +970,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       }
     } catch {}
 
-    if (isSharedTemplate && singleEntry) {
+    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides) {
       // On a specific DB entry page — check if section is per-entry-only
       const rawSection = sections[index] as Record<string, unknown>;
       const isPerEntry = !!(rawSection?._perEntrySource);
@@ -1403,6 +1405,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
             version={version}
             isSharedTemplate={isSharedTemplate}
             singleEntry={singleEntry}
+            allowEntryStructuralOverrides={allowEntryStructuralOverrides}
           />
         </Suspense>
       )}
@@ -1518,6 +1521,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                     version={version}
                     isSharedTemplate={isSharedTemplate}
                     singleEntry={singleEntry}
+                    allowEntryStructuralOverrides={allowEntryStructuralOverrides}
                   />
                 </Suspense>
               </div>
@@ -1600,6 +1604,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                       allSections={sections}
                       isSharedTemplate={isSharedTemplate}
                       singleEntry={singleEntry}
+                      allowEntryStructuralOverrides={allowEntryStructuralOverrides}
                       onMoveUp={handleMoveUp}
                       onMoveDown={handleMoveDown}
                       onDelete={handleDelete}
@@ -1627,6 +1632,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                       version={version}
                       isSharedTemplate={isSharedTemplate}
                       singleEntry={singleEntry}
+                      allowEntryStructuralOverrides={allowEntryStructuralOverrides}
                     />
                   </Suspense>
                 )}

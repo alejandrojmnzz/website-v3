@@ -12,6 +12,7 @@ import { databaseManager, type DatabaseManager } from "./database";
 import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { invalidateStaticListingCache } from "./static-listing-cache";
+import { isEntryDetached } from "./shared-layout-entry";
 import {
   findBestSingleMirrorSource,
   buildMirroredLocaleSingle,
@@ -1432,7 +1433,9 @@ export class ContentIndex {
       const folder = this.getFolderName(contentType);
       const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
       const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
-      const useSingleTemplate = !!getContentTypeConfig(contentType, this.contentRoot)?.single_template;
+      const useSingleTemplate =
+        !!getContentTypeConfig(contentType, this.contentRoot)?.single_template &&
+        !isEntryDetached(contentType, slug, this.contentRoot);
 
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {
@@ -1464,11 +1467,12 @@ export class ContentIndex {
           }
         }
         merged = { ...baseData };
+        const dataOnly = true; // attached path only — detached uses classic merge above
         if (fs.existsSync(commonPath)) {
           const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null;
-          if (commonData) merged = applyPerEntryLayer(merged, commonData);
+          if (commonData) merged = applyPerEntryLayer(merged, commonData, undefined, undefined, dataOnly);
         }
-        if (localeData) merged = applyPerEntryLayer(merged, localeData);
+        if (localeData) merged = applyPerEntryLayer(merged, localeData, undefined, undefined, dataOnly);
       } else {
         if (fs.existsSync(commonPath)) {
           const commonContent = fs.readFileSync(commonPath, "utf-8");
@@ -1514,7 +1518,9 @@ export class ContentIndex {
 
       const singleCommonPath = path.join(this.contentRoot, folder, "_common.single.yml");
       const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
-      const useSingleTemplate = !!getContentTypeConfig(contentType, this.contentRoot)?.single_template;
+      const useSingleTemplate =
+        !!getContentTypeConfig(contentType, this.contentRoot)?.single_template &&
+        !isEntryDetached(contentType, resolvedSlug, this.contentRoot);
 
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {
@@ -1545,12 +1551,13 @@ export class ContentIndex {
         }
 
         let merged: Record<string, unknown> = { ...baseData };
+        const dataOnly = true;
         if (fs.existsSync(commonPath)) {
           const commonData = this.safeYamlLoad(fs.readFileSync(commonPath, "utf8")) as Record<string, unknown> | null;
-          if (commonData) merged = applyPerEntryLayer(merged, commonData);
+          if (commonData) merged = applyPerEntryLayer(merged, commonData, undefined, undefined, dataOnly);
         }
         const contentData = this.safeYamlLoad(fs.readFileSync(contentPath, "utf8")) as Record<string, unknown> | null;
-        if (contentData) merged = applyPerEntryLayer(merged, contentData);
+        if (contentData) merged = applyPerEntryLayer(merged, contentData, undefined, undefined, dataOnly);
         cleanedData = stripNullValues(applySectionLayoutDefaults(merged));
       } else {
         if (fs.existsSync(commonPath)) {

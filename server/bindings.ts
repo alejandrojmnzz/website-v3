@@ -6,7 +6,7 @@ import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
 import { markFileAsModified } from "./sync-state";
 import { generateSectionId } from "./utils/generateSectionId";
 import { contentIndex } from "./content-index";
-import { getContentTypeConfig } from "./content-types";
+import { isSharedLayoutType } from "./shared-layout-entry";
 import { child } from "./logger";
 const log = child({ module: "bindings" });
 
@@ -27,9 +27,7 @@ export function isSharedLayoutContentType(
   contentType: string,
   contentRoot?: string,
 ): boolean {
-  const config = getContentTypeConfig(contentType, contentRoot);
-  if (!config) return false;
-  return !!(config.database?.slug || config.single_template);
+  return isSharedLayoutType(contentType, contentRoot);
 }
 
 function assertMembersNotOnSharedLayout(members: BindingMember[]): void {

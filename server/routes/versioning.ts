@@ -123,6 +123,16 @@ import {
   listAvailableMenus,
   getDirectory,
 } from "../content-types";
+import {
+  isEntryDetached,
+  isSharedLayoutType,
+  versioningContentSlug,
+  isTemplateVersioningSlug,
+} from "../shared-layout-entry";
+import {
+  buildMirroredLocaleSingle,
+  listSiblingSinglePaths,
+} from "../shared-layout-sync";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
 import {
@@ -217,6 +227,29 @@ function getContentRootName(res: Response): string {
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
 }
 
+
+/** Reject entry-slug versioning writes when the entry is still attached to a shared template. */
+function resolveWritableVersioningSlug(
+  contentType: string,
+  contentSlug: string,
+  contentRoot: string,
+): { ok: true; slug: string; templateMode: boolean } | { ok: false; error: string; status: number } {
+  if (isTemplateVersioningSlug(contentSlug)) {
+    if (!isSharedLayoutType(contentType, contentRoot)) {
+      return { ok: false, status: 400, error: "Template versioning (slug \"single\") is only valid for shared-layout content types" };
+    }
+    return { ok: true, slug: contentSlug, templateMode: true };
+  }
+  if (isSharedLayoutType(contentType, contentRoot) && !isEntryDetached(contentType, contentSlug, contentRoot)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Attached shared-layout entries use template versioning. Use content slug \"single\" (or detach the entry for Page Versions).",
+    };
+  }
+  return { ok: true, slug: contentSlug, templateMode: false };
+}
+
 export function registerVersioningRoutes(app: Express): void {
   app.get("/api/debug/versioning", (req, res) => {
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
@@ -267,14 +300,19 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const root = getContentRoot(res);
+    const shared = isSharedLayoutType(contentType, root);
+    const entrySlug = isTemplateVersioningSlug(contentSlug) ? null : contentSlug;
+    const detached = entrySlug ? isEntryDetached(contentType, entrySlug, root) : false;
+    // When client passes an entry slug for an attached shared-layout page, read template versioning
+    const resolvedSlug =
+      entrySlug && shared
+        ? versioningContentSlug(contentType, entrySlug, root)
+        : contentSlug;
+
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-    const versioning = versioningManager.getVersioningForContent(contentType, contentSlug);
-    const filePath = path.join(
-      getContentRoot(res),
-      getFolder(contentType as ContentType) || contentType,
-      contentSlug,
-      "versioning.yml",
-    );
+    const versioning = versioningManager.getVersioningForContent(contentType, resolvedSlug);
+    const filePath = versioningManager.getVersioningFilePath(contentType, resolvedSlug);
 
     const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
 
@@ -284,6 +322,9 @@ export function registerVersioningRoutes(app: Express): void {
         hasVersioningFile: false,
         filePath,
         availableLocales,
+        detached,
+        isSharedLayout: shared,
+        versioningSlug: resolvedSlug,
       });
       return;
     }
@@ -293,6 +334,9 @@ export function registerVersioningRoutes(app: Express): void {
       hasVersioningFile: true,
       filePath,
       availableLocales,
+      detached,
+      isSharedLayout: shared,
+      versioningSlug: resolvedSlug,
     });
   });
 
@@ -312,6 +356,12 @@ export function registerVersioningRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "content_allocate_traffic", contentType);
       if (!auth.authorized) return;
 
+      const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+      if (!resolved.ok) {
+        res.status(resolved.status).json({ error: resolved.error });
+        return;
+      }
+
       const parseResult = versioningUpdateSchema.safeParse(req.body);
       if (!parseResult.success) {
         res.status(400).json({
@@ -326,12 +376,26 @@ export function registerVersioningRoutes(app: Express): void {
 
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       try {
-        const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
+        // Allocating traffic requires the locale variant file to exist
+        const contentDir = versioningManager.getVersioningContentDir(contentType, resolved.slug);
+        for (const v of parseResult.data.variants) {
+          if (v.allocation > 0) {
+            const vp = versioningManager.getVariantFilePath(contentType, resolved.slug, v.slug, locale);
+            if (!fs.existsSync(vp)) {
+              res.status(400).json({
+                error: `Cannot allocate traffic: missing variant file ${path.basename(vp)}`,
+              });
+              return;
+            }
+          }
+        }
+
+        const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
         const updated = { ...existing, [locale]: { variants: parseResult.data.variants } };
-        // updateVersioning writes the file and calls markFileAsModified, which queues
-        // versioning.yml for auto-commit — the same path taken by create/promote/delete routes.
-        versioningManager.updateVersioning(contentType, contentSlug, updated);
-        res.json({ success: true, contentType, contentSlug, locale });
+        versioningManager.updateVersioning(contentType, resolved.slug, updated);
+        invalidateContentCaches(contentType, getCI(res));
+        // Warm live + traffic-receiving variants on next anonymous render (invalidate is enough to force MISS).
+        res.json({ success: true, contentType, contentSlug: resolved.slug, locale });
       } catch (error) {
         res.status(400).json({
           error:
@@ -355,6 +419,12 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_create_variant", contentType);
     if (!auth.authorized) return;
 
+    const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
     const { variantSlug, locale } = req.body as { variantSlug?: string; locale?: string };
 
     if (!variantSlug || !locale) {
@@ -367,33 +437,70 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+    const contentDir = versioningManager.getVersioningContentDir(contentType, resolved.slug);
+    const root = getContentRoot(res);
     const folder = getFolder(contentType as ContentType);
-    const contentDir = path.join(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
       res.status(404).json({ error: "Content folder not found" });
       return;
     }
 
-    const variantFilePath = path.join(contentDir, `${variantSlug}.${locale}.yml`);
+    const variantFilePath = versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale);
     if (fs.existsSync(variantFilePath)) {
-      res.status(409).json({ error: `Variant ${variantSlug}.${locale}.yml already exists` });
+      res.status(409).json({
+        error: resolved.templateMode
+          ? `Variant single.${variantSlug}.${locale}.yml already exists`
+          : `Variant ${variantSlug}.${locale}.yml already exists`,
+      });
       return;
     }
 
-    const sourceFilePath = path.join(contentDir, `${locale}.yml`);
+    const sourceFilePath = resolved.templateMode
+      ? path.join(contentDir, `single.${locale}.yml`)
+      : path.join(contentDir, `${locale}.yml`);
     if (!fs.existsSync(sourceFilePath)) {
-      res.status(404).json({ error: `Source file ${locale}.yml not found for this entry` });
+      res.status(404).json({
+        error: resolved.templateMode
+          ? `Source file single.${locale}.yml not found`
+          : `Source file ${locale}.yml not found for this entry`,
+      });
       return;
     }
 
     try {
       const sourceContent = fs.readFileSync(sourceFilePath, "utf-8");
       fs.writeFileSync(variantFilePath, sourceContent, "utf-8");
-      markFileAsModified(`${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
+      const relPrimary = resolved.templateMode
+        ? `${folder}/single.${variantSlug}.${locale}.yml`
+        : `${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`;
+      markFileAsModified(relPrimary, auth.author || "api", undefined, root);
 
-      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
+      // Template mode: fan out sibling-locale variant files with _label pending translation
+      const createdSiblings: string[] = [];
+      if (resolved.templateMode) {
+        const sourceData = (getCI(res).safeYamlLoad(sourceContent) as Record<string, unknown>) || {};
+        const requesterId = auth.author || undefined;
+        for (const sibling of listSiblingSinglePaths(contentDir, locale)) {
+          const siblingVariantPath = path.join(contentDir, `single.${variantSlug}.${sibling.locale}.yml`);
+          if (fs.existsSync(siblingVariantPath)) continue;
+          const mirrored = buildMirroredLocaleSingle(sourceData, requesterId);
+          // Preserve layout from sibling live single when present
+          try {
+            const siblingLive = getCI(res).safeYamlLoad(fs.readFileSync(sibling.filePath, "utf-8")) as Record<string, unknown> | null;
+            if (siblingLive?.layout) mirrored.layout = siblingLive.layout;
+          } catch { /* ignore */ }
+          const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
+          const { escaped, map } = escapeObjectVars(mirrored);
+          const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
+          fs.writeFileSync(siblingVariantPath, unescapeYamlDump(dumped, map), "utf-8");
+          markFileAsModified(`${folder}/single.${variantSlug}.${sibling.locale}.yml`, auth.author || "api", undefined, root);
+          createdSiblings.push(sibling.locale);
+        }
+      }
+
+      const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
       const localeData = existing[locale]
         ? { variants: [...(existing[locale].variants || [])] }
         : { variants: [] };
@@ -402,13 +509,15 @@ export function registerVersioningRoutes(app: Express): void {
         localeData.variants.push({ slug: variantSlug, allocation: 0 });
       }
 
-      versioningManager.updateVersioning(contentType, contentSlug, { ...existing, [locale]: localeData });
+      versioningManager.updateVersioning(contentType, resolved.slug, { ...existing, [locale]: localeData });
 
       res.json({
         success: true,
         variantSlug,
         locale,
-        filePath: `${getContentRootName(res)}/${folder}/${contentSlug}/${variantSlug}.${locale}.yml`,
+        templateMode: resolved.templateMode,
+        siblingLocales: createdSiblings,
+        filePath: `${getContentRootName(res)}/${relPrimary}`,
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -427,6 +536,12 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_promote_variant", contentType);
     if (!auth.authorized) return;
 
+    const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
     if (!/^[a-z0-9-]+$/.test(variantSlug)) {
       res.status(400).json({ error: "variantSlug must be lowercase letters, numbers, and hyphens only" });
       return;
@@ -437,25 +552,33 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+    const contentDir = path.resolve(versioningManager.getVersioningContentDir(contentType, resolved.slug));
+    const root = getContentRoot(res);
     const folder = getFolder(contentType as ContentType);
-    const contentDir = path.resolve(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
       res.status(404).json({ error: "Content folder not found" });
       return;
     }
 
-    const variantFilePath = path.resolve(contentDir, `${variantSlug}.${locale}.yml`);
-    const defaultFilePath = path.resolve(contentDir, `${locale}.yml`);
+    const variantFilePath = path.resolve(versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale));
+    const defaultFilePath = path.resolve(
+      contentDir,
+      resolved.templateMode ? `single.${locale}.yml` : `${locale}.yml`,
+    );
 
-    // Path containment: both resolved paths must stay within contentDir
     if (!variantFilePath.startsWith(contentDir + path.sep) || !defaultFilePath.startsWith(contentDir + path.sep)) {
       res.status(400).json({ error: "Invalid file path" });
       return;
     }
 
     if (!fs.existsSync(variantFilePath)) {
-      res.status(404).json({ error: `Variant file ${variantSlug}.${locale}.yml not found` });
+      res.status(404).json({
+        error: resolved.templateMode
+          ? `Variant file single.${variantSlug}.${locale}.yml not found`
+          : `Variant file ${variantSlug}.${locale}.yml not found`,
+      });
       return;
     }
 
@@ -463,12 +586,11 @@ export function registerVersioningRoutes(app: Express): void {
       const variantContent = fs.readFileSync(variantFilePath, "utf-8");
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
-      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
+      const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
       const localeData = existing[locale];
       if (localeData) {
         const updatedVariants = (localeData.variants || []).filter((v) => v.slug !== variantSlug);
-        versioningManager.updateVersioning(contentType, contentSlug, {
+        versioningManager.updateVersioning(contentType, resolved.slug, {
           ...existing,
           [locale]: { variants: updatedVariants },
         });
@@ -478,9 +600,15 @@ export function registerVersioningRoutes(app: Express): void {
 
       getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
-      const folder2 = getFolder(contentType as ContentType);
-      markFileAsModified(`${folder2}/${contentSlug}/${locale}.yml`, "api", undefined, getContentRoot(res));
-      markFileAsModified(`${folder2}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
+      invalidateContentCaches(contentType, getCI(res));
+
+      if (resolved.templateMode) {
+        markFileAsModified(`${folder}/single.${locale}.yml`, auth.author || "api", undefined, root);
+        markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+      } else {
+        markFileAsModified(`${folder}/${resolved.slug}/${locale}.yml`, auth.author || "api", undefined, root);
+        markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+      }
 
       res.json({ success: true });
     } catch (error) {
@@ -500,6 +628,12 @@ export function registerVersioningRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "content_delete_variant", contentType);
     if (!auth.authorized) return;
 
+    const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
     if (!/^[a-z0-9-]+$/.test(variantSlug)) {
       res.status(400).json({ error: "variantSlug must be lowercase letters, numbers, and hyphens only" });
       return;
@@ -510,37 +644,45 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+    const contentDir = path.resolve(versioningManager.getVersioningContentDir(contentType, resolved.slug));
+    const root = getContentRoot(res);
     const folder = getFolder(contentType as ContentType);
-    const contentDir = path.resolve(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
       res.status(404).json({ error: "Content folder not found" });
       return;
     }
 
-    const variantFilePath = path.resolve(contentDir, `${variantSlug}.${locale}.yml`);
+    const variantFilePath = path.resolve(versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale));
 
-    // Path containment: resolved path must stay within contentDir
     if (!variantFilePath.startsWith(contentDir + path.sep)) {
       res.status(400).json({ error: "Invalid file path" });
       return;
     }
 
     if (!fs.existsSync(variantFilePath)) {
-      res.status(404).json({ error: `Variant file ${variantSlug}.${locale}.yml not found` });
+      res.status(404).json({
+        error: resolved.templateMode
+          ? `Variant file single.${variantSlug}.${locale}.yml not found`
+          : `Variant file ${variantSlug}.${locale}.yml not found`,
+      });
       return;
     }
 
     try {
       fs.unlinkSync(variantFilePath);
-      markFileAsModified(`${folder}/${contentSlug}/${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
+      if (resolved.templateMode) {
+        markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+      } else {
+        markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+      }
 
-      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const existing = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
+      const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
       const localeData = existing[locale];
       if (localeData) {
         const updatedVariants = (localeData.variants || []).filter((v) => v.slug !== variantSlug);
-        versioningManager.updateVersioning(contentType, contentSlug, {
+        versioningManager.updateVersioning(contentType, resolved.slug, {
           ...existing,
           [locale]: { variants: updatedVariants },
         });
@@ -548,9 +690,12 @@ export function registerVersioningRoutes(app: Express): void {
 
       getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
+      invalidateContentCaches(contentType, getCI(res));
 
-      const updated = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
-      const availableLocales = getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, contentSlug);
+      const updated = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
+      const availableLocales = resolved.templateMode
+        ? getLocaleEntries().map((l: { code: string }) => l.code)
+        : getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, resolved.slug);
       res.json({
         hasVersioningFile: true,
         versioning: updated,

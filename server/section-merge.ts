@@ -38,13 +38,24 @@ export function applyPerEntryLayer(
   layer: Record<string, unknown>,
   accum?: PerEntryAccum,
   aliases?: Record<string, string | null>,
+  /**
+   * When true (attached shared-layout entries), ignore `sections` and `layout`
+   * from the overlay — data fields only.
+   */
+  dataOnly = false,
 ): Record<string, unknown> {
+  if (dataOnly) {
+    const { sections: _s, layout: _l, detached: _d, ...rest } = layer;
+    if (Object.keys(rest).length === 0) return { ...base };
+    return deepMerge(base, rest);
+  }
+
   const layerSections = Array.isArray(layer.sections)
     ? (layer.sections as Record<string, unknown>[])
     : null;
 
   if (layerSections === null) {
-    // No sections in this layer — plain deep merge
+    // No sections in this layer — plain deep merge (still drop layout for safety if dataOnly false and layout present — keep old behavior for detached/legacy)
     return deepMerge(base, layer);
   }
 

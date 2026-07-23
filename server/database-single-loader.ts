@@ -21,6 +21,7 @@ import { readSectionAnchors, writeSectionAnchors } from "./utils/sectionAnchors"
 import { canonicalSectionId, sectionIdCandidates } from "./utils/sectionIdentity";
 import { applyPerEntryLayer, type PerEntryAccum } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
+import { isEntryDetached } from "./shared-layout-entry";
 import type { TemplatePage } from "@shared/schema";
 import { child } from "./logger";
 const log = child({ module: "database-single-loader" });
@@ -55,15 +56,25 @@ export function mergeSingleTemplate(
   slug?: string,
   accum?: PerEntryAccum,
   contentRoot?: string,
+  /** When set, load `single.{variant}.{locale}.yml` instead of live `single.{locale}.yml`. */
+  templateVariant?: string,
 ): Record<string, unknown> | null {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const folder = getFolder(contentType, resolvedRoot);
   const templateDir = path.join(resolvedRoot, folder);
   const singleCommonPath = path.join(templateDir, "_common.single.yml");
   const commonPath = path.join(templateDir, "_common.yml");
-  let localePath = path.join(templateDir, `single.${locale}.yml`);
-  if (!fs.existsSync(localePath)) {
-    localePath = path.join(templateDir, "single.en.yml");
+  let localePath: string;
+  if (templateVariant) {
+    localePath = path.join(templateDir, `single.${templateVariant}.${locale}.yml`);
+    if (!fs.existsSync(localePath)) {
+      localePath = path.join(templateDir, `single.${templateVariant}.en.yml`);
+    }
+  } else {
+    localePath = path.join(templateDir, `single.${locale}.yml`);
+    if (!fs.existsSync(localePath)) {
+      localePath = path.join(templateDir, "single.en.yml");
+    }
   }
   if (!fs.existsSync(localePath)) return null;
 
@@ -147,15 +158,18 @@ export function mergeSingleTemplate(
 
     const entryDir = path.join(templateDir, slug);
     if (fs.existsSync(entryDir) && fs.statSync(entryDir).isDirectory()) {
+      // Attached entries: data-only overlays (ignore sections/layout).
+      // Detached entries should not use mergeSingleTemplate for render.
+      const dataOnly = !isEntryDetached(contentType, slug, resolvedRoot);
       const entryCommonPath = path.join(entryDir, "_common.yml");
       if (fs.existsSync(entryCommonPath)) {
         const parsed = contentIndex.safeYamlLoad(fs.readFileSync(entryCommonPath, "utf-8"));
-        if (parsed) merged = applyPerEntryLayer(merged, parsed, accum, aliases);
+        if (parsed) merged = applyPerEntryLayer(merged, parsed, accum, aliases, dataOnly);
       }
       const entryLocalePath = path.join(entryDir, `${locale}.yml`);
       if (fs.existsSync(entryLocalePath)) {
         const parsed = contentIndex.safeYamlLoad(fs.readFileSync(entryLocalePath, "utf-8"));
-        if (parsed) merged = applyPerEntryLayer(merged, parsed, accum, aliases);
+        if (parsed) merged = applyPerEntryLayer(merged, parsed, accum, aliases, dataOnly);
       }
     }
   }
@@ -225,29 +239,60 @@ export async function loadDatabaseSinglePage(
   locale: string,
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
+  /** When set (attached shared-layout A/B), load `single.{variant}.{locale}.yml`. Ignored when detached. */
+  templateVariant?: string,
 ): Promise<TemplatePage | null> {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const dbName = getDatabaseName(contentType, resolvedRoot);
   if (!dbName) return null;
 
-  // Collect per-entry metadata (removed sections, per-entry additions)
-  const accum: PerEntryAccum = { removedSections: [] };
-  const merged = mergeSingleTemplate(contentType, locale, slug, accum, resolvedRoot);
+  const detached = isEntryDetached(contentType, slug, resolvedRoot);
 
-  if (!merged) {
-    log.error(
-      `[DatabaseSingle] Template not found: single.${locale}.yml for ${contentType}`,
-    );
-    return null;
-  }
-
-  // Compute per-entry removed sections.
-  // Compare base template (no slug) with merged (with slug) to find removed sections.
+  // Detached: structure from entry YAML (classic page), not shared template
+  let merged: Record<string, unknown> | null = null;
   let perEntryRemovedSections: Array<{ section: Record<string, unknown>; originalIndex: number }> = [];
 
-  // Only compute if we have per-entry overrides (accum tracks what was removed)
-  if (accum.removedSections.length > 0) {
-    perEntryRemovedSections = accum.removedSections;
+  if (detached) {
+    const folder = getFolder(contentType, resolvedRoot);
+    const entryDir = path.join(resolvedRoot, folder, slug);
+    const commonPath = path.join(entryDir, "_common.yml");
+    const localePath = path.join(entryDir, `${locale}.yml`);
+    if (!fs.existsSync(localePath)) {
+      log.info(`[DatabaseSingle] Detached entry locale not found: ${contentType}/${slug}/${locale}.yml`);
+      return null;
+    }
+    let base: Record<string, unknown> = {};
+    if (fs.existsSync(commonPath)) {
+      const parsed = contentIndex.safeYamlLoad(fs.readFileSync(commonPath, "utf-8"));
+      if (parsed) base = parsed;
+    }
+    const localeData = contentIndex.safeYamlLoad(fs.readFileSync(localePath, "utf-8"));
+    if (!localeData) return null;
+    merged = Object.keys(base).length > 0 ? deepMerge(base, localeData) : { ...localeData };
+    // Strip detach bookkeeping from render payload
+    delete (merged as Record<string, unknown>).detached;
+    merged = applySectionLayoutDefaults(merged);
+  } else {
+    const accum: PerEntryAccum = { removedSections: [] };
+    merged = mergeSingleTemplate(
+      contentType,
+      locale,
+      slug,
+      accum,
+      resolvedRoot,
+      templateVariant,
+    );
+
+    if (!merged) {
+      log.error(
+        `[DatabaseSingle] Template not found: single.${templateVariant ? `${templateVariant}.` : ""}${locale}.yml for ${contentType}`,
+      );
+      return null;
+    }
+
+    if (accum.removedSections.length > 0) {
+      perEntryRemovedSections = accum.removedSections;
+    }
   }
 
   if (!db.exists(dbName)) {

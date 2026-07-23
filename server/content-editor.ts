@@ -37,6 +37,9 @@ import {
   cleanSectionIdFromEntryOverlays,
   isAllowlistedSectionFieldPath,
 } from "./shared-layout-sync";
+import {
+  rejectAttachedStructuralEdit,
+} from "./shared-layout-entry";
 import { getOrCreateStaffUserId, getUser } from "./user-store";
 import {
   refreshSitemapEntry,
@@ -227,15 +230,81 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
   }
   
   try {
-    // Forced type_single: load/write shared single.{locale}.yml regardless of entry slug
-    if (request.layoutTarget === "type_single" && !hasVariant) {
+    // Attached shared-layout: reject entry structural overlays and layout/menu writes
+    const attachedStructuralErr = rejectAttachedStructuralEdit(contentType, slug, contentRoot);
+    if (attachedStructuralErr) {
+      const hasSectionOps = operations.some((op) => {
+        if (
+          op.action === "add_section" ||
+          op.action === "remove_section" ||
+          op.action === "reorder_sections" ||
+          op.action === "duplicate_section" ||
+          op.action === "update_section" ||
+          op.action === "replace_all_sections" ||
+          op.action === "add_item" ||
+          op.action === "remove_item"
+        ) {
+          return true;
+        }
+        if (op.action === "update_field") {
+          const p = (op as { path?: string }).path || "";
+          return p === "layout" || p.startsWith("layout.") || p.startsWith("sections");
+        }
+        return false;
+      });
+      if (request.layoutTarget === "entry" && hasSectionOps) {
+        return { success: false, error: attachedStructuralErr };
+      }
+      if (hasSectionOps && request.layoutTarget !== "type_single") {
+        // Per-entry file writes of sections/layout are forbidden when attached
+        const onlyEntryLayer =
+          request.layoutTarget === "entry" ||
+          operations.every((op) => {
+            if (op.action === "update_field") {
+              const p = (op as { path?: string }).path || "";
+              return p === "layout" || p.startsWith("layout.") || p.startsWith("sections");
+            }
+            return (
+              op.action === "add_section" ||
+              op.action === "remove_section" ||
+              op.action === "reorder_sections" ||
+              op.action === "duplicate_section" ||
+              op.action === "update_section" ||
+              op.action === "replace_all_sections"
+            );
+          });
+        if (onlyEntryLayer && request.layoutTarget === "entry") {
+          return { success: false, error: attachedStructuralErr };
+        }
+      }
+      // Always reject layout field updates on attached entries (even without layoutTarget)
+      const hasLayoutWrite = operations.some(
+        (op) =>
+          op.action === "update_field" &&
+          (((op as { path?: string }).path || "") === "layout" ||
+            ((op as { path?: string }).path || "").startsWith("layout.")),
+      );
+      if (hasLayoutWrite && request.layoutTarget !== "type_single") {
+        return { success: false, error: attachedStructuralErr };
+      }
+    }
+
+    // Forced type_single: load/write shared single.{locale}.yml or single.{variant}.{locale}.yml
+    if (request.layoutTarget === "type_single") {
       const folder = getFolder(contentType);
       const rootPath = contentRoot
         ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
         : path.join(process.cwd(), getDefaultContentRootName());
-      const templateFilePath = path.join(rootPath, folder, `single.${locale}.yml`);
+      const templateFilePath = hasVariant
+        ? path.join(rootPath, folder, `single.${variant}.${locale}.yml`)
+        : path.join(rootPath, folder, `single.${locale}.yml`);
       if (!fs.existsSync(templateFilePath)) {
-        return { success: false, error: `Shared template not found: ${folder}/single.${locale}.yml` };
+        return {
+          success: false,
+          error: hasVariant
+            ? `Template variant not found: ${folder}/single.${variant}.${locale}.yml`
+            : `Shared template not found: ${folder}/single.${locale}.yml`,
+        };
       }
       const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
       const templateLocaleData = (ci.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
@@ -250,7 +319,8 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
         contentRoot,
         database: request.database,
         ci,
-        skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
+        // Draft template variants must not fan out onto live sibling singles
+        skipSharedLayoutFanOut: hasVariant || request.skipSharedLayoutFanOut,
       });
     }
 
@@ -278,6 +348,27 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
 
     // layoutTarget "entry" while load resolved to shared template: create/write per-entry file
     if (isSharedTemplate && request.layoutTarget === "entry") {
+      const blocked = rejectAttachedStructuralEdit(contentType, slug, contentRoot);
+      if (blocked) {
+        const hasStructural = operations.some((op) => {
+          if (op.action === "update_field") {
+            const p = (op as { path?: string }).path || "";
+            return !p || p.startsWith("sections") || p === "layout" || p.startsWith("layout.");
+          }
+          return op.action !== "update_field";
+        });
+        // Data-only top-level fields still allowed
+        const allTopLevelDataFields = operations.length > 0 && operations.every(
+          (op) =>
+            op.action === "update_field" &&
+            !((op as { path?: string }).path || "").startsWith("sections") &&
+            ((op as { path?: string }).path || "") !== "layout" &&
+            !((op as { path?: string }).path || "").startsWith("layout."),
+        );
+        if (!allTopLevelDataFields) {
+          return { success: false, error: blocked };
+        }
+      }
       const allTopLevelFields = operations.length > 0 && operations.every(
         op => op.action === "update_field" && !op.path.startsWith("sections.")
       );

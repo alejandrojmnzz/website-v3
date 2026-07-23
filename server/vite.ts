@@ -331,10 +331,19 @@ export function serveStatic(app: Express) {
       site?.contentRoot ||
       site?.domain ||
       "default";
-    const cacheKey = buildHtmlCacheKey(siteId, cleanUrlForSsr);
     const bypassCache = skipSsr || shouldBypassHtmlCache(_req);
 
     try {
+      // Ensure variant key is resolved before MISS populate
+      if (!(res.locals as any).htmlVariantKey && !bypassCache) {
+        const { resolveHtmlVariantKey } = await import("./html-variant-key");
+        (res.locals as any).htmlVariantKey = resolveHtmlVariantKey(_req, res);
+      }
+      const cacheKey = buildHtmlCacheKey(
+        siteId,
+        cleanUrlForSsr,
+        (res.locals as any).htmlVariantKey || "live",
+      );
       const render = !skipSsr ? await getSsrRender() : null;
       if (render) {
         const indexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");

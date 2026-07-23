@@ -63,7 +63,7 @@ Long-form pages often insert a CTA (or other section) between two halves of an a
 
 Before adding a second (or later) `article`, **ask the user** whether those articles should share one table of contents:
 
-- **Yes — share TOC:** set the same `toc_group` string on every article (e.g. `group_482910374`). Only the first article in page order should have `show_toc: true`; later ones use `show_toc: false`. Headings from all members merge into one TOC. See `get_component_variant` → article example `article_split_toc_group`.
+- **Yes — share TOC:** set the same `toc_group` string on every article (e.g. `group_482910374`). Set `show_toc: true` (and usually `toc_position: side`) on **every** member so each piece shows the same merged TOC, sticky within that section’s scroll range. See `get_component_variant` → article example `article_split_toc_group`.
 - **No — separate:** omit `toc_group` (each article can have its own TOC or none).
 
 A page should use at most **one** `toc_group` value across its articles (all share, or none share). The editor UI prompts for this when adding articles; MCP agents should ask proactively the same way. If you already added a second article without grouping, `add_section` may return warning `article_toc_group_suggested` with `next_actions` to apply `toc_group` via `update_section_fields`.

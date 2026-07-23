@@ -35,6 +35,11 @@ import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useContentTypes, useContentTypesRaw, getFolderFromType } from "@/hooks/useContentTypes";
 import { emitContentUpdated } from "@/lib/contentEvents";
+import {
+  listArticlesOnPage,
+  resolveTocGroupId,
+  buildSiblingTocGroupOps,
+} from "@/lib/articleTocShare";
 import { DbTemplateWarningDialog } from "@/components/editing/DbTemplateWarningDialog";
 import { RelatedFeaturesPicker } from "./RelatedFeaturesPicker";
 import { TableBuilderWizard, type DynamicTableConfig } from "@/components/TableBuilderWizard";
@@ -52,6 +57,8 @@ interface ComponentPickerModalProps {
   version?: number;
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** When false, entry-scoped adds are disabled (attached shared-layout). */
+  allowEntryStructuralOverrides?: boolean;
   /** Pre-selected scope from the upfront scope dialog in AddSectionButton.
    *  "entry" → per-entry add; "template" → shared template add. */
   addScope?: "entry" | "template";
@@ -206,51 +213,6 @@ function slugify(text: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
-function newTocGroupId(): string {
-  return `group_${Math.floor(Math.random() * 1_000_000_000)}`;
-}
-
-type ArticleOnPage = { index: number; toc_group?: string };
-
-function listArticlesOnPage(sections: Array<Record<string, unknown>>): ArticleOnPage[] {
-  return sections
-    .map((s, index) => ({
-      index,
-      toc_group: typeof s.toc_group === "string" && s.toc_group ? s.toc_group : undefined,
-      type: s.type,
-    }))
-    .filter((s) => s.type === "article")
-    .map(({ index, toc_group }) => ({ index, toc_group }));
-}
-
-/** Resolve the single shared group for the page (first non-empty), or a new id. */
-function resolveTocGroupId(articles: ArticleOnPage[]): string {
-  return articles.find((a) => a.toc_group)?.toc_group ?? newTocGroupId();
-}
-
-/**
- * Ops to assign toc_group / show_toc on existing articles before inserting a new one.
- * Primary (lowest final index among articles) gets show_toc: true; others false.
- */
-function buildSiblingTocGroupOps(
-  articles: ArticleOnPage[],
-  insertIndex: number,
-  groupId: string,
-): { ops: Array<{ action: "update_field"; path: string; value: unknown }>; newShowToc: boolean } {
-  const existingFirstIdx = articles.length > 0 ? Math.min(...articles.map((a) => a.index)) : Infinity;
-  const newIsPrimary = insertIndex <= existingFirstIdx;
-
-  const ops = articles.flatMap((a) => {
-    const isPrimary = !newIsPrimary && a.index === existingFirstIdx;
-    return [
-      { action: "update_field" as const, path: `sections.${a.index}.toc_group`, value: groupId },
-      { action: "update_field" as const, path: `sections.${a.index}.show_toc`, value: isPrimary },
-    ];
-  });
-
-  return { ops, newShowToc: newIsPrimary };
-}
-
 function parseYamlContent(yamlStr: string): Record<string, unknown> | null {
   try {
     const { escaped, map } = escapeTemplateVars(yamlStr);
@@ -282,8 +244,11 @@ export default function ComponentPickerModal({
   version,
   isSharedTemplate,
   singleEntry,
+  allowEntryStructuralOverrides = true,
   addScope,
 }: ComponentPickerModalProps) {
+  const effectiveAddScope =
+    addScope === "entry" && !allowEntryStructuralOverrides ? "template" : addScope;
   const [step, setStep] = useState<"select" | "configure" | "wizard">("select");
   const [selectedComponent, setSelectedComponent] = useState<ComponentInfo | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
@@ -635,11 +600,11 @@ export default function ComponentPickerModal({
   };
 
   const handleWizardComplete = async (config: DynamicTableConfig) => {
-    if (addScope === "entry") {
+    if (effectiveAddScope === "entry") {
       await executePerEntryWizardComplete(config);
       return;
     }
-    if (addScope === "template") {
+    if (effectiveAddScope === "template") {
       await executeWizardComplete(config);
       return;
     }
@@ -883,11 +848,11 @@ export default function ComponentPickerModal({
   };
 
   const runAddSection = async (opts?: { shareToc?: boolean }) => {
-    if (addScope === "entry") {
+    if (effectiveAddScope === "entry") {
       await executePerEntryAddSection(opts);
       return;
     }
-    if (addScope === "template") {
+    if (effectiveAddScope === "template") {
       await executeAddSection(opts);
       return;
     }
@@ -988,11 +953,11 @@ export default function ComponentPickerModal({
           </DialogDescription>
         </DialogHeader>
         
-        {isSharedTemplate && addScope !== "entry" && (
+        {isSharedTemplate && effectiveAddScope !== "entry" && (
           <div className="mx-4 mt-3 flex items-start gap-2.5 rounded-md border bg-muted p-3" data-testid="text-shared-template-notice">
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
             <p className="text-sm text-foreground leading-snug">
-              {addScope === "template" ? (
+              {effectiveAddScope === "template" ? (
                 <><strong>Shared template:</strong> the section you add will appear on{" "}<strong>every {contentType} page</strong>.</>
               ) : (
                 <><strong>Shared template:</strong> the section you add will appear on{" "}<strong>every {contentType} page</strong>, not just this one.</>
@@ -1000,7 +965,7 @@ export default function ComponentPickerModal({
             </p>
           </div>
         )}
-        {isSharedTemplate && addScope === "entry" && (
+        {isSharedTemplate && effectiveAddScope === "entry" && (
           <div className="mx-4 mt-3 flex items-start gap-2.5 rounded-md border bg-muted p-3" data-testid="text-entry-scope-notice">
             <p className="text-sm text-foreground leading-snug">
               Adding to <strong>this entry only</strong> — the shared template will not be affected.

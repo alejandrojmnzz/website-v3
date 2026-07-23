@@ -101,6 +101,53 @@ export const sharedLayoutSinglesFixer: Fixer = {
         }
       }
 
+      // Strip structural overlays from attached entry YAML (data-only compliance)
+      for (const name of fs.readdirSync(typeDir)) {
+        const entryDir = path.join(typeDir, name);
+        if (!fs.statSync(entryDir).isDirectory()) continue;
+        if (name.startsWith(".") || name.startsWith("_")) continue;
+
+        const commonPath = path.join(entryDir, "_common.yml");
+        let detached = false;
+        if (fs.existsSync(commonPath)) {
+          const commonData = safeLoad(fs.readFileSync(commonPath, "utf-8"));
+          detached = commonData?.detached === true;
+          if (!detached && commonData && ("sections" in commonData || "layout" in commonData)) {
+            changes.push(
+              `${folder}/${name}/_common.yml: strip sections/layout (attached data-only)`,
+            );
+            if (!dryRun) {
+              delete commonData.sections;
+              delete commonData.layout;
+              fs.writeFileSync(commonPath, dumpYaml(commonData) + "\n", "utf-8");
+              fixed++;
+            }
+          }
+        }
+        if (detached) continue;
+
+        for (const file of fs.readdirSync(entryDir)) {
+          if (!file.endsWith(".yml") || file === "versioning.yml" || file.startsWith("_")) continue;
+          // Skip entry variants: {variant}.{locale}.yml (more than one dot before locale)
+          const base = file.slice(0, -4);
+          const parts = base.split(".");
+          if (parts.length !== 1) continue; // only locale.yml like en.yml
+          const localePath = path.join(entryDir, file);
+          const data = safeLoad(fs.readFileSync(localePath, "utf-8"));
+          if (!data) continue;
+          if (!("sections" in data) && !("layout" in data)) continue;
+          changes.push(
+            `${folder}/${name}/${file}: strip sections/layout (attached data-only; detach to keep custom structure)`,
+          );
+          if (!dryRun) {
+            delete data.sections;
+            delete data.layout;
+            fs.writeFileSync(localePath, dumpYaml(data) + "\n", "utf-8");
+            fixed++;
+          }
+        }
+      }
+
       const summaries = listAllSinglePaths(typeDir).map(({ locale, filePath }) => {
         const data = safeLoad(fs.readFileSync(filePath, "utf-8"));
         const sections = Array.isArray(data?.sections)

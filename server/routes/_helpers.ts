@@ -91,6 +91,7 @@ import {
   setVersioningCookie,
   buildUserContext,
 } from "../versioning";
+import { versioningContentSlug } from "../shared-layout-entry";
 import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
@@ -314,11 +315,58 @@ export function safeYamlLoad(yamlStr: string): unknown {
 }
 
 /**
+ * Resolve the assigned variant *slug* for traffic (cookie sticky), without loading YAML.
+ * Uses versioningContentSlug so attached shared-layout entries share template assignment.
+ */
+export function resolveAssignedVariantSlug(
+  req: Request,
+  res: Response,
+  contentType: string,
+  entrySlug: string,
+  locale: string,
+): string | null {
+  if (extractToken(req)) return null;
+
+  const root = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot;
+  const versioningSlug = versioningContentSlug(contentType, entrySlug, root);
+
+  const userId = readUserId(req, res);
+  const versioningCookie = getVersioningCookie(req);
+  const existingAssignments = versioningCookie?.assignments || [];
+  const existing = existingAssignments.find(
+    (a) => a.contentType === contentType && a.slug === versioningSlug && a.locale === locale,
+  );
+
+  const versioningManager = getVersioningManager();
+  const assignedVariant = versioningManager.getAssignment(
+    contentType,
+    versioningSlug,
+    locale,
+    userId,
+    existing?.variantSlug,
+  );
+
+  if (!assignedVariant) return null;
+
+  const updatedAssignments = [
+    ...existingAssignments.filter(
+      (a) => !(a.contentType === contentType && a.slug === versioningSlug && a.locale === locale),
+    ),
+    { contentType, slug: versioningSlug, locale, variantSlug: assignedVariant, assignedAt: Date.now() },
+  ];
+  setVersioningCookie(res, userId, updatedAssignments);
+
+  return assignedVariant;
+}
+
+/**
  * Attempt to assign a visitor to a variant using traffic allocation rules.
  * Returns the assigned variant content, or null if no variant applies.
  *
  * Authenticated requests (carrying an auth token) are exempt — editors always
  * see the default unless they explicitly use force_variant.
+ *
+ * For attached shared-layout, returns null (use resolveAssignedVariantSlug + merge).
  */
 export function resolveVariantAssignment(
   req: Request,
@@ -329,17 +377,26 @@ export function resolveVariantAssignment(
 ): unknown | null {
   if (extractToken(req)) return null;
 
+  const root = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot;
+  const versioningSlug = versioningContentSlug(contentType, slug, root);
+
+  // Attached shared-layout: assignment is template-level; callers should use
+  // resolveAssignedVariantSlug and merge — do not return raw template as page body.
+  if (versioningSlug !== slug) {
+    return null;
+  }
+
   const userId = readUserId(req, res);
   const versioningCookie = getVersioningCookie(req);
   const existingAssignments = versioningCookie?.assignments || [];
   const existing = existingAssignments.find(
-    (a) => a.contentType === contentType && a.slug === slug && a.locale === locale
+    (a) => a.contentType === contentType && a.slug === versioningSlug && a.locale === locale
   );
 
   const versioningManager = getVersioningManager();
   const assignedVariant = versioningManager.getAssignment(
     contentType,
-    slug,
+    versioningSlug,
     locale,
     userId,
     existing?.variantSlug,
@@ -347,14 +404,14 @@ export function resolveVariantAssignment(
 
   if (!assignedVariant) return null;
 
-  const variantContent = versioningManager.getVariantContent(contentType, slug, assignedVariant, locale);
+  const variantContent = versioningManager.getVariantContent(contentType, versioningSlug, assignedVariant, locale);
   if (!variantContent) return null;
 
   const updatedAssignments = [
     ...existingAssignments.filter(
-      (a) => !(a.contentType === contentType && a.slug === slug && a.locale === locale)
+      (a) => !(a.contentType === contentType && a.slug === versioningSlug && a.locale === locale)
     ),
-    { contentType, slug, locale, variantSlug: assignedVariant, assignedAt: Date.now() },
+    { contentType, slug: versioningSlug, locale, variantSlug: assignedVariant, assignedAt: Date.now() },
   ];
   setVersioningCookie(res, userId, updatedAssignments);
 

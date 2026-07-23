@@ -34,6 +34,7 @@ import {
 } from "../lib/page-tool-helpers.js";
 import {
   pathForLayoutTarget,
+  versioningApiSlug,
   sharedTemplateBlastSideEffect,
   BATCH_BINDING_WARNING,
   ADD_SECTION_NO_BINDING_FANOUT,
@@ -1299,7 +1300,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     async ({ contentType, slug, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
-      const { domain } = siteResult;
+      const { domain, contentPath } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
         assertSafeSegment(slug, "slug");
@@ -1308,14 +1309,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
           return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
         }
         if (!data.hasVersioningFile || !data.versioning) {
-          return { content: [{ type: "text", text: JSON.stringify({ contentType, slug, hasVersioning: false, variants: [] }, null, 2) }] };
+          return { content: [{ type: "text", text: JSON.stringify({ contentType, slug, versioningSlug, hasVersioning: false, variants: [] }, null, 2) }] };
         }
         const versioning = data.versioning as Record<string, { variants?: Array<{ slug: string; allocation: number }> }>;
         const variants = Object.entries(versioning).flatMap(([locale, localeData]) =>
@@ -1345,7 +1347,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     async ({ contentType, slug, variantSlug, locale, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return fail(siteResult.error);
-      const { domain } = siteResult;
+      const { domain, contentPath } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
         assertSafeSegment(slug, "slug");
@@ -1362,7 +1364,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
@@ -1377,12 +1380,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             variantSlug: data.variantSlug,
             locale: data.locale,
             filePath: data.filePath,
+            versioningSlug,
+            templateMode: versioningSlug === "single",
           },
           {
             warnings: [...VARIANT_WARNINGS],
             side_effects: [{
               kind: "variant_isolated",
-              summary: "Created draft only; live locale YAML unchanged",
+              summary: versioningSlug === "single"
+                ? "Created template draft (shared by all attached entries); live single.*.yml unchanged"
+                : "Created draft only; live locale YAML unchanged",
             }],
             next_actions: [{
               tool: "update_section_field",
@@ -1390,9 +1397,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               reason: "Edit the draft with variant set; live bindings/shared-layout will not run until promote + live edits.",
               args_hint: {
                 contentType,
-                slug,
+                slug: versioningSlug === "single" ? slug : slug,
                 locale,
                 variant: data.variantSlug ?? variantSlug,
+                layout_target: versioningSlug === "single" ? "type_single" : undefined,
               },
             }],
           },
@@ -1440,7 +1448,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const sharedLayout = config ? isSharedLayoutConfig(config) : false;
 
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
@@ -1623,7 +1632,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "add_section",
     "Add a new section to a page. Inserts at the given index (or appends if omitted). Section must include a 'type' field matching a component type. contentType is optional — omit it and the server will auto-detect it from the slug.\n\n" +
     "IMPORTANT — article / TOC: Before adding a second (or later) article on a page, ask the user whether articles should share one table of contents. " +
-    "If yes, set the same toc_group on every article (e.g. group_123456789), with show_toc: true only on the first in page order. " +
+    "If yes, set the same toc_group on every article (e.g. group_123456789), with show_toc: true on every member so each piece shows the same merged TOC. " +
     "Call get_component_schema/get_component_variant for article, or explain_site topic 'sections'. " +
     "If you add an article without grouping while others already exist, the response may include warning article_toc_group_suggested.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +

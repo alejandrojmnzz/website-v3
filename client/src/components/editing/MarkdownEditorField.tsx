@@ -9,6 +9,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -61,6 +63,9 @@ interface MarkdownEditorFieldProps {
   value: string;
   onChange: (value: string) => void;
   label?: string;
+  /** When set, shows a TOC on/off toggle next to Edit Markdown */
+  showToc?: boolean;
+  onShowTocChange?: (showToc: boolean) => void;
   "data-testid"?: string;
 }
 
@@ -68,6 +73,8 @@ export function MarkdownEditorField({
   value,
   onChange,
   label = "Content",
+  showToc,
+  onShowTocChange,
   "data-testid": testId,
 }: MarkdownEditorFieldProps) {
   const [modalOpen, setModalOpen] = useState(false);
@@ -75,6 +82,8 @@ export function MarkdownEditorField({
   const tocItems = extractTocFromMarkdown(value);
   const charCount = value.length;
   const wordCount = value.trim() ? value.trim().split(/\s+/).length : 0;
+  const tocToggleEnabled = typeof onShowTocChange === "function";
+  const tocActive = showToc === true;
 
   const previewLines = value.split("\n").filter((l) => l.trim().length > 0).slice(0, 6);
 
@@ -89,16 +98,34 @@ export function MarkdownEditorField({
             <FileCode className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">{label}</span>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setModalOpen(true)}
-            data-testid="button-edit-markdown"
-          >
-            <Pencil className="mr-1.5 h-3.5 w-3.5" />
-            Edit Markdown
-          </Button>
+          <div className="flex items-center gap-2">
+            {tocToggleEnabled && (
+              <div className="flex items-center gap-2">
+                <Label
+                  htmlFor="markdown-toc-toggle"
+                  className="text-xs font-medium text-muted-foreground whitespace-nowrap cursor-pointer"
+                >
+                  Table of Contents
+                </Label>
+                <Switch
+                  id="markdown-toc-toggle"
+                  checked={tocActive}
+                  onCheckedChange={onShowTocChange}
+                  data-testid="toggle-show-toc"
+                />
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setModalOpen(true)}
+              data-testid="button-edit-markdown"
+            >
+              <Pencil className="mr-1.5 h-3.5 w-3.5" />
+              Edit Markdown
+            </Button>
+          </div>
         </div>
 
         <div className="px-3 py-3 space-y-3">
@@ -138,21 +165,36 @@ export function MarkdownEditorField({
           </div>
 
           {tocItems.length > 0 && (
-            <div className="rounded-md border border-border bg-muted/20 p-2.5">
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Table of Contents
-              </p>
-              <ul className="space-y-0.5">
-                {tocItems.map((item, i) => (
-                  <li
-                    key={i}
-                    className="text-xs text-muted-foreground"
-                    style={{ paddingLeft: `${(item.level - 1) * 12}px` }}
-                  >
-                    {item.text}
-                  </li>
-                ))}
-              </ul>
+            <div
+              className={cn(
+                "relative rounded-md border border-border bg-muted/20 p-2.5",
+              )}
+            >
+              {tocToggleEnabled && !tocActive && (
+                <Badge
+                  variant="destructive"
+                  className="absolute top-2 right-2 z-10 text-[10px] font-medium px-1.5 py-0"
+                  data-testid="badge-toc-hidden"
+                >
+                  TOC is hidden
+                </Badge>
+              )}
+              <div className={cn(tocToggleEnabled && !tocActive && "opacity-50")}>
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider pr-24">
+                  Table of Contents
+                </p>
+                <ul className="space-y-0.5">
+                  {tocItems.map((item, i) => (
+                    <li
+                      key={i}
+                      className="text-xs text-muted-foreground"
+                      style={{ paddingLeft: `${(item.level - 1) * 12}px` }}
+                    >
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           )}
         </div>

@@ -30,6 +30,9 @@ export interface VersioningResponse {
   hasVersioningFile: boolean;
   filePath: string;
   availableLocales?: string[];
+  detached?: boolean;
+  isSharedLayout?: boolean;
+  versioningSlug?: string;
 }
 
 export interface ContentInfo {

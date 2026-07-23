@@ -27,7 +27,7 @@ describe("hintsAfterAddArticle", () => {
     expect(fields["sections.0.toc_group"]).toBeTruthy();
     expect(fields["sections.1.toc_group"]).toBe(fields["sections.0.toc_group"]);
     expect(fields["sections.0.show_toc"]).toBe(true);
-    expect(fields["sections.1.show_toc"]).toBe(false);
+    expect(fields["sections.1.show_toc"]).toBe(true);
   });
 
   it("is silent when all articles already share toc_group", () => {
@@ -35,7 +35,7 @@ describe("hintsAfterAddArticle", () => {
       existingSections: [
         { type: "article", toc_group: "group_1", show_toc: true },
       ],
-      newSection: { type: "article", toc_group: "group_1", show_toc: false },
+      newSection: { type: "article", toc_group: "group_1", show_toc: true },
       insertIndex: 1,
       slug: "test",
       locale: "en",

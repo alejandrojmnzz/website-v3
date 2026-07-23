@@ -10,6 +10,10 @@ import { gcs } from "../gcs";
 import { hashUserId } from "./cookie-utils";
 import { child } from "../logger";
 import { getDefaultContentFolder, getDefaultContentRoot } from "../site-config";
+import {
+  TEMPLATE_VERSIONING_SLUG,
+  isTemplateVersioningSlug,
+} from "../shared-layout-entry";
 const log = child({ module: "versioning/VersioningManager" });
 
 
@@ -86,7 +90,8 @@ export class VersioningManager {
 
   /**
    * Parse a relative file path and return variant coordinates if it is a
-   * variant content file (e.g. "4geeks-com/landings/my-page/test.en.yml").
+   * variant content file (e.g. "4geeks-com/landings/my-page/test.en.yml"
+   * or type-root "4geeks-com/how-to/single.draft.en.yml").
    * Returns null for regular locale files, shared templates, or internal files.
    */
   private parseVariantFilePath(relativePath: string): {
@@ -96,11 +101,28 @@ export class VersioningManager {
     locale: string;
   } | null {
     const parts = relativePath.replace(/\\/g, "/").split("/");
-    // Expected structure: {content-folder} / {folder} / {slug} / {file}.yml
-    if (parts.length !== 4 || !isKnownSiteContentFolder(parts[0])) return null;
-    if (!parts[3].endsWith(".yml")) return null;
+    if (!isKnownSiteContentFolder(parts[0]) || !parts[parts.length - 1]?.endsWith(".yml")) {
+      return null;
+    }
 
-    const base = parts[3].slice(0, -4); // strip .yml
+    const file = parts[parts.length - 1];
+    const base = file.slice(0, -4); // strip .yml
+
+    // Type-root template variant: single.{variant}.{locale}.yml (3 path segments after site)
+    if (parts.length === 3) {
+      const m = /^single\.([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)$/i.exec(base);
+      if (!m) return null;
+      const variantSlug = m[1];
+      const locale = m[2];
+      if (variantSlug.startsWith("_")) return null;
+      const folder = parts[1];
+      const contentType = getType(folder);
+      return { contentType, slug: TEMPLATE_VERSIONING_SLUG, variantSlug, locale };
+    }
+
+    // Expected structure: {content-folder} / {folder} / {slug} / {file}.yml
+    if (parts.length !== 4) return null;
+
     const lastDot = base.lastIndexOf(".");
     if (lastDot === -1) return null; // "en.yml" — plain locale file, no variant
 
@@ -117,6 +139,37 @@ export class VersioningManager {
     const contentType = getType(folder);
 
     return { contentType, slug, variantSlug, locale };
+  }
+
+  /** Directory that holds versioning.yml and variant YAML files. */
+  public getVersioningContentDir(contentType: string, slug: string): string {
+    const folder = getFolder(contentType);
+    if (isTemplateVersioningSlug(slug)) {
+      return path.join(this.contentDir(), folder);
+    }
+    return path.join(this.contentDir(), folder, slug);
+  }
+
+  public getVersioningFilePath(contentType: string, slug: string): string {
+    return path.join(this.getVersioningContentDir(contentType, slug), "versioning.yml");
+  }
+
+  /**
+   * Path to a variant YAML file.
+   * Template mode: single.{variant}.{locale}.yml at type root.
+   * Entry mode: {variant}.{locale}.yml under the entry folder.
+   */
+  public getVariantFilePath(
+    contentType: string,
+    slug: string,
+    variantSlug: string,
+    locale: string,
+  ): string {
+    const dir = this.getVersioningContentDir(contentType, slug);
+    if (isTemplateVersioningSlug(slug)) {
+      return path.join(dir, `single.${variantSlug}.${locale}.yml`);
+    }
+    return path.join(dir, `${variantSlug}.${locale}.yml`);
   }
 
   private registerFileModifiedListener(): void {
@@ -230,7 +283,7 @@ export class VersioningManager {
       return this.configCache.get(cacheKey)!;
     }
 
-    const configPath = path.join(this.contentDir(), getFolder(contentType), slug, "versioning.yml");
+    const configPath = this.getVersioningFilePath(contentType, slug);
 
     if (!fs.existsSync(configPath)) {
       return null;
@@ -251,9 +304,16 @@ export class VersioningManager {
 
   /**
    * Find the actual YAML file for a variant slug + locale.
-   * Tries new format first ({slug}.{locale}.yml), then old format ({slug}.v*.{locale}.yml).
+   * Template mode: single.{variant}.{locale}.yml
+   * Entry mode: {variant}.{locale}.yml (or legacy {variant}.v*.{locale}.yml)
    */
-  private findVariantFile(contentDir: string, variantSlug: string, locale: string): string | null {
+  private findVariantFile(contentDir: string, variantSlug: string, locale: string, templateMode = false): string | null {
+    if (templateMode) {
+      const templatePath = path.join(contentDir, `single.${variantSlug}.${locale}.yml`);
+      if (fs.existsSync(templatePath)) return templatePath;
+      return null;
+    }
+
     const newPath = path.join(contentDir, `${variantSlug}.${locale}.yml`);
     if (fs.existsSync(newPath)) {
       return newPath;
@@ -284,16 +344,28 @@ export class VersioningManager {
       return this.contentCache.get(cacheKey);
     }
 
-    const contentDir = path.join(this.contentDir(), getFolder(contentType), slug);
-    const commonPath = path.join(contentDir, "_common.yml");
-    const filePath = this.findVariantFile(contentDir, variantSlug, locale);
+    const templateMode = isTemplateVersioningSlug(slug);
+    const contentDir = this.getVersioningContentDir(contentType, slug);
+    const filePath = this.findVariantFile(contentDir, variantSlug, locale, templateMode);
 
     if (!filePath) {
-      log.warn(`[Versioning] Variant file not found: ${variantSlug}.${locale}.yml (or .v*.${locale}.yml) in ${contentDir}`);
+      log.warn(
+        `[Versioning] Variant file not found: ${templateMode ? `single.${variantSlug}.${locale}.yml` : `${variantSlug}.${locale}.yml`} in ${contentDir}`,
+      );
       return null;
     }
 
     try {
+      if (templateMode) {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const { escaped: vEsc, map: vMap } = escapeTemplateVars(content);
+        const vParsed = yaml.load(vEsc) as Record<string, unknown>;
+        const variantData = (vParsed ? unescapeObjectVars(vParsed, vMap) : {}) as Record<string, unknown>;
+        this.contentCache.set(cacheKey, variantData);
+        return variantData;
+      }
+
+      const commonPath = path.join(contentDir, "_common.yml");
       let commonData: Record<string, unknown> = {};
       if (fs.existsSync(commonPath)) {
         const commonContent = fs.readFileSync(commonPath, "utf-8");
@@ -432,22 +504,7 @@ export class VersioningManager {
     contentType: string,
     slug: string
   ): VersioningFile | null {
-    const configPath = path.join(this.contentDir(), getFolder(contentType), slug, "versioning.yml");
-    if (!fs.existsSync(configPath)) return null;
-
-    try {
-      const content = fs.readFileSync(configPath, "utf-8");
-      const { escaped, map } = escapeTemplateVars(content);
-      const rawParsed = yaml.load(escaped);
-      return (rawParsed ? unescapeObjectVars(rawParsed, map) : rawParsed) as VersioningFile;
-    } catch (error) {
-      log.error({ err: error }, `[Versioning] Error loading config for ${contentType}/${slug}:`);
-      return null;
-    }
-  }
-
-  public getVersioningFilePath(contentType: string, slug: string): string {
-    return path.join(this.contentDir(), getFolder(contentType), slug, "versioning.yml");
+    return this.loadVersioningConfig(contentType, slug);
   }
 
   /**
@@ -520,7 +577,11 @@ export class VersioningManager {
     slug: string;
     folderPath: string;
   } | null {
-    const contentDir = path.join(this.contentDir(), getFolder(contentType), slug);
+    const templateMode = isTemplateVersioningSlug(slug);
+    const contentDir = this.getVersioningContentDir(contentType, slug);
+    const folderPath = templateMode
+      ? `${this.contentFolderName()}/${getFolder(contentType)}`
+      : `${this.contentFolderName()}/${getFolder(contentType)}/${slug}`;
 
     if (!fs.existsSync(contentDir)) {
       return null;
@@ -530,15 +591,47 @@ export class VersioningManager {
       const files = fs.readdirSync(contentDir);
 
       const variants = files
-        .filter(
-          (file) =>
-            file.endsWith(".yml") &&
-            file !== "versioning.yml" &&
-            !file.startsWith("_")
-        )
+        .filter((file) => {
+          if (!file.endsWith(".yml") || file === "versioning.yml" || file.startsWith("_")) {
+            return false;
+          }
+          if (templateMode) {
+            return file.startsWith("single.");
+          }
+          return !file.startsWith("single.");
+        })
         .map((file) => {
           const name = file.replace(".yml", "");
           const parts = name.split(".");
+
+          if (templateMode) {
+            // single.{locale}.yml (promoted) or single.{variant}.{locale}.yml
+            if (parts[0] !== "single") {
+              return null;
+            }
+            if (parts.length === 2) {
+              return {
+                filename: file,
+                name,
+                variantSlug: "promoted",
+                version: null,
+                locale: parts[1],
+                displayName: `Promoted (${parts[1].toUpperCase()})`,
+                isPromoted: true,
+              };
+            }
+            const locale = parts[parts.length - 1];
+            const variantSlug = parts.slice(1, -1).join(".");
+            return {
+              filename: file,
+              name,
+              variantSlug,
+              version: null,
+              locale,
+              displayName: `${variantSlug} (${locale.toUpperCase()})`,
+              isPromoted: false,
+            };
+          }
 
           if (parts.length === 1) {
             return {
@@ -580,6 +673,7 @@ export class VersioningManager {
             isPromoted: false,
           };
         })
+        .filter((v): v is NonNullable<typeof v> => v != null)
         .sort((a, b) => {
           if (a.isPromoted !== b.isPromoted) return a.isPromoted ? -1 : 1;
           if (a.variantSlug !== b.variantSlug) return a.variantSlug.localeCompare(b.variantSlug);
@@ -591,7 +685,7 @@ export class VersioningManager {
         variants,
         contentType,
         slug,
-        folderPath: `${this.contentFolderName()}/${getFolder(contentType)}/${slug}`,
+        folderPath,
       };
     } catch (error) {
       log.error({ err: error }, `[Versioning] Error getting variants for ${contentType}/${slug}:`);

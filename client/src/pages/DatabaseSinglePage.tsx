@@ -38,7 +38,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
   // Default to database-backed until content types load (matches historical behavior);
   // once loaded, static types are fetched from the content-pages endpoint instead.
   const isDbBacked = contentTypeInfo ? contentTypeInfo.has_database : true;
-  const isSharedTemplate = contentTypeInfo
+  const isSharedLayout = contentTypeInfo
     ? !!(contentTypeInfo.has_database || contentTypeInfo.single_template)
     : true;
   const staticApiPath = getApiPath(contentType);
@@ -59,6 +59,10 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
     },
     enabled: !!slug && contentTypesData !== undefined,
   });
+
+  const pageDetached = !!(page as { detached?: boolean } | undefined)?.detached;
+  const isSharedTemplate = isSharedLayout && !pageDetached;
+  const allowEntryStructuralOverrides = !isSharedLayout || pageDetached;
 
   const { data: varDefinitions } = useVariableDefinitions();
   const varContext = useVariableContext();
@@ -159,6 +163,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           locale={locale}
           isSharedTemplate={isSharedTemplate}
           singleEntry={page.singleEntry}
+          allowEntryStructuralOverrides={allowEntryStructuralOverrides}
           perEntryRemovedSections={page.perEntryRemovedSections}
         />
       </MenuVisualContextProvider>

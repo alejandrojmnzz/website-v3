@@ -187,6 +187,12 @@ import { resolveDynamicEntries } from "../dynamic-entries";
 import { queryEntries, type QueryFilter } from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
+import {
+  isEntryDetached,
+  isSharedLayoutType,
+  versioningContentSlug,
+} from "../shared-layout-entry";
+import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -201,6 +207,7 @@ import {
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
+  resolveAssignedVariantSlug,
   invalidateContentCaches,
   createValidationFixRun,
   appendValidationRunLog,
@@ -603,7 +610,23 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (hasDatabaseSingle(contentType, getContentRoot(res))) {
-      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+      const root = getContentRoot(res);
+      const detached = isEntryDetached(contentType, slug, root);
+      let templateVariant: string | undefined;
+      if (!detached) {
+        templateVariant =
+          forceVariant ||
+          resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
+          undefined;
+      }
+      const page = await loadDatabaseSinglePage(
+        contentType,
+        slug,
+        locale,
+        root,
+        getDB(res),
+        templateVariant,
+      );
       if (page) {
         if (page.sections && Array.isArray(page.sections)) {
           page.sections = (await resolveDynamicEntries(page.sections, locale, dynamicEntriesOptions(res))) as any;
@@ -619,18 +642,68 @@ export function registerContentRoutes(app: Express): void {
         const dbLayout = resolveLayout(contentType, dbRaw.data || {}, getContentRoot(res));
         injectCanonicalIfMissing(dbPageData, contentType, locale);
         const { layout: _dbStripLayout, ...dbRest } = dbPageData;
-        res.json({ ...dbRest, layout: dbLayout });
+        res.json({
+          ...dbRest,
+          layout: dbLayout,
+          detached,
+        });
         return;
       }
       // Slug not found in DB — fall through to static content loading below
     }
 
     // Variant resolution for YAML-backed content types
+    const root = getContentRoot(res);
+    const sharedAttached =
+      isSharedLayoutType(contentType, root) && !isEntryDetached(contentType, slug, root);
+
+    // Attached shared-layout: apply template variant via mergeSingleTemplate
+    if (sharedAttached) {
+      const templateVariant =
+        forceVariant ||
+        resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
+        undefined;
+      const merged = mergeSingleTemplate(
+        contentType,
+        locale,
+        slug,
+        undefined,
+        root,
+        templateVariant,
+      );
+      if (merged) {
+        if (merged.sections && Array.isArray(merged.sections)) {
+          merged.sections = (await resolveDynamicEntries(
+            merged.sections as unknown[],
+            locale,
+            dynamicEntriesOptions(res),
+          )) as any;
+          applyComponentImageSizes(merged.sections as unknown[]);
+        }
+        const variantLayout = resolveLayout(contentType, merged, root);
+        const singleEntry = buildSingleEntryFromContent(contentType, merged);
+        if (singleEntry) {
+          merged.singleEntry = singleEntry;
+          const resolved = resolveSingleVars(merged, singleEntry) as Record<string, unknown>;
+          Object.assign(merged, resolved);
+        }
+        injectCanonicalIfMissing(merged, contentType, locale);
+        const { layout: _strip, ...rest } = merged;
+        res.json({
+          ...rest,
+          layout: variantLayout,
+          detached: false,
+        });
+        return;
+      }
+    }
+
     let variantPage: Record<string, unknown> | null = null;
 
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const forcedContent = versioningManager.getVariantContent(contentType, slug, forceVariant, locale);
+      const versioningSlug = versioningContentSlug(contentType, slug, root);
+      const forcedContent = versioningManager.getVariantContent(contentType, versioningSlug, forceVariant, locale);
       if (forcedContent) {
         variantPage = forcedContent as Record<string, unknown>;
       }
@@ -659,7 +732,11 @@ export function registerContentRoutes(app: Express): void {
       }
       injectCanonicalIfMissing(variantPage, contentType, locale);
       const { layout: _variantStripLayout, ...variantRest } = variantPage;
-      res.json({ ...variantRest, layout: variantLayout });
+      res.json({
+        ...variantRest,
+        layout: variantLayout,
+        detached: isEntryDetached(contentType, slug, getContentRoot(res)),
+      });
       return;
     }
 
@@ -692,7 +769,11 @@ export function registerContentRoutes(app: Express): void {
     }
     injectCanonicalIfMissing(genericPageData, contentType, locale);
     const { layout: _genericStripLayout, ...genericRest } = genericPageData;
-    res.json({ ...genericRest, layout: genericLayout });
+    res.json({
+      ...genericRest,
+      layout: genericLayout,
+      detached: isEntryDetached(contentType, slug, getContentRoot(res)),
+    });
   });
   app.get("/api/blog/posts", async (req, res) => {
     try {
@@ -1280,12 +1361,43 @@ export function registerContentRoutes(app: Express): void {
       if (body.unique_fields !== undefined) update.unique_fields = body.unique_fields;
       if (body.database !== undefined) update.database = body.database;
       if (body.single_template !== undefined) update.single_template = !!body.single_template;
-      updateContentTypeConfig(type, update, getContentRoot(res));
+
+      const priorConfig = getContentTypeConfig(type, ctRoot(res));
+      const willHaveDb =
+        body.database === null
+          ? false
+          : !!(
+              (body.database && typeof body.database === "object" && (body.database as { slug?: string }).slug) ||
+              (body.database === undefined && priorConfig?.database?.slug)
+            );
+      if (willHaveDb && body.single_template === false) {
+        res.status(400).json({
+          error:
+            "Cannot disable shared layout while this content type is linked to a database. Unlink the database first.",
+        });
+        return;
+      }
+      if (willHaveDb) {
+        update.single_template = true;
+      }
+
+      try {
+        updateContentTypeConfig(type, update, getContentRoot(res));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("Cannot disable shared layout") || msg.includes("requires _slug")) {
+          res.status(400).json({ error: msg });
+          return;
+        }
+        throw err;
+      }
       getCI(res).invalidateCommonFields(type);
 
       // When enabling shared layout, dissolve bindings for this type (bindings and templates don't mix)
       let bindingsDissolved: unknown = undefined;
-      if (body.single_template === true) {
+      const enabledShared =
+        body.single_template === true || (willHaveDb && !priorConfig?.single_template);
+      if (enabledShared) {
         const dissolved = bindingManager.dissolveGroupsForContentType(type);
         if (dissolved.count > 0) {
           bindingsDissolved = {
@@ -2262,6 +2374,130 @@ export function registerContentRoutes(app: Express): void {
       clearSitemapCache();
       invalidateContentCaches(type, getCI(res));
       res.json({ success: true, locale, newFile: `${locale}.yml` });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  /** Detach a shared-layout entry from the type template (bake live single structure). */
+  app.post("/api/content/:type/:slug/detach", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_structure", type);
+      if (!auth.authorized) return;
+
+      if (!isValidType(type, ctRoot(res))) {
+        res.status(400).json({ error: `Unknown content type "${type}"` });
+        return;
+      }
+      if (!isSharedLayoutType(type, getContentRoot(res))) {
+        res.status(400).json({ error: `Content type "${type}" is not a shared-layout type` });
+        return;
+      }
+
+      const locales = Array.isArray(req.body?.locales)
+        ? (req.body.locales as unknown[]).filter((l): l is string => typeof l === "string")
+        : undefined;
+
+      const result = detachEntry({
+        contentType: type,
+        slug,
+        contentRoot: getContentRoot(res),
+        author: auth.author,
+        locales,
+      });
+
+      getCI(res).refresh();
+      invalidateContentCaches(type, getCI(res));
+
+      res.json({ success: true, detached: true, ...result });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status =
+        msg.includes("already detached") ||
+        msg.includes("not a shared-layout") ||
+        msg.includes("Invalid entry") ||
+        msg.includes("Unknown content type") ||
+        msg.includes("No live single")
+          ? 400
+          : 500;
+      res.status(status).json({ error: msg });
+    }
+  });
+
+  /** Hard re-attach: strip sections/layout, clear entry versioning, resume shared template. */
+  app.post("/api/content/:type/:slug/reattach", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_structure", type);
+      if (!auth.authorized) return;
+
+      if (!isValidType(type, ctRoot(res))) {
+        res.status(400).json({ error: `Unknown content type "${type}"` });
+        return;
+      }
+      if (!isSharedLayoutType(type, getContentRoot(res))) {
+        res.status(400).json({ error: `Content type "${type}" is not a shared-layout type` });
+        return;
+      }
+
+      const confirm = req.body?.confirm === true;
+      const result = reattachEntry({
+        contentType: type,
+        slug,
+        contentRoot: getContentRoot(res),
+        author: auth.author,
+        confirm,
+      });
+
+      getCI(res).refresh();
+      invalidateContentCaches(type, getCI(res));
+
+      res.json({ success: true, detached: false, ...result });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status =
+        msg.includes("confirm") ||
+        msg.includes("not detached") ||
+        msg.includes("not a shared-layout") ||
+        msg.includes("Invalid entry") ||
+        msg.includes("Unknown content type") ||
+        msg.includes("not found")
+          ? 400
+          : 500;
+      res.status(status).json({ error: msg });
+    }
+  });
+
+  /** Attach/detach status for shared-layout entries (DebugBubble / editors). */
+  app.get("/api/content/:type/:slug/attach-status", (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      if (!isValidType(type, ctRoot(res))) {
+        res.status(400).json({ error: `Unknown content type "${type}"` });
+        return;
+      }
+      const root = getContentRoot(res);
+      const shared = isSharedLayoutType(type, root);
+      const detached = shared ? isEntryDetached(type, slug, root) : false;
+      const locale = normalizeLocale((req.query.locale as string) || "en");
+      const payload: Record<string, unknown> = {
+        isSharedLayout: shared,
+        detached,
+      };
+      if (shared && detached) {
+        const preview = getReattachSectionLossPreview({
+          contentType: type,
+          slug,
+          locale,
+          contentRoot: root,
+        });
+        payload.sectionsThatWillBeLost = preview.sectionsThatWillBeLost;
+        payload.variantsThatWillBeLost = preview.variantsThatWillBeLost;
+        payload.hasLayoutOverride = preview.hasLayoutOverride;
+        payload.locale = locale;
+      }
+      res.json(payload);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

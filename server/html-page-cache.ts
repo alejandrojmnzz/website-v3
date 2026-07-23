@@ -1,7 +1,7 @@
 /**
  * In-memory LRU cache for fully rendered anonymous HTML pages.
- * Keyed by site + path (+ locale when present in the path).
- * Invalidated on content sync / cache clear; TTL is a safety net.
+ * Keyed by site + path + effective A/B variant (live vs traffic-receiving variant).
+ * Invalidated on content sync / cache clear / traffic allocation changes; TTL is a safety net.
  */
 
 export interface CachedHtmlPage {
@@ -15,12 +15,18 @@ const MAX_ENTRIES = 250;
 
 const cache = new Map<string, CachedHtmlPage>();
 
+/**
+ * @param variantKey - effective variant identity for this request (`live` or variant slug).
+ *   Must be resolved (cookie / force_variant) before cache lookup so HIT/MISS is per variant.
+ */
 export function buildHtmlCacheKey(
   siteId: string,
   pathname: string,
+  variantKey: string = "live",
 ): string {
   const clean = pathname.split("?")[0].split("#")[0] || "/";
-  return `${siteId}::${clean}`;
+  const variant = variantKey && variantKey !== "default" ? variantKey : "live";
+  return `${siteId}::${clean}::${variant}`;
 }
 
 export function getCachedHtml(key: string): CachedHtmlPage | null {
@@ -56,6 +62,20 @@ export function setCachedHtml(
 
 export function invalidateHtmlPageCache(): void {
   cache.clear();
+}
+
+/** Invalidate all cached HTML for a pathname across variants (prefix match). */
+export function invalidateHtmlPageCacheForPath(
+  siteId: string,
+  pathname: string,
+): void {
+  const clean = pathname.split("?")[0].split("#")[0] || "/";
+  const prefix = `${siteId}::${clean}::`;
+  for (const key of [...cache.keys()]) {
+    if (key.startsWith(prefix) || key === `${siteId}::${clean}`) {
+      cache.delete(key);
+    }
+  }
 }
 
 export function htmlPageCacheSize(): number {

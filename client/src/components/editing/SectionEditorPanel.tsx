@@ -34,6 +34,11 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { editContent } from "@/lib/contentApi";
 import { emitContentUpdated, registerEditorDirtyCheck } from "@/lib/contentEvents";
+import {
+  listArticlesOnPage,
+  resolveTocGroupId,
+  buildSiblingShareOpsForActivation,
+} from "@/lib/articleTocShare";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { encodeHtmlValues } from "@shared/htmlEncoding";
 import {
@@ -198,6 +203,8 @@ interface SectionEditorPanelProps {
   allSections?: Section[];
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** When false, hide entry-scoped structural actions on attached shared-layout pages. */
+  allowEntryStructuralOverrides?: boolean;
 }
 
 interface ShowOnPickerProps {
@@ -468,6 +475,7 @@ export function SectionEditorPanel({
   allSections,
   isSharedTemplate,
   singleEntry,
+  allowEntryStructuralOverrides = true,
 }: SectionEditorPanelProps) {
   const { toast } = useToast();
   const { session } = useSession();
@@ -554,6 +562,8 @@ export function SectionEditorPanel({
   const [exampleCopied, setExampleCopied] = useState(false);
   const [locationsPickerOpen, setLocationsPickerOpen] = useState(false);
   const [conversionNameEditing, setConversionNameEditing] = useState(false);
+  const [tocShareDialogOpen, setTocShareDialogOpen] = useState(false);
+  const [tocShareApplying, setTocShareApplying] = useState(false);
   const [consentsEditing, setConsentsEditing] = useState(false);
   const [webhookEditing, setWebhookEditing] = useState(false);
   const [successEditing, setSuccessEditing] = useState(false);
@@ -1675,6 +1685,113 @@ export function SectionEditorPanel({
   // Get configured field editors from the component registry API
   const sectionType = (section as { type: string }).type || "";
 
+  const articlesOnPage = listArticlesOnPage(
+    ((allSections || []) as unknown) as Array<Record<string, unknown>>,
+  );
+
+  const applyLocalTocSettings = (opts: {
+    showToc: boolean;
+    tocGroup?: string | null;
+  }) => {
+    try {
+      const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+      pushUndoState(yamlContent);
+      parsed.show_toc = opts.showToc;
+      if (opts.showToc && !parsed.toc_position) {
+        parsed.toc_position = "side";
+      }
+      if (opts.tocGroup === null) {
+        delete parsed.toc_group;
+      } else if (typeof opts.tocGroup === "string") {
+        parsed.toc_group = opts.tocGroup;
+      }
+      const newYaml = safeYamlDump(parsed, {
+        lineWidth: -1,
+        noRefs: true,
+        quotingType: '"',
+      });
+      setYamlContent(newYaml);
+      setHasChanges(true);
+      setParseError(null);
+      if (onPreviewChange) {
+        onPreviewChange(parsed as Section);
+      }
+    } catch (error) {
+      console.error("Error updating TOC settings:", error);
+    }
+  };
+
+  const handleArticleTocToggle = (checked: boolean) => {
+    if (!checked) {
+      applyLocalTocSettings({ showToc: false });
+      return;
+    }
+    // Prompt to share when enabling TOC and other articles exist on the page
+    if (articlesOnPage.length > 1) {
+      setTocShareDialogOpen(true);
+      return;
+    }
+    applyLocalTocSettings({ showToc: true });
+  };
+
+  const handleTocShareChoice = async (shareToc: boolean) => {
+    if (!shareToc) {
+      applyLocalTocSettings({ showToc: true, tocGroup: null });
+      setTocShareDialogOpen(false);
+      return;
+    }
+
+    const groupId = resolveTocGroupId(articlesOnPage);
+    applyLocalTocSettings({ showToc: true, tocGroup: groupId });
+
+    const siblingOps = buildSiblingShareOpsForActivation(
+      articlesOnPage,
+      sectionIndex,
+      groupId,
+    );
+
+    if (siblingOps.length === 0 || !contentType || !slug || !locale) {
+      setTocShareDialogOpen(false);
+      return;
+    }
+
+    setTocShareApplying(true);
+    try {
+      const result = await editContent({
+        contentType,
+        slug,
+        locale,
+        variant,
+        version,
+        operations: siblingOps,
+      });
+      if (result.success) {
+        emitContentUpdated({ contentType, slug, locale });
+        toast({
+          title: "Shared table of contents",
+          description: "Other articles on this page now share one TOC.",
+        });
+      } else {
+        toast({
+          title: "Could not update other articles",
+          description: result.error || "TOC was enabled on this article only.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error sharing TOC across articles:", error);
+      toast({
+        title: "Could not update other articles",
+        description: "TOC was enabled on this article only.",
+        variant: "destructive",
+      });
+    } finally {
+      setTocShareApplying(false);
+      setTocShareDialogOpen(false);
+    }
+  };
+
   // Component example query — lazy, only runs when the example dialog is open
   const schemaVersion = `v${version !== undefined ? version : 1}.0`;
   const { data: examplesData, isLoading: examplesLoading } = useQuery<{
@@ -1993,6 +2110,15 @@ export function SectionEditorPanel({
   const handleSave = async () => {
     const isPerEntrySection = !!(section as Record<string, unknown>)._perEntrySource;
     if (isSharedTemplate && singleEntry && !isPerEntrySection) {
+      if (!allowEntryStructuralOverrides) {
+        // Attached shared-layout: only template saves are allowed
+        if (boundSiblings.length > 0) {
+          setBindingConfirmOpen(true);
+          return;
+        }
+        await executeSave();
+        return;
+      }
       // On a DB entry page with a shared-template section: ask scope first.
       // Binding confirmation (if needed) is handled inside the scope dialog's
       // "Update shared template" branch.
@@ -4912,6 +5038,11 @@ export function SectionEditorPanel({
                   };
                   const currentValue = getSimpleFieldValue();
                   const fieldLabel = getFieldLabel(fieldPath);
+                  const supportsArticleToc =
+                    sectionType === "article" && fieldPath === "content";
+                  const showTocValue =
+                    parsedSection?.show_toc === true ||
+                    parsedSection?.show_toc === "true";
                   return (
                     <div key={fieldPath} className="space-y-2">
                       <MarkdownEditorField
@@ -4919,6 +5050,12 @@ export function SectionEditorPanel({
                         value={currentValue}
                         onChange={(md) => updateProperty(fieldPath, md)}
                         label={fieldLabel}
+                        {...(supportsArticleToc
+                          ? {
+                              showToc: showTocValue,
+                              onShowTocChange: handleArticleTocToggle,
+                            }
+                          : {})}
                         data-testid={`props-markdown-${fieldLabel}`}
                       />
                     </div>
@@ -8271,6 +8408,7 @@ export function SectionEditorPanel({
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-2">
+            {allowEntryStructuralOverrides && (
             <Button
               variant="outline"
               className="w-full justify-start gap-3 h-auto py-3 px-4"
@@ -8283,6 +8421,7 @@ export function SectionEditorPanel({
                 <span className="text-xs text-muted-foreground">Overrides this section just for the current entry. Other entries remain unchanged.</span>
               </div>
             </Button>
+            )}
             <Button
               variant="outline"
               className="w-full justify-start gap-3 h-auto py-3 px-4"
@@ -8308,6 +8447,61 @@ export function SectionEditorPanel({
               Cancel
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={tocShareDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !tocShareApplying) setTocShareDialogOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" data-testid="dialog-article-toc-share">
+          <DialogHeader>
+            <DialogTitle>Share table of contents?</DialogTitle>
+            <DialogDescription>
+              {articlesOnPage.length === 2
+                ? "This page already has another article. Should both articles share one table of contents?"
+                : `This page already has ${articlesOnPage.length} articles. Should they share one table of contents?`}
+              {" "}
+              {articlesOnPage.some((a) => a.toc_group)
+                ? "They’ll join the existing TOC group."
+                : "We’ll create a shared group for all of them."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 pt-1">
+            <Button
+              className="w-full"
+              disabled={tocShareApplying}
+              data-testid="button-toc-share-yes"
+              onClick={() => handleTocShareChoice(true)}
+            >
+              {tocShareApplying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sharing…
+                </>
+              ) : (
+                "Yes — share TOC"
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={tocShareApplying}
+              data-testid="button-toc-share-no"
+              onClick={() => handleTocShareChoice(false)}
+            >
+              No — keep separate
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={tocShareApplying}
+              onClick={() => setTocShareDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

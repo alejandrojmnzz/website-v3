@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense, useRef } from "react";
-import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, MessageSquare, PanelBottom, Rocket, Sparkles, Table, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, MessageSquare, PanelBottom, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
 import { IconGitFork } from "@tabler/icons-react";
 import { subscribeToContentUpdates, subscribeToVariantCreated, subscribeToVariantDeleted, subscribeToVariantPromoted } from "@/lib/contentEvents";
 
@@ -8,7 +8,8 @@ import { useLocation, useSearch } from "wouter";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { useSession } from "@/contexts/SessionContext";
 import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
-import { useContentTypes, getFolderFromType } from "@/hooks/useContentTypes";
+import { useContentTypes, getFolderFromType, useContentTypesRaw } from "@/hooks/useContentTypes";
+import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSyncOptional } from "@/contexts/SyncContext";
@@ -117,6 +118,7 @@ export function DebugBubble() {
   const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, checkSession } = useDebugAuth();
   const { criticalAlerts } = useSystemAlerts();
   const contentTypesMap = useContentTypes();
+  const { data: contentTypesRaw } = useContentTypesRaw();
   const { session } = useSession();
   const editMode = useEditModeOptional();
   const syncContext = useSyncOptional();
@@ -194,6 +196,7 @@ export function DebugBubble() {
   // Versioning state
   const [versioningData, setVersioningData] = useState<VersioningResponse | null>(null);
   const [versioningLoading, setVersioningLoading] = useState(false);
+  const [detachBusy, setDetachBusy] = useState(false);
   
   // GitHub sync status state
   const [githubSyncStatus, setGithubSyncStatus] = useState<GitHubSyncStatus | null>(null);
@@ -337,6 +340,11 @@ export function DebugBubble() {
 
   // Detect current content info from URL
   const contentInfo = detectContentInfo(pathname, contentTypesMap, homePageSettings ?? null);
+  const contentTypeInfo = contentInfo.type
+    ? contentTypesRaw?.find((t) => t.name === contentInfo.type)
+    : undefined;
+  const pageIsSharedLayout = isSharedLayoutType(contentTypeInfo);
+  const pageIsDetached = !!versioningData?.detached;
 
   const isPreviewPath = pathname.startsWith("/private/preview/");
   const { data: previewLocaleUrls } = useQuery<{ urls: Record<string, string>; contentType: string; slug: string } | null>({
@@ -730,6 +738,7 @@ export function DebugBubble() {
     return subscribeToVariantCreated((payload) => {
       if (payload.contentType !== contentInfo.type || payload.slug !== contentInfo.slug) return;
       setVersioningLoading(true);
+      // Always GET with entry slug so detached is detected correctly
       fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
         .then((res) => res.json())
         .then((data: VersioningResponse) => {
@@ -1895,6 +1904,80 @@ export function DebugBubble() {
     "europe": "Europe",
   };
 
+  const refreshVersioning = () => {
+    if (!contentInfo.type || !contentInfo.slug) return;
+    setVersioningLoading(true);
+    // Always GET with the entry slug so detached status is returned correctly
+    fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
+      .then((res) => res.json())
+      .then((data: VersioningResponse) => {
+        setVersioningData(data);
+        setVersioningLoading(false);
+      })
+      .catch(() => {
+        setVersioningLoading(false);
+      });
+  };
+
+  const handleDetachEntry = async () => {
+    if (!contentInfo.type || !contentInfo.slug || detachBusy) return;
+    setDetachBusy(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(`/api/content/${contentInfo.type}/${contentInfo.slug}/detach`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to detach entry", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Entry detached", description: "This page now owns its own structure and Page Versions." });
+      refreshVersioning();
+      queryClient.invalidateQueries();
+    } catch {
+      toast({ title: "Failed to detach entry", variant: "destructive" });
+    } finally {
+      setDetachBusy(false);
+    }
+  };
+
+  const handleReattachEntry = async () => {
+    if (!contentInfo.type || !contentInfo.slug || detachBusy) return;
+    setDetachBusy(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(`/api/content/${contentInfo.type}/${contentInfo.slug}/reattach`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ confirm: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to re-attach entry", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Entry re-attached",
+        description: data.hadTrafficVariants
+          ? "Custom structure removed. Entry variants with traffic were also cleared."
+          : "This entry uses the shared template again.",
+      });
+      refreshVersioning();
+      queryClient.invalidateQueries();
+    } catch {
+      toast({ title: "Failed to re-attach entry", variant: "destructive" });
+    } finally {
+      setDetachBusy(false);
+    }
+  };
+
   const panelContentProps = {
     noTokenDetected,
     tokenWithoutCapabilities,
@@ -1941,6 +2024,11 @@ export function DebugBubble() {
     versioningLoading,
     versioningData,
     onVersioningDataUpdate: setVersioningData,
+    pageIsSharedLayout,
+    pageIsDetached,
+    detachBusy,
+    onDetachEntry: handleDetachEntry,
+    onReattachEntry: handleReattachEntry,
     onEditVariantYaml: (locale: string, variantSlug: string) => {
       if (!contentInfo.type || !contentInfo.slug) return;
       const isPreview = pathname.startsWith("/private/preview/");
@@ -2009,11 +2097,20 @@ export function DebugBubble() {
     <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2 items-start" data-testid="debug-bubble">
       {showForkBubble && (
         <div className="relative flex items-center">
+          {pageIsDetached && (
+            <span
+              className="absolute -top-1 -left-1 z-10 flex items-center justify-center h-4 w-4 rounded-full bg-background text-muted-foreground border border-border shadow pointer-events-none"
+              title="Detached from shared template"
+              data-testid="badge-fork-detached"
+            >
+              <Unlink className="h-2.5 w-2.5" />
+            </span>
+          )}
           <Button
             size="icon"
             variant="default"
             className="h-10 w-10 rounded-full shadow-lg flex-shrink-0"
-            title="Variant versions"
+            title={pageIsDetached ? "Page versions (detached)" : "Variant versions"}
             data-testid="button-fork-bubble"
             onClick={() => {
               setOpen(true);

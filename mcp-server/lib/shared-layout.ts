@@ -10,9 +10,23 @@ import type { NextAction, McpSideEffect, McpWarning } from "./respond.js";
 
 export type LayoutTarget = "auto" | "entry" | "type_single";
 
-export function isSharedLayoutType(config: ContentTypeConfig | null | undefined): boolean {
-  if (!config) return false;
-  return !!(config.database?.slug || (config as { single_template?: boolean }).single_template);
+/** Versioning API slug: attached shared-layout → `single`; else entry slug. */
+export function versioningApiSlug(
+  contentType: string,
+  entrySlug: string,
+  contentPath?: string,
+): string {
+  const config = getContentTypeConfig(contentType, contentPath);
+  if (!isSharedLayoutType(config)) return entrySlug;
+  const typeDir = getDirectory(contentType, config!);
+  const commonPath = path.join(contentPath || "", typeDir, entrySlug, "_common.yml");
+  if (fs.existsSync(commonPath)) {
+    try {
+      const raw = fs.readFileSync(commonPath, "utf-8");
+      if (/^\s*detached:\s*true\s*$/m.test(raw)) return entrySlug;
+    } catch { /* ignore */ }
+  }
+  return "single";
 }
 
 export function getContentTypeConfig(
@@ -76,20 +90,22 @@ export function pathForLayoutTarget(opts: {
   variant?: string;
 }): { filePath: string; relativeHint: string; layer: "entry_locale" | "type_single" | "variant" } {
   const typeDir = getDirectory(opts.contentType, opts.config);
+  if (opts.layoutTarget === "type_single") {
+    const fileName = opts.variant
+      ? `single.${opts.variant}.${opts.locale}.yml`
+      : `single.${opts.locale}.yml`;
+    return {
+      filePath: path.join(opts.contentPath, typeDir, fileName),
+      relativeHint: `${typeDir}/${fileName}`,
+      layer: opts.variant ? "variant" : "type_single",
+    };
+  }
   if (opts.variant) {
     const fileName = `${opts.variant}.${opts.locale}.yml`;
     return {
       filePath: path.join(opts.contentPath, typeDir, opts.slug, fileName),
       relativeHint: `${typeDir}/${opts.slug}/${fileName}`,
       layer: "variant",
-    };
-  }
-  if (opts.layoutTarget === "type_single") {
-    const fileName = `single.${opts.locale}.yml`;
-    return {
-      filePath: path.join(opts.contentPath, typeDir, fileName),
-      relativeHint: `${typeDir}/${fileName}`,
-      layer: "type_single",
     };
   }
   const fileName = `${opts.locale}.yml`;
@@ -111,8 +127,8 @@ export function confirmLayoutTargetPayload(opts: {
     message:
       `Content type '${opts.contentType}' uses a shared layout. This edit may change single.${opts.locale}.yml (all entries) or only this entry overlay. Re-call with layout_target set.`,
     options: [
-      `layout_target: "type_single" — write the shared single.${opts.locale}.yml (affects all entries in this locale; sibling locale sync via next_actions)`,
-      `layout_target: "entry" — write only this entry's locale overlay (no shared shell change)`,
+      `layout_target: "type_single" — write the shared single.${opts.locale}.yml (affects all attached entries in this locale)`,
+      `Detach the entry first if you need a custom section tree, then edit as a standalone page`,
     ],
     detected: {
       contentType: opts.contentType,
