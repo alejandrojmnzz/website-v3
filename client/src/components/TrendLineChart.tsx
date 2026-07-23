@@ -3,6 +3,7 @@ import { resolveColorVar, hslColor, hslColorRaw } from "@/components/course_sele
 
 interface TrendLineChartProps {
   years?: string[];
+  axisLabels?: string[];
   values?: number[];
   endLabel?: string;
   accentColor?: string;
@@ -29,6 +30,7 @@ function buildPath(pts: { x: number; y: number }[]): string {
 
 export function TrendLineChart({
   years       = DEFAULT_YEARS,
+  axisLabels,
   values      = DEFAULT_VALUES,
   endLabel    = "1.3M · 2027",
   accentColor = "hsl(var(--primary))",
@@ -82,15 +84,35 @@ export function TrendLineChart({
         <path d={pathD} fill="none" style={{ stroke: accentCss }} strokeWidth="2" strokeLinecap="round" />
         <circle cx={lastPt.x} cy={lastPt.y} r="4" style={{ fill: accentCss }} />
 
-        {years.map((y, i) => {
-          if (i % 2 !== 0) return null;
-          const x = PAD.left + (i / (values.length - 1)) * innerW;
-          return (
-            <text key={y} x={x} y={H - 2} textAnchor="middle" fontSize="8" fill="#475569">
-              {y}
-            </text>
-          );
-        })}
+        {axisLabels && axisLabels.length > 0
+          ? axisLabels.map((label, i) => {
+              const n = axisLabels.length;
+              const x = n === 1
+                ? PAD.left + innerW / 2
+                : PAD.left + (i / (n - 1)) * innerW;
+              return (
+                <text
+                  key={`${label}-${i}`}
+                  x={x}
+                  y={H - 2}
+                  textAnchor={n === 1 ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
+                  fontSize="8"
+                  fill="#475569"
+                  data-testid={`text-trend-axis-label-${i}`}
+                >
+                  {label}
+                </text>
+              );
+            })
+          : years.map((y, i) => {
+              if (i % 2 !== 0) return null;
+              const x = PAD.left + (i / (values.length - 1)) * innerW;
+              return (
+                <text key={y} x={x} y={H - 2} textAnchor="middle" fontSize="8" fill="#475569">
+                  {y}
+                </text>
+              );
+            })}
       </svg>
 
       {endLabel && (
