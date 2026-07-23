@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { execSync as _execSync, execFile } from "child_process";
+import { canonicalSectionId } from "../utils/sectionIdentity";
 import {
   versioningUpdateSchema,
   type CareerProgram,
@@ -567,7 +568,6 @@ export function registerVersioningRoutes(app: Express): void {
             return;
           }
 
-          const getSectionId = (s: any) => s?.section_id ?? s?.id ?? null;
           const baseTemplatePath = path.resolve(contentTypeDir, `single.${locale}.yml`);
           const baseParsed: any = fs.existsSync(baseTemplatePath)
             ? (safeYamlLoad(fs.readFileSync(baseTemplatePath, "utf-8")) as any) ?? {}
@@ -576,13 +576,13 @@ export function registerVersioningRoutes(app: Express): void {
           const baseSections: any[] = baseParsed.sections ?? [];
           const variantSections: any[] = variantParsed.sections ?? [];
 
-          const baseIds = new Set(baseSections.map(getSectionId).filter(Boolean));
-          const variantIds = new Set(variantSections.map(getSectionId).filter(Boolean));
+          const baseIds = new Set(baseSections.map(canonicalSectionId).filter(Boolean) as string[]);
+          const variantIds = new Set(variantSections.map(canonicalSectionId).filter(Boolean) as string[]);
 
           const overrideSections: any[] = [];
           // Mark sections removed in the variant
           for (const baseSection of baseSections) {
-            const id = getSectionId(baseSection);
+            const id = canonicalSectionId(baseSection);
             if (id && !variantIds.has(id)) {
               overrideSections.push({ section_id: id, _remove: true });
             }
@@ -590,14 +590,14 @@ export function registerVersioningRoutes(app: Express): void {
           // Add all variant sections with correct positioning for new ones
           for (let i = 0; i < variantSections.length; i++) {
             const section = variantSections[i];
-            const id = getSectionId(section);
+            const id = canonicalSectionId(section);
             if (id && baseIds.has(id)) {
               overrideSections.push({ ...section });
             } else {
               // New section: find nearest preceding section that exists in base
               let insertAfter: string | null = null;
               for (let j = i - 1; j >= 0; j--) {
-                const prevId = getSectionId(variantSections[j]);
+                const prevId = canonicalSectionId(variantSections[j]);
                 if (prevId && baseIds.has(prevId)) { insertAfter = prevId; break; }
               }
               overrideSections.push({

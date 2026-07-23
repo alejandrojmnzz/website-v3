@@ -46,7 +46,7 @@ export function AddSectionButton({
   }
 
   const handleOpenModal = () => {
-    if (isSharedTemplate && singleEntry) {
+    if (isSharedTemplate && singleEntry && !variant) {
       setScopeDialogOpen(true);
     } else {
       setIsModalOpen(true);

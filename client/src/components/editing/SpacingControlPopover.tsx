@@ -45,7 +45,8 @@ async function updateSectionField(
   field: string,
   value: ResponsiveSpacing,
   variant?: string,
-  version?: number
+  version?: number,
+  layoutTarget?: "entry" | "type_single"
 ): Promise<{ success: boolean; error?: string }> {
   const token = getDebugToken();
   const author = await resolveAuthorName();
@@ -62,6 +63,7 @@ async function updateSectionField(
       author,
       ...(variant ? { variant } : {}),
       ...(version !== undefined ? { version } : {}),
+      ...(layoutTarget ? { layoutTarget } : {}),
       operations: [
         {
           action: "update_field",
@@ -324,23 +326,25 @@ export function SpacingControlPopover({
     setIsSaving(true);
     const operations: Promise<{ success: boolean; error?: string }>[] = [];
 
+    const spacingLayoutTarget = variant ? "type_single" : undefined;
+
     if (sectionAbove) {
       const originalAbove = parseSpacingValue(sectionAbove);
       if (hasChanged(originalAbove.padding, abovePadding)) {
-        operations.push(updateSectionField(contentType, slug, locale, aboveIndex, "paddingY", toResponsiveSpacing(abovePadding), variant, version));
+        operations.push(updateSectionField(contentType, slug, locale, aboveIndex, "paddingY", toResponsiveSpacing(abovePadding), variant, version, spacingLayoutTarget));
       }
       if (hasChanged(originalAbove.margin, aboveMargin)) {
-        operations.push(updateSectionField(contentType, slug, locale, aboveIndex, "marginY", toResponsiveSpacing(aboveMargin), variant, version));
+        operations.push(updateSectionField(contentType, slug, locale, aboveIndex, "marginY", toResponsiveSpacing(aboveMargin), variant, version, spacingLayoutTarget));
       }
     }
 
     if (sectionBelow) {
       const originalBelow = parseSpacingValue(sectionBelow);
       if (hasChanged(originalBelow.padding, belowPadding)) {
-        operations.push(updateSectionField(contentType, slug, locale, belowIndex, "paddingY", toResponsiveSpacing(belowPadding), variant, version));
+        operations.push(updateSectionField(contentType, slug, locale, belowIndex, "paddingY", toResponsiveSpacing(belowPadding), variant, version, spacingLayoutTarget));
       }
       if (hasChanged(originalBelow.margin, belowMargin)) {
-        operations.push(updateSectionField(contentType, slug, locale, belowIndex, "marginY", toResponsiveSpacing(belowMargin), variant, version));
+        operations.push(updateSectionField(contentType, slug, locale, belowIndex, "marginY", toResponsiveSpacing(belowMargin), variant, version, spacingLayoutTarget));
       }
     }
 

@@ -1041,7 +1041,7 @@ export function VersioningView({
 
       {/* DB-single scope selection dialog: choose between promoting to this item or the whole template */}
       <Dialog open={promoteScopeTarget !== null} onOpenChange={(open) => { if (!open && !isPromotingScope) setPromoteScopeTarget(null); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-base">Publicar variante "{promoteScopeTarget?.slug}"</DialogTitle>
             <DialogDescription>¿Dónde aplicar los cambios?</DialogDescription>
