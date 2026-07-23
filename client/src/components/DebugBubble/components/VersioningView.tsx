@@ -161,7 +161,7 @@ export function VersioningView({
           .catch(() => {});
       }
       persistOpenStateForNavigation();
-      navigate(`/private/preview/${type}/${slug}?force_variant=${encodeURIComponent(createVersionSlug)}&locale=${createVersionLocale}`);
+      navigate(`/private/preview/${type}/${slug}?variant=${encodeURIComponent(createVersionSlug)}&locale=${createVersionLocale}`);
     } catch {
       toast({ title: "Failed to create version", variant: "destructive" });
     } finally {

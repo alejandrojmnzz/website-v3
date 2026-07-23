@@ -579,31 +579,69 @@ export function registerVersioningRoutes(app: Express): void {
           const baseIds = new Set(baseSections.map(canonicalSectionId).filter(Boolean) as string[]);
           const variantIds = new Set(variantSections.map(canonicalSectionId).filter(Boolean) as string[]);
 
+          // Detect reordered base sections via LIS (longest increasing subsequence).
+          // Sections in the LIS kept their relative order → "stable" (patch in place).
+          // Sections outside the LIS changed position → "moved" (remove + re-insert).
+          const sharedVariantOrder = variantSections
+            .map(canonicalSectionId)
+            .filter((id): id is string => !!id && baseIds.has(id));
+          const sharedBaseOrder = baseSections
+            .map(canonicalSectionId)
+            .filter((id): id is string => !!id && variantIds.has(id));
+          const baseIndexMap = new Map(sharedBaseOrder.map((id, i) => [id, i]));
+          const variantAsBaseIndices = sharedVariantOrder.map(id => baseIndexMap.get(id) ?? -1);
+
+          // Patience-sort LIS to find indices (in sharedVariantOrder) that are stable.
+          const stableVariantPositions = (() => {
+            const tails: number[] = [];
+            const tailIdx: number[] = [];
+            const parent: number[] = new Array(variantAsBaseIndices.length).fill(-1);
+            for (let i = 0; i < variantAsBaseIndices.length; i++) {
+              const val = variantAsBaseIndices[i];
+              let lo = 0, hi = tails.length;
+              while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < val) lo = mid + 1; else hi = mid; }
+              tails[lo] = val;
+              tailIdx[lo] = i;
+              if (lo > 0) parent[i] = tailIdx[lo - 1];
+            }
+            const result = new Set<number>();
+            let k = tailIdx[tails.length - 1];
+            while (k !== undefined && k !== -1) { result.add(k); k = parent[k]; }
+            return result;
+          })();
+          const movedIds = new Set(
+            sharedVariantOrder.filter((_, i) => !stableVariantPositions.has(i))
+          );
+
           const overrideSections: any[] = [];
-          // Mark sections removed in the variant
+          // Mark sections removed OR moved out of their base position
           for (const baseSection of baseSections) {
             const id = canonicalSectionId(baseSection);
-            if (id && !variantIds.has(id)) {
+            if (id && (!variantIds.has(id) || movedIds.has(id))) {
               overrideSections.push({ section_id: id, _remove: true });
             }
           }
-          // Add all variant sections with correct positioning for new ones
+          // Emit all variant sections with correct positioning.
+          // Stable base sections → simple patch (merge applies in-place).
+          // Moved base sections & new sections → re-insert with _insertAfterSectionId.
           for (let i = 0; i < variantSections.length; i++) {
             const section = variantSections[i];
             const id = canonicalSectionId(section);
-            if (id && baseIds.has(id)) {
+            const isStableBase = id && baseIds.has(id) && !movedIds.has(id);
+            if (isStableBase) {
+              // Patch in base position — no positioning hint needed.
               overrideSections.push({ ...section });
             } else {
-              // New section: find nearest preceding section that exists in base
+              // New section or moved base section: find nearest stable preceding anchor.
               let insertAfter: string | null = null;
               for (let j = i - 1; j >= 0; j--) {
                 const prevId = canonicalSectionId(variantSections[j]);
-                if (prevId && baseIds.has(prevId)) { insertAfter = prevId; break; }
+                if (prevId && baseIds.has(prevId) && !movedIds.has(prevId)) {
+                  insertAfter = prevId; break;
+                }
               }
-              overrideSections.push({
-                ...section,
-                ...(insertAfter ? { _insertAfterSectionId: insertAfter } : {}),
-              });
+              // Always write the field: null = insert before all, string = insert after anchor.
+              overrideSections.push({ ...section, _insertAfterSectionId: insertAfter });
             }
           }
 
