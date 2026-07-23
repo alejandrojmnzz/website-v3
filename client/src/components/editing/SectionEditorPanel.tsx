@@ -2001,7 +2001,8 @@ export function SectionEditorPanel({
       // Skip the scope dialog when previewing a variant — the destination is
       // already the variant file (single-{slug}.{locale}.yml), so asking scope
       // would be confusing and wrong.
-      const inVariantPreview = !!new URLSearchParams(window.location.search).get("force_variant");
+      const _vp = new URLSearchParams(window.location.search);
+      const inVariantPreview = !!(_vp.get("force_variant") || _vp.get("variant"));
       if (!inVariantPreview) {
         setScopeDialogOpen(true);
         return;
