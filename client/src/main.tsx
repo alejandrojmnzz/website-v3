@@ -48,14 +48,13 @@ const rootEl = document.getElementById("root")!;
 
 (async () => {
   if (rootEl.hasChildNodes()) {
-    // Preload the lazy route chunk(s) needed for the current URL before calling
+    // Preload the lazy route chunk needed for the current URL before calling
     // hydrateRoot(). Without this, React's <Suspense fallback={null}> fires while
     // chunks load, blanking the entire page (the white-flash bug).
     //
-    // Strategy: specific admin/utility routes get a single targeted chunk; all
-    // public/CMS-driven routes preload the three public page components together
-    // (TemplatePage + ContentTypeDetail + DatabaseSinglePage). These three cover
-    // every public route including dynamic CMS routes added via useDynamicRoutes().
+    // Prefer a single page chunk (not all three public pages) so cold loads do
+    // not fan out unused JS and trip edge rate limits. SSR __INITIAL_DATA__
+    // query keys identify the route type; path heuristics cover the rest.
     // Heavy private chunks (PreviewFrame, PrivateRouter) remain lazy-only.
     // Normalize pathname: strip trailing slash (except root "/") for consistent matching.
     const rawPath = window.location.pathname;
@@ -70,6 +69,36 @@ const rootEl = document.getElementById("root")!;
     // is no risk of a Suspense white-flash for these components — they simply appear
     // after the browser fetches their chunks post-hydration.
     let chunkLoads: Promise<unknown>[];
+
+    /** Infer which public page component matches SSR initial data. */
+    const pageChunkFromInitialData = (): Promise<unknown> | null => {
+      const queries = initialDataPayload?.queries;
+      if (!queries?.length) return null;
+      for (const { queryKey } of queries) {
+        if (!Array.isArray(queryKey) || queryKey.length === 0) continue;
+        const key0 = queryKey[0];
+        if (key0 === "/api/database-single") {
+          return import("@/pages/DatabaseSinglePage");
+        }
+        if (key0 === "/api/pages" || key0 === "/api/blog/config") {
+          return import("@/pages/page");
+        }
+        // ContentTypeDetail uses getApiPath() keys like "/api/programs", "/api/locations".
+        if (
+          typeof key0 === "string" &&
+          key0.startsWith("/api/") &&
+          key0 !== "/api/menus" &&
+          key0 !== "/api/variables" &&
+          key0 !== "/api/content-types" &&
+          key0 !== "/api/image-registry" &&
+          key0 !== "/api/settings/home-page" &&
+          key0 !== "/api/blog/posts"
+        ) {
+          return import("@/pages/ContentTypeDetail");
+        }
+      }
+      return null;
+    };
 
     if (path === "/private" || path.startsWith("/private/")) {
       chunkLoads = [import("@/pages/PrivateRouter")];
@@ -86,14 +115,28 @@ const rootEl = document.getElementById("root")!;
     ) {
       chunkLoads = [import("@/pages/PrivacyPage")];
     } else {
-      // All public/CMS routes (static and dynamic) use one of these three components.
-      // Preload all three to cover every possible CMS-driven route without needing to
-      // replicate the server's route-to-component mapping in this file.
-      chunkLoads = [
-        import("@/pages/page"),
-        import("@/pages/ContentTypeDetail"),
-        import("@/pages/DatabaseSinglePage"),
-      ];
+      const fromData = pageChunkFromInitialData();
+      if (fromData) {
+        chunkLoads = [fromData];
+      } else if (
+        /\/blog\//.test(path) ||
+        /\/how-to\//.test(path) ||
+        /\/lessons?\//.test(path)
+      ) {
+        // Common DB-backed URL shapes when initial data is missing (client nav).
+        chunkLoads = [import("@/pages/DatabaseSinglePage")];
+      } else if (
+        /\/career-programs\//.test(path) ||
+        /\/programas-de-carrera\//.test(path) ||
+        /\/location\//.test(path) ||
+        /\/ubicacion\//.test(path)
+      ) {
+        chunkLoads = [import("@/pages/ContentTypeDetail")];
+      } else {
+        // Template pages (home, listing, generic /:locale/:slug). Fallback to
+        // TemplatePage only — dynamic routes hydrate after /api/content-types.
+        chunkLoads = [import("@/pages/page")];
+      }
     }
 
     // Await only eager/above-fold section chunks so hydrateRoot can start sooner.

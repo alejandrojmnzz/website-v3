@@ -453,6 +453,40 @@ export function getUser(username: string): UserRecord | null {
   return state.users[username] ?? null;
 }
 
+/** Look up a staff user by immutable staff id (used in `_label.requester` / `owner`). */
+export function getUserByStaffId(staffId: string): UserRecord | null {
+  ensureLoaded();
+  if (!staffId) return null;
+  for (const user of Object.values(state.users)) {
+    if (user.id === staffId) return user;
+  }
+  return null;
+}
+
+/** Display name for UI: "First Last", else username, else staff id. */
+export function formatStaffDisplayName(user: UserRecord): string {
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  if (user.username) return user.username;
+  return user.id;
+}
+
+/** Lightweight roster for label assignee pickers (id + display name). */
+export function getStaffDirectory(): Array<{
+  id: string;
+  username: string;
+  displayName: string;
+}> {
+  ensureLoaded();
+  return Object.values(state.users)
+    .map((u) => ({
+      id: u.id || ensureUserHasId(u.username),
+      username: u.username,
+      displayName: formatStaffDisplayName(u),
+    }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
 export function getAllRoles(): Record<string, RoleDefinition> {
   ensureLoaded();
   return { ...state.roles };

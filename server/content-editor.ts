@@ -96,7 +96,12 @@ function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: un
   }
   
   const lastPart = parts[parts.length - 1];
-  current[lastPart] = value;
+  // null/undefined deletes the key so callers can clear fields like `_label`
+  if (value === null || value === undefined) {
+    delete current[lastPart];
+  } else {
+    current[lastPart] = value;
+  }
 }
 
 function applyOperation(content: Record<string, unknown>, operation: EditOperation): void {

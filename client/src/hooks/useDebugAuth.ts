@@ -7,6 +7,7 @@ const DEBUG_TOKEN_KEY = "debug_token";
 const DEBUG_MODE_KEY = "debug_mode";
 const DEBUG_CAPABILITIES_KEY = "debug_capabilities";
 const DEBUG_USERNAME_KEY = "debug_username";
+const DEBUG_STAFF_ID_KEY = "debug_staff_id";
 
 export interface CapabilityGrant {
   name: string;
@@ -88,6 +89,12 @@ export function getDebugUserName(): string {
   return localStorage.getItem(DEBUG_USERNAME_KEY) || "";
 }
 
+/** Immutable staff id used in `_label.requester` / `owner`. */
+export function getDebugStaffId(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(DEBUG_STAFF_ID_KEY) || "";
+}
+
 export async function resolveAuthorName(): Promise<string> {
   const cached = localStorage.getItem(DEBUG_USERNAME_KEY);
   if (cached) return cached;
@@ -104,11 +111,39 @@ export async function resolveAuthorName(): Promise<string> {
     const data = await response.json();
     if (data.valid && data.userName) {
       localStorage.setItem(DEBUG_USERNAME_KEY, data.userName);
+      if (typeof data.staffId === "string" && data.staffId) {
+        localStorage.setItem(DEBUG_STAFF_ID_KEY, data.staffId);
+      }
       return data.userName;
     }
   } catch {
   }
   return "Unknown";
+}
+
+/** Resolve current staff id for label writes (preferred over username). */
+export async function resolveStaffId(): Promise<string | null> {
+  const cached = getDebugStaffId();
+  if (cached) return cached;
+
+  const token = getDebugToken();
+  if (!token) return null;
+
+  try {
+    const response = await fetch("/api/debug/validate-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const data = await response.json();
+    if (data.valid && typeof data.staffId === "string" && data.staffId) {
+      localStorage.setItem(DEBUG_STAFF_ID_KEY, data.staffId);
+      if (data.userName) localStorage.setItem(DEBUG_USERNAME_KEY, data.userName);
+      return data.staffId;
+    }
+  } catch {
+  }
+  return null;
 }
 
 interface DebugAuthValue {
@@ -138,6 +173,18 @@ function capabilityGrantsFromResponse(raw: unknown): CapabilityGrant[] {
       .map(([k]) => ({ name: k } as CapabilityGrant));
   }
   return [];
+}
+
+function cacheStaffIdentity(data: { userName?: string; staffId?: string }) {
+  if (data.userName) localStorage.setItem(DEBUG_USERNAME_KEY, data.userName);
+  if (typeof data.staffId === "string" && data.staffId) {
+    localStorage.setItem(DEBUG_STAFF_ID_KEY, data.staffId);
+  }
+}
+
+function clearStaffIdentity() {
+  localStorage.removeItem(DEBUG_USERNAME_KEY);
+  localStorage.removeItem(DEBUG_STAFF_ID_KEY);
 }
 
 function grantHasCapability(
@@ -248,8 +295,8 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(DEBUG_CAPABILITIES_KEY, JSON.stringify(grants));
           setCapabilities(grants);
         }
-        if (data.userName) {
-          localStorage.setItem(DEBUG_USERNAME_KEY, data.userName);
+        if (data.userName || data.staffId) {
+          cacheStaffIdentity(data);
         }
         setIsValidated(true);
       } else {
@@ -257,7 +304,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
         localStorage.removeItem(DEBUG_TOKEN_KEY);
         localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
-        localStorage.removeItem(DEBUG_USERNAME_KEY);
+        clearStaffIdentity();
         setAuthToken(undefined);
         setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
         setIsValidated(false);
@@ -289,7 +336,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
     localStorage.removeItem(DEBUG_TOKEN_KEY);
     localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
-    localStorage.removeItem(DEBUG_USERNAME_KEY);
+    clearStaffIdentity();
 
     try {
       const response = await fetch("/api/debug/validate-token", {
@@ -315,8 +362,8 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(DEBUG_CAPABILITIES_KEY, JSON.stringify(grants));
           setCapabilities(grants);
         }
-        if (data.userName) {
-          localStorage.setItem(DEBUG_USERNAME_KEY, data.userName);
+        if (data.userName || data.staffId) {
+          cacheStaffIdentity(data);
         }
         setIsValidated(true);
       } else {
@@ -365,7 +412,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
         localStorage.removeItem(DEBUG_TOKEN_KEY);
         localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
-        localStorage.removeItem(DEBUG_USERNAME_KEY);
+        clearStaffIdentity();
         setHasToken(false);
         setIsValidated(false);
         setCapabilities(DEFAULT_CAPABILITIES);
@@ -382,7 +429,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
     localStorage.removeItem(DEBUG_TOKEN_KEY);
     localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
-    localStorage.removeItem(DEBUG_USERNAME_KEY);
+    clearStaffIdentity();
     setAuthToken(undefined);
     setHasToken(false);
     setIsValidated(false);

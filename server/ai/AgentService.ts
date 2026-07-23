@@ -6,6 +6,7 @@ import * as yaml from "js-yaml";
 import { contentCompiler } from "./ContentCompiler";
 import { conversationStore, ConversationStore } from "./ConversationStore";
 import { TOOL_DEFINITIONS, executeToolCall } from "./tools/index";
+import { resolveLLMApiKey, resolveLLMBaseURL } from "./LLMService";
 import { child } from "../logger";
 const log = child({ module: "ai/AgentService" });
 
@@ -22,7 +23,7 @@ interface LLMConfig {
 }
 
 function resolveModel(config: LLMConfig, mode: "default" | "chat"): string {
-  const fallback = "llama-3.3-70b-versatile";
+  const fallback = "openai/gpt-4o-mini";
   if (typeof config.model === "string") {
     if (mode === "chat") return process.env.LLM_CHAT_MODEL || config.model || fallback;
     return process.env.LLM_MODEL || config.model || fallback;
@@ -75,8 +76,8 @@ function getOpenAIClient(config: LLMConfig): OpenAI {
   const apiKeyEnv = config.provider?.api_key_env || "OPENAI_API_KEY";
   const baseUrlEnv = config.provider?.base_url_env || "OPENAI_BASE_URL";
 
-  const apiKey = process.env[apiKeyEnv] || process.env.OPENAI_API_KEY;
-  const baseURL = process.env[baseUrlEnv] || process.env.OPENAI_BASE_URL;
+  const apiKey = resolveLLMApiKey(apiKeyEnv);
+  const baseURL = resolveLLMBaseURL(baseUrlEnv);
 
   if (!apiKey) {
     throw new Error(`API key not configured. Set ${apiKeyEnv} in environment.`);

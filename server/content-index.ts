@@ -7,7 +7,7 @@ import type { ZodSchema } from "zod";
 import { escapeTemplateVars, unescapeObjectVars, escapeObjectVars, unescapeYamlDump } from "../shared/templateVars";
 import { deepMerge } from "./utils/deepMerge";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
-import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, extractUrlPatternParams, getContentTypeConfig } from "./content-types";
+import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, extractUrlPatternParams, getContentTypeConfig, getHreflangsSource, resolveHreflangsFromRecord } from "./content-types";
 import { databaseManager, type DatabaseManager } from "./database";
 import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
@@ -594,10 +594,94 @@ export class ContentIndex {
   }
 
   private buildLocaleUrlsInternal(slug: string, contentType: string): Record<string, string> {
-    const matches = this.bySlug.get(slug) || [];
-    const entry = matches.find(e => e.contentType === contentType);
-    if (!entry) return {};
+    return this.getAlternateUrls(slug, contentType);
+  }
 
+  private getCanonicalUrl(contentType: string, slug: string, locale: string): string {
+    return this.buildUrl(
+      contentType,
+      locale,
+      slug,
+      this.resolveUrlPatternParamsForEntry(contentType, slug, locale),
+    );
+  }
+
+  /**
+   * Locale → URL path for a content entry (YAML folder or DB `_hreflangs` cluster).
+   * Alias kept for callers; prefer getAlternateUrls for new code.
+   */
+  getLocaleUrls(slug: string, contentType: string): Record<string, string> {
+    return this.getAlternateUrls(slug, contentType);
+  }
+
+  /**
+   * Unified alternate URL resolver.
+   * - YAML: folder locales + optional per-file slug override
+   * - DB: `_hreflangs` locale→slug map on the mapped item (lookup by current URL slug)
+   */
+  getAlternateUrls(slug: string, contentType: string): Record<string, string> {
+    this.ensureInitialized();
+    const normalized = this.normalizeType(contentType);
+    const config = this.contentTypeConfigs[normalized];
+
+    if (config?.database?.slug && getHreflangsSource(normalized, this.contentRoot)) {
+      const dbUrls = this.getAlternateUrlsFromDatabase(slug, normalized);
+      if (dbUrls !== null) return dbUrls;
+    }
+
+    // YAML: map per-locale URL slug → folder slug when needed
+    const baseSlug = this.resolveBaseSlug(slug, normalized);
+    return this.getAlternateUrlsFromYaml(baseSlug, normalized);
+  }
+
+  /** Returns null if the slug is not a DB item (caller may fall through to YAML). */
+  private getAlternateUrlsFromDatabase(
+    slug: string,
+    contentType: string,
+  ): Record<string, string> | null {
+    const config = this.contentTypeConfigs[contentType];
+    const dbName = config?.database?.slug;
+    if (!dbName) return null;
+
+    const items = this.database.getMappedItems(dbName);
+    if (!items || items.length === 0) return null;
+
+    const item = items.find((i) => String(i.slug ?? "") === slug);
+    if (!item) return null;
+
+    const map = resolveHreflangsFromRecord(item, contentType, this.contentRoot);
+    if (!map || Object.keys(map).length === 0) return {};
+
+    const patternLocales = new Set(
+      Object.keys(config.url_pattern || {})
+        .filter((k) => k !== "default")
+        .map((k) => (k === "default" ? "en" : k)),
+    );
+    if (patternLocales.size === 0) patternLocales.add("en");
+
+    const knownSlugs = new Set(items.map((i) => String(i.slug ?? "")).filter(Boolean));
+    const urls: Record<string, string> = {};
+
+    for (const [locale, localeSlug] of Object.entries(map)) {
+      if (!patternLocales.has(locale)) continue;
+      if (!knownSlugs.has(localeSlug)) continue;
+      const pattern = config.url_pattern?.[locale] || config.url_pattern?.["default"];
+      if (!pattern) continue;
+      // Prefer pattern params from the target item when available
+      const targetItem = items.find((i) => String(i.slug ?? "") === localeSlug) || item;
+      const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
+      const url = resolveUrlPatternWithMapping(pattern, targetItem, locale, fieldMapping);
+      if (url) urls[locale] = url;
+    }
+
+    return urls;
+  }
+
+  private getAlternateUrlsFromYaml(slug: string, contentType: string): Record<string, string> {
+    const entries = this.findBySlug(slug, { contentType });
+    if (entries.length === 0) return {};
+
+    const entry = entries[0];
     const basePath = path.join(process.cwd(), entry.directory);
     const urls: Record<string, string> = {};
 
@@ -620,19 +704,15 @@ export class ContentIndex {
         }
       }
 
-      urls[locale] = this.buildUrl(contentType, locale, localeSlug, this.resolveUrlPatternParamsForEntry(contentType, slug, locale));
+      urls[locale] = this.buildUrl(
+        contentType,
+        locale,
+        localeSlug,
+        this.resolveUrlPatternParamsForEntry(contentType, slug, locale),
+      );
     }
 
     return urls;
-  }
-
-  private getCanonicalUrl(contentType: string, slug: string, locale: string): string {
-    return this.buildUrl(
-      contentType,
-      locale,
-      slug,
-      this.resolveUrlPatternParamsForEntry(contentType, slug, locale),
-    );
   }
 
   private extractRedirects(
@@ -737,6 +817,16 @@ export class ContentIndex {
         }
         if (config.database && !config.field_mapping?._locale) {
           log.warn(`[ContentIndex] WARNING: Database-backed content type "${typeName}" is missing _locale in field_mapping. This is required for locale resolution.`);
+        }
+        if (
+          config.database &&
+          !config.field_mapping?._hreflangs &&
+          config.url_pattern &&
+          Object.keys(config.url_pattern).filter((k) => k !== "default").length >= 2
+        ) {
+          log.warn(
+            `[ContentIndex] WARNING: Database-backed content type "${typeName}" has multi-locale url_pattern but no _hreflangs in field_mapping. Alternate URLs / hreflang may be incorrect when slugs differ per locale.`,
+          );
         }
       }
     } catch {}
@@ -969,40 +1059,6 @@ export class ContentIndex {
       }
     } catch {}
     return baseSlug;
-  }
-
-  getLocaleUrls(slug: string, contentType: string): Record<string, string> {
-    this.ensureInitialized();
-    const entries = this.findBySlug(slug, { contentType });
-    if (entries.length === 0) return {};
-
-    const entry = entries[0];
-    const basePath = path.join(process.cwd(), entry.directory);
-    const urls: Record<string, string> = {};
-
-    for (const locale of entry.locales) {
-      if (locale.startsWith("_") || locale.includes(".")) continue;
-
-      let localeSlug = slug;
-      const candidates = [`${locale}.yml`, `${locale}.yaml`];
-      for (const candidate of candidates) {
-        const filePath = path.join(basePath, candidate);
-        if (fs.existsSync(filePath)) {
-          try {
-            const raw = fs.readFileSync(filePath, "utf-8");
-            const parsed = this.safeYamlLoad(raw);
-            if (parsed?.slug && typeof parsed.slug === "string") {
-              localeSlug = parsed.slug;
-            }
-          } catch {}
-          break;
-        }
-      }
-
-      urls[locale] = this.buildUrl(contentType, locale, localeSlug, this.resolveUrlPatternParamsForEntry(contentType, slug, locale));
-    }
-
-    return urls;
   }
 
   getImageUsage(imageId: string, imageSrc?: string, srcsetUrls?: string[]): string[] {

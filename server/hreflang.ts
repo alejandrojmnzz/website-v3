@@ -1,5 +1,11 @@
 import { contentIndex } from "./content-index";
-import { getContentTypeConfig, resolveUrlPatternWithMapping } from "./content-types";
+import {
+  getContentTypeConfig,
+  getHreflangsSource,
+  resolveHreflangsFromRecord,
+  resolveUrlPatternWithMapping,
+  getFullFieldMapping,
+} from "./content-types";
 import { getSupportedLocales, getDefaultLocale } from "./settings";
 
 function toBcp47(locale: string): string {
@@ -16,6 +22,23 @@ export function getBaseUrl(): string {
   return "http://localhost:5000";
 }
 
+function tagsFromLocaleUrls(
+  localeUrls: Record<string, string>,
+  currentLocale: string,
+  baseUrl: string,
+): string[] {
+  if (Object.keys(localeUrls).length < 2) return [];
+  const tags: string[] = [];
+  for (const [locale, urlPath] of Object.entries(localeUrls)) {
+    tags.push(`<link rel="alternate" hreflang="${toBcp47(locale)}" href="${baseUrl}${urlPath}" />`);
+  }
+  const defaultUrl = localeUrls["en"] || localeUrls[currentLocale] || Object.values(localeUrls)[0];
+  if (defaultUrl) {
+    tags.push(`<link rel="alternate" hreflang="x-default" href="${baseUrl}${defaultUrl}" />`);
+  }
+  return tags;
+}
+
 export function generateHreflangTags(
   contentType: string,
   slug: string,
@@ -26,19 +49,35 @@ export function generateHreflangTags(
 ): string[] {
   try {
     const baseUrl = getBaseUrl();
+    const hreflangsConfigured = !!getHreflangsSource(contentType);
 
+    // Prefer resolver (YAML folder or DB _hreflangs)
     const localeUrls = ci.getLocaleUrls(slug, contentType);
-    if (localeUrls && Object.keys(localeUrls).length >= 2) {
-      const tags: string[] = [];
-      for (const [locale, urlPath] of Object.entries(localeUrls)) {
-        tags.push(`<link rel="alternate" hreflang="${toBcp47(locale)}" href="${baseUrl}${urlPath}" />`);
+    const fromResolver = tagsFromLocaleUrls(localeUrls, currentLocale, baseUrl);
+    if (fromResolver.length > 0) return fromResolver;
+
+    // When record is present and _hreflangs is configured, build from the record map
+    // (avoids inventing same-slug alternates for DB items with a partial/empty map).
+    if (record && hreflangsConfigured) {
+      const map = resolveHreflangsFromRecord(record, contentType);
+      if (!map || Object.keys(map).length < 2) return [];
+
+      const config = getContentTypeConfig(contentType);
+      if (!config?.url_pattern) return [];
+      const fieldMapping = getFullFieldMapping(contentType);
+      const urls: Record<string, string> = {};
+      for (const [locale, localeSlug] of Object.entries(map)) {
+        const pattern = config.url_pattern[locale] || config.url_pattern["default"];
+        if (!pattern) continue;
+        const synthetic = { ...record, slug: localeSlug };
+        const resolved = resolveUrlPatternWithMapping(pattern, synthetic, locale, fieldMapping);
+        if (resolved) urls[locale] = resolved;
       }
-      const defaultUrl = localeUrls["en"] || localeUrls[currentLocale] || Object.values(localeUrls)[0];
-      if (defaultUrl) {
-        tags.push(`<link rel="alternate" hreflang="x-default" href="${baseUrl}${defaultUrl}" />`);
-      }
-      return tags;
+      return tagsFromLocaleUrls(urls, currentLocale, baseUrl);
     }
+
+    // Same-slug fallback only when _hreflangs is NOT configured (legacy / simple types)
+    if (hreflangsConfigured) return [];
 
     const config = getContentTypeConfig(contentType);
     if (!config?.url_pattern) return [];
@@ -87,7 +126,6 @@ export function generateListingHreflangTags(
   try {
     const config = getContentTypeConfig(contentType);
     if (!config?.url_pattern) return [];
-
     const baseUrl = getBaseUrl();
     const localeKeys = Object.keys(config.url_pattern).filter(k => k !== "default");
     if (localeKeys.length < 2) return [];
@@ -107,7 +145,6 @@ export function generateListingHreflangTags(
     if (defaultUrl) {
       tags.push(`<link rel="alternate" hreflang="x-default" href="${baseUrl}${defaultUrl}" />`);
     }
-
     return tags;
   } catch {
     return [];

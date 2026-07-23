@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   extractUrlPatternParams,
   getContentTypeConfig,
+  getHreflangsSource,
+  getCanonicalHreflangSlug,
   listExtraUrlPatternParams,
+  normalizeHreflangMap,
+  normalizeHreflangLocaleKey,
+  resolveHreflangsFromRecord,
   resetRegistry,
   updateContentTypeConfig,
 } from "./content-types";
@@ -145,5 +150,114 @@ describe("listExtraUrlPatternParams", () => {
 
   it("returns empty for slug-only patterns", () => {
     expect(listExtraUrlPatternParams({ en: "/en/:slug" })).toEqual([]);
+  });
+});
+
+describe("normalizeHreflangMap", () => {
+  it("normalizes us→en and keeps string slugs", () => {
+    expect(
+      normalizeHreflangMap({
+        us: "how-to-foo",
+        es: "como-foo",
+        fr: 123,
+        "": "x",
+      }),
+    ).toEqual({
+      en: "how-to-foo",
+      es: "como-foo",
+    });
+  });
+
+  it("merges self locale/slug when API omits current locale", () => {
+    expect(
+      normalizeHreflangMap(
+        { us: "how-to-write-quizzes" },
+        { locale: "es", slug: "como-crear-qui" },
+      ),
+    ).toEqual({
+      en: "how-to-write-quizzes",
+      es: "como-crear-qui",
+    });
+  });
+
+  it("handles null/undefined raw", () => {
+    expect(normalizeHreflangMap(null, { locale: "en", slug: "solo" })).toEqual({
+      en: "solo",
+    });
+    expect(normalizeHreflangMap(undefined)).toEqual({});
+  });
+});
+
+describe("normalizeHreflangLocaleKey / getCanonicalHreflangSlug", () => {
+  it("maps us to en", () => {
+    expect(normalizeHreflangLocaleKey("us")).toBe("en");
+    expect(normalizeHreflangLocaleKey("EN-US")).toBe("en");
+  });
+
+  it("prefers en for canonical cluster slug", () => {
+    expect(getCanonicalHreflangSlug({ es: "b", en: "a" })).toBe("a");
+    expect(getCanonicalHreflangSlug({ es: "b", de: "c" })).toBe("c");
+    expect(getCanonicalHreflangSlug({})).toBeNull();
+  });
+});
+
+describe("getHreflangsSource / resolveHreflangsFromRecord", () => {
+  it("reads _hreflangs from content type config", () => {
+    updateContentTypeConfig(
+      "blog",
+      {
+        field_mapping: {
+          _slug: "slug",
+          _locale: "lang",
+          _hreflangs: "translations",
+          title: "title",
+          slug: "slug",
+        },
+      },
+      contentRoot,
+    );
+    resetRegistry(contentRoot);
+    expect(getHreflangsSource("blog", contentRoot)).toBe("translations");
+  });
+
+  it("resolves map from record and merges self", () => {
+    updateContentTypeConfig(
+      "blog",
+      {
+        field_mapping: {
+          _slug: "slug",
+          _locale: "lang",
+          _hreflangs: "translations",
+          title: "title",
+          slug: "slug",
+          lang: "lang",
+        },
+      },
+      contentRoot,
+    );
+    resetRegistry(contentRoot);
+
+    const map = resolveHreflangsFromRecord(
+      {
+        slug: "como-crear-qui",
+        lang: "es",
+        translations: { us: "how-to-write-quizzes" },
+      },
+      "blog",
+      contentRoot,
+    );
+    expect(map).toEqual({
+      en: "how-to-write-quizzes",
+      es: "como-crear-qui",
+    });
+  });
+
+  it("returns null when _hreflangs is not configured", () => {
+    const map = resolveHreflangsFromRecord(
+      { slug: "x", translations: { en: "x" } },
+      "blog",
+      contentRoot,
+    );
+    expect(map).toBeNull();
   });
 });

@@ -763,6 +763,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               testId="button-ai-agents-toggle"
             >
               <MenuItem
+                icon={Settings}
+                label="AI Settings"
+                href="/private/settings/ai"
+                indicator="arrow"
+                testId="link-ai-settings"
+              />
+              <MenuItem
                 icon={IconServer}
                 label="MCP Server"
                 href="/private/mcp-server"

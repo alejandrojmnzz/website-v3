@@ -8,6 +8,9 @@ import {
   getDirectory,
   getFieldMapping,
   getLocaleKey,
+  getHreflangsSource,
+  resolveHreflangsFromRecord,
+  getCanonicalHreflangSlug,
   updateContentTypeConfig,
   type ContentTypeEntry,
 } from "./content-types";
@@ -263,25 +266,90 @@ export async function convertContentTypeToStatic(
   const localeKey = getLocaleKey(contentType, contentRoot) || "lang";
   const fieldMapping = getFieldMapping(contentType, contentRoot);
   const templateFiles = listSharedTemplateFiles(typeDir);
+  const hreflangsConfigured = !!getHreflangsSource(contentType, contentRoot);
 
-  // Group by slug → locale → item
+  // Cluster: folder slug → locale → item
+  // With _hreflangs: one folder per translation cluster (canonical en slug), per-locale URL slugs on items.
+  // Without: group by identical item.slug (legacy).
   const bySlug = new Map<string, Map<string, Record<string, unknown>>>();
   const skipped: Array<{ reason: string; detail?: string }> = [];
+  const assignedSlugs = new Set<string>();
 
-  for (const item of items) {
-    const slug = String(item.slug ?? "").trim();
-    if (!slug) {
-      skipped.push({ reason: "missing_slug", detail: JSON.stringify(item).slice(0, 120) });
-      continue;
-    }
-    const locale = normalizeLocale(item[localeKey] ?? item.lang ?? item.language ?? item.locale);
-    if (!bySlug.has(slug)) bySlug.set(slug, new Map());
-    const localeMap = bySlug.get(slug)!;
+  const addToCluster = (
+    folderSlug: string,
+    locale: string,
+    item: Record<string, unknown>,
+  ): boolean => {
+    if (!bySlug.has(folderSlug)) bySlug.set(folderSlug, new Map());
+    const localeMap = bySlug.get(folderSlug)!;
     if (localeMap.has(locale)) {
-      skipped.push({ reason: "duplicate_locale", detail: `${slug}/${locale}` });
-      continue;
+      skipped.push({
+        reason: "duplicate_locale",
+        detail: `${folderSlug}/${locale} (item ${String(item.slug ?? "")})`,
+      });
+      return false;
     }
     localeMap.set(locale, item);
+    return true;
+  };
+
+  if (hreflangsConfigured) {
+    for (const item of items) {
+      const itemSlug = String(item.slug ?? "").trim();
+      if (!itemSlug || assignedSlugs.has(itemSlug)) continue;
+
+      const map = resolveHreflangsFromRecord(item, contentType, contentRoot) || {};
+      const canonical = getCanonicalHreflangSlug(map) || itemSlug;
+
+      // Pull every locale in the map into this cluster
+      for (const [loc, locSlug] of Object.entries(map)) {
+        if (!locSlug || assignedSlugs.has(locSlug)) continue;
+        const target =
+          items.find((i) => String(i.slug ?? "").trim() === locSlug) || null;
+        if (!target) {
+          skipped.push({ reason: "hreflang_dangling", detail: `${loc}:${locSlug}` });
+          continue;
+        }
+        const targetLocale = normalizeLocale(
+          target[localeKey] ?? target.lang ?? target.language ?? target.locale ?? loc,
+        );
+        if (addToCluster(canonical, targetLocale, target)) {
+          assignedSlugs.add(locSlug);
+        }
+      }
+
+      // Ensure self is clustered even if map was empty/partial
+      if (!assignedSlugs.has(itemSlug)) {
+        const locale = normalizeLocale(
+          item[localeKey] ?? item.lang ?? item.language ?? item.locale,
+        );
+        if (addToCluster(canonical, locale, item)) {
+          assignedSlugs.add(itemSlug);
+        }
+      }
+    }
+
+    // Solo leftovers (no map / not referenced)
+    for (const item of items) {
+      const itemSlug = String(item.slug ?? "").trim();
+      if (!itemSlug || assignedSlugs.has(itemSlug)) continue;
+      const locale = normalizeLocale(
+        item[localeKey] ?? item.lang ?? item.language ?? item.locale,
+      );
+      if (addToCluster(itemSlug, locale, item)) {
+        assignedSlugs.add(itemSlug);
+      }
+    }
+  } else {
+    for (const item of items) {
+      const slug = String(item.slug ?? "").trim();
+      if (!slug) {
+        skipped.push({ reason: "missing_slug", detail: JSON.stringify(item).slice(0, 120) });
+        continue;
+      }
+      const locale = normalizeLocale(item[localeKey] ?? item.lang ?? item.language ?? item.locale);
+      addToCluster(slug, locale, item);
+    }
   }
 
   if (bySlug.size === 0) {
@@ -334,15 +402,16 @@ export async function convertContentTypeToStatic(
   const createdDirs: string[] = [];
 
   try {
-    for (const [slug, localeMap] of bySlug) {
+    for (const [folderSlug, localeMap] of bySlug) {
       const localePages = new Map<string, Record<string, unknown>>();
 
       for (const [locale, item] of localeMap) {
         const content = await resolveItemContent(item);
         const singleItem = { ...item, content };
         const identity = identityFieldsFromItem(singleItem, fieldMapping);
+        const urlSlug = String(item.slug ?? folderSlug).trim() || folderSlug;
 
-        const merged = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
+        const merged = mergeSingleTemplate(contentType, locale, folderSlug, undefined, contentRoot);
         if (!merged) {
           skipped.push({
             reason: "missing_template",
@@ -352,14 +421,14 @@ export async function convertContentTypeToStatic(
         }
 
         const baked = stripRuntimeKeys(resolveSingleVars(merged, singleItem)) as Record<string, unknown>;
-        // Attach identity / index fields used by url_pattern and listings
+        // URL slug is the item's own slug (may differ from folder when _hreflangs clustered)
         const page: Record<string, unknown> = {
           ...identity,
           ...baked,
-          slug: typeof baked.slug === "string" && baked.slug ? baked.slug : slug,
+          slug: urlSlug,
         };
         if (typeof page.title !== "string" || !page.title) {
-          page.title = typeof singleItem.title === "string" ? singleItem.title : slug;
+          page.title = typeof singleItem.title === "string" ? singleItem.title : urlSlug;
         }
         localePages.set(locale, page);
       }
@@ -367,7 +436,21 @@ export async function convertContentTypeToStatic(
       if (localePages.size === 0) continue;
 
       const { common, locales } = splitCommonAndLocales(localePages);
-      const entryDir = path.join(typeDir, slug);
+
+      // Ensure non-canonical locale URL slugs stay on {locale}.yml (getLocaleUrls reads locale files)
+      for (const [locale, localeObj] of locales) {
+        const page = localePages.get(locale);
+        const urlSlug = page && typeof page.slug === "string" ? page.slug : null;
+        if (urlSlug && urlSlug !== folderSlug) {
+          localeObj.slug = urlSlug;
+          if (common.slug === urlSlug) delete common.slug;
+        }
+      }
+      if (common.slug === undefined) {
+        common.slug = folderSlug;
+      }
+
+      const entryDir = path.join(typeDir, folderSlug);
       const existedBefore = fs.existsSync(entryDir) && fs.statSync(entryDir).isDirectory();
       if (!existedBefore) {
         fs.mkdirSync(entryDir, { recursive: true });
@@ -391,7 +474,7 @@ export async function convertContentTypeToStatic(
       }
 
       const commonPath = path.join(entryDir, "_common.yml");
-      const commonRel = `${rootName}/${directory}/${slug}/_common.yml`;
+      const commonRel = `${rootName}/${directory}/${folderSlug}/_common.yml`;
       const commonExisted = fs.existsSync(commonPath);
       fs.writeFileSync(commonPath, safeYamlDump(common), "utf-8");
       markFileAsModified(commonRel, author, undefined, contentRoot);
@@ -399,14 +482,14 @@ export async function convertContentTypeToStatic(
 
       for (const [locale, localeObj] of locales) {
         const localePath = path.join(entryDir, `${locale}.yml`);
-        const localeRel = `${rootName}/${directory}/${slug}/${locale}.yml`;
+        const localeRel = `${rootName}/${directory}/${folderSlug}/${locale}.yml`;
         const localeExisted = fs.existsSync(localePath);
         fs.writeFileSync(localePath, safeYamlDump(localeObj), "utf-8");
         markFileAsModified(localeRel, author, undefined, contentRoot);
         (localeExisted ? overwritten : written).push(localeRel);
       }
 
-      refreshSitemapEntriesForContentKey(contentType, slug, Array.from(locales.keys()));
+      refreshSitemapEntriesForContentKey(contentType, folderSlug, Array.from(locales.keys()));
     }
 
     // Unlink database, enable single-template inheritance, rewrite field_mapping to identity keys

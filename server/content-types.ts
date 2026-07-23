@@ -46,6 +46,7 @@ interface ContentTypesRegistry {
 }
 
 const registryCache = new Map<string, ContentTypesRegistry>();
+const registryMtime = new Map<string, number>();
 
 function resolveContentTypeRoot(contentRoot?: string): string {
   return contentRoot ?? getDefaultContentRoot();
@@ -70,6 +71,8 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     Underscore-prefixed fields are mandatory special fields:
 #       _slug: DB field containing the entry's unique identifier
 #       _locale: DB field containing the entry's language
+#       _hreflangs: DB field (or function:) returning a locale→slug map for alternate URLs
+#                   e.g. { en: "how-to-foo", es: "como-foo" }. Recommended for multi-locale DB types.
 #   For non-database types: exposes YAML keys from merged content as {{ single.* }} variables.
 #     Dot-notation supported for nested keys (e.g., page_title: meta.page_title).
 #
@@ -124,9 +127,17 @@ export function normalizeUrlPattern(raw: string | Record<string, string>): Recor
 
 function loadRegistry(contentRoot?: string): ContentTypesRegistry {
   const key = resolveContentTypeRoot(contentRoot);
-  if (registryCache.has(key)) return registryCache.get(key)!;
-
   const configPath = getConfigPath(key);
+  let mtime = 0;
+  try {
+    if (fs.existsSync(configPath)) mtime = fs.statSync(configPath).mtimeMs;
+  } catch {
+    /* ignore */
+  }
+  if (registryCache.has(key) && registryMtime.get(key) === mtime) {
+    return registryCache.get(key)!;
+  }
+
   let parsed: Record<string, any> = {};
 
   if (fs.existsSync(configPath)) {
@@ -163,6 +174,7 @@ function loadRegistry(contentRoot?: string): ContentTypesRegistry {
   };
 
   registryCache.set(key, reg);
+  registryMtime.set(key, mtime);
   return reg;
 }
 
@@ -313,6 +325,94 @@ export function getLocaleDefault(type: string, contentRoot?: string): string {
     return localeConfig.default;
   }
   return getDefaultLocale(contentRoot);
+}
+
+/** Source path or function: for field_mapping._hreflangs (locale → slug map). */
+export function getHreflangsSource(type: string, contentRoot?: string): string | null {
+  const reg = loadRegistry(contentRoot);
+  const singular = getType(type, contentRoot);
+  const entry = reg.types[singular];
+  const config = entry?.field_mapping?._hreflangs;
+  if (!config) return null;
+  if (typeof config === "object") return config.source;
+  return config;
+}
+
+/** Normalize API locale keys (us→en), keep string slugs, optionally merge current item. */
+export function normalizeHreflangMap(
+  raw: unknown,
+  self?: { locale: string; slug: string },
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value !== "string" || !value.trim()) continue;
+      const locale = normalizeHreflangLocaleKey(key);
+      if (!locale) continue;
+      out[locale] = value.trim();
+    }
+  }
+  if (self?.locale && self?.slug) {
+    const locale = normalizeHreflangLocaleKey(self.locale);
+    if (locale && self.slug.trim()) {
+      out[locale] = self.slug.trim();
+    }
+  }
+  return out;
+}
+
+export function normalizeHreflangLocaleKey(key: string): string {
+  const k = String(key || "").trim().toLowerCase();
+  if (!k) return "";
+  if (k === "us") return "en";
+  const m = k.match(/^([a-z]{2})/);
+  return m ? m[1] : k;
+}
+
+/** Prefer en slug, else first sorted slug — stable cluster id for sitemap / migration. */
+export function getCanonicalHreflangSlug(map: Record<string, string>): string | null {
+  if (map.en) return map.en;
+  const sorted = Object.keys(map).sort();
+  if (sorted.length === 0) return null;
+  return map[sorted[0]] ?? null;
+}
+
+/**
+ * Resolve a locale→slug map from a mapped DB item (or any record that already
+ * carries the `_hreflangs` source field). Returns null if `_hreflangs` is not configured.
+ */
+export function resolveHreflangsFromRecord(
+  record: Record<string, unknown>,
+  contentType: string,
+  contentRoot?: string,
+): Record<string, string> | null {
+  const source = getHreflangsSource(contentType, contentRoot);
+  if (!source) return null;
+
+  const localeKey = getLocaleKey(contentType, contentRoot);
+  const selfLocale = String(
+    (localeKey && record[localeKey]) ?? record.language ?? record.lang ?? record.locale ?? "",
+  );
+  const selfSlug = String(record.slug ?? "");
+
+  let raw: unknown;
+  if (source.startsWith("function:") || source.startsWith("?function:")) {
+    // Lazy import to avoid circular deps at module load
+    const { resolveFieldValue } = require("./transform") as typeof import("./transform");
+    raw = resolveFieldValue(source, record, "_hreflangs");
+  } else {
+    const pathKey = source.startsWith("?") ? source.slice(1) : source;
+    raw = record[pathKey];
+    if (raw === undefined && pathKey.includes(".")) {
+      const { getValueByPath } = require("./transform") as typeof import("./transform");
+      raw = getValueByPath(record, pathKey);
+    }
+  }
+
+  return normalizeHreflangMap(raw, {
+    locale: selfLocale,
+    slug: selfSlug,
+  });
 }
 
 export function getIndexes(type: string, contentRoot?: string): string[] {
@@ -489,8 +589,10 @@ export function deleteContentType(name: string, contentRoot?: string): void {
 export function resetRegistry(contentRoot?: string): void {
   if (contentRoot) {
     registryCache.delete(contentRoot);
+    registryMtime.delete(contentRoot);
   } else {
     registryCache.clear();
+    registryMtime.clear();
   }
 }
 
