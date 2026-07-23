@@ -1950,7 +1950,11 @@ export function DebugBubble() {
       if (!isPreview || currentVariant !== variantSlug) {
         navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?variant=${encodeURIComponent(variantSlug)}&locale=${locale}`);
       }
-      setYamlEditorInfo({ contentType: contentInfo.type, slug: contentInfo.slug, locale, variantSlug });
+      // For DB-single content types, variants are template-level files (single-<variant>.<locale>.yml)
+      // at the content-type root — not per-item files. Use the special "_common.single" slug so
+      // the server looks in the right place.
+      const editorSlug = versioningData?.isDatabaseSingle ? "_common.single" : contentInfo.slug;
+      setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale, variantSlug });
       setShowYamlEditor(true);
     },
     handleLinkClick,
