@@ -267,6 +267,25 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
+
+    // DB-single: versioning.yml lives at the content-type folder level (no slug subfolder)
+    if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+      const folder = getFolder(contentType as ContentType);
+      const filePath = path.join(getContentRoot(res), folder, "versioning.yml");
+      if (!fs.existsSync(filePath)) {
+        res.json({ versioning: null, hasVersioningFile: false, filePath, availableLocales, isDatabaseSingle: true });
+        return;
+      }
+      try {
+        const raw = safeYamlLoad(fs.readFileSync(filePath, "utf-8"));
+        res.json({ versioning: raw || null, hasVersioningFile: true, filePath, availableLocales, isDatabaseSingle: true });
+      } catch {
+        res.status(500).json({ error: "Failed to read versioning.yml" });
+      }
+      return;
+    }
+
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const versioning = versioningManager.getVersioningForContent(contentType, contentSlug);
     const filePath = path.join(
@@ -275,8 +294,6 @@ export function registerVersioningRoutes(app: Express): void {
       contentSlug,
       "versioning.yml",
     );
-
-    const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
 
     if (!versioning) {
       res.json({
@@ -368,6 +385,50 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     const folder = getFolder(contentType as ContentType);
+
+    // DB-single: copy single.{locale}.yml → single-{variantSlug}.{locale}.yml at content-type folder level
+    if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+      const contentTypeDir = path.join(getContentRoot(res), folder);
+      const variantFile = path.join(contentTypeDir, `single-${variantSlug}.${locale}.yml`);
+      if (fs.existsSync(variantFile)) {
+        res.status(409).json({ error: `Variant single-${variantSlug}.${locale}.yml already exists` });
+        return;
+      }
+      let sourceFile = path.join(contentTypeDir, `single.${locale}.yml`);
+      if (!fs.existsSync(sourceFile)) sourceFile = path.join(contentTypeDir, "single.en.yml");
+      if (!fs.existsSync(sourceFile)) {
+        res.status(404).json({ error: `single.${locale}.yml not found for content type ${contentType}` });
+        return;
+      }
+      try {
+        fs.writeFileSync(variantFile, fs.readFileSync(sourceFile, "utf-8"), "utf-8");
+        markFileAsModified(`${folder}/single-${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
+
+        const versioningFilePath = path.join(contentTypeDir, "versioning.yml");
+        const existing: Record<string, any> = fs.existsSync(versioningFilePath)
+          ? ((safeYamlLoad(fs.readFileSync(versioningFilePath, "utf-8")) as any) || {})
+          : {};
+        if (!existing[locale]) existing[locale] = { variants: [] };
+        if (!existing[locale].variants.some((v: any) => v.slug === variantSlug)) {
+          existing[locale].variants.push({ slug: variantSlug });
+        }
+        fs.writeFileSync(versioningFilePath, safeYamlDump(existing), "utf-8");
+        markFileAsModified(`${folder}/versioning.yml`, "api", undefined, getContentRoot(res));
+
+        res.json({
+          success: true,
+          variantSlug,
+          locale,
+          isDatabaseSingle: true,
+          previewSlug: contentSlug,
+          filePath: `${getContentRootName(res)}/${folder}/single-${variantSlug}.${locale}.yml`,
+        });
+      } catch (error) {
+        res.status(500).json({ error: String(error) });
+      }
+      return;
+    }
+
     const contentDir = path.join(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
@@ -438,6 +499,69 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     const folder = getFolder(contentType as ContentType);
+
+    // DB-single: variant is single-{variantSlug}.{locale}.yml at the content-type folder level.
+    // scope = "template" → overwrite single.{locale}.yml (affects all items)
+    // scope = "item"     → write per-entry override to {contentType}/{itemSlug}/{locale}.yml
+    if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+      const scope = (req.body as any)?.scope as "item" | "template" | undefined;
+      if (!scope || (scope !== "item" && scope !== "template")) {
+        res.status(400).json({ error: "scope must be 'item' or 'template' for database single content types" });
+        return;
+      }
+
+      const contentTypeDir = path.resolve(getContentRoot(res), folder);
+      const variantFilePath = path.resolve(contentTypeDir, `single-${variantSlug}.${locale}.yml`);
+
+      if (!variantFilePath.startsWith(contentTypeDir + path.sep)) {
+        res.status(400).json({ error: "Invalid file path" });
+        return;
+      }
+      if (!fs.existsSync(variantFilePath)) {
+        res.status(404).json({ error: `Variant file single-${variantSlug}.${locale}.yml not found` });
+        return;
+      }
+
+      try {
+        const variantContent = fs.readFileSync(variantFilePath, "utf-8");
+
+        if (scope === "template") {
+          // Overwrite the shared template for all items
+          const templateFilePath = path.resolve(contentTypeDir, `single.${locale}.yml`);
+          fs.writeFileSync(templateFilePath, variantContent, "utf-8");
+          markFileAsModified(`${folder}/single.${locale}.yml`, "api", undefined, getContentRoot(res));
+        } else {
+          // Create/overwrite a per-entry override for this specific DB item slug
+          const entryDir = path.resolve(contentTypeDir, contentSlug);
+          if (!fs.existsSync(entryDir)) fs.mkdirSync(entryDir, { recursive: true });
+          const entryFilePath = path.resolve(entryDir, `${locale}.yml`);
+          fs.writeFileSync(entryFilePath, variantContent, "utf-8");
+          markFileAsModified(`${folder}/${contentSlug}/${locale}.yml`, "api", undefined, getContentRoot(res));
+        }
+
+        // Remove variant from content-type-level versioning.yml
+        const versioningFilePath = path.resolve(contentTypeDir, "versioning.yml");
+        if (fs.existsSync(versioningFilePath)) {
+          const existing: Record<string, any> = (safeYamlLoad(fs.readFileSync(versioningFilePath, "utf-8")) as any) || {};
+          if (existing[locale]) {
+            existing[locale].variants = (existing[locale].variants || []).filter((v: any) => v.slug !== variantSlug);
+          }
+          fs.writeFileSync(versioningFilePath, safeYamlDump(existing), "utf-8");
+          markFileAsModified(`${folder}/versioning.yml`, "api", undefined, getContentRoot(res));
+        }
+
+        fs.unlinkSync(variantFilePath);
+        markFileAsModified(`${folder}/single-${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
+
+        getCI(res).invalidateCommonFields(contentType);
+        clearSsrSchemaCache();
+        res.json({ success: true, scope });
+      } catch (error) {
+        res.status(500).json({ error: String(error) });
+      }
+      return;
+    }
+
     const contentDir = path.resolve(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
@@ -511,6 +635,46 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     const folder = getFolder(contentType as ContentType);
+    const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
+
+    // DB-single: variant file is at content-type folder level (single-{variantSlug}.{locale}.yml)
+    if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+      const contentTypeDir = path.resolve(getContentRoot(res), folder);
+      const variantFilePath = path.resolve(contentTypeDir, `single-${variantSlug}.${locale}.yml`);
+
+      if (!variantFilePath.startsWith(contentTypeDir + path.sep)) {
+        res.status(400).json({ error: "Invalid file path" });
+        return;
+      }
+      if (!fs.existsSync(variantFilePath)) {
+        res.status(404).json({ error: `Variant file single-${variantSlug}.${locale}.yml not found` });
+        return;
+      }
+
+      try {
+        fs.unlinkSync(variantFilePath);
+        markFileAsModified(`${folder}/single-${variantSlug}.${locale}.yml`, "api", undefined, getContentRoot(res));
+
+        const versioningFilePath = path.resolve(contentTypeDir, "versioning.yml");
+        let updated: Record<string, any> = {};
+        if (fs.existsSync(versioningFilePath)) {
+          updated = (safeYamlLoad(fs.readFileSync(versioningFilePath, "utf-8")) as any) || {};
+          if (updated[locale]) {
+            updated[locale].variants = (updated[locale].variants || []).filter((v: any) => v.slug !== variantSlug);
+          }
+          fs.writeFileSync(versioningFilePath, safeYamlDump(updated), "utf-8");
+          markFileAsModified(`${folder}/versioning.yml`, "api", undefined, getContentRoot(res));
+        }
+
+        getCI(res).invalidateCommonFields(contentType);
+        clearSsrSchemaCache();
+        res.json({ hasVersioningFile: Object.keys(updated).some(k => (updated[k]?.variants?.length ?? 0) > 0), versioning: updated, availableLocales, isDatabaseSingle: true });
+      } catch (error) {
+        res.status(500).json({ error: String(error) });
+      }
+      return;
+    }
+
     const contentDir = path.resolve(getContentRoot(res), folder, contentSlug);
 
     if (!fs.existsSync(contentDir)) {
@@ -550,11 +714,11 @@ export function registerVersioningRoutes(app: Express): void {
       clearSsrSchemaCache();
 
       const updated = versioningManager.getVersioningForContent(contentType, contentSlug) || {};
-      const availableLocales = getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, contentSlug);
+      const updatedLocales = getCI(res).getAvailableLocalesOrVariants(contentType as ContentType, contentSlug);
       res.json({
         hasVersioningFile: true,
         versioning: updated,
-        availableLocales,
+        availableLocales: updatedLocales,
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });

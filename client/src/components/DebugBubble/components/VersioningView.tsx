@@ -70,6 +70,11 @@ export function VersioningView({
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  // DB-single template versioning
+  const isDatabaseSingle = versioningData?.isDatabaseSingle ?? false;
+  const [promoteScopeTarget, setPromoteScopeTarget] = useState<{ locale: string; slug: string } | null>(null);
+  const [isPromotingScope, setIsPromotingScope] = useState(false);
+
   const isPreview = pathname.startsWith("/private/preview/");
 
   const persistOpenStateForNavigation = () => {
@@ -193,6 +198,41 @@ export function VersioningView({
       toast({ title: "Failed to promote variant", variant: "destructive" });
     } finally {
       setIsPromoting(false);
+    }
+  };
+
+  const handlePromoteWithScope = async (scope: "item" | "template") => {
+    if (!promoteScopeTarget || !contentInfo.type || !contentInfo.slug) return;
+    setIsPromotingScope(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(
+        `/api/versioning/${contentInfo.type}/${contentInfo.slug}/${promoteScopeTarget.locale}/promote/${promoteScopeTarget.slug}`,
+        { method: "POST", headers, body: JSON.stringify({ scope }) }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to promote variant", variant: "destructive" });
+        return;
+      }
+      const msg = scope === "template"
+        ? `Template updated — all items will use this version`
+        : `Template applied to "${contentInfo.slug}"`;
+      toast({ title: msg });
+      emitVariantPromoted({ contentType: contentInfo.type, slug: contentInfo.slug, locale: promoteScopeTarget.locale, variantSlug: promoteScopeTarget.slug });
+      setPromoteScopeTarget(null);
+      if (onVersioningDataUpdate) {
+        fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
+          .then((r) => r.json())
+          .then(onVersioningDataUpdate)
+          .catch(() => {});
+      }
+    } catch {
+      toast({ title: "Failed to promote variant", variant: "destructive" });
+    } finally {
+      setIsPromotingScope(false);
     }
   };
 
@@ -478,10 +518,21 @@ export function VersioningView({
           ) : !versioningData?.hasVersioningFile ? (
             <div className="text-center py-8 px-4">
               <IconGitBranch className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground mb-2">No versioning file found</p>
-              <p className="text-xs text-muted-foreground">
-                Create <code className="bg-muted px-1 rounded">versioning.yml</code> in the content folder
-              </p>
+              {isDatabaseSingle ? (
+                <>
+                  <p className="text-sm text-muted-foreground mb-2">No template variants yet</p>
+                  <p className="text-xs text-muted-foreground">
+                    Click <strong>New</strong> to create a draft variant of <code className="bg-muted px-1 rounded">single.en.yml</code>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground mb-2">No versioning file found</p>
+                  <p className="text-xs text-muted-foreground">
+                    Create <code className="bg-muted px-1 rounded">versioning.yml</code> in the content folder
+                  </p>
+                </>
+              )}
             </div>
           ) : locales.length === 0 ? (
             <div className="text-center py-8 px-4">
@@ -496,7 +547,9 @@ export function VersioningView({
                 <div key={locale} className="px-2 py-2">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">Traffic allocation for</span>
+                      <span className="text-xs text-muted-foreground">
+                        {isDatabaseSingle ? "Template variants for" : "Traffic allocation for"}
+                      </span>
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
                         {locale.toUpperCase()}
                       </Badge>
@@ -508,7 +561,7 @@ export function VersioningView({
                         </Badge>
                       )}
                     </div>
-                    {!isEditing ? (
+                    {!isDatabaseSingle && (!isEditing ? (
                       <button
                         onClick={() => openEditAllocations(locale)}
                         className="p-1 rounded-md hover-elevate text-muted-foreground"
@@ -548,17 +601,17 @@ export function VersioningView({
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   <div className="space-y-2">
-                    {/* Synthetic default row */}
-                    {(() => {
-                      const variantTotal = localeData.variants.reduce((sum, v) => sum + v.allocation, 0);
+                    {/* Synthetic default row — hidden for DB singles (no allocation concept) */}
+                    {!isDatabaseSingle && (() => {
+                      const variantTotal = localeData.variants.reduce((sum, v) => sum + (v.allocation ?? 0), 0);
                       const defaultAllocation = Math.max(0, 100 - variantTotal);
                       const isDefaultActive = activeVariant === null;
                       const defaultTempValue = tempAllocations["__default__"] ?? defaultAllocation;
-                      const variantTempTotal = localeData.variants.reduce((sum, v) => sum + (tempAllocations[v.slug] ?? v.allocation), 0);
+                      const variantTempTotal = localeData.variants.reduce((sum, v) => sum + (tempAllocations[v.slug] ?? (v.allocation ?? 0)), 0);
                       const defaultMaxAllowed = Math.max(0, 100 - variantTempTotal);
                       return (
                         <div key="__default__" className={isDefaultActive ? "rounded-md bg-primary/10 px-2 py-1 -mx-2" : ""}>
@@ -637,9 +690,9 @@ export function VersioningView({
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {!isEditing && (
+                            {!isEditing && !isDatabaseSingle && (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-                                {variant.allocation}%
+                                {variant.allocation ?? 0}%
                               </span>
                             )}
                             {!isEditing && (
@@ -670,7 +723,10 @@ export function VersioningView({
                                       size="icon"
                                       variant="ghost"
                                       className="h-5 w-5 shrink-0 transition-colors hover:bg-yellow-100 hover:text-yellow-700 dark:hover:bg-yellow-900/40 dark:hover:text-yellow-400"
-                                      onClick={() => setPromoteTarget({ locale, slug: variant.slug })}
+                                      onClick={() => isDatabaseSingle
+                                        ? setPromoteScopeTarget({ locale, slug: variant.slug })
+                                        : setPromoteTarget({ locale, slug: variant.slug })
+                                      }
                                       data-testid={`button-promote-variant-${locale}-${variant.slug}`}
                                     >
                                       <IconCrown className="h-3 w-3" />
@@ -716,11 +772,11 @@ export function VersioningView({
                             )}
                           </div>
                         </div>
-                        {isEditing && (() => {
-                          const thisValue = tempAllocations[variant.slug] ?? variant.allocation;
+                        {!isDatabaseSingle && isEditing && (() => {
+                          const thisValue = tempAllocations[variant.slug] ?? (variant.allocation ?? 0);
                           const othersTotal = localeData.variants.reduce((sum, v) => {
                             if (v.slug === variant.slug) return sum;
-                            return sum + (tempAllocations[v.slug] ?? v.allocation);
+                            return sum + (tempAllocations[v.slug] ?? (v.allocation ?? 0));
                           }, 0) + (tempAllocations["__default__"] ?? 0);
                           const maxAllowed = Math.max(0, 100 - othersTotal);
                           return (
@@ -763,9 +819,14 @@ export function VersioningView({
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create new version for {contentInfo.slug}</DialogTitle>
+            <DialogTitle>
+              {isDatabaseSingle ? "Create template variant" : `Create new version for ${contentInfo.slug}`}
+            </DialogTitle>
             <DialogDescription>
-              A new version of <strong>{contentInfo.label || contentInfo.slug}</strong> will be created but your users will not see it unless traffic is assigned to it later.
+              {isDatabaseSingle
+                ? <>A draft copy of <code className="text-xs bg-muted px-1 py-0.5 rounded">single.{createVersionLocale}.yml</code> will be created. You can edit it freely — when ready, promote it to a specific item or to the whole template.</>
+                : <>A new version of <strong>{contentInfo.label || contentInfo.slug}</strong> will be created but your users will not see it unless traffic is assigned to it later.</>
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
@@ -796,13 +857,19 @@ export function VersioningView({
               <div className="rounded-md bg-muted px-3 py-2 space-y-0.5">
                 <p className="text-xs font-medium">File that will be created:</p>
                 <p className="text-xs font-mono text-muted-foreground break-all">
-                  {contentInfo.slug}/{createVersionSlug}.{createVersionLocale}.yml
+                  {isDatabaseSingle
+                    ? `single-${createVersionSlug}.${createVersionLocale}.yml`
+                    : `${contentInfo.slug}/${createVersionSlug}.${createVersionLocale}.yml`
+                  }
                 </p>
               </div>
             )}
             <div className="rounded-md bg-muted px-3 py-2">
               <p className="text-xs text-muted-foreground">
-                Starts with <strong>0% traffic allocation</strong> — no real visitors will see it until you allocate traffic. You can preview it anytime using <code className="text-xs">?force_variant=</code>.
+                {isDatabaseSingle
+                  ? <>Draft only — no visitors will see it. Preview it anytime with <code className="text-xs">?force_variant=</code>. Choose the promotion scope when you're ready.</>
+                  : <>Starts with <strong>0% traffic allocation</strong> — no real visitors will see it until you allocate traffic. You can preview it anytime using <code className="text-xs">?force_variant=</code>.</>
+                }
               </p>
             </div>
           </div>
@@ -955,6 +1022,54 @@ export function VersioningView({
           <DialogFooter>
             <Button variant="outline" onClick={() => setShareTarget(null)} data-testid="button-close-share-modal">
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* DB-single scope selection dialog: choose between promoting to this item or the whole template */}
+      <Dialog open={promoteScopeTarget !== null} onOpenChange={(open) => { if (!open && !isPromotingScope) setPromoteScopeTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Promote "{promoteScopeTarget?.slug}"</DialogTitle>
+            <DialogDescription>
+              Choose where to apply this variant. The draft file will be deleted after promotion.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-auto py-3"
+              disabled={isPromotingScope}
+              onClick={() => handlePromoteWithScope("item")}
+              data-testid="button-promote-scope-item"
+            >
+              <div className="flex flex-col items-start text-left">
+                <span className="font-medium text-sm">Solo "{contentInfo.slug}"</span>
+                <span className="text-xs text-muted-foreground mt-0.5">
+                  Crea un override per-entry para este item. El template <code className="bg-muted px-0.5 rounded">single.en.yml</code> no cambia.
+                </span>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-auto py-3 border-yellow-300 hover:bg-yellow-50 dark:border-yellow-700 dark:hover:bg-yellow-950/30"
+              disabled={isPromotingScope}
+              onClick={() => handlePromoteWithScope("template")}
+              data-testid="button-promote-scope-template"
+            >
+              <div className="flex flex-col items-start text-left">
+                <span className="font-medium text-sm text-yellow-700 dark:text-yellow-400">Template completo (todos los items)</span>
+                <span className="text-xs text-muted-foreground mt-0.5">
+                  Sobreescribe <code className="bg-muted px-0.5 rounded">single.en.yml</code>. Todos los items del content type verán este cambio.
+                </span>
+              </div>
+            </Button>
+          </div>
+          <DialogFooter>
+            {isPromotingScope && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            <Button variant="ghost" onClick={() => setPromoteScopeTarget(null)} disabled={isPromotingScope} data-testid="button-cancel-promote-scope">
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>

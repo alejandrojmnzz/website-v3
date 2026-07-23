@@ -30,6 +30,8 @@ export interface VersioningResponse {
   hasVersioningFile: boolean;
   filePath: string;
   availableLocales?: string[];
+  /** True when the content type is backed by a database (single.en.yml shared template). */
+  isDatabaseSingle?: boolean;
 }
 
 export interface ContentInfo {

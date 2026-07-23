@@ -603,7 +603,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (hasDatabaseSingle(contentType, getContentRoot(res))) {
-      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res));
+      const page = await loadDatabaseSinglePage(contentType, slug, locale, getContentRoot(res), getDB(res), forceVariant);
       if (page) {
         if (page.sections && Array.isArray(page.sections)) {
           page.sections = (await resolveDynamicEntries(page.sections, locale, dynamicEntriesOptions(res))) as any;

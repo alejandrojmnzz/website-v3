@@ -55,15 +55,32 @@ export function mergeSingleTemplate(
   slug?: string,
   accum?: PerEntryAccum,
   contentRoot?: string,
+  variantSlug?: string,
 ): Record<string, unknown> | null {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const folder = getFolder(contentType, resolvedRoot);
   const templateDir = path.join(resolvedRoot, folder);
   const singleCommonPath = path.join(templateDir, "_common.single.yml");
   const commonPath = path.join(templateDir, "_common.yml");
-  let localePath = path.join(templateDir, `single.${locale}.yml`);
-  if (!fs.existsSync(localePath)) {
-    localePath = path.join(templateDir, "single.en.yml");
+
+  let localePath: string;
+  if (variantSlug) {
+    // Use the variant template (single-{variantSlug}.{locale}.yml)
+    const variantPath = path.join(templateDir, `single-${variantSlug}.${locale}.yml`);
+    if (fs.existsSync(variantPath)) {
+      localePath = variantPath;
+    } else {
+      // Fallback: try base locale then en
+      localePath = path.join(templateDir, `single.${locale}.yml`);
+      if (!fs.existsSync(localePath)) {
+        localePath = path.join(templateDir, "single.en.yml");
+      }
+    }
+  } else {
+    localePath = path.join(templateDir, `single.${locale}.yml`);
+    if (!fs.existsSync(localePath)) {
+      localePath = path.join(templateDir, "single.en.yml");
+    }
   }
   if (!fs.existsSync(localePath)) return null;
 
@@ -225,6 +242,7 @@ export async function loadDatabaseSinglePage(
   locale: string,
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
+  variantSlug?: string,
 ): Promise<TemplatePage | null> {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
   const dbName = getDatabaseName(contentType, resolvedRoot);
@@ -232,7 +250,7 @@ export async function loadDatabaseSinglePage(
 
   // Collect per-entry metadata (removed sections, per-entry additions)
   const accum: PerEntryAccum = { removedSections: [] };
-  const merged = mergeSingleTemplate(contentType, locale, slug, accum, resolvedRoot);
+  const merged = mergeSingleTemplate(contentType, locale, slug, accum, resolvedRoot, variantSlug);
 
   if (!merged) {
     log.error(
