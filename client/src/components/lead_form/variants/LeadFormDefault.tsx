@@ -1111,6 +1111,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   });
   const formCopy = resolveLeadFormCopy(formPhase, data, locale);
 
+  const showField = (name: keyof NonNullable<LeadFormData["fields"]>) => {
+    const hideOptionals =
+      isSignupRequested && isLoggedIn && !loginMode && allRequiredFieldsFilled;
+    const cfg = getFieldConfig(name);
+    return !!cfg.visible && !(hideOptionals && !cfg.required);
+  };
+
   // Terms/consent belong to account creation: show them to guests signing up
   // (and on regular non-signup forms), hide them once the visitor is logged in.
   const showLegalAndConsent = formPhase === "guest_signup";
@@ -1274,14 +1281,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const emailConfig = getFieldConfig("email");
 
   const hasVisibleFieldsBeyondEmailAndFirstName =
-    getFieldConfig("last_name").visible ||
-    getFieldConfig("phone").visible ||
-    getFieldConfig("program").visible ||
-    getFieldConfig("plan").visible ||
-    getFieldConfig("region").visible ||
-    getFieldConfig("location").visible ||
-    getFieldConfig("coupon").visible ||
-    getFieldConfig("client_comments").visible;
+    showField("last_name") ||
+    showField("phone") ||
+    showField("program") ||
+    showField("plan") ||
+    showField("region") ||
+    showField("location") ||
+    showField("coupon") ||
+    showField("client_comments");
 
   const firstNameConfig = getFieldConfig("first_name");
 
@@ -1291,7 +1298,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="flex gap-2 items-start flex-wrap">
-              {firstNameConfig.visible && (
+              {showField("first_name") && (
                 <FormField
                   control={form.control}
                   name="first_name"
@@ -1310,6 +1317,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   )}
                 />
               )}
+              {showField("email") && (
               <FormField
                 control={form.control}
                 name="email"
@@ -1334,6 +1342,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   </FormItem>
                 )}
               />
+              )}
               <Button 
                 type="submit" 
                 disabled={submitMutation.isPending}
@@ -1427,9 +1436,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-4">
             {/* First + Last name on same row - NEW ORDER: Name -> Phone -> Email */}
-            {(getFieldConfig("first_name").visible || getFieldConfig("last_name").visible) && (
-              <div className={`grid gap-3 ${getFieldConfig("first_name").visible && getFieldConfig("last_name").visible ? "grid-cols-2" : "grid-cols-1"}`}>
-                {getFieldConfig("first_name").visible && (
+            {(showField("first_name") || showField("last_name")) && (
+              <div className={`grid gap-3 ${showField("first_name") && showField("last_name") ? "grid-cols-2" : "grid-cols-1"}`}>
+                {showField("first_name") && (
                   <FormField
                     control={form.control}
                     name="first_name"
@@ -1451,7 +1460,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                     )}
                   />
                 )}
-                {getFieldConfig("last_name").visible && (
+                {showField("last_name") && (
                   <FormField
                     control={form.control}
                     name="last_name"
@@ -1477,7 +1486,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
 
             {/* Phone with country code */}
-            {getFieldConfig("phone").visible && (
+            {showField("phone") && (
               <FormField
                 control={form.control}
                 name="phone"
@@ -1510,7 +1519,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
 
             {/* Email */}
-            {getFieldConfig("email").visible && (
+            {showField("email") && (
               <FormField
                 control={form.control}
                 name="email"
@@ -1540,9 +1549,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
-            {(getFieldConfig("region").visible || getFieldConfig("location").visible) && (
+            {(showField("region") || showField("location")) && (
               <div className="grid grid-cols-2 gap-3">
-                {getFieldConfig("region").visible && (
+                {showField("region") && (
                   <FormField
                     control={form.control}
                     name="region"
@@ -1580,7 +1589,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   />
                 )}
 
-                {getFieldConfig("location").visible && (
+                {showField("location") && (
                   <FormField
                     control={form.control}
                     name="location"
@@ -1629,7 +1638,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               </div>
             )}
 
-            {getFieldConfig("program").visible && (
+            {showField("program") && (
               <FormField
                 control={form.control}
                 name="program"
@@ -1662,7 +1671,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
-            {getFieldConfig("plan").visible && (
+            {showField("plan") && (
               <FormField
                 control={form.control}
                 name="plan"
@@ -1723,7 +1732,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
-            {getFieldConfig("coupon").visible && (
+            {showField("coupon") && (
               <FormField
                 control={form.control}
                 name="coupon"
@@ -1749,7 +1758,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
           </div>
 
-          {getFieldConfig("client_comments").visible && (
+          {showField("client_comments") && (
             <FormField
               control={form.control}
               name="client_comments"
