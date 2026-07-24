@@ -4340,14 +4340,25 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1.5">
                       <div className="relative">
-                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                         <Input
                           placeholder="Search..."
                           value={search}
                           onChange={(e) => setSearch(e.target.value)}
-                          className="pl-7 h-8 w-48 text-xs"
+                          className={`pl-7 h-8 w-48 text-xs transition-[width] duration-200 ease-out focus:w-80 ${search ? "pr-7" : ""}`}
                           data-testid="input-search-items"
                         />
+                        {search ? (
+                          <button
+                            type="button"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-sm text-muted-foreground hover:text-foreground"
+                            onClick={() => setSearch("")}
+                            title="Clear search"
+                            data-testid="button-clear-search-items"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                       </div>
                       {(() => {
                         const facets = itemsData?.facets;
@@ -4670,11 +4681,21 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {(editMode ? (itemsData?.items || []) : filteredItems).map((item, i) => (
+                      {(editMode ? (itemsData?.items || []) : filteredItems).map((item, i) => {
+                        const openItemEdit = () => {
+                          const pageItems = itemsData?.items || [];
+                          const pageIdx = pageItems.indexOf(item);
+                          const localIdx = pageIdx >= 0 ? pageIdx : i;
+                          setEditingItem(item);
+                          setEditingItemIndex((page - 1) * PAGE_SIZE + localIdx);
+                          setIsAddingItem(false);
+                        };
+                        return (
                         <tr
                           key={i}
-                          className="border-b last:border-b-0 hover:bg-muted/30"
+                          className="border-b last:border-b-0 hover:bg-muted/30 cursor-pointer"
                           data-testid={`row-item-${i}`}
+                          onClick={openItemEdit}
                         >
                           {editMode && (
                             <td className="px-2 py-1 whitespace-nowrap">
@@ -4682,10 +4703,9 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  onClick={() => {
-                                    setEditingItem(item);
-                                    setEditingItemIndex((page - 1) * PAGE_SIZE + i);
-                                    setIsAddingItem(false);
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openItemEdit();
                                   }}
                                   disabled={savingItems}
                                   data-testid={`button-edit-row-${i}`}
@@ -4695,7 +4715,10 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  onClick={() => setDeleteConfirmIndex(i)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteConfirmIndex(i);
+                                  }}
                                   disabled={savingItems}
                                   data-testid={`button-delete-row-${i}`}
                                 >
@@ -4714,7 +4737,8 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                             </td>
                           ))}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
