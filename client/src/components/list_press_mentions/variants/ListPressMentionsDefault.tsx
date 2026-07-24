@@ -1,8 +1,38 @@
 
+import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { ListPressMentionsSection } from "@shared/schema";
 import { UniversalImage } from "@/components/UniversalImage";
 import { Badge } from "@/components/ui/badge";
 import { coerceToHtml, coerceToText } from "@/lib/variable-manager";
+
+/** Approx. 5 lines of card excerpt. */
+const CLAMPED_WORD_LIMIT = 30;
+
+function useResponsiveColumns(maxColumns: number): number {
+  const resolve = () => {
+    if (typeof window === "undefined") return 1;
+    if (window.innerWidth < 768) return 1;
+    if (window.innerWidth < 1024) return Math.min(maxColumns, 2);
+    return Math.max(1, maxColumns);
+  };
+  const [count, setCount] = useState(resolve);
+  useEffect(() => {
+    const onResize = () => setCount(resolve());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [maxColumns]);
+  return count;
+}
+
+function splitIntoColumns<T>(items: T[], columnCount: number): T[][] {
+  const cols: T[][] = Array.from({ length: columnCount }, () => []);
+  const size = Math.ceil(items.length / columnCount);
+  items.forEach((item, i) => {
+    cols[Math.min(Math.floor(i / size), columnCount - 1)].push(item);
+  });
+  return cols;
+}
 
 interface ListPressMentionsCardsProps {
   data: ListPressMentionsSection;
@@ -37,8 +67,11 @@ export default function ListPressMentionsCards({ data }: ListPressMentionsCardsP
   const badgeColor = data.badge_color;
   const badgeTextColor = data.badge_text_color;
   const defaultLogoHeight = data.default_logo_height;
+  const clampExcerpts = data.clamp_excerpts === true;
+  const readMoreLabel = data.read_more_label || "Read more";
   const columns = data.columns || 3;
   const background = data.background;
+  const columnCount = useResponsiveColumns(columns);
 
   if (items.length === 0) return null;
 
@@ -50,6 +83,9 @@ export default function ListPressMentionsCards({ data }: ListPressMentionsCardsP
       bgStyle.backgroundColor = background;
     }
   }
+
+  const indexedItems = items.map((item, index) => ({ item, index }));
+  const columnGroups = splitIntoColumns(indexedItems, columnCount);
 
   return (
     <section
@@ -81,38 +117,28 @@ export default function ListPressMentionsCards({ data }: ListPressMentionsCardsP
         )}
 
         <div
-          className="gap-4 md:gap-5"
-          style={{
-            columnCount: 1,
-            columnGap: "1.25rem",
-          }}
+          className="flex gap-4 md:gap-5 items-start"
           data-testid="press-mentions-container"
         >
-          <style>{`
-            @media (min-width: 768px) {
-              [data-testid="press-mentions-container"] {
-                column-count: ${Math.min(columns, 2)} !important;
-              }
-            }
-            @media (min-width: 1024px) {
-              [data-testid="press-mentions-container"] {
-                column-count: ${columns} !important;
-              }
-            }
-          `}</style>
-          {items.map((item, index) => (
-            <PressMentionCard
-              key={index}
-              item={item}
-              defaultBoxColor={defaultBoxColor}
-              defaultTitleColor={defaultTitleColor}
-              defaultExcerptColor={defaultExcerptColor}
-              defaultLinkColor={defaultLinkColor}
-              badgeColor={badgeColor}
-              badgeTextColor={badgeTextColor}
-              defaultLogoHeight={defaultLogoHeight}
-              index={index}
-            />
+          {columnGroups.map((group, colIndex) => (
+            <div key={colIndex} className="flex-1 min-w-0 flex flex-col">
+              {group.map(({ item, index }) => (
+                <PressMentionCard
+                  key={index}
+                  item={item}
+                  defaultBoxColor={defaultBoxColor}
+                  defaultTitleColor={defaultTitleColor}
+                  defaultExcerptColor={defaultExcerptColor}
+                  defaultLinkColor={defaultLinkColor}
+                  badgeColor={badgeColor}
+                  badgeTextColor={badgeTextColor}
+                  defaultLogoHeight={defaultLogoHeight}
+                  clampExcerpts={clampExcerpts}
+                  readMoreLabel={readMoreLabel}
+                  index={index}
+                />
+              ))}
+            </div>
           ))}
         </div>
       </div>
@@ -129,6 +155,8 @@ interface PressMentionCardProps {
   badgeColor?: string;
   badgeTextColor?: string;
   defaultLogoHeight?: number;
+  clampExcerpts: boolean;
+  readMoreLabel: string;
   index: number;
 }
 
@@ -141,17 +169,26 @@ function PressMentionCard({
   badgeColor,
   badgeTextColor,
   defaultLogoHeight,
+  clampExcerpts,
+  readMoreLabel,
   index,
 }: PressMentionCardProps) {
+  const [excerptExpanded, setExcerptExpanded] = useState(false);
   const boxColor = item.box_color || defaultBoxColor;
   const titleColor = item.title_color || defaultTitleColor;
   const excerptColor = item.excerpt_color || defaultExcerptColor;
   const linkColor = item.link_color || defaultLinkColor || "hsl(var(--primary))";
   const badges = normalizeBadges(item.badges);
+  const excerptWords = (item.excerpt || "").trim().split(/\s+/).filter(Boolean);
+  const needsClamp = clampExcerpts && excerptWords.length > CLAMPED_WORD_LIMIT;
+  const excerptText =
+    needsClamp && !excerptExpanded
+      ? `${excerptWords.slice(0, CLAMPED_WORD_LIMIT).join(" ")}…`
+      : item.excerpt;
 
   return (
     <div
-      className="break-inside-avoid mb-4 md:mb-5 rounded-[0.8rem] overflow-hidden"
+      className="mb-4 md:mb-5 rounded-[0.8rem] overflow-hidden"
       style={{ backgroundColor: boxColor }}
       data-testid={`card-press-mention-${index}`}
     >
@@ -175,8 +212,13 @@ function PressMentionCard({
 
         {item.title && (
           <h3
-            className="text-lg md:text-xl font-bold text-foreground leading-tight"
-            style={titleColor ? { color: titleColor } : undefined}
+            className="text-lg md:text-xl text-foreground leading-tight"
+            style={{
+              fontWeight: 800,
+              WebkitTextStroke: "0.45px currentColor",
+              paintOrder: "stroke fill",
+              ...(titleColor ? { color: titleColor } : {}),
+            }}
             data-testid={`text-press-title-${index}`}
           >
             {item.title}
@@ -211,7 +253,24 @@ function PressMentionCard({
             style={excerptColor ? { color: excerptColor } : undefined}
             data-testid={`text-press-excerpt-${index}`}
           >
-            {item.excerpt}
+            {excerptText}
+            {needsClamp && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  onClick={() => setExcerptExpanded((v) => !v)}
+                  className="inline-flex items-center gap-0.5 text-xs font-medium hover:underline align-baseline"
+                  style={{ color: linkColor }}
+                  data-testid={`button-press-read-more-${index}`}
+                >
+                  {excerptExpanded ? "Read less" : readMoreLabel}
+                  <ChevronDown
+                    className={`w-3 h-3 ${excerptExpanded ? "rotate-180" : ""}`}
+                  />
+                </button>
+              </>
+            )}
           </p>
         )}
 
