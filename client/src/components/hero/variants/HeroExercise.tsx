@@ -199,9 +199,9 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
             <div className="w-full lg:w-[38%] flex flex-col justify-end">
               <Card className="rounded-[16px] shadow-lg shadow-black/5 border border-border bg-card">
                 {(form_card_title || form_card_subtitle) && (
-                  <div className="pb-3 pt-5 px-5">
+                  <div className="pb-1 pt-5 px-5">
                     {form_card_title && (
-                      <p className="text-[17px] font-bold text-foreground">
+                      <p className="font-inter text-[19px] font-semibold tracking-tight text-foreground">
                         {form_card_title}
                       </p>
                     )}

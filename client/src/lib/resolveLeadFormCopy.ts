@@ -2,8 +2,8 @@
  * Phase-driven subtitle/submit copy for LeadForm signup flows.
  *
  * Nested YAML under `messages` (guest / login / incomplete / ready) carries
- * subtitles and submit labels only. The form title always comes from the
- * top-level `title`, so phase changes never swap the heading.
+ * subtitles and submit labels only. Form headings belong to the parent
+ * (e.g. hero `form_card_title`), not the LeadForm itself.
  */
 
 export type LeadFormPhase =
@@ -30,7 +30,6 @@ export interface LeadFormMessages {
 }
 
 export interface LeadFormCopySource {
-  title?: string;
   subtitle?: string;
   submit_label?: string;
   messages?: LeadFormMessages;
@@ -39,7 +38,6 @@ export interface LeadFormCopySource {
 }
 
 export interface ResolvedLeadFormCopy {
-  title: string | undefined;
   subtitle: string | undefined;
   submit_label: string;
   back_label?: string;
@@ -109,8 +107,6 @@ const DEFAULTS: Record<
 /**
  * Resolve display copy for the current form phase.
  *
- * Title: always the top-level `title` (hidden when omitted) — phases never
- * introduce their own heading.
  * Guest subtitle: `messages.guest` → top-level `subtitle` (hidden when both omitted).
  * Other phase subtitles: `messages.<phase>` → locale defaults.
  * A null stage or null subtitle explicitly hides that phase's subtitle.
@@ -123,12 +119,10 @@ export function resolveLeadFormCopy(
 ): ResolvedLeadFormCopy {
   const defaults = DEFAULTS[phase][locale];
   const messages = data.messages || {};
-  const title = data.title;
 
   if (phase === "guest_signup") {
     const block = messages.guest;
     return {
-      title,
       subtitle:
         block === null || block?.subtitle === null
           ? undefined
@@ -141,7 +135,6 @@ export function resolveLeadFormCopy(
     const block =
       messages.login === undefined ? data.login : messages.login;
     return {
-      title,
       subtitle:
         block === null || block?.subtitle === null
           ? undefined
@@ -156,7 +149,6 @@ export function resolveLeadFormCopy(
       ? messages.incomplete
       : messages.ready;
   return {
-    title,
     subtitle:
       block === null || block?.subtitle === null
         ? undefined

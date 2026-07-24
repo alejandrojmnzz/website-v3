@@ -68,7 +68,6 @@ export interface LeadFormData {
   is_signup?: boolean;
   /** @deprecated Prefer `fields.plan.default`. Legacy fallback when fields.plan is omitted. */
   plan?: string;
-  title?: string;
   subtitle?: string;
   submit_label?: string;
   tags?: string;
@@ -410,12 +409,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const signupLoginPrompt = showSignupLoginPrompt ? (
     <p
-      className="text-sm text-center text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2"
+      className="text-sm text-center text-muted-foreground mt-3"
       data-testid="text-signup-login-prompt"
     >
       {locale === "es" ? "¿Ya tienes una cuenta? " : "Already have an account? "}
       <button
-        type="button"
+        type="button" 
         onClick={() => {
           setLoginError(null);
           setLoginPassword("");
@@ -1174,18 +1173,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   if (loginMode) {
     return (
       <div className={data.className} data-testid="lead-form-login">
-        <div className="mb-4 space-y-1">
-          {formCopy.title && (
-            <h3 className="text-lg font-semibold text-foreground" data-testid="text-login-title">
-              {formCopy.title}
-            </h3>
-          )}
-          {formCopy.subtitle && (
-            <p className="text-sm text-muted-foreground" data-testid="text-login-subtitle">
-              {formCopy.subtitle}
-            </p>
-          )}
-        </div>
+        {formCopy.subtitle && (
+          <p
+            className="text-sm text-muted-foreground leading-snug mb-3"
+            data-testid="text-login-subtitle"
+          >
+            {formCopy.subtitle}
+          </p>
+        )}
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -1328,9 +1323,6 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                 )}
               </Button>
             </div>
-            {signupLoginPrompt && (
-              <div className="mt-3">{signupLoginPrompt}</div>
-            )}
             {turnstileReady && showTurnstileModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                 <div className="bg-card p-card-padding rounded-card shadow-card">
@@ -1388,23 +1380,16 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
           </form>
         </Form>
+        {signupLoginPrompt}
       </div>
     );
   }
 
   return (
     <div className={data.className} data-testid="lead-form">
-      {formCopy.title && (
-        <h2 
-          className="mb-2 text-center text-foreground"
-          data-testid="text-form-title"
-        >
-          {formCopy.title}
-        </h2>
-      )}
       {formCopy.subtitle && (
-        <p 
-          className="text-body text-muted-foreground text-center mb-6"
+        <p
+          className="text-sm text-muted-foreground leading-snug mb-3"
           data-testid="text-form-subtitle"
         >
           {formCopy.subtitle}
@@ -1838,10 +1823,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               </a>
             </p>
           )}
-
-          {signupLoginPrompt}
         </form>
       </Form>
+      {signupLoginPrompt}
     </div>
   );
 }
