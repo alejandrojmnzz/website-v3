@@ -31,6 +31,7 @@ import {
 import { MarkdownEditorField } from "@/components/editing/MarkdownEditorField";
 import { useToast } from "@/hooks/use-toast";
 import { useImageRegistry } from "@/components/UniversalImage";
+import { queryClient } from "@/lib/queryClient";
 import {
   fromDateInputValue,
   fromDatetimeLocalValue,
@@ -279,6 +280,12 @@ export function ItemEditModal({
 
   const isNew = item === null;
   const skipDbConfig = !!editorOverrides && !!onlyFields?.length && !dbName;
+
+  // SSR seeds a per-page image-registry subset (often just the logo). This modal
+  // needs the full catalog so image fields can resolve source_url → cache status.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+  }, []);
 
   const { data: detail, isLoading: configLoading } = useQuery<DatabaseDetail>({
     queryKey: ["/api/databases", dbName],
