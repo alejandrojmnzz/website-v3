@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { reloadDatabaseList } from "@/lib/reloadDatabaseList";
 import { useToast } from "@/hooks/use-toast";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import JsonViewer from "@/components/editing/JsonViewer";
@@ -1109,9 +1110,31 @@ function DatabaseList() {
     return false;
   });
   const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [refreshing, setRefreshing] = useState(false);
   const { data: databases, isLoading } = useQuery<DatabaseSummary[]>({
     queryKey: ["/api/databases"],
   });
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const { count } = await reloadDatabaseList();
+      toast({
+        title: "Databases refreshed",
+        description: `${count} database${count !== 1 ? "s" : ""} loaded from disk`,
+      });
+    } catch (err) {
+      toast({
+        title: "Refresh failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <>
@@ -1120,10 +1143,22 @@ function DatabaseList() {
           <Database className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Databases</h1>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-new-database">
-          <Plus className="h-4 w-4 mr-1" />
-          New Database
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            data-testid="button-refresh-databases-page"
+          >
+            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button size="sm" onClick={() => setCreateOpen(true)} data-testid="button-new-database">
+            <Plus className="h-4 w-4 mr-1" />
+            New Database
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (

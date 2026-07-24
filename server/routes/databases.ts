@@ -389,6 +389,16 @@ export function registerDatabasesRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/databases/reload", (_req, res) => {
+    try {
+      const dbm = getDB(res);
+      dbm.reload();
+      res.json({ success: true, count: dbm.list().length });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   app.post("/api/databases", (req, res) => {
     try {
       const { slug, config } = req.body;

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Database, ExternalLink, MoreVertical, Plus, RefreshCw, Settings } from "lucide-react";
 import {
@@ -8,6 +9,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { MenuView } from "../types";
 import { StatusCountBadge } from "./StatusCountBadge";
+import { reloadDatabaseList } from "@/lib/reloadDatabaseList";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 interface DatabaseSummary {
   name: string;
@@ -45,12 +49,34 @@ function formatFileSize(bytes: number): string {
 }
 
 export function DatabasesView({ setMenuView }: DatabasesViewProps) {
+  const { toast } = useToast();
+  const [refreshing, setRefreshing] = useState(false);
   const { data, isLoading } = useQuery<DatabaseSummary[]>({
     queryKey: ["/api/databases"],
     refetchInterval: 30_000,
   });
 
   const totalFileSize = data && data.length > 0 ? data[0].cache_file_size_bytes : null;
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const { count } = await reloadDatabaseList();
+      toast({
+        title: "Databases refreshed",
+        description: `${count} database${count !== 1 ? "s" : ""} loaded from disk`,
+      });
+    } catch (err) {
+      toast({
+        title: "Refresh failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <>
@@ -74,6 +100,18 @@ export function DatabasesView({ setMenuView }: DatabasesViewProps) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="p-1.5 rounded hover-elevate disabled:opacity-50"
+              title="Refresh databases"
+              data-testid="button-refresh-databases"
+            >
+              <RefreshCw
+                className={cn("h-4 w-4 text-muted-foreground", refreshing && "animate-spin")}
+              />
+            </button>
             <a
               href="/private/databases?create=true"
               className="p-1.5 rounded hover-elevate"
