@@ -911,6 +911,9 @@ export { programsShowcaseSectionSchema, type ProgramsShowcaseSection, type Progr
 import { credibilityStripSectionSchema, type CredibilityStripSection, type CredibilityStripItem, type CredibilityStripLogo } from "../site_4geeks-com/component-registry/credibility_strip/v1.0/schema";
 export { credibilityStripSectionSchema, type CredibilityStripSection, type CredibilityStripItem, type CredibilityStripLogo };
 
+import { contactBubbleSectionSchema, type ContactBubbleSection, type ContactBubbleImage } from "../site_4geeks-com/component-registry/contact_bubble/v1.0/schema";
+export { contactBubbleSectionSchema, type ContactBubbleSection, type ContactBubbleImage };
+
 // Responsive spacing schema - separate values for mobile and desktop
 // When only one breakpoint is specified, the other inherits its value
 export const responsiveSpacingSchema = z.object({
@@ -1197,6 +1200,7 @@ const baseSectionSchema = z.union([
   trustCardsSectionSchema,
   programsShowcaseSectionSchema,
   credibilityStripSectionSchema,
+  contactBubbleSectionSchema,
 ]);
 
 // Combined section schema with layout fields

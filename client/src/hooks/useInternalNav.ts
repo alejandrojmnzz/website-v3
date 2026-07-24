@@ -102,6 +102,35 @@ function withCallbackParam(
   return out;
 }
 
+/** Append every utm_* param from the current page URL to outbound absolute
+ *  URLs (http/https), verbatim. Params already present in the href keep their
+ *  explicit value — the page value never duplicates or overrides them.
+ *  Hash links, relative links, and in-page "?param" links are left untouched. */
+function withUtmParams(href: string): string {
+  if (!href || !/^https?:\/\//i.test(href)) return href;
+
+  const utms: Array<[string, string]> = [];
+  new URLSearchParams(window.location.search).forEach((v, k) => {
+    if (k.toLowerCase().startsWith("utm_")) utms.push([k, v]);
+  });
+  if (utms.length === 0) return href;
+
+  const hashIdx = href.indexOf("#");
+  const base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+  const hash = hashIdx === -1 ? "" : href.slice(hashIdx);
+
+  const qIdx = base.indexOf("?");
+  const existing = new URLSearchParams(qIdx === -1 ? "" : base.slice(qIdx + 1));
+
+  const additions = utms
+    .filter(([k]) => !existing.has(k))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+  if (additions.length === 0) return href;
+
+  const join = qIdx === -1 ? "?" : "&";
+  return `${base}${join}${additions.join("&")}${hash}`;
+}
+
 export type CallbackLabels = { en?: string; es?: string };
 
 export type UseInternalNavOptions = {
@@ -140,7 +169,7 @@ export function useInternalNav(
       if (!anchor) return;
       const raw = anchor.getAttribute("href");
       if (!raw) return;
-      const resolved = resolveQsTokens(resolveGlobalTemplate(raw));
+      const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(raw)));
       if (resolved === raw) return;
       e.preventDefault();
       window.open(resolved, "_blank", "noopener,noreferrer");
@@ -154,10 +183,12 @@ export function useInternalNav(
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
 
-    const href = withCallbackParam(
-      resolveQsTokens(resolveGlobalTemplate(rawHref)),
-      appendCallback,
-      appendCallback ? getCallbackLabels?.() : undefined,
+    const href = withUtmParams(
+      withCallbackParam(
+        resolveQsTokens(resolveGlobalTemplate(rawHref)),
+        appendCallback,
+        appendCallback ? getCallbackLabels?.() : undefined,
+      ),
     );
 
     // Ctrl/Cmd/Shift+click: resolve {qs:}/callback then open in new tab (browser would use raw href).
@@ -234,7 +265,7 @@ export function useInternalNav(
   const navigate = (url: string): Record<string, unknown> | null => {
     if (!url) return null;
 
-    const resolved = resolveQsTokens(resolveGlobalTemplate(url));
+    const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(url)));
 
     if (resolved.startsWith("inline#")) {
       const sectionId = resolved.slice(7);
@@ -301,10 +332,12 @@ export function useInternalNav(
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
     if (!appendCallback && !rawHref.includes("{qs:")) return;
-    const href = withCallbackParam(
-      resolveQsTokens(rawHref),
-      appendCallback,
-      appendCallback ? getCallbackLabels?.() : undefined,
+    const href = withUtmParams(
+      withCallbackParam(
+        resolveQsTokens(rawHref),
+        appendCallback,
+        appendCallback ? getCallbackLabels?.() : undefined,
+      ),
     );
     if (href === rawHref) return; // nothing changed, let browser handle it
     anchor.setAttribute("href", href);

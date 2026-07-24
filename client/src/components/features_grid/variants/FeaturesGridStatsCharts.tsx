@@ -285,6 +285,7 @@ export default function FeaturesGridStatsCharts({ data }: Props) {
             )}
             <TrendLineChart
               endLabel={card_trend?.end_label}
+              axisLabels={card_trend?.axis_labels}
               accentColor={trendAccent}
             />
           </div>
