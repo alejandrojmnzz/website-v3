@@ -1472,7 +1472,12 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
           const skipHiddenCheck = opts?.skipHiddenCheck ?? false;
           const rawSection = sections[index];
           const sectionType = (section as { type: string }).type;
-          const loadStrategy = isEditMode ? "eager" : resolveLoadStrategy(rawSection, index, settings);
+          // contact_bubble renders as a fixed-position element with no in-flow
+          // height; lazy-loading it behind a scroll sentinel means it may never
+          // appear, so it must always load eagerly.
+          const loadStrategy = isEditMode || section.type === "contact_bubble"
+            ? "eager"
+            : resolveLoadStrategy(rawSection, index, settings);
 
           // Hidden-until-redirection: suppress in live mode; full render + badge in edit mode
           const isHiddenUntilRedirection = (rawSection as SectionLayout).hidden_until_redirection === true;
