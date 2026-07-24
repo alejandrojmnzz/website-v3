@@ -146,30 +146,30 @@ export function SeoModal({
           </div>
         ) : seoData ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full grid grid-cols-5" data-testid="tabs-seo-nav">
-              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center gap-1.5">
+            <TabsList className="inline-flex h-auto w-auto max-w-full flex-wrap justify-start" data-testid="tabs-seo-nav">
+              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center justify-center gap-1.5 px-2.5" title="General" aria-label="General">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
-                General
+                <span className="hidden sm:inline">General</span>
               </TabsTrigger>
-              <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center gap-1.5">
+              <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center justify-center gap-1.5 px-2.5" title="Fields" aria-label="Fields">
                 <Table2 className="h-3.5 w-3.5 shrink-0" />
-                Fields
+                <span className="hidden sm:inline">Fields</span>
               </TabsTrigger>
-              <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center gap-1.5">
+              <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center justify-center gap-1.5 px-2.5" title="Schema" aria-label="Schema">
                 <Code className="h-3.5 w-3.5 shrink-0" />
-                Schema
+                <span className="hidden sm:inline">Schema</span>
               </TabsTrigger>
-              <TabsTrigger value="visibility" data-testid="tab-visibility" className="flex items-center gap-1.5">
+              <TabsTrigger value="visibility" data-testid="tab-visibility" className="flex items-center justify-center gap-1.5 px-2.5" title="Visibility" aria-label="Visibility">
                 {seoMeta.robots && seoMeta.robots.includes("noindex") ? (
                   <EyeOff className="h-3.5 w-3.5 shrink-0 text-destructive" />
                 ) : (
                   <Eye className="h-3.5 w-3.5 shrink-0" />
                 )}
-                Visibility
+                <span className="hidden sm:inline">Visibility</span>
               </TabsTrigger>
-              <TabsTrigger value="redirects" data-testid="tab-redirects" className="flex items-center gap-1.5">
+              <TabsTrigger value="redirects" data-testid="tab-redirects" className="flex items-center justify-center gap-1.5 px-2.5" title="Redirects" aria-label="Redirects">
                 <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-                Redirects
+                <span className="hidden sm:inline">Redirects</span>
               </TabsTrigger>
             </TabsList>
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calculator, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { Calculator, ChevronDown, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,20 +48,181 @@ type ProvenanceResponse = {
 type ContentTypeConfig = {
   label?: string;
   name?: string;
+  directory?: string;
   editor?: Record<string, EditorHint>;
   field_mapping?: Record<string, string | { source: string; default: string }>;
   database?: { slug?: string } | null;
 };
 
-function formatDisplayValue(value: unknown): string {
+function FieldsEducationBlock({
+  hasDatabase,
+  directory,
+  databaseSlug,
+  slug,
+  locale,
+}: {
+  hasDatabase: boolean;
+  directory: string;
+  databaseSlug?: string;
+  slug: string;
+  locale: string;
+}) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const dbPath = `db/${databaseSlug || "<database>"}/overrides.json`;
+  const ctPath = `${directory}/${slug}/${locale}.yml`;
+
+  return (
+    <div
+      className="rounded-md border border-border bg-muted/20 p-3 space-y-3 text-sm text-muted-foreground"
+      data-testid="fields-education"
+    >
+      <div className="space-y-2">
+        <p className="font-medium text-foreground">How Fields work</p>
+        <p>
+          This tab lists mapping fields available in templates as{" "}
+          <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ single.fieldName }}`}</code>.
+          Values can come from the original database row
+          {hasDatabase ? ", a database override, or a content-type override" : " or a content-type override"}.
+        </p>
+        {hasDatabase ? (
+          <div className="space-y-1.5">
+            <p>
+              <span className="font-medium text-foreground">Database override</span> — Updates the cached
+              database value. It appears in listings, dropdowns, filters, and other database-powered UI,
+              and also on this page. Database overrides are shared across locales.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Content type override</span> — Writes to this
+              page&apos;s YAML only (page/HTML-specific). It does{" "}
+              <strong className="text-foreground">not</strong> change listings or the database. Content-type
+              overrides apply to <strong className="text-foreground">this locale ({locale})</strong> only;
+              sibling locales are unchanged.
+            </p>
+          </div>
+        ) : (
+          <p>
+            <span className="font-medium text-foreground">Content type override</span> — Stores the value in
+            this entry&apos;s live locale YAML. It applies to{" "}
+            <strong className="text-foreground">this locale ({locale})</strong> only; sibling locales are
+            unchanged.
+          </p>
+        )}
+        <p>
+          <span className="font-medium text-foreground">Precedence:</span>{" "}
+          {hasDatabase
+            ? "Content type override → Database override → Original database value."
+            : "Content type override → Entry default."}{" "}
+          Badges show which layer is providing the effective value you see in the table.
+        </p>
+        <p>
+          Under the hood, edits write to files on disk
+          {hasDatabase ? ` (${dbPath} and/or ${ctPath})` : ` (${ctPath})`} — open advanced details for the
+          full path rules.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+        onClick={() => setShowAdvanced((v) => !v)}
+        data-testid="button-toggle-fields-advanced"
+      >
+        {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+        <ChevronDown
+          className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {showAdvanced && (
+        <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
+          <div>
+            <p className="font-medium text-foreground mb-1">Files written</p>
+            <ul className="list-disc pl-5 space-y-1">
+              {hasDatabase && (
+                <li>
+                  Database override:{" "}
+                  <code className="text-[11px] font-mono">{dbPath}</code>
+                </li>
+              )}
+              <li>
+                Content type override:{" "}
+                <code className="text-[11px] font-mono">{ctPath}</code> under the key{" "}
+                <code className="text-[11px] font-mono">field_overrides</code>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">Locale and variants</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>
+                Content-type overrides live on the <strong className="text-foreground">live</strong>{" "}
+                locale file only — not <code className="text-[11px] font-mono">_common.yml</code>, not
+                draft variant files. Sibling locales are not updated automatically.
+              </li>
+              {hasDatabase && (
+                <li>
+                  Database overrides in{" "}
+                  <code className="text-[11px] font-mono">overrides.json</code> are shared across locales
+                  (listings and pages that use the cached row).
+                </li>
+              )}
+              <li>
+                Layout/template variants still resolve{" "}
+                <code className="text-[11px] font-mono">{`{{ single.* }}`}</code> from this shared data
+                layer (DB + overrides + live <code className="text-[11px] font-mono">field_overrides</code>
+                ).
+              </li>
+            </ul>
+          </div>
+          {hasDatabase && (
+            <div>
+              <p className="font-medium text-foreground mb-1">Reset and buried overrides</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>
+                  Reset clears <strong className="text-foreground">both</strong> the content-type and
+                  database override for that field, restoring the original database value.
+                </li>
+                <li>
+                  If a content-type override is winning, a buried database override is not editable from
+                  this table until you reset the content-type layer (or edit database overrides from the
+                  database dashboard).
+                </li>
+              </ul>
+            </div>
+          )}
+          <div>
+            <p className="font-medium text-foreground mb-1">Calculated fields</p>
+            <p>
+              Fields mapped with <code className="text-[11px] font-mono">function:</code> are
+              calculated and read-only here (calculator icon).
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const VALUE_PREVIEW_MAX = 100;
+
+function formatDisplayValue(value: unknown, maxLength?: number): string {
   if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
+  let text: string;
+  if (typeof value === "string") text = value;
+  else if (typeof value === "number" || typeof value === "boolean") text = String(value);
+  else {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
   }
+  // Collapse whitespace so markdown/HTML blobs don't blow up the table row
+  text = text.replace(/\s+/g, " ").trim();
+  if (maxLength != null && text.length > maxLength) {
+    return `${text.slice(0, maxLength).trimEnd()}…`;
+  }
+  return text;
 }
 
 function sourceBadge(source: FieldSource): { label: string; variant: "default" | "secondary" | "outline" } {
@@ -136,6 +297,18 @@ export function MappingFieldsTab({
   const fields = provenance?.fields ?? [];
   const hasDatabase = !!provenance?.hasDatabase;
   const hasMappings = fields.length > 0;
+  const directory = ctConfig?.directory || contentType;
+  const databaseSlug = ctConfig?.database?.slug;
+
+  const education = (
+    <FieldsEducationBlock
+      hasDatabase={hasDatabase}
+      directory={directory}
+      databaseSlug={databaseSlug}
+      slug={slug}
+      locale={locale}
+    />
+  );
 
   const authHeaders = async (): Promise<Record<string, string>> => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -207,6 +380,7 @@ export function MappingFieldsTab({
     const label = typeLabel || contentType;
     return (
       <div className="space-y-3 pt-4" data-testid="fields-tab-empty">
+        {education}
         <p className="text-sm text-muted-foreground">
           {label}&apos;s don&apos;t have any fields yet. You can add fields if you want to store meta
           information about content type entries. For example, if you want to store the author of a blog
@@ -225,6 +399,7 @@ export function MappingFieldsTab({
 
   return (
     <div className="space-y-3 pt-4" data-testid="fields-tab-table">
+      {education}
       <div className="rounded-md border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -251,8 +426,11 @@ export function MappingFieldsTab({
                       )}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs align-top break-all max-w-[220px]">
-                    {formatDisplayValue(row.effective)}
+                  <td
+                    className="px-3 py-2 text-xs align-top break-all max-w-[220px]"
+                    title={formatDisplayValue(row.effective)}
+                  >
+                    {formatDisplayValue(row.effective, VALUE_PREVIEW_MAX)}
                   </td>
                   <td className="px-3 py-2 align-top">
                     <Badge variant={badge.variant} className="text-[10px] font-normal">

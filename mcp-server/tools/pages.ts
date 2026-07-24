@@ -1281,18 +1281,18 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // update_entry_field — DB override OR CT field_overrides (one level per call)
   mcp.tool(
     "update_entry_field",
-    "Update a content-type mapping field for one entry at exactly one override level. " +
-    "level=content_type writes field_overrides on the live {locale}.yml (page/HTML only; shared across layout variants). " +
-    "level=database writes overrides.json (affects listings, dropdowns, and pages). " +
-    "Never writes both levels in one call. Use get_entry_fields to inspect provenance first. " +
-    "Do NOT use this for SEO meta.* — use update_meta_field.",
+    "Set one mapping field at exactly one override level. " +
+    "Precedence: ct_override > db_override > original. " +
+    "level=content_type → live {directory}/{slug}/{locale}.yml field_overrides (page only; this locale; shared across layout variants). " +
+    "level=database → db/{dbSlug}/overrides.json (listings + pages; all locales). " +
+    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_meta_field).",
     {
       slug: z.string().describe("Entry slug"),
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
       field: z.string().describe("Mapping field name, e.g. 'title' or 'author_name'"),
       value: z.unknown().describe("New value for the field"),
       level: z.enum(["database", "content_type"]).describe(
-        "database = overrides.json (listings + pages). content_type = live locale field_overrides (page only)."
+        "database = overrides.json (listings + pages, all locales). content_type = live locale field_overrides (page only, this locale)."
       ),
       locale: z.string().default("en").describe("Live locale for content_type level (ignored for database level)"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
@@ -1319,9 +1319,19 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       const ct = resolved.contentType;
+      const ctDir = getDirectory(ct, resolved.config);
+      const dbSlug = resolved.config.database?.slug as string | undefined;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const getHint = {
+        tool: "get_entry_fields",
+        reason: "Re-check provenance after write",
+        args_hint: { slug, contentType: ct, locale },
+        priority: "recommended" as const,
+      };
+
       try {
         if (level === "database") {
+          const relPath = `db/${dbSlug || "<database>"}/overrides.json`;
           const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
           const res = await fetch(url, {
             method: "PUT",
@@ -1331,17 +1341,24 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const data = await res.json() as { error?: string };
           if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
           return ok(
-            { message: `Database override set for ${ct}/${slug}.${field}` },
+            { message: `Database override set for ${ct}/${slug}.${field} → ${relPath}` },
             {
-              warnings: [{
-                code: "db_override_affects_listings",
-                message: "Database overrides appear in listings, dropdowns, and pages.",
-              }],
-              next_actions: [],
+              warnings: [
+                {
+                  code: "db_override_affects_listings",
+                  message: `Wrote ${relPath}. Affects listings, dropdowns, and pages; shared across locales. Does not write field_overrides YAML.`,
+                },
+              ],
+              side_effects: [
+                { kind: "wrote_file", summary: relPath },
+                { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+              ],
+              next_actions: [getHint],
             },
           );
         }
 
+        const relPath = `${ctDir}/${slug}/${locale}.yml`;
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}${q}`;
         const res = await fetch(url, {
           method: "PUT",
@@ -1351,13 +1368,20 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const data = await res.json() as { error?: string };
         if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
         return ok(
-          { message: `Content-type field_overrides set for ${ct}/${slug}.${field} on ${locale}.yml` },
+          { message: `Content-type field_overrides set for ${ct}/${slug}.${field} → ${relPath}` },
           {
-            warnings: [{
-              code: "ct_override_page_only",
-              message: "Content-type overrides are page/YAML only and do not change database listings.",
-            }],
-            next_actions: [],
+            warnings: [
+              {
+                code: "ct_override_page_only",
+                message: `Wrote field_overrides on ${relPath}. Page/YAML only; does not change database listings.`,
+              },
+              {
+                code: "ct_override_locale_only",
+                message: `Locale ${locale} only; sibling locales and variant files unchanged. Live file only (not _common.yml).`,
+              },
+            ],
+            side_effects: [{ kind: "wrote_file", summary: `${relPath}#field_overrides.${field}` }],
+            next_actions: [getHint],
           },
         );
       } catch (e) {
@@ -1368,8 +1392,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
   mcp.tool(
     "get_entry_fields",
-    "List mapping fields for an entry with effective value and provenance " +
-    "(original | db_override | ct_override | entry_default). Use before update_entry_field or reset_entry_field.",
+    "List mapping fields with effective value and provenance " +
+    "(original | db_override | ct_override | entry_default). " +
+    "Precedence: ct_override > db_override > original. " +
+    "CT overrides: live {locale}.yml field_overrides (this locale; shared across layout variants). " +
+    "DB overrides: overrides.json (all locales). Use before update_entry_field / reset_entry_field.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
@@ -1391,7 +1418,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json();
         if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        return ok(
+          {
+            message: `Fields for ${resolved.contentType}/${slug} (${locale})`,
+            ...(data as Record<string, unknown>),
+          },
+          { warnings: [], next_actions: [] },
+        );
       } catch (e) {
         return fail((e as Error).message);
       }
@@ -1401,7 +1434,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "reset_entry_field",
     "Reset a mapping field to the original database baseline by clearing both content-type field_overrides " +
-    "and database overrides for that field. Only valid for database-backed content types.",
+    "and database overrides for that field. Only valid for database-backed content types. " +
+    "Touches db/{dbSlug}/overrides.json and live {directory}/{slug}/{locale}.yml field_overrides.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
@@ -1416,9 +1450,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
       if (!resolved) return fail(`Page not found for slug '${slug}'`);
       if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) return denyResponse("seo_edit");
+      const ct = resolved.contentType;
+      const ctDir = getDirectory(ct, resolved.config);
+      const dbSlug = resolved.config.database?.slug as string | undefined;
+      const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
+      const ctPath = `${ctDir}/${slug}/${locale}.yml`;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
-        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-reset/${encodeURIComponent(slug)}${q}`;
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
@@ -1426,7 +1465,28 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         const data = await res.json() as { error?: string };
         if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
-        return ok({ message: `Reset ${resolved.contentType}/${slug}.${field} to original database value` }, { warnings: [], next_actions: [] });
+        return ok(
+          { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${ctPath}#field_overrides` },
+          {
+            warnings: [
+              {
+                code: "reset_clears_both_layers",
+                message: `Cleared DB override (${dbPath}) and CT field_overrides on ${ctPath} for this field. Baseline restored.`,
+              },
+            ],
+            side_effects: [
+              { kind: "wrote_file", summary: dbPath },
+              { kind: "wrote_file", summary: `${ctPath}#field_overrides` },
+              { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+            ],
+            next_actions: [{
+              tool: "get_entry_fields",
+              reason: "Confirm provenance is original after reset",
+              args_hint: { slug, contentType: ct, locale },
+              priority: "recommended",
+            }],
+          },
+        );
       } catch (e) {
         return fail((e as Error).message);
       }
