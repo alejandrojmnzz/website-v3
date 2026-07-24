@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Check, CheckCheck, Cloud, Copy, Eye, Folder, Image, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Search, Settings, Square, SquareCheck, Stethoscope, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, Folder, Image, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Search, Settings, Square, SquareCheck, Stethoscope, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -394,6 +394,8 @@ export default function MediaGallery() {
   const optimizePollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [migrating, setMigrating] = useState(false);
   const [autoTagging, setAutoTagging] = useState(false);
+  const [autoTagConfirmOpen, setAutoTagConfirmOpen] = useState(false);
+  const [showAutoTagAdvanced, setShowAutoTagAdvanced] = useState(false);
   const [migrateConfirmOpen, setMigrateConfirmOpen] = useState(false);
   const [migrateResults, setMigrateResults] = useState<{ message: string; migratedCount: number; totalProcessed: number; results: Array<{ id: string; oldSrc: string; newSrc: string; status: string }> } | null>(null);
   const [redundantOpen, setRedundantOpen] = useState(false);
@@ -666,6 +668,33 @@ export default function MediaGallery() {
     setOptimizing(false);
     setOptimizeDone(false);
     setOptimizeProgress(null);
+  };
+
+  const untaggedImageCount = registry
+    ? Object.values(registry.images).filter((img) => !img.tags || img.tags.length === 0).length
+    : 0;
+
+  const handleAutoTag = async () => {
+    setAutoTagConfirmOpen(false);
+    setAutoTagging(true);
+    setRunQueueActivated(true);
+    setRunQueueOpen(true);
+    void refetchRunQueueRuns();
+    try {
+      const res = await apiRequest("POST", "/api/validation/fix/image-auto-tags");
+      const data = await res.json();
+      toast({
+        title: "Auto-tag complete",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/validation/runs"] });
+      void refetchRunQueueRuns();
+    } catch {
+      toast({ title: "Auto-tag failed", description: "Could not auto-tag images", variant: "destructive" });
+    } finally {
+      setAutoTagging(false);
+    }
   };
 
   const handleRunApiFixer = async (fixerName: string) => {
@@ -1174,29 +1203,13 @@ export default function MediaGallery() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={async () => {
-                    setAutoTagging(true);
-                    setRunQueueActivated(true);
-                    setRunQueueOpen(true);
-                    void refetchRunQueueRuns();
-                    try {
-                      const res = await apiRequest("POST", "/api/validation/fix/image-auto-tags");
-                      const data = await res.json();
-                      toast({
-                        title: "Auto-tag complete",
-                        description: data.message,
-                      });
-                      queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
-                      queryClient.invalidateQueries({ queryKey: ["/api/validation/runs"] });
-                      void refetchRunQueueRuns();
-                    } catch {
-                      toast({ title: "Auto-tag failed", description: "Could not auto-tag images", variant: "destructive" });
-                    } finally {
-                      setAutoTagging(false);
-                    }
+                  onClick={() => {
+                    setShowAutoTagAdvanced(false);
+                    setAutoTagConfirmOpen(true);
                   }}
                   disabled={autoTagging}
                   data-testid="button-auto-tag"
+                  title="Auto-tag untagged images"
                 >
                   {autoTagging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                 </Button>
@@ -2281,6 +2294,114 @@ export default function MediaGallery() {
           <DialogFooter>
             <Button onClick={() => setBulkDeleteResults(null)} data-testid="button-close-results">
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={autoTagConfirmOpen}
+        onOpenChange={(open) => {
+          setAutoTagConfirmOpen(open);
+          if (!open) setShowAutoTagAdvanced(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-auto-tag-confirm">
+          <DialogHeader>
+            <DialogTitle>Auto-tag untagged images?</DialogTitle>
+            <DialogDescription>
+              {untaggedImageCount === 0
+                ? "Every image in the gallery already has tags — running this now will find nothing to do."
+                : `This will automatically label ${untaggedImageCount} image${untaggedImageCount === 1 ? "" : "s"} that don't have tags yet.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 text-sm text-muted-foreground pr-1">
+            <p>
+              Tags help the gallery stay organized and make it easier to find the right image for a
+              component — for example hero backgrounds vs logos vs avatars. Images that already have
+              tags are left alone.
+            </p>
+            <div>
+              <p className="font-medium text-foreground mb-1">Why this is useful</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Fills in missing tags so new uploads don't stay unlabeled</li>
+                <li>Improves search and filtering in the media gallery</li>
+                <li>Helps validation catch images used in the wrong context</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-foreground mb-1">What will happen</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Only images with no tags are processed</li>
+                <li>Suggested tags are saved to the image registry</li>
+                <li>Progress shows in the run queue while it works</li>
+                <li>Already-tagged images are never changed</li>
+              </ul>
+            </div>
+
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+              onClick={() => setShowAutoTagAdvanced((v) => !v)}
+              data-testid="button-toggle-auto-tag-advanced"
+            >
+              {showAutoTagAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showAutoTagAdvanced ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {showAutoTagAdvanced && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
+                <div>
+                  <p className="font-medium text-foreground mb-1">How it works under the hood</p>
+                  <p>
+                    Runs the <code className="text-[11px]">image-auto-tags</code> validation fixer,
+                    which calls <code className="text-[11px]">classifyAndApply()</code> for each
+                    untagged image. Classification uses filename/YAML heuristics first, then AI
+                    vision when needed, against the registry&apos;s{" "}
+                    <code className="text-[11px]">tagDefinitions</code>.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">API &amp; side effects</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>
+                      Endpoint: <code className="text-[11px]">POST /api/validation/fix/image-auto-tags</code>
+                    </li>
+                    <li>Writes tags into the image registry (not YAML content files)</li>
+                    <li>May call the configured vision model (uses AI credits when heuristics aren&apos;t enough)</li>
+                    <li>Images with no suggested tags are skipped; failures are reported per image in the run queue</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="border-t pt-4 gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setAutoTagConfirmOpen(false)}
+              disabled={autoTagging}
+              data-testid="button-cancel-auto-tag"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleAutoTag()}
+              disabled={autoTagging || untaggedImageCount === 0}
+              data-testid="button-confirm-auto-tag"
+            >
+              {autoTagging ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Running…
+                </>
+              ) : (
+                <>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  {untaggedImageCount === 0 ? "Nothing to tag" : "Auto-tag images"}
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +43,14 @@ interface DatabaseSummary {
 
 type SourceType = "api" | "local" | "remote";
 
+interface DatabaseValidationIssue {
+  code?: string;
+  message: string;
+  file?: string;
+  suggestion?: string;
+  type?: string;
+}
+
 interface DatabaseDetail {
   name: string;
   config: {
@@ -76,6 +84,104 @@ interface DatabaseDetail {
     fetched_at: string;
     item_count: number;
   } | null;
+  error_count?: number;
+  error_summary?: string;
+  validation_errors?: DatabaseValidationIssue[];
+  validation_warnings?: DatabaseValidationIssue[];
+}
+
+type DatabaseUsageQueryKind =
+  | "direct_database"
+  | "via_content_type"
+  | "form_source"
+  | "field_editor";
+
+interface DatabaseUsageReport {
+  content_types: Array<{ name: string; label: string }>;
+  queries: Array<{
+    kind: DatabaseUsageQueryKind;
+    content_type: string;
+    slug?: string;
+    locale?: string;
+    file?: string;
+    section_type?: string;
+    source_name?: string;
+  }>;
+  notes?: string[];
+}
+
+const USAGE_KIND_LABELS: Record<DatabaseUsageQueryKind, string> = {
+  direct_database: "Direct",
+  via_content_type: "Via content type",
+  form_source: "Form",
+  field_editor: "Editor",
+};
+
+function groupUsageCounts(
+  queries: DatabaseUsageReport["queries"],
+  keyFn: (q: DatabaseUsageReport["queries"][number]) => string,
+): Array<{ key: string; count: number }> {
+  const map = new Map<string, number>();
+  for (const q of queries) {
+    const key = keyFn(q);
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+function UsageGroupKpis({
+  title,
+  items,
+  testId,
+  selectedKey,
+  onSelect,
+}: {
+  title: string;
+  items: Array<{ key: string; count: number }>;
+  testId: string;
+  selectedKey?: string | null;
+  onSelect?: (key: string) => void;
+}) {
+  if (items.length === 0) return null;
+  const selectable = typeof onSelect === "function";
+  return (
+    <div className="space-y-2" data-testid={testId}>
+      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        {title}
+      </h4>
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+        {items.map(({ key, count }) => {
+          const selected = selectedKey === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={!selectable}
+              onClick={() => onSelect?.(key)}
+              className={`rounded-md border px-3 py-2 space-y-0.5 text-left transition-colors ${
+                selectable ? "cursor-pointer hover-elevate" : "cursor-default"
+              } ${
+                selected
+                  ? "border-primary bg-primary/10"
+                  : "border-border bg-muted/40"
+              }`}
+              data-testid={`${testId}-item-${key}`}
+              aria-pressed={selectable ? selected : undefined}
+            >
+              <p className="text-lg font-semibold tabular-nums text-foreground leading-none">
+                {count}
+              </p>
+              <p className="text-xs text-muted-foreground truncate" title={key}>
+                {key}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 interface DatasetFile {
@@ -2517,8 +2623,11 @@ function FieldMappingEditor({
                 <SelectContent>
                   <SelectItem value="text">text — single-line input</SelectItem>
                   <SelectItem value="textarea">textarea — multi-line</SelectItem>
+                  <SelectItem value="markdown">markdown — editor with preview</SelectItem>
                   <SelectItem value="number">number — numeric</SelectItem>
                   <SelectItem value="boolean">boolean — toggle</SelectItem>
+                  <SelectItem value="date">date — date only</SelectItem>
+                  <SelectItem value="datetime">datetime — date + time (UTC or naive)</SelectItem>
                   <SelectItem value="select">select — dropdown</SelectItem>
                   <SelectItem value="tags">multi select — multi-value</SelectItem>
                 </SelectContent>
@@ -3387,6 +3496,344 @@ function CachedImagesKpiCard({ dbName }: { dbName: string }) {
   );
 }
 
+function ErrorsKpiCard({
+  errorCount,
+  errorSummary,
+  errors,
+  warnings,
+  onCheckHealth,
+  checkHealthPending,
+}: {
+  errorCount: number;
+  errorSummary?: string;
+  errors: DatabaseValidationIssue[];
+  warnings: DatabaseValidationIssue[];
+  onCheckHealth: () => void;
+  checkHealthPending: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasIssues = errorCount > 0 || warnings.length > 0;
+
+  return (
+    <>
+      <Card
+        className={hasIssues ? "cursor-pointer hover-elevate" : undefined}
+        onClick={() => setOpen(true)}
+        data-testid="card-errors-kpi"
+      >
+        <CardContent className="pt-4 pb-3 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            <span>Errors</span>
+          </div>
+          <p
+            className={`text-sm font-medium ${errorCount > 0 ? "text-destructive" : ""}`}
+            data-testid="text-error-count"
+          >
+            {errorCount}
+          </p>
+          <p className="text-xs text-muted-foreground truncate" title={errorSummary}>
+            {errorCount > 0
+              ? errorSummary || "Cached validation issues"
+              : "No cached issues"}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col" data-testid="dialog-database-errors">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {errorCount > 0 ? (
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              ) : (
+                <CircleCheck className="h-5 w-5 text-chart-3" />
+              )}
+              Cached validation issues
+            </DialogTitle>
+            <DialogDescription>
+              Results from the last diagnostics run stored in the validation cache. Run Check Health for a fresh pass.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-3 py-1">
+            {!hasIssues && (
+              <div className="p-3 rounded-md bg-chart-3/10 border border-chart-3/30 text-sm text-foreground">
+                No cached errors or warnings for this database.
+              </div>
+            )}
+            {errors.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-destructive">Errors ({errorCount})</p>
+                {errors.map((issue, i) => (
+                  <div
+                    key={`err-${i}`}
+                    className="p-2 rounded-md bg-destructive/10 border border-destructive/30 text-sm"
+                    data-testid={`cached-error-${i}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <CircleX className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-foreground">{issue.message}</p>
+                        {issue.code && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{issue.code}</p>
+                        )}
+                        {issue.suggestion && (
+                          <p className="text-xs text-muted-foreground mt-1">{issue.suggestion}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {warnings.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-chart-2">Warnings ({warnings.length})</p>
+                {warnings.map((issue, i) => (
+                  <div
+                    key={`warn-${i}`}
+                    className="p-2 rounded-md bg-chart-2/10 border border-chart-2/30 text-sm"
+                    data-testid={`cached-warning-${i}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-chart-2 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-foreground">{issue.message}</p>
+                        {issue.code && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{issue.code}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              Close
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setOpen(false);
+                onCheckHealth();
+              }}
+              disabled={checkHealthPending}
+              data-testid="button-errors-kpi-check-health"
+            >
+              {checkHealthPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <HeartPulse className="h-3.5 w-3.5 mr-1" />
+              )}
+              Check Health
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function DatabaseUsagePanel({ dbName }: { dbName: string }) {
+  const [contentTypeFilter, setContentTypeFilter] = useState<string | null>(null);
+  const [componentFilter, setComponentFilter] = useState<string | null>(null);
+
+  const { data, isLoading, error } = useQuery<DatabaseUsageReport>({
+    queryKey: ["/api/databases", dbName, "usage"],
+    queryFn: async () => {
+      const res = await fetch(`/api/databases/${dbName}/usage`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || "Failed to load usage");
+      }
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center" data-testid="usage-loading">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Scanning content for dependencies…
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-start gap-2 text-sm text-destructive py-2" data-testid="usage-error">
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+        <span>{error instanceof Error ? error.message : "Failed to load usage"}</span>
+      </div>
+    );
+  }
+
+  const { content_types: contentTypes, queries, notes } = data;
+  const empty = contentTypes.length === 0 && queries.length === 0;
+
+  const componentKey = (q: DatabaseUsageReport["queries"][number]) =>
+    q.section_type?.trim() || "unknown";
+
+  // Each KPI row reflects the other dimension's filter so counts stay meaningful when combined.
+  const queriesForContentTypeKpis = componentFilter
+    ? queries.filter((q) => componentKey(q) === componentFilter)
+    : queries;
+  const queriesForComponentKpis = contentTypeFilter
+    ? queries.filter((q) => q.content_type === contentTypeFilter)
+    : queries;
+
+  const byContentType = groupUsageCounts(queriesForContentTypeKpis, (q) => q.content_type);
+  const byComponent = groupUsageCounts(queriesForComponentKpis, componentKey);
+
+  const filteredQueries = queries.filter((q) => {
+    if (contentTypeFilter && q.content_type !== contentTypeFilter) return false;
+    if (componentFilter && componentKey(q) !== componentFilter) return false;
+    return true;
+  });
+
+  const hasFilter = !!(contentTypeFilter || componentFilter);
+  const filterLabels = [
+    contentTypeFilter ? `type:${contentTypeFilter}` : null,
+    componentFilter ? `component:${componentFilter}` : null,
+  ].filter(Boolean);
+
+  const clearFilters = () => {
+    setContentTypeFilter(null);
+    setComponentFilter(null);
+  };
+
+  return (
+    <div className="space-y-4" data-testid="usage-panel">
+      {notes && notes.length > 0 && (
+        <div className="flex items-start gap-2 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            {notes.map((note, i) => (
+              <p key={i}>{note}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {empty ? (
+        <div className="flex items-start gap-2 text-sm text-muted-foreground" data-testid="usage-empty">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>No content types or sections currently reference this database.</span>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              DB linked content types ({contentTypes.length})
+            </h4>
+            {contentTypes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No content types linked via content-types.yml.</p>
+            ) : (
+              <ul className="space-y-1" data-testid="usage-content-types">
+                {contentTypes.map((ct) => (
+                  <li key={ct.name}>
+                    <Link
+                      href={`/private/type/${ct.name}`}
+                      className="text-sm text-primary underline underline-offset-2 hover:text-primary/80"
+                      data-testid={`usage-content-type-${ct.name}`}
+                    >
+                      {ct.label || ct.name}
+                    </Link>
+                    <span className="text-xs text-muted-foreground ml-2 font-mono">{ct.name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {queries.length > 0 && (
+            <div className="space-y-4" data-testid="usage-query-summaries">
+              <UsageGroupKpis
+                title="By content type"
+                testId="usage-by-content-type"
+                items={byContentType}
+                selectedKey={contentTypeFilter}
+                onSelect={(key) =>
+                  setContentTypeFilter((prev) => (prev === key ? null : key))
+                }
+              />
+              <UsageGroupKpis
+                title="By components within content types"
+                testId="usage-by-component"
+                items={byComponent}
+                selectedKey={componentFilter}
+                onSelect={(key) =>
+                  setComponentFilter((prev) => (prev === key ? null : key))
+                }
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Queries ({filteredQueries.length}
+                {hasFilter ? ` of ${queries.length}` : ""})
+              </h4>
+              {hasFilter && (
+                <button
+                  type="button"
+                  className="text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+                  onClick={clearFilters}
+                  data-testid="button-clear-usage-filters"
+                >
+                  Clear filters ({filterLabels.join(" · ")})
+                </button>
+              )}
+            </div>
+            {filteredQueries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {hasFilter
+                  ? `No queries match ${filterLabels.join(" and ")}.`
+                  : "No section or form queries found."}
+              </p>
+            ) : (
+              <ul className="space-y-2 max-h-80 overflow-y-auto" data-testid="usage-queries">
+                {filteredQueries.map((q, i) => {
+                  const location = [q.content_type, q.slug, q.locale].filter(Boolean).join(" / ");
+                  return (
+                    <li
+                      key={`${q.kind}-${q.file}-${q.section_type}-${i}`}
+                      className="flex items-start gap-2 text-sm border border-border rounded-md p-2"
+                      data-testid={`usage-query-${i}`}
+                    >
+                      <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">
+                        {USAGE_KIND_LABELS[q.kind]}
+                      </Badge>
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="font-medium text-foreground truncate">
+                          {q.section_type ? `${q.section_type}` : "section"}
+                          {q.source_name ? (
+                            <span className="text-muted-foreground font-normal">
+                              {" "}
+                              ← {q.source_name}
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate" title={q.file}>
+                          {location}
+                          {q.file ? ` · ${q.file}` : ""}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: {
   dbName: string;
   jobStatus?: {
@@ -3460,7 +3907,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isReindexing, setIsReindexing] = useState(false);
-  const [activePanel, setActivePanel] = useState<"settings" | "mappings" | null>(null);
+  const [activePanel, setActivePanel] = useState<"settings" | "mappings" | "usage" | null>(null);
   const [dataView, setDataView] = useState<"mapped" | "raw">("mapped");
   const [page, setPage] = useState(1);
   const [tagFilters, setTagFilters] = useState<Record<string, string[]>>({});
@@ -3992,6 +4439,19 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
             )}
             Mappings
           </Button>
+          <Button
+            variant={activePanel === "usage" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setActivePanel(activePanel === "usage" ? null : "usage")}
+            data-testid="button-toggle-usage"
+          >
+            {activePanel === "usage" ? (
+              <X className="h-3.5 w-3.5 mr-1" />
+            ) : (
+              <Network className="h-3.5 w-3.5 mr-1" />
+            )}
+            Usage
+          </Button>
         </div>
       </div>
 
@@ -4030,14 +4490,29 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
             />
           </CardContent>
         </Card>
+      ) : activePanel === "usage" ? (
+        <Card>
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-sm">Usage</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Content types linked to this database and sections or forms that query it.
+            </p>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <DatabaseUsagePanel dbName={dbName} />
+          </CardContent>
+        </Card>
       ) : (
         <>
           {(() => {
             const hasCachedFields = config?.editor
               ? Object.values(config.editor).some((f) => f.cache_images === true)
               : false;
+            const optionalCount = (hasCachedFields ? 1 : 0) + (hasSemanticSearch ? 1 : 0);
+            const lgCols =
+              optionalCount === 2 ? "lg:grid-cols-6" : optionalCount === 1 ? "lg:grid-cols-5" : "lg:grid-cols-4";
             return (
-          <div className={`grid gap-4 ${hasCachedFields && hasSemanticSearch ? "sm:grid-cols-2 lg:grid-cols-5" : hasCachedFields || hasSemanticSearch ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
+          <div className={`grid gap-4 sm:grid-cols-2 ${lgCols}`}>
             <Card>
               <CardContent className="pt-4 pb-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
@@ -4139,6 +4614,14 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                 </p>
               </CardContent>
             </Card>
+            <ErrorsKpiCard
+              errorCount={detail?.error_count ?? 0}
+              errorSummary={detail?.error_summary}
+              errors={detail?.validation_errors ?? []}
+              warnings={detail?.validation_warnings ?? []}
+              onCheckHealth={() => checkHealthMutation.mutate()}
+              checkHealthPending={checkHealthMutation.isPending}
+            />
             {hasCachedFields && (
               <CachedImagesKpiCard dbName={dbName} />
             )}

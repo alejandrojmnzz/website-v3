@@ -27,6 +27,7 @@ interface VersioningViewProps {
   pathname: string;
   onVersioningDataUpdate?: (data: VersioningResponse) => void;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
+  onOpenTemplateYaml?: () => void;
   detachBusy?: boolean;
   onRequestDetach?: () => void;
   onRequestReattach?: () => void;
@@ -41,6 +42,7 @@ export function VersioningView({
   pathname,
   onVersioningDataUpdate,
   onEditVariantYaml,
+  onOpenTemplateYaml,
   detachBusy,
   onRequestDetach,
   onRequestReattach,
@@ -431,7 +433,39 @@ export function VersioningView({
       {!showRestorePanel && isTemplateVersioning && (
         <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">
           <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-template-versions-warning">
-            All {contentTypeLabel}&apos;s share the same template unless detached, versioning occurs on the template itself
+            All{" "}
+            {contentInfo.type ? (
+              <a
+                href={`/private/type/${contentInfo.type}`}
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(`/private/type/${contentInfo.type}`);
+                }}
+                data-testid="link-open-content-type-dashboard"
+              >
+                {contentTypeLabel}&apos;s
+              </a>
+            ) : (
+              `${contentTypeLabel}'s`
+            )}{" "}
+            share the{" "}
+            {onOpenTemplateYaml ? (
+              <a
+                href="#"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpenTemplateYaml();
+                }}
+                data-testid="link-open-template-yaml"
+              >
+                same template
+              </a>
+            ) : (
+              "same template"
+            )}{" "}
+            unless detached, versioning occurs on the template itself
           </p>
           {onRequestDetach && (
             <Button

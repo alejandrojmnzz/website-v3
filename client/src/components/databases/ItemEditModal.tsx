@@ -28,7 +28,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MarkdownEditorField } from "@/components/editing/MarkdownEditorField";
 import { useToast } from "@/hooks/use-toast";
+import {
+  fromDateInputValue,
+  fromDatetimeLocalValue,
+  toDateInputValue,
+  toDatetimeLocalValue,
+} from "@shared/parseDateTime";
+
+const MARKDOWN_TEXTAREA_KEYS = new Set(["content", "body", "readme", "markdown"]);
+
+function isMarkdownEditorType(type: string, key: string): boolean {
+  return type === "markdown" || (type === "textarea" && MARKDOWN_TEXTAREA_KEYS.has(key));
+}
 
 export type EditorOption = string | { value: string; label: string };
 
@@ -230,7 +243,26 @@ export function ItemEditModal({
     const value = formData[key];
 
     switch (type) {
+      case "markdown":
+        return (
+          <MarkdownEditorField
+            value={String(value ?? "")}
+            onChange={(md) => setValue(key, md)}
+            label={key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+            data-testid={`input-edit-${key}`}
+          />
+        );
       case "textarea":
+        if (isMarkdownEditorType(type, key)) {
+          return (
+            <MarkdownEditorField
+              value={String(value ?? "")}
+              onChange={(md) => setValue(key, md)}
+              label={key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              data-testid={`input-edit-${key}`}
+            />
+          );
+        }
         return (
           <Textarea
             value={String(value ?? "")}
@@ -262,6 +294,38 @@ export function ItemEditModal({
             data-testid={`input-edit-${key}`}
           />
         );
+      case "date": {
+        const raw = typeof value === "string" ? value : "";
+        return (
+          <Input
+            type="date"
+            value={toDateInputValue(raw)}
+            onChange={(e) => setValue(key, fromDateInputValue(e.target.value))}
+            className="text-sm"
+            data-testid={`input-edit-${key}`}
+          />
+        );
+      }
+      case "datetime": {
+        const raw = typeof value === "string" ? value : "";
+        return (
+          <div className="space-y-1">
+            <Input
+              type="datetime-local"
+              value={toDatetimeLocalValue(raw)}
+              onChange={(e) =>
+                setValue(key, e.target.value ? fromDatetimeLocalValue(e.target.value) : "")
+              }
+              className="text-sm"
+              data-testid={`input-edit-${key}`}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Accepts timezone-aware or naive values · edits saved as UTC ISO-8601
+              {raw ? ` (${raw})` : ""}
+            </p>
+          </div>
+        );
+      }
       case "select":
         return (
           <Select value={String(value ?? "")} onValueChange={(v) => setValue(key, v)}>
@@ -541,11 +605,15 @@ export function ItemEditModal({
           {!configLoading &&
             fields.map((key) => {
               const editorConfig = config?.editor?.[key];
+              const editorType = editorConfig?.type || "text";
+              const useMarkdown = isMarkdownEditorType(editorType, key);
               return (
                 <div key={key} className="space-y-1.5">
-                  <Label className="text-xs font-medium capitalize">
-                    {key.replace(/_/g, " ")}
-                  </Label>
+                  {!useMarkdown && (
+                    <Label className="text-xs font-medium capitalize">
+                      {key.replace(/_/g, " ")}
+                    </Label>
+                  )}
                   {editorConfig?.description && (
                     <p className="text-xs text-muted-foreground">{editorConfig.description}</p>
                   )}

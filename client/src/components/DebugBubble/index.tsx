@@ -150,7 +150,7 @@ export function DebugBubble() {
   const [sitemapLoading, setSitemapLoading] = useState(false);
   const [showSitemapSearch, setShowSitemapSearch] = useState(false);
   const [showYamlEditor, setShowYamlEditor] = useState(false);
-  const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string; variantSlug?: string } | null>(null);
+  const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string; variantSlug?: string; readOnly?: boolean } | null>(null);
   const [showContentTypesYmlEditor, setShowContentTypesYmlEditor] = useState(false);
   const [componentSearch, setComponentSearch] = useState("");
   const [showComponentSearch, setShowComponentSearch] = useState(false);
@@ -2047,6 +2047,51 @@ export function DebugBubble() {
       setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale, variantSlug });
       setShowYamlEditor(true);
     },
+    onOpenTemplateYaml: async () => {
+      if (!contentInfo.type) return;
+      const locale =
+        (typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("locale")
+          : null) ||
+        pageDiagnostics?.locale ||
+        i18n.language ||
+        "en";
+      const token = getDebugToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Token ${token}`;
+      try {
+        const res = await fetch(
+          `/api/content/raw-file?contentType=${encodeURIComponent(contentInfo.type)}&slug=${encodeURIComponent("_common.single")}&locale=${encodeURIComponent(normalizeLocale(locale))}`,
+          { headers },
+        );
+        if (!res.ok) {
+          toast({
+            title: "No template found",
+            description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+            variant: "destructive",
+          });
+          return;
+        }
+        const data = await res.json();
+        if (!data.exists) {
+          toast({
+            title: "No template found",
+            description: "This content type has no _common.single.yml (or single.*.yml) yet.",
+            variant: "destructive",
+          });
+          return;
+        }
+        setYamlEditorInfo({
+          contentType: contentInfo.type,
+          slug: "_common.single",
+          locale: normalizeLocale(locale),
+          readOnly: true,
+        });
+        setShowYamlEditor(true);
+      } catch {
+        toast({ title: "Error", description: "Failed to open the template YAML", variant: "destructive" });
+      }
+    },
     handleLinkClick,
     sitemapUrls,
     sitemapLoading,
@@ -2449,6 +2494,7 @@ export function DebugBubble() {
             slug={yamlEditorInfo.slug}
             locale={yamlEditorInfo.locale}
             variantSlug={yamlEditorInfo.variantSlug}
+            readOnly={yamlEditorInfo.readOnly}
             onClose={() => setShowYamlEditor(false)}
             onSaved={() => window.location.reload()}
           />
