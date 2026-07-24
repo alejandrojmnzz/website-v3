@@ -25,6 +25,8 @@ export default function ComponentPreview() {
   const version = searchParams.get("version") || "v1.0";
   const exampleName = searchParams.get("example");
   const debug = searchParams.get("debug") !== "false";
+  /** Screenshot capture: avoid min-h-screen padding so height matches content. */
+  const isCapture = searchParams.get("capture") === "1";
   /** Parent (e.g. Theme Editor) sends sections via postMessage; skip sessionStorage to avoid stale data. */
   const embedTheme = searchParams.get("embed") === "theme";
   
@@ -193,7 +195,11 @@ export default function ComponentPreview() {
   }
 
   return (
-    <div ref={containerRef} className="bg-background min-h-screen">
+    <div
+      ref={containerRef}
+      data-screenshot-root
+      className={isCapture ? "bg-background" : "bg-background min-h-screen"}
+    >
       {isStandalone && !debug && (
         <div className="fixed top-4 left-4 z-50">
           <button

@@ -21,6 +21,7 @@ export const PER_PAGE_VALIDATORS = [
   "schema-completeness",
   "content-quality",
   "images",
+  "section-variants",
 ];
 
 interface PageErrorsModalProps {
@@ -122,6 +123,18 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                               {issue.details.received && (
                                 <> | Received: <span className="font-mono">{issue.details.received}</span></>
                               )}
+                            </div>
+                          )}
+                          {issue.suggestion && (
+                            <div className="mt-1 text-xs text-muted-foreground">{issue.suggestion}</div>
+                          )}
+                          {(issue as { validationCacheBuiltAt?: string }).validationCacheBuiltAt && (
+                            <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
+                              <IconClock className="h-3 w-3" />
+                              Cache built at{" "}
+                              {new Date(
+                                (issue as { validationCacheBuiltAt: string }).validationCacheBuiltAt,
+                              ).toLocaleString()}
                             </div>
                           )}
                         </div>

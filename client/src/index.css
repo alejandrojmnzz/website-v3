@@ -666,6 +666,15 @@
   animation: pulse-slow 3s ease-in-out infinite;
 }
 
+@keyframes gallery-scan {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.animate-gallery-scan {
+  animation: gallery-scan 1.4s ease-in-out infinite;
+}
+
 @keyframes molecule-node-pulse {
   0%, 100% {
     opacity: 0.7;

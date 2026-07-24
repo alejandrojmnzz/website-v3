@@ -50,6 +50,7 @@ export interface ComponentSchema {
    */
   schema_org?: { handler: string; description?: string };
   props: Record<string, unknown>;
+  variants?: Record<string, { description?: string; best_for?: string }>;
 }
 
 export interface ComponentExample {
@@ -57,6 +58,10 @@ export interface ComponentExample {
   description: string;
   yaml: string;
   variant?: string;
+  /** Disk mtime (ms) for screenshot cache invalidation */
+  sourceMtime?: number;
+  /** Disk size for screenshot cache invalidation */
+  sourceSize?: number;
 }
 
 export interface ComponentVersion {
@@ -71,6 +76,13 @@ export interface ComponentInfo {
   latestVersion: string;
 }
 
+export interface PrimaryExampleMeta {
+  name: string;
+  version: string;
+  sourceMtime: number;
+  sourceSize: number;
+}
+
 export interface RegistryOverview {
   components: Array<{
     type: string;
@@ -78,6 +90,9 @@ export interface RegistryOverview {
     description: string;
     latestVersion: string;
     versions: string[];
+    variants: string[];
+    exampleCount: number;
+    primaryExample?: PrimaryExampleMeta;
   }>;
 }
 
@@ -102,8 +117,12 @@ export function listComponents(): string[] {
       return [];
     }
     return fs.readdirSync(REGISTRY_PATH).filter(dir => {
+      // Skip shared/internal folders (e.g. `_common` holds shared Zod schemas, not a section component)
+      if (dir.startsWith("_") || dir.startsWith(".")) return false;
       const dirPath = path.join(REGISTRY_PATH, dir);
-      return fs.statSync(dirPath).isDirectory();
+      if (!fs.statSync(dirPath).isDirectory()) return false;
+      // Real components have at least one version folder (v1.0, …)
+      return listVersions(dir).length > 0;
     });
   } catch (error) {
     log.error({ err: error }, "Error listing components:");
@@ -360,6 +379,7 @@ export function loadExamples(componentType: string, version: string): ComponentE
     
     return exampleFiles.map(file => {
       const filePath = path.join(examplesPath, file);
+      const stat = fs.statSync(filePath);
       const content = fs.readFileSync(filePath, "utf8");
       const { escaped } = escapeTemplateVars(content);
       const data = yaml.load(escaped) as { name?: string; description?: string; yaml?: string; variant?: string };
@@ -372,6 +392,8 @@ export function loadExamples(componentType: string, version: string): ComponentE
         description: data.description || '',
         yaml: yamlContent,
         variant: inferredVariant || data.variant,
+        sourceMtime: Math.floor(stat.mtimeMs),
+        sourceSize: stat.size,
       };
     });
   } catch (error) {
@@ -403,21 +425,74 @@ export function getComponentInfo(componentType: string): ComponentInfo | null {
   };
 }
 
+/**
+ * First example file (sorted by filename) for a component version, with disk stats
+ * for cheap screenshot cache invalidation.
+ */
+export function getPrimaryExampleMeta(
+  componentType: string,
+  version: string,
+): PrimaryExampleMeta | undefined {
+  try {
+    const examplesPath = path.join(REGISTRY_PATH, componentType, version, "examples");
+    if (!fs.existsSync(examplesPath)) return undefined;
+
+    const exampleFiles = fs
+      .readdirSync(examplesPath)
+      .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"))
+      .sort();
+
+    if (exampleFiles.length === 0) return undefined;
+
+    const file = exampleFiles[0]!;
+    const filePath = path.join(examplesPath, file);
+    const stat = fs.statSync(filePath);
+    const content = fs.readFileSync(filePath, "utf8");
+    const { escaped } = escapeTemplateVars(content);
+    const data = yaml.load(escaped) as { name?: string } | null;
+    const name =
+      (data && typeof data === "object" && typeof data.name === "string" && data.name) ||
+      file.replace(/\.(yml|yaml)$/, "");
+
+    return {
+      name,
+      version,
+      sourceMtime: Math.floor(stat.mtimeMs),
+      sourceSize: stat.size,
+    };
+  } catch (error) {
+    log.error({ err: error }, `Error reading primary example for ${componentType}/${version}:`);
+    return undefined;
+  }
+}
+
 export function getRegistryOverview(): RegistryOverview {
   const components = listComponents();
-  
+
   return {
-    components: components.map(type => {
+    components: components.map((type) => {
       const versions = listVersions(type);
-      const latestVersion = versions[0] || 'v1.0';
+      const latestVersion = versions[0] || "v1.0";
       const schema = loadSchema(type, latestVersion);
-      
+      const variants = schema?.variants ? Object.keys(schema.variants) : [];
+      const primaryExample = getPrimaryExampleMeta(type, latestVersion);
+      const examplesPath = path.join(REGISTRY_PATH, type, latestVersion, "examples");
+      let exampleCount = 0;
+      if (fs.existsSync(examplesPath)) {
+        exampleCount = fs
+          .readdirSync(examplesPath)
+          .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml")).length;
+      }
+
       return {
         type,
         name: schema?.name || type,
-        description: schema?.description || '',
+        description: schema?.description || "",
         latestVersion,
         versions,
+        variants,
+        exampleCount,
+        primaryExample,
       };
     }),
   };

@@ -2,6 +2,7 @@ import { Switch, Route } from "wouter";
 import { lazy, Suspense } from "react";
 
 const ComponentShowcase = lazy(() => import("@/pages/ComponentShowcase"));
+const ComponentGallery = lazy(() => import("@/pages/ComponentGallery"));
 const ComponentPreview = lazy(() => import("@/pages/ComponentPreview"));
 const MediaGallery = lazy(() => import("@/pages/MediaGallery"));
 const MenuEditor = lazy(() => import("@/pages/MenuEditor"));
@@ -61,6 +62,7 @@ export default function PrivateRouter() {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Switch>
+        <Route path="/private/component" component={ComponentGallery} />
         <Route path="/private/component-showcase" component={ComponentShowcase} />
         <Route path="/private/component-showcase/:componentType" component={ComponentShowcase} />
         <Route path="/private/component-showcase/:componentType/preview" component={ComponentPreview} />

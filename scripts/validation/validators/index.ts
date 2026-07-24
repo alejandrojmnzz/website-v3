@@ -30,6 +30,7 @@ import { formsValidator } from "./forms";
 import { consentLegacyKeysValidator } from "./consent-legacy-keys";
 import { bindingIntegrityValidator } from "./binding-integrity";
 import { brokenAnchorsValidator } from "./broken-anchors";
+import { sectionVariantsValidator } from "./section-variants";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -37,6 +38,7 @@ export const validators: Validator[] = [
   schemaValidator,
   sitemapValidator,
   componentsValidator,
+  sectionVariantsValidator,
   backgroundsValidator,
   faqsValidator,
   seoDepthValidator,

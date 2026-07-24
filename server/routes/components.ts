@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import express from "express";
 import { getDefaultContentRoot } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
@@ -69,6 +70,13 @@ import {
   deleteExample,
   deleteVariant,
 } from "../component-registry";
+import {
+  getScreenshotIndex,
+  getExampleScreenshotEntry,
+  readScreenshotImage,
+  saveScreenshot,
+  deleteScreenshot,
+} from "../component-screenshots";
 import {
   editContent,
   editCommonContent,
@@ -542,6 +550,117 @@ export function registerComponentsRoutes(app: Express): void {
       });
     }
   );
+
+  // Component gallery screenshot cache (private admin)
+  app.get("/api/private/component-screenshots", (_req, res) => {
+    const overview = getRegistryOverview();
+    res.json(getScreenshotIndex(overview.components));
+  });
+
+  app.get("/api/private/component-screenshots/:componentType", (req, res) => {
+    const { componentType } = req.params;
+    const example =
+      typeof req.query.example === "string" && req.query.example.trim()
+        ? req.query.example.trim()
+        : null;
+    const image = readScreenshotImage(componentType, example);
+    if (!image) {
+      res.status(404).json({ error: "Screenshot not found" });
+      return;
+    }
+    res.setHeader("Content-Type", "image/webp");
+    // Private admin cache — avoid long-lived browser cache so refreshes show new captures
+    res.setHeader("Cache-Control", "private, no-cache, must-revalidate");
+    res.send(image);
+  });
+
+  app.put("/api/private/component-screenshots/:componentType", express.raw({ type: "image/webp", limit: "5mb" }), (req, res) => {
+    const { componentType } = req.params;
+    const version = typeof req.query.version === "string" ? req.query.version : "";
+    const example = typeof req.query.example === "string" ? req.query.example : "";
+    const sourceMtime = Number(req.query.sourceMtime);
+    const sourceSize = Number(req.query.sourceSize);
+    const exampleKeyed =
+      req.query.keyed === "1" ||
+      req.query.keyed === "true" ||
+      req.query.exampleKeyed === "1";
+
+    if (!version || !example) {
+      res.status(400).json({ error: "version and example query params required" });
+      return;
+    }
+    if (!Number.isFinite(sourceMtime) || !Number.isFinite(sourceSize)) {
+      res.status(400).json({ error: "sourceMtime and sourceSize query params required" });
+      return;
+    }
+
+    const image = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? []);
+    if (image.length === 0) {
+      res.status(400).json({ error: "Empty image body" });
+      return;
+    }
+
+    const capturedAt = new Date().toISOString();
+    const result = saveScreenshot(
+      componentType,
+      image,
+      {
+        version,
+        example,
+        sourceMtime,
+        sourceSize,
+        capturedAt,
+      },
+      { exampleKeyed },
+    );
+    if (!result.success) {
+      res.status(500).json({ error: result.error || "Failed to save screenshot" });
+      return;
+    }
+    const params = new URLSearchParams({ t: String(Date.parse(capturedAt)) });
+    if (exampleKeyed) params.set("example", example);
+    res.json({
+      success: true,
+      url: `/api/private/component-screenshots/${encodeURIComponent(componentType)}?${params}`,
+    });
+  });
+
+  app.delete("/api/private/component-screenshots/:componentType", (req, res) => {
+    const { componentType } = req.params;
+    const example =
+      typeof req.query.example === "string" && req.query.example.trim()
+        ? req.query.example.trim()
+        : null;
+    const result = deleteScreenshot(componentType, example);
+    if (!result.success) {
+      res.status(500).json({ error: result.error || "Failed to delete screenshot" });
+      return;
+    }
+    res.json({ success: true });
+  });
+
+  /** Per-example screenshot index for the fork picker (lazy; not used by main gallery). */
+  app.get("/api/private/component-screenshots/:componentType/examples", (req, res) => {
+    const { componentType } = req.params;
+    const version =
+      typeof req.query.version === "string" && req.query.version
+        ? req.query.version
+        : undefined;
+    const overview = getRegistryOverview();
+    const comp = overview.components.find((c) => c.type === componentType);
+    const resolvedVersion = version || comp?.latestVersion || "v1.0";
+    const examples = loadExamples(componentType, resolvedVersion);
+    const index: Record<string, ReturnType<typeof getExampleScreenshotEntry>> = {};
+    for (const ex of examples) {
+      index[ex.name] = getExampleScreenshotEntry(
+        componentType,
+        ex.name,
+        ex.sourceMtime,
+        ex.sourceSize,
+      );
+    }
+    res.json({ version: resolvedVersion, examples, index });
+  });
 
   app.get("/api/content/folder-files", (req, res) => {
     try {

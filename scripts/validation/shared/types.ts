@@ -23,6 +23,8 @@ export interface ValidationIssue {
   suggestion?: string;
   fix?: FixHint;
   category?: ValidatorMetadata["category"];
+  /** When the validation cache / run that produced this issue was built (ISO). */
+  validationCacheBuiltAt?: string;
 }
 
 export interface ValidatorResult {

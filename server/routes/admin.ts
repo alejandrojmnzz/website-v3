@@ -109,7 +109,7 @@ import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
-import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent, getComponentUsageData } from "../component-insights";
+import { readInsightsFile, suggestNext as suggestNextComponent, getComponentUsageData, getInsightsStatus, requestInsightsRebuild, getUsageSummary } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
 import {
   getFolder,
@@ -2260,9 +2260,9 @@ export function registerAdminRoutes(app: Express): void {
   // ============================================================
   // Component Co-occurrence & Ordering Insights
   // ============================================================
-  app.post("/api/private/component-insights/rebuild", (_req, res) => {
+  app.post("/api/private/component-insights/rebuild", async (_req, res) => {
     try {
-      const data = runComponentInsightsScan();
+      const data = await requestInsightsRebuild();
       res.json(data);
     } catch (err) {
       log.error({ err: err }, "[ComponentInsights] Rebuild failed:");
@@ -2270,11 +2270,34 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/private/component-insights/status", (_req, res) => {
+    try {
+      res.json(getInsightsStatus());
+    } catch (err) {
+      res.status(500).json({ error: "Failed to read insights status", details: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/private/component-insights/summary/:type", (req, res) => {
+    try {
+      const summary = getUsageSummary(req.params.type);
+      res.json(summary);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to get usage summary", details: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/private/component-insights", (_req, res) => {
     try {
+      // Status getter kicks a lazy rebuild when cache is missing/outdated.
+      const st = getInsightsStatus();
       const data = readInsightsFile();
       if (!data) {
-        return res.status(404).json({ error: "Insights not yet generated. POST /api/private/component-insights/rebuild to generate." });
+        return res.status(404).json({
+          error: "Insights not yet generated or cache format is outdated. Rebuild started.",
+          rebuilding: true,
+          status: st,
+        });
       }
       res.json(data);
     } catch (err) {

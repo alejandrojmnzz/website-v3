@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck, ExternalLink, FileText, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode, type CSSProperties } from "react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronRight, CircleCheck, ExternalLink, FileText, GripVertical, Info, Pencil, Plus, Route, Search, ShieldCheck, TestTube, Trash2, Wrench, X } from "lucide-react";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -40,6 +40,23 @@ import {
 } from "@/components/RedirectConflictResolver";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const CustomRedirectsYmlEditorPanel = lazy(
   () => import("@/components/editing/CustomRedirectsYmlEditorPanel"),
@@ -112,6 +129,62 @@ function hasRegexChars(path: string): boolean {
 function isCustomRedirect(redirect: { type?: string; source?: string }): boolean {
   if (redirect.type === "custom") return true;
   return /(?:^|\/)custom-redirects\.yml$/.test(redirect.source || "");
+}
+
+function redirectSortId(redirect: Redirect): string {
+  const toKey =
+    typeof redirect.to === "string" ? redirect.to : JSON.stringify(redirect.to);
+  return `${redirect.from}=>${toKey}`;
+}
+
+function SortableRedirectRow({
+  id,
+  index,
+  type,
+  children,
+}: {
+  id: string;
+  index: number;
+  type: string;
+  children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 1 : undefined,
+    position: isDragging ? "relative" : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50 transition-colors"
+      data-testid={`redirect-row-${type}-${index}`}
+    >
+      <button
+        type="button"
+        className="touch-none cursor-grab active:cursor-grabbing flex-shrink-0 h-5 w-5 flex items-center justify-center text-muted-foreground"
+        title="Drag to reorder"
+        data-testid={`button-drag-${index}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      {children}
+    </div>
+  );
 }
 
 interface ValidationIssue {
@@ -673,15 +746,55 @@ export default function PrivateRedirects() {
   };
 
   const handleReorderCustomRedirect = async (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
     const allCustomRedirects = redirects.filter((r) => isCustomRedirect(r));
-    const reordered = [...allCustomRedirects];
-    const [moved] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, moved);
-    await apiRequest("PATCH", "/api/debug/redirects/reorder", {
-      redirects: reordered.map((r) => ({ from: r.from, to: r.to, status: r.status, priority: r.priority })),
-      author: getDebugUserName(),
-    });
-    queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
+    if (fromIndex >= allCustomRedirects.length || toIndex >= allCustomRedirects.length) {
+      return;
+    }
+    const reordered = arrayMove(allCustomRedirects, fromIndex, toIndex);
+    try {
+      await apiRequest("PATCH", "/api/debug/redirects/reorder", {
+        redirects: reordered.map((r) => ({
+          from: r.from,
+          to: r.to,
+          status: r.status,
+          priority: r.priority,
+        })),
+        author: getDebugUserName(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
+      toast({
+        title: "Redirects reordered",
+        description: "Custom redirect order has been saved.",
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to reorder redirects",
+        description: getApiErrorMessage(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const redirectSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const handleCustomRedirectDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const allCustomRedirects = redirects.filter((r) => isCustomRedirect(r));
+    const oldIndex = allCustomRedirects.findIndex(
+      (r) => redirectSortId(r) === String(active.id),
+    );
+    const newIndex = allCustomRedirects.findIndex(
+      (r) => redirectSortId(r) === String(over.id),
+    );
+    if (oldIndex === -1 || newIndex === -1) return;
+    void handleReorderCustomRedirect(oldIndex, newIndex);
   };
 
   if (!isAuthorized) {
@@ -1243,48 +1356,19 @@ export default function PrivateRedirects() {
                     </span>
                   </button>
                   {isExpanded && (
-                    <div className="ml-4 mt-1 border rounded-lg divide-y overflow-hidden">
+                    <div className="ml-4 mt-1 border rounded-lg divide-y">
                       {(() => {
-                        const allCustomRedirects = redirects.filter((r) =>
+                        const canReorder = typeRedirects.some((r) =>
                           isCustomRedirect(r),
                         );
-                        return typeRedirects.map((redirect, index) => {
+                        const rows = typeRedirects.map((redirect, index) => {
                         const isCustom = isCustomRedirect(redirect);
                         const isEditableRegex =
                           isCustom && hasRegexChars(redirect.from);
-                        const globalCustomIndex = isCustom
-                          ? allCustomRedirects.findIndex((r) => r.from === redirect.from && r.to === redirect.to)
-                          : -1;
-                        const isFirstCustom = globalCustomIndex === 0;
-                        const isLastCustom = globalCustomIndex === allCustomRedirects.length - 1;
                         const editingFrom = editingKey === `${redirect.from}::from`;
                         const editingTo = editingKey === `${redirect.from}::to`;
-                        return (
-                          <div
-                            key={`${redirect.from}-${index}`}
-                            className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50 transition-colors"
-                            data-testid={`redirect-row-${type}-${index}`}
-                          >
-                            {isCustom && (
-                              <div className="flex flex-col flex-shrink-0" style={{ gap: 0 }}>
-                                <button
-                                  className={`h-5 w-5 flex items-center justify-center text-muted-foreground${isFirstCustom ? " opacity-30 pointer-events-none" : ""}`}
-                                  onClick={() => handleReorderCustomRedirect(globalCustomIndex, globalCustomIndex - 1)}
-                                  disabled={isFirstCustom}
-                                  data-testid={`button-move-up-${index}`}
-                                >
-                                  <ChevronUp className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  className={`h-5 w-5 flex items-center justify-center text-muted-foreground${isLastCustom ? " opacity-30 pointer-events-none" : ""}`}
-                                  onClick={() => handleReorderCustomRedirect(globalCustomIndex, globalCustomIndex + 1)}
-                                  disabled={isLastCustom}
-                                  data-testid={`button-move-down-${index}`}
-                                >
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            )}
+                        const rowBody = (
+                          <>
                             <div className="flex-1 min-w-0 flex items-center gap-1.5">
                               {editingFrom ? (
                                 <div className="flex items-center gap-1 flex-1 min-w-0">
@@ -1551,9 +1635,51 @@ export default function PrivateRedirects() {
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
+                          </>
+                        );
+
+                        if (isCustom && canReorder) {
+                          return (
+                            <SortableRedirectRow
+                              key={redirectSortId(redirect)}
+                              id={redirectSortId(redirect)}
+                              index={index}
+                              type={type}
+                            >
+                              {rowBody}
+                            </SortableRedirectRow>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={`${redirect.from}-${index}`}
+                            className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50 transition-colors"
+                            data-testid={`redirect-row-${type}-${index}`}
+                          >
+                            {rowBody}
                           </div>
                         );
                       });
+
+                        if (!canReorder) return rows;
+
+                        return (
+                          <DndContext
+                            sensors={redirectSensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={handleCustomRedirectDragEnd}
+                          >
+                            <SortableContext
+                              items={typeRedirects
+                                .filter((r) => isCustomRedirect(r))
+                                .map(redirectSortId)}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              {rows}
+                            </SortableContext>
+                          </DndContext>
+                        );
                       })()}
                     </div>
                   )}

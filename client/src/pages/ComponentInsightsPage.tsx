@@ -492,6 +492,72 @@ export default function ComponentInsightsPage() {
                     </Card>
                   </section>
 
+                  {tab === activeTab && selectedNode && (
+                    <section data-testid="section-selected-usage">
+                      <h2 className="text-lg font-semibold mb-3">Usage for {selectedNode}</h2>
+                      <Card>
+                        <CardContent className="pt-4 space-y-3 text-sm">
+                          {(() => {
+                            const usage =
+                              tabCluster.usageByType?.[selectedNode] ??
+                              data.global.usageByType?.[selectedNode];
+                            if (!usage) {
+                              return (
+                                <p className="text-muted-foreground">
+                                  No usage recorded for this component in the insights cache.
+                                </p>
+                              );
+                            }
+                            return (
+                              <>
+                                <p>
+                                  <span className="font-medium">{usage.totalUses}</span> uses across{" "}
+                                  <span className="font-medium">{usage.pageCount}</span> pages
+                                </p>
+                                {usage.byContentType.length > 0 && (
+                                  <div>
+                                    <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                                      Content types
+                                    </h4>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {usage.byContentType.map((ct) => (
+                                        <Badge
+                                          key={ct.contentType}
+                                          variant="outline"
+                                          className="text-xs font-normal"
+                                        >
+                                          {ct.contentType} · {ct.count}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {usage.variants.length > 0 && (
+                                  <div>
+                                    <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                                      Variants
+                                    </h4>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {usage.variants.map((v) => (
+                                        <Badge
+                                          key={v.variant}
+                                          variant="secondary"
+                                          className="text-xs font-normal"
+                                        >
+                                          {v.variant} · {v.count}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </CardContent>
+                      </Card>
+                    </section>
+                  )}
+
                   <section>
                     <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                       <h2 className="text-lg font-semibold">Component Pairings</h2>

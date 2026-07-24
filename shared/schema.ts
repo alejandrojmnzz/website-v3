@@ -1477,10 +1477,47 @@ export interface ComponentSequence {
   count: number;
 }
 
+export interface InsightSection {
+  type: string;
+  variant: string;
+}
+
+export interface InsightPageRecord {
+  key: string;
+  contentType: string;
+  kind: "page" | "shared_template" | "overlay";
+  slug?: string;
+  slugs?: string[];
+  intent: string;
+  weight: number;
+  instanceCount: number;
+  sections: InsightSection[];
+}
+
+export interface VariantUsageStat {
+  variant: string;
+  count: number;
+  pageCount: number;
+}
+
+export interface ContentTypeUsageStat {
+  contentType: string;
+  count: number;
+  pageCount: number;
+}
+
+export interface ComponentUsageStat {
+  totalUses: number;
+  pageCount: number;
+  variants: VariantUsageStat[];
+  byContentType: ContentTypeUsageStat[];
+}
+
 export interface IntentCluster {
   pairings: ComponentPairing[];
   topSequences: ComponentSequence[];
   pageCount: number;
+  usageByType: Record<string, ComponentUsageStat>;
 }
 
 export interface ComponentInsightsMeta {
@@ -1494,6 +1531,7 @@ export interface ComponentInsightsMeta {
 export interface ComponentInsightsData {
   generatedAt: string;
   meta: ComponentInsightsMeta;
+  pages: InsightPageRecord[];
   global: IntentCluster;
   byIntent: Record<string, IntentCluster>;
 }

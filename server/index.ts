@@ -472,6 +472,12 @@ app.use((req, res, next) => {
       .finally(() => {
         warmupComplete = true;
         log("warmup complete — serving full SSR on /");
+        // Low-priority: component insights rebuild (after warmup; does not block listen)
+        import("./component-insights")
+          .then(({ runStartupInsightsRebuild }) => runStartupInsightsRebuild())
+          .catch((err) => {
+            logger.error({ err, worker: "ComponentInsights" }, "startup rebuild failed");
+          });
       });
     startBackgroundSync().catch((err) => {
       logger.error({ err, worker: "SyncState" }, "failed to start background sync");
@@ -493,6 +499,12 @@ app.use((req, res, next) => {
       }
       if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
         updateFormStateForFile(filePath);
+      }
+      // Debounced component-insights rebuild when sections YAML / overlays change
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
+        import("./component-insights")
+          .then(({ markInsightsDirty }) => markInsightsDirty(filePath))
+          .catch(() => {});
       }
     });
   });
