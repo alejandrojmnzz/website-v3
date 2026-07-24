@@ -34,7 +34,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
-import { useAuthUser } from "@/hooks/useAuthUser";
+import { useAuthUser, getConsumerToken } from "@/hooks/useAuthUser";
 import { resolveFormFields, type IdentityField } from "@/lib/resolveFormFields";
 import {
   resolveLeadFormPhase,
@@ -45,6 +45,20 @@ import {
   buildQueryOptionsUrl,
   type FormFieldSourceInput,
 } from "@shared/parseFormFieldSource";
+
+/** For is_signup success redirects: pass auth token to external destinations only. */
+function resolveSignupSuccessUrl(url: string): string {
+  const token = getConsumerToken();
+  if (!token) return url;
+  try {
+    const target = new URL(url, window.location.origin);
+    if (target.origin === window.location.origin) return url;
+    target.searchParams.set("token", token);
+    return target.href;
+  } catch {
+    return url;
+  }
+}
 
 interface FieldConfig {
   visible?: boolean;
@@ -941,7 +955,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       }
 
       if (resolvedData.success?.url) {
-        window.location.href = resolvedData.success.url;
+        const successUrl = isSignupRequested
+          ? resolveSignupSuccessUrl(resolvedData.success.url)
+          : resolvedData.success.url;
+        window.location.href = successUrl;
       } else {
         setIsSuccess(true);
         setSuccessMessage(resolvedData.success?.message || (locale === "es" 
