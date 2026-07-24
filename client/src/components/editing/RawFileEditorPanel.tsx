@@ -24,12 +24,16 @@ interface RawFileEditorPanelProps {
   slug: string;
   locale: string;
   variantSlug?: string;
+  /** When true, YAML is view-only (no Save/Cancel footer). */
+  readOnly?: boolean;
   onClose: () => void;
   onSaved?: () => void;
 }
 
-interface FileInfo {
+interface TabFile {
+  id: string;
   path: string;
+  originalContent: string;
   content: string;
 }
 
@@ -38,15 +42,12 @@ interface PendingSave {
   issues: string[];
 }
 
-export default function RawFileEditorPanel({ contentType, slug, locale, variantSlug, onClose, onSaved }: RawFileEditorPanelProps) {
+export default function RawFileEditorPanel({ contentType, slug, locale, variantSlug, readOnly = false, onClose, onSaved }: RawFileEditorPanelProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeFile, setActiveFile] = useState<"locale" | "common">("locale");
-  const [localeFile, setLocaleFile] = useState<FileInfo | null>(null);
-  const [commonFile, setCommonFile] = useState<FileInfo | null>(null);
-  const [localeContent, setLocaleContent] = useState("");
-  const [commonContent, setCommonContent] = useState("");
+  const [files, setFiles] = useState<TabFile[]>([]);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
@@ -66,19 +67,40 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
           setError("No YAML files found for this content");
           return;
         }
-        if (data.files.locale) {
-          setLocaleFile(data.files.locale);
-          setLocaleContent(data.files.locale.content);
+
+        const nextFiles: TabFile[] = [];
+        const localeEntries: { path: string; content: string }[] =
+          Array.isArray(data.files.locales) && data.files.locales.length > 0
+            ? data.files.locales
+            : data.files.locale
+              ? [data.files.locale]
+              : [];
+
+        for (const entry of localeEntries) {
+          nextFiles.push({
+            id: entry.path,
+            path: entry.path,
+            originalContent: entry.content,
+            content: entry.content,
+          });
         }
         if (data.files.common) {
-          setCommonFile(data.files.common);
-          setCommonContent(data.files.common.content);
+          nextFiles.push({
+            id: data.files.common.path,
+            path: data.files.common.path,
+            originalContent: data.files.common.content,
+            content: data.files.common.content,
+          });
         }
-        if (data.files.locale) {
-          setActiveFile("locale");
-        } else if (data.files.common) {
-          setActiveFile("common");
+
+        if (nextFiles.length === 0) {
+          setError("No YAML files found for this content");
+          return;
         }
+
+        setFiles(nextFiles);
+        setActiveFileId(nextFiles[0].id);
+        setHasChanges(false);
       } catch {
         setError("Failed to load files");
       } finally {
@@ -86,14 +108,13 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
       }
     };
     fetchFiles();
-  }, [contentType, slug, locale]);
+  }, [contentType, slug, locale, variantSlug]);
 
   const handleChange = (value: string) => {
-    if (activeFile === "locale") {
-      setLocaleContent(value);
-    } else {
-      setCommonContent(value);
-    }
+    if (readOnly || !activeFileId) return;
+    setFiles((prev) =>
+      prev.map((file) => (file.id === activeFileId ? { ...file, content: value } : file)),
+    );
     setHasChanges(true);
   };
 
@@ -118,8 +139,13 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
         }
       }
 
-      if (localeFile) setLocaleFile({ ...localeFile, content: localeContent });
-      if (commonFile) setCommonFile({ ...commonFile, content: commonContent });
+      setFiles((prev) =>
+        prev.map((file) => {
+          const saved = filesToSave.find((f) => f.filePath === file.path);
+          if (!saved) return file;
+          return { ...file, originalContent: saved.content, content: saved.content };
+        }),
+      );
       setHasChanges(false);
 
       toast({ title: "YAML saved successfully" });
@@ -136,14 +162,9 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
   };
 
   const handleSave = async () => {
-    const filesToSave: { filePath: string; content: string }[] = [];
-
-    if (localeFile && localeContent !== localeFile.content) {
-      filesToSave.push({ filePath: localeFile.path, content: localeContent });
-    }
-    if (commonFile && commonContent !== commonFile.content) {
-      filesToSave.push({ filePath: commonFile.path, content: commonContent });
-    }
+    const filesToSave = files
+      .filter((file) => file.content !== file.originalContent)
+      .map((file) => ({ filePath: file.path, content: file.content }));
 
     if (filesToSave.length === 0) {
       toast({ title: "No changes to save" });
@@ -168,9 +189,9 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
 
   const handleConfirmSaveAnyway = async () => {
     if (!pendingSave) return;
-    const files = pendingSave.filesToSave;
+    const pending = pendingSave.filesToSave;
     setPendingSave(null);
-    await executeSave(files);
+    await executeSave(pending);
   };
 
   const handleCancelSave = () => {
@@ -178,22 +199,23 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
   };
 
   const handleClose = () => {
-    if (hasChanges) {
+    if (!readOnly && hasChanges) {
       const confirm = window.confirm("You have unsaved changes. Close without saving?");
       if (!confirm) return;
     }
     onClose();
   };
 
-  const currentContent = activeFile === "locale" ? localeContent : commonContent;
-  const currentFile = activeFile === "locale" ? localeFile : commonFile;
+  const currentFile = files.find((file) => file.id === activeFileId) ?? null;
 
   return (
     <>
       <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[520px] bg-background border-l shadow-xl z-[9999] flex flex-col" data-testid="raw-file-editor-panel">
         <div className="flex items-center justify-between p-4 border-b">
           <div className="min-w-0 flex-1">
-            <h2 className="font-semibold" data-testid="text-editor-title">Edit Raw YAML</h2>
+            <h2 className="font-semibold" data-testid="text-editor-title">
+              {readOnly ? "View Raw YAML" : "Edit Raw YAML"}
+            </h2>
             {currentFile && (
               <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-file-path">
                 {currentFile.path}
@@ -205,26 +227,24 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
           </Button>
         </div>
 
-        {(localeFile && commonFile) && (
-          <div className="flex border-b">
-            <button
-              type="button"
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${activeFile === "locale" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground"}`}
-              onClick={() => setActiveFile("locale")}
-              data-testid="tab-locale-file"
-            >
-              <File className="h-3.5 w-3.5 inline mr-1.5" />
-              {localeFile.path.split("/").pop() || (variantSlug ? `${variantSlug}.${locale}.yml` : `${locale}.yml`)}
-            </button>
-            <button
-              type="button"
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${activeFile === "common" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground"}`}
-              onClick={() => setActiveFile("common")}
-              data-testid="tab-common-file"
-            >
-              <File className="h-3.5 w-3.5 inline mr-1.5" />
-              {commonFile.path.split("/").pop() || "_common.yml"}
-            </button>
+        {files.length > 1 && (
+          <div className="flex border-b overflow-x-auto">
+            {files.map((file) => {
+              const fileName = file.path.split("/").pop() || file.path;
+              const isActive = file.id === activeFileId;
+              return (
+                <button
+                  key={file.id}
+                  type="button"
+                  className={`flex-1 min-w-0 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap ${isActive ? "border-b-2 border-primary text-foreground" : "text-muted-foreground"}`}
+                  onClick={() => setActiveFileId(file.id)}
+                  data-testid={`tab-file-${fileName}`}
+                >
+                  <File className="h-3.5 w-3.5 inline mr-1.5" />
+                  {fileName}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -240,15 +260,16 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
             </div>
           ) : currentFile ? (
             <CodeMirror
-              value={currentContent}
+              value={currentFile.content}
               height="100%"
               extensions={[yaml()]}
               theme={oneDark}
               onChange={handleChange}
+              readOnly={readOnly}
               basicSetup={{
                 lineNumbers: true,
                 foldGutter: true,
-                highlightActiveLine: true,
+                highlightActiveLine: !readOnly,
               }}
               className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto"
             />
@@ -259,26 +280,28 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
           )}
         </div>
 
-        <div className="flex items-center justify-between p-3 border-t gap-2">
-          {hasChanges && (
-            <span className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-unsaved">
-              Unsaved changes
-            </span>
-          )}
-          <div className="flex items-center gap-2 ml-auto">
-            <Button variant="outline" onClick={handleClose} data-testid="button-cancel-raw-editor">
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={!hasChanges || saving} data-testid="button-save-raw-editor">
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              Save
-            </Button>
+        {!readOnly && (
+          <div className="flex items-center justify-between p-3 border-t gap-2">
+            {hasChanges && (
+              <span className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-unsaved">
+                Unsaved changes
+              </span>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <Button variant="outline" onClick={handleClose} data-testid="button-cancel-raw-editor">
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={!hasChanges || saving} data-testid="button-save-raw-editor">
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Save
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <AlertDialog open={pendingSave !== null} onOpenChange={(open) => { if (!open) handleCancelSave(); }}>

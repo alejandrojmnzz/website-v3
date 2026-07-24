@@ -104,6 +104,7 @@ export interface DebugPanelContentProps {
   onDetachEntry?: () => void | Promise<void>;
   onReattachEntry?: () => void | Promise<void>;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
+  onOpenTemplateYaml?: () => void;
   handleLinkClick: (href: string) => void;
 
   sitemapUrls: SitemapUrl[];
@@ -822,7 +823,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               <MenuItem
                 icon={Settings}
                 label="AI Settings"
-                href="/private/settings/ai"
+                href="/private/settings/ai/llms"
                 indicator="arrow"
                 testId="link-ai-settings"
               />
@@ -1123,6 +1124,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           pathname={props.pathname}
           onVersioningDataUpdate={props.onVersioningDataUpdate as any}
           onEditVariantYaml={props.onEditVariantYaml}
+          onOpenTemplateYaml={props.onOpenTemplateYaml}
           detachBusy={props.detachBusy}
           onRequestDetach={openDetachConfirm}
           onRequestReattach={openReattachConfirm}

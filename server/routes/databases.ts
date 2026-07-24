@@ -8,6 +8,7 @@ import { getAllQueueState } from "../image-queue-state";
 import { getAllJobStates, type DbJobState } from "../db-job-state";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import { getValidationCacheService } from "../services/validationCacheService";
+import { getDatabaseUsage } from "../database-usage";
 
 
 import * as fs from "fs";
@@ -290,6 +291,9 @@ export function registerDatabasesRoutes(app: Express): void {
         Object.assign(dbSingleData, resolved);
       }
 
+      const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
+      await enhanceArticleSectionsInPage(dbSingleData);
+
       try {
         const site = res.locals.site as import("../site-manager").SiteContext | undefined;
         if (site?.entryPreviewManager) {
@@ -441,10 +445,16 @@ export function registerDatabasesRoutes(app: Express): void {
       const dbm = getDB(res);
       const config = dbm.get(req.params.name);
       const cacheInfo = dbm.getCacheInfo(req.params.name);
+      const dbCache = getValidationCache(res).getByDatabase(req.params.name);
+      const errorCount = dbCache ? countDatabaseCacheErrors(dbCache.errors) : 0;
       res.json({
         name: req.params.name,
         config,
         cache_status: cacheInfo,
+        error_count: errorCount,
+        error_summary: dbCache?.errors[0]?.message,
+        validation_errors: dbCache?.errors ?? [],
+        validation_warnings: dbCache?.warnings ?? [],
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -453,6 +463,25 @@ export function registerDatabasesRoutes(app: Express): void {
       } else {
         res.status(500).json({ error: msg });
       }
+    }
+  });
+
+  app.get("/api/databases/:name/usage", (req, res) => {
+    try {
+      const dbm = getDB(res);
+      const name = req.params.name;
+      if (!dbm.exists(name)) {
+        res.status(404).json({ error: `Database "${name}" not found` });
+        return;
+      }
+      const report = getDatabaseUsage(name, {
+        contentRoot: getContentRoot(res),
+        db: dbm,
+      });
+      res.json(report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
     }
   });
 

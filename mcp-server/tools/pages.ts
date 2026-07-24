@@ -1029,7 +1029,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
@@ -1061,13 +1061,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return fail("'value' is required when 'field' is provided.");
         }
         const isCommon = META_COMMON_FIELDS.has(field);
-        const fileName = isCommon ? "_common.yml" : (variant ? `${variant}.${locale}.yml` : `${locale}.yml`);
+        // Metafields always use live locale (variants share meta; never write variant files for meta).
+        const fileName = isCommon ? "_common.yml" : `${locale}.yml`;
         const filePath = path.join(dir, fileName);
         try { assertWithinBase(filePath, contentPath); } catch (e) {
           return fail((e as Error).message);
-        }
-        if (!isCommon && !fs.existsSync(filePath)) {
-          return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
         }
         const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
         const conflictErrF = await getConflictError(filePath, relativePath, [[`meta.${field}`, value]], { field, value }, domain);
@@ -1077,20 +1075,18 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const apiErrF = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: [metaOp] }, mcpToken, domain);
           if (apiErrF) return apiErrF;
         } else {
-          const apiResultF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: [metaOp] }, mcpToken, domain);
+          // No variant — live locale only; API creates overlay if missing
+          const apiResultF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, operations: [metaOp] }, mcpToken, domain);
           if ("error" in apiResultF) return apiResultF.error;
         }
         results.push(`meta.${field} → ${fileName}`);
       }
 
       if (custom_fields && target) {
-        const fileName = target === "common" ? "_common.yml" : (variant ? `${variant}.${locale}.yml` : `${locale}.yml`);
+        const fileName = target === "common" ? "_common.yml" : `${locale}.yml`;
         const filePath = path.join(dir, fileName);
         try { assertWithinBase(filePath, contentPath); } catch (e) {
           return fail((e as Error).message);
-        }
-        if (target === "locale" && !fs.existsSync(filePath)) {
-          return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
         }
         const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
         const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
@@ -1101,7 +1097,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const apiErrC = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: ops }, mcpToken, domain);
           if (apiErrC) return apiErrC;
         } else {
-          const apiResultC = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: ops }, mcpToken, domain);
+          const apiResultC = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, operations: ops }, mcpToken, domain);
           if ("error" in apiResultC) return apiResultC.error;
         }
         results.push(`${Object.keys(custom_fields).map(k => `meta.${k}`).join(", ")} → ${fileName}`);
@@ -1178,7 +1174,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath);
+      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
@@ -1235,19 +1231,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
 
         if (localeEntries.length > 0) {
-          const fileName = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
+          // Live locale only — variants share metafields
+          const fileName = `${locale}.yml`;
           const filePath = path.join(dir, fileName);
           try { assertWithinBase(filePath, contentPath); } catch (e) {
             return fail((e as Error).message);
-          }
-          if (!fs.existsSync(filePath)) {
-            return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
           }
           const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
           const conflictErrLE = await getConflictError(filePath, relativePath, localeEntries, { fields: Object.fromEntries(localeEntries) }, domain);
           if (conflictErrLE) return conflictErrLE;
           const apiResultLE = await callEditSectionsApi(
-            { contentType: resolved.contentType, slug, locale, variant, operations: localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v })) },
+            { contentType: resolved.contentType, slug, locale, operations: localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v })) },
             mcpToken,
             domain
           );
@@ -1257,13 +1251,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       if (custom_fields && target) {
-        const fileName = target === "common" ? "_common.yml" : (variant ? `${variant}.${locale}.yml` : `${locale}.yml`);
+        const fileName = target === "common" ? "_common.yml" : `${locale}.yml`;
         const filePath = path.join(dir, fileName);
         try { assertWithinBase(filePath, contentPath); } catch (e) {
           return fail((e as Error).message);
-        }
-        if (target === "locale" && !fs.existsSync(filePath)) {
-          return fail(`File not found: ${resolved.contentType}/${slug}/${fileName}`);
         }
         const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
         const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
@@ -1274,7 +1265,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const apiErrMF = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: opsMF }, mcpToken, domain);
           if (apiErrMF) return apiErrMF;
         } else {
-          const apiResultMF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, variant, operations: opsMF }, mcpToken, domain);
+          const apiResultMF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, operations: opsMF }, mcpToken, domain);
           if ("error" in apiResultMF) return apiResultMF.error;
         }
         results.push(`${Object.keys(custom_fields).map(k => `meta.${k}`).join(", ")} → ${fileName}`);
@@ -1285,6 +1276,221 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         { warnings: variantWarningsIfNeeded(variant), next_actions: [] },
       );
     }
+  );
+
+  // update_entry_field — DB override OR CT field_overrides (one level per call)
+  mcp.tool(
+    "update_entry_field",
+    "Set one mapping field at exactly one override level. " +
+    "Precedence: ct_override > db_override > original. " +
+    "level=content_type → live {directory}/{slug}/{locale}.yml field_overrides (page only; this locale; shared across layout variants). " +
+    "level=database → db/{dbSlug}/overrides.json (listings + pages; all locales). " +
+    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_meta_field).",
+    {
+      slug: z.string().describe("Entry slug"),
+      contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
+      field: z.string().describe("Mapping field name, e.g. 'title' or 'author_name'"),
+      value: z.unknown().describe("New value for the field"),
+      level: z.enum(["database", "content_type"]).describe(
+        "database = overrides.json (listings + pages, all locales). content_type = live locale field_overrides (page only, this locale)."
+      ),
+      locale: z.string().default("en").describe("Live locale for content_type level (ignored for database level)"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ slug, contentType, field, value, level, locale, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain } = siteResult;
+      try {
+        assertSafeSegment(slug, "slug");
+        assertSafeLocale(locale);
+        if (contentType) assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(field, "field");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
+      if (!resolved) {
+        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
+      }
+      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
+        return denyResponse("seo_edit");
+      }
+
+      const ct = resolved.contentType;
+      const ctDir = getDirectory(ct, resolved.config);
+      const dbSlug = resolved.config.database?.slug as string | undefined;
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const getHint = {
+        tool: "get_entry_fields",
+        reason: "Re-check provenance after write",
+        args_hint: { slug, contentType: ct, locale },
+        priority: "recommended" as const,
+      };
+
+      try {
+        if (level === "database") {
+          const relPath = `db/${dbSlug || "<database>"}/overrides.json`;
+          const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
+          const res = await fetch(url, {
+            method: "PUT",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify({ fields: { [field]: value } }),
+          });
+          const data = await res.json() as { error?: string };
+          if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+          return ok(
+            { message: `Database override set for ${ct}/${slug}.${field} → ${relPath}` },
+            {
+              warnings: [
+                {
+                  code: "db_override_affects_listings",
+                  message: `Wrote ${relPath}. Affects listings, dropdowns, and pages; shared across locales. Does not write field_overrides YAML.`,
+                },
+              ],
+              side_effects: [
+                { kind: "wrote_file", summary: relPath },
+                { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+              ],
+              next_actions: [getHint],
+            },
+          );
+        }
+
+        const relPath = `${ctDir}/${slug}/${locale}.yml`;
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}${q}`;
+        const res = await fetch(url, {
+          method: "PUT",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify({ locale, fields: { [field]: value } }),
+        });
+        const data = await res.json() as { error?: string };
+        if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+        return ok(
+          { message: `Content-type field_overrides set for ${ct}/${slug}.${field} → ${relPath}` },
+          {
+            warnings: [
+              {
+                code: "ct_override_page_only",
+                message: `Wrote field_overrides on ${relPath}. Page/YAML only; does not change database listings.`,
+              },
+              {
+                code: "ct_override_locale_only",
+                message: `Locale ${locale} only; sibling locales and variant files unchanged. Live file only (not _common.yml).`,
+              },
+            ],
+            side_effects: [{ kind: "wrote_file", summary: `${relPath}#field_overrides.${field}` }],
+            next_actions: [getHint],
+          },
+        );
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    "get_entry_fields",
+    "List mapping fields with effective value and provenance " +
+    "(original | db_override | ct_override | entry_default). " +
+    "Precedence: ct_override > db_override > original. " +
+    "CT overrides: live {locale}.yml field_overrides (this locale; shared across layout variants). " +
+    "DB overrides: overrides.json (all locales). Use before update_entry_field / reset_entry_field.",
+    {
+      slug: z.string(),
+      contentType: z.string().optional(),
+      locale: z.string().default("en"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ slug, contentType, locale, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain } = siteResult;
+      const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
+      if (!resolved) {
+        return fail(`Page not found for slug '${slug}'`);
+      }
+      const q = new URLSearchParams({ locale });
+      if (domain) q.set("__site", domain);
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const data = await res.json();
+        if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);
+        return ok(
+          {
+            message: `Fields for ${resolved.contentType}/${slug} (${locale})`,
+            ...(data as Record<string, unknown>),
+          },
+          { warnings: [], next_actions: [] },
+        );
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  );
+
+  mcp.tool(
+    "reset_entry_field",
+    "Reset a mapping field to the original database baseline by clearing both content-type field_overrides " +
+    "and database overrides for that field. Only valid for database-backed content types. " +
+    "Touches db/{dbSlug}/overrides.json and live {directory}/{slug}/{locale}.yml field_overrides.",
+    {
+      slug: z.string(),
+      contentType: z.string().optional(),
+      field: z.string(),
+      locale: z.string().default("en"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ slug, contentType, field, locale, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain } = siteResult;
+      const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
+      if (!resolved) return fail(`Page not found for slug '${slug}'`);
+      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) return denyResponse("seo_edit");
+      const ct = resolved.contentType;
+      const ctDir = getDirectory(ct, resolved.config);
+      const dbSlug = resolved.config.database?.slug as string | undefined;
+      const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
+      const ctPath = `${ctDir}/${slug}/${locale}.yml`;
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify({ field, locale }),
+        });
+        const data = await res.json() as { error?: string };
+        if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+        return ok(
+          { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${ctPath}#field_overrides` },
+          {
+            warnings: [
+              {
+                code: "reset_clears_both_layers",
+                message: `Cleared DB override (${dbPath}) and CT field_overrides on ${ctPath} for this field. Baseline restored.`,
+              },
+            ],
+            side_effects: [
+              { kind: "wrote_file", summary: dbPath },
+              { kind: "wrote_file", summary: `${ctPath}#field_overrides` },
+              { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+            ],
+            next_actions: [{
+              tool: "get_entry_fields",
+              reason: "Confirm provenance is original after reset",
+              args_hint: { slug, contentType: ct, locale },
+              priority: "recommended",
+            }],
+          },
+        );
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
   );
 
   // list_variants

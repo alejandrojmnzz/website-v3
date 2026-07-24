@@ -1,0 +1,21 @@
+---
+description: Relevant plans must include staff UI education and dense agent MCP education
+alwaysApply: true
+---
+# Education layer in plans
+
+When creating or updating a plan (Plan mode / CreatePlan) that touches admin UI, content editing, manage pages, DebugBubble, content model, or MCP — or whenever staff or agents need a new mental model — include an **Education layer** section.
+
+If the change is not relevant to staff or agents (e.g. typo, pure CSS, dependency bump), include the section as **N/A** with a one-line reason. Do not invent fake education for irrelevant plans; do not omit the section when the change *is* relevant.
+
+## Staff vs agents
+
+- **Staff (UI):** More detailed and explanatory. Always-visible how-it-works; optional **Read more (advanced)** with concrete relative file paths; empty states that teach; banners when dual write paths exist. Prefer clarity over brevity.
+- **Agents (MCP):** Denser communications — short tool descriptions plus structured `warnings` / `side_effects` / `next_actions` with paths and non-effects. Agents read technical material well; keep payloads efficient **with no loss of facts** (precedence, locale scope, non-effects, which file). A staff paragraph may become three MCP fields; do not drop a non-effect or path to save tokens.
+- Mutating MCP tools follow [mcp-server-responses.mdc](mcp-server-responses.mdc).
+
+## Exemplars
+
+- Partial Override dialog on Content Type manage (`ContentTypeManagePage`)
+- Media Gallery overrides panel
+- SEO Fields tab (`MappingFieldsTab`) — intro + advanced with paths

@@ -54,6 +54,8 @@ import type { SitemapUrl } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
 import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
+import { ItemEditModal } from "@/components/databases/ItemEditModal";
+import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 
@@ -112,6 +114,14 @@ interface ContentTypeConfig {
   label: string;
   directory: string;
   field_mapping?: Record<string, string | { source: string; default: string }>;
+  editor?: Record<string, {
+    type?: string;
+    options?: (string | { value: string; label: string })[];
+    populate_options?: boolean;
+    allow_custom_values?: boolean;
+    cache_images?: boolean;
+    description?: string;
+  }>;
   indexes?: string[];
   unique_fields?: string[];
   database: DatabaseConfig | null;
@@ -2475,6 +2485,8 @@ function FieldMappingDialog({
   const [newOptional, setNewOptional] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({});
   const [newValueValidation, setNewValueValidation] = useState<FieldValidationResult | "loading" | null>(null);
+  const [editorHints, setEditorHints] = useState<Record<string, EditorHint>>({});
+  const [hintDialogField, setHintDialogField] = useState<string | null>(null);
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const requestCounters = useRef<Record<string, number>>({});
 
@@ -2542,6 +2554,7 @@ function FieldMappingDialog({
     }
     setCustomModes(cmodes);
     setIndexedFields(config.indexes || []);
+    setEditorHints(config.editor || {});
     setUniqueFields(config.unique_fields ?? ["slug"]);
     setValidation({});
     setShowAddField(false);
@@ -2700,6 +2713,7 @@ function FieldMappingDialog({
 
       const payload = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
+        editor: Object.keys(editorHints).length > 0 ? editorHints : undefined,
         indexes: indexedFields.length > 0 ? indexedFields : undefined,
         unique_fields: uniqueFields,
       };
@@ -2955,6 +2969,16 @@ function FieldMappingDialog({
                               <CircleDashed className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`flex-shrink-0 ${editorHints[key]?.type && editorHints[key]?.type !== "text" ? "text-primary" : ""}`}
+                            title="Configure editor type"
+                            onClick={() => setHintDialogField(key)}
+                            data-testid={`button-hint-field-${key}`}
+                          >
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -3276,6 +3300,17 @@ function FieldMappingDialog({
       open={!!specialInfoKey}
       onOpenChange={(next) => {
         if (!next) setSpecialInfoKey(null);
+      }}
+    />
+    <EditorTypeDialog
+      open={hintDialogField !== null}
+      fieldName={hintDialogField}
+      initialHint={hintDialogField ? editorHints[hintDialogField] : undefined}
+      onClose={() => setHintDialogField(null)}
+      onApply={(hint) => {
+        if (!hintDialogField) return;
+        setEditorHints((prev) => ({ ...prev, [hintDialogField]: hint }));
+        setHintDialogField(null);
       }}
     />
     </>
@@ -3750,6 +3785,11 @@ export default function ContentTypeManagePage() {
   const [partialOverrideVersionsDialogOpen, setPartialOverrideVersionsDialogOpen] = useState(false);
   const [versionsData, setVersionsData] = useState<Record<string, Record<string, { variants: { slug: string; allocation: number }[] }> | null>>({});
   const [versionsLoading, setVersionsLoading] = useState<Set<string>>(new Set());
+  const [editingDbEntry, setEditingDbEntry] = useState<{
+    item: Record<string, unknown>;
+    index: number;
+  } | null>(null);
+  const [openingDbEdit, setOpeningDbEdit] = useState(false);
 
   const { data: allItemsData, isLoading: allLoading } = useQuery<ItemsResponse>({
     queryKey: ["/api/content-types", contentType, "items"],
@@ -4193,6 +4233,77 @@ export default function ContentTypeManagePage() {
       toast({ title: "Failed to clear cache", variant: "destructive" });
     } finally {
       setClearing(false);
+    }
+  };
+
+  const resolveMappingSource = (raw: unknown): string | null => {
+    if (!raw) return null;
+    const val =
+      typeof raw === "object" && raw !== null && "source" in raw
+        ? (raw as { source: unknown }).source
+        : raw;
+    if (typeof val !== "string" || !val.trim() || val.startsWith("function:")) return null;
+    return val.replace(/^(raw|db)\./, "").trim() || null;
+  };
+
+  const openDbEntryEdit = async (listItem: Record<string, any>) => {
+    if (!dbSlug) {
+      toast({ title: "No database connected", variant: "destructive" });
+      return;
+    }
+    setOpeningDbEdit(true);
+    try {
+      const pageSize = 1000;
+      let page = 1;
+      let matched: { item: Record<string, unknown>; index: number } | null = null;
+      const targetSlug = String(listItem.slug ?? "").trim();
+      const targetLocale = localeKey ? String(listItem[localeKey] ?? "").trim() : "";
+      const slugField = resolveMappingSource(typeConfig?.field_mapping?._slug) || "slug";
+
+      while (!matched) {
+        const res = await fetch(`/api/databases/${dbSlug}/items?limit=${pageSize}&page=${page}`);
+        if (!res.ok) throw new Error(`Failed to load database items (${res.status})`);
+        const data = await res.json();
+        const pageItems: Record<string, unknown>[] = data.items || [];
+        const total = typeof data.total_count === "number" ? data.total_count : pageItems.length;
+
+        for (let i = 0; i < pageItems.length; i++) {
+          const dbItem = pageItems[i];
+          const dbSlugVal = String(dbItem[slugField] ?? dbItem.slug ?? "").trim();
+          if (dbSlugVal !== targetSlug) continue;
+          if (localeKey && targetLocale) {
+            const dbLocale = String(dbItem[localeKey] ?? "").trim();
+            if (dbLocale && dbLocale !== targetLocale) continue;
+          }
+          matched = { item: dbItem, index: (page - 1) * pageSize + i };
+          break;
+        }
+
+        if (matched) break;
+        if (pageItems.length === 0 || page * pageSize >= total) break;
+        page += 1;
+      }
+
+      if (!matched) {
+        toast({
+          title: "Database entry not found",
+          description: targetSlug
+            ? `No row matched "${targetSlug}" in ${dbSlug}.`
+            : `Could not resolve this entry in ${dbSlug}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setEditingDbEntry(matched);
+    } catch (err) {
+      toast({
+        title: "Failed to open database entry",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setOpeningDbEdit(false);
     }
   };
 
@@ -5583,6 +5694,32 @@ export default function ContentTypeManagePage() {
                                       <DropdownMenuSeparator />
                                     </>
                                   )}
+                                  {dbSlug && (
+                                    <>
+                                      <DropdownMenuItem
+                                        onClick={() => openDbEntryEdit(item)}
+                                        disabled={openingDbEdit}
+                                        data-testid={`button-edit-db-entry-${item.id || item.slug}`}
+                                      >
+                                        {openingDbEdit ? (
+                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        ) : (
+                                          <Pencil className="h-4 w-4 mr-2" />
+                                        )}
+                                        Edit database entry
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem asChild>
+                                        <a
+                                          href={`/private/databases/${dbSlug}`}
+                                          data-testid={`link-open-database-${item.id || item.slug}`}
+                                        >
+                                          <Database className="h-4 w-4 mr-2" />
+                                          Open in database
+                                        </a>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                    </>
+                                  )}
                                   <DropdownMenuItem
                                     onClick={async () => {
                                       try {
@@ -5879,6 +6016,30 @@ export default function ContentTypeManagePage() {
         databaseSlug={dbSlug}
         hasDatabase={hasDb}
       />
+      {editingDbEntry && dbSlug && (
+        <ItemEditModal
+          dbName={dbSlug}
+          item={editingDbEntry.item}
+          title="Edit database entry"
+          onSave={async (builtItem) => {
+            const res = await fetch(`/api/databases/${dbSlug}/items/${editingDbEntry.index}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(builtItem),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error((err as { error?: string }).error || "Failed to save item");
+            }
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] }),
+              queryClient.invalidateQueries({ queryKey: ["/api/databases", dbSlug] }),
+              queryClient.invalidateQueries({ queryKey: [`/api/databases/${dbSlug}/items`] }),
+            ]);
+          }}
+          onClose={() => setEditingDbEntry(null)}
+        />
+      )}
       <ConnectDatabaseConfirmDialog
         open={connectDbConfirmOpen}
         onOpenChange={setConnectDbConfirmOpen}

@@ -813,6 +813,7 @@ export function registerComponentsRoutes(app: Express): void {
         const variantSlug = req.query.variantSlug as string | undefined;
         const files: {
           locale?: { path: string; content: string };
+          locales?: { path: string; content: string; locale: string }[];
           common?: { path: string; content: string };
         } = {};
 
@@ -824,32 +825,47 @@ export function registerComponentsRoutes(app: Express): void {
           };
         }
 
-        let singleLocalePath: string;
-        let localeFileName: string;
         if (variantSlug) {
           // Variant template: single.{variantSlug}.{locale}.yml
-          singleLocalePath = path.join(baseDir, `single.${variantSlug}.${locale}.yml`);
+          let singleLocalePath = path.join(baseDir, `single.${variantSlug}.${locale}.yml`);
           if (!fs.existsSync(singleLocalePath)) {
             singleLocalePath = path.join(baseDir, `single.${variantSlug}.en.yml`);
           }
-          localeFileName = path.basename(singleLocalePath);
-        } else {
-          // Default template: single.<locale>.yml
-          singleLocalePath = path.join(baseDir, `single.${locale}.yml`);
-          if (!fs.existsSync(singleLocalePath)) {
-            singleLocalePath = path.join(baseDir, "single.en.yml");
+          if (fs.existsSync(singleLocalePath)) {
+            files.locale = {
+              path: `${contentRootName}/${folder}/${path.basename(singleLocalePath)}`,
+              content: fs.readFileSync(singleLocalePath, "utf-8"),
+            };
           }
-          localeFileName = path.basename(singleLocalePath);
+        } else {
+          // Default template: load every `single.{locale}.yml` (not variant files)
+          const localeFiles: { path: string; content: string; locale: string }[] = [];
+          if (fs.existsSync(baseDir)) {
+            for (const name of fs.readdirSync(baseDir)) {
+              const match = name.match(/^single\.([a-z]{2,5})\.yml$/i);
+              if (!match) continue;
+              const localeCode = match[1].toLowerCase();
+              localeFiles.push({
+                path: `${contentRootName}/${folder}/${name}`,
+                content: fs.readFileSync(path.join(baseDir, name), "utf-8"),
+                locale: localeCode,
+              });
+            }
+          }
+          localeFiles.sort((a, b) => {
+            if (a.locale === locale) return -1;
+            if (b.locale === locale) return 1;
+            if (a.locale === "en") return -1;
+            if (b.locale === "en") return 1;
+            return a.locale.localeCompare(b.locale);
+          });
+          if (localeFiles.length > 0) {
+            files.locales = localeFiles;
+            files.locale = localeFiles[0];
+          }
         }
 
-        if (fs.existsSync(singleLocalePath)) {
-          files.locale = {
-            path: `${contentRootName}/${folder}/${localeFileName}`,
-            content: fs.readFileSync(singleLocalePath, "utf-8"),
-          };
-        }
-
-        if (!files.locale && !files.common) {
+        if (!files.locale && !files.common && !(files.locales && files.locales.length > 0)) {
           res.status(404).json({ exists: false });
           return;
         }

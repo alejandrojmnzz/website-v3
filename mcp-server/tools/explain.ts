@@ -9,7 +9,7 @@ import { MARKETING_CONTENT_PATH } from "../lib/content.js";
 // production bundle (dist/mcp-server.js).
 const EXPLAIN_DIR = path.join(process.cwd(), "mcp-server", "explain");
 
-const VALID_TOPICS = ["overview", "content_system", "routing", "images", "sections"] as const;
+const VALID_TOPICS = ["overview", "content_system", "routing", "images", "sections", "semantic_search"] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
 // ─── Dynamic tag resolvers ────────────────────────────────────────────────────
@@ -112,13 +112,14 @@ export function registerExplainTools(mcp: McpServer): void {
       "Valid topics: 'overview' (start here — summary + list of all topics), 'content_system' (YAML content files, _common.yml merge, safeYamlLoad), " +
       "'routing' (URL patterns, locale prefixes, /en/ vs /es/), " +
       "'images' (image registry, UniversalImage, image_id usage), " +
-      "'sections' (SectionRenderer, component registry, how sections are authored). " +
+      "'sections' (SectionRenderer, component registry, how sections are authored), " +
+      "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback). " +
       "Calling an unknown topic returns a clear error listing the valid options.",
     {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search.",
         ),
     },
     async ({ topic }) => {
@@ -142,7 +143,9 @@ export function registerExplainTools(mcp: McpServer): void {
                             ? "URL patterns, locale prefixes (/en/, /es/), dynamic route generation"
                             : t === "images"
                               ? "Image registry, UniversalImage component, image_id referencing"
-                              : "SectionRenderer, component registry, how sections are authored",
+                              : t === "sections"
+                                ? "SectionRenderer, component registry, how sections are authored"
+                                : "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
                   })),
                 },
                 null,

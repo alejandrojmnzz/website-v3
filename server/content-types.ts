@@ -37,11 +37,23 @@ export interface ContentTypePreviewConfig {
   props?: Record<string, string>;
 }
 
+/** Per-field editor hints for content-type mapping fields (same shape as database `editor`). */
+export type ContentTypeEditorHint = {
+  type?: string;
+  options?: (string | { value: string; label: string })[];
+  populate_options?: boolean;
+  allow_custom_values?: boolean;
+  cache_images?: boolean;
+  description?: string;
+};
+
 export interface ContentTypeEntry {
   directory: string;
   url_pattern: Record<string, string>;
   unique_fields?: string[];
   field_mapping?: Record<string, string | { source: string; default: string }>;
+  /** Editor widgets for Fields tab / ItemEditModal (keyed by mapping field name). */
+  editor?: Record<string, ContentTypeEditorHint>;
   indexes?: string[];
   database?: DatabaseConfig;
   layout?: { menu?: { top?: string | null; bottom?: string | null } };
@@ -125,6 +137,12 @@ const CONFIG_HEADER = `# Content Types Configuration
 #
 # field_mapping — reserved regular key:
 #   image: optional DB/YAML source for the entry preview / og image URL
+#
+# editor (optional):
+#   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
+#   Keys match field_mapping target names. Types: text, textarea, markdown, number, boolean,
+#   date, datetime, image, select, tags. Optional: options, populate_options, allow_custom_values,
+#   description.
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {

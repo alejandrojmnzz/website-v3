@@ -120,7 +120,7 @@ model:
   vision: openai/gpt-4o
 ```
 
-Choose the completion model in **Debug Bubble → AI & Agents → AI Settings** (`/private/settings/ai`); saving writes `model.default` in `llm.yml`. Chat and vision models are configured separately (`model.chat` / `model.vision`, or the Knowledge Editor for chat).
+Choose the completion model in **Debug Bubble → AI & Agents → AI Settings** (`/private/settings/ai/llms`); saving writes `model.default` in `llm.yml`. Chat and vision models are configured separately (`model.chat` / `model.vision`, or the Knowledge Editor for chat).
 
 If you change `api_key_env` or `base_url_env` in `llm.yml`, the server reads the named environment variables instead. The table below covers all variable names the code can read.
 

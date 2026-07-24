@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
+import { MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,9 @@ export interface SeoModalProps {
   currentLocaleSlug: string;
   slugCheckReason: string | null;
   setSlugRedirectPrompt: (v: boolean) => void;
+  /** Locale for Fields tab provenance / field_overrides (live locale). */
+  locale?: string;
+  contentTypeLabel?: string;
 }
 
 export function SeoModal({
@@ -88,6 +92,8 @@ export function SeoModal({
   currentLocaleSlug,
   slugCheckReason,
   setSlugRedirectPrompt,
+  locale = "en",
+  contentTypeLabel,
 }: SeoModalProps) {
   const [activeTab, setActiveTab] = useState("general");
 
@@ -100,6 +106,13 @@ export function SeoModal({
   const [ogImageTooSmall, setOgImageTooSmall] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [snippetEditing, setSnippetEditing] = useState(false);
+
+  const fieldsLocale = locale || contentInfo.locale || "en";
+  const fieldsTypeLabel =
+    contentTypeLabel ||
+    (contentInfo.type
+      ? contentInfo.type.charAt(0).toUpperCase() + contentInfo.type.slice(1)
+      : "Content type");
 
   const snippetUrl = seoMeta.canonical_url || (typeof window !== "undefined" ? `${window.location.origin}/${contentInfo.slug || ""}` : "");
   const snippetBreadcrumb = (() => {
@@ -133,26 +146,30 @@ export function SeoModal({
           </div>
         ) : seoData ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full grid grid-cols-4" data-testid="tabs-seo-nav">
-              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center gap-1.5">
+            <TabsList className="inline-flex h-auto w-auto max-w-full flex-wrap justify-start" data-testid="tabs-seo-nav">
+              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center justify-center gap-1.5 px-2.5" title="General" aria-label="General">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
-                General
+                <span className="hidden sm:inline">General</span>
               </TabsTrigger>
-              <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center gap-1.5">
+              <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center justify-center gap-1.5 px-2.5" title="Fields" aria-label="Fields">
+                <Table2 className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Fields</span>
+              </TabsTrigger>
+              <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center justify-center gap-1.5 px-2.5" title="Schema" aria-label="Schema">
                 <Code className="h-3.5 w-3.5 shrink-0" />
-                Schema
+                <span className="hidden sm:inline">Schema</span>
               </TabsTrigger>
-              <TabsTrigger value="visibility" data-testid="tab-visibility" className="flex items-center gap-1.5">
+              <TabsTrigger value="visibility" data-testid="tab-visibility" className="flex items-center justify-center gap-1.5 px-2.5" title="Visibility" aria-label="Visibility">
                 {seoMeta.robots && seoMeta.robots.includes("noindex") ? (
                   <EyeOff className="h-3.5 w-3.5 shrink-0 text-destructive" />
                 ) : (
                   <Eye className="h-3.5 w-3.5 shrink-0" />
                 )}
-                Visibility
+                <span className="hidden sm:inline">Visibility</span>
               </TabsTrigger>
-              <TabsTrigger value="redirects" data-testid="tab-redirects" className="flex items-center gap-1.5">
+              <TabsTrigger value="redirects" data-testid="tab-redirects" className="flex items-center justify-center gap-1.5 px-2.5" title="Redirects" aria-label="Redirects">
                 <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-                Redirects
+                <span className="hidden sm:inline">Redirects</span>
               </TabsTrigger>
             </TabsList>
 
@@ -470,6 +487,22 @@ export function SeoModal({
                   data-testid="input-seo-canonical-url"
                 />
               </div>
+            </TabsContent>
+
+            {/* ── Fields tab ─────────────────────────────────────────── */}
+            <TabsContent value="fields" className="pt-1">
+              {contentInfo.type && contentInfo.slug ? (
+                <MappingFieldsTab
+                  contentType={contentInfo.type}
+                  slug={contentInfo.slug}
+                  locale={fieldsLocale}
+                  typeLabel={fieldsTypeLabel}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground pt-4">
+                  Open SEO from a content entry to manage mapping fields.
+                </p>
+              )}
             </TabsContent>
 
             {/* ── Schema tab ─────────────────────────────────────────── */}

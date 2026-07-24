@@ -681,8 +681,16 @@ export class MediaGallery {
       if (!raw || typeof raw !== "object") return false;
       if (!raw.editor || typeof raw.editor !== "object") raw.editor = {};
       if (!raw.editor[dbField] || typeof raw.editor[dbField] !== "object") raw.editor[dbField] = {};
-      if (raw.editor[dbField].cache_images === true) return true;
+      if (raw.editor[dbField].cache_images === true) {
+        if (raw.editor[dbField].type !== "image") {
+          raw.editor[dbField].type = "image";
+          fs.writeFileSync(configPath, yaml.dump(raw, { lineWidth: -1 }), "utf8");
+          markFileAsModified(`${this.contentFolderName}/db/${dbSlug}/config.yml`);
+        }
+        return true;
+      }
       raw.editor[dbField].cache_images = true;
+      raw.editor[dbField].type = "image";
       fs.writeFileSync(configPath, yaml.dump(raw, { lineWidth: -1 }), "utf8");
       markFileAsModified(`${this.contentFolderName}/db/${dbSlug}/config.yml`);
       return true;

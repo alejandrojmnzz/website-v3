@@ -30,6 +30,7 @@ export function clearMarkdownCache(slug?: string): void {
   if (!slug) {
     markdownCache.clear();
     log.info("[Markdown] Cleared all cache entries");
+    void import("./markdown-enhance").then((m) => m.clearMarkdownEnhanceCache());
     return;
   }
   const keys = Array.from(markdownCache.keys());
@@ -39,6 +40,8 @@ export function clearMarkdownCache(slug?: string): void {
       log.info(`[Markdown] Cleared cache for slug containing: ${slug}`);
     }
   }
+  // Highlight cache is content-hash keyed; clear all when any slug is invalidated.
+  void import("./markdown-enhance").then((m) => m.clearMarkdownEnhanceCache());
 }
 
 export function clearMarkdownCacheByUrl(readmeUrl: string): boolean {

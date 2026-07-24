@@ -22,6 +22,7 @@ import { canonicalSectionId, sectionIdCandidates } from "./utils/sectionIdentity
 import { applyPerEntryLayer, type PerEntryAccum } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { isEntryDetached } from "./shared-layout-entry";
+import { applyFieldOverridesToItem, readFieldOverrides } from "./field-overrides";
 import type { TemplatePage } from "@shared/schema";
 import { child } from "./logger";
 const log = child({ module: "database-single-loader" });
@@ -365,7 +366,9 @@ export async function loadDatabaseSinglePage(
         (matchItem as any).readme_url as string,
       );
     }
-    const singleItem = { ...matchItem, content };
+    const singleItemBase = { ...matchItem, content };
+    const ctOverrides = readFieldOverrides(contentType, slug, locale, resolvedRoot);
+    const singleItem = applyFieldOverridesToItem(singleItemBase, ctOverrides);
 
     const sections = (merged.sections as TemplatePage["sections"]) || [];
 

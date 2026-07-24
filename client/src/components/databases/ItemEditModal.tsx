@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   IconDeviceFloppy,
   IconLoader2,
@@ -28,7 +28,139 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MarkdownEditorField } from "@/components/editing/MarkdownEditorField";
 import { useToast } from "@/hooks/use-toast";
+import { useImageRegistry } from "@/components/UniversalImage";
+import { queryClient } from "@/lib/queryClient";
+import {
+  fromDateInputValue,
+  fromDatetimeLocalValue,
+  toDateInputValue,
+  toDatetimeLocalValue,
+} from "@shared/parseDateTime";
+import type { ImageEntry } from "@shared/schema";
+import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon } from "lucide-react";
+
+const MARKDOWN_TEXTAREA_KEYS = new Set(["content", "body", "readme", "markdown"]);
+
+function isMarkdownEditorType(type: string, key: string): boolean {
+  return type === "markdown" || (type === "textarea" && MARKDOWN_TEXTAREA_KEYS.has(key));
+}
+
+type ImageCacheStatus = "cached" | "pending" | "failed" | "untracked";
+
+function findRegistryEntryByUrl(
+  images: Record<string, ImageEntry> | undefined,
+  url: string,
+): ImageEntry | undefined {
+  if (!images || !url) return undefined;
+  return Object.values(images).find((e) => e.source_url === url || e.src === url);
+}
+
+function imageCacheStatus(entry: ImageEntry | undefined): ImageCacheStatus {
+  if (!entry) return "untracked";
+  if (entry.failed_at) return "failed";
+  if (!entry.src && entry.source_url) return "pending";
+  if (entry.src) return "cached";
+  return "untracked";
+}
+
+const IMAGE_CACHE_STATUS_UI: Record<
+  ImageCacheStatus,
+  { icon: ReactNode; label: string; className: string }
+> = {
+  cached: {
+    icon: <CheckCircle2 className="h-3 w-3" />,
+    label: "Cached in registry",
+    className: "bg-green-600/90 text-white",
+  },
+  pending: {
+    icon: <Clock className="h-3 w-3" />,
+    label: "Pending download",
+    className: "bg-amber-500/90 text-white",
+  },
+  failed: {
+    icon: <AlertCircle className="h-3 w-3" />,
+    label: "Download failed",
+    className: "bg-red-600/90 text-white",
+  },
+  untracked: {
+    icon: <Unlink className="h-3 w-3" />,
+    label: "Not in image registry",
+    className: "bg-muted text-muted-foreground",
+  },
+};
+
+function ImageUrlFieldEditor({
+  fieldKey,
+  value,
+  cacheImages,
+  onChange,
+}: {
+  fieldKey: string;
+  value: unknown;
+  cacheImages: boolean;
+  onChange: (v: string) => void;
+}) {
+  const { registry } = useImageRegistry();
+  const url = typeof value === "string" ? value : "";
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    setBroken(false);
+  }, [url]);
+
+  const entry = findRegistryEntryByUrl(registry?.images, url);
+  const status = imageCacheStatus(entry);
+  const statusUi = IMAGE_CACHE_STATUS_UI[status];
+  const previewSrc =
+    entry?.src ||
+    (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")
+      ? url
+      : "");
+
+  return (
+    <div className="space-y-2" data-testid={`image-field-${fieldKey}`}>
+      <div className="flex items-start gap-3">
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted flex items-center justify-center">
+          {previewSrc && !broken ? (
+            <img
+              src={previewSrc}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setBroken(true)}
+              data-testid={`img-preview-${fieldKey}`}
+            />
+          ) : (
+            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium ${statusUi.className}`}
+            data-testid={`badge-cache-status-${fieldKey}`}
+          >
+            {statusUi.icon}
+            {statusUi.label}
+          </span>
+          <Input
+            type="url"
+            value={url}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="https://…"
+            className="text-sm"
+            data-testid={`input-edit-${fieldKey}`}
+          />
+        </div>
+      </div>
+      {cacheImages && (
+        <p className="text-[11px] text-muted-foreground">
+          Image will be cached on the next database refresh. Original URL is stored in the field.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export type EditorOption = string | { value: string; label: string };
 
@@ -53,6 +185,12 @@ interface DatabaseDetail {
 
 export function normalizeOption(opt: EditorOption): { value: string; label: string } {
   return typeof opt === "string" ? { value: opt, label: opt } : opt;
+}
+
+/** cache_images implies the image editor even when type is missing from config. */
+export function resolveEditorType(editorConfig?: EditorConfig): string {
+  if (editorConfig?.cache_images) return "image";
+  return editorConfig?.type || "text";
 }
 
 function buildItemFromForm(
@@ -107,7 +245,8 @@ function buildItemFromForm(
 }
 
 export interface ItemEditModalProps {
-  dbName: string;
+  /** Database name — required unless `editorOverrides` + `onlyFields` fully define the form. */
+  dbName?: string;
   item: Record<string, unknown> | null;
   onSave: (item: Record<string, unknown>) => Promise<void>;
   onClose: () => void;
@@ -116,6 +255,10 @@ export interface ItemEditModalProps {
   hiddenFields?: string[];
   onlyFields?: string[];
   allItems?: Record<string, unknown>[];
+  /** When set, shows a banner indicating which override layer is being edited. */
+  overrideLevel?: "database" | "content_type";
+  /** Prefer these editor hints over (or instead of) database config.editor. */
+  editorOverrides?: Record<string, EditorConfig>;
 }
 
 export function ItemEditModal({
@@ -128,25 +271,36 @@ export function ItemEditModal({
   hiddenFields = [],
   onlyFields,
   allItems: externalAllItems,
+  overrideLevel,
+  editorOverrides,
 }: ItemEditModalProps) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState<Record<string, string>>({});
 
   const isNew = item === null;
+  const skipDbConfig = !!editorOverrides && !!onlyFields?.length && !dbName;
+
+  // SSR seeds a per-page image-registry subset (often just the logo). This modal
+  // needs the full catalog so image fields can resolve source_url → cache status.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+  }, []);
 
   const { data: detail, isLoading: configLoading } = useQuery<DatabaseDetail>({
     queryKey: ["/api/databases", dbName],
     staleTime: 5 * 60 * 1000,
+    enabled: !!dbName && !skipDbConfig,
   });
 
   const { data: allItemsData } = useQuery<{ items: Record<string, unknown>[] }>({
     queryKey: [`/api/databases/${dbName}/items`],
-    enabled: !externalAllItems && !!detail,
+    enabled: !externalAllItems && !!detail && !!dbName,
     staleTime: 5 * 60 * 1000,
   });
 
   const config = detail?.config;
+  const editor = editorOverrides ?? config?.editor;
   const allItems = externalAllItems ?? allItemsData?.items ?? [];
 
   const [formData, setFormData] = useState<Record<string, unknown>>(
@@ -155,24 +309,33 @@ export function ItemEditModal({
   const [initialized, setInitialized] = useState(!isNew);
 
   useEffect(() => {
-    if (!isNew || initialized || !config?.field_mapping) return;
+    if (!isNew || initialized) return;
+    const keys =
+      onlyFields && onlyFields.length > 0
+        ? onlyFields
+        : config?.field_mapping
+          ? Object.keys(config.field_mapping)
+          : [];
+    if (keys.length === 0 && !editorOverrides) return;
     const defaults: Record<string, unknown> = {};
-    for (const key of Object.keys(config.field_mapping)) {
+    for (const key of keys) {
       if (hiddenFields.includes(key)) continue;
-      const editorType = config.editor?.[key]?.type;
+      const editorType = editor?.[key]?.type;
       defaults[key] = editorType === "tags" ? [] : editorType === "boolean" ? false : "";
     }
     setFormData(defaults);
     setInitialized(true);
-  }, [isNew, initialized, config, hiddenFields]);
+  }, [isNew, initialized, config, hiddenFields, onlyFields, editor, editorOverrides]);
 
-  const fields = config?.field_mapping
-    ? Object.keys(config.field_mapping).filter((f) => {
-        if (hiddenFields.includes(f)) return false;
-        if (onlyFields && onlyFields.length > 0 && !onlyFields.includes(f)) return false;
-        return true;
-      })
-    : [];
+  const fields = (() => {
+    if (onlyFields && onlyFields.length > 0) {
+      return onlyFields.filter((f) => !hiddenFields.includes(f));
+    }
+    if (config?.field_mapping) {
+      return Object.keys(config.field_mapping).filter((f) => !hiddenFields.includes(f));
+    }
+    return [];
+  })();
 
   const setValue = (key: string, v: unknown) =>
     setFormData((prev) => ({ ...prev, [key]: v }));
@@ -180,7 +343,7 @@ export function ItemEditModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const payload = buildItemFromForm(fields, formData, config?.editor, isNew);
+      const payload = buildItemFromForm(fields, formData, editor, isNew);
       await onSave(payload);
       toast({
         title: isNew ? "Item added" : "Item saved",
@@ -199,8 +362,8 @@ export function ItemEditModal({
   };
 
   const renderField = (key: string) => {
-    const editorConfig = config?.editor?.[key];
-    const type = editorConfig?.type || "text";
+    const editorConfig = editor?.[key];
+    const type = resolveEditorType(editorConfig);
     const rawManualOptions: EditorOption[] = editorConfig?.options || [];
     const manualOptions = rawManualOptions.map(normalizeOption);
     const canAddCustom =
@@ -230,7 +393,26 @@ export function ItemEditModal({
     const value = formData[key];
 
     switch (type) {
+      case "markdown":
+        return (
+          <MarkdownEditorField
+            value={String(value ?? "")}
+            onChange={(md) => setValue(key, md)}
+            label={key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+            data-testid={`input-edit-${key}`}
+          />
+        );
       case "textarea":
+        if (isMarkdownEditorType(type, key)) {
+          return (
+            <MarkdownEditorField
+              value={String(value ?? "")}
+              onChange={(md) => setValue(key, md)}
+              label={key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              data-testid={`input-edit-${key}`}
+            />
+          );
+        }
         return (
           <Textarea
             value={String(value ?? "")}
@@ -260,6 +442,47 @@ export function ItemEditModal({
             onChange={(e) => setValue(key, e.target.value)}
             className="text-sm"
             data-testid={`input-edit-${key}`}
+          />
+        );
+      case "date": {
+        const raw = typeof value === "string" ? value : "";
+        return (
+          <Input
+            type="date"
+            value={toDateInputValue(raw)}
+            onChange={(e) => setValue(key, fromDateInputValue(e.target.value))}
+            className="text-sm"
+            data-testid={`input-edit-${key}`}
+          />
+        );
+      }
+      case "datetime": {
+        const raw = typeof value === "string" ? value : "";
+        return (
+          <div className="space-y-1">
+            <Input
+              type="datetime-local"
+              value={toDatetimeLocalValue(raw)}
+              onChange={(e) =>
+                setValue(key, e.target.value ? fromDatetimeLocalValue(e.target.value) : "")
+              }
+              className="text-sm"
+              data-testid={`input-edit-${key}`}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Accepts timezone-aware or naive values · edits saved as UTC ISO-8601
+              {raw ? ` (${raw})` : ""}
+            </p>
+          </div>
+        );
+      }
+      case "image":
+        return (
+          <ImageUrlFieldEditor
+            fieldKey={key}
+            value={value}
+            cacheImages={editorConfig?.cache_images === true}
+            onChange={(v) => setValue(key, v)}
           />
         );
       case "select":
@@ -514,6 +737,8 @@ export function ItemEditModal({
     }
   };
 
+  const showLoading = !!dbName && !skipDbConfig && configLoading;
+
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
@@ -524,28 +749,50 @@ export function ItemEditModal({
               (isNew ? "Fill in the fields to create a new entry." : "Edit the fields below.")}
           </DialogDescription>
         </DialogHeader>
+        {overrideLevel && (
+          <div
+            className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="banner-override-level"
+          >
+            {overrideLevel === "database" ? (
+              <>
+                Editing at <span className="font-medium text-foreground">database override</span> level —
+                changes apply to listings, dropdowns, and other database-powered UI.
+              </>
+            ) : (
+              <>
+                Editing at <span className="font-medium text-foreground">content type override</span> level —
+                page/YAML only; does not change the database or listing data.
+              </>
+            )}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1 min-h-0">
-          {configLoading && (
+          {showLoading && (
             <div className="flex items-center justify-center py-8">
               <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
-          {!configLoading && fields.length === 0 && (
+          {!showLoading && fields.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
               <p className="text-sm font-medium">No fields configured</p>
               <p className="text-xs text-muted-foreground max-w-xs">
-                Go to database settings → Field Mappings to add fields before editing items.
+                Go to content type Field Mappings or database settings to add fields before editing.
               </p>
             </div>
           )}
-          {!configLoading &&
+          {!showLoading &&
             fields.map((key) => {
-              const editorConfig = config?.editor?.[key];
+              const editorConfig = editor?.[key];
+              const editorType = resolveEditorType(editorConfig);
+              const useMarkdown = isMarkdownEditorType(editorType, key);
               return (
                 <div key={key} className="space-y-1.5">
-                  <Label className="text-xs font-medium capitalize">
-                    {key.replace(/_/g, " ")}
-                  </Label>
+                  {!useMarkdown && (
+                    <Label className="text-xs font-medium capitalize">
+                      {key.replace(/_/g, " ")}
+                    </Label>
+                  )}
                   {editorConfig?.description && (
                     <p className="text-xs text-muted-foreground">{editorConfig.description}</p>
                   )}
@@ -567,7 +814,7 @@ export function ItemEditModal({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={saving || configLoading || fields.length === 0}
+            disabled={saving || showLoading || fields.length === 0}
             data-testid="button-save-edit-item"
           >
             {saving ? (

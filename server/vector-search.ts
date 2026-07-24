@@ -77,6 +77,92 @@ function resetAvailabilityCache(): void {
   _availabilityCheckedAt = 0;
 }
 
+export interface VectorSearchCollectionStatus {
+  name: string;
+  points_count: number;
+}
+
+export interface VectorSearchStatus {
+  available: boolean;
+  url: string;
+  host: string;
+  port: number;
+  embedding_model: string;
+  vector_size: number;
+  distance: "Cosine";
+  error: string | null;
+  collections: VectorSearchCollectionStatus[];
+  embedder_loaded: boolean;
+}
+
+function parseQdrantEndpoint(url: string): { host: string; port: number } {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname || "localhost";
+    const port =
+      parsed.port !== ""
+        ? Number(parsed.port)
+        : parsed.protocol === "https:"
+          ? 443
+          : 6333;
+    return { host, port: Number.isFinite(port) ? port : 6333 };
+  } catch {
+    return { host: "localhost", port: 6333 };
+  }
+}
+
+/** Fresh Qdrant health check for admin UI — bypasses the availability TTL cache. */
+export async function getStatus(): Promise<VectorSearchStatus> {
+  resetAvailabilityCache();
+  const { host, port } = parseQdrantEndpoint(QDRANT_URL);
+  const base: Omit<VectorSearchStatus, "available" | "error" | "collections"> = {
+    url: QDRANT_URL,
+    host,
+    port,
+    embedding_model: EMBEDDING_MODEL,
+    vector_size: VECTOR_SIZE,
+    distance: "Cosine",
+    embedder_loaded: _embedder !== null,
+  };
+
+  try {
+    const client = getQdrantClient();
+    const listed = await client.getCollections();
+    const collections: VectorSearchCollectionStatus[] = [];
+
+    for (const col of listed.collections ?? []) {
+      try {
+        const info = await client.getCollection(col.name);
+        collections.push({
+          name: col.name,
+          points_count: info.points_count ?? 0,
+        });
+      } catch {
+        collections.push({ name: col.name, points_count: 0 });
+      }
+    }
+
+    _available = true;
+    _availabilityCheckedAt = Date.now();
+
+    return {
+      ...base,
+      available: true,
+      error: null,
+      collections,
+    };
+  } catch (err) {
+    _available = false;
+    _availabilityCheckedAt = Date.now();
+    return {
+      ...base,
+      available: false,
+      error: err instanceof Error ? err.message : String(err),
+      collections: [],
+    };
+  }
+}
+
 function collectionName(dbName: string): string {
   return dbName;
 }

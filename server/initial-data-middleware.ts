@@ -23,6 +23,10 @@ import { toOgLocale } from "../shared/locale";
 import { loadDatabaseSinglePage } from "./database-single-loader";
 import { resolveSingleVars } from "./single-resolver";
 import { resolveFieldValue } from "./transform";
+import {
+  applyFieldOverridesToItem,
+  readFieldOverrides,
+} from "./field-overrides";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { applyEntryPreviewOgImage } from "./entry-preview-manager";
@@ -206,6 +210,8 @@ export async function resolvePageQuery(
           const resolvedVars = resolveSingleVars(pageData, singleEntry) as Record<string, unknown>;
           Object.assign(pageData, resolvedVars);
         }
+        const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
+        await enhanceArticleSectionsInPage(pageData);
         if (site?.entryPreviewManager) {
           await applyEntryPreviewOgImage(site.entryPreviewManager, {
             contentType,
@@ -269,13 +275,16 @@ export async function resolvePageQuery(
       if (mapping && Object.keys(mapping).length > 0) {
         singleEntry = {};
         for (const [key, source] of Object.entries(mapping)) {
+          if (key.startsWith("_")) continue;
           if (typeof source !== "string") continue;
           const value = resolveFieldValue(source, data as Record<string, unknown>);
           if (value !== undefined) singleEntry[key] = value;
         }
-        if (Object.keys(singleEntry).length === 0) singleEntry = undefined;
-        else data.singleEntry = singleEntry;
       }
+      const fo = readFieldOverrides(contentType, slug, locale, ci.contentRoot);
+      singleEntry = applyFieldOverridesToItem(singleEntry || {}, fo);
+      if (Object.keys(singleEntry).length === 0) singleEntry = undefined;
+      else data.singleEntry = singleEntry;
 
       if (data.sections && Array.isArray(data.sections)) {
         data.sections = (await resolveDynamicEntries(
@@ -298,6 +307,9 @@ export async function resolvePageQuery(
           });
         }
       }
+
+      const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
+      await enhanceArticleSectionsInPage(data);
 
       return {
         queryKey: [apiPath, slug, isNonLocalized ? "auto" : locale],

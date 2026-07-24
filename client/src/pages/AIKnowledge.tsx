@@ -925,7 +925,7 @@ export default function AIKnowledge() {
               </p>
             </div>
             <Button variant="outline" size="sm" asChild data-testid="link-ai-settings-from-models">
-              <Link href="/private/settings/ai">Open AI Settings</Link>
+              <Link href="/private/settings/ai/llms">Open AI Settings</Link>
             </Button>
           </div>
           <DialogFooter>

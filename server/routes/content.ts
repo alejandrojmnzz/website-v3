@@ -204,6 +204,11 @@ import {
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
 import {
+  buildFieldProvenance,
+  writeFieldOverrides,
+  clearFieldOverride,
+} from "../field-overrides";
+import {
   normalizeLocale,
   getSupportedLocales,
   getDefaultLocale,
@@ -660,6 +665,8 @@ export function registerContentRoutes(app: Express): void {
       pageData.singleEntry = singleEntry;
     }
     injectCanonicalIfMissing(pageData, "page", locale);
+    const { enhanceArticleSectionsInPage: enhancePage } = await import("../markdown-enhance");
+    await enhancePage(pageData);
     const { layout: _stripLayout, ...restPage } = pageData;
     res.json({ ...restPage, layout });
   });
@@ -706,6 +713,8 @@ export function registerContentRoutes(app: Express): void {
           const dbResolved = resolveSingleVars(dbPageData, dbSingleEntry) as Record<string, unknown>;
           Object.assign(dbPageData, dbResolved);
         }
+        const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
+        await enhanceArticleSectionsInPage(dbPageData);
         await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
           contentType,
           entry: dbSingleEntry,
@@ -755,12 +764,18 @@ export function registerContentRoutes(app: Express): void {
           applyComponentImageSizes(merged.sections as unknown[]);
         }
         const variantLayout = resolveLayout(contentType, merged, root);
-        const singleEntry = buildSingleEntryFromContent(contentType, merged);
+        const singleEntry = buildSingleEntryFromContent(contentType, merged, {
+          slug,
+          locale,
+          contentRoot: root,
+        });
         if (singleEntry) {
           merged.singleEntry = singleEntry;
           const resolved = resolveSingleVars(merged, singleEntry) as Record<string, unknown>;
           Object.assign(merged, resolved);
         }
+        const { enhanceArticleSectionsInPage: enhanceAttached } = await import("../markdown-enhance");
+        await enhanceAttached(merged);
         injectCanonicalIfMissing(merged, contentType, locale);
         const { layout: _strip, ...rest } = merged;
         res.json({
@@ -809,6 +824,8 @@ export function registerContentRoutes(app: Express): void {
         const resolved = resolveSingleVars(variantPage, variantSingleEntry) as Record<string, unknown>;
         Object.assign(variantPage, resolved);
       }
+      const { enhanceArticleSectionsInPage: enhanceVariant } = await import("../markdown-enhance");
+      await enhanceVariant(variantPage);
       injectCanonicalIfMissing(variantPage, contentType, locale);
       const { layout: _variantStripLayout, ...variantRest } = variantPage;
       res.json({
@@ -832,7 +849,11 @@ export function registerContentRoutes(app: Express): void {
 
     const page = result.data;
     const genericPageData = page as unknown as Record<string, unknown>;
-    const singleEntry = buildSingleEntryFromContent(contentType, genericPageData);
+    const singleEntry = buildSingleEntryFromContent(contentType, genericPageData, {
+      slug,
+      locale,
+      contentRoot: getContentRoot(res),
+    });
     if (singleEntry) {
       genericPageData.singleEntry = singleEntry;
     }
@@ -851,6 +872,8 @@ export function registerContentRoutes(app: Express): void {
       const resolved = resolveSingleVars(genericPageData, singleEntry) as Record<string, unknown>;
       Object.assign(genericPageData, resolved);
     }
+    const { enhanceArticleSectionsInPage: enhanceGeneric } = await import("../markdown-enhance");
+    await enhanceGeneric(genericPageData);
     injectCanonicalIfMissing(genericPageData, contentType, locale);
     const { layout: _genericStripLayout, ...genericRest } = genericPageData;
     res.json({
@@ -1287,7 +1310,9 @@ export function registerContentRoutes(app: Express): void {
         label: getLabel(type, ctRoot(res)),
         directory: config.directory,
         field_mapping: config.field_mapping || null,
+        editor: config.editor || null,
         indexes: config.indexes || null,
+        unique_fields: config.unique_fields || null,
         database: config.database || null,
         url_pattern: config.url_pattern,
         single_template: !!config.single_template,
@@ -2753,6 +2778,169 @@ export function registerContentRoutes(app: Express): void {
             : `All overrides for "${slug}" cleared`
           : `No override found for "${slug}"${rawFieldKey ? ` field "${rawFieldKey}"` : ""}`,
       });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/field-provenance/:slug", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const locale = String(req.query.locale || "en");
+      if (!getContentTypeConfig(type, ctRoot(res))) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const result = await buildFieldProvenance({
+        contentType: type,
+        slug,
+        locale,
+        contentRoot: ctRoot(res),
+        db: getDB(res),
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.put("/api/content-types/:type/field-overrides/:slug", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const locale = String(req.body?.locale || req.query.locale || "en");
+      const fields = req.body?.fields as Record<string, unknown> | undefined;
+      const author = typeof req.body?.author === "string" ? req.body.author : undefined;
+      if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+        res.status(400).json({ error: "body.fields must be an object of field → value" });
+        return;
+      }
+      if (!getContentTypeConfig(type, ctRoot(res))) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const result = writeFieldOverrides(type, slug, locale, fields, author, ctRoot(res));
+      if (!result.success) {
+        res.status(400).json({ error: result.error || "Failed to write field overrides" });
+        return;
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.delete("/api/content-types/:type/field-overrides/:slug", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const locale = String(req.query.locale || "en");
+      const field = req.query.field as string | undefined;
+      const author = typeof (req.body as { author?: string } | undefined)?.author === "string"
+        ? (req.body as { author: string }).author
+        : undefined;
+      if (!field) {
+        res.status(400).json({ error: "query.field is required" });
+        return;
+      }
+      if (!getContentTypeConfig(type, ctRoot(res))) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const result = clearFieldOverride(type, slug, locale, field, author, ctRoot(res));
+      if (!result.success) {
+        res.status(400).json({ error: result.error || "Failed to clear field override" });
+        return;
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.put("/api/content-types/:type/db-overrides/:slug", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const fields = req.body?.fields as Record<string, unknown> | undefined;
+      const author = typeof req.body?.author === "string" ? req.body.author : undefined;
+      if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+        res.status(400).json({ error: "body.fields must be an object of field → value" });
+        return;
+      }
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config?.database?.slug) {
+        res.status(400).json({ error: `Content type "${type}" has no database configured` });
+        return;
+      }
+      const dbName = config.database.slug;
+      if (!getDB(res).exists(dbName)) {
+        res.status(404).json({ error: `Database "${dbName}" not found` });
+        return;
+      }
+      const lookupKey = getLookupKey(type, ctRoot(res)) || "slug";
+      const fm = getFieldMapping(type, ctRoot(res));
+      const fieldMapping: Record<string, string> | null = fm
+        ? Object.fromEntries(
+            Object.entries(fm)
+              .filter(([, v]) => typeof v === "string")
+              .map(([k, v]) => [k, v as string]),
+          )
+        : null;
+      const patched = getDB(res).patchDbEntry(
+        dbName,
+        lookupKey,
+        slug,
+        fields,
+        fieldMapping,
+        author,
+        getContentRoot(res),
+      );
+      if (!patched) {
+        res.status(404).json({ error: `No matching database entry for slug "${slug}"` });
+        return;
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  /** Reset one field: clear CT field_overrides and DB override (when DB-backed). */
+  app.post("/api/content-types/:type/field-reset/:slug", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const field = String(req.body?.field || req.query.field || "");
+      const locale = String(req.body?.locale || req.query.locale || "en");
+      const author = typeof req.body?.author === "string" ? req.body.author : undefined;
+      if (!field) {
+        res.status(400).json({ error: "field is required" });
+        return;
+      }
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      if (!config.database?.slug) {
+        res.status(400).json({ error: "Reset is only available for database-backed content types" });
+        return;
+      }
+
+      clearFieldOverride(type, slug, locale, field, author, ctRoot(res));
+
+      const dbName = config.database.slug;
+      if (getDB(res).exists(dbName)) {
+        const fm = getFieldMapping(type, ctRoot(res));
+        let fieldKey: string | undefined = field;
+        const mappedPath = fm?.[field];
+        if (mappedPath && typeof mappedPath === "string" && !mappedPath.startsWith("function:")) {
+          fieldKey = mappedPath.startsWith("?") ? mappedPath.slice(1) : mappedPath;
+        }
+        getDB(res).clearDbOverride(dbName, slug, fieldKey, author, getContentRoot(res));
+        // Force remapped cache so listings drop the override
+        getDB(res).clearCache(dbName);
+        await getDB(res).fetchItems(dbName, true).catch(() => {});
+      }
+
+      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
