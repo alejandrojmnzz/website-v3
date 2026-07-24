@@ -1739,7 +1739,15 @@ export function registerAdminRoutes(app: Express): void {
   // AI Admin Routes (webmaster capability required)
   // ============================================
 
-  let openRouterModelsCache: { fetchedAt: number; models: Array<{ id: string; name: string; context_length?: number }> } | null = null;
+  let openRouterModelsCache: {
+    fetchedAt: number;
+    models: Array<{
+      id: string;
+      name: string;
+      context_length?: number;
+      pricing?: { prompt?: string; completion?: string };
+    }>;
+  } | null = null;
   const OPENROUTER_MODELS_CACHE_MS = 10 * 60 * 1000;
 
   app.get("/api/admin/ai/settings", async (req, res) => {
@@ -1913,6 +1921,7 @@ export function registerAdminRoutes(app: Express): void {
           name?: string;
           context_length?: number;
           architecture?: { output_modalities?: string[] };
+          pricing?: { prompt?: string; completion?: string };
         }>;
       };
 
@@ -1927,6 +1936,13 @@ export function registerAdminRoutes(app: Express): void {
           id: m.id as string,
           name: m.name || (m.id as string),
           context_length: typeof m.context_length === "number" ? m.context_length : undefined,
+          pricing:
+            m.pricing && (m.pricing.prompt != null || m.pricing.completion != null)
+              ? {
+                  prompt: m.pricing.prompt,
+                  completion: m.pricing.completion,
+                }
+              : undefined,
         }))
         .sort((a, b) => a.id.localeCompare(b.id));
 

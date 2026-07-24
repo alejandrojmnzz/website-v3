@@ -211,8 +211,6 @@ export default function AIKnowledge() {
   const [modelDefault, setModelDefault] = useState("");
   const [modelChat, setModelChat] = useState("");
   const [modelsOpen, setModelsOpen] = useState(false);
-  const [draftModelChat, setDraftModelChat] = useState("");
-  const [savingModels, setSavingModels] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string; trace?: AgentTrace }>>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
@@ -308,12 +306,6 @@ export default function AIKnowledge() {
     }
   }, [toolsOpen]);
 
-  useEffect(() => {
-    if (modelsOpen) {
-      setDraftModelChat(modelChat);
-    }
-  }, [modelsOpen]);
-
   const handleToolsSave = async () => {
     setSavingTools(true);
     try {
@@ -337,32 +329,6 @@ export default function AIKnowledge() {
       });
     } finally {
       setSavingTools(false);
-    }
-  };
-
-  const handleModelsSave = async () => {
-    setSavingModels(true);
-    try {
-      const res = await fetch("/api/admin/ai/knowledge", {
-        method: "PATCH",
-        headers: knowledgeRequestHeaders(),
-        body: JSON.stringify({
-          model_chat: draftModelChat,
-        }),
-      });
-      if (!res.ok) throw new Error(await readKnowledgeError(res, `Save failed (${res.status})`));
-      setModelChat(draftModelChat);
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
-      toast({ title: "Models saved", description: "Changes are instantly applied — test the agent now." });
-      setModelsOpen(false);
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: err instanceof Error ? err.message : "Failed to save models.",
-        variant: "destructive",
-      });
-    } finally {
-      setSavingModels(false);
     }
   };
 
@@ -943,37 +909,28 @@ export default function AIKnowledge() {
             <DialogTitle data-testid="text-models-dialog-title">Model Configuration</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground -mt-1">
-            Configure the chat model for live conversations. Completion / field-mapping models are managed in AI Settings.
+            Completion, chat, and vision models are managed in AI Settings and written to llm.yml.
           </p>
-          <div className="space-y-4">
-            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
-              <p className="text-sm font-medium">Completion model (field mapping &amp; autocompletions)</p>
-              <p className="text-xs text-muted-foreground font-mono break-all">
+          <div className="space-y-3">
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1">
+              <p className="text-sm font-medium">Completion</p>
+              <p className="text-xs text-muted-foreground font-mono break-all" data-testid="text-model-default">
                 {modelDefault || "Not set"}
               </p>
-              <Button variant="outline" size="sm" asChild data-testid="link-ai-settings-from-models">
-                <Link href="/private/settings/ai">Open AI Settings</Link>
-              </Button>
             </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="model-chat">Chat Model</label>
-              <Input
-                id="model-chat"
-                value={draftModelChat}
-                onChange={e => setDraftModelChat(e.target.value)}
-                placeholder="Leave blank to use default model"
-                data-testid="input-model-chat"
-              />
-              <p className="text-xs text-muted-foreground">Used for live chat conversations. Falls back to the completion model if empty. Use an OpenRouter model id (e.g. openai/gpt-4o).</p>
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1">
+              <p className="text-sm font-medium">Chat</p>
+              <p className="text-xs text-muted-foreground font-mono break-all" data-testid="text-model-chat">
+                {modelChat || "Uses completion model"}
+              </p>
             </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setModelsOpen(false)} data-testid="button-models-cancel">
-              Cancel
+            <Button variant="outline" size="sm" asChild data-testid="link-ai-settings-from-models">
+              <Link href="/private/settings/ai">Open AI Settings</Link>
             </Button>
-            <Button onClick={handleModelsSave} disabled={savingModels} data-testid="button-models-save">
-              {savingModels ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />}
-              Save
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModelsOpen(false)} data-testid="button-models-cancel">
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

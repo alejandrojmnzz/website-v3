@@ -34,6 +34,8 @@ const LlmYmlEditorPanel = lazy(() => import("@/components/editing/LlmYmlEditorPa
 
 interface AISettingsResponse {
   model_default: string;
+  model_chat: string;
+  model_vision: string;
   provider: {
     api_key_env: string;
     base_url_env: string;
@@ -46,6 +48,7 @@ interface OpenRouterModel {
   id: string;
   name: string;
   context_length?: number;
+  pricing?: { prompt?: string; completion?: string };
 }
 
 interface OpenRouterModelsResponse {
@@ -57,10 +60,137 @@ function aiRequestHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", ...getSessionHeaders() };
 }
 
+/** Format OpenRouter per-token USD price as $/1M tokens. */
+function formatPerMillion(perToken: string | undefined): string | null {
+  if (perToken == null || perToken === "") return null;
+  const n = Number(perToken);
+  if (!Number.isFinite(n)) return null;
+  if (n === 0) return "free";
+  const perM = n * 1_000_000;
+  if (perM < 0.01) return `$${perM.toPrecision(2)}`;
+  if (perM < 1) return `$${perM.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
+  return `$${perM % 1 === 0 ? perM.toFixed(0) : perM.toFixed(2)}`;
+}
+
+function formatModelMeta(model: OpenRouterModel): string {
+  const parts: string[] = [model.id];
+  if (model.context_length) {
+    parts.push(`${model.context_length.toLocaleString()} context`);
+  }
+  const prompt = formatPerMillion(model.pricing?.prompt);
+  const completion = formatPerMillion(model.pricing?.completion);
+  if (prompt && completion) {
+    parts.push(`${prompt} / ${completion} per 1M`);
+  } else if (prompt) {
+    parts.push(`${prompt} in per 1M`);
+  } else if (completion) {
+    parts.push(`${completion} out per 1M`);
+  }
+  return parts.join(" · ");
+}
+
+function ModelPicker({
+  id,
+  label,
+  value,
+  onChange,
+  models,
+  loading,
+  disabled,
+  allowEmpty,
+  emptyLabel = "Use completion model",
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  models: OpenRouterModel[];
+  loading: boolean;
+  disabled: boolean;
+  allowEmpty?: boolean;
+  emptyLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedLabel = useMemo(() => {
+    if (!value) return emptyLabel;
+    const match = models.find((m) => m.id === value);
+    return match ? `${match.name} (${match.id})` : value;
+  }, [emptyLabel, models, value]);
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium" htmlFor={id}>
+        {label}
+      </label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            disabled={disabled || loading}
+            className="w-full justify-between font-normal"
+            data-testid={`button-model-picker-${id}`}
+          >
+            <span className="truncate text-left">{loading ? "Loading models…" : selectedLabel}</span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search models…" data-testid={`input-search-models-${id}`} />
+            <CommandList>
+              <CommandEmpty>No models found.</CommandEmpty>
+              <CommandGroup>
+                {allowEmpty && (
+                  <CommandItem
+                    value="__empty__ use completion model"
+                    onSelect={() => {
+                      onChange("");
+                      setOpen(false);
+                    }}
+                    data-testid={`model-option-${id}-empty`}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
+                    <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+                  </CommandItem>
+                )}
+                {models.map((model) => (
+                  <CommandItem
+                    key={model.id}
+                    value={`${model.id} ${model.name}`}
+                    onSelect={() => {
+                      onChange(model.id);
+                      setOpen(false);
+                    }}
+                    data-testid={`model-option-${id}-${model.id}`}
+                  >
+                    <Check
+                      className={cn("mr-2 h-4 w-4", value === model.id ? "opacity-100" : "opacity-0")}
+                    />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm truncate">{model.name}</span>
+                      <span className="text-xs text-muted-foreground font-mono truncate">
+                        {formatModelMeta(model)}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 export default function AISettingsPage() {
   const { toast } = useToast();
-  const [selectedModel, setSelectedModel] = useState("");
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [selectedDefault, setSelectedDefault] = useState("");
+  const [selectedChat, setSelectedChat] = useState("");
+  const [selectedVision, setSelectedVision] = useState("");
   const [saving, setSaving] = useState(false);
   const [showYmlEditor, setShowYmlEditor] = useState(false);
 
@@ -91,35 +221,40 @@ export default function AISettingsPage() {
   });
 
   useEffect(() => {
-    if (settingsQuery.data?.model_default) {
-      setSelectedModel(settingsQuery.data.model_default);
-    }
-  }, [settingsQuery.data?.model_default]);
+    if (!settingsQuery.data) return;
+    setSelectedDefault(settingsQuery.data.model_default || "");
+    setSelectedChat(settingsQuery.data.model_chat || "");
+    setSelectedVision(settingsQuery.data.model_vision || "");
+  }, [settingsQuery.data]);
 
   const models = modelsQuery.data?.models ?? [];
-  const dirty = selectedModel !== (settingsQuery.data?.model_default || "");
-  const selectedLabel = useMemo(() => {
-    const match = models.find((m) => m.id === selectedModel);
-    return match ? `${match.name} (${match.id})` : selectedModel || "Select a model…";
-  }, [models, selectedModel]);
+  const dirty =
+    selectedDefault !== (settingsQuery.data?.model_default || "") ||
+    selectedChat !== (settingsQuery.data?.model_chat || "") ||
+    selectedVision !== (settingsQuery.data?.model_vision || "");
 
   async function handleSave() {
-    if (!selectedModel.trim()) return;
+    if (!selectedDefault.trim()) return;
     setSaving(true);
     try {
       const res = await fetch("/api/admin/ai/settings", {
         method: "PATCH",
         headers: aiRequestHeaders(),
-        body: JSON.stringify({ model_default: selectedModel.trim() }),
+        body: JSON.stringify({
+          model_default: selectedDefault.trim(),
+          model_chat: selectedChat.trim(),
+          model_vision: selectedVision.trim(),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Save failed (${res.status})`);
       }
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/ai/knowledge"] });
       toast({
         title: "AI settings saved",
-        description: "Completion model updated for field mapping and autocompletions.",
+        description: "Models updated in llm.yml.",
       });
     } catch (err) {
       toast({
@@ -165,7 +300,7 @@ export default function AISettingsPage() {
               </Tooltip>
             </div>
             <p className="text-sm text-muted-foreground">
-              Configure the OpenRouter model used for AI autocompletions and field mapping.
+              Configure OpenRouter models used across AI features. Saving writes to llm.yml.
             </p>
           </div>
         </div>
@@ -230,97 +365,79 @@ export default function AISettingsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Completion model</CardTitle>
+                <CardTitle className="text-base">Models</CardTitle>
                 <CardDescription>
-                  Used for field mapping auto-detect, content adaptation, table builders, and other non-chat completions.
-                  Chat model is configured in the Knowledge Editor.
+                  Choose OpenRouter models for completions, chat, and vision. Each maps to a field in llm.yml.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-5">
                 <p className="text-xs text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2">
-                  Saving writes the selected model id to <code className="font-mono text-[11px]">llm.yml</code> as{" "}
-                  <code className="font-mono text-[11px]">model.default</code>. Other fields (
-                  <code className="font-mono text-[11px]">model.chat</code>,{" "}
-                  <code className="font-mono text-[11px]">model.vision</code>, prompts, tools) are left unchanged.
+                  Saving writes <code className="font-mono text-[11px]">model.default</code>,{" "}
+                  <code className="font-mono text-[11px]">model.chat</code>, and{" "}
+                  <code className="font-mono text-[11px]">model.vision</code> in llm.yml.
                 </p>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" htmlFor="completion-model">
-                    OpenRouter model
-                  </label>
-                  <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        id="completion-model"
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={modelPickerOpen}
-                        disabled={!settingsQuery.data?.provider.api_key_configured || modelsQuery.isLoading}
-                        className="w-full justify-between font-normal"
-                        data-testid="button-model-picker"
-                      >
-                        <span className="truncate text-left">
-                          {modelsQuery.isLoading ? "Loading models…" : selectedLabel}
-                        </span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Search models…" data-testid="input-search-models" />
-                        <CommandList>
-                          <CommandEmpty>No models found.</CommandEmpty>
-                          <CommandGroup>
-                            {models.map((model) => (
-                              <CommandItem
-                                key={model.id}
-                                value={`${model.id} ${model.name}`}
-                                onSelect={() => {
-                                  setSelectedModel(model.id);
-                                  setModelPickerOpen(false);
-                                }}
-                                data-testid={`model-option-${model.id}`}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    selectedModel === model.id ? "opacity-100" : "opacity-0",
-                                  )}
-                                />
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-sm truncate">{model.name}</span>
-                                  <span className="text-xs text-muted-foreground font-mono truncate">
-                                    {model.id}
-                                    {model.context_length
-                                      ? ` · ${model.context_length.toLocaleString()} ctx`
-                                      : ""}
-                                  </span>
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  {modelsQuery.isError && (
-                    <p className="text-xs text-destructive flex items-center gap-1">
-                      <IconAlertCircle className="h-3.5 w-3.5" />
-                      {modelsQuery.error instanceof Error
-                        ? modelsQuery.error.message
-                        : "Could not load OpenRouter models."}
-                    </p>
-                  )}
-                  {!settingsQuery.data?.provider.api_key_configured && (
-                    <p className="text-xs text-muted-foreground">
-                      Add the API key to your environment, restart the server, then refresh this page to load models.
-                    </p>
-                  )}
-                </div>
+
+                <ModelPicker
+                  id="completion-model"
+                  label="Completion model"
+                  value={selectedDefault}
+                  onChange={setSelectedDefault}
+                  models={models}
+                  loading={modelsQuery.isLoading}
+                  disabled={!settingsQuery.data?.provider.api_key_configured}
+                />
+                <p className="text-xs text-muted-foreground -mt-3">
+                  Field mapping, content adaptation, table builders, and other non-chat completions.
+                </p>
+
+                <ModelPicker
+                  id="chat-model"
+                  label="Chat model"
+                  value={selectedChat}
+                  onChange={setSelectedChat}
+                  models={models}
+                  loading={modelsQuery.isLoading}
+                  disabled={!settingsQuery.data?.provider.api_key_configured}
+                  allowEmpty
+                  emptyLabel="Use completion model"
+                />
+                <p className="text-xs text-muted-foreground -mt-3">
+                  Live chat assistant conversations.
+                </p>
+
+                <ModelPicker
+                  id="vision-model"
+                  label="Vision model"
+                  value={selectedVision}
+                  onChange={setSelectedVision}
+                  models={models}
+                  loading={modelsQuery.isLoading}
+                  disabled={!settingsQuery.data?.provider.api_key_configured}
+                  allowEmpty
+                  emptyLabel="Use completion model"
+                />
+                <p className="text-xs text-muted-foreground -mt-3">
+                  Image auto-tagging and other vision tasks.
+                </p>
+
+                {modelsQuery.isError && (
+                  <p className="text-xs text-destructive flex items-center gap-1">
+                    <IconAlertCircle className="h-3.5 w-3.5" />
+                    {modelsQuery.error instanceof Error
+                      ? modelsQuery.error.message
+                      : "Could not load OpenRouter models."}
+                  </p>
+                )}
+                {!settingsQuery.data?.provider.api_key_configured && (
+                  <p className="text-xs text-muted-foreground">
+                    Add the API key to your environment, restart the server, then refresh this page to load models.
+                  </p>
+                )}
 
                 <div className="flex justify-end">
                   <Button
                     onClick={handleSave}
-                    disabled={!dirty || saving || !selectedModel.trim()}
+                    disabled={!dirty || saving || !selectedDefault.trim()}
                     data-testid="button-save-ai-settings"
                   >
                     {saving ? (
