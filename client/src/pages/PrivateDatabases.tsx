@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, ExternalLink, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -2125,11 +2125,25 @@ function FieldMappingEditor({
   const [sampleData, setSampleData] = useState<{ items: Record<string, unknown>[]; count: number } | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
 
-  const [editorHints, setEditorHints] = useState<Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; cache_images?: boolean; description?: string }>>(() =>
-    config.editor ? { ...config.editor } : {}
+  type EditorHint = { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; cache_images?: boolean; description?: string };
+
+  const normalizeEditorHints = (editor: Record<string, EditorHint> | undefined): Record<string, EditorHint> => {
+    if (!editor) return {};
+    const out: Record<string, EditorHint> = {};
+    for (const [key, hint] of Object.entries(editor)) {
+      out[key] =
+        hint?.cache_images === true && hint.type !== "image"
+          ? { ...hint, type: "image" }
+          : { ...hint };
+    }
+    return out;
+  };
+
+  const [editorHints, setEditorHints] = useState<Record<string, EditorHint>>(() =>
+    normalizeEditorHints(config.editor)
   );
   useEffect(() => {
-    setEditorHints(config.editor ? { ...config.editor } : {});
+    setEditorHints(normalizeEditorHints(config.editor));
   }, [config.editor]);
 
   const [vectorSearchFields, setVectorSearchFields] = useState<string[]>(config.vector_search?.fields ?? []);
@@ -2156,7 +2170,7 @@ function FieldMappingEditor({
   const openHintDialog = (field: string) => {
     const hint = editorHints[field] || {};
     setHintDialogField(field);
-    setHintDialogType(hint.type || "text");
+    setHintDialogType(hint.cache_images ? "image" : (hint.type || "text"));
     setHintDialogOptions(
       (hint.options || []).map(opt =>
         typeof opt === "string" ? { value: opt, label: "" } : opt
@@ -2186,9 +2200,11 @@ function FieldMappingEditor({
 
   const saveHintDialog = () => {
     if (!hintDialogField) return;
-    const hint: { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; cache_images?: boolean; description?: string } = { type: hintDialogType };
+    const existingCache = editorHints[hintDialogField]?.cache_images === true;
+    const resolvedType = existingCache ? "image" : hintDialogType;
+    const hint: EditorHint = { type: resolvedType };
     if (hintDialogDescription.trim()) hint.description = hintDialogDescription.trim();
-    if ((hintDialogType === "select" || hintDialogType === "tags")) {
+    if ((resolvedType === "select" || resolvedType === "tags")) {
       if (hintDialogOptions.length > 0) {
         hint.options = hintDialogOptions.map(o => o.label.trim() ? o : o.value);
       }
@@ -2616,7 +2632,11 @@ function FieldMappingEditor({
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label className="text-xs">Field type</Label>
-              <Select value={hintDialogType} onValueChange={setHintDialogType}>
+              <Select
+                value={hintDialogField && editorHints[hintDialogField]?.cache_images ? "image" : hintDialogType}
+                onValueChange={setHintDialogType}
+                disabled={!!(hintDialogField && editorHints[hintDialogField]?.cache_images)}
+              >
                 <SelectTrigger className="text-sm" data-testid="select-hint-type">
                   <SelectValue />
                 </SelectTrigger>
@@ -2628,10 +2648,16 @@ function FieldMappingEditor({
                   <SelectItem value="boolean">boolean — toggle</SelectItem>
                   <SelectItem value="date">date — date only</SelectItem>
                   <SelectItem value="datetime">datetime — date + time (UTC or naive)</SelectItem>
+                  <SelectItem value="image">image — URL with preview + cache status</SelectItem>
                   <SelectItem value="select">select — dropdown</SelectItem>
                   <SelectItem value="tags">multi select — multi-value</SelectItem>
                 </SelectContent>
               </Select>
+              {hintDialogField && editorHints[hintDialogField]?.cache_images && (
+                <p className="text-[11px] text-muted-foreground">
+                  Editor type is locked to image while image caching is enabled.
+                </p>
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Description (shown as hint in editor)</Label>
@@ -2766,7 +2792,7 @@ function FieldMappingEditor({
               When enabled, any image URLs found in this field are automatically downloaded and re-hosted on the local media server. This prevents broken images if the original source changes or goes offline, and improves page load performance.
             </p>
             <p className="text-xs text-muted-foreground">
-              Caching runs in the background after each data fetch. Original URLs are preserved in the raw data.
+              Caching runs in the background after each data fetch. Original URLs are preserved in the raw data. Enabling caching also switches this field to the image editor (preview + URL + cache status) and locks the editor type.
             </p>
             <label className="flex items-center gap-3 cursor-pointer pt-1" data-testid="label-cache-images-toggle">
               <Switch
@@ -2775,7 +2801,16 @@ function FieldMappingEditor({
                   if (!imageCacheModalField) return;
                   setEditorHints((prev) => {
                     const current = prev[imageCacheModalField] || {};
-                    return { ...prev, [imageCacheModalField]: { ...current, cache_images: checked } };
+                    if (checked) {
+                      return {
+                        ...prev,
+                        [imageCacheModalField]: { ...current, cache_images: true, type: "image" },
+                      };
+                    }
+                    return {
+                      ...prev,
+                      [imageCacheModalField]: { ...current, cache_images: false },
+                    };
                   });
                 }}
                 data-testid="switch-cache-images"
@@ -2794,9 +2829,18 @@ function FieldMappingEditor({
               onClick={() => {
                 setEditorHints((prev) => {
                   if (!imageCacheModalField) return prev;
-                  const original = config.editor?.[imageCacheModalField]?.cache_images ?? false;
-                  const current = prev[imageCacheModalField] || {};
-                  return { ...prev, [imageCacheModalField]: { ...current, cache_images: original } };
+                  const originalHint = config.editor?.[imageCacheModalField];
+                  if (originalHint) {
+                    return {
+                      ...prev,
+                      [imageCacheModalField]: normalizeEditorHints({
+                        [imageCacheModalField]: originalHint,
+                      })[imageCacheModalField],
+                    };
+                  }
+                  const current = { ...(prev[imageCacheModalField] || {}) };
+                  delete current.cache_images;
+                  return { ...prev, [imageCacheModalField]: current };
                 });
                 setImageCacheModalField(null);
               }}
@@ -3798,6 +3842,11 @@ function DatabaseUsagePanel({ dbName }: { dbName: string }) {
               <ul className="space-y-2 max-h-80 overflow-y-auto" data-testid="usage-queries">
                 {filteredQueries.map((q, i) => {
                   const location = [q.content_type, q.slug, q.locale].filter(Boolean).join(" / ");
+                  const previewHref = q.slug
+                    ? `/private/preview/${encodeURIComponent(q.content_type)}/${encodeURIComponent(q.slug)}${
+                        q.locale ? `?locale=${encodeURIComponent(q.locale)}` : ""
+                      }`
+                    : `/private/type/${encodeURIComponent(q.content_type)}`;
                   return (
                     <li
                       key={`${q.kind}-${q.file}-${q.section_type}-${i}`}
@@ -3807,7 +3856,7 @@ function DatabaseUsagePanel({ dbName }: { dbName: string }) {
                       <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">
                         {USAGE_KIND_LABELS[q.kind]}
                       </Badge>
-                      <div className="min-w-0 space-y-0.5">
+                      <div className="min-w-0 flex-1 space-y-0.5">
                         <p className="font-medium text-foreground truncate">
                           {q.section_type ? `${q.section_type}` : "section"}
                           {q.source_name ? (
@@ -3822,6 +3871,21 @@ function DatabaseUsagePanel({ dbName }: { dbName: string }) {
                           {q.file ? ` · ${q.file}` : ""}
                         </p>
                       </div>
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 text-xs px-2"
+                      >
+                        <Link
+                          href={previewHref}
+                          data-testid={`usage-query-open-${i}`}
+                          title={q.slug ? "Open page preview" : "Open content type"}
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1" />
+                          {q.slug ? "Open" : "Manage"}
+                        </Link>
+                      </Button>
                     </li>
                   );
                 })}

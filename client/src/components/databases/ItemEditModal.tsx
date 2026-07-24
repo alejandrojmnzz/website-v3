@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   IconDeviceFloppy,
   IconLoader2,
@@ -30,17 +30,135 @@ import {
 } from "@/components/ui/select";
 import { MarkdownEditorField } from "@/components/editing/MarkdownEditorField";
 import { useToast } from "@/hooks/use-toast";
+import { useImageRegistry } from "@/components/UniversalImage";
 import {
   fromDateInputValue,
   fromDatetimeLocalValue,
   toDateInputValue,
   toDatetimeLocalValue,
 } from "@shared/parseDateTime";
+import type { ImageEntry } from "@shared/schema";
+import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon } from "lucide-react";
 
 const MARKDOWN_TEXTAREA_KEYS = new Set(["content", "body", "readme", "markdown"]);
 
 function isMarkdownEditorType(type: string, key: string): boolean {
   return type === "markdown" || (type === "textarea" && MARKDOWN_TEXTAREA_KEYS.has(key));
+}
+
+type ImageCacheStatus = "cached" | "pending" | "failed" | "untracked";
+
+function findRegistryEntryByUrl(
+  images: Record<string, ImageEntry> | undefined,
+  url: string,
+): ImageEntry | undefined {
+  if (!images || !url) return undefined;
+  return Object.values(images).find((e) => e.source_url === url || e.src === url);
+}
+
+function imageCacheStatus(entry: ImageEntry | undefined): ImageCacheStatus {
+  if (!entry) return "untracked";
+  if (entry.failed_at) return "failed";
+  if (!entry.src && entry.source_url) return "pending";
+  if (entry.src) return "cached";
+  return "untracked";
+}
+
+const IMAGE_CACHE_STATUS_UI: Record<
+  ImageCacheStatus,
+  { icon: ReactNode; label: string; className: string }
+> = {
+  cached: {
+    icon: <CheckCircle2 className="h-3 w-3" />,
+    label: "Cached in registry",
+    className: "bg-green-600/90 text-white",
+  },
+  pending: {
+    icon: <Clock className="h-3 w-3" />,
+    label: "Pending download",
+    className: "bg-amber-500/90 text-white",
+  },
+  failed: {
+    icon: <AlertCircle className="h-3 w-3" />,
+    label: "Download failed",
+    className: "bg-red-600/90 text-white",
+  },
+  untracked: {
+    icon: <Unlink className="h-3 w-3" />,
+    label: "Not in image registry",
+    className: "bg-muted text-muted-foreground",
+  },
+};
+
+function ImageUrlFieldEditor({
+  fieldKey,
+  value,
+  cacheImages,
+  onChange,
+}: {
+  fieldKey: string;
+  value: unknown;
+  cacheImages: boolean;
+  onChange: (v: string) => void;
+}) {
+  const { registry } = useImageRegistry();
+  const url = typeof value === "string" ? value : "";
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    setBroken(false);
+  }, [url]);
+
+  const entry = findRegistryEntryByUrl(registry?.images, url);
+  const status = imageCacheStatus(entry);
+  const statusUi = IMAGE_CACHE_STATUS_UI[status];
+  const previewSrc =
+    entry?.src ||
+    (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")
+      ? url
+      : "");
+
+  return (
+    <div className="space-y-2" data-testid={`image-field-${fieldKey}`}>
+      <div className="flex items-start gap-3">
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted flex items-center justify-center">
+          {previewSrc && !broken ? (
+            <img
+              src={previewSrc}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setBroken(true)}
+              data-testid={`img-preview-${fieldKey}`}
+            />
+          ) : (
+            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium ${statusUi.className}`}
+            data-testid={`badge-cache-status-${fieldKey}`}
+          >
+            {statusUi.icon}
+            {statusUi.label}
+          </span>
+          <Input
+            type="url"
+            value={url}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="https://…"
+            className="text-sm"
+            data-testid={`input-edit-${fieldKey}`}
+          />
+        </div>
+      </div>
+      {cacheImages && (
+        <p className="text-[11px] text-muted-foreground">
+          Image will be cached on the next database refresh. Original URL is stored in the field.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export type EditorOption = string | { value: string; label: string };
@@ -66,6 +184,12 @@ interface DatabaseDetail {
 
 export function normalizeOption(opt: EditorOption): { value: string; label: string } {
   return typeof opt === "string" ? { value: opt, label: opt } : opt;
+}
+
+/** cache_images implies the image editor even when type is missing from config. */
+export function resolveEditorType(editorConfig?: EditorConfig): string {
+  if (editorConfig?.cache_images) return "image";
+  return editorConfig?.type || "text";
 }
 
 function buildItemFromForm(
@@ -213,7 +337,7 @@ export function ItemEditModal({
 
   const renderField = (key: string) => {
     const editorConfig = config?.editor?.[key];
-    const type = editorConfig?.type || "text";
+    const type = resolveEditorType(editorConfig);
     const rawManualOptions: EditorOption[] = editorConfig?.options || [];
     const manualOptions = rawManualOptions.map(normalizeOption);
     const canAddCustom =
@@ -326,6 +450,15 @@ export function ItemEditModal({
           </div>
         );
       }
+      case "image":
+        return (
+          <ImageUrlFieldEditor
+            fieldKey={key}
+            value={value}
+            cacheImages={editorConfig?.cache_images === true}
+            onChange={(v) => setValue(key, v)}
+          />
+        );
       case "select":
         return (
           <Select value={String(value ?? "")} onValueChange={(v) => setValue(key, v)}>
@@ -605,7 +738,7 @@ export function ItemEditModal({
           {!configLoading &&
             fields.map((key) => {
               const editorConfig = config?.editor?.[key];
-              const editorType = editorConfig?.type || "text";
+              const editorType = resolveEditorType(editorConfig);
               const useMarkdown = isMarkdownEditorType(editorType, key);
               return (
                 <div key={key} className="space-y-1.5">
