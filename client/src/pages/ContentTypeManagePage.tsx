@@ -55,6 +55,7 @@ import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editin
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
 import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
+import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 
@@ -113,6 +114,14 @@ interface ContentTypeConfig {
   label: string;
   directory: string;
   field_mapping?: Record<string, string | { source: string; default: string }>;
+  editor?: Record<string, {
+    type?: string;
+    options?: (string | { value: string; label: string })[];
+    populate_options?: boolean;
+    allow_custom_values?: boolean;
+    cache_images?: boolean;
+    description?: string;
+  }>;
   indexes?: string[];
   unique_fields?: string[];
   database: DatabaseConfig | null;
@@ -2476,6 +2485,8 @@ function FieldMappingDialog({
   const [newOptional, setNewOptional] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({});
   const [newValueValidation, setNewValueValidation] = useState<FieldValidationResult | "loading" | null>(null);
+  const [editorHints, setEditorHints] = useState<Record<string, EditorHint>>({});
+  const [hintDialogField, setHintDialogField] = useState<string | null>(null);
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const requestCounters = useRef<Record<string, number>>({});
 
@@ -2543,6 +2554,7 @@ function FieldMappingDialog({
     }
     setCustomModes(cmodes);
     setIndexedFields(config.indexes || []);
+    setEditorHints(config.editor || {});
     setUniqueFields(config.unique_fields ?? ["slug"]);
     setValidation({});
     setShowAddField(false);
@@ -2701,6 +2713,7 @@ function FieldMappingDialog({
 
       const payload = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
+        editor: Object.keys(editorHints).length > 0 ? editorHints : undefined,
         indexes: indexedFields.length > 0 ? indexedFields : undefined,
         unique_fields: uniqueFields,
       };
@@ -2956,6 +2969,16 @@ function FieldMappingDialog({
                               <CircleDashed className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`flex-shrink-0 ${editorHints[key]?.type && editorHints[key]?.type !== "text" ? "text-primary" : ""}`}
+                            title="Configure editor type"
+                            onClick={() => setHintDialogField(key)}
+                            data-testid={`button-hint-field-${key}`}
+                          >
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -3277,6 +3300,17 @@ function FieldMappingDialog({
       open={!!specialInfoKey}
       onOpenChange={(next) => {
         if (!next) setSpecialInfoKey(null);
+      }}
+    />
+    <EditorTypeDialog
+      open={hintDialogField !== null}
+      fieldName={hintDialogField}
+      initialHint={hintDialogField ? editorHints[hintDialogField] : undefined}
+      onClose={() => setHintDialogField(null)}
+      onApply={(hint) => {
+        if (!hintDialogField) return;
+        setEditorHints((prev) => ({ ...prev, [hintDialogField]: hint }));
+        setHintDialogField(null);
       }}
     />
     </>

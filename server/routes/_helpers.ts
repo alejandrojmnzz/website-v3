@@ -126,6 +126,11 @@ import {
   getDirectory,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
+import {
+  applyFieldOverridesToItem,
+  readFieldOverrides,
+  FIELD_OVERRIDES_KEY,
+} from "../field-overrides";
 import { resolveSingleVars } from "../single-resolver";
 import {
   normalizeLocale,
@@ -869,18 +874,33 @@ export function loadTemplatePage(slug: string, locale: string, ci: typeof conten
 export function buildSingleEntryFromContent(
   contentType: string,
   pageData: Record<string, unknown>,
+  opts?: { slug?: string; locale?: string; contentRoot?: string },
 ): Record<string, unknown> | undefined {
   const mapping = getFieldMapping(contentType);
-  if (!mapping || Object.keys(mapping).length === 0) return undefined;
-
   const entry: Record<string, unknown> = {};
-  for (const [key, source] of Object.entries(mapping)) {
-    const value = resolveFieldValue(source, pageData);
-    if (value !== undefined) {
-      entry[key] = value;
+  if (mapping && Object.keys(mapping).length > 0) {
+    for (const [key, source] of Object.entries(mapping)) {
+      if (key.startsWith("_")) continue;
+      const value = resolveFieldValue(source, pageData);
+      if (value !== undefined) {
+        entry[key] = value;
+      }
     }
   }
-  return Object.keys(entry).length > 0 ? entry : undefined;
+
+  let fo: Record<string, unknown> = {};
+  if (opts?.slug && opts?.locale) {
+    fo = readFieldOverrides(contentType, opts.slug, opts.locale, opts.contentRoot);
+  }
+  if (Object.keys(fo).length === 0) {
+    const fromPage = pageData[FIELD_OVERRIDES_KEY] ?? pageData.field_overrides;
+    if (fromPage && typeof fromPage === "object" && !Array.isArray(fromPage)) {
+      fo = { ...(fromPage as Record<string, unknown>) };
+    }
+  }
+
+  const merged = applyFieldOverridesToItem(entry, fo);
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export function listTemplatePages(

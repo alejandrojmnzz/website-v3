@@ -2486,6 +2486,8 @@ export function DebugBubble() {
         currentLocaleSlug={currentLocaleSlug}
         slugCheckReason={slugCheckReason}
         setSlugRedirectPrompt={setSlugRedirectPrompt}
+        locale={getEffectiveLocale()}
+        contentTypeLabel={contentInfo.type ? contentInfo.label : undefined}
       />
       {showYamlEditor && yamlEditorInfo && (
         <Suspense fallback={null}>

@@ -371,6 +371,12 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       currentLocaleSlug={currentLocaleSlug}
       slugCheckReason={slugCheckReason}
       setSlugRedirectPrompt={setSlugRedirectPrompt}
+      locale={locale}
+      contentTypeLabel={
+        target?.contentType
+          ? target.contentType.charAt(0).toUpperCase() + target.contentType.slice(1)
+          : undefined
+      }
     />
   );
 }

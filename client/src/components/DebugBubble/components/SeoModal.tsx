@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
+import { MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,9 @@ export interface SeoModalProps {
   currentLocaleSlug: string;
   slugCheckReason: string | null;
   setSlugRedirectPrompt: (v: boolean) => void;
+  /** Locale for Fields tab provenance / field_overrides (live locale). */
+  locale?: string;
+  contentTypeLabel?: string;
 }
 
 export function SeoModal({
@@ -88,6 +92,8 @@ export function SeoModal({
   currentLocaleSlug,
   slugCheckReason,
   setSlugRedirectPrompt,
+  locale = "en",
+  contentTypeLabel,
 }: SeoModalProps) {
   const [activeTab, setActiveTab] = useState("general");
 
@@ -100,6 +106,13 @@ export function SeoModal({
   const [ogImageTooSmall, setOgImageTooSmall] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [snippetEditing, setSnippetEditing] = useState(false);
+
+  const fieldsLocale = locale || contentInfo.locale || "en";
+  const fieldsTypeLabel =
+    contentTypeLabel ||
+    (contentInfo.type
+      ? contentInfo.type.charAt(0).toUpperCase() + contentInfo.type.slice(1)
+      : "Content type");
 
   const snippetUrl = seoMeta.canonical_url || (typeof window !== "undefined" ? `${window.location.origin}/${contentInfo.slug || ""}` : "");
   const snippetBreadcrumb = (() => {
@@ -133,10 +146,14 @@ export function SeoModal({
           </div>
         ) : seoData ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full grid grid-cols-4" data-testid="tabs-seo-nav">
+            <TabsList className="w-full grid grid-cols-5" data-testid="tabs-seo-nav">
               <TabsTrigger value="general" data-testid="tab-general" className="flex items-center gap-1.5">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 General
+              </TabsTrigger>
+              <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center gap-1.5">
+                <Table2 className="h-3.5 w-3.5 shrink-0" />
+                Fields
               </TabsTrigger>
               <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center gap-1.5">
                 <Code className="h-3.5 w-3.5 shrink-0" />
@@ -470,6 +487,22 @@ export function SeoModal({
                   data-testid="input-seo-canonical-url"
                 />
               </div>
+            </TabsContent>
+
+            {/* ── Fields tab ─────────────────────────────────────────── */}
+            <TabsContent value="fields" className="pt-1">
+              {contentInfo.type && contentInfo.slug ? (
+                <MappingFieldsTab
+                  contentType={contentInfo.type}
+                  slug={contentInfo.slug}
+                  locale={fieldsLocale}
+                  typeLabel={fieldsTypeLabel}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground pt-4">
+                  Open SEO from a content entry to manage mapping fields.
+                </p>
+              )}
             </TabsContent>
 
             {/* ── Schema tab ─────────────────────────────────────────── */}

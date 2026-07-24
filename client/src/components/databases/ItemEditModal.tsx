@@ -244,7 +244,8 @@ function buildItemFromForm(
 }
 
 export interface ItemEditModalProps {
-  dbName: string;
+  /** Database name — required unless `editorOverrides` + `onlyFields` fully define the form. */
+  dbName?: string;
   item: Record<string, unknown> | null;
   onSave: (item: Record<string, unknown>) => Promise<void>;
   onClose: () => void;
@@ -253,6 +254,10 @@ export interface ItemEditModalProps {
   hiddenFields?: string[];
   onlyFields?: string[];
   allItems?: Record<string, unknown>[];
+  /** When set, shows a banner indicating which override layer is being edited. */
+  overrideLevel?: "database" | "content_type";
+  /** Prefer these editor hints over (or instead of) database config.editor. */
+  editorOverrides?: Record<string, EditorConfig>;
 }
 
 export function ItemEditModal({
@@ -265,25 +270,30 @@ export function ItemEditModal({
   hiddenFields = [],
   onlyFields,
   allItems: externalAllItems,
+  overrideLevel,
+  editorOverrides,
 }: ItemEditModalProps) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState<Record<string, string>>({});
 
   const isNew = item === null;
+  const skipDbConfig = !!editorOverrides && !!onlyFields?.length && !dbName;
 
   const { data: detail, isLoading: configLoading } = useQuery<DatabaseDetail>({
     queryKey: ["/api/databases", dbName],
     staleTime: 5 * 60 * 1000,
+    enabled: !!dbName && !skipDbConfig,
   });
 
   const { data: allItemsData } = useQuery<{ items: Record<string, unknown>[] }>({
     queryKey: [`/api/databases/${dbName}/items`],
-    enabled: !externalAllItems && !!detail,
+    enabled: !externalAllItems && !!detail && !!dbName,
     staleTime: 5 * 60 * 1000,
   });
 
   const config = detail?.config;
+  const editor = editorOverrides ?? config?.editor;
   const allItems = externalAllItems ?? allItemsData?.items ?? [];
 
   const [formData, setFormData] = useState<Record<string, unknown>>(
@@ -292,24 +302,33 @@ export function ItemEditModal({
   const [initialized, setInitialized] = useState(!isNew);
 
   useEffect(() => {
-    if (!isNew || initialized || !config?.field_mapping) return;
+    if (!isNew || initialized) return;
+    const keys =
+      onlyFields && onlyFields.length > 0
+        ? onlyFields
+        : config?.field_mapping
+          ? Object.keys(config.field_mapping)
+          : [];
+    if (keys.length === 0 && !editorOverrides) return;
     const defaults: Record<string, unknown> = {};
-    for (const key of Object.keys(config.field_mapping)) {
+    for (const key of keys) {
       if (hiddenFields.includes(key)) continue;
-      const editorType = config.editor?.[key]?.type;
+      const editorType = editor?.[key]?.type;
       defaults[key] = editorType === "tags" ? [] : editorType === "boolean" ? false : "";
     }
     setFormData(defaults);
     setInitialized(true);
-  }, [isNew, initialized, config, hiddenFields]);
+  }, [isNew, initialized, config, hiddenFields, onlyFields, editor, editorOverrides]);
 
-  const fields = config?.field_mapping
-    ? Object.keys(config.field_mapping).filter((f) => {
-        if (hiddenFields.includes(f)) return false;
-        if (onlyFields && onlyFields.length > 0 && !onlyFields.includes(f)) return false;
-        return true;
-      })
-    : [];
+  const fields = (() => {
+    if (onlyFields && onlyFields.length > 0) {
+      return onlyFields.filter((f) => !hiddenFields.includes(f));
+    }
+    if (config?.field_mapping) {
+      return Object.keys(config.field_mapping).filter((f) => !hiddenFields.includes(f));
+    }
+    return [];
+  })();
 
   const setValue = (key: string, v: unknown) =>
     setFormData((prev) => ({ ...prev, [key]: v }));
@@ -317,7 +336,7 @@ export function ItemEditModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const payload = buildItemFromForm(fields, formData, config?.editor, isNew);
+      const payload = buildItemFromForm(fields, formData, editor, isNew);
       await onSave(payload);
       toast({
         title: isNew ? "Item added" : "Item saved",
@@ -336,7 +355,7 @@ export function ItemEditModal({
   };
 
   const renderField = (key: string) => {
-    const editorConfig = config?.editor?.[key];
+    const editorConfig = editor?.[key];
     const type = resolveEditorType(editorConfig);
     const rawManualOptions: EditorOption[] = editorConfig?.options || [];
     const manualOptions = rawManualOptions.map(normalizeOption);
@@ -711,6 +730,8 @@ export function ItemEditModal({
     }
   };
 
+  const showLoading = !!dbName && !skipDbConfig && configLoading;
+
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
@@ -721,23 +742,41 @@ export function ItemEditModal({
               (isNew ? "Fill in the fields to create a new entry." : "Edit the fields below.")}
           </DialogDescription>
         </DialogHeader>
+        {overrideLevel && (
+          <div
+            className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="banner-override-level"
+          >
+            {overrideLevel === "database" ? (
+              <>
+                Editing at <span className="font-medium text-foreground">database override</span> level —
+                changes apply to listings, dropdowns, and other database-powered UI.
+              </>
+            ) : (
+              <>
+                Editing at <span className="font-medium text-foreground">content type override</span> level —
+                page/YAML only; does not change the database or listing data.
+              </>
+            )}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1 min-h-0">
-          {configLoading && (
+          {showLoading && (
             <div className="flex items-center justify-center py-8">
               <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
-          {!configLoading && fields.length === 0 && (
+          {!showLoading && fields.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
               <p className="text-sm font-medium">No fields configured</p>
               <p className="text-xs text-muted-foreground max-w-xs">
-                Go to database settings → Field Mappings to add fields before editing items.
+                Go to content type Field Mappings or database settings to add fields before editing.
               </p>
             </div>
           )}
-          {!configLoading &&
+          {!showLoading &&
             fields.map((key) => {
-              const editorConfig = config?.editor?.[key];
+              const editorConfig = editor?.[key];
               const editorType = resolveEditorType(editorConfig);
               const useMarkdown = isMarkdownEditorType(editorType, key);
               return (
@@ -768,7 +807,7 @@ export function ItemEditModal({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={saving || configLoading || fields.length === 0}
+            disabled={saving || showLoading || fields.length === 0}
             data-testid="button-save-edit-item"
           >
             {saving ? (
