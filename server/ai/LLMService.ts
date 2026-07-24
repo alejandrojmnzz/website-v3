@@ -1,6 +1,6 @@
 /**
- * LLM Service - Factory pattern with retry/backoff for OpenAI calls
- * Reads provider config from 4geeks-com/llm.yml when available
+ * LLM Service - Factory pattern with retry/backoff for OpenAI-compatible API calls
+ * (OpenRouter by default). Reads provider/model config from the site content root llm.yml.
  */
 
 import OpenAI from "openai";
@@ -27,18 +27,20 @@ interface LLMYamlConfig {
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+export const DEFAULT_COMPLETION_MODEL = "openai/gpt-4o-mini";
+export const DEFAULT_VISION_MODEL = "openai/gpt-4o";
 
 /** Resolve API base URL from llm.yml env names, with OpenRouter soft-default. */
 export function resolveLLMBaseURL(baseUrlEnv: string): string | undefined {
-  const fromEnv = process.env[baseUrlEnv] || process.env.OPENAI_BASE_URL;
+  const fromEnv = process.env[baseUrlEnv];
   if (fromEnv) return fromEnv;
   if (baseUrlEnv === "OPENROUTER_BASE_URL") return OPENROUTER_DEFAULT_BASE_URL;
   return undefined;
 }
 
-/** Resolve API key from llm.yml env names, with OPENAI_API_KEY fallback. */
+/** Resolve API key from the env var named in llm.yml (provider.api_key_env). */
 export function resolveLLMApiKey(apiKeyEnv: string): string | undefined {
-  return process.env[apiKeyEnv] || process.env.OPENAI_API_KEY || undefined;
+  return process.env[apiKeyEnv] || undefined;
 }
 
 let instance: LLMService | null = null;
@@ -76,9 +78,18 @@ function getConfigMtime(contentRoot?: string): number | null {
 function resolveModel(cfg: LLMYamlConfig | null): string {
   if (process.env.LLM_MODEL) return process.env.LLM_MODEL;
   if (cfg?.model && typeof cfg.model === "object") {
-    return cfg.model.default || "openai/gpt-4o-mini";
+    return cfg.model.default || DEFAULT_COMPLETION_MODEL;
   }
-  return (cfg?.model as string | undefined) || "openai/gpt-4o-mini";
+  return (cfg?.model as string | undefined) || DEFAULT_COMPLETION_MODEL;
+}
+
+/** Vision model from llm.yml (model.vision), falling back to model.default. */
+export function resolveVisionModel(contentRoot?: string): string {
+  const cfg = loadYamlConfig(contentRoot);
+  if (cfg?.model && typeof cfg.model === "object" && cfg.model.vision) {
+    return cfg.model.vision;
+  }
+  return resolveModel(cfg) || DEFAULT_VISION_MODEL;
 }
 
 export function getLLMConfig(): LLMYamlConfig {
@@ -105,15 +116,15 @@ export class LLMService implements ILLMClient {
   private constructor() {
     const cfg = loadYamlConfig();
 
-    const apiKeyEnv = cfg?.provider?.api_key_env || "OPENAI_API_KEY";
-    const baseUrlEnv = cfg?.provider?.base_url_env || "OPENAI_BASE_URL";
+    const apiKeyEnv = cfg?.provider?.api_key_env || "OPENROUTER_API_KEY";
+    const baseUrlEnv = cfg?.provider?.base_url_env || "OPENROUTER_BASE_URL";
 
     const apiKey = resolveLLMApiKey(apiKeyEnv);
     const baseURL = resolveLLMBaseURL(baseUrlEnv);
 
     if (!apiKey) {
       throw new Error(
-        `OpenAI not configured. Please set ${apiKeyEnv} in Secrets.`,
+        `LLM not configured. Please set ${apiKeyEnv} in environment.`,
       );
     }
 

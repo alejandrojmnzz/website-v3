@@ -242,7 +242,7 @@ Output format: non-avif → webp; avif → avif. SVGs are never processed (not r
 ### Strategy (in order)
 1. **YAML context heuristics** — inspects field names where the image is referenced (e.g., `hero_image` field → `hero` tag)
 2. **Filename patterns** — regex against the image filename
-3. **AI vision** — `LLMService.getInstance()` with the vision model from `4geeks-com/llm.yml` (`model.vision` key; defaults to `meta-llama/llama-4-scout-17b-16e-instruct`)
+3. **AI vision** — `LLMService.getInstance()` with the vision model from `site_*/llm.yml` (`model.vision` key; falls back to `model.default`, then `openai/gpt-4o`)
 
 ### Key export
 ```ts

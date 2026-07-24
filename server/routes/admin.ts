@@ -1756,15 +1756,20 @@ export function registerAdminRoutes(app: Express): void {
       const baseUrlEnv = provider.base_url_env || "OPENROUTER_BASE_URL";
 
       const { resolveLLMApiKey, resolveLLMBaseURL } = await import("../ai/LLMService");
-      const modelDefault =
+      const modelObj =
         typeof llmConfig.model === "object" && llmConfig.model !== null
-          ? (llmConfig.model as Record<string, string>).default || ""
-          : typeof llmConfig.model === "string"
-            ? llmConfig.model
-            : "";
+          ? (llmConfig.model as Record<string, string>)
+          : null;
+      const modelDefault = modelObj
+        ? modelObj.default || ""
+        : typeof llmConfig.model === "string"
+          ? llmConfig.model
+          : "";
 
       res.json({
         model_default: modelDefault,
+        model_chat: modelObj?.chat || "",
+        model_vision: modelObj?.vision || "",
         provider: {
           api_key_env: apiKeyEnv,
           base_url_env: baseUrlEnv,
@@ -1783,9 +1788,23 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { model_default: modelDefault } = req.body || {};
-      if (typeof modelDefault !== "string" || !modelDefault.trim()) {
-        return res.status(400).json({ error: "model_default is required" });
+      const {
+        model_default: modelDefault,
+        model_chat: modelChat,
+        model_vision: modelVision,
+      } = req.body || {};
+
+      if (modelDefault !== undefined && (typeof modelDefault !== "string" || !modelDefault.trim())) {
+        return res.status(400).json({ error: "model_default cannot be empty" });
+      }
+      if (modelChat !== undefined && typeof modelChat !== "string") {
+        return res.status(400).json({ error: "model_chat must be a string" });
+      }
+      if (modelVision !== undefined && typeof modelVision !== "string") {
+        return res.status(400).json({ error: "model_vision must be a string" });
+      }
+      if (modelDefault === undefined && modelChat === undefined && modelVision === undefined) {
+        return res.status(400).json({ error: "At least one of model_default, model_chat, model_vision is required" });
       }
 
       const llmPath = path.join(getContentRoot(res), "llm.yml");
@@ -1795,7 +1814,19 @@ export function registerAdminRoutes(app: Express): void {
         typeof mutableConfig.model === "object" && mutableConfig.model !== null
           ? (mutableConfig.model as Record<string, string>)
           : { default: typeof mutableConfig.model === "string" ? mutableConfig.model : "" };
-      mutableConfig.model = { ...existing, default: modelDefault.trim() };
+      const modelObj: Record<string, string> = { ...existing };
+      if (typeof modelDefault === "string") modelObj.default = modelDefault.trim();
+      if (typeof modelChat === "string") {
+        const trimmed = modelChat.trim();
+        if (trimmed) modelObj.chat = trimmed;
+        else delete modelObj.chat;
+      }
+      if (typeof modelVision === "string") {
+        const trimmed = modelVision.trim();
+        if (trimmed) modelObj.vision = trimmed;
+        else delete modelObj.vision;
+      }
+      mutableConfig.model = modelObj;
 
       fs.writeFileSync(llmPath, yaml.dump(mutableConfig, { lineWidth: -1 }), "utf-8");
 
@@ -1819,7 +1850,12 @@ export function registerAdminRoutes(app: Express): void {
         log.warn({ err: reloadErr }, "[AI Settings PATCH] Agent reload failed (non-fatal)");
       }
 
-      res.json({ success: true, model_default: modelDefault.trim() });
+      res.json({
+        success: true,
+        model_default: modelObj.default || "",
+        model_chat: modelObj.chat || "",
+        model_vision: modelObj.vision || "",
+      });
     } catch (err) {
       log.error({ err }, "[AI Settings PATCH] Error:");
       res.status(500).json({ error: "Failed to update AI settings" });

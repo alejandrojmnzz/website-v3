@@ -192,7 +192,7 @@ export default function AISettingsPage() {
               <CardHeader>
                 <CardTitle className="text-base">Provider</CardTitle>
                 <CardDescription>
-                  API keys are read from environment variables (same pattern as the previous Groq setup).
+                  API keys are read from environment variables named in llm.yml (OpenRouter by default).
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">

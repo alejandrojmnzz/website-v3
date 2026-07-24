@@ -76,7 +76,7 @@ Key variables you must configure for a production deployment:
 - `PORT` — the port the server listens on (default `5000`).
 - `GITHUB_SYNC_ENABLED=true` and the full GitHub variable group if you want content edits committed back to the repository.
 - `GCS_BUCKET_NAME` and the full GCS variable group if media should be stored in Google Cloud Storage instead of the local filesystem.
-- `OPENROUTER_API_KEY` (or `OPENAI_API_KEY` fallback) if AI-powered features such as field mapping, content adaptation, or the chat assistant should be available.
+- `OPENROUTER_API_KEY` if AI-powered features such as field mapping, content adaptation, or the chat assistant should be available.
 
 ---
 
@@ -107,7 +107,7 @@ Variables are listed by category. "Required" means the feature that depends on t
 
 ### AI / LLM
 
-The platform uses an OpenAI-compatible API client. Which API key and base URL it reads is controlled by `site_*/llm.yml` via the `provider.api_key_env` and `provider.base_url_env` fields. The current default configuration routes calls through OpenRouter, so the variables you need to set in practice are `OPENROUTER_API_KEY` and optionally `OPENROUTER_BASE_URL`.
+The platform uses an OpenAI-compatible API client pointed at OpenRouter. Which API key and base URL it reads is controlled by `site_*/llm.yml` via the `provider.api_key_env` and `provider.base_url_env` fields. Set `OPENROUTER_API_KEY` (and optionally `OPENROUTER_BASE_URL`) in the environment.
 
 ```yaml
 # site_*/llm.yml (current defaults)
@@ -120,22 +120,20 @@ model:
   vision: openai/gpt-4o
 ```
 
+Choose the completion model in **Debug Bubble → AI & Agents → AI Settings** (`/private/settings/ai`); saving writes `model.default` in `llm.yml`. Chat and vision models are configured separately (`model.chat` / `model.vision`, or the Knowledge Editor for chat).
+
 If you change `api_key_env` or `base_url_env` in `llm.yml`, the server reads the named environment variables instead. The table below covers all variable names the code can read.
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
 | `OPENROUTER_API_KEY` | No* | — | API key for OpenRouter. This is the variable currently named in `llm.yml` under `provider.api_key_env`. | Field mapping, content adaptation, chat assistant, vision tagging | OpenRouter account at openrouter.ai |
 | `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Base URL for the OpenRouter API. Soft-defaulted in code when unset and `llm.yml` names this env var. | Routing LLM calls to OpenRouter | None |
-| `OPENAI_API_KEY` | No* | — | OpenAI API key. Checked as a hard-coded fallback in the LLM service when the env var named by `provider.api_key_env` is not set. Also read by the `seo-ai-meta-fix` admin script. | AI features when `llm.yml` is changed to use OpenAI | None if key is valid |
-| `OPENAI_BASE_URL` | No | OpenAI default | Base URL override for the OpenAI client. Used when `provider.base_url_env` resolves to this variable or when `OPENAI_API_KEY` is the active key. | Routing LLM calls to an alternative OpenAI-compatible provider | Provider must be OpenAI-API-compatible |
-| `AI_INTEGRATIONS_OPENAI_API_KEY` | No* | — | API key injected by the Replit AI Integrations connector. The `seo-ai-meta-fix` script reads this as an alternative to `OPENAI_API_KEY`. | AI features via Replit AI integration | Requires the Replit AI integration to be configured |
-| `AI_INTEGRATIONS_OPENAI_BASE_URL` | No | — | Base URL injected by the Replit AI Integrations connector alongside `AI_INTEGRATIONS_OPENAI_API_KEY`. | Routing LLM calls via the Replit integration endpoint | Requires the Replit AI integration to be configured |
-| `LLM_MODEL` | No | Value from `llm.yml` (`model.default`), currently `openai/gpt-4o-mini` | Overrides the default LLM model for all non-chat completions. Env var takes precedence over `llm.yml`. | Model selection for field mapping, meta generation, and content adaptation | None |
+| `LLM_MODEL` | No | Value from `llm.yml` (`model.default`), currently `openai/gpt-4o-mini` | Overrides the default LLM model for all non-chat completions. Env var takes precedence over `llm.yml`. Prefer AI Settings over this env var. | Model selection for field mapping, meta generation, and content adaptation | None |
 | `LLM_CHAT_MODEL` | No | Falls back to `LLM_MODEL` | Overrides the LLM model used specifically for the chat assistant. Env var takes precedence over `llm.yml` (`model.chat`). | Model selection for the chat assistant | None |
 
-*At least one valid API key must be set for the LLM provider named in `llm.yml`. With the default configuration that means `OPENROUTER_API_KEY`.
+*A valid API key must be set for the LLM provider named in `llm.yml`. With the default configuration that means `OPENROUTER_API_KEY`.
 
-Environment variables always take precedence over `llm.yml` for model overrides. Changing the provider, model, temperature, or token limit in `llm.yml` does not require a server restart — the file is reloaded on the next request when its modification time changes. Completion model can also be chosen in **Debug Bubble → AI & Agents → AI Settings** (`/private/settings/ai`).
+Environment variables always take precedence over `llm.yml` for model overrides. Changing the provider, model, temperature, or token limit in `llm.yml` does not require a server restart — the file is reloaded on the next request when its modification time changes.
 
 ### GitHub Sync
 

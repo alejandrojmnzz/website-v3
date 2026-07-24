@@ -4,8 +4,8 @@
  *
  * Reads all YAML content files, identifies DUPLICATE_TITLE, DUPLICATE_DESCRIPTION,
  * TITLE_TOO_LONG, DESCRIPTION_TOO_LONG, TITLE_TOO_SHORT, DESCRIPTION_TOO_SHORT issues
- * (for non-noindexed pages), and uses OpenAI to generate unique, properly-sized
- * meta content. Writes corrections back to YAML files.
+ * (for non-noindexed pages), and uses OpenRouter (via llm.yml) to generate unique,
+ * properly-sized meta content. Writes corrections back to YAML files.
  *
  * Usage:
  *   npx tsx scripts/admin/seo-ai-meta-fix.ts          # dry run (log proposed changes)
@@ -15,15 +15,60 @@
 import * as fs from "fs";
 import * as path from "path";
 import OpenAI from "openai";
+import * as yaml from "js-yaml";
 import { globSync } from "glob";
 
 const DRY_RUN = !process.argv.includes("--write");
-const CONTENT_ROOT = path.join(process.cwd(), "4geeks-com");
+const CONTENT_ROOT = path.join(process.cwd(), "site_4geeks-com");
+const LLM_YML_PATH = path.join(CONTENT_ROOT, "llm.yml");
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 
+function loadLlmConfig(): {
+  apiKey: string;
+  baseURL: string;
+  model: string;
+} {
+  let apiKeyEnv = "OPENROUTER_API_KEY";
+  let baseUrlEnv = "OPENROUTER_BASE_URL";
+  let model = process.env.LLM_MODEL || DEFAULT_MODEL;
+
+  try {
+    if (fs.existsSync(LLM_YML_PATH)) {
+      const cfg = yaml.load(fs.readFileSync(LLM_YML_PATH, "utf-8")) as {
+        provider?: { api_key_env?: string; base_url_env?: string };
+        model?: string | { default?: string };
+      };
+      if (cfg?.provider?.api_key_env) apiKeyEnv = cfg.provider.api_key_env;
+      if (cfg?.provider?.base_url_env) baseUrlEnv = cfg.provider.base_url_env;
+      if (!process.env.LLM_MODEL) {
+        if (typeof cfg?.model === "string") model = cfg.model;
+        else if (cfg?.model?.default) model = cfg.model.default;
+      }
+    }
+  } catch {
+    /* use defaults */
+  }
+
+  const apiKey = process.env[apiKeyEnv];
+  if (!apiKey) {
+    throw new Error(`LLM not configured. Please set ${apiKeyEnv} in environment.`);
+  }
+
+  const baseURL =
+    process.env[baseUrlEnv] ||
+    (baseUrlEnv === "OPENROUTER_BASE_URL" ? OPENROUTER_DEFAULT_BASE_URL : undefined) ||
+    OPENROUTER_DEFAULT_BASE_URL;
+
+  return { apiKey, baseURL, model };
+}
+
+const llm = loadLlmConfig();
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "dummy",
-  baseURL: process.env.OPENAI_BASE_URL || process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: llm.apiKey,
+  baseURL: llm.baseURL,
 });
+const COMPLETION_MODEL = llm.model;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -189,7 +234,7 @@ Respond with a JSON object with keys "1", "2", etc (matching page indices):
 
   try {
     const response = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: COMPLETION_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_tokens: Math.max(600, pages.length * 200),
@@ -250,7 +295,7 @@ Respond with: {"page_title": "...", "description": "..."}`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: COMPLETION_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_tokens: 300,

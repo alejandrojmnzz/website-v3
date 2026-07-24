@@ -2,7 +2,7 @@ import * as fs from "fs";
 import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { LLMService } from "./ai/LLMService";
+import { LLMService, resolveVisionModel } from "./ai/LLMService";
 import { escapeTemplateVars } from "../shared/templateVars";
 import { mediaGallery } from "./media-gallery";
 import { getAllDirectories } from "./content-types";
@@ -12,7 +12,6 @@ const log = child({ module: "image-auto-tagger" });
 
 
 const MARKETING_CONTENT_DIR = getDefaultContentRoot();
-const LLM_YML_PATH = path.join(MARKETING_CONTENT_DIR, "llm.yml");
 
 const CONTENT_DIRS = getAllDirectories().map(dir => path.join(MARKETING_CONTENT_DIR, dir));
 
@@ -57,15 +56,7 @@ function getRegistryFromGallery(): RegistryWithTagDefs {
 }
 
 function getVisionModel(): string {
-  try {
-    const raw = fs.readFileSync(LLM_YML_PATH, "utf-8");
-    const config = yaml.load(raw) as Record<string, unknown>;
-    const model = config.model as Record<string, unknown> | undefined;
-    if (model && typeof model.vision === "string") {
-      return model.vision;
-    }
-  } catch {}
-  return "meta-llama/llama-4-scout-17b-16e-instruct";
+  return resolveVisionModel();
 }
 
 function getAllYamlFiles(dir: string): string[] {

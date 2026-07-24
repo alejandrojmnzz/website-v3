@@ -73,8 +73,8 @@ function loadConfig(contentRoot?: string): LLMConfig {
 }
 
 function getOpenAIClient(config: LLMConfig): OpenAI {
-  const apiKeyEnv = config.provider?.api_key_env || "OPENAI_API_KEY";
-  const baseUrlEnv = config.provider?.base_url_env || "OPENAI_BASE_URL";
+  const apiKeyEnv = config.provider?.api_key_env || "OPENROUTER_API_KEY";
+  const baseUrlEnv = config.provider?.base_url_env || "OPENROUTER_BASE_URL";
 
   const apiKey = resolveLLMApiKey(apiKeyEnv);
   const baseURL = resolveLLMBaseURL(baseUrlEnv);
@@ -118,7 +118,7 @@ export class AgentService {
       this.reloadClient();
     }
     if (!this.client) {
-      const apiKeyEnv = this.config.provider?.api_key_env || "OPENAI_API_KEY";
+      const apiKeyEnv = this.config.provider?.api_key_env || "OPENROUTER_API_KEY";
       throw new Error(`API key not configured. Set ${apiKeyEnv} in environment.`);
     }
     return this.client;
