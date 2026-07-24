@@ -32,6 +32,8 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
 
   const segments = location.split("?")[0].split("/").filter(Boolean);
   const slug = segments[segments.length - 1] || "";
+  const _searchParams = new URLSearchParams(location.split("?")[1] ?? "");
+  const variantFromUrl = _searchParams.get("force_variant") ?? _searchParams.get("variant") ?? undefined;
 
   const { data: contentTypesData } = useContentTypesRaw();
   const contentTypeInfo = contentTypesData?.find((ct) => ct.name === contentType);
@@ -161,6 +163,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           contentType={contentType}
           slug={slug}
           locale={locale}
+          variant={variantFromUrl}
           isSharedTemplate={isSharedTemplate}
           singleEntry={page.singleEntry}
           allowEntryStructuralOverrides={allowEntryStructuralOverrides}

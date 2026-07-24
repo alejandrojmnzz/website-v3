@@ -5,8 +5,27 @@ import { Badge } from "@/components/ui/badge";
 import type { ListPressMentionsSection } from "@shared/schema";
 import { UniversalImage } from "@/components/UniversalImage";
 import { DotsIndicator } from "@/components/DotsIndicator";
+import { coerceToHtml, coerceToText } from "@/lib/variable-manager";
 
 type PressMentionItem = NonNullable<ListPressMentionsSection["items"]>[number];
+
+function normalizeBadges(badges: unknown): string[] {
+  if (!Array.isArray(badges)) return [];
+  const result: string[] = [];
+  for (const badge of badges) {
+    if (typeof badge === "string" || typeof badge === "number") {
+      const text = coerceToText(badge);
+      if (text) result.push(text);
+      continue;
+    }
+    if (badge && typeof badge === "object") {
+      const obj = badge as Record<string, unknown>;
+      const text = coerceToText(obj.text ?? obj.label ?? obj.name ?? badge);
+      if (text) result.push(text);
+    }
+  }
+  return result;
+}
 
 interface ListPressMentionsFeaturedShowcaseProps {
   data: ListPressMentionsSection;
@@ -33,12 +52,16 @@ function useCardsPerPage(): number {
 
 export default function ListPressMentionsFeaturedShowcase({ data }: ListPressMentionsFeaturedShowcaseProps) {
   const items = data.items || [];
+  const titleHtml = coerceToHtml(data.title);
   const showLinks = data.show_links ?? false;
   const showLogos = data.show_logos ?? true;
   const footerStats = data.footer_stats || [];
   const footerText = data.footer_text;
+  const badgeColor = data.badge_color;
+  const badgeTextColor = data.badge_text_color;
 
   const featured = items[0];
+  const featuredBadges = normalizeBadges(featured?.badges);
   const allCards = items.slice(1);
 
   const cardsPerPage = useCardsPerPage();
@@ -144,16 +167,15 @@ export default function ListPressMentionsFeaturedShowcase({ data }: ListPressMen
       <div className="max-w-6xl mx-auto px-4 flex flex-col gap-8">
 
         {/* Header */}
-        {(data.title || data.subtitle) && (
+        {(titleHtml || data.subtitle) && (
           <div className="text-center flex flex-col gap-3">
-            {data.title && (
+            {titleHtml && (
               <h2
-                className="text-3xl md:text-4xl font-bold text-foreground leading-tight whitespace-pre-line"
+                className="text-3xl md:text-4xl font-bold text-foreground leading-tight whitespace-pre-line [&_p]:mb-0 [&_p]:inline [&_p]:m-0"
                 style={data.title_color ? { color: data.title_color } : undefined}
                 data-testid="text-press-showcase-title"
-              >
-                {data.title}
-              </h2>
+                dangerouslySetInnerHTML={{ __html: titleHtml }}
+              />
             )}
             {data.subtitle && (
               <p
@@ -236,6 +258,27 @@ export default function ListPressMentionsFeaturedShowcase({ data }: ListPressMen
                   {featured.title}
                 </h3>
               )}
+              {featuredBadges.length > 0 && (
+                <div
+                  className="flex flex-wrap gap-2 mt-2"
+                  data-testid="badges-press-featured"
+                >
+                  {featuredBadges.map((badge, badgeIndex) => (
+                    <Badge
+                      key={`${badge}-${badgeIndex}`}
+                      variant="secondary"
+                      className="text-xs font-medium border-transparent rounded-full bg-background text-foreground"
+                      style={{
+                        ...(badgeColor ? { backgroundColor: badgeColor } : {}),
+                        ...(badgeTextColor ? { color: badgeTextColor } : {}),
+                      }}
+                      data-testid={`badge-press-featured-${badgeIndex}`}
+                    >
+                      {badge}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Right: logo + link + tags */}
@@ -306,6 +349,8 @@ export default function ListPressMentionsFeaturedShowcase({ data }: ListPressMen
                           index={globalIndex}
                           showLinks={showLinks}
                           showLogos={showLogos}
+                          badgeColor={badgeColor}
+                          badgeTextColor={badgeTextColor}
                           isExpandedMobile={isExpandedMobile}
                           onToggleMobile={() => setIsExpandedMobile((prev) => !prev)}
                         />
@@ -385,6 +430,8 @@ interface ShowcaseCardProps {
   index: number;
   showLinks: boolean;
   showLogos: boolean;
+  badgeColor?: string;
+  badgeTextColor?: string;
   isExpandedMobile: boolean;
   onToggleMobile: () => void;
 }
@@ -394,14 +441,18 @@ function ShowcaseCard({
   index,
   showLinks,
   showLogos,
+  badgeColor,
+  badgeTextColor,
   isExpandedMobile,
   onToggleMobile,
 }: ShowcaseCardProps) {
+  const badges = normalizeBadges(item.badges);
   const hasExpandableContent = !!(
     item.excerpt ||
     item.stat_value ||
     item.stat_label ||
     (item.tags && item.tags.length > 0) ||
+    badges.length > 0 ||
     (showLinks && item.link_url && item.link_text)
   );
 
@@ -447,28 +498,47 @@ function ShowcaseCard({
       {/* Org (context label) + title (headline) — separate lines */}
       <div className="flex flex-col gap-0.5">
         {item.title && (
-          <>
-            <span
-              className="text-lg font-bold text-foreground leading-snug"
-              data-testid={`text-press-card-title-${index}`}
-            >
-              {item.title}
-            </span>
-            {hasExpandableContent && (
-              <button
-                type="button"
-                className="md:hidden mt-1 inline-flex items-center gap-1 self-start text-base font-medium text-primary"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onToggleMobile();
+          <span
+            className="text-lg font-bold text-foreground leading-snug"
+            data-testid={`text-press-card-title-${index}`}
+          >
+            {item.title}
+          </span>
+        )}
+        {badges.length > 0 && (
+          <div
+            className="flex flex-wrap gap-2 mt-1"
+            data-testid={`badges-press-card-${index}`}
+          >
+            {badges.map((badge, badgeIndex) => (
+              <Badge
+                key={`${badge}-${badgeIndex}`}
+                variant="secondary"
+                className="text-xs font-medium border-transparent rounded-full"
+                style={{
+                  ...(badgeColor ? { backgroundColor: badgeColor } : {}),
+                  ...(badgeTextColor ? { color: badgeTextColor } : {}),
                 }}
-                data-testid={`button-press-card-toggle-${index}`}
+                data-testid={`badge-press-card-${index}-${badgeIndex}`}
               >
-                {isExpandedMobile ? "See less" : "See more"}
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${isExpandedMobile ? "rotate-180" : ""}`} />
-              </button>
-            )}
-          </>
+                {badge}
+              </Badge>
+            ))}
+          </div>
+        )}
+        {item.title && hasExpandableContent && (
+          <button
+            type="button"
+            className="md:hidden mt-1 inline-flex items-center gap-1 self-start text-base font-medium text-primary"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleMobile();
+            }}
+            data-testid={`button-press-card-toggle-${index}`}
+          >
+            {isExpandedMobile ? "See less" : "See more"}
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${isExpandedMobile ? "rotate-180" : ""}`} />
+          </button>
         )}
       </div>
 

@@ -535,16 +535,47 @@ export function SectionEditorPanel({
   // Track which template key is currently being reset (to disable button and show spinner)
   const [resettingField, setResettingField] = useState<string | null>(null);
 
-  const { data: templateSectionsData } = useQuery<{ sections: string[] }>({
-    queryKey: ["/api/content-types", contentType, "single-template-sections", locale ?? "en"],
+  const bindingQueryClient = useQueryClient();
+
+  // Match save destination: ?force_variant= / ?variant= writes to single-{slug}.{locale}.yml
+  const effectiveTemplateVariant = (() => {
+    if (typeof window === "undefined") return variant ?? "";
+    const params = new URLSearchParams(window.location.search);
+    return params.get("force_variant") || params.get("variant") || variant || "";
+  })();
+
+  const templateSectionsQueryKey = [
+    "/api/content-types",
+    contentType,
+    "single-template-sections",
+    locale ?? "en",
+    effectiveTemplateVariant,
+  ] as const;
+
+  const { data: templateSectionsData, refetch: refetchTemplateSections } = useQuery<{ sections: string[] }>({
+    queryKey: [...templateSectionsQueryKey],
     queryFn: async () => {
       const params = new URLSearchParams({ locale: locale ?? "en" });
+      if (effectiveTemplateVariant) params.set("variantSlug", effectiveTemplateVariant);
       const res = await fetch(`/api/content-types/${contentType}/single-template-sections?${params}`);
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ sections: string[] }>;
     },
     enabled: hasVariableFields && !!contentType,
   });
+
+  /** After saving shared-template sections, reload YAML from disk so the editor matches the template. */
+  const refreshTemplateYamlFromServer = async () => {
+    if (!hasVariableFields || !contentType) return;
+    await bindingQueryClient.invalidateQueries({ queryKey: [...templateSectionsQueryKey] });
+    const result = await refetchTemplateSections();
+    const templateYaml = result.data?.sections?.[sectionIndex];
+    if (templateYaml) {
+      setYamlContent(templateYaml);
+      initialYamlRef.current = templateYaml;
+      setHasChanges(false);
+    }
+  };
 
   useEffect(() => {
     if (!templateSectionsData) return;
@@ -555,7 +586,6 @@ export function SectionEditorPanel({
   }, [templateSectionsData, sectionIndex, slug]);
 
   // Binding state
-  const bindingQueryClient = useQueryClient();
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
   const [bindingConfirmOpen, setBindingConfirmOpen] = useState(false);
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false);
@@ -1986,12 +2016,18 @@ export function SectionEditorPanel({
     }
 
     try {
+      // When previewing a DB single template variant (?force_variant=...), route
+      // the save directly to single-{variantSlug}.{locale}.yml on the server so
+      // edits land in the variant file instead of the shared base template.
+      const _urlParams = new URLSearchParams(window.location.search);
+      const forceVariantFromUrl = _urlParams.get("force_variant") || _urlParams.get("variant");
       const result = await editContent({
         contentType,
         slug,
         locale,
-        variant,
-        version,
+        variant: forceVariantFromUrl ?? variant,
+        version: forceVariantFromUrl ? undefined : version,
+        ...(forceVariantFromUrl ? { layoutTarget: "type_single" } : {}),
         operations: [
           {
             action: "update_section",
@@ -2016,6 +2052,10 @@ export function SectionEditorPanel({
 
         // Update initial state reference so next undo session starts from saved state
         initialYamlRef.current = yamlContent;
+
+        // Shared-template editor loads YAML from a cached query — refresh so
+        // reopening the editor shows what was actually written to the template.
+        await refreshTemplateYamlFromServer();
 
         // Emit event to trigger page refresh
         emitContentUpdated({ contentType, slug, locale });
@@ -2119,11 +2159,17 @@ export function SectionEditorPanel({
         await executeSave();
         return;
       }
-      // On a DB entry page with a shared-template section: ask scope first.
-      // Binding confirmation (if needed) is handled inside the scope dialog's
-      // "Update shared template" branch.
-      setScopeDialogOpen(true);
-      return;
+      // Skip the scope dialog when previewing a variant — destination is already the variant file.
+      const _vp = new URLSearchParams(window.location.search);
+      const inVariantPreview = !!(_vp.get("force_variant") || _vp.get("variant"));
+      if (!inVariantPreview) {
+        // On a DB entry page with a shared-template section: ask scope first.
+        // Binding confirmation (if needed) is handled inside the scope dialog's
+        // "Update shared template" branch.
+        setScopeDialogOpen(true);
+        return;
+      }
+      // Fall through to executeSave, which writes to the variant template.
     }
     if (boundSiblings.length > 0) {
       setBindingConfirmOpen(true);

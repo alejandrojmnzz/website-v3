@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { execSync as _execSync, execFile } from "child_process";
+import { canonicalSectionId } from "../utils/sectionIdentity";
 import {
   versioningUpdateSchema,
   type CareerProgram,
@@ -109,7 +110,6 @@ import {
   getLocaleKey,
   getLocaleDefault,
   getIndexes,
-  hasDatabaseSingle,
   getContentTypeConfig,
   updateContentTypeConfig,
   addContentType,
@@ -309,12 +309,11 @@ export function registerVersioningRoutes(app: Express): void {
       entrySlug && shared
         ? versioningContentSlug(contentType, entrySlug, root)
         : contentSlug;
+    const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
 
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const versioning = versioningManager.getVersioningForContent(contentType, resolvedSlug);
     const filePath = versioningManager.getVersioningFilePath(contentType, resolvedSlug);
-
-    const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
 
     if (!versioning) {
       res.json({

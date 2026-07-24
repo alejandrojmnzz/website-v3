@@ -808,7 +808,9 @@ export function registerComponentsRoutes(app: Express): void {
       const baseDir = path.join(getContentRoot(res), folder);
 
       // Type-level single template: `_common.single.yml` (+ optional `single.{locale}.yml`)
+      // When variantSlug is provided, load `single.{variantSlug}.{locale}.yml` instead.
       if (slug === "_common.single") {
+        const variantSlug = req.query.variantSlug as string | undefined;
         const files: {
           locale?: { path: string; content: string };
           common?: { path: string; content: string };
@@ -822,12 +824,25 @@ export function registerComponentsRoutes(app: Express): void {
           };
         }
 
-        let singleLocalePath = path.join(baseDir, `single.${locale}.yml`);
-        if (!fs.existsSync(singleLocalePath)) {
-          singleLocalePath = path.join(baseDir, "single.en.yml");
+        let singleLocalePath: string;
+        let localeFileName: string;
+        if (variantSlug) {
+          // Variant template: single.{variantSlug}.{locale}.yml
+          singleLocalePath = path.join(baseDir, `single.${variantSlug}.${locale}.yml`);
+          if (!fs.existsSync(singleLocalePath)) {
+            singleLocalePath = path.join(baseDir, `single.${variantSlug}.en.yml`);
+          }
+          localeFileName = path.basename(singleLocalePath);
+        } else {
+          // Default template: single.<locale>.yml
+          singleLocalePath = path.join(baseDir, `single.${locale}.yml`);
+          if (!fs.existsSync(singleLocalePath)) {
+            singleLocalePath = path.join(baseDir, "single.en.yml");
+          }
+          localeFileName = path.basename(singleLocalePath);
         }
+
         if (fs.existsSync(singleLocalePath)) {
-          const localeFileName = path.basename(singleLocalePath);
           files.locale = {
             path: `${contentRootName}/${folder}/${localeFileName}`,
             content: fs.readFileSync(singleLocalePath, "utf-8"),

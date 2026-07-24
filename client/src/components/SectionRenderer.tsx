@@ -478,7 +478,7 @@ async function sendEditOperation(
   slug: string,
   locale: string,
   operations: EditOperation[],
-  opts?: { variant?: string; version?: number }
+  opts?: { variant?: string; version?: number; layoutTarget?: string }
 ): Promise<{ success: boolean; error?: string }> {
   const token = getDebugToken();
   const author = await resolveAuthorName();
@@ -496,6 +496,7 @@ async function sendEditOperation(
       author,
       ...(opts?.variant ? { variant: opts.variant } : {}),
       ...(opts?.version !== undefined ? { version: opts.version } : {}),
+      ...(opts?.layoutTarget ? { layoutTarget: opts.layoutTarget } : {}),
     }),
   });
   return response.json();
@@ -814,7 +815,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     if (!contentType || !slug || !locale) return;
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "reorder_sections", from, to }
-    ], { variant, version });
+    ], { variant, version, ...(variant ? { layoutTarget: "type_single" } : {}) });
     if (result.success) {
       toast({ title: from < to ? "Section moved down" : "Section moved up" });
       emitContentUpdated({ contentType, slug, locale });
@@ -842,6 +843,9 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
       if (isPerEntry) {
         // Both per-entry: move directly within the per-entry file, no confirmation needed
+        await performMove(index, index - 1);
+      } else if (variant) {
+        // In variant preview: move directly in the variant template, no confirmation needed
         await performMove(index, index - 1);
       } else {
         // Both template: confirm before applying to all entries
@@ -888,6 +892,9 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
       if (isPerEntry) {
         // Both per-entry: move directly within the per-entry file, no confirmation needed
+        await performMove(index, index + 1);
+      } else if (variant) {
+        // In variant preview: move directly in the variant template, no confirmation needed
         await performMove(index, index + 1);
       } else {
         // Both template: confirm before applying to all entries
@@ -982,6 +989,12 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
         return;
       }
 
+      if (variant) {
+        // In variant preview: show confirmation first, then delete from the variant template file
+        setSimpleDeleteDialog({ open: true, index, isDeleting: false });
+        return;
+      }
+
       setDbEntryDeleteDialog({ open: true, index, isPerEntry: false, isDeleting: false, sectionId, mergedIndex: index });
       return;
     }
@@ -1028,7 +1041,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "remove_item", path: "sections", index }
-    ], { variant, version });
+    ], { variant, version, ...(variant ? { layoutTarget: "type_single" } : {}) });
 
     if (result.success) {
       // If the lookup failed entirely OR the member removal returned an error,

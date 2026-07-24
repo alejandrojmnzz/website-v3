@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import type { TwoColumnSection as TwoColumnSectionType, TwoColumnColumn, BenefitItem } from "@shared/schema";
@@ -7,6 +9,7 @@ import { getIcon } from "@/lib/icons";
 import { UniversalVideo } from "@/components/UniversalVideo";
 import { UniversalImage } from "@/components/UniversalImage";
 import { useInternalNav } from "@/hooks/useInternalNav";
+import { RichTextContent } from "@/components/ui/rich-text-content";
 
 export type { TwoColumnSectionType };
 
@@ -201,6 +204,7 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
   const handleLinkClick = useInternalNav();
   const [bulletsExpanded, setBulletsExpanded] = useState(false);
   const [expandedBullets, setExpandedBullets] = useState<Record<number, boolean>>({});
+  const [descExpanded, setDescExpanded] = useState(false);
   
   const toggleBullet = (index: number) => {
     setExpandedBullets(prev => ({
@@ -221,12 +225,11 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
       {hasTextContent && (
         <div className={`flex flex-col ${gapClass} w-full ${textAlignClass}`}>
           {column.heading && (
-            <h2 
+            <h2
               className="text-foreground text-[36px]"
               data-testid="text-two-column-heading"
-            >
-              {column.heading}
-            </h2>
+              dangerouslySetInnerHTML={{ __html: column.heading }}
+            />
           )}
           
           {column.sub_heading && (
@@ -239,12 +242,35 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
           )}
           
           {column.description && (
-            <p 
-              className={`${textFontSize} text-muted-foreground leading-relaxed`}
+            <RichTextContent
+              html={column.description}
+              className={`${textFontSize} text-muted-foreground`}
               data-testid="text-two-column-description"
-            >
-              {column.description}
-            </p>
+            />
+          )}
+
+          {column.description_extended && (
+            <>
+              {descExpanded && (
+                <p
+                  className={`${textFontSize} text-muted-foreground leading-relaxed`}
+                  data-testid="text-two-column-description-extended"
+                >
+                  {column.description_extended}
+                </p>
+              )}
+              <button
+                onClick={() => setDescExpanded(!descExpanded)}
+                className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
+                data-testid="button-toggle-description"
+              >
+                {descExpanded ? (
+                  <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
+                ) : (
+                  <>{renderIcon("ChevronDown", "w-4 h-4")} Read more</>
+                )}
+              </button>
+            </>
           )}
 
           {column.html_content && (
@@ -253,6 +279,59 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
               dangerouslySetInnerHTML={{ __html: column.html_content }}
               data-testid="html-two-column-content"
             />
+          )}
+
+          {column.html_content_extended && (
+            <>
+              {descExpanded && (
+                <div
+                  className="text-muted-foreground leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: column.html_content_extended }}
+                  data-testid="html-two-column-content-extended"
+                />
+              )}
+              {!column.description_extended && (
+                <button
+                  onClick={() => setDescExpanded(!descExpanded)}
+                  className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
+                  data-testid="button-toggle-html-content"
+                >
+                  {descExpanded ? (
+                    <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
+                  ) : (
+                    <>{renderIcon("ChevronDown", "w-4 h-4")} Read more</>
+                  )}
+                </button>
+              )}
+            </>
+          )}
+
+          {column.description_extended_md && (
+            <>
+              {descExpanded && (
+                <div
+                  className="prose prose-sm max-w-none text-muted-foreground prose-a:text-primary prose-a:no-underline prose-a:hover:underline"
+                  data-testid="md-two-column-description-extended"
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {column.description_extended_md}
+                  </ReactMarkdown>
+                </div>
+              )}
+              {!column.description_extended && !column.html_content_extended && (
+                <button
+                  onClick={() => setDescExpanded(!descExpanded)}
+                  className="text-primary hover:text-primary/80 text-sm font-medium flex items-center gap-1 self-start"
+                  data-testid="button-toggle-description-md"
+                >
+                  {descExpanded ? (
+                    <>{renderIcon("ChevronUp", "w-4 h-4")} Show less</>
+                  ) : (
+                    <>{renderIcon("ChevronDown", "w-4 h-4")} Read more</>
+                  )}
+                </button>
+              )}
+            </>
           )}
           
           {column.bullets && column.bullets.length > 0 && (() => {
@@ -402,6 +481,7 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
       {column.video && (() => {
         const videoIsObj = typeof column.video === "object" && column.video !== null;
         const videoUrl = videoIsObj ? (column.video as { url: string }).url : (column.video as string);
+        if (!videoUrl?.trim() || videoUrl === "null" || videoUrl === "undefined" || /\{\{.*\}\}/.test(videoUrl)) return null;
         const videoRatio = videoIsObj ? ((column.video as { ratio?: string }).ratio || "16:9") : (column.video_ratio || "16:9");
         const videoPreviewImage = videoIsObj ? (column.video as { preview_image_url?: string }).preview_image_url : column.video_preview_image;
         const videoWidth = videoIsObj ? ((column.video as { width?: string }).width || "100%") : (column.video_width || "100%");
@@ -509,6 +589,7 @@ function BenefitCardsVariant({ data }: TwoColumnProps) {
                     const rv = data.right!.video;
                     const rvIsObj = typeof rv === "object" && rv !== null;
                     const rvUrl = rvIsObj ? (rv as { url: string }).url : (rv as string);
+                    if (!rvUrl?.trim() || rvUrl === "null" || rvUrl === "undefined" || /\{\{.*\}\}/.test(rvUrl)) return null;
                     const rvRatio = rvIsObj ? ((rv as { ratio?: string }).ratio || "16:9") : (data.right!.video_ratio || "16:9");
                     const rvPreview = rvIsObj ? (rv as { preview_image_url?: string }).preview_image_url : data.right!.video_preview_image;
                     return (

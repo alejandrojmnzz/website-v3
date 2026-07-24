@@ -49,7 +49,7 @@ export function AddSectionButton({
   }
 
   const handleOpenModal = () => {
-    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides) {
+    if (isSharedTemplate && singleEntry && allowEntryStructuralOverrides && !variant) {
       setScopeDialogOpen(true);
     } else if (isSharedTemplate && singleEntry && !allowEntryStructuralOverrides) {
       setAddScope("template");

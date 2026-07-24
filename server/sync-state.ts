@@ -147,6 +147,11 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
     if (/component-registry\/[^/]+\/[^/]+\/schema\.ya?ml$/.test(filePath)) {
       return true;
     }
+    // Allow .ts files (schema.ts, field-editors.ts) so they appear in the sync modal
+    // Pattern: component-registry/{type}/{version}/*.ts
+    if (/component-registry\/[^/]+\/[^/]+\/[^/]+\.ts$/.test(filePath)) {
+      return true;
+    }
     return false;
   }
 
@@ -403,7 +408,7 @@ function getAllContentFiles(contentRoot?: string): string[] {
         }
       } else {
         const ext = path.extname(entry.name).toLowerCase();
-        if (ext === '.yml' || ext === '.yaml' || ext === '.json') {
+        if (ext === '.yml' || ext === '.yaml' || ext === '.json' || ext === '.ts') {
           const relativePath = path.relative(process.cwd(), fullPath);
           if (shouldTrackFile(relativePath, undefined, contentRoot)) {
             files.push(relativePath);

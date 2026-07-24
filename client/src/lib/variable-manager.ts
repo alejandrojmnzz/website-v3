@@ -97,6 +97,7 @@ export function resolveTemplateString(
   context: VariableContext,
   options?: ResolveOptions,
 ): { text: string; variables: ResolvedVariable[] } {
+  if (typeof text !== "string") return { text: String(text ?? ""), variables: [] };
   const variables: ResolvedVariable[] = [];
   const regex = new RegExp(TEMPLATE_REGEX.source, TEMPLATE_REGEX.flags);
   const preserveTemplate = options?.preserveTemplate ?? false;

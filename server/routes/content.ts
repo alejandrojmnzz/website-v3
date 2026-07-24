@@ -628,12 +628,15 @@ export function registerContentRoutes(app: Express): void {
         templateVariant,
       );
       if (page) {
-        if (page.sections && Array.isArray(page.sections)) {
-          page.sections = (await resolveDynamicEntries(page.sections, locale, dynamicEntriesOptions(res))) as any;
-          applyComponentImageSizes(page.sections as unknown[]);
-        }
         const dbPageData = page as unknown as Record<string, unknown>;
         const dbSingleEntry = (dbPageData.singleEntry as Record<string, unknown>) || {};
+        if (page.sections && Array.isArray(page.sections)) {
+          page.sections = (await resolveDynamicEntries(page.sections, locale, {
+            ...dynamicEntriesOptions(res),
+            singleEntry: dbSingleEntry,
+          })) as any;
+          applyComponentImageSizes(page.sections as unknown[]);
+        }
         if (Object.keys(dbSingleEntry).length > 0) {
           const dbResolved = resolveSingleVars(dbPageData, dbSingleEntry) as Record<string, unknown>;
           Object.assign(dbPageData, dbResolved);
@@ -717,16 +720,21 @@ export function registerContentRoutes(app: Express): void {
     }
 
     if (variantPage) {
+      const variantSingleEntry = buildSingleEntryFromContent(contentType, variantPage);
+      if (variantSingleEntry) {
+        variantPage.singleEntry = variantSingleEntry;
+      }
       const variantSections = variantPage.sections;
       if (variantSections && Array.isArray(variantSections)) {
-        (variantPage as any).sections = (await resolveDynamicEntries(variantSections, locale, dynamicEntriesOptions(res))) as any;
+        (variantPage as any).sections = (await resolveDynamicEntries(variantSections, locale, {
+          ...dynamicEntriesOptions(res),
+          singleEntry: variantSingleEntry || undefined,
+        })) as any;
         applyComponentImageSizes((variantPage as any).sections as unknown[]);
       }
       const variantRaw = getCI(res).loadMergedContent(contentType, slug, locale);
       const variantLayout = resolveLayout(contentType, variantRaw.data || {}, getContentRoot(res));
-      const variantSingleEntry = buildSingleEntryFromContent(contentType, variantPage);
       if (variantSingleEntry) {
-        variantPage.singleEntry = variantSingleEntry;
         const resolved = resolveSingleVars(variantPage, variantSingleEntry) as Record<string, unknown>;
         Object.assign(variantPage, resolved);
       }
@@ -752,18 +760,23 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const page = result.data;
-
-    if (page.sections && Array.isArray(page.sections)) {
-      page.sections = (await resolveDynamicEntries(page.sections, locale, dynamicEntriesOptions(res))) as any;
-      applyComponentImageSizes(page.sections as unknown[]);
-    }
-
     const genericPageData = page as unknown as Record<string, unknown>;
-    const genericRaw = getCI(res).loadMergedContent(contentType, slug, locale);
-    const genericLayout = resolveLayout(contentType, genericRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent(contentType, genericPageData);
     if (singleEntry) {
       genericPageData.singleEntry = singleEntry;
+    }
+
+    if (page.sections && Array.isArray(page.sections)) {
+      page.sections = (await resolveDynamicEntries(page.sections, locale, {
+        ...dynamicEntriesOptions(res),
+        singleEntry: singleEntry || undefined,
+      })) as any;
+      applyComponentImageSizes(page.sections as unknown[]);
+    }
+
+    const genericRaw = getCI(res).loadMergedContent(contentType, slug, locale);
+    const genericLayout = resolveLayout(contentType, genericRaw.data || {}, getContentRoot(res));
+    if (singleEntry) {
       const resolved = resolveSingleVars(genericPageData, singleEntry) as Record<string, unknown>;
       Object.assign(genericPageData, resolved);
     }
@@ -1677,7 +1690,8 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
       }
-      const merged = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res));
+      const variantSlug = req.query.variantSlug as string | undefined;
+      const merged = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res), variantSlug);
       if (!merged) {
         res.status(404).json({ error: "Single template not found" });
         return;

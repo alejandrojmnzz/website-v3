@@ -347,6 +347,9 @@ export {
   syllabusDefaultSchema,
   syllabusLandingSchema,
   syllabusProgramModulesSchema,
+  syllabusTimelineItemSchema,
+  syllabusTimelineModuleSchema,
+  syllabusTimelineSchema,
   syllabusSectionSchema,
   type SyllabusModule,
   type FocusArea,
@@ -355,6 +358,9 @@ export {
   type SyllabusDefault,
   type SyllabusLanding,
   type SyllabusProgramModules,
+  type SyllabusTimelineItem,
+  type SyllabusTimelineModule,
+  type SyllabusTimeline,
   type SyllabusSection,
 } from "../site_4geeks-com/component-registry/syllabus/v1.0/schema";
 

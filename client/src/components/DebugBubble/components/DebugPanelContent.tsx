@@ -524,7 +524,9 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                         const urlLocale = pathSegments[0];
                         const hasPathLocale = /^[a-z]{2}$/.test(urlLocale);
                         const resolvedLocale = hasPathLocale ? normalizeLocale(urlLocale) : (props.contentLocale || normalizeLocale(i18n.language));
-                        const previewUrl = `/private/preview/${props.contentInfo.type}/${props.contentInfo.slug}?locale=${resolvedLocale}`;
+                        const _cp = new URLSearchParams(window.location.search);
+                        const _activeVariant = _cp.get("variant") || _cp.get("force_variant");
+                        const previewUrl = `/private/preview/${props.contentInfo.type}/${props.contentInfo.slug}?locale=${resolvedLocale}${_activeVariant ? `&variant=${encodeURIComponent(_activeVariant)}` : ""}`;
                         props.navigate(previewUrl);
                       }
                     }
@@ -563,6 +565,9 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                       }
                     }
                     if (targetUrl) {
+                      const _rp = new URLSearchParams(window.location.search);
+                      const _rv = _rp.get("variant") || _rp.get("force_variant");
+                      if (_rv) targetUrl = targetUrl + (targetUrl.includes("?") ? "&" : "?") + `force_variant=${encodeURIComponent(_rv)}`;
                       props.navigate(targetUrl);
                     }
                   }}

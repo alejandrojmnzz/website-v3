@@ -181,7 +181,7 @@ export function VersioningView({
           .catch(() => {});
       }
       persistOpenStateForNavigation();
-      navigate(`/private/preview/${type}/${slug}?force_variant=${encodeURIComponent(createVersionSlug)}&locale=${createVersionLocale}`);
+      navigate(`/private/preview/${type}/${slug}?variant=${encodeURIComponent(createVersionSlug)}&locale=${createVersionLocale}`);
     } catch {
       toast({ title: "Failed to create version", variant: "destructive" });
     } finally {
@@ -547,10 +547,21 @@ export function VersioningView({
           ) : !versioningData?.hasVersioningFile ? (
             <div className="text-center py-8 px-4">
               <IconGitBranch className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground mb-2">No versioning file found</p>
-              <p className="text-xs text-muted-foreground">
-                Create <code className="bg-muted px-1 rounded">versioning.yml</code> in the content folder
-              </p>
+              {isTemplateVersioning ? (
+                <>
+                  <p className="text-sm text-muted-foreground mb-2">No template variants yet</p>
+                  <p className="text-xs text-muted-foreground">
+                    Click <strong>New</strong> to create a draft variant of <code className="bg-muted px-1 rounded">single.en.yml</code>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground mb-2">No versioning file found</p>
+                  <p className="text-xs text-muted-foreground">
+                    Create <code className="bg-muted px-1 rounded">versioning.yml</code> in the content folder
+                  </p>
+                </>
+              )}
             </div>
           ) : locales.length === 0 ? (
             <div className="text-center py-8 px-4">
@@ -565,7 +576,9 @@ export function VersioningView({
                 <div key={locale} className="px-2 py-2">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">Traffic allocation for</span>
+                      <span className="text-xs text-muted-foreground">
+                        {isTemplateVersioning ? "Template variants for" : "Traffic allocation for"}
+                      </span>
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
                         {locale.toUpperCase()}
                       </Badge>
@@ -623,11 +636,11 @@ export function VersioningView({
                   <div className="space-y-2">
                     {/* Synthetic default row */}
                     {(() => {
-                      const variantTotal = localeData.variants.reduce((sum, v) => sum + v.allocation, 0);
+                      const variantTotal = localeData.variants.reduce((sum, v) => sum + (v.allocation ?? 0), 0);
                       const defaultAllocation = Math.max(0, 100 - variantTotal);
                       const isDefaultActive = activeVariant === null;
                       const defaultTempValue = tempAllocations["__default__"] ?? defaultAllocation;
-                      const variantTempTotal = localeData.variants.reduce((sum, v) => sum + (tempAllocations[v.slug] ?? v.allocation), 0);
+                      const variantTempTotal = localeData.variants.reduce((sum, v) => sum + (tempAllocations[v.slug] ?? (v.allocation ?? 0)), 0);
                       const defaultMaxAllowed = Math.max(0, 100 - variantTempTotal);
                       return (
                         <div key="__default__" className={isDefaultActive ? "rounded-md bg-primary/10 px-2 py-1 -mx-2" : ""}>
@@ -691,14 +704,25 @@ export function VersioningView({
                             {isActive && (
                               <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" data-testid={`dot-active-variant-${locale}-${variant.slug}`} />
                             )}
-                            <button
-                              onClick={() => handleEditVariant(locale, variant.slug)}
-                              title={`Edit variant: ${variant.slug}`}
-                              className={`truncate text-left hover:underline ${isActive ? "font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                              data-testid={`button-edit-variant-${locale}-${variant.slug}`}
-                            >
-                              {deslugify(variant.slug)}
-                            </button>
+                            <div className="flex flex-col min-w-0">
+                              <button
+                                onClick={() => handleEditVariant(locale, variant.slug)}
+                                title={`Edit variant: ${variant.slug}`}
+                                className={`truncate text-left hover:underline ${isActive ? "font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                data-testid={`button-edit-variant-${locale}-${variant.slug}`}
+                              >
+                                {deslugify(variant.slug)}
+                              </button>
+                              {isActive && isTemplateVersioning && contentInfo.slug && contentInfo.type && (
+                                <button
+                                  onClick={() => navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}`)}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground hover:underline text-left truncate leading-tight mt-0.5"
+                                  title={`View original entry: ${contentInfo.slug}`}
+                                >
+                                  ↳ {contentInfo.slug}
+                                </button>
+                              )}
+                            </div>
                             {isActive && (
                               <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0" data-testid={`badge-active-variant-${locale}`}>
                                 active
@@ -708,7 +732,7 @@ export function VersioningView({
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             {!isEditing && (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-                                {variant.allocation}%
+                                {variant.allocation ?? 0}%
                               </span>
                             )}
                             {!isEditing && (
@@ -786,10 +810,10 @@ export function VersioningView({
                           </div>
                         </div>
                         {isEditing && (() => {
-                          const thisValue = tempAllocations[variant.slug] ?? variant.allocation;
+                          const thisValue = tempAllocations[variant.slug] ?? (variant.allocation ?? 0);
                           const othersTotal = localeData.variants.reduce((sum, v) => {
                             if (v.slug === variant.slug) return sum;
-                            return sum + (tempAllocations[v.slug] ?? v.allocation);
+                            return sum + (tempAllocations[v.slug] ?? (v.allocation ?? 0));
                           }, 0) + (tempAllocations["__default__"] ?? 0);
                           const maxAllowed = Math.max(0, 100 - othersTotal);
                           return (
@@ -832,9 +856,14 @@ export function VersioningView({
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create new version for {contentInfo.slug}</DialogTitle>
+            <DialogTitle>
+              {isTemplateVersioning ? "Create template variant" : `Create new version for ${contentInfo.slug}`}
+            </DialogTitle>
             <DialogDescription>
-              A new version of <strong>{contentInfo.label || contentInfo.slug}</strong> will be created but your users will not see it unless traffic is assigned to it later.
+              {isTemplateVersioning
+                ? <>A draft copy of <code className="text-xs bg-muted px-1 py-0.5 rounded">single.{createVersionLocale}.yml</code> will be created. Promote it to replace the shared template when ready.</>
+                : <>A new version of <strong>{contentInfo.label || contentInfo.slug}</strong> will be created but your users will not see it unless traffic is assigned to it later.</>
+              }
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">

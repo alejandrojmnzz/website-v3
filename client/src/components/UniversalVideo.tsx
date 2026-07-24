@@ -100,6 +100,8 @@ export function UniversalVideo({
     @media (min-width: 768px) { #${videoId} { padding-top: ${aspectRatio.paddingTop}; } }
   ` : null;
 
+  if (!url || url === "null" || url === "undefined" || /\{\{.*\}\}/.test(url)) return null;
+
   const isYouTube = isYouTubeUrl(url);
   const youtubeId = isYouTube ? extractYouTubeId(url) : null;
   

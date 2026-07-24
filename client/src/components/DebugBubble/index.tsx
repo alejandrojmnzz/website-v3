@@ -2038,7 +2038,12 @@ export function DebugBubble() {
       if (!isPreview || currentVariant !== variantSlug) {
         navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?variant=${encodeURIComponent(variantSlug)}&locale=${locale}`);
       }
-      setYamlEditorInfo({ contentType: contentInfo.type, slug: contentInfo.slug, locale, variantSlug });
+      // Shared-layout template variants live at the type root; raw editor uses `_common.single`.
+      const editorSlug =
+        versioningData?.isSharedLayout && !versioningData?.detached
+          ? "_common.single"
+          : contentInfo.slug;
+      setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale, variantSlug });
       setShowYamlEditor(true);
     },
     handleLinkClick,
