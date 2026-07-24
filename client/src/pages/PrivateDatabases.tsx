@@ -3640,6 +3640,8 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     items: Record<string, unknown>[];
     count: number;
     semantic: boolean;
+    fallback_reason?: "vector_store_unavailable" | "semantic_index_empty";
+    fallback_message?: string;
   }>({
     queryKey: [`/api/databases/${dbName}/search`, debouncedSearch],
     queryFn: () =>
@@ -4460,33 +4462,75 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                       {(() => {
                         const searchFields = (config as any)?.search_fields as string[] | undefined;
                         const hasKeywordFields = (searchFields?.length ?? 0) > 0;
+                        const isFallback =
+                          !!debouncedSearch.trim() &&
+                          !!semanticResults &&
+                          !semanticResults.semantic &&
+                          hasSemanticSearch;
+                        const fallbackReason = semanticResults?.fallback_reason;
+                        const fallbackLabel =
+                          fallbackReason === "vector_store_unavailable"
+                            ? "Qdrant unreachable"
+                            : fallbackReason === "semantic_index_empty"
+                              ? "Index empty / not built"
+                              : "Semantic failed";
                         const label = hasSemanticSearch
                           ? semanticFetching
                             ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Searching…</>
-                            : debouncedSearch.trim() && semanticResults
-                              ? semanticResults.semantic
+                            : isFallback
+                              ? <><AlertTriangle className="h-2.5 w-2.5 text-amber-500" /> Keyword only · {fallbackLabel}</>
+                              : debouncedSearch.trim() && semanticResults?.semantic
                                 ? <><Sparkles className="h-2.5 w-2.5 text-orange-500" /> Ranked by meaning</>
-                                : <><Search className="h-2.5 w-2.5" /> Keyword fallback</>
-                              : <><Sparkles className="h-2.5 w-2.5 text-orange-500" /> Semantic search</>
+                                : <><Sparkles className="h-2.5 w-2.5 text-orange-500" /> Semantic search</>
                           : semanticFetching
                             ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Searching…</>
                             : <><HelpCircle className="h-2.5 w-2.5" /> How search works</>;
                         return (
                           <Popover>
                             <PopoverTrigger asChild>
-                              <button className="text-[10px] text-muted-foreground flex items-center gap-1 pl-0.5 hover:text-foreground transition-colors cursor-pointer" data-testid="text-search-mode">
+                              <button
+                                className={`text-[10px] flex items-center gap-1 pl-0.5 hover:text-foreground transition-colors cursor-pointer ${
+                                  isFallback ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                                }`}
+                                data-testid="text-search-mode"
+                              >
                                 {label}
                               </button>
                             </PopoverTrigger>
                             <PopoverContent side="bottom" align="start" className="w-80 text-xs p-4 space-y-3">
                               <div className="flex items-center gap-2">
-                                <Search className="h-4 w-4 shrink-0" />
-                                <p className="font-medium text-sm">How search works here</p>
+                                {isFallback ? (
+                                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                                ) : (
+                                  <Search className="h-4 w-4 shrink-0" />
+                                )}
+                                <p className="font-medium text-sm">
+                                  {isFallback ? "Semantic search unavailable" : "How search works here"}
+                                </p>
                               </div>
+                              {isFallback && (
+                                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 space-y-1" data-testid="text-search-fallback-reason">
+                                  <p className="font-medium text-foreground">{fallbackLabel}</p>
+                                  <p className="text-muted-foreground">
+                                    {semanticResults?.fallback_message ??
+                                      "Semantic search could not run, so results use exact keyword matching only."}
+                                  </p>
+                                  {fallbackReason === "vector_store_unavailable" && (
+                                    <p className="text-muted-foreground">
+                                      Check that Qdrant is running and <code className="bg-muted px-1 rounded font-mono">QDRANT_URL</code> is correct, then retry search.
+                                    </p>
+                                  )}
+                                  {fallbackReason === "semantic_index_empty" && (
+                                    <p className="text-muted-foreground">
+                                      Use <strong className="text-foreground">Force Refresh</strong> or <strong className="text-foreground">Re-index</strong> on the Semantic Index card, then search again.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                               {hasSemanticSearch ? (
                                 <>
                                   <p className="text-muted-foreground">
-                                    This database has <strong className="text-foreground">semantic search</strong> enabled. Queries hit the vector index — results are sorted by <strong className="text-foreground">meaning</strong>, not exact keyword match.
+                                    This database has <strong className="text-foreground">semantic search</strong> enabled. When healthy, queries hit the vector index — results are sorted by <strong className="text-foreground">meaning</strong>, not exact keyword match.
                                   </p>
                                   {config?.vector_search?.fields && config.vector_search.fields.length > 0 && (
                                     <div className="space-y-1">
@@ -4498,9 +4542,11 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                       </div>
                                     </div>
                                   )}
-                                  <p className="text-muted-foreground">
-                                    If the semantic index is unavailable, search falls back to keyword matching.
-                                  </p>
+                                  {!isFallback && (
+                                    <p className="text-muted-foreground">
+                                      If the vector store or index is unavailable, search falls back to keyword matching and this control will show the specific failure reason.
+                                    </p>
+                                  )}
                                 </>
                               ) : hasKeywordFields ? (
                                 <>

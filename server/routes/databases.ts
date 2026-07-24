@@ -605,11 +605,18 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const cacheResult = await dbm.fetchItems(dbName);
       const allItems = cacheResult.items;
 
+      let fallbackReason: "vector_store_unavailable" | "semantic_index_empty" | undefined;
+      let fallbackMessage: string | undefined;
+
       if (vectorEnabled) {
         const { search: vectorSearch, isAvailable } = await import("../vector-search");
         const available = await isAvailable();
 
-        if (available) {
+        if (!available) {
+          fallbackReason = "vector_store_unavailable";
+          fallbackMessage =
+            "Vector store (Qdrant) is unreachable. Search fell back to exact keyword matching — related words like \"certificate\" / \"certification\" will not match unless the exact substring appears.";
+        } else {
           const searchResults = await vectorSearch(dbName, q, limit, locale);
 
           if (searchResults.length > 0) {
@@ -648,6 +655,10 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
             });
             return;
           }
+
+          fallbackReason = "semantic_index_empty";
+          fallbackMessage =
+            "Semantic index returned no results (collection may be empty or not built yet). Run Force Refresh / Re-index, then retry. Until then, search uses exact keyword matching only.";
         }
       }
 
@@ -675,7 +686,15 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         });
       }
 
-      res.json({ items: fallback.slice(0, limit), count: fallback.length, semantic: false });
+      res.json({
+        items: fallback.slice(0, limit),
+        count: fallback.length,
+        semantic: false,
+        ...(fallbackReason && {
+          fallback_reason: fallbackReason,
+          fallback_message: fallbackMessage,
+        }),
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not found")) {

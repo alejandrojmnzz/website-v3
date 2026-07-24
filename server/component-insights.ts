@@ -21,18 +21,59 @@ import type {
   PageIntent,
   VariantUsageStat,
 } from "@shared/schema";
+import { CACHE_DIR } from "./db-cache";
 import { child } from "./logger";
 
 const log = child({ module: "component-insights" });
 
 const DEBOUNCE_MS = 45_000;
+const INSIGHTS_FILENAME = "component-insights.json";
 
 function settingsPath(): string {
   return path.join(process.cwd(), getDefaultContentFolder(), "settings.yml");
 }
 
+/** Regenerable cache — outside content folders so GitHub sync never tracks it. */
 function outputPath(): string {
-  return path.join(process.cwd(), getDefaultContentFolder(), "component-insights.json");
+  return path.join(CACHE_DIR, getDefaultContentFolder(), INSIGHTS_FILENAME);
+}
+
+/** Pre-move location under the site content root (synced by mistake). */
+function legacyOutputPath(): string {
+  return path.join(process.cwd(), getDefaultContentFolder(), INSIGHTS_FILENAME);
+}
+
+function removeLegacyInsightsFile(): void {
+  const legacy = legacyOutputPath();
+  try {
+    if (fs.existsSync(legacy)) {
+      fs.unlinkSync(legacy);
+      log.info(`[ComponentInsights] Removed legacy ${legacy}`);
+    }
+  } catch (err) {
+    log.warn({ err }, `[ComponentInsights] Failed to remove legacy ${legacy}`);
+  }
+}
+
+/** One-time: copy content-folder cache into .cache/ then delete the old file. */
+function migrateLegacyInsightsFile(): boolean {
+  const dest = outputPath();
+  if (fs.existsSync(dest)) {
+    removeLegacyInsightsFile();
+    return false;
+  }
+  const legacy = legacyOutputPath();
+  if (!fs.existsSync(legacy)) return false;
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(legacy, dest);
+    fs.unlinkSync(legacy);
+    log.info(`[ComponentInsights] Migrated ${legacy} → ${dest}`);
+    return true;
+  } catch (err) {
+    log.warn({ err }, `[ComponentInsights] Failed to migrate ${legacy}`);
+    return false;
+  }
 }
 
 const DEFAULT_INTENT = "brand_corporate";
@@ -759,6 +800,7 @@ export function runScan(): ComponentInsightsData {
   const out = outputPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, JSON.stringify(data, null, 2), "utf-8");
+  removeLegacyInsightsFile();
   log.info(
     `[ComponentInsights] Wrote ${out} — ${pages.length} inventory rows, ${data.meta.totalPagesScanned} instances`,
   );
@@ -766,6 +808,7 @@ export function runScan(): ComponentInsightsData {
 }
 
 export function readInsightsFile(): ComponentInsightsData | null {
+  migrateLegacyInsightsFile();
   const out = outputPath();
   if (!fs.existsSync(out)) return null;
   try {

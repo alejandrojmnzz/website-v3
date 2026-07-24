@@ -1121,6 +1121,11 @@ function DataSourceDialog({
 
   const dbList = databases || [];
 
+  const hreflangsSampleCheck =
+    !hreflangsIsTransformer && hreflangsField && sampleItems.length > 0
+      ? validateHreflangsFieldAgainstSamples(hreflangsField, sampleItems)
+      : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[580px] max-h-[85vh] overflow-y-auto">
@@ -1468,6 +1473,41 @@ function DataSourceDialog({
                   <p className="text-xs text-muted-foreground">
                     Locale→slug map for alternate URLs (e.g. translations: {"{"} en: slug, es: slug {"}"})
                   </p>
+                  {hreflangsSampleCheck?.ok === true && (
+                    <div
+                      className="flex items-start gap-2 rounded-md bg-muted/60 px-3 py-2"
+                      data-testid="text-hreflangs-structure-ok"
+                    >
+                      <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-muted-foreground">
+                        Sample data matches the expected locale→slug map structure.
+                      </p>
+                    </div>
+                  )}
+                  {hreflangsSampleCheck && !hreflangsSampleCheck.ok && (
+                    <div
+                      className="rounded-md bg-destructive/10 px-3 py-2 space-y-1.5"
+                      data-testid="text-hreflangs-structure-error"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-destructive font-medium">
+                          Field &quot;{hreflangsField}&quot; does not match the expected _hreflangs structure
+                          {sampleItems.length > 1 ? ` (sample #${hreflangsSampleCheck.sampleIndex + 1})` : ""}.
+                        </p>
+                      </div>
+                      <p className="text-xs text-destructive pl-5">
+                        <span className="font-medium">Expected:</span>{" "}
+                        <code className="font-mono bg-background/60 px-1 rounded">{hreflangsSampleCheck.expected}</code>
+                      </p>
+                      <p className="text-xs text-destructive pl-5">
+                        <span className="font-medium">Found:</span> {hreflangsSampleCheck.foundSummary}
+                      </p>
+                      <pre className="text-[10px] font-mono text-destructive/90 bg-background/60 rounded px-2 py-1.5 ml-5 overflow-x-auto whitespace-pre-wrap break-all">
+                        {hreflangsSampleCheck.foundSample}
+                      </pre>
+                    </div>
+                  )}
                 </div>
 
                 {(slugIsTransformer || localeIsTransformer || hreflangsIsTransformer) && (
@@ -1848,6 +1888,92 @@ function collectFieldPaths(obj: unknown, prefix: string, keys: Set<string>): voi
       collectFieldPaths(v, path, keys);
     }
   }
+}
+
+function getValueByDotPath(obj: unknown, dotPath: string): unknown {
+  let current = obj;
+  for (const key of dotPath.split(".")) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+function summarizeValueShape(value: unknown): string {
+  if (value === undefined) return "missing (undefined)";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `array (${value.length} item${value.length === 1 ? "" : "s"})`;
+  if (typeof value === "string") return "string";
+  if (typeof value === "number" || typeof value === "boolean") return typeof value;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return "empty object {}";
+    const valueTypes = Array.from(
+      new Set(entries.map(([, v]) => (Array.isArray(v) ? "array" : typeof v))),
+    );
+    const stringSlugCount = entries.filter(
+      ([k, v]) => typeof v === "string" && !!v.trim() && !!normalizeAuditLocaleKey(k),
+    ).length;
+    if (stringSlugCount > 0 && stringSlugCount < entries.length) {
+      return `object with ${entries.length} key(s) but only ${stringSlugCount} locale→slug string entr${stringSlugCount === 1 ? "y" : "ies"} (other values are ${valueTypes.filter((t) => t !== "string").join("/") || "invalid"})`;
+    }
+    return `object with ${entries.length} key(s), values are ${valueTypes.join("/")}`;
+  }
+  return typeof value;
+}
+
+function truncateJsonSample(value: unknown, max = 200): string {
+  try {
+    const s = JSON.stringify(value);
+    if (s == null) return String(value);
+    return s.length <= max ? s : `${s.slice(0, max)}…`;
+  } catch {
+    return String(value);
+  }
+}
+
+/** True when value is a non-empty locale → slug string map (same shape normalizeHreflangMap accepts). */
+function isValidHreflangMapShape(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  let validEntries = 0;
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v !== "string" || !v.trim()) continue;
+    if (!normalizeAuditLocaleKey(k)) continue;
+    validEntries++;
+  }
+  return validEntries > 0;
+}
+
+type HreflangSampleValidation =
+  | { ok: true }
+  | {
+      ok: false;
+      expected: string;
+      foundSummary: string;
+      foundSample: string;
+      sampleIndex: number;
+    };
+
+function validateHreflangsFieldAgainstSamples(
+  fieldPath: string,
+  samples: Record<string, unknown>[],
+): HreflangSampleValidation {
+  if (!fieldPath || samples.length === 0) return { ok: true };
+
+  for (let i = 0; i < samples.length; i++) {
+    const raw = getValueByDotPath(samples[i], fieldPath);
+    if (!isValidHreflangMapShape(raw)) {
+      return {
+        ok: false,
+        expected:
+          '{ "en": "english-slug", "es": "spanish-slug" } — an object mapping locale codes to slug strings',
+        foundSummary: summarizeValueShape(raw),
+        foundSample: truncateJsonSample(raw),
+        sampleIndex: i,
+      };
+    }
+  }
+  return { ok: true };
 }
 
 function formatFieldValue(value: unknown): string {
