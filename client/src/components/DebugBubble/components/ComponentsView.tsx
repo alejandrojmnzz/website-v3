@@ -1,5 +1,11 @@
 import type { MenuView } from "../types";
 import { ArrowLeft, Blocks, ExternalLink, RefreshCw, Search, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ComponentsViewProps {
   componentSearch: string;
@@ -65,14 +71,38 @@ export function ComponentsView({
             </button>
           ) : (
             <div className="flex items-center gap-1">
-              <a
-                href="/private/component-showcase"
-                className="p-1.5 rounded hover-elevate"
-                title="Open Component Showcase"
-                data-testid="link-component-showcase"
-              >
-                <ExternalLink className="h-4 w-4 text-muted-foreground" />
-              </a>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="p-1.5 rounded hover-elevate"
+                    title="Open component gallery"
+                    data-testid="link-component-showcase"
+                  >
+                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onClick={() => { window.location.href = "/private/component"; }}
+                    data-testid="menu-component-gallery-new"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">New version</span>
+                      <span className="text-xs text-muted-foreground">Under development</span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => { window.location.href = "/private/component-showcase"; }}
+                    data-testid="menu-component-gallery-current"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">Current version</span>
+                      <span className="text-xs text-muted-foreground">Component showcase</span>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 onClick={() => setShowComponentSearch(true)}
                 className="p-1.5 rounded hover-elevate"
