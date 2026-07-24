@@ -90,6 +90,8 @@ export default function PrivateRouter() {
         <Route path="/private/ai-knowledge" component={AIKnowledge} />
         <Route path="/private/ai-knowledge-blocks" component={AIKnowledgeBlocks} />
         <Route path="/private/ai-conversations" component={AIConversations} />
+        <Route path="/private/settings/ai/llms" component={AISettingsPage} />
+        <Route path="/private/settings/ai/qdrant" component={AISettingsPage} />
         <Route path="/private/settings/ai" component={AISettingsPage} />
         <Route path="/private/settings" component={SettingsPage} />
         <Route path="/private/sync-log" component={SyncLogRedirect} />

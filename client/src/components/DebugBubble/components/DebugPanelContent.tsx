@@ -823,7 +823,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               <MenuItem
                 icon={Settings}
                 label="AI Settings"
-                href="/private/settings/ai"
+                href="/private/settings/ai/llms"
                 indicator="arrow"
                 testId="link-ai-settings"
               />

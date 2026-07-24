@@ -210,6 +210,8 @@ export async function resolvePageQuery(
           const resolvedVars = resolveSingleVars(pageData, singleEntry) as Record<string, unknown>;
           Object.assign(pageData, resolvedVars);
         }
+        const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
+        await enhanceArticleSectionsInPage(pageData);
         if (site?.entryPreviewManager) {
           await applyEntryPreviewOgImage(site.entryPreviewManager, {
             contentType,
@@ -305,6 +307,9 @@ export async function resolvePageQuery(
           });
         }
       }
+
+      const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
+      await enhanceArticleSectionsInPage(data);
 
       return {
         queryKey: [apiPath, slug, isNonLocalized ? "auto" : locale],

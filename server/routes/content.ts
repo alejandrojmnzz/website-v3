@@ -665,6 +665,8 @@ export function registerContentRoutes(app: Express): void {
       pageData.singleEntry = singleEntry;
     }
     injectCanonicalIfMissing(pageData, "page", locale);
+    const { enhanceArticleSectionsInPage: enhancePage } = await import("../markdown-enhance");
+    await enhancePage(pageData);
     const { layout: _stripLayout, ...restPage } = pageData;
     res.json({ ...restPage, layout });
   });
@@ -711,6 +713,8 @@ export function registerContentRoutes(app: Express): void {
           const dbResolved = resolveSingleVars(dbPageData, dbSingleEntry) as Record<string, unknown>;
           Object.assign(dbPageData, dbResolved);
         }
+        const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
+        await enhanceArticleSectionsInPage(dbPageData);
         await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
           contentType,
           entry: dbSingleEntry,
@@ -770,6 +774,8 @@ export function registerContentRoutes(app: Express): void {
           const resolved = resolveSingleVars(merged, singleEntry) as Record<string, unknown>;
           Object.assign(merged, resolved);
         }
+        const { enhanceArticleSectionsInPage: enhanceAttached } = await import("../markdown-enhance");
+        await enhanceAttached(merged);
         injectCanonicalIfMissing(merged, contentType, locale);
         const { layout: _strip, ...rest } = merged;
         res.json({
@@ -818,6 +824,8 @@ export function registerContentRoutes(app: Express): void {
         const resolved = resolveSingleVars(variantPage, variantSingleEntry) as Record<string, unknown>;
         Object.assign(variantPage, resolved);
       }
+      const { enhanceArticleSectionsInPage: enhanceVariant } = await import("../markdown-enhance");
+      await enhanceVariant(variantPage);
       injectCanonicalIfMissing(variantPage, contentType, locale);
       const { layout: _variantStripLayout, ...variantRest } = variantPage;
       res.json({
@@ -864,6 +872,8 @@ export function registerContentRoutes(app: Express): void {
       const resolved = resolveSingleVars(genericPageData, singleEntry) as Record<string, unknown>;
       Object.assign(genericPageData, resolved);
     }
+    const { enhanceArticleSectionsInPage: enhanceGeneric } = await import("../markdown-enhance");
+    await enhanceGeneric(genericPageData);
     injectCanonicalIfMissing(genericPageData, contentType, locale);
     const { layout: _genericStripLayout, ...genericRest } = genericPageData;
     res.json({

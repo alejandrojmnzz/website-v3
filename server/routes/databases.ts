@@ -291,6 +291,9 @@ export function registerDatabasesRoutes(app: Express): void {
         Object.assign(dbSingleData, resolved);
       }
 
+      const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
+      await enhanceArticleSectionsInPage(dbSingleData);
+
       try {
         const site = res.locals.site as import("../site-manager").SiteContext | undefined;
         if (site?.entryPreviewManager) {

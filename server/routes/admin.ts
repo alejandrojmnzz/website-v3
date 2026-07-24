@@ -1736,6 +1736,60 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // ============================================
+  // Qdrant / semantic search status
+  // ============================================
+
+  app.get("/api/admin/qdrant/status", async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const { getStatus } = await import("../vector-search");
+      const { getAllJobStates } = await import("../db-job-state");
+      const status = await getStatus();
+      const pointsByCollection = new Map(
+        status.collections.map((c) => [c.name, c.points_count]),
+      );
+      const jobStates = getAllJobStates(getContentRoot(res));
+      const dbm = getDB(res);
+
+      const databases = dbm.list().map(({ name, config }) => {
+        const vs = config.vector_search;
+        const fields = Array.isArray(vs?.fields) ? vs.fields : [];
+        const semanticEnabled = Boolean(vs?.enabled && fields.length > 0);
+        const index = jobStates[name]?.index ?? { status: "idle" as const };
+        return {
+          name,
+          label: config.name || name,
+          semantic_enabled: semanticEnabled,
+          fields,
+          collection_points: pointsByCollection.has(name)
+            ? (pointsByCollection.get(name) as number)
+            : null,
+          index,
+        };
+      });
+
+      res.json({
+        available: status.available,
+        url: status.url,
+        host: status.host,
+        port: status.port,
+        embedding_model: status.embedding_model,
+        vector_size: status.vector_size,
+        distance: status.distance,
+        error: status.error,
+        embedder_loaded: status.embedder_loaded,
+        collections: status.collections,
+        databases,
+      });
+    } catch (err) {
+      log.error({ err }, "[Qdrant Status GET] Error:");
+      res.status(500).json({ error: "Failed to load Qdrant status" });
+    }
+  });
+
+  // ============================================
   // AI Admin Routes (webmaster capability required)
   // ============================================
 

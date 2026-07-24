@@ -1,0 +1,260 @@
+/**
+ * Server-only markdown enhancement: GitHub alerts + Shiki via rehype-pretty-code.
+ * Output is HTML prefixed with ARTICLE_HTML_MARKER so the client can render
+ * without shipping Shiki.
+ */
+import { createHash } from "node:crypto";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkGfm from "remark-gfm";
+import remarkRehype from "remark-rehype";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import rehypeSlug from "rehype-slug";
+import rehypePrettyCode from "rehype-pretty-code";
+import rehypeStringify from "rehype-stringify";
+import type { Root, Element, ElementContent, Text, Parents } from "hast";
+import { visit } from "unist-util-visit";
+import { child } from "./logger";
+
+const log = child({ module: "markdown-enhance" });
+
+/** Prefix so the article renderer knows content is pre-rendered HTML. */
+export const ARTICLE_HTML_MARKER = "<!--article-html-v1-->";
+
+const ALERT_TYPES = new Set(["NOTE", "TIP", "WARNING", "IMPORTANT"]);
+
+const enhanceCache = new Map<string, { html: string; fetched_at: number }>();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const prettyCodeOptions = {
+  theme: { light: "github-light", dark: "github-dark-dimmed" },
+  keepBackground: false,
+  defaultLang: "plaintext",
+} as const;
+
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    "iframe",
+    "video",
+    "source",
+    "figure",
+    "figcaption",
+    "div",
+    "span",
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [
+      ...(defaultSchema.attributes?.code ?? []),
+      "className",
+      "dataLanguage",
+      "dataTheme",
+      ["className", /^language-/],
+      ["className", /^line$/],
+    ],
+    span: [
+      ...(defaultSchema.attributes?.span ?? []),
+      "className",
+      "style",
+      "dataLine",
+    ],
+    pre: [
+      ...(defaultSchema.attributes?.pre ?? []),
+      "className",
+      "style",
+      "dataLanguage",
+      "dataTheme",
+      "tabIndex",
+    ],
+    figure: ["dataRehypePrettyCodeFigure", "className"],
+    figcaption: ["dataRehypePrettyCodeTitle", "className"],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      "className",
+      "dataArticleAlert",
+      "role",
+    ],
+    p: [...(defaultSchema.attributes?.p ?? []), "className"],
+    iframe: ["src", "width", "height", "allowFullScreen", "allow", "title", "frameBorder"],
+    video: ["src", "controls", "width", "height", "poster", "autoPlay", "loop", "muted"],
+    source: ["src", "type"],
+    "*": [
+      ...((defaultSchema.attributes as Record<string, unknown>)?.["*"] as unknown[] ?? []),
+      "className",
+      "dataLanguage",
+      "dataTheme",
+      "dataLine",
+      "dataRehypePrettyCodeFigure",
+      "style",
+    ],
+  },
+};
+
+function hashContent(markdown: string): string {
+  return createHash("sha256").update(markdown).digest("hex");
+}
+
+/** Transform `> [!NOTE]` style blockquotes into alert divs before stringify. */
+function rehypeGithubAlerts() {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element, index: number | undefined, parent: Parents | undefined) => {
+      if (node.tagName !== "blockquote" || parent == null || index == null) return;
+
+      const firstParagraph = node.children.find(
+        (c): c is Element => c.type === "element" && c.tagName === "p",
+      );
+      if (!firstParagraph) return;
+
+      const firstText = firstParagraph.children.find(
+        (c): c is Text => c.type === "text",
+      );
+      if (!firstText) return;
+
+      const match = firstText.value.match(/^\[!(NOTE|TIP|WARNING|IMPORTANT)\]\s*/i);
+      if (!match) return;
+
+      const kind = match[1].toUpperCase();
+      if (!ALERT_TYPES.has(kind)) return;
+
+      firstText.value = firstText.value.slice(match[0].length);
+      if (!firstText.value.trim()) {
+        firstParagraph.children = firstParagraph.children.filter((c) => c !== firstText);
+      }
+
+      const titleText = kind.charAt(0) + kind.slice(1).toLowerCase();
+      const titleEl: Element = {
+        type: "element",
+        tagName: "p",
+        properties: { className: ["article-alert-title"] },
+        children: [{ type: "text", value: titleText }],
+      };
+
+      const alert: Element = {
+        type: "element",
+        tagName: "div",
+        properties: {
+          className: ["article-alert", `article-alert-${kind.toLowerCase()}`],
+          dataArticleAlert: kind.toLowerCase(),
+          role: "note",
+        },
+        children: [titleEl, ...node.children] as ElementContent[],
+      };
+
+      parent.children[index] = alert;
+    });
+  };
+}
+
+/** rehype-pretty-code also wraps inline code; restore plain <code>text</code>. */
+function rehypeUnwrapInlinePrettyCode() {
+  return (tree: Root) => {
+    visit(tree, "element", (node: Element, index: number | undefined, parent: Parents | undefined) => {
+      if (parent == null || index == null) return;
+      if (node.tagName !== "span") return;
+      const props = (node.properties || {}) as Record<string, unknown>;
+      const prettyKey = Object.keys(props).find(
+        (k) =>
+          k === "dataRehypePrettyCodeFigure" ||
+          k === "data-rehype-pretty-code-figure" ||
+          k.toLowerCase().includes("rehypeprettycode") ||
+          k.includes("pretty-code"),
+      );
+      if (!prettyKey) return;
+
+      const codeEl = node.children.find(
+        (c): c is Element => c.type === "element" && c.tagName === "code",
+      );
+      if (!codeEl) return;
+
+      const text = collectText(codeEl);
+      parent.children[index] = {
+        type: "element",
+        tagName: "code",
+        properties: {},
+        children: [{ type: "text", value: text }],
+      };
+    });
+  };
+}
+
+function collectText(node: ElementContent): string {
+  if (node.type === "text") return node.value;
+  if (node.type === "element") {
+    return node.children.map(collectText).join("");
+  }
+  return "";
+}
+
+let processorPromise: ReturnType<typeof buildProcessor> | null = null;
+
+async function buildProcessor() {
+  return unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeSanitize, sanitizeSchema as Parameters<typeof rehypeSanitize>[0])
+    .use(rehypeSlug)
+    .use(rehypePrettyCode, prettyCodeOptions)
+    .use(rehypeUnwrapInlinePrettyCode)
+    .use(rehypeGithubAlerts)
+    .use(rehypeStringify);
+}
+
+async function getProcessor() {
+  if (!processorPromise) processorPromise = buildProcessor();
+  return processorPromise;
+}
+
+/**
+ * Convert markdown to enhanced HTML (alerts + pretty code). Cached by content hash.
+ * Returns original markdown on failure so the client can still render.
+ */
+export async function enhanceMarkdownToHtml(markdown: string): Promise<string> {
+  if (!markdown || !markdown.trim()) return markdown;
+
+  // Already enhanced
+  if (markdown.startsWith(ARTICLE_HTML_MARKER)) return markdown;
+
+  const key = hashContent(markdown);
+  const cached = enhanceCache.get(key);
+  if (cached && Date.now() - cached.fetched_at < CACHE_TTL_MS) {
+    return cached.html;
+  }
+
+  try {
+    const processor = await getProcessor();
+    const file = await processor.process(markdown);
+    const html = `${ARTICLE_HTML_MARKER}\n${String(file)}`;
+    enhanceCache.set(key, { html, fetched_at: Date.now() });
+    return html;
+  } catch (err) {
+    log.error({ err }, "[MarkdownEnhance] Failed to enhance markdown; returning raw");
+    return markdown;
+  }
+}
+
+/** Walk page sections and enhance any `type: article` content strings. */
+export async function enhanceArticleSectionsInPage(
+  pageData: Record<string, unknown>,
+): Promise<void> {
+  const sections = pageData.sections;
+  if (!Array.isArray(sections)) return;
+
+  await Promise.all(
+    sections.map(async (section) => {
+      if (!section || typeof section !== "object") return;
+      const s = section as Record<string, unknown>;
+      if (s.type !== "article") return;
+      if (typeof s.content !== "string" || !s.content.trim()) return;
+      s.content = await enhanceMarkdownToHtml(s.content);
+    }),
+  );
+}
+
+export function clearMarkdownEnhanceCache(): void {
+  enhanceCache.clear();
+}

@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useRef, useMemo } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { useState, useEffect } from "react";
+import type { ComponentProps } from "react";
 import { ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,6 +11,11 @@ import type { ArticleSection } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { useOrderedPageSections } from "@/contexts/PageSectionsContext";
 import { useSectionContext } from "@/contexts/SectionContext";
+import { CopyCodeButton } from "../CopyCodeButton";
+import "../article-prose.css";
+
+/** Must match server/markdown-enhance.ts ARTICLE_HTML_MARKER */
+const ARTICLE_HTML_MARKER = "<!--article-html-v1-->";
 
 interface TocItem {
   id: string;
@@ -68,54 +75,119 @@ function slugify(text: string): string {
 /** Strip inline markdown markers so TOC labels read as plain text. */
 function stripInlineMarkdown(text: string): string {
   return text
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1") // images → alt text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links → label
-    .replace(/`([^`]+)`/g, "$1") // inline code
-    .replace(/(\*\*|__)(.*?)\1/g, "$2") // bold
-    .replace(/(\*|_)(.*?)\1/g, "$2") // italic
-    .replace(/~~(.*?)~~/g, "$1") // strikethrough
-    .replace(/<\/?[^>]+>/g, "") // HTML tags
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/~~(.*?)~~/g, "$1")
+    .replace(/<\/?[^>]+>/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function extractTocItems(markdown: string, idPrefix = ""): TocItem[] {
-  const lines = markdown.split("\n");
+function extractTocItems(content: string, idPrefix = ""): TocItem[] {
+  const body = content.startsWith(ARTICLE_HTML_MARKER)
+    ? content.slice(ARTICLE_HTML_MARKER.length)
+    : content;
   const items: TocItem[] = [];
   const slugCounts: Record<string, number> = {};
-  let inCodeBlock = false;
 
+  const pushItem = (level: number, rawText: string, existingId?: string) => {
+    const text = stripInlineMarkdown(rawText.trim());
+    if (!text) return;
+    let id = existingId?.trim() || `${idPrefix}${slugify(text)}`;
+    if (!existingId && idPrefix && !id.startsWith(idPrefix)) {
+      id = `${idPrefix}${id}`;
+    }
+    if (slugCounts[id] !== undefined) {
+      slugCounts[id]++;
+      id = `${id}-${slugCounts[id]}`;
+    } else {
+      slugCounts[id] = 0;
+    }
+    items.push({ id, text, level });
+  };
+
+  // Pre-rendered HTML path (server-enhanced articles)
+  if (content.startsWith(ARTICLE_HTML_MARKER) || /^\s*</.test(body)) {
+    const headingRe = /<h([1-3])([^>]*)>([\s\S]*?)<\/h\1>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = headingRe.exec(body)) !== null) {
+      const level = Number(m[1]);
+      const attrs = m[2] || "";
+      const inner = m[3] || "";
+      const idMatch = attrs.match(/\sid=["']([^"']+)["']/i);
+      pushItem(level, stripInlineMarkdown(inner), idMatch?.[1]);
+    }
+    if (items.length > 0) return items;
+  }
+
+  // Markdown path
+  const lines = body.split("\n");
+  let inCodeBlock = false;
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
       inCodeBlock = !inCodeBlock;
       continue;
     }
     if (inCodeBlock) continue;
-
     const match = line.match(/^(#{1,3})\s+(.+)$/);
     if (match) {
-      const level = match[1].length;
-      const text = stripInlineMarkdown(match[2].trim());
-      let id = `${idPrefix}${slugify(text)}`;
-
-      if (slugCounts[id] !== undefined) {
-        slugCounts[id]++;
-        id = `${id}-${slugCounts[id]}`;
-      } else {
-        slugCounts[id] = 0;
-      }
-
-      items.push({ id, text, level });
+      pushItem(match[1].length, match[2]);
     }
   }
-
   return items;
+}
+
+function estimateReadingMinutes(content: string): number {
+  const text = content
+    .replace(ARTICLE_HTML_MARKER, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[`#>*_\[\]()!|-]/g, " ");
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / 200));
+}
+
+function normalizeCategory(category: unknown): string | undefined {
+  if (!category) return undefined;
+  if (typeof category === "string") {
+    const trimmed = category.trim();
+    if (!trimmed || trimmed.includes("{{")) return undefined;
+    return trimmed;
+  }
+  if (typeof category === "object") {
+    const o = category as Record<string, unknown>;
+    for (const key of ["title", "name", "slug", "category_title"]) {
+      if (typeof o[key] === "string" && (o[key] as string).trim()) {
+        return (o[key] as string).trim();
+      }
+    }
+  }
+  return undefined;
+}
+
+function normalizeTags(tags: unknown): string[] {
+  if (!tags) return [];
+  if (Array.isArray(tags)) {
+    return tags.map(String).map((t) => t.trim()).filter(Boolean);
+  }
+  if (typeof tags === "string") {
+    const trimmed = tags.trim();
+    if (!trimmed || trimmed.startsWith("{{")) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return normalizeTags(parsed);
+    } catch {
+      /* not JSON */
+    }
+    return trimmed.split(/[,|]/).map((t) => t.trim()).filter(Boolean);
+  }
+  return [];
 }
 
 function useTocScrollSpy(items: TocItem[]) {
   const [activeId, setActiveId] = useState<string>("");
-  // Offset roughly matches heading scroll-mt-24 so the "current" heading
-  // is the last one that has crossed under the sticky header band.
   const OFFSET_PX = 120;
 
   useEffect(() => {
@@ -131,7 +203,6 @@ function useTocScrollSpy(items: TocItem[]) {
         if (el.getBoundingClientRect().top <= OFFSET_PX) {
           current = item.id;
         } else {
-          // Headings are in document order — stop once one is still below the band.
           break;
         }
       }
@@ -212,7 +283,6 @@ function CollapsibleTocNav({
   const { activeId, scrollTo } = useTocScrollSpy(items);
   const [expandedH2Id, setExpandedH2Id] = useState<string | null>(null);
 
-  // Auto-expand the h2 that owns the active heading (accordion: only one open).
   useEffect(() => {
     if (!activeId) return;
     const parentId = findParentH2Id(tree, activeId);
@@ -272,7 +342,6 @@ function CollapsibleTocNav({
           const hasChildren = children.length > 0;
           const isExpanded = expandedH2Id === item.id;
           const childActive = children.some((c) => c.id === activeId);
-          // Keep the h2 highlighted while reading its body or any nested h3.
           const h2Active = activeId === item.id || childActive;
 
           return (
@@ -348,8 +417,103 @@ function TocSide({ items }: { items: TocItem[] }) {
   return <CollapsibleTocNav items={items} variant="side" />;
 }
 
+function ArticleMeta({
+  tags,
+  category,
+  categoryUrl,
+  readingMinutes,
+}: {
+  tags: string[];
+  category?: string;
+  categoryUrl?: string;
+  readingMinutes?: number;
+}) {
+  const hasTags = tags.length > 0;
+  const hasCategory = Boolean(category && category.trim() && !category.includes("{{"));
+  const hasReading = typeof readingMinutes === "number" && readingMinutes > 0;
+  if (!hasTags && !hasCategory && !hasReading) return null;
+
+  return (
+    <div
+      className="mb-6 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+      data-testid="article-meta"
+    >
+      {hasReading && (
+        <span data-testid="article-reading-time">{readingMinutes} min read</span>
+      )}
+      {hasCategory && (
+        categoryUrl ? (
+          <a
+            href={categoryUrl}
+            className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="article-category-chip"
+          >
+            {category}
+          </a>
+        ) : (
+          <span
+            className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground"
+            data-testid="article-category-chip"
+          >
+            {category}
+          </span>
+        )
+      )}
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground"
+          data-testid={`article-tag-${tag}`}
+        >
+          {tag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CodeBlock({
+  children,
+  language,
+  ...props
+}: {
+  children?: ReactNode;
+  language?: string;
+} & React.HTMLAttributes<HTMLPreElement>) {
+  const preRef = useRef<HTMLPreElement>(null);
+  const label =
+    language && language !== "plaintext" && language !== "text"
+      ? language
+      : null;
+
+  return (
+    <div className="group/codeblock relative mb-5 overflow-hidden rounded-md border border-border bg-muted">
+      <div className="flex h-9 items-center justify-end gap-2 border-b border-border/60 px-3">
+        {label ? (
+          <span className="mr-auto font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {label}
+          </span>
+        ) : (
+          <span className="mr-auto" aria-hidden />
+        )}
+        <CopyCodeButton
+          getText={() => preRef.current?.textContent ?? ""}
+        />
+      </div>
+      <pre
+        ref={preRef}
+        className="overflow-x-auto p-4 text-sm leading-relaxed"
+        tabIndex={0}
+        {...props}
+      >
+        {children}
+      </pre>
+    </div>
+  );
+}
+
 interface ArticleProps {
-  data: ArticleSection & { section_id?: string };
+  data: ArticleSection & { section_id?: string; toc_group?: string };
 }
 
 export function Article({ data }: ArticleProps) {
@@ -359,6 +523,10 @@ export function Article({ data }: ArticleProps) {
     toc_position = "side",
     toc_group,
     section_id,
+    tags: rawTags,
+    category,
+    category_url,
+    show_reading_time = true,
   } = data;
 
   const orderedSections = useOrderedPageSections();
@@ -366,6 +534,13 @@ export function Article({ data }: ArticleProps) {
 
   const sectionKey = section_id || `article-${sectionIndex >= 0 ? sectionIndex : "0"}`;
   const idPrefix = toc_group ? `${sectionKey}--` : "";
+
+  const tags = useMemo(() => normalizeTags(rawTags), [rawTags]);
+  const categoryLabel = useMemo(() => normalizeCategory(category), [category]);
+  const readingMinutes = useMemo(
+    () => (show_reading_time && content ? estimateReadingMinutes(content) : undefined),
+    [show_reading_time, content],
+  );
 
   const groupMembers = useMemo(() => {
     if (!toc_group) return null;
@@ -376,7 +551,6 @@ export function Article({ data }: ArticleProps) {
 
   const tocItems = useMemo(() => {
     if (toc_group && groupMembers && groupMembers.length > 0) {
-      // Every piece in the group shows the same merged TOC when any member opted in.
       const anyShowToc = groupMembers.some((m) => m.data.show_toc === true);
       if (!anyShowToc && !show_toc) return [];
 
@@ -392,7 +566,6 @@ export function Article({ data }: ArticleProps) {
     return show_toc ? extractTocItems(content) : [];
   }, [toc_group, groupMembers, show_toc, content]);
 
-  // Prefer this section's toc_position; fall back to any group member's (default side).
   const effectiveTocPosition = useMemo(() => {
     if (!toc_group || !groupMembers || groupMembers.length === 0) {
       return toc_position;
@@ -425,6 +598,22 @@ export function Article({ data }: ArticleProps) {
 
   slugCountsRef.current = {};
 
+  const meta = (
+    <ArticleMeta
+      tags={tags}
+      category={categoryLabel}
+      categoryUrl={category_url}
+      readingMinutes={readingMinutes}
+    />
+  );
+
+  const body = (
+    <div className="article-prose mx-auto max-w-[68ch]">
+      {meta}
+      <MarkdownRenderer content={content} getHeadingId={getHeadingId} />
+    </div>
+  );
+
   return (
     <div
       className="w-full px-4 py-8 md:px-6 lg:px-8"
@@ -436,14 +625,9 @@ export function Article({ data }: ArticleProps) {
           <div className="lg:hidden">
             <TocTop items={tocItems} />
           </div>
-          {/*
-            Flex row scopes sticky TOC to this article piece's height:
-            it stops following when you scroll past this section, then the next
-            piece's identical TOC sticks within its own scroll range.
-          */}
           <div className="flex gap-10">
             <article className="min-w-0 flex-1" data-testid="article-content">
-              <MarkdownRenderer content={content} getHeadingId={getHeadingId} />
+              {body}
             </article>
             <aside className="hidden w-56 shrink-0 self-stretch lg:block xl:w-64">
               <TocSide items={tocItems} />
@@ -454,7 +638,7 @@ export function Article({ data }: ArticleProps) {
         <>
           {showTopToc && <TocTop items={tocItems} />}
           <article data-testid="article-content">
-            <MarkdownRenderer content={content} getHeadingId={getHeadingId} />
+            {body}
           </article>
         </>
       )}
@@ -469,28 +653,101 @@ const sanitizeSchema = {
     "iframe",
     "video",
     "source",
+    "figure",
+    "figcaption",
+    "div",
+    "span",
   ],
   attributes: {
     ...defaultSchema.attributes,
+    code: [
+      ...(defaultSchema.attributes?.code ?? []),
+      ["className", /^language-/],
+      ["className", /^line$/],
+      "dataLanguage",
+      "dataTheme",
+    ],
+    span: [
+      ...(defaultSchema.attributes?.span ?? []),
+      "className",
+      "style",
+      "dataLine",
+    ],
+    pre: [
+      ...(defaultSchema.attributes?.pre ?? []),
+      "className",
+      "style",
+      "dataLanguage",
+      "dataTheme",
+      "tabIndex",
+    ],
+    figure: ["dataRehypePrettyCodeFigure", "className"],
+    figcaption: ["dataRehypePrettyCodeTitle", "className"],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      "className",
+      "dataArticleAlert",
+      "role",
+    ],
+    p: [...(defaultSchema.attributes?.p ?? []), "className"],
     iframe: ["src", "width", "height", "allowFullScreen", "allow", "title", "frameBorder"],
     video: ["src", "controls", "width", "height", "poster", "autoPlay", "loop", "muted"],
     source: ["src", "type"],
+    "*": [
+      ...((defaultSchema.attributes as Record<string, unknown>)?.["*"] as unknown[] ?? []),
+      "className",
+      "style",
+      "dataLanguage",
+      "dataTheme",
+      "dataLine",
+      "dataRehypePrettyCodeFigure",
+      "dataArticleAlert",
+    ],
   },
 };
 
-function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadingId: (text: string) => string }) {
+function getDataLanguage(props: Record<string, unknown>): string | undefined {
+  const raw =
+    props["data-language"] ??
+    props.dataLanguage ??
+    props["data-language"] ??
+    undefined;
+  return typeof raw === "string" ? raw : undefined;
+}
+
+function MarkdownRenderer({
+  content,
+  getHeadingId,
+}: {
+  content: string;
+  getHeadingId: (text: string) => string;
+}) {
+  const isEnhanced = content.startsWith(ARTICLE_HTML_MARKER);
+  const source = isEnhanced
+    ? content.slice(ARTICLE_HTML_MARKER.length).trim()
+    : content;
+
+  // Server-enhanced HTML was already sanitized before Shiki; re-sanitizing
+  // would strip token `style` / data-* attributes. Raw markdown still goes
+  // through rehypeSanitize on the client.
+  const rehypePlugins = (
+    isEnhanced
+      ? [rehypeRaw]
+      : [rehypeRaw, [rehypeSanitize, sanitizeSchema]]
+  ) as ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+      rehypePlugins={rehypePlugins}
       components={{
         h1: ({ children, ...props }) => {
           const text = extractTextFromChildren(children);
-          const id = getHeadingId(text);
+          const id = (props as { id?: string }).id || getHeadingId(text);
           return (
             <h1
               id={id}
-              className="mb-4 mt-8 scroll-mt-24 text-3xl font-bold tracking-tight first:mt-0 md:text-4xl"
+              className="mb-4 mt-10 scroll-mt-24 text-3xl font-bold tracking-tight first:mt-0 md:text-4xl"
               data-testid={`heading-${id}`}
               {...props}
             >
@@ -500,11 +757,11 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
         },
         h2: ({ children, ...props }) => {
           const text = extractTextFromChildren(children);
-          const id = getHeadingId(text);
+          const id = (props as { id?: string }).id || getHeadingId(text);
           return (
             <h2
               id={id}
-              className="mb-3 mt-8 scroll-mt-24 text-2xl font-bold tracking-tight first:mt-0"
+              className="mb-3 mt-12 scroll-mt-24 text-2xl font-bold tracking-tight text-foreground first:mt-0 md:text-[1.75rem]"
               data-testid={`heading-${id}`}
               {...props}
             >
@@ -514,11 +771,11 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
         },
         h3: ({ children, ...props }) => {
           const text = extractTextFromChildren(children);
-          const id = getHeadingId(text);
+          const id = (props as { id?: string }).id || getHeadingId(text);
           return (
             <h3
               id={id}
-              className="mb-2 mt-6 scroll-mt-24 text-xl font-semibold tracking-tight first:mt-0"
+              className="mb-2 mt-8 scroll-mt-24 text-lg font-medium tracking-tight text-foreground/90 first:mt-0 md:text-xl"
               data-testid={`heading-${id}`}
               {...props}
             >
@@ -527,34 +784,34 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
           );
         },
         h4: ({ children, ...props }) => (
-          <h4 className="mb-2 mt-4 text-lg font-semibold first:mt-0" {...props}>
+          <h4 className="mb-2 mt-6 text-base font-semibold first:mt-0" {...props}>
             {children}
           </h4>
         ),
         p: ({ children, ...props }) => (
-          <p className="mb-4 leading-7 text-foreground/90" {...props}>
+          <p className="mb-4 mt-0 leading-8 text-foreground/90" {...props}>
             {children}
           </p>
         ),
         ul: ({ children, ...props }) => (
-          <ul className="mb-4 ml-6 list-disc space-y-1" {...props}>
+          <ul className="mb-4 ml-6 list-disc space-y-2 marker:text-muted-foreground" {...props}>
             {children}
           </ul>
         ),
         ol: ({ children, ...props }) => (
-          <ol className="mb-4 ml-6 list-decimal space-y-1" {...props}>
+          <ol className="mb-4 ml-6 list-decimal space-y-2 marker:text-muted-foreground" {...props}>
             {children}
           </ol>
         ),
         li: ({ children, ...props }) => (
-          <li className="leading-7 text-foreground/90" {...props}>
+          <li className="leading-8 text-foreground/90" {...props}>
             {children}
           </li>
         ),
         a: ({ href, children, ...props }) => (
           <a
             href={href}
-            className="text-primary underline underline-offset-4 transition-colors hover:text-primary/80"
+            className="text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             target={href?.startsWith("http") ? "_blank" : undefined}
             rel={href?.startsWith("http") ? "noopener noreferrer" : undefined}
             {...props}
@@ -564,7 +821,7 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
         ),
         blockquote: ({ children, ...props }) => (
           <blockquote
-            className="mb-4 border-l-4 border-primary/30 pl-4 italic text-muted-foreground"
+            className="mb-5 rounded-r-md border-l-4 border-primary bg-muted/30 py-3 pl-4 pr-3 text-foreground/90 not-italic"
             {...props}
           >
             {children}
@@ -575,7 +832,7 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
           if (isInline) {
             return (
               <code
-                className="rounded-md bg-muted px-1.5 py-0.5 text-sm font-mono"
+                className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground"
                 {...props}
               >
                 {children}
@@ -583,22 +840,32 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
             );
           }
           return (
-            <code className={cn("text-sm font-mono", className)} {...props}>
+            <code className={cn("font-mono text-sm", className)} {...props}>
               {children}
             </code>
           );
         },
-        pre: ({ children, ...props }) => (
-          <pre
-            className="mb-4 overflow-x-auto rounded-md bg-muted p-4 text-sm"
-            {...props}
-          >
+        pre: ({ children, ...props }) => {
+          const rest = props as Record<string, unknown>;
+          const language = getDataLanguage(rest);
+          // Drop react-markdown internal `node` before spreading to DOM.
+          const { node: _node, ...domProps } = rest;
+          return (
+            <CodeBlock language={language} {...(domProps as React.HTMLAttributes<HTMLPreElement>)}>
+              {children}
+            </CodeBlock>
+          );
+        },
+        figure: ({ children, ...props }) => (
+          <figure className="mb-0 contents" {...props}>
             {children}
-          </pre>
+          </figure>
         ),
-        hr: ({ ...props }) => <hr className="my-8 border-border" {...props} />,
+        hr: ({ ...props }) => (
+          <hr className="my-10 border-0 border-t-2 border-border" {...props} />
+        ),
         table: ({ children, ...props }) => (
-          <div className="mb-4 overflow-x-auto">
+          <div className="mb-5 overflow-x-auto rounded-md border border-border">
             <table className="w-full border-collapse text-sm" {...props}>
               {children}
             </table>
@@ -610,12 +877,12 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
           </thead>
         ),
         th: ({ children, ...props }) => (
-          <th className="px-4 py-2 text-left font-semibold" {...props}>
+          <th className="border-b border-border px-4 py-2.5 text-left font-semibold" {...props}>
             {children}
           </th>
         ),
         td: ({ children, ...props }) => (
-          <td className="border-b border-border px-4 py-2" {...props}>
+          <td className="border-b border-border px-4 py-2.5" {...props}>
             {children}
           </td>
         ),
@@ -633,9 +900,14 @@ function MarkdownRenderer({ content, getHeadingId }: { content: string; getHeadi
             {children}
           </strong>
         ),
+        div: ({ className, children, ...props }) => (
+          <div className={className} {...props}>
+            {children}
+          </div>
+        ),
       }}
     >
-      {content}
+      {source}
     </ReactMarkdown>
   );
 }
