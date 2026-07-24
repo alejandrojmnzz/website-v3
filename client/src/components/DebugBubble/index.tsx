@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense, useRef } from "react";
-import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, MessageSquare, PanelBottom, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, Link2, MessageSquare, PanelBottom, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
 import { IconGitFork } from "@tabler/icons-react";
 import { subscribeToContentUpdates, subscribeToVariantCreated, subscribeToVariantDeleted, subscribeToVariantPromoted } from "@/lib/contentEvents";
 
@@ -112,7 +112,8 @@ export function DebugBubble() {
   // Check if we should hide the debug bubble (via URL param or in preview-frame route)
   const shouldHide = typeof window !== "undefined" && (
     new URLSearchParams(window.location.search).get("hide_debug") === "true" ||
-    window.location.pathname === "/preview-frame"
+    window.location.pathname === "/preview-frame" ||
+    window.location.pathname.startsWith("/private/entry-preview-frame/")
   );
   
   const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, clearToken, checkSession } = useDebugAuth();
@@ -2102,20 +2103,30 @@ export function DebugBubble() {
     <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2 items-start" data-testid="debug-bubble">
       {showForkBubble && (
         <div className="relative flex items-center">
-          {pageIsDetached && (
+          {pageIsSharedLayout && (
             <span
-              className="absolute -top-1 -left-1 z-10 flex items-center justify-center h-4 w-4 rounded-full bg-background text-muted-foreground border border-border shadow pointer-events-none"
-              title="Detached from shared template"
-              data-testid="badge-fork-detached"
+              className="absolute -top-1 -left-1 z-10 flex items-center justify-center h-4 w-4 rounded-full bg-background border border-border shadow pointer-events-none"
+              title={pageIsDetached ? "Detached from shared template" : "Attached to shared template"}
+              data-testid={pageIsDetached ? "badge-fork-detached" : "badge-fork-linked"}
             >
-              <Unlink className="h-2.5 w-2.5" />
+              {pageIsDetached ? (
+                <Unlink className="h-2.5 w-2.5 text-muted-foreground" />
+              ) : (
+                <Link2 className="h-2.5 w-2.5 text-status-online" />
+              )}
             </span>
           )}
           <Button
             size="icon"
             variant="default"
             className="h-10 w-10 rounded-full shadow-lg flex-shrink-0"
-            title={pageIsDetached ? "Page versions (detached)" : "Variant versions"}
+            title={
+              pageIsDetached
+                ? "Page versions (detached)"
+                : pageIsSharedLayout
+                  ? "Page versions (linked)"
+                  : "Variant versions"
+            }
             data-testid="button-fork-bubble"
             onClick={() => {
               setOpen(true);

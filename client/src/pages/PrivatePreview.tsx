@@ -234,6 +234,11 @@ export default function PrivatePreview() {
     );
   }
 
+  const pageDetached = !!(content as { detached?: boolean }).detached;
+  const isSharedLayout = !!(typeInfo?.has_database || typeInfo?.single_template);
+  const isSharedTemplate = isSharedLayout && !pageDetached;
+  const isDetached = isSharedLayout && pageDetached;
+
   return (
     <div data-testid={`preview-${contentType}-${slug}`}>
       <MenuVisualContextProvider
@@ -252,6 +257,8 @@ export default function PrivatePreview() {
             slug={slug!}
             locale={locale}
             onMenuChange={() => refetch()}
+            isSharedTemplate={isSharedTemplate}
+            isDetached={isDetached}
           />
         </div>
         <SectionRenderer 
@@ -261,15 +268,9 @@ export default function PrivatePreview() {
           locale={locale}
           variant={variant ?? undefined}
           version={version ? Number(version) : undefined}
-          isSharedTemplate={
-            !!(typeInfo?.has_database || typeInfo?.single_template) &&
-            !(content as { detached?: boolean }).detached
-          }
+          isSharedTemplate={isSharedTemplate}
           singleEntry={(content as any).singleEntry}
-          allowEntryStructuralOverrides={
-            !(typeInfo?.has_database || typeInfo?.single_template) ||
-            !!(content as { detached?: boolean }).detached
-          }
+          allowEntryStructuralOverrides={!isSharedLayout || pageDetached}
         />
       </MenuVisualContextProvider>
       <div className="group relative">
@@ -287,6 +288,8 @@ export default function PrivatePreview() {
           slug={slug!}
           locale={locale}
           onMenuChange={() => refetch()}
+          isSharedTemplate={isSharedTemplate}
+          isDetached={isDetached}
         />
       </div>
     </div>

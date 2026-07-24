@@ -6,7 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
 import { queryEntries } from "./query-entries";
-import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getFieldMapping } from "./content-types";
+import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getFieldMapping, getPreviewConfig } from "./content-types";
 import {
   applyComponentSectionDefaults,
   applyComponentImageSizes,
@@ -25,6 +25,7 @@ import { resolveSingleVars } from "./single-resolver";
 import { resolveFieldValue } from "./transform";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
+import { applyEntryPreviewOgImage } from "./entry-preview-manager";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -128,6 +129,7 @@ export async function resolvePageQuery(
   url: string,
   ci: ContentIndex = contentIndex,
   dbm: DatabaseManager = databaseManager,
+  site?: SiteContext,
 ): Promise<SingleQuery | null> {
   // Don't seed page data for force_variant requests — the SSR render would use
   // the default-page data while the client needs a different query key for the
@@ -204,6 +206,14 @@ export async function resolvePageQuery(
           const resolvedVars = resolveSingleVars(pageData, singleEntry) as Record<string, unknown>;
           Object.assign(pageData, resolvedVars);
         }
+        if (site?.entryPreviewManager) {
+          await applyEntryPreviewOgImage(site.entryPreviewManager, {
+            contentType,
+            entry: singleEntry,
+            previewConfig: getPreviewConfig(contentType, ci.contentRoot),
+            pageData,
+          });
+        }
         const dbSingleRaw = ci.loadMergedContent(contentType, slug, normalizedLocale);
         const layout = resolveLayout(contentType, dbSingleRaw.data || pageData, ci.contentRoot);
         const { layout: _strip, ...pageRest } = pageData;
@@ -279,6 +289,14 @@ export async function resolvePageQuery(
       if (singleEntry) {
         const resolved = resolveSingleVars(data, singleEntry) as Record<string, unknown>;
         Object.assign(data, resolved);
+        if (site?.entryPreviewManager) {
+          await applyEntryPreviewOgImage(site.entryPreviewManager, {
+            contentType,
+            entry: singleEntry,
+            previewConfig: getPreviewConfig(contentType, ci.contentRoot),
+            pageData: data,
+          });
+        }
       }
 
       return {
@@ -697,7 +715,7 @@ export async function resolveInitialData(
     cleanUrl === "/es/blog" ||
     cleanUrl === "/es/blog/";
 
-  const pageQuery = await resolvePageQuery(url, ci, dbm);
+  const pageQuery = await resolvePageQuery(url, ci, dbm, site);
   const parsedUrl = ci.parseContentUrl(cleanUrl);
 
   const variablesQuery: SingleQuery = {

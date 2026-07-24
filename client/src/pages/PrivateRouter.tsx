@@ -4,13 +4,13 @@ import { lazy, Suspense } from "react";
 const ComponentShowcase = lazy(() => import("@/pages/ComponentShowcase"));
 const ComponentGallery = lazy(() => import("@/pages/ComponentGallery"));
 const ComponentPreview = lazy(() => import("@/pages/ComponentPreview"));
+const EntryPreviewFrame = lazy(() => import("@/pages/EntryPreviewFrame"));
 const MediaGallery = lazy(() => import("@/pages/MediaGallery"));
 const MenuEditor = lazy(() => import("@/pages/MenuEditor"));
 const MoleculesShowcase = lazy(() => import("@/pages/MoleculesShowcase"));
 const PrivatePreview = lazy(() => import("@/pages/PrivatePreview"));
 const DiagnosticsPage = lazy(() => import("@/pages/DiagnosticsPage"));
 const PrivateRedirects = lazy(() => import("@/pages/PrivateRedirects"));
-const BlogManagePage = lazy(() => import("@/pages/BlogManagePage"));
 const ContentTypeManagePage = lazy(() => import("@/pages/ContentTypeManagePage"));
 const SyncLogPage = lazy(() => import("@/pages/SyncLogPage"));
 const CloudSyncPage = lazy(() => import("@/pages/CloudSyncPage"));
@@ -58,6 +58,14 @@ function SyncLogRedirect() {
   return null;
 }
 
+function BlogManageRedirect() {
+  const search = typeof window !== "undefined" ? window.location.search : "";
+  if (typeof window !== "undefined") {
+    window.location.replace(`/private/type/blog${search}`);
+  }
+  return null;
+}
+
 export default function PrivateRouter() {
   return (
     <Suspense fallback={<LoadingFallback />}>
@@ -66,7 +74,8 @@ export default function PrivateRouter() {
         <Route path="/private/component-showcase" component={ComponentShowcase} />
         <Route path="/private/component-showcase/:componentType" component={ComponentShowcase} />
         <Route path="/private/component-showcase/:componentType/preview" component={ComponentPreview} />
-        <Route path="/private/blog" component={BlogManagePage} />
+        <Route path="/private/entry-preview-frame/:contentType/:slug" component={EntryPreviewFrame} />
+        <Route path="/private/blog" component={BlogManageRedirect} />
         <Route path="/private/type/:contentType" component={ContentTypeManagePage} />
         <Route path="/private/databases" component={PrivateDatabases} />
         <Route path="/private/databases/:name" component={PrivateDatabases} />

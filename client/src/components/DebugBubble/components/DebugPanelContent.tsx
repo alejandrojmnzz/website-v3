@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronRight, Cookie, Database, Github, GitBranch, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -238,6 +238,12 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     Array<{ slug: string; locale: string; allocation: number }>
   >([]);
   const [hasLayoutOverride, setHasLayoutOverride] = useState(false);
+  const [detachConfirmOpen, setDetachConfirmOpen] = useState(false);
+  const [showDetachAdvanced, setShowDetachAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (!detachConfirmOpen) setShowDetachAdvanced(false);
+  }, [detachConfirmOpen]);
   const { hasCapability } = useDebugAuth();
   const canManageUsers = hasCapability("users_manage");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -277,6 +283,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
       .catch(() => {})
       .finally(() => setReattachPreviewLoading(false));
   }, [props.contentInfo.type, props.contentInfo.slug, props.contentLocale, i18n.language]);
+
+  const openDetachConfirm = useCallback(() => {
+    setDetachConfirmOpen(true);
+  }, []);
 
   const { data: versionData } = useQuery<{ version: string }>({
     queryKey: ["/api/version"],
@@ -743,38 +753,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 indicator="chevron"
                 testId="button-databases-menu"
               />
-              {props.contentInfo.type && props.contentInfo.slug && (
-                <MenuItem
-                  icon={GitBranch}
-                  label="Versions"
-                  onClick={() => props.setMenuView("versioning")}
-                  indicator="chevron"
-                  testId="button-versioning-menu"
-                  rightContent={<span className="text-xs text-muted-foreground">{props.contentInfo.label}</span>}
-                />
-              )}
-              {props.contentInfo.type && props.contentInfo.slug && props.pageIsSharedLayout && (
-                <MenuItem
-                  icon={props.pageIsDetached ? Link2 : Unlink}
-                  label={props.pageIsDetached ? "Re-attach to template" : "Detach from template"}
-                  onClick={() => {
-                    if (props.pageIsDetached) {
-                      openReattachConfirm();
-                    } else {
-                      void props.onDetachEntry?.();
-                    }
-                  }}
-                  indicator="arrow"
-                  testId={props.pageIsDetached ? "button-reattach-entry" : "button-detach-entry"}
-                  rightContent={
-                    props.detachBusy ? (
-                      <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
-                    ) : props.pageIsDetached ? (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Detached</Badge>
-                    ) : undefined
-                  }
-                />
-              )}
             </ExpandableMenuItem>
 
             <ExpandableMenuItem
@@ -1146,7 +1124,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           onVersioningDataUpdate={props.onVersioningDataUpdate as any}
           onEditVariantYaml={props.onEditVariantYaml}
           detachBusy={props.detachBusy}
-          onDetachEntry={props.onDetachEntry}
+          onRequestDetach={openDetachConfirm}
           onRequestReattach={openReattachConfirm}
         />
       ) : props.menuView === "menus" ? (
@@ -1216,6 +1194,111 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           onOpenDiagnosticsForUrl={props.onOpenDiagnosticsForUrl}
         />
       )}
+
+      <Dialog open={detachConfirmOpen} onOpenChange={setDetachConfirmOpen}>
+        <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-detach-confirm">
+          <DialogHeader>
+            <DialogTitle>Detach from shared template?</DialogTitle>
+            <DialogDescription>
+              This page will stop following the shared {props.contentInfo.label || props.contentInfo.type || "entry"} template and keep its own layout and Page Versions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 text-sm text-muted-foreground pr-1">
+            <div>
+              <p className="font-medium text-foreground mb-1">Benefits</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Customize sections and layout for this page only</li>
+                <li>Run Page Versions (A/B tests) on this URL without affecting every other entry</li>
+                <li>Template traffic splits no longer control this page</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-foreground mb-1">Tradeoffs</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Future template updates will not apply here automatically</li>
+                <li>You own this page&apos;s structure going forward</li>
+                <li>Re-attaching later is destructive — custom sections, layout overrides, and entry versions are removed</li>
+              </ul>
+            </div>
+            <p>
+              Detach when one page needs its own experiments or layout. Stay attached when you want every entry to keep matching the shared template.
+            </p>
+
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+              onClick={() => setShowDetachAdvanced((v) => !v)}
+              data-testid="button-toggle-detach-advanced"
+            >
+              {showDetachAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showDetachAdvanced ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {showDetachAdvanced && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
+                <div>
+                  <p className="font-medium text-foreground mb-1">How it works under the hood</p>
+                  <p>
+                    Detach copies the live shared template structure into this entry&apos;s locale YAML files and sets{" "}
+                    <code className="text-[11px]">detached: true</code> in{" "}
+                    <code className="text-[11px]">_common.yml</code>. Template variables like{" "}
+                    <code className="text-[11px]">{"{{ single.* }}"}</code> are preserved, not resolved.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">Versioning</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>
+                      Attached pages version the shared template slug{" "}
+                      <code className="text-[11px]">single</code>
+                    </li>
+                    <li>After detach, Page Versions live under this entry&apos;s own slug</li>
+                    <li>Other attached entries of this type keep sharing the template</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">Files written</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>
+                      Locale files (e.g. <code className="text-[11px]">en.yml</code>) receive baked{" "}
+                      <code className="text-[11px]">sections</code> and <code className="text-[11px]">layout</code> from the live template
+                    </li>
+                    <li>Existing data fields on the entry are kept; structural keys are owned by the entry afterward</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="border-t pt-4 gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setDetachConfirmOpen(false)}
+              disabled={props.detachBusy}
+              data-testid="button-detach-cancel"
+            >
+              <Link2 className="h-4 w-4 mr-2" />
+              Keep in sync
+            </Button>
+            <Button
+              disabled={props.detachBusy}
+              data-testid="button-detach-confirm"
+              onClick={async () => {
+                await props.onDetachEntry?.();
+                setDetachConfirmOpen(false);
+              }}
+            >
+              {props.detachBusy ? (
+                <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Unlink className="h-4 w-4 mr-2" />
+              )}
+              Detach
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={reattachConfirmOpen} onOpenChange={setReattachConfirmOpen}>
         <DialogContent className="sm:max-w-md" data-testid="dialog-reattach-confirm">

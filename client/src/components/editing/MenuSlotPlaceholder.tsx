@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ArrowLeftRight, Menu, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ChevronDown, Loader2, Menu, Pencil, Plus, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
-import { editCommonContent } from "@/lib/contentApi";
+import { editCommonContent, editContent } from "@/lib/contentApi";
+import { getDebugToken } from "@/hooks/useDebugAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import {
@@ -28,7 +29,10 @@ interface MenuSlotPlaceholderProps {
   slug: string;
   locale: string;
   onMenuChange?: (menuId: string | null) => void;
+  /** Shared-layout page that is still attached to the type template. */
   isSharedTemplate?: boolean;
+  /** Shared-layout page that has been detached from the type template. */
+  isDetached?: boolean;
 }
 
 export default function MenuSlotPlaceholder({
@@ -39,6 +43,7 @@ export default function MenuSlotPlaceholder({
   locale,
   onMenuChange,
   isSharedTemplate,
+  isDetached,
 }: MenuSlotPlaceholderProps) {
   const editMode = useEditModeOptional();
   const queryClient = useQueryClient();
@@ -47,6 +52,8 @@ export default function MenuSlotPlaceholder({
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ menuId: string | null } | null>(null);
+  const [detachDialogOpen, setDetachDialogOpen] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const { data: menusData } = useQuery<{ menus: { name: string; file: string }[] }>({
     queryKey: ["/api/menus"],
@@ -62,6 +69,9 @@ export default function MenuSlotPlaceholder({
 
   const isRemoving = pendingAction?.menuId === null;
   const actionLabel = isRemoving ? "Remove" : (currentMenuId ? "Change" : "Add");
+  const keepLabel = isRemoving || !currentMenuId ? "Keep the menu" : "Keep current menu";
+
+  const menuFieldPath = position === "top" ? "layout.menu.top" : "layout.menu.bottom";
 
   const applyToAll = async (menuId: string | null) => {
     setIsSaving(true);
@@ -80,12 +90,81 @@ export default function MenuSlotPlaceholder({
     }
   };
 
+  const applyToDetachedEntry = async (menuId: string | null) => {
+    setIsSaving(true);
+    try {
+      const result = await editContent({
+        contentType,
+        slug,
+        locale,
+        operations: [{ action: "update_field", path: menuFieldPath, value: menuId }],
+      });
+      if (result.success) {
+        onMenuChange?.(menuId);
+        queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/menus"] });
+      } else {
+        toast({
+          title: "Failed to update layout",
+          description: result.error || "Unknown error",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      toast({ title: "Failed to update layout", description: String(err), variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleMenuOptionClick = (menuId: string | null) => {
     setIsOpen(false);
     if (isSharedTemplate) {
-      applyToAll(menuId);
+      setPendingAction({ menuId });
+      setDetachDialogOpen(true);
+      setShowAdvanced(false);
+    } else if (isDetached) {
+      void applyToDetachedEntry(menuId);
     } else {
       setPendingAction({ menuId });
+    }
+  };
+
+  const handleKeep = () => {
+    setDetachDialogOpen(false);
+    setPendingAction(null);
+    setShowAdvanced(false);
+  };
+
+  const handleDetach = async () => {
+    setIsSaving(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(`/api/content/${contentType}/${slug}/detach`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to detach entry", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: "Entry detached",
+        description: "This page now owns its own structure. Change the menu again to update it here only.",
+      });
+      setDetachDialogOpen(false);
+      setPendingAction(null);
+      setShowAdvanced(false);
+      onMenuChange?.(currentMenuId ?? null);
+      queryClient.invalidateQueries();
+    } catch {
+      toast({ title: "Failed to detach entry", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -98,11 +177,10 @@ export default function MenuSlotPlaceholder({
   const handleApplyToEntry = async () => {
     if (!pendingAction) return;
     setIsSaving(true);
-    const fieldPath = position === "top" ? "layout.menu.top" : "layout.menu.bottom";
     const result = await editCommonContent({
       contentType,
       slug,
-      operations: [{ action: "update_field", path: fieldPath, value: pendingAction.menuId }],
+      operations: [{ action: "update_field", path: menuFieldPath, value: pendingAction.menuId }],
     });
     if (result.success) {
       setPendingAction(null);
@@ -117,8 +195,119 @@ export default function MenuSlotPlaceholder({
 
   if (!editMode?.isEditMode) return null;
 
+  const detachDialog = (
+    <Dialog
+      open={detachDialogOpen}
+      onOpenChange={(open) => {
+        if (!open && !isSaving) handleKeep();
+      }}
+    >
+      <DialogContent className="sm:max-w-md" data-testid="dialog-menu-detach">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            Change menu on a shared template
+          </DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                This {position} menu comes from the shared <strong>{contentType}</strong> template,
+                so every {contentType} shows it.
+              </p>
+              <p>
+                To {isRemoving ? "remove" : "change"} it only on <strong>{slug}</strong>, this page
+                must be detached from the shared template. Detaching does not change the menu yet —
+                you can edit it afterward on this page alone.
+              </p>
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 py-2">
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 h-auto py-3 px-4"
+            onClick={handleKeep}
+            disabled={isSaving}
+            data-testid="button-menu-keep"
+          >
+            <div className="flex flex-col items-start gap-0.5 text-left whitespace-normal">
+              <span className="font-medium">{keepLabel}</span>
+              <span className="text-xs text-muted-foreground">
+                No changes. All {contentType}s keep the shared menu.
+              </span>
+            </div>
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 h-auto py-3 px-4"
+            onClick={() => void handleDetach()}
+            disabled={isSaving}
+            data-testid="button-menu-detach"
+          >
+            <div className="flex flex-col items-start gap-0.5 text-left whitespace-normal">
+              <span className="font-medium flex items-center gap-2">
+                {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Detach this {contentType}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                This page gets its own layout. The menu stays until you change it again here.
+                Other {contentType}s are unchanged.
+              </span>
+            </div>
+          </Button>
+        </div>
+        <div className="space-y-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="button-toggle-menu-detach-advanced"
+          >
+            {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+          </button>
+          {showAdvanced && (
+            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs text-muted-foreground">
+              <div>
+                <p className="font-medium text-foreground mb-1">What detach does</p>
+                <p>
+                  Detach copies the live shared template (
+                  <code className="text-[11px]">single.&lt;locale&gt;.yml</code>
+                  ) into this entry&apos;s locale files and sets{" "}
+                  <code className="text-[11px]">detached: true</code> in{" "}
+                  <code className="text-[11px]">_common.yml</code>. Page versions then belong to
+                  this entry instead of the shared template.
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-foreground mb-1">After you detach</p>
+                <p>
+                  Change or remove the menu again on this page — that edit applies only here.
+                  Re-attach later from the debug panel; custom structure (including a custom menu)
+                  may be lost.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={handleKeep} disabled={isSaving} data-testid="button-menu-detach-cancel">
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   const scopeDialog = (
-    <Dialog open={pendingAction !== null} onOpenChange={(open) => { if (!open) setPendingAction(null); }}>
+    <Dialog
+      open={pendingAction !== null && !isSharedTemplate && !isDetached}
+      onOpenChange={(open) => {
+        if (!open) setPendingAction(null);
+      }}
+    >
       <DialogContent data-testid="dialog-menu-scope">
         <DialogHeader>
           <DialogTitle data-testid="text-menu-scope-title">
@@ -157,6 +346,7 @@ export default function MenuSlotPlaceholder({
 
     return (
       <>
+        {detachDialog}
         {scopeDialog}
         <div
           className={`absolute z-[60] flex items-center gap-1 transition-opacity duration-150 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${positionClasses}`}
@@ -214,6 +404,7 @@ export default function MenuSlotPlaceholder({
 
   return (
     <>
+      {detachDialog}
       {scopeDialog}
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>

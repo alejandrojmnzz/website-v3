@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import express from "express";
 import { getDefaultContentRoot } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
@@ -36,6 +37,61 @@ import { databaseManager, DatabaseManager, getCachedDatabaseEntryCount } from ".
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
+}
+
+function getEntryPreviewManager(res: import("express").Response) {
+  const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+  if (!site?.entryPreviewManager) {
+    throw new Error("EntryPreviewManager not available for this site");
+  }
+  return site.entryPreviewManager;
+}
+
+async function loadEntriesForPreview(
+  res: import("express").Response,
+  type: string,
+  localeFilter?: string,
+): Promise<Array<Record<string, unknown>>> {
+  const config = getContentTypeConfig(type, ctRoot(res));
+  if (!config) return [];
+  if (config.database?.slug) {
+    const items = await getDB(res).fetchMappedItems(type);
+    const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
+    return items.filter(
+      (item) => !localeFilter || String(item[localeKey] || "en") === localeFilter,
+    ) as Array<Record<string, unknown>>;
+  }
+  const { items } = await queryEntries(
+    {
+      from: { contentType: type },
+      locale: localeFilter ? normalizeLocale(localeFilter) : undefined,
+    },
+    {
+      db: getDB(res),
+      contentIndex: getCI(res),
+      contentRoot: getContentRoot(res),
+    },
+  );
+  return items as Array<Record<string, unknown>>;
+}
+
+function buildPreviewSection(
+  preview: NonNullable<ReturnType<typeof getPreviewConfig>>,
+  entry: Record<string, unknown>,
+): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  for (const [compKey, entryField] of Object.entries(preview.props || {})) {
+    if (compKey === RESERVED_IMAGE_FIELD || entryField === RESERVED_IMAGE_FIELD) continue;
+    const val = entry[entryField];
+    if (val !== undefined) data[compKey] = val;
+  }
+  return {
+    type: preview.component,
+    version: preview.version || "1.0",
+    variant: preview.variant || "default",
+    ...data,
+    section_id: `entry-preview-${preview.component}`,
+  };
 }
 import {
   redirectMiddleware,
@@ -124,6 +180,7 @@ import {
   getIndexes,
   hasDatabaseSingle,
   getContentTypeConfig,
+  getPreviewConfig,
   updateContentTypeConfig,
   addContentType,
   deleteContentType,
@@ -187,6 +244,14 @@ import { resolveDynamicEntries } from "../dynamic-entries";
 import { queryEntries, type QueryFilter } from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
+import {
+  DEFAULT_PREVIEW_MAX_HEIGHT,
+  DEFAULT_PREVIEW_WIDTH,
+  applyEntryPreviewOgImage,
+  hashPreviewProps,
+  type EntryPreviewMeta,
+} from "../entry-preview-manager";
+import { RESERVED_IMAGE_FIELD } from "../content-types";
 import {
   isEntryDetached,
   isSharedLayoutType,
@@ -641,6 +706,12 @@ export function registerContentRoutes(app: Express): void {
           const dbResolved = resolveSingleVars(dbPageData, dbSingleEntry) as Record<string, unknown>;
           Object.assign(dbPageData, dbResolved);
         }
+        await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
+          contentType,
+          entry: dbSingleEntry,
+          previewConfig: getPreviewConfig(contentType, ctRoot(res)),
+          pageData: dbPageData,
+        });
         const dbRaw = getCI(res).loadMergedContent(contentType, slug, locale);
         const dbLayout = resolveLayout(contentType, dbRaw.data || {}, getContentRoot(res));
         injectCanonicalIfMissing(dbPageData, contentType, locale);
@@ -1220,6 +1291,7 @@ export function registerContentRoutes(app: Express): void {
         database: config.database || null,
         url_pattern: config.url_pattern,
         single_template: !!config.single_template,
+        preview: config.preview || null,
         static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {
@@ -1374,6 +1446,42 @@ export function registerContentRoutes(app: Express): void {
       if (body.unique_fields !== undefined) update.unique_fields = body.unique_fields;
       if (body.database !== undefined) update.database = body.database;
       if (body.single_template !== undefined) update.single_template = !!body.single_template;
+      if (body.preview !== undefined) {
+        if (body.preview === null) {
+          update.preview = null;
+        } else if (typeof body.preview === "object" && body.preview !== null) {
+          const p = body.preview as Record<string, unknown>;
+          if (typeof p.component !== "string" || !p.component.trim()) {
+            res.status(400).json({ error: "preview.component is required" });
+            return;
+          }
+          const props = p.props && typeof p.props === "object" ? (p.props as Record<string, string>) : undefined;
+          const circularProps: string[] = [];
+          if (props) {
+            for (const [k, v] of Object.entries(props)) {
+              if (k === RESERVED_IMAGE_FIELD || v === RESERVED_IMAGE_FIELD) {
+                circularProps.push(`${k}→${v}`);
+              }
+            }
+          }
+          update.preview = {
+            component: p.component.trim(),
+            variant: typeof p.variant === "string" ? p.variant : undefined,
+            version: typeof p.version === "string" ? p.version : undefined,
+            theme: p.theme === "light" || p.theme === "dark" ? p.theme : undefined,
+            widths: Array.isArray(p.widths) ? p.widths.map(Number).filter((n) => Number.isFinite(n) && n > 0) : undefined,
+            maxHeight: typeof p.maxHeight === "number" ? p.maxHeight : undefined,
+            dirty_on_prop_change: !!p.dirty_on_prop_change,
+            props,
+          };
+          if (circularProps.length > 0) {
+            (res.locals as { previewCircularWarn?: string[] }).previewCircularWarn = circularProps;
+          }
+        } else {
+          res.status(400).json({ error: "preview must be an object or null" });
+          return;
+        }
+      }
 
       const priorConfig = getContentTypeConfig(type, ctRoot(res));
       const willHaveDb =
@@ -1462,6 +1570,11 @@ export function registerContentRoutes(app: Express): void {
         success: true,
         ...(alignResult ? { align: alignResult } : {}),
         ...(bindingsDissolved ? { bindingsDissolved } : {}),
+        ...((res.locals as { previewCircularWarn?: string[] }).previewCircularWarn
+          ? {
+              warning: `preview.props references reserved image field (circular): ${(res.locals as { previewCircularWarn: string[] }).previewCircularWarn.join(", ")}`,
+            }
+          : {}),
       });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -2082,41 +2195,58 @@ export function registerContentRoutes(app: Express): void {
           templates[locale] = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res));
         }
 
-        const entries = items
-          .filter(item => !localeFilter || String(item[localeKey] || "en") === localeFilter)
-          .map(item => {
-            const locale = String(item[localeKey] || "en");
-            const template = templates[locale];
-            const rawMeta = resolveSingleVars(template?.meta ?? {}, item) as Record<string, unknown>;
-            const resolvedMeta: Record<string, unknown> = {};
-            for (const [k, v] of Object.entries(rawMeta)) {
-              resolvedMeta[k] = (typeof v === "string" && /\{\{.*?\}\}/.test(v)) ? null : v;
-            }
-            let url: string | null = null;
-            if (urlPattern && typeof item.slug === "string") {
-              const tpl = urlPattern[locale] || urlPattern["default"] || null;
-              if (tpl) {
-                url = tpl.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, key: string) => {
-                  if (key === "slug") return item.slug as string;
-                  const val = item[key];
-                  if (val === undefined || val === null || val === "") return "";
-                  if (typeof val === "object" && "slug" in (val as Record<string, unknown>)) {
-                    return String((val as Record<string, unknown>).slug) || "";
-                  }
-                  return String(val);
-                });
-              }
-            }
-            return {
-              slug: item.slug ?? null,
+        const preview = getPreviewConfig(type, ctRoot(res));
+        let epm: ReturnType<typeof getEntryPreviewManager> | null = null;
+        try {
+          epm = getEntryPreviewManager(res);
+        } catch {
+          epm = null;
+        }
+
+        const entries: unknown[] = [];
+        for (const item of items) {
+          if (localeFilter && String(item[localeKey] || "en") !== localeFilter) continue;
+          const locale = String(item[localeKey] || "en");
+          const template = templates[locale];
+          const rawMeta = resolveSingleVars(template?.meta ?? {}, item) as Record<string, unknown>;
+          const resolvedMeta: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rawMeta)) {
+            resolvedMeta[k] = (typeof v === "string" && /\{\{.*?\}\}/.test(v)) ? null : v;
+          }
+          if (epm && (!resolvedMeta.og_image || resolvedMeta.og_image === null)) {
+            const url = await applyEntryPreviewOgImage(epm, {
               contentType: type,
-              locale,
-              url,
-              title: item.title ?? null,
-              meta: resolvedMeta,
-              schema: template?.schema ?? null,
-            };
+              entry: item as Record<string, unknown>,
+              previewConfig: preview,
+              skipHeadCheck: true,
+            });
+            if (url) resolvedMeta.og_image = url;
+          }
+          let url: string | null = null;
+          if (urlPattern && typeof item.slug === "string") {
+            const tpl = urlPattern[locale] || urlPattern["default"] || null;
+            if (tpl) {
+              url = tpl.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, key: string) => {
+                if (key === "slug") return item.slug as string;
+                const val = item[key];
+                if (val === undefined || val === null || val === "") return "";
+                if (typeof val === "object" && "slug" in (val as Record<string, unknown>)) {
+                  return String((val as Record<string, unknown>).slug) || "";
+                }
+                return String(val);
+              });
+            }
+          }
+          entries.push({
+            slug: item.slug ?? null,
+            contentType: type,
+            locale,
+            url,
+            title: item.title ?? null,
+            meta: resolvedMeta,
+            schema: template?.schema ?? null,
           });
+        }
 
         res.json({ contentType: type, source: "db", cache_age_hours: cacheAgeHours, count: entries.length, entries });
         return;
@@ -2190,6 +2320,278 @@ export function registerContentRoutes(app: Express): void {
       }
 
       res.json({ contentType: type, source: "yaml", cache_age_hours: null, count: entries.length, entries });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── Entry preview screenshots (OG / admin thumbs) ───────────────────────────
+  app.get("/api/content-types/:type/entry-previews", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const preview = getPreviewConfig(type, ctRoot(res));
+      const epm = getEntryPreviewManager(res);
+      const width = preview?.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH;
+      const localeFilter = typeof req.query.locale === "string" ? req.query.locale : undefined;
+      const entries = await loadEntriesForPreview(res, type, localeFilter);
+      const localeKey = getLocaleKey(type, ctRoot(res));
+      const index: Record<
+        string,
+        {
+          slug: string;
+          locale: string;
+          meta: EntryPreviewMeta | null;
+          cacheBustedUrl: string | null;
+          needsCapture: boolean;
+          fromSource: boolean;
+          propsHash?: string;
+        }
+      > = {};
+      for (const entry of entries) {
+        const slug = String(entry.slug ?? "");
+        if (!slug) continue;
+        const locale = localeKey
+          ? String(entry[localeKey] || "en")
+          : String(entry.lang ?? entry.locale ?? entry.language ?? "en");
+        const imageStr =
+          typeof entry[RESERVED_IMAGE_FIELD] === "string"
+            ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
+            : typeof entry.preview === "string"
+              ? (entry.preview as string).trim()
+              : "";
+        const fromSource = !!(imageStr && !/\{\{/.test(imageStr));
+        const meta = await epm.getMeta(type, slug, locale, width);
+        const propsHash = preview ? hashPreviewProps(preview.props, entry) : undefined;
+        const needsCapture =
+          !fromSource &&
+          !!preview &&
+          epm.needsCapture(meta, propsHash, !!preview.dirty_on_prop_change);
+        index[`${slug}:${locale}`] = {
+          slug,
+          locale,
+          meta,
+          cacheBustedUrl: epm.cacheBustedUrl(meta),
+          needsCapture,
+          fromSource,
+          propsHash,
+        };
+      }
+      res.json({
+        contentType: type,
+        preview,
+        width,
+        maxHeight: preview?.maxHeight ?? DEFAULT_PREVIEW_MAX_HEIGHT,
+        count: Object.keys(index).length,
+        index,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/entry-previews/stats", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const preview = getPreviewConfig(type, ctRoot(res));
+      const entries = await loadEntriesForPreview(res, type);
+      const localeKey = getLocaleKey(type, ctRoot(res));
+      const stats = await getEntryPreviewManager(res).stats(type, entries, preview, localeKey);
+      res.json({ contentType: type, preview: !!preview, ...stats });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/entries/:slug/preview-frame", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const locale = normalizeLocale((req.query.locale as string) || "en");
+      const preview = getPreviewConfig(type, ctRoot(res));
+      if (!preview) {
+        res.status(404).json({ error: `No preview config for content type "${type}"` });
+        return;
+      }
+      const entries = await loadEntriesForPreview(res, type, locale);
+      const localeKey = getLocaleKey(type, ctRoot(res));
+      const entry =
+        entries.find((item) => {
+          const itemLocale = localeKey
+            ? String(item[localeKey] || "en")
+            : String(item.lang ?? item.locale ?? item.language ?? "en");
+          return String(item.slug ?? "") === slug && itemLocale === locale;
+        }) || entries.find((item) => String(item.slug ?? "") === slug);
+      if (!entry) {
+        res.status(404).json({ error: `Entry not found: ${type}/${slug}` });
+        return;
+      }
+      const section = buildPreviewSection(preview, entry);
+      const propsHash = hashPreviewProps(preview.props, entry);
+      res.json({
+        contentType: type,
+        slug,
+        locale,
+        theme: preview.theme || "dark",
+        width: preview.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH,
+        maxHeight: preview.maxHeight ?? DEFAULT_PREVIEW_MAX_HEIGHT,
+        propsHash,
+        section,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.put(
+    "/api/content-types/:type/entries/:slug/preview-image",
+    express.raw({ type: "image/webp", limit: "5mb" }),
+    async (req, res) => {
+      try {
+        const { type, slug } = req.params;
+        const auth = await requireCapability(req, res, "content_edit_media", type);
+        if (!auth.authorized) return;
+        const locale = normalizeLocale((req.query.locale as string) || "en");
+        const preview = getPreviewConfig(type, ctRoot(res));
+        const width = Number(req.query.width) || preview?.widths?.[0] || DEFAULT_PREVIEW_WIDTH;
+        const epm = getEntryPreviewManager(res);
+        const image = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? []);
+        if (image.length === 0) {
+          const failed = await epm.markFailed(type, slug, locale, width, "empty_body");
+          res.status(400).json({ error: "Empty image body", meta: failed });
+          return;
+        }
+        let propsHash =
+          typeof req.query.propsHash === "string" && req.query.propsHash
+            ? req.query.propsHash
+            : undefined;
+        if (!propsHash && preview) {
+          const entries = await loadEntriesForPreview(res, type, locale);
+          const localeKey = getLocaleKey(type, ctRoot(res));
+          const entry =
+            entries.find((item) => {
+              const itemLocale = localeKey
+                ? String(item[localeKey] || "en")
+                : String(item.lang ?? item.locale ?? item.language ?? "en");
+              return String(item.slug ?? "") === slug && itemLocale === locale;
+            }) || entries.find((item) => String(item.slug ?? "") === slug);
+          if (entry) propsHash = hashPreviewProps(preview.props, entry);
+        }
+        try {
+          const meta = await epm.upsertWebp({
+            contentType: type,
+            slug,
+            locale,
+            width,
+            buffer: image,
+            propsHash,
+          });
+          res.json({
+            success: true,
+            meta,
+            url: epm.cacheBustedUrl(meta),
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes("capture_too_small")) {
+            await epm.markFailed(type, slug, locale, width, msg);
+          }
+          res.status(400).json({ error: msg });
+        }
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    },
+  );
+
+  app.post("/api/content-types/:type/entries/:slug/preview-dirty", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_media", type);
+      if (!auth.authorized) return;
+      const locale = normalizeLocale(
+        (req.body?.locale as string) || (req.query.locale as string) || "en",
+      );
+      const preview = getPreviewConfig(type, ctRoot(res));
+      const width =
+        Number(req.body?.width) ||
+        Number(req.query.width) ||
+        preview?.widths?.[0] ||
+        DEFAULT_PREVIEW_WIDTH;
+      const meta = await getEntryPreviewManager(res).markDirty(type, slug, locale, width);
+      res.json({ success: true, meta });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.post("/api/content-types/:type/entries/:slug/preview-failed", async (req, res) => {
+    try {
+      const { type, slug } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_media", type);
+      if (!auth.authorized) return;
+      const locale = normalizeLocale(
+        (req.body?.locale as string) || (req.query.locale as string) || "en",
+      );
+      const preview = getPreviewConfig(type, ctRoot(res));
+      const width =
+        Number(req.body?.width) ||
+        Number(req.query.width) ||
+        preview?.widths?.[0] ||
+        DEFAULT_PREVIEW_WIDTH;
+      const error =
+        typeof req.body?.error === "string" && req.body.error.trim()
+          ? req.body.error.trim()
+          : "capture_failed";
+      const meta = await getEntryPreviewManager(res).markFailed(type, slug, locale, width, error);
+      res.json({ success: true, meta });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.post("/api/content-types/:type/entry-previews/retry-failed", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_media", type);
+      if (!auth.authorized) return;
+      const epm = getEntryPreviewManager(res);
+      const preview = getPreviewConfig(type, ctRoot(res));
+      const width = preview?.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH;
+      const bodySlug = typeof req.body?.slug === "string" ? req.body.slug : null;
+      const bodyLocale =
+        typeof req.body?.locale === "string" ? normalizeLocale(req.body.locale) : null;
+
+      if (bodySlug && bodyLocale) {
+        const meta = await epm.retryFailed(type, bodySlug, bodyLocale, width);
+        res.json({ success: true, retried: 1, meta });
+        return;
+      }
+
+      const entries = await loadEntriesForPreview(res, type);
+      const localeKey = getLocaleKey(type, ctRoot(res));
+      let retried = 0;
+      for (const entry of entries) {
+        const slug = String(entry.slug ?? "");
+        if (!slug) continue;
+        const locale = localeKey
+          ? String(entry[localeKey] || "en")
+          : String(entry.lang ?? entry.locale ?? entry.language ?? "en");
+        const meta = await epm.getMeta(type, slug, locale, width);
+        if (meta?.failedAt) {
+          await epm.retryFailed(type, slug, locale, width);
+          retried++;
+        }
+      }
+      res.json({ success: true, retried });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

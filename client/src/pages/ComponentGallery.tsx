@@ -18,6 +18,7 @@ import {
   captureComponentScreenshot,
   type CaptureJob,
 } from "@/lib/componentScreenshotCapture";
+import { useSerializedCaptureQueue } from "@/hooks/useSerializedCaptureQueue";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import type {
@@ -85,8 +86,6 @@ interface InsightsStatus {
   debounceMs: number;
 }
 
-type CaptureStatus = "idle" | "queued" | "capturing" | "failed";
-
 function jobKey(job: CaptureJob): string {
   return job.exampleKeyed ? `${job.type}::${job.example}` : job.type;
 }
@@ -142,13 +141,27 @@ export default function ComponentGallery() {
   const [unusedOnly, setUnusedOnly] = useState(false);
   const [usageModalType, setUsageModalType] = useState<string | null>(null);
   const [forkType, setForkType] = useState<string | null>(null);
-  const [captureStatus, setCaptureStatus] = useState<Record<string, CaptureStatus>>({});
-  const [localUrls, setLocalUrls] = useState<Record<string, string>>({});
-  const queueRef = useRef<CaptureJob[]>([]);
-  const runningRef = useRef(false);
-  const enqueuedRef = useRef<Set<string>>(new Set());
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const forkedEnqueueRef = useRef<string | null>(null);
+
+  const {
+    enqueue,
+    status: captureStatus,
+    urls: localUrls,
+    setUrls: setLocalUrls,
+  } = useSerializedCaptureQueue<CaptureJob>({
+    jobKey,
+    run: captureComponentScreenshot,
+    onSuccess: (job) => {
+      if (job.exampleKeyed) {
+        queryClient.invalidateQueries({
+          queryKey: ["/api/private/component-screenshots", job.type, "examples"],
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/private/component-screenshots"] });
+      }
+    },
+  });
 
   const { data: registry, isLoading: registryLoading } = useQuery<RegistryOverview>({
     queryKey: ["/api/component-registry"],
@@ -224,53 +237,6 @@ export default function ComponentGallery() {
       );
     });
   }, [components, search, unusedOnly, usageByType]);
-
-  const processQueue = useCallback(async () => {
-    if (runningRef.current) return;
-    runningRef.current = true;
-
-    while (queueRef.current.length > 0) {
-      const job = queueRef.current.shift()!;
-      const key = jobKey(job);
-      setCaptureStatus((prev) => ({ ...prev, [key]: "capturing" }));
-      try {
-        const url = await captureComponentScreenshot(job);
-        setLocalUrls((prev) => ({ ...prev, [key]: url }));
-        setCaptureStatus((prev) => ({ ...prev, [key]: "idle" }));
-        enqueuedRef.current.delete(key);
-        if (job.exampleKeyed) {
-          queryClient.invalidateQueries({
-            queryKey: ["/api/private/component-screenshots", job.type, "examples"],
-          });
-        } else {
-          queryClient.invalidateQueries({ queryKey: ["/api/private/component-screenshots"] });
-        }
-      } catch (err) {
-        console.error("component screenshot capture failed", key, err);
-        setCaptureStatus((prev) => ({ ...prev, [key]: "failed" }));
-        enqueuedRef.current.delete(key);
-      }
-    }
-
-    runningRef.current = false;
-  }, []);
-
-  const enqueue = useCallback(
-    (job: CaptureJob, force = false) => {
-      const key = jobKey(job);
-      if (!force && enqueuedRef.current.has(key)) return;
-      if (!force) {
-        const status = captureStatus[key];
-        if (status === "capturing" || status === "queued") return;
-      }
-      enqueuedRef.current.add(key);
-      setCaptureStatus((prev) => ({ ...prev, [key]: "queued" }));
-      queueRef.current = queueRef.current.filter((j) => jobKey(j) !== key);
-      queueRef.current.push(job);
-      void processQueue();
-    },
-    [captureStatus, processQueue],
-  );
 
   const jobFor = useCallback((comp: RegistryComponent): CaptureJob | null => {
     if (!comp.primaryExample) return null;

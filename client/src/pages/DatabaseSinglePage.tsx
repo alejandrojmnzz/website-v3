@@ -155,6 +155,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
             locale={locale}
             onMenuChange={() => refetch()}
             isSharedTemplate={isSharedTemplate}
+            isDetached={isSharedLayout && pageDetached}
           />
         </div>
         <SectionRenderer
@@ -184,6 +185,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           locale={locale}
           onMenuChange={() => refetch()}
           isSharedTemplate={isSharedTemplate}
+          isDetached={isSharedLayout && pageDetached}
         />
       </div>
     </div>

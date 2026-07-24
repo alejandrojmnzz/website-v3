@@ -12,6 +12,7 @@ import { ConversationStore } from "./ai/ConversationStore";
 import { SyncLog } from "./sync-log";
 import { createSiteDb } from "./db";
 import { getVariableManager, resetVariableManagerCache, type VariableManager } from "./variable-manager";
+import { EntryPreviewManager } from "./entry-preview-manager";
 import { child } from "./logger";
 
 const log = child({ module: "site-manager" });
@@ -29,6 +30,7 @@ export interface SiteContext {
   conversationStore: ConversationStore;
   syncLog: SyncLog;
   variableManager: VariableManager;
+  entryPreviewManager: EntryPreviewManager;
   isDevOverride?: boolean;
 }
 
@@ -75,8 +77,9 @@ function constructSiteContextMap(): { map: Map<string, SiteContext>; defaultSite
     const conversationStore = new ConversationStore(siteDb, contentRootName);
     const syncLog = new SyncLog(contentRoot, contentRootName, isFirstSite);
     const variableManager = getVariableManager(contentRoot);
+    const entryPreviewManager = new EntryPreviewManager(contentRoot, mg);
     isFirstSite = false;
-    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database, conversationStore, syncLog, variableManager };
+    const ctx: SiteContext = { config, contentIndex: ci, mediaGallery: mg, contentRoot, contentRootName, validationCache, autoCommitQueue, versioningManager, database, conversationStore, syncLog, variableManager, entryPreviewManager };
     map.set(config.domain, ctx);
     log.info(`[SiteManager] Registered site domain="${config.domain}" contentFolder="${config.contentFolder}"`);
   }

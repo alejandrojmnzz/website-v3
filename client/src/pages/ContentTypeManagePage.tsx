@@ -1,8 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import {
+  EntryPreviewConfigCard,
+  EntryPreviewKpiCard,
+  type ContentTypePreviewConfig,
+} from "@/components/EntryPreviewAdmin";
+import {
+  captureEntryPreview,
+  entryPreviewJobKey,
+  type EntryPreviewCaptureJob,
+} from "@/lib/entryPreviewCapture";
+import { useSerializedCaptureQueue } from "@/hooks/useSerializedCaptureQueue";
 import { Link, useRoute, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -107,6 +118,7 @@ interface ContentTypeConfig {
   url_pattern: Record<string, string>;
   single_template?: boolean;
   static_entry_count?: number;
+  preview?: ContentTypePreviewConfig | null;
 }
 
 interface DatabaseListItem {
@@ -2303,6 +2315,7 @@ function FieldValidationMessage({
 }
 
 const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs"] as const;
+const RESERVED_IMAGE_FIELD = "image";
 const SPECIAL_FIELD_DEFAULTS: Record<string, string> = {
   _hreflangs: "translations",
 };
@@ -2513,6 +2526,10 @@ function FieldMappingDialog({
           fm[key] = SPECIAL_FIELD_DEFAULTS[key] ?? "";
         }
       }
+    }
+    // Reserved image field is always present (source mapping optional / blank allowed)
+    if (!(RESERVED_IMAGE_FIELD in fm)) {
+      fm[RESERVED_IMAGE_FIELD] = "";
     }
     setMappings(fm);
     setTransformerModes(tmodes);
@@ -2819,6 +2836,9 @@ function FieldMappingDialog({
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-mono w-28 flex-shrink-0 text-right text-muted-foreground truncate" title={key}>
                             {key}
+                            {key === RESERVED_IMAGE_FIELD ? (
+                              <span className="block text-[10px] text-primary font-sans">reserved</span>
+                            ) : null}
                           </span>
                           <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                           {isFn ? (
@@ -2956,6 +2976,8 @@ function FieldMappingDialog({
                             variant="ghost"
                             size="icon"
                             className="flex-shrink-0"
+                            disabled={key === RESERVED_IMAGE_FIELD}
+                            title={key === RESERVED_IMAGE_FIELD ? "Reserved image field cannot be removed" : "Remove mapping"}
                             onClick={() => setPendingDeleteKey(key)}
                             data-testid={`button-delete-mapping-${key}`}
                           >
@@ -3760,6 +3782,100 @@ export default function ContentTypeManagePage() {
     queryFn: () => fetch(`/api/content-types/${contentType}/config`).then(r => r.json()),
     staleTime: 60000,
   });
+
+  const { data: entryPreviewsData } = useQuery<{
+    preview: ContentTypePreviewConfig | null;
+    width: number;
+    maxHeight: number;
+    index: Record<
+      string,
+      {
+        slug: string;
+        locale: string;
+        needsCapture: boolean;
+        fromSource: boolean;
+        cacheBustedUrl: string | null;
+        propsHash?: string;
+        meta: { failedAt?: string; dirty?: boolean; url?: string } | null;
+      }
+    >;
+  }>({
+    queryKey: ["/api/content-types", contentType, "entry-previews"],
+    queryFn: () =>
+      fetch(`/api/content-types/${encodeURIComponent(contentType)}/entry-previews`).then((r) => r.json()),
+    enabled: !!typeConfig?.preview?.component,
+    staleTime: 30_000,
+  });
+
+  const runEntryPreviewCapture = useCallback(
+    (job: EntryPreviewCaptureJob) => captureEntryPreview(job),
+    [],
+  );
+  const {
+    enqueue: enqueueEntryPreview,
+    status: entryPreviewStatus,
+    urls: entryPreviewUrls,
+  } = useSerializedCaptureQueue<EntryPreviewCaptureJob>({
+    jobKey: entryPreviewJobKey,
+    run: runEntryPreviewCapture,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (!entryPreviewsData?.preview || !entryPreviewsData.index) return;
+    const preview = entryPreviewsData.preview;
+    for (const row of Object.values(entryPreviewsData.index)) {
+      if (!row.needsCapture) continue;
+      enqueueEntryPreview({
+        contentType,
+        slug: row.slug,
+        locale: row.locale,
+        width: entryPreviewsData.width || 1200,
+        maxHeight: entryPreviewsData.maxHeight || 630,
+        theme: preview.theme === "light" ? "light" : "dark",
+        propsHash: row.propsHash,
+      });
+    }
+  }, [contentType, entryPreviewsData, enqueueEntryPreview]);
+
+  const markEntryPreviewDirty = async (slug: string, locale: string) => {
+    try {
+      await apiRequest(
+        "POST",
+        `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(slug)}/preview-dirty`,
+        { locale },
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+      });
+      const preview = typeConfig?.preview;
+      if (preview?.component) {
+        enqueueEntryPreview(
+          {
+            contentType,
+            slug,
+            locale,
+            width: preview.widths?.[0] || 1200,
+            maxHeight: preview.maxHeight || 630,
+            theme: preview.theme === "light" ? "light" : "dark",
+          },
+          true,
+        );
+      }
+    } catch {
+      toast({ title: "Failed to mark preview dirty", variant: "destructive" });
+    }
+  };
 
   const urlPatterns = typeConfig?.url_pattern || {};
   const localeKey = (() => {
@@ -4588,6 +4704,8 @@ export default function ContentTypeManagePage() {
               </div>
             </CardContent>
           </Card>
+          <EntryPreviewKpiCard contentType={contentType} />
+          <EntryPreviewConfigCard contentType={contentType} preview={typeConfig?.preview} />
         </div>
 
         <Card>
@@ -5339,6 +5457,23 @@ export default function ContentTypeManagePage() {
                         const itemLocale = localeKey ? String(item[localeKey] || "en") : "en";
                         const pattern = itemLocale === "es" ? (urlPatterns.es || urlPatterns.en) : (urlPatterns.en || urlPatterns.default || "");
                         const itemUrl = pattern ? buildItemUrl(pattern, item, itemLocale) : "";
+                        const previewKey = `${item.slug}:${itemLocale}`;
+                        const previewRow = entryPreviewsData?.index?.[previewKey];
+                        const captureKey = entryPreviewJobKey({
+                          contentType,
+                          slug: String(item.slug || ""),
+                          locale: itemLocale,
+                          width: entryPreviewsData?.width || 1200,
+                          maxHeight: entryPreviewsData?.maxHeight || 630,
+                          theme: "dark",
+                        });
+                        const captureSt = entryPreviewStatus[captureKey];
+                        const thumbSrc =
+                          (typeof item.image === "string" && item.image.trim()) ||
+                          (typeof item.preview === "string" && item.preview.trim()) ||
+                          entryPreviewUrls[captureKey] ||
+                          previewRow?.cacheBustedUrl ||
+                          "";
                         return (
                           <tr
                             key={item.id || item.slug}
@@ -5347,13 +5482,23 @@ export default function ContentTypeManagePage() {
                           >
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-3">
-                                {(item.preview || item.image) && (
-                                  <img
-                                    src={item.preview || item.image}
-                                    alt=""
-                                    className="w-10 h-10 rounded-md object-cover flex-shrink-0 hidden sm:block"
-                                  />
-                                )}
+                                <div className="relative w-10 h-10 flex-shrink-0 hidden sm:block">
+                                  {thumbSrc ? (
+                                    <img
+                                      src={thumbSrc}
+                                      alt=""
+                                      className="w-10 h-10 rounded-md object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
+                                      {captureSt === "capturing" || captureSt === "queued" ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                      ) : (
+                                        <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                                 <div className="min-w-0">
                                   <div className="font-medium truncate max-w-[300px]" title={item.title} data-testid={`text-title-${item.id || item.slug}`}>
                                     {item.title || item.slug}
@@ -5452,6 +5597,15 @@ export default function ContentTypeManagePage() {
                                     <RefreshCw className="h-4 w-4 mr-2" />
                                     Refresh Cache
                                   </DropdownMenuItem>
+                                  {typeConfig?.preview?.component && !previewRow?.fromSource && (
+                                    <DropdownMenuItem
+                                      onClick={() => markEntryPreviewDirty(String(item.slug), itemLocale)}
+                                      data-testid={`button-regenerate-preview-${item.id || item.slug}`}
+                                    >
+                                      <ImageIcon className="h-4 w-4 mr-2" />
+                                      Regenerate preview
+                                    </DropdownMenuItem>
+                                  )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </td>

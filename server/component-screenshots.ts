@@ -1,10 +1,12 @@
-import * as fs from "fs";
 import * as path from "path";
+import { createScreenshotCacheStore, safeScreenshotKey } from "./screenshot-cache";
 import { child } from "./logger";
 
 const log = child({ module: "component-screenshots" });
 
-const CACHE_DIR = path.join(process.cwd(), ".cache", "component-screenshots");
+const store = createScreenshotCacheStore(
+  path.join(process.cwd(), ".cache", "component-screenshots"),
+);
 
 export interface ScreenshotMeta {
   version: string;
@@ -20,15 +22,11 @@ export interface ScreenshotIndexEntry {
   meta: ScreenshotMeta | null;
 }
 
-function ensureCacheDir(): void {
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-  }
-}
-
 /** Sanitize example name for filesystem keys (keeps letters, digits, _ -). */
 export function safeExampleKey(example: string): string {
-  return example.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "example";
+  return safeScreenshotKey(example) === "key" && !example
+    ? "example"
+    : safeScreenshotKey(example);
 }
 
 /**
@@ -40,42 +38,28 @@ function cacheBase(componentType: string, example?: string | null): string {
   return `${componentType}--${safeExampleKey(example)}`;
 }
 
-function imagePath(componentType: string, example?: string | null): string {
-  return path.join(CACHE_DIR, `${cacheBase(componentType, example)}.webp`);
-}
-
-function metaPath(componentType: string, example?: string | null): string {
-  return path.join(CACHE_DIR, `${cacheBase(componentType, example)}.meta.json`);
-}
-
 export function readScreenshotMeta(
   componentType: string,
   example?: string | null,
 ): ScreenshotMeta | null {
-  try {
-    const p = metaPath(componentType, example);
-    if (!fs.existsSync(p)) return null;
-    const raw = JSON.parse(fs.readFileSync(p, "utf8")) as ScreenshotMeta;
-    if (
-      typeof raw.version !== "string" ||
-      typeof raw.example !== "string" ||
-      typeof raw.sourceMtime !== "number" ||
-      typeof raw.sourceSize !== "number"
-    ) {
-      return null;
-    }
-    return raw;
-  } catch (error) {
-    log.warn({ err: error, componentType, example }, "Failed to read screenshot meta");
+  const raw = store.readMeta<ScreenshotMeta>(cacheBase(componentType, example));
+  if (!raw) return null;
+  if (
+    typeof raw.version !== "string" ||
+    typeof raw.example !== "string" ||
+    typeof raw.sourceMtime !== "number" ||
+    typeof raw.sourceSize !== "number"
+  ) {
     return null;
   }
+  return raw;
 }
 
 export function hasScreenshotImage(
   componentType: string,
   example?: string | null,
 ): boolean {
-  return fs.existsSync(imagePath(componentType, example));
+  return store.hasImage(cacheBase(componentType, example));
 }
 
 export function isScreenshotStale(
@@ -152,14 +136,7 @@ export function readScreenshotImage(
   componentType: string,
   example?: string | null,
 ): Buffer | null {
-  const p = imagePath(componentType, example);
-  if (!fs.existsSync(p)) return null;
-  try {
-    return fs.readFileSync(p);
-  } catch (error) {
-    log.error({ err: error, componentType, example }, "Failed to read screenshot image");
-    return null;
-  }
+  return store.readImage(cacheBase(componentType, example));
 }
 
 export function saveScreenshot(
@@ -172,7 +149,6 @@ export function saveScreenshot(
     if (!/^[a-z0-9_]+$/i.test(componentType)) {
       return { success: false, error: "Invalid component type" };
     }
-    ensureCacheDir();
     const exampleKey = options?.exampleKeyed ? meta.example : null;
     if (options?.exampleKeyed && !meta.example) {
       return { success: false, error: "example required for keyed screenshot" };
@@ -184,8 +160,9 @@ export function saveScreenshot(
       sourceSize: meta.sourceSize,
       capturedAt: meta.capturedAt || new Date().toISOString(),
     };
-    fs.writeFileSync(imagePath(componentType, exampleKey), image);
-    fs.writeFileSync(metaPath(componentType, exampleKey), JSON.stringify(fullMeta, null, 2));
+    const base = cacheBase(componentType, exampleKey);
+    store.writeImage(base, image);
+    store.writeMeta(base, fullMeta);
     return { success: true };
   } catch (error) {
     log.error({ err: error, componentType }, "Failed to save screenshot");
@@ -198,10 +175,7 @@ export function deleteScreenshot(
   example?: string | null,
 ): { success: boolean; error?: string } {
   try {
-    const img = imagePath(componentType, example);
-    const meta = metaPath(componentType, example);
-    if (fs.existsSync(img)) fs.unlinkSync(img);
-    if (fs.existsSync(meta)) fs.unlinkSync(meta);
+    store.deletePair(cacheBase(componentType, example));
     return { success: true };
   } catch (error) {
     log.error({ err: error, componentType, example }, "Failed to delete screenshot");

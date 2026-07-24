@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2 } from "lucide-react";
+import { Link2, Loader2, Unlink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
@@ -28,7 +28,7 @@ interface VersioningViewProps {
   onVersioningDataUpdate?: (data: VersioningResponse) => void;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
   detachBusy?: boolean;
-  onDetachEntry?: () => void | Promise<void>;
+  onRequestDetach?: () => void;
   onRequestReattach?: () => void;
 }
 
@@ -42,7 +42,7 @@ export function VersioningView({
   onVersioningDataUpdate,
   onEditVariantYaml,
   detachBusy,
-  onDetachEntry,
+  onRequestDetach,
   onRequestReattach,
 }: VersioningViewProps) {
   const { toast } = useToast();
@@ -433,16 +433,21 @@ export function VersioningView({
           <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-template-versions-warning">
             All {contentTypeLabel}&apos;s share the same template unless detached, versioning occurs on the template itself
           </p>
-          {onDetachEntry && (
+          {onRequestDetach && (
             <Button
               size="sm"
               variant="outline"
-              className="h-7 shrink-0 text-xs px-2"
+              className="h-7 shrink-0 text-xs px-2 gap-1"
               disabled={detachBusy}
-              onClick={() => void onDetachEntry()}
+              onClick={onRequestDetach}
               data-testid="button-versioning-detach"
             >
-              {detachBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Detach"}
+              {detachBusy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Unlink className="h-3 w-3 text-muted-foreground" />
+              )}
+              Detach
             </Button>
           )}
         </div>
@@ -457,12 +462,17 @@ export function VersioningView({
             <Button
               size="sm"
               variant="outline"
-              className="h-7 shrink-0 text-xs px-2"
+              className="h-7 shrink-0 text-xs px-2 gap-1"
               disabled={detachBusy}
               onClick={onRequestReattach}
               data-testid="button-versioning-reattach"
             >
-              {detachBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Re-attach"}
+              {detachBusy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Link2 className="h-3 w-3 text-status-online" />
+              )}
+              Re-attach
             </Button>
           )}
         </div>

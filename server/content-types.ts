@@ -22,6 +22,21 @@ export interface LayoutConfig {
   menu: LayoutMenuConfig;
 }
 
+/** Component-based OG / entry preview screenshot config. */
+export interface ContentTypePreviewConfig {
+  component: string;
+  variant?: string;
+  version?: string;
+  theme?: "dark" | "light";
+  /** Capture widths; first entry used (OG default 1200). */
+  widths?: number[];
+  maxHeight?: number;
+  /** When true, prop-value hash drift marks preview dirty. Default false. */
+  dirty_on_prop_change?: boolean;
+  /** Component data key → entry field name. Must not map reserved `image`. */
+  props?: Record<string, string>;
+}
+
 export interface ContentTypeEntry {
   directory: string;
   url_pattern: Record<string, string>;
@@ -36,6 +51,11 @@ export interface ContentTypeEntry {
    * DB-backed types already use this merge model via mergeSingleTemplate.
    */
   single_template?: boolean;
+  /**
+   * Optional component used to generate OG/entry preview screenshots when
+   * the reserved `image` field is missing or 404.
+   */
+  preview?: ContentTypePreviewConfig;
 }
 
 interface ContentTypesRegistry {
@@ -93,6 +113,18 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   When true, static entries inherit sections from _common.single.yml (and single.{locale}.yml
 #   if present) and apply per-entry section patches by id — same model as DB-backed singles.
 #   Set automatically when converting a DB-backed type to static.
+#
+# preview (optional):
+#   Component used to generate OG / entry list thumbnails when reserved field \`image\` is
+#   missing or 404. Screenshots are stored in the site media bucket (not image-registry).
+#     component: registry section type (e.g. hero)
+#     variant / version / theme: optional
+#     widths: [1200] (OG default); maxHeight: 630
+#     dirty_on_prop_change: false (when true, mapped prop value changes mark dirty)
+#     props: { componentDataKey: entryField } — do not map the reserved image field
+#
+# field_mapping — reserved regular key:
+#   image: optional DB/YAML source for the entry preview / og image URL
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {
@@ -223,6 +255,21 @@ export function getContentTypeConfig(type: string, contentRoot?: string): Conten
   const singular = getType(type, contentRoot);
   return reg.types[singular];
 }
+
+export function getPreviewConfig(
+  type: string,
+  contentRoot?: string,
+): ContentTypePreviewConfig | null {
+  const config = getContentTypeConfig(type, contentRoot);
+  const preview = config?.preview;
+  if (!preview || typeof preview.component !== "string" || !preview.component.trim()) {
+    return null;
+  }
+  return preview;
+}
+
+/** Reserved content-type field for entry / OG preview image URL. */
+export const RESERVED_IMAGE_FIELD = "image";
 
 export function getAllConfigs(contentRoot?: string): Record<string, ContentTypeEntry> {
   return loadRegistry(contentRoot).types;
@@ -450,9 +497,11 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database">> & {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview">> & {
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
+  /** Pass `null` to remove preview screenshot config. */
+  preview?: ContentTypePreviewConfig | null;
 };
 
 export function updateContentTypeConfig(type: string, update: ContentTypeConfigUpdate, contentRoot?: string): void {
@@ -463,7 +512,7 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     throw new Error(`Content type "${type}" not found`);
   }
 
-  const { database: databaseUpdate, ...rest } = update;
+  const { database: databaseUpdate, preview: previewUpdate, ...rest } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
   if (databaseUpdate === null) {
     delete merged.database;
@@ -471,6 +520,12 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     merged.database = { ...existing.database, ...databaseUpdate };
   } else if (databaseUpdate) {
     merged.database = databaseUpdate;
+  }
+
+  if (previewUpdate === null) {
+    delete merged.preview;
+  } else if (previewUpdate) {
+    merged.preview = previewUpdate;
   }
 
   // Database-backed types always use a shared template.

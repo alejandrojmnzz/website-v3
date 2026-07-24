@@ -52,6 +52,9 @@ reports/lighthouse/**/*.json
 # Runtime cache (DB cache, ML models, Qdrant storage, migration checkpoints)
 .cache/
 
+# Local entry OG preview screenshots (also under site_*/ which is ignored)
+**/images/entry-previews/
+
 # Local dev state (site override, Qdrant binary, etc.)
 .local/
 .multisite-user-store.json
