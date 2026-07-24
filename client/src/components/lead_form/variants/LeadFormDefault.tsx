@@ -345,6 +345,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileError, setTurnstileError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [showTurnstileModal, setShowTurnstileModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<FormValues | null>(null);
   const [loginMode, setLoginMode] = useState(false);
@@ -880,6 +881,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       return apiRequest("POST", "/api/leads", payload);
     },
     onSuccess: async (_response, variables) => {
+      setSubmitError(null);
       // Track conversion if conversion_name is defined
       if (!data.conversion_name) {
         console.error(
@@ -949,55 +951,61 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     },
     onError: (error: Error) => {
       console.error("Lead submission error:", error);
-      
-      // Default user-friendly error message
-      const defaultErrorMessage = locale === "es" 
-        ? "Hubo un problema al enviar tu información. Por favor intenta de nuevo." 
+
+      const defaultErrorMessage = locale === "es"
+        ? "Hubo un problema al enviar tu información. Por favor intenta de nuevo."
         : "There was a problem submitting your information. Please try again.";
 
-      // Try to parse the error message to extract details
-      let errorMessage = error.message;
+      let errorMessage = defaultErrorMessage;
       try {
-        // Error format: "400: {json}"
         const jsonMatch = error.message.match(/^\d+:\s*(.+)$/);
         if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[1]);
-          if (parsed.details) {
-            // Check if details contains HTML (API error page)
-            if (typeof parsed.details === 'string' && 
-                (parsed.details.includes('<!DOCTYPE') || parsed.details.includes('<html'))) {
+          const parsed = JSON.parse(jsonMatch[1]) as {
+            error?: unknown;
+            details?: unknown;
+          };
+          if (typeof parsed.details === "string") {
+            if (parsed.details.includes("<!DOCTYPE") || parsed.details.includes("<html")) {
               errorMessage = defaultErrorMessage;
             } else {
-              // Details may be a JSON string itself
               try {
-                const details = JSON.parse(parsed.details);
-                errorMessage = details.detail || details.message || parsed.error || defaultErrorMessage;
+                const details = JSON.parse(parsed.details) as { detail?: unknown; message?: unknown };
+                const fromDetails = details.detail ?? details.message;
+                if (typeof fromDetails === "string") {
+                  errorMessage = fromDetails;
+                } else if (typeof parsed.error === "string") {
+                  errorMessage = parsed.error;
+                }
               } catch {
-                errorMessage = parsed.details || parsed.error || defaultErrorMessage;
+                errorMessage = parsed.details;
               }
             }
-          } else if (parsed.error) {
+          } else if (
+            parsed.details &&
+            typeof parsed.details === "object" &&
+            "detail" in parsed.details &&
+            typeof (parsed.details as { detail: unknown }).detail === "string"
+          ) {
+            errorMessage = (parsed.details as { detail: string }).detail;
+          } else if (typeof parsed.error === "string") {
             errorMessage = parsed.error;
           }
         }
       } catch {
-        // Keep original message if parsing fails, but check for HTML
-        if (errorMessage.includes('<!DOCTYPE') || errorMessage.includes('<html')) {
-          errorMessage = defaultErrorMessage;
-        }
+        // keep default
       }
-      
-      // Final safety check: if message is too long or contains HTML tags, use default
+
       if (errorMessage.length > 200 || /<[^>]+>/.test(errorMessage)) {
         errorMessage = defaultErrorMessage;
       }
 
-      setTurnstileError(errorMessage);
+      setSubmitError(errorMessage);
     },
   });
 
   const onSubmit = (values: FormValues) => {
     setTurnstileError(null);
+    setSubmitError(null);
 
     // Dev: surface the misconfiguration instead of silently skipping captcha.
     // Prod: degrade gracefully and submit without captcha.
@@ -1346,6 +1354,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             {turnstileError && (
               <p className="text-sm text-destructive mt-2" data-testid="text-turnstile-error">
                 {turnstileError}
+              </p>
+            )}
+            {submitError && (
+              <p className="text-sm text-destructive mt-2" data-testid="text-submit-error">
+                {submitError}
               </p>
             )}
             {emailConfig.helper_text && (
@@ -1783,6 +1796,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           {turnstileError && (
             <p className="text-sm text-destructive text-center" data-testid="text-turnstile-error">
               {turnstileError}
+            </p>
+          )}
+          {submitError && (
+            <p className="text-sm text-destructive text-center" data-testid="text-submit-error">
+              {submitError}
             </p>
           )}
 
