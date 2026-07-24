@@ -11,7 +11,7 @@ describe("resolveLeadFormPhase", () => {
         isSignup: false,
         loginMode: true,
         isLoggedIn: true,
-        allVisibleFieldsFilled: true,
+        allRequiredFieldsFilled: true,
       }),
     ).toBe("guest_signup");
   });
@@ -22,29 +22,29 @@ describe("resolveLeadFormPhase", () => {
         isSignup: true,
         loginMode: true,
         isLoggedIn: false,
-        allVisibleFieldsFilled: false,
+        allRequiredFieldsFilled: false,
       }),
     ).toBe("login");
   });
 
-  it("returns logged_in_incomplete when visible fields are still empty", () => {
+  it("returns logged_in_incomplete when required fields are still empty", () => {
     expect(
       resolveLeadFormPhase({
         isSignup: true,
         loginMode: false,
         isLoggedIn: true,
-        allVisibleFieldsFilled: false,
+        allRequiredFieldsFilled: false,
       }),
     ).toBe("logged_in_incomplete");
   });
 
-  it("returns logged_in_ready when every visible field is filled", () => {
+  it("returns logged_in_ready when every required visible field is filled", () => {
     expect(
       resolveLeadFormPhase({
         isSignup: true,
         loginMode: false,
         isLoggedIn: true,
-        allVisibleFieldsFilled: true,
+        allRequiredFieldsFilled: true,
       }),
     ).toBe("logged_in_ready");
   });

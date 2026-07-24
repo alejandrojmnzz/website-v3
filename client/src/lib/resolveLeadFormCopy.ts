@@ -47,13 +47,13 @@ export function resolveLeadFormPhase(opts: {
   isSignup: boolean;
   loginMode: boolean;
   isLoggedIn: boolean;
-  /** True when every currently visible field has a value (not only required ones). */
-  allVisibleFieldsFilled: boolean;
+  /** True when every visible *required* field has a value (optional fields ignored). */
+  allRequiredFieldsFilled: boolean;
 }): LeadFormPhase {
   if (!opts.isSignup) return "guest_signup";
   if (opts.loginMode) return "login";
   if (!opts.isLoggedIn) return "guest_signup";
-  return opts.allVisibleFieldsFilled ? "logged_in_ready" : "logged_in_incomplete";
+  return opts.allRequiredFieldsFilled ? "logged_in_ready" : "logged_in_incomplete";
 }
 
 const DEFAULTS: Record<

@@ -1051,7 +1051,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     return loc.region === selectedRegion;
   }) || [];
 
-  // Watch all form values to determine if required / visible fields are filled
+  // Watch form values to determine if required visible fields are filled
   const watchedValues = form.watch();
 
   const isFieldValueFilled = (field: keyof FormValues): boolean => {
@@ -1085,14 +1085,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   };
 
   const allRequiredFieldsFilled = collectVisibleFields(true).every(isFieldValueFilled);
-  // Messaging phase: any still-visible empty field (e.g. optional phone) means incomplete.
-  const allVisibleFieldsFilled = collectVisibleFields(false).every(isFieldValueFilled);
 
   const formPhase = resolveLeadFormPhase({
     isSignup: isSignupRequested,
     loginMode,
     isLoggedIn,
-    allVisibleFieldsFilled,
+    allRequiredFieldsFilled,
   });
   const formCopy = resolveLeadFormCopy(formPhase, data, locale);
 
