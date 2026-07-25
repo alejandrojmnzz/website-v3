@@ -1115,75 +1115,93 @@ export function SectionEditorPanel({
     }
   };
 
+  // Set/delete a string at a (possibly nested) path on a parsed YAML object.
+  const setStringAtPath = (
+    parsed: Record<string, unknown>,
+    key: string,
+    value: string,
+  ) => {
+    const pathParts = key.split(".");
+    if (pathParts.length === 1) {
+      if (value) {
+        parsed[key] = value;
+      } else {
+        delete parsed[key];
+      }
+      return;
+    }
+
+    let current: Record<string, unknown> = parsed;
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const part = pathParts[i];
+      if (!current[part] || typeof current[part] !== "object") {
+        current[part] = {};
+      }
+      current = current[part] as Record<string, unknown>;
+    }
+    const finalKey = pathParts[pathParts.length - 1];
+    if (value) {
+      current[finalKey] = value;
+    } else {
+      delete current[finalKey];
+    }
+
+    if (!value) {
+      for (let i = pathParts.length - 2; i >= 0; i--) {
+        const parentPath = pathParts.slice(0, i);
+        let parent: Record<string, unknown> = parsed;
+        for (const p of parentPath) {
+          parent = parent[p] as Record<string, unknown>;
+        }
+        const child = parent[pathParts[i]];
+        if (
+          child &&
+          typeof child === "object" &&
+          Object.keys(child as Record<string, unknown>).length === 0
+        ) {
+          delete parent[pathParts[i]];
+        } else {
+          break;
+        }
+      }
+    }
+  };
+
+  // Apply multiple string property updates in one YAML parse/dump cycle.
+  // Use this when a single user action must write more than one key (e.g. image src + alt),
+  // so consecutive setState reads don't clobber each other.
+  const updateProperties = (updates: Record<string, string>) => {
+    try {
+      const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return;
+
+      pushUndoState(yamlContent);
+
+      for (const [key, value] of Object.entries(updates)) {
+        setStringAtPath(parsed, key, value);
+      }
+
+      const newYaml = safeYamlDump(parsed, {
+        lineWidth: -1,
+        noRefs: true,
+        quotingType: '"',
+      });
+
+      setYamlContent(newYaml);
+      setHasChanges(true);
+      setParseError(null);
+
+      if (onPreviewChange) {
+        onPreviewChange(parsed as Section);
+      }
+    } catch (error) {
+      console.error("Error updating properties:", error);
+    }
+  };
+
   // Update a specific property in the YAML
   const updateProperty = (key: string, value: string) => {
-      try {
-        const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
-        if (!parsed || typeof parsed !== "object") return;
-
-        pushUndoState(yamlContent);
-
-        // Handle nested paths like "left.image" or "media.src"
-        const pathParts = key.split(".");
-        if (pathParts.length === 1) {
-          // Simple key
-          if (value) {
-            parsed[key] = value;
-          } else {
-            delete parsed[key];
-          }
-        } else {
-          // Nested path - traverse and set
-          let current: Record<string, unknown> = parsed;
-          for (let i = 0; i < pathParts.length - 1; i++) {
-            const part = pathParts[i];
-            if (!current[part] || typeof current[part] !== "object") {
-              current[part] = {};
-            }
-            current = current[part] as Record<string, unknown>;
-          }
-          const finalKey = pathParts[pathParts.length - 1];
-          if (value) {
-            current[finalKey] = value;
-          } else {
-            delete current[finalKey];
-          }
-
-          // Clean up empty parent objects after deletion
-          if (!value) {
-            for (let i = pathParts.length - 2; i >= 0; i--) {
-              const parentPath = pathParts.slice(0, i);
-              let parent: Record<string, unknown> = parsed;
-              for (const p of parentPath) {
-                parent = parent[p] as Record<string, unknown>;
-              }
-              const child = parent[pathParts[i]];
-              if (child && typeof child === "object" && Object.keys(child as Record<string, unknown>).length === 0) {
-                delete parent[pathParts[i]];
-              } else {
-                break;
-              }
-            }
-          }
-        }
-
-        const newYaml = safeYamlDump(parsed, {
-          lineWidth: -1,
-          noRefs: true,
-          quotingType: '"',
-        });
-
-        setYamlContent(newYaml);
-        setHasChanges(true);
-        setParseError(null);
-
-        // Trigger live preview
-        if (onPreviewChange) {
-          onPreviewChange(parsed as Section);
-        }
-      } catch (error) {
-        console.error("Error updating property:", error);
-      }
+    updateProperties({ [key]: value });
   };
 
   // Update a property with a raw value (e.g. boolean) so YAML dumps natively (layout_reversed: true)
@@ -4597,9 +4615,14 @@ export function SectionEditorPanel({
                   const pathParts = fieldPath.split(".");
                   const parentPath = pathParts.slice(0, -1).join(".");
                   const side = pathParts[0];
+                  // "image" → image_alt; "form_card_image" → form_card_image_alt
+                  const baseName = pathParts[pathParts.length - 1];
 
                   const hasParent = parentPath.length > 0;
                   const fieldPrefix = hasParent ? `${parentPath}.` : "";
+                  const altPath = `${fieldPrefix}${baseName}_alt`;
+                  const objectFitPath = `${fieldPrefix}${baseName}_object_fit`;
+                  const objectPositionPath = `${fieldPrefix}${baseName}_object_position`;
 
                   const rawValue = getNestedValue(fieldPath, "");
                   const currentValue = typeof rawValue === "string"
@@ -4607,20 +4630,17 @@ export function SectionEditorPanel({
                     : (rawValue && typeof rawValue === "object" && "src" in (rawValue as Record<string, unknown>))
                       ? String((rawValue as Record<string, unknown>).src || "")
                       : "";
-                  const currentAlt = (getNestedValue(
-                    `${fieldPrefix}image_alt`,
-                    "",
-                  ) as string) || (
+                  const currentAlt = (getNestedValue(altPath, "") as string) || (
                     typeof rawValue === "object" && rawValue && "alt" in (rawValue as Record<string, unknown>)
                       ? String((rawValue as Record<string, unknown>).alt || "")
                       : ""
                   );
                   const currentObjectFit = getNestedValue(
-                    `${fieldPrefix}image_object_fit`,
+                    objectFitPath,
                     "",
                   ) as string;
                   const currentObjectPosition = getNestedValue(
-                    `${fieldPrefix}image_object_position`,
+                    objectPositionPath,
                     "",
                   ) as string;
 
@@ -4637,17 +4657,18 @@ export function SectionEditorPanel({
                       tagFilter={variant}
                       testId={`props-image-style-${side}`}
                       onChangeSrc={(src, newAlt) => {
-                        updateProperty(fieldPath, src);
-                        if (newAlt) updateProperty(`${fieldPrefix}image_alt`, newAlt);
+                        const updates: Record<string, string> = { [fieldPath]: src };
+                        if (newAlt) updates[altPath] = newAlt;
+                        updateProperties(updates);
                       }}
                       onChangeAlt={(newAlt) =>
-                        updateProperty(`${fieldPrefix}image_alt`, newAlt)
+                        updateProperty(altPath, newAlt)
                       }
                       onChangeObjectFit={(fit) =>
-                        updateProperty(`${fieldPrefix}image_object_fit`, fit)
+                        updateProperty(objectFitPath, fit)
                       }
                       onChangeObjectPosition={(pos) =>
-                        updateProperty(`${fieldPrefix}image_object_position`, pos)
+                        updateProperty(objectPositionPath, pos)
                       }
                       onRemove={() => updateProperty(fieldPath, "")}
                     />

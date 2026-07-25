@@ -120,6 +120,7 @@ export type {
   HeroTwoColumn,
   HeroCourse,
   HeroApplyFormProductShowcase,
+  HeroExercise,
 } from "../site_4geeks-com/component-registry/hero/v1.0/schema";
 
 // HeroCredibility is already exported via the re-export block above
