@@ -28,7 +28,14 @@ interface Feature {
 interface Stat {
   icon?: string;
   label?: string;
-  value?: string;
+  value?: string | null;
+  /** Optional unit/suffix shown after value (e.g. "hours"). Only rendered when value is present. */
+  value_label?: string;
+}
+
+/** Display slug-like tags: "react-native" → "REACT NATIVE" */
+function formatTagLabel(raw: string): string {
+  return raw.replace(/[-_]+/g, " ").trim().toUpperCase();
 }
 
 export interface HeroExerciseData {
@@ -107,6 +114,15 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
     }
     return undefined;
   })();
+
+  const visibleStats = (stats ?? []).filter((stat) => {
+    if (stat.value == null) return false;
+    const raw = String(stat.value).trim();
+    if (!raw) return false;
+    // Unresolved template (preview / missed resolution)
+    if (/\{\{\s*single\./i.test(raw)) return false;
+    return true;
+  });
 
   const hasIncludesCard =
     includes_title ||
@@ -194,9 +210,9 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                     {technologies.map((tech) => (
                       <span
                         key={tech}
-                        className="inline-flex items-center rounded-full bg-primary/10 text-primary px-3 py-1 text-[12px] font-medium"
+                        className="inline-flex items-center rounded-full bg-primary/10 text-primary px-3 py-1 text-[10.5px] font-medium"
                       >
-                        {tech}
+                        {formatTagLabel(tech)}
                       </span>
                     ))}
                   </div>
@@ -318,10 +334,10 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
       </div>
 
       {/* ── STATS BAR — overlaps hero bottom ── */}
-      {stats && stats.length > 0 && (
+      {visibleStats.length > 0 && (
         <div className="mt-8 relative z-10">
           <div className="bg-card rounded-[16px] border border-border shadow-lg shadow-black/5 flex flex-col md:flex-row py-5 md:divide-x divide-y md:divide-y-0 divide-border">
-            {stats.map((stat, i) => {
+            {visibleStats.map((stat, i) => {
               const IconComponent = stat.icon ? getIcon(stat.icon) : null;
               return (
                 <div
@@ -340,9 +356,10 @@ export default function HeroExercise({ data }: HeroExerciseProps) {
                       )}
                     </div>
                   )}
-                  {stat.value && (
+                  {stat.value != null && String(stat.value).trim() !== "" && (
                     <p className="font-inter text-[18px] font-bold text-foreground leading-tight">
-                      {stat.value}
+                      {String(stat.value).trim()}
+                      {stat.value_label ? ` ${stat.value_label}` : null}
                     </p>
                   )}
                 </div>

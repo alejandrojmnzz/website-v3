@@ -310,7 +310,7 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
             <>
               {descExpanded && (
                 <div
-                  className="prose prose-sm max-w-none text-muted-foreground prose-a:text-primary prose-a:no-underline prose-a:hover:underline"
+                  className={`prose max-w-none ${textFontSize} text-muted-foreground prose-a:text-primary prose-a:no-underline prose-a:hover:underline`}
                   data-testid="md-two-column-description-extended"
                 >
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
