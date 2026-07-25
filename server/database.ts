@@ -10,6 +10,7 @@ import { IDatabaseCache, CacheEntry, SqliteCache, CACHE_DIR } from "./db-cache";
 import { markFileAsModified } from "./sync-state";
 import { setJobState } from "./db-job-state";
 import type { MediaGallery } from "./media-gallery";
+import { expandEditorFieldTokens } from "@shared/editor-field-values";
 import { child } from "./logger";
 const log = child({ module: "database" });
 
@@ -60,7 +61,7 @@ export interface DatabaseConfig {
   };
   field_mapping?: Record<string, string>;
   filter_by_locale?: boolean;
-  editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; cache_images?: boolean; description?: string }>;
+  editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string }>;
   vector_search?: VectorSearchConfig;
   search_fields?: string[];
 }
@@ -758,12 +759,10 @@ export class DatabaseManager {
       for (const [field, hint] of Object.entries(config.editor)) {
         if (hint.type === "tags" || hint.type === "select") {
           const valueSet = new Set<string>();
+          const splitComma = hint.split_comma_values === true;
           for (const item of items) {
-            const v = item[field];
-            if (Array.isArray(v)) {
-              for (const el of v) { if (el != null && el !== "") valueSet.add(String(el)); }
-            } else if (v != null && v !== "") {
-              valueSet.add(String(v));
+            for (const token of expandEditorFieldTokens(item[field], { splitComma })) {
+              valueSet.add(token);
             }
           }
           if (valueSet.size > 0) {

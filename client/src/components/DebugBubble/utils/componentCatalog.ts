@@ -1,5 +1,5 @@
 import type { ComponentItem } from "../types";
-import { ArrowRight, Award, BarChart2, Book, Bot, Brain, Building2, CircleUserRound, Columns2, CreditCard, FolderCode, HelpCircle, LayoutGrid, LayoutList, ListFilter, MessageSquare, PanelBottom, Rocket, ScrollText, ShieldCheck, Sparkles, Table, Users } from "lucide-react";
+import { ArrowRight, Award, BarChart2, Book, Bot, Brain, Building2, CircleUserRound, Columns2, CreditCard, FolderCode, HelpCircle, Image, LayoutGrid, LayoutList, ListFilter, MessageSquare, PanelBottom, Rocket, ScrollText, ShieldCheck, Sparkles, Table, Users } from "lucide-react";
 
 export const componentsList: ComponentItem[] = [
   { type: "hero", label: "Hero", icon: Rocket, description: "Main banner section" },
@@ -33,4 +33,5 @@ export const componentsList: ComponentItem[] = [
   { type: "list_single_press_mention", label: "Featured Press Mention", icon: Building2, description: "Single highlighted press mention — image left, content right" },
   { type: "credibility_strip", label: "Credibility Strip", icon: ShieldCheck, description: "Compact band of rotating-logo pills signalling partnerships, programs, and rankings" },
   { type: "contact_bubble", label: "Contact Bubble", icon: CircleUserRound, description: "Floating bottom-right bubble linking to a URL with icon or image and hover text" },
+  { type: "og_image_preview", label: "OG Image Preview", icon: Image, description: "Fixed 1200×630 canvas for Entry Preview / social OG screenshots" },
 ];

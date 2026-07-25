@@ -30,6 +30,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { reloadDatabaseList } from "@/lib/reloadDatabaseList";
 import { useToast } from "@/hooks/use-toast";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
+import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import JsonViewer from "@/components/editing/JsonViewer";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 
@@ -77,7 +78,7 @@ interface DatabaseDetail {
     cache?: { ttl_hours?: number };
     field_mapping?: Record<string, string>;
     filter_by_locale?: boolean;
-    editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; cache_images?: boolean; description?: string }>;
+    editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string }>;
     vector_search?: { enabled: boolean; fields: string[] };
   };
   cache_status?: {
@@ -2125,7 +2126,7 @@ function FieldMappingEditor({
   const [sampleData, setSampleData] = useState<{ items: Record<string, unknown>[]; count: number } | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
 
-  type EditorHint = { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; cache_images?: boolean; description?: string };
+  type EditorHint = { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string };
 
   const normalizeEditorHints = (editor: Record<string, EditorHint> | undefined): Record<string, EditorHint> => {
     if (!editor) return {};
@@ -2160,62 +2161,19 @@ function FieldMappingEditor({
   const [vectorSearchModalField, setVectorSearchModalField] = useState<string | null>(null);
 
   const [hintDialogField, setHintDialogField] = useState<string | null>(null);
-  const [hintDialogType, setHintDialogType] = useState<string>("text");
-  const [hintDialogOptions, setHintDialogOptions] = useState<{ value: string; label: string }[]>([]);
-  const [hintDialogNewOption, setHintDialogNewOption] = useState<string>("");
-  const [hintDialogPopulateOptions, setHintDialogPopulateOptions] = useState<boolean>(false);
-  const [hintDialogAllowCustom, setHintDialogAllowCustom] = useState<boolean>(false);
-  const [hintDialogDescription, setHintDialogDescription] = useState<string>("");
+
+  const { data: hintPreviewData, isLoading: hintPreviewLoading } = useQuery<{
+    items: Record<string, unknown>[];
+  }>({
+    queryKey: [`/api/databases/${dbName}/items`, "hint-preview"],
+    queryFn: () =>
+      fetch(`/api/databases/${dbName}/items?page=1&limit=100`).then((r) => r.json()),
+    enabled: hintDialogField !== null,
+    staleTime: 60_000,
+  });
 
   const openHintDialog = (field: string) => {
-    const hint = editorHints[field] || {};
     setHintDialogField(field);
-    setHintDialogType(hint.cache_images ? "image" : (hint.type || "text"));
-    setHintDialogOptions(
-      (hint.options || []).map(opt =>
-        typeof opt === "string" ? { value: opt, label: "" } : opt
-      )
-    );
-    setHintDialogNewOption("");
-    setHintDialogPopulateOptions(hint.populate_options ?? false);
-    setHintDialogAllowCustom(hint.allow_custom_values ?? false);
-    setHintDialogDescription(hint.description || "");
-  };
-
-  const addHintOption = () => {
-    const existingValues = new Set(hintDialogOptions.map(o => o.value));
-    const newOpts = hintDialogNewOption
-      .split(",")
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !existingValues.has(s))
-      .map(v => ({ value: v, label: "" }));
-    if (newOpts.length === 0) return;
-    setHintDialogOptions(prev => [...prev, ...newOpts]);
-    setHintDialogNewOption("");
-  };
-
-  const removeHintOption = (idx: number) => {
-    setHintDialogOptions((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const saveHintDialog = () => {
-    if (!hintDialogField) return;
-    const existingCache = editorHints[hintDialogField]?.cache_images === true;
-    const resolvedType = existingCache ? "image" : hintDialogType;
-    const hint: EditorHint = { type: resolvedType };
-    if (hintDialogDescription.trim()) hint.description = hintDialogDescription.trim();
-    if ((resolvedType === "select" || resolvedType === "tags")) {
-      if (hintDialogOptions.length > 0) {
-        hint.options = hintDialogOptions.map(o => o.label.trim() ? o : o.value);
-      }
-      if (hintDialogPopulateOptions) hint.populate_options = true;
-      if (hintDialogAllowCustom) hint.allow_custom_values = true;
-    }
-    setEditorHints((prev) => {
-      const existing = prev[hintDialogField] || {};
-      return { ...prev, [hintDialogField]: { ...hint, cache_images: existing.cache_images } };
-    });
-    setHintDialogField(null);
   };
 
   const handleViewSample = async () => {
@@ -2618,163 +2576,32 @@ function FieldMappingEditor({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <EditorTypeDialog
         open={hintDialogField !== null}
-        onOpenChange={(v) => { if (!v) setHintDialogField(null); }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Editor Type for "{hintDialogField}"</DialogTitle>
-            <DialogDescription>
-              Choose how this field renders in the item editor.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="text-xs">Field type</Label>
-              <Select
-                value={hintDialogField && editorHints[hintDialogField]?.cache_images ? "image" : hintDialogType}
-                onValueChange={setHintDialogType}
-                disabled={!!(hintDialogField && editorHints[hintDialogField]?.cache_images)}
-              >
-                <SelectTrigger className="text-sm" data-testid="select-hint-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="text">text — single-line input</SelectItem>
-                  <SelectItem value="textarea">textarea — multi-line</SelectItem>
-                  <SelectItem value="markdown">markdown — editor with preview</SelectItem>
-                  <SelectItem value="number">number — numeric</SelectItem>
-                  <SelectItem value="boolean">boolean — toggle</SelectItem>
-                  <SelectItem value="date">date — date only</SelectItem>
-                  <SelectItem value="datetime">datetime — date + time (UTC or naive)</SelectItem>
-                  <SelectItem value="image">image — URL with preview + cache status</SelectItem>
-                  <SelectItem value="select">select — dropdown</SelectItem>
-                  <SelectItem value="tags">multi select — multi-value</SelectItem>
-                </SelectContent>
-              </Select>
-              {hintDialogField && editorHints[hintDialogField]?.cache_images && (
-                <p className="text-[11px] text-muted-foreground">
-                  Editor type is locked to image while image caching is enabled.
-                </p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Description (shown as hint in editor)</Label>
-              <input
-                type="text"
-                value={hintDialogDescription}
-                onChange={(e) => setHintDialogDescription(e.target.value)}
-                placeholder="e.g. Choose the programming language for this course"
-                className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                data-testid="input-hint-description"
-              />
-            </div>
-            {(hintDialogType === "select" || hintDialogType === "tags") && (
-              <div className="space-y-2">
-                <Label className="text-xs">Options</Label>
-                <div className="flex gap-2 items-start">
-                  <Textarea
-                    value={hintDialogNewOption}
-                    onChange={(e) => setHintDialogNewOption(e.target.value)}
-                    placeholder="One or more comma separated values. E.g: one, two, three"
-                    className="text-sm flex-1 resize-none"
-                    rows={2}
-                    data-testid="textarea-hint-bulk-input"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={addHintOption}
-                    disabled={!hintDialogNewOption.trim()}
-                    data-testid="button-add-hint-options-bulk"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    {hintDialogNewOption.split(",").filter(s => s.trim().length > 0).length > 1 ? "Add multiple" : "Add"}
-                  </Button>
-                </div>
-                {hintDialogOptions.length > 0 && (
-                  <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
-                    {hintDialogOptions.map((opt, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                        <span className="font-mono text-xs text-muted-foreground w-1/3 truncate flex-shrink-0">
-                          {opt.value}
-                        </span>
-                        <input
-                          type="text"
-                          value={opt.label}
-                          onChange={(e) => {
-                            const updated = [...hintDialogOptions];
-                            updated[idx] = { ...opt, label: e.target.value };
-                            setHintDialogOptions(updated);
-                          }}
-                          placeholder="Label shown when selecting this option (optional)"
-                          className="flex-1 text-xs px-2 py-0.5 rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                          data-testid={`input-hint-option-label-${idx}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeHintOption(idx)}
-                          className="ml-1 text-muted-foreground hover:text-destructive flex-shrink-0"
-                          data-testid={`button-remove-hint-option-${idx}`}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {hintDialogOptions.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No options added yet.</p>
-                )}
-                <label className="flex items-center gap-2 cursor-pointer pt-1" data-testid="label-populate-options">
-                  <input
-                    type="checkbox"
-                    checked={hintDialogPopulateOptions}
-                    onChange={(e) => setHintDialogPopulateOptions(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded"
-                    data-testid="checkbox-populate-options"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Also include values from existing data
-                  </span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer" data-testid="label-allow-custom">
-                  <input
-                    type="checkbox"
-                    checked={hintDialogAllowCustom}
-                    onChange={(e) => setHintDialogAllowCustom(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded"
-                    data-testid="checkbox-allow-custom"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Allow typing custom values (not in list)
-                  </span>
-                </label>
-              </div>
-            )}
-          </div>
-          <DialogFooter className="flex items-center justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setHintDialogField(null)}
-              data-testid="button-cancel-hint"
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={saveHintDialog}
-              data-testid="button-save-hint"
-            >
-              <Check className="h-3.5 w-3.5 mr-1" />
-              Apply
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        fieldName={hintDialogField}
+        initialHint={hintDialogField ? editorHints[hintDialogField] : undefined}
+        lockImageType={
+          !!(hintDialogField && editorHints[hintDialogField]?.cache_images)
+        }
+        existingItems={hintPreviewData?.items}
+        existingItemsLoading={hintPreviewLoading}
+        onClose={() => setHintDialogField(null)}
+        onApply={(hint) => {
+          const field = hintDialogField;
+          if (!field) return;
+          setEditorHints((prev) => {
+            const existing = prev[field] || {};
+            return {
+              ...prev,
+              [field]: {
+                ...hint,
+                cache_images: existing.cache_images,
+              },
+            };
+          });
+          setHintDialogField(null);
+        }}
+      />
 
       <Dialog open={imageCacheModalField !== null} onOpenChange={(v) => { if (!v) setImageCacheModalField(null); }}>
         <DialogContent className="max-w-sm">
