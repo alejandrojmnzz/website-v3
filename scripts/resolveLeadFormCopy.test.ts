@@ -11,7 +11,7 @@ describe("resolveLeadFormPhase", () => {
         isSignup: false,
         loginMode: true,
         isLoggedIn: true,
-        allVisibleFieldsFilled: true,
+        allRequiredFieldsFilled: true,
       }),
     ).toBe("guest_signup");
   });
@@ -22,53 +22,39 @@ describe("resolveLeadFormPhase", () => {
         isSignup: true,
         loginMode: true,
         isLoggedIn: false,
-        allVisibleFieldsFilled: false,
+        allRequiredFieldsFilled: false,
       }),
     ).toBe("login");
   });
 
-  it("returns logged_in_incomplete when visible fields are still empty", () => {
+  it("returns logged_in_incomplete when required fields are still empty", () => {
     expect(
       resolveLeadFormPhase({
         isSignup: true,
         loginMode: false,
         isLoggedIn: true,
-        allVisibleFieldsFilled: false,
+        allRequiredFieldsFilled: false,
       }),
     ).toBe("logged_in_incomplete");
   });
 
-  it("returns logged_in_ready when every visible field is filled", () => {
+  it("returns logged_in_ready when every required visible field is filled", () => {
     expect(
       resolveLeadFormPhase({
         isSignup: true,
         loginMode: false,
         isLoggedIn: true,
-        allVisibleFieldsFilled: true,
+        allRequiredFieldsFilled: true,
       }),
     ).toBe("logged_in_ready");
   });
 });
 
 describe("resolveLeadFormCopy", () => {
-  it("keeps guest title/subtitle optional when nothing is set", () => {
+  it("keeps guest subtitle optional when nothing is set", () => {
     const copy = resolveLeadFormCopy("guest_signup", {}, "en");
-    expect(copy.title).toBeUndefined();
     expect(copy.subtitle).toBeUndefined();
     expect(copy.submit_label).toBe("Submit");
-  });
-
-  it("always uses the top-level title regardless of phase", () => {
-    const data = { title: "Get free access" };
-    expect(resolveLeadFormCopy("guest_signup", data, "en").title).toBe("Get free access");
-    expect(resolveLeadFormCopy("login", data, "en").title).toBe("Get free access");
-    expect(resolveLeadFormCopy("logged_in_incomplete", data, "en").title).toBe("Get free access");
-    expect(resolveLeadFormCopy("logged_in_ready", data, "en").title).toBe("Get free access");
-  });
-
-  it("never invents a title for non-guest phases", () => {
-    expect(resolveLeadFormCopy("logged_in_ready", {}, "en").title).toBeUndefined();
-    expect(resolveLeadFormCopy("login", {}, "en").title).toBeUndefined();
   });
 
   it("uses messages.guest subtitle over top-level subtitle", () => {

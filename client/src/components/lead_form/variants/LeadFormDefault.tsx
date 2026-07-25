@@ -34,7 +34,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
-import { useAuthUser } from "@/hooks/useAuthUser";
+import { useAuthUser, getConsumerToken } from "@/hooks/useAuthUser";
 import { resolveFormFields, type IdentityField } from "@/lib/resolveFormFields";
 import {
   resolveLeadFormPhase,
@@ -45,6 +45,20 @@ import {
   buildQueryOptionsUrl,
   type FormFieldSourceInput,
 } from "@shared/parseFormFieldSource";
+
+/** For is_signup success redirects: pass auth token to external destinations only. */
+function resolveSignupSuccessUrl(url: string): string {
+  const token = getConsumerToken();
+  if (!token) return url;
+  try {
+    const target = new URL(url, window.location.origin);
+    if (target.origin === window.location.origin) return url;
+    target.searchParams.set("token", token);
+    return target.href;
+  } catch {
+    return url;
+  }
+}
 
 interface FieldConfig {
   visible?: boolean;
@@ -68,7 +82,6 @@ export interface LeadFormData {
   is_signup?: boolean;
   /** @deprecated Prefer `fields.plan.default`. Legacy fallback when fields.plan is omitted. */
   plan?: string;
-  title?: string;
   subtitle?: string;
   submit_label?: string;
   tags?: string;
@@ -346,6 +359,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileError, setTurnstileError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [showTurnstileModal, setShowTurnstileModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<FormValues | null>(null);
   const [loginMode, setLoginMode] = useState(false);
@@ -410,12 +424,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const signupLoginPrompt = showSignupLoginPrompt ? (
     <p
-      className="text-sm text-center text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2"
+      className="text-sm text-center text-muted-foreground mt-3"
       data-testid="text-signup-login-prompt"
     >
       {locale === "es" ? "¿Ya tienes una cuenta? " : "Already have an account? "}
       <button
-        type="button"
+        type="button" 
         onClick={() => {
           setLoginError(null);
           setLoginPassword("");
@@ -881,6 +895,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       return apiRequest("POST", "/api/leads", payload);
     },
     onSuccess: async (_response, variables) => {
+      setSubmitError(null);
       // Track conversion if conversion_name is defined
       if (!data.conversion_name) {
         console.error(
@@ -940,7 +955,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       }
 
       if (resolvedData.success?.url) {
-        window.location.href = resolvedData.success.url;
+        const successUrl = isSignupRequested
+          ? resolveSignupSuccessUrl(resolvedData.success.url)
+          : resolvedData.success.url;
+        window.location.href = successUrl;
       } else {
         setIsSuccess(true);
         setSuccessMessage(resolvedData.success?.message || (locale === "es" 
@@ -950,55 +968,61 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     },
     onError: (error: Error) => {
       console.error("Lead submission error:", error);
-      
-      // Default user-friendly error message
-      const defaultErrorMessage = locale === "es" 
-        ? "Hubo un problema al enviar tu información. Por favor intenta de nuevo." 
+
+      const defaultErrorMessage = locale === "es"
+        ? "Hubo un problema al enviar tu información. Por favor intenta de nuevo."
         : "There was a problem submitting your information. Please try again.";
 
-      // Try to parse the error message to extract details
-      let errorMessage = error.message;
+      let errorMessage = defaultErrorMessage;
       try {
-        // Error format: "400: {json}"
         const jsonMatch = error.message.match(/^\d+:\s*(.+)$/);
         if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[1]);
-          if (parsed.details) {
-            // Check if details contains HTML (API error page)
-            if (typeof parsed.details === 'string' && 
-                (parsed.details.includes('<!DOCTYPE') || parsed.details.includes('<html'))) {
+          const parsed = JSON.parse(jsonMatch[1]) as {
+            error?: unknown;
+            details?: unknown;
+          };
+          if (typeof parsed.details === "string") {
+            if (parsed.details.includes("<!DOCTYPE") || parsed.details.includes("<html")) {
               errorMessage = defaultErrorMessage;
             } else {
-              // Details may be a JSON string itself
               try {
-                const details = JSON.parse(parsed.details);
-                errorMessage = details.detail || details.message || parsed.error || defaultErrorMessage;
+                const details = JSON.parse(parsed.details) as { detail?: unknown; message?: unknown };
+                const fromDetails = details.detail ?? details.message;
+                if (typeof fromDetails === "string") {
+                  errorMessage = fromDetails;
+                } else if (typeof parsed.error === "string") {
+                  errorMessage = parsed.error;
+                }
               } catch {
-                errorMessage = parsed.details || parsed.error || defaultErrorMessage;
+                errorMessage = parsed.details;
               }
             }
-          } else if (parsed.error) {
+          } else if (
+            parsed.details &&
+            typeof parsed.details === "object" &&
+            "detail" in parsed.details &&
+            typeof (parsed.details as { detail: unknown }).detail === "string"
+          ) {
+            errorMessage = (parsed.details as { detail: string }).detail;
+          } else if (typeof parsed.error === "string") {
             errorMessage = parsed.error;
           }
         }
       } catch {
-        // Keep original message if parsing fails, but check for HTML
-        if (errorMessage.includes('<!DOCTYPE') || errorMessage.includes('<html')) {
-          errorMessage = defaultErrorMessage;
-        }
+        // keep default
       }
-      
-      // Final safety check: if message is too long or contains HTML tags, use default
+
       if (errorMessage.length > 200 || /<[^>]+>/.test(errorMessage)) {
         errorMessage = defaultErrorMessage;
       }
 
-      setTurnstileError(errorMessage);
+      setSubmitError(errorMessage);
     },
   });
 
   const onSubmit = (values: FormValues) => {
     setTurnstileError(null);
+    setSubmitError(null);
 
     // Dev: surface the misconfiguration instead of silently skipping captcha.
     // Prod: degrade gracefully and submit without captcha.
@@ -1044,7 +1068,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     return loc.region === selectedRegion;
   }) || [];
 
-  // Watch all form values to determine if required / visible fields are filled
+  // Watch form values to determine if required visible fields are filled
   const watchedValues = form.watch();
 
   const isFieldValueFilled = (field: keyof FormValues): boolean => {
@@ -1078,16 +1102,21 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   };
 
   const allRequiredFieldsFilled = collectVisibleFields(true).every(isFieldValueFilled);
-  // Messaging phase: any still-visible empty field (e.g. optional phone) means incomplete.
-  const allVisibleFieldsFilled = collectVisibleFields(false).every(isFieldValueFilled);
 
   const formPhase = resolveLeadFormPhase({
     isSignup: isSignupRequested,
     loginMode,
     isLoggedIn,
-    allVisibleFieldsFilled,
+    allRequiredFieldsFilled,
   });
   const formCopy = resolveLeadFormCopy(formPhase, data, locale);
+
+  const showField = (name: keyof NonNullable<LeadFormData["fields"]>) => {
+    const hideOptionals =
+      isSignupRequested && isLoggedIn && !loginMode && allRequiredFieldsFilled;
+    const cfg = getFieldConfig(name);
+    return !!cfg.visible && !(hideOptionals && !cfg.required);
+  };
 
   // Terms/consent belong to account creation: show them to guests signing up
   // (and on regular non-signup forms), hide them once the visitor is logged in.
@@ -1174,18 +1203,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   if (loginMode) {
     return (
       <div className={data.className} data-testid="lead-form-login">
-        <div className="mb-4 space-y-1">
-          {formCopy.title && (
-            <h3 className="text-lg font-semibold text-foreground" data-testid="text-login-title">
-              {formCopy.title}
-            </h3>
-          )}
-          {formCopy.subtitle && (
-            <p className="text-sm text-muted-foreground" data-testid="text-login-subtitle">
-              {formCopy.subtitle}
-            </p>
-          )}
-        </div>
+        {formCopy.subtitle && (
+          <p
+            className="text-sm text-muted-foreground leading-snug mb-3"
+            data-testid="text-login-subtitle"
+          >
+            {formCopy.subtitle}
+          </p>
+        )}
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -1256,14 +1281,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const emailConfig = getFieldConfig("email");
 
   const hasVisibleFieldsBeyondEmailAndFirstName =
-    getFieldConfig("last_name").visible ||
-    getFieldConfig("phone").visible ||
-    getFieldConfig("program").visible ||
-    getFieldConfig("plan").visible ||
-    getFieldConfig("region").visible ||
-    getFieldConfig("location").visible ||
-    getFieldConfig("coupon").visible ||
-    getFieldConfig("client_comments").visible;
+    showField("last_name") ||
+    showField("phone") ||
+    showField("program") ||
+    showField("plan") ||
+    showField("region") ||
+    showField("location") ||
+    showField("coupon") ||
+    showField("client_comments");
 
   const firstNameConfig = getFieldConfig("first_name");
 
@@ -1273,7 +1298,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="flex gap-2 items-start flex-wrap">
-              {firstNameConfig.visible && (
+              {showField("first_name") && (
                 <FormField
                   control={form.control}
                   name="first_name"
@@ -1292,6 +1317,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   )}
                 />
               )}
+              {showField("email") && (
               <FormField
                 control={form.control}
                 name="email"
@@ -1316,6 +1342,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   </FormItem>
                 )}
               />
+              )}
               <Button 
                 type="submit" 
                 disabled={submitMutation.isPending}
@@ -1328,9 +1355,6 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                 )}
               </Button>
             </div>
-            {signupLoginPrompt && (
-              <div className="mt-3">{signupLoginPrompt}</div>
-            )}
             {turnstileReady && showTurnstileModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                 <div className="bg-card p-card-padding rounded-card shadow-card">
@@ -1354,6 +1378,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             {turnstileError && (
               <p className="text-sm text-destructive mt-2" data-testid="text-turnstile-error">
                 {turnstileError}
+              </p>
+            )}
+            {submitError && (
+              <p className="text-sm text-destructive mt-2" data-testid="text-submit-error">
+                {submitError}
               </p>
             )}
             {emailConfig.helper_text && (
@@ -1388,23 +1417,16 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
           </form>
         </Form>
+        {signupLoginPrompt}
       </div>
     );
   }
 
   return (
     <div className={data.className} data-testid="lead-form">
-      {formCopy.title && (
-        <h2 
-          className="mb-2 text-center text-foreground"
-          data-testid="text-form-title"
-        >
-          {formCopy.title}
-        </h2>
-      )}
       {formCopy.subtitle && (
-        <p 
-          className="text-body text-muted-foreground text-center mb-6"
+        <p
+          className="text-sm text-muted-foreground leading-snug mb-3"
           data-testid="text-form-subtitle"
         >
           {formCopy.subtitle}
@@ -1414,9 +1436,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-4">
             {/* First + Last name on same row - NEW ORDER: Name -> Phone -> Email */}
-            {(getFieldConfig("first_name").visible || getFieldConfig("last_name").visible) && (
-              <div className={`grid gap-3 ${getFieldConfig("first_name").visible && getFieldConfig("last_name").visible ? "grid-cols-2" : "grid-cols-1"}`}>
-                {getFieldConfig("first_name").visible && (
+            {(showField("first_name") || showField("last_name")) && (
+              <div className={`grid gap-3 ${showField("first_name") && showField("last_name") ? "grid-cols-2" : "grid-cols-1"}`}>
+                {showField("first_name") && (
                   <FormField
                     control={form.control}
                     name="first_name"
@@ -1438,7 +1460,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                     )}
                   />
                 )}
-                {getFieldConfig("last_name").visible && (
+                {showField("last_name") && (
                   <FormField
                     control={form.control}
                     name="last_name"
@@ -1464,7 +1486,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
 
             {/* Phone with country code */}
-            {getFieldConfig("phone").visible && (
+            {showField("phone") && (
               <FormField
                 control={form.control}
                 name="phone"
@@ -1497,7 +1519,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
 
             {/* Email */}
-            {getFieldConfig("email").visible && (
+            {showField("email") && (
               <FormField
                 control={form.control}
                 name="email"
@@ -1527,9 +1549,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
-            {(getFieldConfig("region").visible || getFieldConfig("location").visible) && (
+            {(showField("region") || showField("location")) && (
               <div className="grid grid-cols-2 gap-3">
-                {getFieldConfig("region").visible && (
+                {showField("region") && (
                   <FormField
                     control={form.control}
                     name="region"
@@ -1567,7 +1589,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   />
                 )}
 
-                {getFieldConfig("location").visible && (
+                {showField("location") && (
                   <FormField
                     control={form.control}
                     name="location"
@@ -1616,7 +1638,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               </div>
             )}
 
-            {getFieldConfig("program").visible && (
+            {showField("program") && (
               <FormField
                 control={form.control}
                 name="program"
@@ -1649,7 +1671,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
-            {getFieldConfig("plan").visible && (
+            {showField("plan") && (
               <FormField
                 control={form.control}
                 name="plan"
@@ -1710,7 +1732,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               />
             )}
 
-            {getFieldConfig("coupon").visible && (
+            {showField("coupon") && (
               <FormField
                 control={form.control}
                 name="coupon"
@@ -1736,7 +1758,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
           </div>
 
-          {getFieldConfig("client_comments").visible && (
+          {showField("client_comments") && (
             <FormField
               control={form.control}
               name="client_comments"
@@ -1800,6 +1822,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               {turnstileError}
             </p>
           )}
+          {submitError && (
+            <p className="text-sm text-destructive text-center" data-testid="text-submit-error">
+              {submitError}
+            </p>
+          )}
 
           <Button 
             type="submit" 
@@ -1838,10 +1865,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               </a>
             </p>
           )}
-
-          {signupLoginPrompt}
         </form>
       </Form>
+      {signupLoginPrompt}
     </div>
   );
 }

@@ -564,6 +564,18 @@ export function registerAuthRoutes(app: Express): void {
       const signupMethod = auth.signup?.method || "POST";
       const payload = (req.body ?? {}) as Record<string, unknown>;
 
+      // Breathecode's get_user_language() uses Accept-Language raw and later
+      // validates UserSetting.lang as 2 or 5 chars. Prefer X-Session-Locale
+      // (already 'en'|'es' from the client session); fall back to body language.
+      const acceptLanguage = (() => {
+        const sessionLocale = req.get("x-session-locale")?.trim();
+        if (sessionLocale === "en" || sessionLocale === "es") return sessionLocale;
+
+        const raw = typeof payload.language === "string" ? payload.language.trim() : "";
+        const short = raw.slice(0, 2).toLowerCase();
+        return /^[a-z]{2}$/.test(short) ? short : "en";
+      })();
+
       if (signupMethod === "GET") {
         const u = new URL(signupUrl);
         for (const [key, value] of Object.entries(payload)) {
@@ -579,8 +591,11 @@ export function registerAuthRoutes(app: Express): void {
         method: signupMethod,
         headers:
           signupMethod === "GET"
-            ? {}
-            : { "Content-Type": "application/json" },
+            ? { "Accept-Language": acceptLanguage }
+            : {
+                "Content-Type": "application/json",
+                "Accept-Language": acceptLanguage,
+              },
         ...(signupMethod === "GET"
           ? {}
           : { body: JSON.stringify(payload) }),
