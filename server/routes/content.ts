@@ -80,11 +80,7 @@ function buildPreviewSection(
   entry: Record<string, unknown>,
 ): Record<string, unknown> {
   const data: Record<string, unknown> = {};
-  for (const [compKey, entryField] of Object.entries(preview.props || {})) {
-    if (compKey === RESERVED_IMAGE_FIELD || entryField === RESERVED_IMAGE_FIELD) continue;
-    const val = entry[entryField];
-    if (val !== undefined) data[compKey] = val;
-  }
+  applyPreviewPropMappings(data, preview.props, entry, RESERVED_IMAGE_FIELD);
   return {
     type: preview.component,
     version: preview.version || "1.0",
@@ -256,6 +252,11 @@ import {
   hashPreviewProps,
   type EntryPreviewMeta,
 } from "../entry-preview-manager";
+import {
+  isPreviewCaptureReady,
+  validatePreviewPropMappings,
+} from "../entry-preview-config";
+import { applyPreviewPropMappings } from "@shared/entry-preview-props";
 import { RESERVED_IMAGE_FIELD } from "../content-types";
 import {
   isEntryDetached,
@@ -1489,7 +1490,7 @@ export function registerContentRoutes(app: Express): void {
               }
             }
           }
-          update.preview = {
+          const draftPreview = {
             component: p.component.trim(),
             variant: typeof p.variant === "string" ? p.variant : undefined,
             version: typeof p.version === "string" ? p.version : undefined,
@@ -1499,6 +1500,17 @@ export function registerContentRoutes(app: Express): void {
             dirty_on_prop_change: !!p.dirty_on_prop_change,
             props,
           };
+          const mappingCheck = validatePreviewPropMappings(draftPreview);
+          if (!mappingCheck.ok) {
+            res.status(400).json({
+              error: mappingCheck.error || "Preview property mappings are incomplete",
+              missingRequired: mappingCheck.missingRequired,
+              mappableCount: mappingCheck.mappableCount,
+              mappedCount: mappingCheck.mappedCount,
+            });
+            return;
+          }
+          update.preview = draftPreview;
           if (circularProps.length > 0) {
             (res.locals as { previewCircularWarn?: string[] }).previewCircularWarn = circularProps;
           }
@@ -2360,6 +2372,8 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       const preview = getPreviewConfig(type, ctRoot(res));
+      const captureReady = isPreviewCaptureReady(preview);
+      const mappingValidation = preview ? validatePreviewPropMappings(preview) : null;
       const epm = getEntryPreviewManager(res);
       const width = preview?.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH;
       const localeFilter = typeof req.query.locale === "string" ? req.query.locale : undefined;
@@ -2393,6 +2407,7 @@ export function registerContentRoutes(app: Express): void {
         const meta = await epm.getMeta(type, slug, locale, width);
         const propsHash = preview ? hashPreviewProps(preview.props, entry) : undefined;
         const needsCapture =
+          captureReady &&
           !fromSource &&
           !!preview &&
           epm.needsCapture(meta, propsHash, !!preview.dirty_on_prop_change);
@@ -2409,6 +2424,8 @@ export function registerContentRoutes(app: Express): void {
       res.json({
         contentType: type,
         preview,
+        captureReady,
+        captureReadyError: mappingValidation && !mappingValidation.ok ? mappingValidation.error : undefined,
         width,
         maxHeight: preview?.maxHeight ?? DEFAULT_PREVIEW_MAX_HEIGHT,
         count: Object.keys(index).length,
@@ -2428,10 +2445,24 @@ export function registerContentRoutes(app: Express): void {
         return;
       }
       const preview = getPreviewConfig(type, ctRoot(res));
+      const captureReady = isPreviewCaptureReady(preview);
+      const mappingValidation = preview ? validatePreviewPropMappings(preview) : null;
       const entries = await loadEntriesForPreview(res, type);
       const localeKey = getLocaleKey(type, ctRoot(res));
-      const stats = await getEntryPreviewManager(res).stats(type, entries, preview, localeKey);
-      res.json({ contentType: type, preview: !!preview, ...stats });
+      const stats = await getEntryPreviewManager(res).stats(
+        type,
+        entries,
+        captureReady ? preview : null,
+        localeKey,
+      );
+      res.json({
+        contentType: type,
+        preview: !!preview,
+        captureReady,
+        captureReadyError:
+          mappingValidation && !mappingValidation.ok ? mappingValidation.error : undefined,
+        ...stats,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -2444,6 +2475,14 @@ export function registerContentRoutes(app: Express): void {
       const preview = getPreviewConfig(type, ctRoot(res));
       if (!preview) {
         res.status(404).json({ error: `No preview config for content type "${type}"` });
+        return;
+      }
+      const mappingCheck = validatePreviewPropMappings(preview);
+      if (!mappingCheck.ok) {
+        res.status(400).json({
+          error: mappingCheck.error || "Preview property mappings are incomplete",
+          missingRequired: mappingCheck.missingRequired,
+        });
         return;
       }
       const entries = await loadEntriesForPreview(res, type, locale);
@@ -2486,6 +2525,15 @@ export function registerContentRoutes(app: Express): void {
         if (!auth.authorized) return;
         const locale = normalizeLocale((req.query.locale as string) || "en");
         const preview = getPreviewConfig(type, ctRoot(res));
+        if (!isPreviewCaptureReady(preview)) {
+          const mappingCheck = preview ? validatePreviewPropMappings(preview) : null;
+          res.status(400).json({
+            error:
+              mappingCheck?.error ||
+              "Preview is not properly configured — fix property mappings before uploading captures",
+          });
+          return;
+        }
         const width = Number(req.query.width) || preview?.widths?.[0] || DEFAULT_PREVIEW_WIDTH;
         const epm = getEntryPreviewManager(res);
         const image = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? []);
@@ -2590,6 +2638,15 @@ export function registerContentRoutes(app: Express): void {
       if (!auth.authorized) return;
       const epm = getEntryPreviewManager(res);
       const preview = getPreviewConfig(type, ctRoot(res));
+      const mappingCheck = preview ? validatePreviewPropMappings(preview) : null;
+      if (!preview || !mappingCheck?.ok) {
+        res.status(400).json({
+          error:
+            mappingCheck?.error ||
+            "Preview is not properly configured — fix property mappings before retrying captures",
+        });
+        return;
+      }
       const width = preview?.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH;
       const bodySlug = typeof req.body?.slug === "string" ? req.body.slug : null;
       const bodyLocale =

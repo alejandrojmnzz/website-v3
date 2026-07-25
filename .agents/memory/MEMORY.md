@@ -5,4 +5,5 @@
 - [Production build: @shared path alias](prod-build-shared-alias.md) — @shared is a Vite/TS alias not a real package; fix via symlink + esbuild alias in deployment build command.
 - [node_modules/@shared symlink hazard](shared-symlink-hazard.md) — never symlink in dev workspace (npm install wipes real shared/ files); error_log table is drizzle-declared but raw-SQL-created.
 - [Vite 8 / Rolldown config bundling trap](vite8-rolldown-config-trap.md) — Rolldown statically inlines server code into the vite config bundle; fix via concatenated import paths + try/catch subprocess fallback.
+- [Fixed-position sections must load eagerly](fixed-position-sections.md) — lazy DeferredSection sentinel never mounts fixed/floating sections (contact_bubble); force eager by type + CustomEvent edit-button pattern.
 - [Server controls, soft-reload atomicity & staff-auth](server-control-and-staff-auth.md) — soft reload must rebuild singletons commit-on-success (never null-then-rebuild); requireStaffSession auto-authorizes in dev; hard-restart kills the dev server (no auto-relaunch).

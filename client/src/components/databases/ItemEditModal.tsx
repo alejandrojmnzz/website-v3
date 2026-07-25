@@ -38,6 +38,10 @@ import {
   toDateInputValue,
   toDatetimeLocalValue,
 } from "@shared/parseDateTime";
+import {
+  collectEditorFieldTokens,
+  expandEditorFieldTokens,
+} from "@shared/editor-field-values";
 import type { ImageEntry } from "@shared/schema";
 import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon } from "lucide-react";
 
@@ -96,28 +100,40 @@ function ImageUrlFieldEditor({
   value,
   cacheImages,
   onChange,
+  fallbackPreviewSrc,
 }: {
   fieldKey: string;
   value: unknown;
   cacheImages: boolean;
   onChange: (v: string) => void;
+  /** Display-only when the field is empty (e.g. Entry Preview OG WebP). Never written into the input. */
+  fallbackPreviewSrc?: string | null;
 }) {
   const { registry } = useImageRegistry();
   const url = typeof value === "string" ? value : "";
   const [broken, setBroken] = useState(false);
+  const fallback = typeof fallbackPreviewSrc === "string" ? fallbackPreviewSrc.trim() : "";
+  const usingAutoOg = !url.trim() && !!fallback;
 
   useEffect(() => {
     setBroken(false);
-  }, [url]);
+  }, [url, fallback]);
 
   const entry = findRegistryEntryByUrl(registry?.images, url);
   const status = imageCacheStatus(entry);
-  const statusUi = IMAGE_CACHE_STATUS_UI[status];
-  const previewSrc =
+  const statusUi = usingAutoOg
+    ? {
+        icon: <ImageIcon className="h-3 w-3" />,
+        label: "Auto-generated OG preview",
+        className: "bg-primary/15 text-primary",
+      }
+    : IMAGE_CACHE_STATUS_UI[status];
+  const fieldPreviewSrc =
     entry?.src ||
     (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")
       ? url
       : "");
+  const previewSrc = fieldPreviewSrc || (usingAutoOg ? fallback : "");
 
   return (
     <div className="space-y-2" data-testid={`image-field-${fieldKey}`}>
@@ -153,6 +169,11 @@ function ImageUrlFieldEditor({
           />
         </div>
       </div>
+      {usingAutoOg && (
+        <p className="text-[11px] text-muted-foreground" data-testid={`text-auto-og-hint-${fieldKey}`}>
+          Used for og:image while this field is empty. Paste or set a URL anytime to replace it.
+        </p>
+      )}
       {cacheImages && (
         <p className="text-[11px] text-muted-foreground">
           Image will be cached on the next database refresh. Original URL is stored in the field.
@@ -169,6 +190,7 @@ export interface EditorConfig {
   options?: EditorOption[];
   populate_options?: boolean;
   allow_custom_values?: boolean;
+  split_comma_values?: boolean;
   cache_images?: boolean;
   description?: string;
 }
@@ -259,6 +281,11 @@ export interface ItemEditModalProps {
   overrideLevel?: "database" | "content_type";
   /** Prefer these editor hints over (or instead of) database config.editor. */
   editorOverrides?: Record<string, EditorConfig>;
+  /**
+   * Display-only thumbnail for the reserved `image` field when empty
+   * (Entry Preview / auto OG). Never merged into form state or save payload.
+   */
+  imageFallbackPreviewSrc?: string | null;
 }
 
 export function ItemEditModal({
@@ -273,6 +300,7 @@ export function ItemEditModal({
   allItems: externalAllItems,
   overrideLevel,
   editorOverrides,
+  imageFallbackPreviewSrc,
 }: ItemEditModalProps) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -368,20 +396,15 @@ export function ItemEditModal({
     const manualOptions = rawManualOptions.map(normalizeOption);
     const canAddCustom =
       editorConfig?.allow_custom_values ?? editorConfig?.populate_options ?? false;
+    const splitComma = editorConfig?.split_comma_values === true;
 
     const dataOptions: { value: string; label: string }[] = (
       editorConfig?.populate_options || editorConfig?.allow_custom_values
     )
-      ? Array.from(
-          new Set(
-            allItems
-              .map((it) => it[key])
-              .flat()
-              .filter((v): v is string => typeof v === "string" && v.trim() !== ""),
-          ),
-        )
-          .sort()
-          .map((v) => ({ value: v, label: v }))
+      ? collectEditorFieldTokens(allItems, key, { splitComma }).map((v) => ({
+          value: v,
+          label: v,
+        }))
       : [];
 
     const manualValues = new Set(manualOptions.map((o) => o.value));
@@ -483,6 +506,7 @@ export function ItemEditModal({
             value={value}
             cacheImages={editorConfig?.cache_images === true}
             onChange={(v) => setValue(key, v)}
+            fallbackPreviewSrc={key === "image" ? imageFallbackPreviewSrc : undefined}
           />
         );
       case "select":
@@ -501,7 +525,9 @@ export function ItemEditModal({
           </Select>
         );
       case "tags": {
-        const tags = Array.isArray(value) ? (value as string[]) : [];
+        const tags = Array.isArray(value)
+          ? (value as string[]).filter((t) => typeof t === "string" && t.trim() !== "")
+          : expandEditorFieldTokens(value, { splitComma });
         const inputVal = tagInput[key] || "";
         const addTag = () => {
           const trimmed = inputVal.trim();

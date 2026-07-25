@@ -2,10 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import {
-  EntryPreviewConfigCard,
-  EntryPreviewKpiCard,
+  EntryPreviewCard,
   type ContentTypePreviewConfig,
 } from "@/components/EntryPreviewAdmin";
 import {
@@ -119,6 +118,7 @@ interface ContentTypeConfig {
     options?: (string | { value: string; label: string })[];
     populate_options?: boolean;
     allow_custom_values?: boolean;
+    split_comma_values?: boolean;
     cache_images?: boolean;
     description?: string;
   }>;
@@ -2490,6 +2490,33 @@ function FieldMappingDialog({
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const requestCounters = useRef<Record<string, number>>({});
 
+  const dbSlugForHints = config?.database?.slug;
+  const { data: hintPreviewData, isLoading: hintPreviewLoading } = useQuery<{
+    items: Record<string, unknown>[];
+  }>({
+    queryKey: [`/api/databases/${dbSlugForHints}/items`, "hint-preview"],
+    queryFn: () =>
+      fetch(`/api/databases/${dbSlugForHints}/items?page=1&limit=100`).then((r) => r.json()),
+    enabled: hintDialogField !== null && !!dbSlugForHints,
+    staleTime: 60_000,
+  });
+
+  /** Remap DB items onto content-type field names so preview matches editor keys. */
+  const hintPreviewItems = useMemo(() => {
+    const items = hintPreviewData?.items;
+    if (!items) return undefined;
+    return items.map((item) => {
+      const out: Record<string, unknown> = {};
+      for (const [ctKey, source] of Object.entries(mappings)) {
+        if (transformerModes[ctKey] || !source) continue;
+        out[ctKey] = source.includes(".")
+          ? getValueByDotPath(item, source)
+          : item[source];
+      }
+      return out;
+    });
+  }, [hintPreviewData?.items, mappings, transformerModes]);
+
   // All source props — used in the editing dropdown for existing rows
   const { data: allAvailableProps } = useQuery<{ common: string[]; partial: { key: string; count: number; total: number }[] }>({
     queryKey: ["/api/content-types", contentType, "available-properties-all"],
@@ -3306,10 +3333,13 @@ function FieldMappingDialog({
       open={hintDialogField !== null}
       fieldName={hintDialogField}
       initialHint={hintDialogField ? editorHints[hintDialogField] : undefined}
+      existingItems={dbSlugForHints ? hintPreviewItems : undefined}
+      existingItemsLoading={!!dbSlugForHints && hintPreviewLoading}
       onClose={() => setHintDialogField(null)}
       onApply={(hint) => {
-        if (!hintDialogField) return;
-        setEditorHints((prev) => ({ ...prev, [hintDialogField]: hint }));
+        const field = hintDialogField;
+        if (!field) return;
+        setEditorHints((prev) => ({ ...prev, [field]: hint }));
         setHintDialogField(null);
       }}
     />
@@ -3825,6 +3855,8 @@ export default function ContentTypeManagePage() {
 
   const { data: entryPreviewsData } = useQuery<{
     preview: ContentTypePreviewConfig | null;
+    captureReady?: boolean;
+    captureReadyError?: string;
     width: number;
     maxHeight: number;
     index: Record<
@@ -3866,10 +3898,20 @@ export default function ContentTypeManagePage() {
         queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
       });
     },
+    onError: () => {
+      // preview-failed marks meta.failedAt so needsCapture becomes false
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+      });
+    },
   });
 
   useEffect(() => {
     if (!entryPreviewsData?.preview || !entryPreviewsData.index) return;
+    if (entryPreviewsData.captureReady === false) return;
     const preview = entryPreviewsData.preview;
     for (const row of Object.values(entryPreviewsData.index)) {
       if (!row.needsCapture) continue;
@@ -3899,7 +3941,7 @@ export default function ContentTypeManagePage() {
         queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
       });
       const preview = typeConfig?.preview;
-      if (preview?.component) {
+      if (preview?.component && entryPreviewsData?.captureReady !== false) {
         enqueueEntryPreview(
           {
             contentType,
@@ -4815,8 +4857,11 @@ export default function ContentTypeManagePage() {
               </div>
             </CardContent>
           </Card>
-          <EntryPreviewKpiCard contentType={contentType} />
-          <EntryPreviewConfigCard contentType={contentType} preview={typeConfig?.preview} />
+          <EntryPreviewCard
+            contentType={contentType}
+            preview={typeConfig?.preview}
+            fieldMapping={typeConfig?.field_mapping}
+          />
         </div>
 
         <Card>
@@ -6021,6 +6066,25 @@ export default function ContentTypeManagePage() {
           dbName={dbSlug}
           item={editingDbEntry.item}
           title="Edit database entry"
+          imageFallbackPreviewSrc={(() => {
+            const item = editingDbEntry.item;
+            const itemLocale = localeKey ? String(item[localeKey] || "en") : "en";
+            const previewKey = `${item.slug}:${itemLocale}`;
+            const previewRow = entryPreviewsData?.index?.[previewKey];
+            const captureKey = entryPreviewJobKey({
+              contentType,
+              slug: String(item.slug || ""),
+              locale: itemLocale,
+              width: entryPreviewsData?.width || 1200,
+              maxHeight: entryPreviewsData?.maxHeight || 630,
+              theme: "dark",
+            });
+            return (
+              entryPreviewUrls[captureKey] ||
+              previewRow?.cacheBustedUrl ||
+              null
+            );
+          })()}
           onSave={async (builtItem) => {
             const res = await fetch(`/api/databases/${dbSlug}/items/${editingDbEntry.index}`, {
               method: "PATCH",

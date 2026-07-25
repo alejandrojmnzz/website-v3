@@ -11,6 +11,10 @@ export interface UseSerializedCaptureQueueOptions<TJob> {
 
 /**
  * Single-flight capture queue: one job at a time, deduped by jobKey.
+ *
+ * Callbacks (`run`, `onSuccess`, `onError`, `jobKey`) are read from refs so
+ * `enqueue` stays referentially stable — callers can safely put it in effect
+ * deps without re-firing on every status update (which would re-queue forever).
  */
 export function useSerializedCaptureQueue<TJob>({
   jobKey,
@@ -23,6 +27,17 @@ export function useSerializedCaptureQueue<TJob>({
   const queueRef = useRef<TJob[]>([]);
   const runningRef = useRef(false);
   const enqueuedRef = useRef<Set<string>>(new Set());
+  const statusRef = useRef(status);
+  statusRef.current = status;
+
+  const jobKeyRef = useRef(jobKey);
+  const runRef = useRef(run);
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+  jobKeyRef.current = jobKey;
+  runRef.current = run;
+  onSuccessRef.current = onSuccess;
+  onErrorRef.current = onError;
 
   const processQueue = useCallback(async () => {
     if (runningRef.current) return;
@@ -30,40 +45,41 @@ export function useSerializedCaptureQueue<TJob>({
 
     while (queueRef.current.length > 0) {
       const job = queueRef.current.shift()!;
-      const key = jobKey(job);
+      const key = jobKeyRef.current(job);
       setStatus((prev) => ({ ...prev, [key]: "capturing" }));
       try {
-        const url = await run(job);
+        const url = await runRef.current(job);
         setUrls((prev) => ({ ...prev, [key]: url }));
         setStatus((prev) => ({ ...prev, [key]: "idle" }));
         enqueuedRef.current.delete(key);
-        onSuccess?.(job, url);
+        onSuccessRef.current?.(job, url);
       } catch (err) {
         console.error("screenshot capture failed", key, err);
         setStatus((prev) => ({ ...prev, [key]: "failed" }));
         enqueuedRef.current.delete(key);
-        onError?.(job, err);
+        onErrorRef.current?.(job, err);
       }
     }
 
     runningRef.current = false;
-  }, [jobKey, run, onSuccess, onError]);
+  }, []);
 
   const enqueue = useCallback(
     (job: TJob, force = false) => {
-      const key = jobKey(job);
+      const key = jobKeyRef.current(job);
       if (!force && enqueuedRef.current.has(key)) return;
       if (!force) {
-        const st = status[key];
-        if (st === "capturing" || st === "queued") return;
+        const st = statusRef.current[key];
+        // Skip in-flight and failed (auto-retry only via force / Regenerate).
+        if (st === "capturing" || st === "queued" || st === "failed") return;
       }
       enqueuedRef.current.add(key);
       setStatus((prev) => ({ ...prev, [key]: "queued" }));
-      queueRef.current = queueRef.current.filter((j) => jobKey(j) !== key);
+      queueRef.current = queueRef.current.filter((j) => jobKeyRef.current(j) !== key);
       queueRef.current.push(job);
       void processQueue();
     },
-    [jobKey, processQueue, status],
+    [processQueue],
   );
 
   return { enqueue, status, urls, setUrls, setStatus };

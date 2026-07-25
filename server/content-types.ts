@@ -33,7 +33,7 @@ export interface ContentTypePreviewConfig {
   maxHeight?: number;
   /** When true, prop-value hash drift marks preview dirty. Default false. */
   dirty_on_prop_change?: boolean;
-  /** Component data key → entry field name. Must not map reserved `image`. */
+  /** Component data key → entry field name. Supports dotted paths (e.g. `left.heading`). Must not map reserved `image`. */
   props?: Record<string, string>;
 }
 
@@ -43,6 +43,8 @@ export type ContentTypeEditorHint = {
   options?: (string | { value: string; label: string })[];
   populate_options?: boolean;
   allow_custom_values?: boolean;
+  /** When true, comma-separated strings are split into tokens (arrays always expand). Warning: values that legitimately contain commas will be split. */
+  split_comma_values?: boolean;
   cache_images?: boolean;
   description?: string;
 };
@@ -133,7 +135,8 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     variant / version / theme: optional
 #     widths: [1200] (OG default); maxHeight: 630
 #     dirty_on_prop_change: false (when true, mapped prop value changes mark dirty)
-#     props: { componentDataKey: entryField } — do not map the reserved image field
+#     props: { componentDataKey: entryField } — keys may be dotted paths into nested
+#       objects (e.g. left.heading, cta_button.text). Do not map the reserved image field.
 #
 # field_mapping — reserved regular key:
 #   image: optional DB/YAML source for the entry preview / og image URL
@@ -142,7 +145,10 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
 #   Keys match field_mapping target names. Types: text, textarea, markdown, number, boolean,
 #   date, datetime, image, select, tags. Optional: options, populate_options, allow_custom_values,
-#   description.
+#   split_comma_values, description.
+#   split_comma_values: when true, string cells like "a, b" become tokens a and b (arrays always
+#     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
+#     also be split. Saving a tags field may normalize CSV strings into string arrays.
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {

@@ -31,6 +31,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 interface DialogContentProps extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
   hideClose?: boolean;
+  overlayClassName?: string;
 }
 
 function restorePointerEvents() {
@@ -45,9 +46,9 @@ function restorePointerEvents() {
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, hideClose, onCloseAutoFocus, ...props }, ref) => (
+>(({ className, children, hideClose, onCloseAutoFocus, overlayClassName, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
