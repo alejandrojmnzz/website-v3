@@ -38,6 +38,7 @@ import {
   isAllowlistedSectionFieldPath,
 } from "./shared-layout-sync";
 import {
+  isEntryDetached,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
 import { getOrCreateStaffUserId, getUser } from "./user-store";
@@ -387,15 +388,18 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       });
     }
 
-    // For shared-template entries that have their own per-entry file (isSharedTemplate=false),
-    // the client sends indices relative to the fully merged view (template + per-entry).
-    // This applies to DB-backed types AND static types with single_template: true —
-    // both use the same merge model via mergeSingleTemplate.
-    // Translate update_section indices from the merged view to the per-entry local indices
-    // before applying, so we write to the correct section in the per-entry file.
+    // For attached shared-template entries that have their own per-entry file
+    // (isSharedTemplate=false), the client sends indices relative to the fully
+    // merged view (template + per-entry). This applies to DB-backed types AND
+    // static types with single_template: true — both use mergeSingleTemplate.
+    // Translate update_section indices from the merged view to the per-entry
+    // local indices before applying, so we write to the correct section.
+    // Detached entries own full structure (entry-only indices); never remap or
+    // forward ops to single.{locale}.yml.
     const usesSharedTemplate =
-      ci.isDatabaseBacked(contentType) ||
-      !!getContentTypeConfig(contentType, contentRoot)?.single_template;
+      !isEntryDetached(contentType, slug, contentRoot) &&
+      (ci.isDatabaseBacked(contentType) ||
+        !!getContentTypeConfig(contentType, contentRoot)?.single_template);
     let resolvedOperations = operations;
     if (usesSharedTemplate && operations.some(op => op.action === "update_section")) {
       const mergedTemplate = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
