@@ -24,10 +24,10 @@ todos:
     content: Índice estático de assets + k-NN/embeddings offline para nurturing
     status: pending
   - id: o2-serving-proxy
-    content: FastAPI en services/recommender (Docker) + proxy Express /api/recommend + cache + fallback
+    content: "FastAPI Docker en puerto distinto a Express (default host 8090, no 5000) + proxy Express /api/recommend + cache + fallback"
     status: pending
   - id: o2-ml-repo-scaffold
-    content: Scaffold services/recommender/ (training, product_index, retrain, Dockerfile, README) + shared/recommender.ts
+    content: "Scaffold services/recommender/ (training, product_index, retrain, Dockerfile EXPOSE≠Express PORT, README) + shared/recommender.ts"
     status: pending
   - id: o2-offer-packs-ui
     content: "UI Offer packs en cucaracha: CRUD packs direct_sale×product×locale + nurturing×locale (tono opcional); storage YAML/API"
@@ -119,6 +119,7 @@ flowchart LR
   2. **Collector propio `POST /api/events`** → **Postgres** (fuente first-party del recomendador / feature store). El front, al cablear CTAs, hace **ambos**: GTM vía `track()` y batch/persist al collector. BQ del GA4 **no** reemplaza `/api/events`.
 - **Feature store:** tablas en **Postgres** (`user_session_features` / agregados), alimentadas desde `/api/events`; leídas por jobs en `services/recommender/`. **GA4→BQ = bootstrap histórico** para el primer train / labels; no sustituye el stream de `/api/events`.
 - **Serving:** contenedor FastAPI (mismo repo, deploy aparte p.ej. Cloud Run o compose local) ← Express proxy.
+  - **Puertos (obligatorio):** Express usa `PORT` (default **5000**). El contenedor del recomendador **no** puede publicar el mismo host port. Default local: FastAPI **`8090`** (o `RECOMMENDER_PORT`); map Docker `8090:8090` (o `8090:8000` si uvicorn escucha 8000 *dentro* del container). Express proxy → `http://127.0.0.1:8090` (o `RECOMMENDER_URL`). En compose/prod, no reusar `5000` en el servicio ML.
 - **UX slot + cold start / errores:** **no** pintar copy YAML al instante y luego overlay (evita flash venta↔nurturing). Con `recommender.enabled`: **hold ~200ms** (skeleton / misma altura, sin CTA legible) → **una sola pintura**. Timeout Express **200ms**. Cascada de contenido al revelar:
   1. ML/cache listo → pintar pack + destino (asset o venta).
   2. Timeout/error + YAML con defaults útiles → revelar **ese** fallback (primera vez que el usuario ve copy).
@@ -331,7 +332,10 @@ Agregaciones por `user_id` / sesión activa, alimentadas desde `/api/events` →
 
 **Usuario / contexto**
 
-- `geo_tier` (US | LATAM_EU) desde `location.region` / country
+- `geo_tier` desde `location.region` de sesión: **`US` | `LATAM` | `EU`** (mapear `usa-canada`→`US`, `latam`→`LATAM`, `europe`→`EU`). **No** fusionar LATAM+EU.
+- **`online` no es un geo_tier.** En el producto, `online` es **campus/modalidad** (slug de academy / opción de form, p.ej. “Online”), no un país ni un perfil GEO. El session worker **excluye** `slug === 'online'` al resolver ubicación por IP; casi nadie queda con `region: 'online'`. Si hace falta para el modelo, va como feature aparte (`preferred_modality` / academy slug), no mezclado con GEO.
+- Además: `country` / `country_code` crudos (sesión) para que el fit no dependa solo del tier.
+- **No confundir con pricing:** el list price “US vs LATAM-EU” puede ser un **bucket comercial** (`price_geo_bucket`); **no** es el `geo_tier` ML.
 - `device_category`, `language`
 - `utm_source/medium`, bucket `utm_intent` (high/branded vs free/beginner)
 
@@ -373,8 +377,9 @@ Job ETL diario/horario: eventos crudos → fila de features (script Node/Python 
   "user_id": "usr_8f3a2c",
   "session_id": "ses_91bb",
   "updated_at": "2026-07-27T21:40:00Z",
-  "geo_tier": "LATAM_EU",
+  "geo_tier": "LATAM",
   "country": "CO",
+  "country_code": "CO",
   "device_category": "mobile",
   "language": "es",
   "utm_source": "google",
@@ -491,7 +496,7 @@ Artefactos versionados: `models/intent_vN.json|ubj`, `fit_vN`, `product_index_vN
 ```json
 {
   "user_id": "...",
-  "geo_tier": "LATAM_EU",
+  "geo_tier": "LATAM",
   "clicks_technical": 4,
   "time_on_site_s": 180,
   "persona": "professional",
@@ -656,7 +661,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 ## Riesgos y prerequisitos
 
 - **Datos:** sin clickstream histórico, el ML no supera reglas al día 1 → planificar 4–8 semanas de recolección + shadow  
-- **Límites en monorepo:** disciplina de carpetas + Docker; no contaminar `npm run build` con deps Python; fallback Express si el servicio ML está down  
+- **Límites en monorepo:** disciplina de carpetas + Docker; **puerto ML ≠ Express** (no mapear 5000 al recommender); no contaminar `npm run build` con deps Python; fallback Express si el servicio ML está down  
 - **Catálogo mutable:** alta/baja de productos o cambio de SEO exige rebuild (vía webhook) + retrain si cambian clases; producto nuevo sin labels → cold start por embedding  
 - **Ops:** servicio Python en la misma git history pero deploy/ciclo distinto del Node app  
 - **Content:** catalog job necesita `site_`* montado; difficulty tags para assets igual  
@@ -669,7 +674,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 - **Señales nuevas:** `begin_checkout`, `add_to_cart`, abandono de checkout/carrito, vistas repetidas de pricing, tal vez `coupon` intentos fallidos.
 - **Salida ampliada del contrato** (actualizar `shared/recommender.ts` + warning en Cursor rules): p.ej. `price_variant`, `coupon_code`, `offer_type: list|geo_tier|cart_abandon|winback`, o packs tipados `direct_sale_ai-engineering_us_discount10`.
 - **Offer packs / cucaracha:** marketing define packs promocionales por producto (con y sin cupón); el modelo o reglas post-fit **seleccionan** el pack promo cuando hay señal de abandono/objeción de precio.
-- **GEO pricing** ($15k US vs $6.5k LATAM-EU) puede seguir resolviéndose por geo en la página; la extensión cubre **promos y variantes** además del tier geográfico estático.
+- **GEO pricing** (list price US vs LATAM+EU, etc.) puede seguir en la página vía un **bucket comercial** distinto de `geo_tier` ML (`US|LATAM|EU`); la extensión de promo cubre variantes además del list price geográfico.
 - **Canales:** overlay on-site primero; email/retargeting con el mismo `offer_pack_id` queda como capa aparte (CRM/ads).
 
 No bloquea el cutover de v1 (nurturing=contenido / venta=producto); se planifica cuando exista ecommerce/checkout instrumentado y packs promo en Offer packs UI.
