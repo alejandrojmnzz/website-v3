@@ -691,12 +691,37 @@ El visitante **no** reentrena nada. Un job batch genera candidatos (`intent_vN+1
 ### Pipeline del cron (paso a paso)
 
 1. Rebuild `product_index` si hash ≠ `catalog_version` en prod (por si falló el webhook).
-2. Export features + labels desde Postgres (`build_intent_labels` + conversiones `program` / GTM/CRM). Split temporal: **train** = sesiones antiguas; **holdout** = últimas 1–2 semanas (no mezclar el futuro en el train).
+2. Export features + labels desde Postgres (`build_intent_labels` + conversiones `program` / GTM/CRM). Split temporal **dentro del cohort elegible** (ver [Dataset: bootstrap vs collector](#dataset-bootstrap-vs-collector)): **train** = sesiones antiguas del cohort; **holdout** = últimas 1–2 semanas **solo filas post–Fase-1 / schema completo**.
 3. Entrenar `intent_vN+1` + `fit_vN+1` (clases = catálogo actual).
 4. Calcular **métricas** en holdout (tabla abajo) y comparar vs modelo en prod + vs baseline de reglas (matriz bootstrap / `resolveOffer`).
 5. **Gate de promoción:** si pasa umbrales → escribir `model_version` activo + hot-reload/redeploy FastAPI (**eso** es “reemplazar el modelo”: el serving carga los archivos nuevos).
 6. Si no pasa → **no** tocar prod; alerta Slack/email + artefacto candidato guardado para debug. UI: **DebugBubble → Recommender → Status**.
 
+<a id="dataset-bootstrap-vs-collector"></a>
+### Dataset: bootstrap vs collector (MNAR / schemas distintos)
+
+**Problema:** sesiones de antes del collector (o con tracking a medias) tienen `program_views=0`, `n_clicks_*=0`, etc. por **missing-not-at-random**, no porque el usuario no hizo nada. Mezclarlas con filas “completas” sin marcarlas hace que XGBoost aprenda patrones espurios (“cero clicks → cold”) y que el **gate F1 mienta** si el holdout también mezcla eras.
+
+**Política v1 (cerrada — no dejar a criterio del job):**
+
+1. **Etiqueta por fila** (en ETL / `build_intent_labels`):
+   - `data_source`: `bootstrap` (GA4→BQ / histórico pre-collector) | `collector` (Postgres vía `/api/events`)
+   - `tracking_schema_version`: semver o entero del set de features cableado cuando se materializó la fila (p.ej. `1` = GEO+UTM+conversión; `2` = +clicks/content_type; `3` = +program_views/landing…)
+   - `feature_completeness`: fracción de features comportamentales no-nulas / no-default (0–1); útil para debug, no sustituye el filtro de holdout
+
+2. **Imputación en train:** features ausentes en filas `bootstrap` o schema viejo → **0 / missing según tipo**, **más** las columnas `data_source` y `tracking_schema_version` como features categóricas (el modelo puede aprender “era bootstrap”, no confundirlo con comportamiento).
+
+3. **Uso del histórico:**
+   - `bootstrap` + schemas incompletos → **permitidos en pretrain / volumen** (warm-start del candidato), **prohibidos en el holdout del gate de promoción**.
+   - Gate F1 de **publish a prod** se calcula **solo** sobre filas `data_source=collector` **y** `tracking_schema_version >= SCHEMA_MIN_FOR_EVAL` (la versión “Fase 1 cableada” marcada en config del job; default = schema vigente en serving).
+
+4. **Split temporal del holdout:** últimas 1–2 semanas **dentro** de ese cohort collector+schema_min — no “últimas 2 semanas del mundo mezclado”.
+
+5. **Si aún no hay suficiente holdout collector** (p.ej. menos de N sesiones etiquetadas; N default ~500 intent / umbral documentado en Status): el cron **entrena candidato** y puede dejarlo en **shadow**, pero **no publica** (gate = skip / fail con razón `insufficient_full_schema_holdout`). UI sigue reglas/YAML.
+
+6. **Comparar F1 entre `model_version`:** solo si comparten el mismo `feature_schema_version` (o el más nuevo es superset y el viejo se re-evalúa con columnas imputadas de forma documentada). No promover por “F1 subió” al cambiar el schema sin re-evaluar prod en el mismo holdout.
+
+**Anti-patrón explícito:** unificar bootstrap + collector en un solo CSV sin `data_source` / sin filtrar holdout.
 ### Qué consideramos métrica (v1 — defaults concretos)
 
 **Intent (cold / warm / hot)** — clasificación multiclase:
@@ -769,7 +794,7 @@ Si **intent** pasa y **fit** no (o al revés): se puede publicar **solo** el que
 | Dos fuentes de verdad para el mismo evento (GA4 vs collector) | **No** | **Postgres** (`POST /api/events`) = fuente **autoritativa** del feature store / train operativo. **GA4→BQ** = **solo bootstrap histórico** (volumen día 0 + labels/conversiones de marketing). El front hace dual write (`track()` + collector) para analytics + ML, pero **el job de train no suma conteos GA4 + Postgres del mismo click**. IDs: cookie/`user_id` de sesión alineada con lo que ya manda GTM; no se mezclan filas de features de ambas fuentes como si fueran independientes. |
 | “Aprendiendo” = reentrenar en cada commit de tracking | **No** | XGBoost es **batch**. Disparador de retrain = **cron semanal** (tabla Disparadores). Cablear un CTA nuevo **no** publica modelo. Webhook de contenido = rebuild índice, no XGB por default. |
 | Modelo parcial/ruido llega a la UI del visitante | **No** | **Gate F1** (no publicar si no gana a prod/reglas) + **shadow** (predice y loguea sin cambiar CTA) + fallback YAML genérico si no hay pack/ML listo. |
-| Features vacías en sesiones viejas vs densas en nuevas (sesgo mientras Fase 1 se cablea) | **No como fallo silencioso** | Se **conoce y se gestiona**: labels de conversión (`student_application`) son fiables antes; features de comportamiento maduran con el collector. Mientras el tracking esté incompleto: UI = reglas/YAML/matriz bootstrap; ML en **shadow** o train **exploratorio** (candidato no promovido). Cada artefacto lleva `model_version` + set de features usado; **no** comparar F1 a ciegas entre schemas distintos. |
+| Features vacías en sesiones viejas vs densas en nuevas (sesgo MNAR mientras Fase 1 se cablea) | **No como fallo silencioso** — política en [Dataset: bootstrap vs collector](#dataset-bootstrap-vs-collector) | Cada fila: `data_source` + `tracking_schema_version`. Bootstrap/imputación OK para **volumen/pretrain**. **Holdout del gate F1 = solo collector + schema ≥ mínimo Fase 1**. Sin holdout suficiente → candidato en shadow, **no** publish. No comparar F1 entre `model_version` con schemas distintos sin re-eval compartida. |
 | Contrastar con GA4 “en vivo” confunde train y analytics | **No** | GA4 sirve para **métricas de negocio / contraste** (aplicaciones, CTR, funnels) y bootstrap. **No** es el feature store del serving. “Contrastar con GA4” ≠ “entrenar dos modelos en paralelo con dos verdades”. |
 
 **Qué sí está permitido desde ya:** bootstrap con GA4 histórico → candidatos en shadow → ir sumando eventos al collector → cron semanal → gate decide promoción. Eso **es** el diseño; no es un atajo fuera del plan.
