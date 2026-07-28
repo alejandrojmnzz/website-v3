@@ -720,6 +720,7 @@ export function registerSettingsRoutes(app: Express): void {
       });
       const schema = z.object({
         host: z.string().optional(),
+        academy: z.string().optional(),
         login: endpointSchema.extend({
           url: z.string().optional(),
           payload: z.record(z.unknown()).optional(),
@@ -886,6 +887,10 @@ export function registerSettingsRoutes(app: Express): void {
         url = resolveUrl(profilePath);
         method = profileMethod;
         headers.Authorization = `Token ${token}`;
+        const academy =
+          str(req.body?.academy) ||
+          saved.academy;
+        if (academy) headers.Academy = academy;
         if (method === "POST" || method === "PUT") {
           headers["Content-Type"] = "application/json";
           body = "{}";

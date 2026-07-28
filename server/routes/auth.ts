@@ -417,11 +417,13 @@ export function registerAuthRoutes(app: Express): void {
       const host = auth.host || process.env.VITE_BREATHECODE_HOST || BREATHECODE_HOST;
       const mePath = auth.profile?.path || "/v1/auth/user/me";
       const meMethod = auth.profile?.method || "GET";
+      const academy = auth.academy?.trim();
 
       const meRes = await fetch(resolveAuthUrl(mePath, host), {
         method: meMethod,
         headers: {
           Authorization: `Token ${token}`,
+          ...(academy ? { Academy: academy } : {}),
           ...((meMethod === "POST" || meMethod === "PUT")
             ? { "Content-Type": "application/json" }
             : {}),
@@ -438,6 +440,7 @@ export function registerAuthRoutes(app: Express): void {
         email?: string;
         first_name?: string;
         last_name?: string;
+        phone?: string;
       };
       res.json({
         valid: true,
@@ -446,6 +449,7 @@ export function registerAuthRoutes(app: Express): void {
         email: me.email ?? "",
         first_name: me.first_name ?? "",
         last_name: me.last_name ?? "",
+        phone: me.phone ?? "",
       });
     } catch (error) {
       log.error({ err: error }, "Profile fetch error:");

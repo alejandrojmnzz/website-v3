@@ -104,6 +104,11 @@ export interface AuthEndpoint {
 export interface AuthSettings {
   /** API base host, e.g. https://breathecode.herokuapp.com */
   host?: string;
+  /**
+   * Optional Breathecode academy id sent as the `Academy` header on profile
+   * (and auth test profile) requests when set.
+   */
+  academy?: string;
   login?: AuthEndpoint & {
     /** Hosted login page; redirects back with ?token= */
     url?: string;
@@ -144,6 +149,7 @@ export const DEFAULT_SIGNUP_PAYLOAD: Record<string, unknown> = {
 /** Re-injected above `auth:` on save (yaml.dump strips comments). */
 export const AUTH_YAML_COMMENT_HEADER = `# Consumer auth (lead forms with is_signup, login redirect, profile prefill).
 # Paths are relative to host, or absolute URLs. method: GET | POST | PUT.
+# Optional academy: Breathecode academy id sent as Academy header on profile fetch.
 `;
 
 function parseAuthMethod(v: unknown): AuthHttpMethod | undefined {
@@ -168,6 +174,11 @@ export function normalizeAuthSettings(authRaw: Record<string, unknown> | undefin
   if (!authRaw || typeof authRaw !== "object") return {};
 
   const host = authStr(authRaw.host);
+  const academy =
+    authStr(authRaw.academy) ||
+    (typeof authRaw.academy === "number" && Number.isFinite(authRaw.academy)
+      ? String(authRaw.academy)
+      : undefined);
 
   // Nested preferred
   const loginRaw = authRaw.login && typeof authRaw.login === "object" && !Array.isArray(authRaw.login)
@@ -229,6 +240,7 @@ export function normalizeAuthSettings(authRaw: Record<string, unknown> | undefin
 
   return {
     ...(host ? { host } : {}),
+    ...(academy ? { academy } : {}),
     ...(login ? { login } : {}),
     ...(signup ? { signup } : {}),
     ...(profile ? { profile } : {}),
@@ -238,7 +250,7 @@ export function normalizeAuthSettings(authRaw: Record<string, unknown> | undefin
 function injectAuthYamlComments(dumped: string): string {
   // Strip a previously injected header, then insert a fresh one above `auth:`.
   const stripped = dumped.replace(
-    /(?:^|\n)# Consumer auth \(lead forms with is_signup[\s\S]*?# Paths are relative to host[^\n]*\n+(?=auth:)/m,
+    /(?:^|\n)# Consumer auth \(lead forms with is_signup[\s\S]*?(?=\nauth:)/m,
     (m) => (m.startsWith("\n") ? "\n" : ""),
   );
   return stripped.replace(/(^|\n)(auth:)/, `$1${AUTH_YAML_COMMENT_HEADER}$2`);
@@ -670,6 +682,12 @@ export function updateAuthSettings(
     if (input.host !== undefined && input.host !== "" && typeof input.host === "string") {
       validateUrl(input.host.trim(), "auth.host");
     }
+    if (input.academy !== undefined && input.academy !== "" && typeof input.academy === "string") {
+      const academy = input.academy.trim();
+      if (!/^\d+$/.test(academy) && !/^[a-z0-9_-]+$/i.test(academy)) {
+        throw new Error('auth.academy must be a numeric id or slug (e.g. "4")');
+      }
+    }
     if (input.login) {
       if (input.login.url !== undefined && input.login.url !== "") {
         validateUrl(String(input.login.url).trim(), "auth.login.url");
@@ -750,12 +768,18 @@ export function updateAuthSettings(
         ? (String(input.host ?? "").trim() || undefined)
         : current.host;
 
+    const nextAcademy =
+      input.academy !== undefined
+        ? (String(input.academy ?? "").trim() || undefined)
+        : current.academy;
+
     const nextLogin = mergeEndpoint(input.login, current.login, { includeUrl: true, includePayload: true });
     const nextSignup = mergeEndpoint(input.signup, current.signup, { includePayload: true });
     const nextProfile = mergeEndpoint(input.profile, current.profile, {});
 
     const next: AuthSettings = {
       ...(nextHost ? { host: nextHost } : {}),
+      ...(nextAcademy ? { academy: nextAcademy } : {}),
       ...(nextLogin ? { login: nextLogin } : {}),
       ...(nextSignup ? { signup: nextSignup } : {}),
       ...(nextProfile ? { profile: nextProfile } : {}),
@@ -774,7 +798,7 @@ export function updateAuthSettings(
   resetSettings(resolveSettingsRoot(contentRoot));
   const updated = loadSettings(contentRoot).auth;
   log.info(
-    `[Settings] Updated auth: host="${updated.host ?? ""}", login.path="${updated.login?.path ?? ""}", signup.path="${updated.signup?.path ?? ""}", profile.path="${updated.profile?.path ?? ""}"`,
+    `[Settings] Updated auth: host="${updated.host ?? ""}", academy="${updated.academy ?? ""}", login.path="${updated.login?.path ?? ""}", signup.path="${updated.signup?.path ?? ""}", profile.path="${updated.profile?.path ?? ""}"`,
   );
   return updated;
 }
