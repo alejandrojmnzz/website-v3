@@ -244,6 +244,7 @@ import {
   detectUrlParamValueShape,
   getRawUrlParamValue,
   type UrlParamValueShape,
+  resolveStaticEntryUpdatedAt,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
@@ -292,7 +293,7 @@ import {
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { queryEntries, type QueryFilter } from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
-import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
+import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections } from "../database-single-loader";
 import {
   DEFAULT_PREVIEW_MAX_HEIGHT,
   DEFAULT_PREVIEW_WIDTH,
@@ -854,6 +855,13 @@ export function registerContentRoutes(app: Express): void {
           })) as any;
           applyComponentImageSizes(page.sections as unknown[]);
         }
+        // Fill missing image before resolving {{ single.image | fallback }} into sections.
+        await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
+          contentType,
+          entry: dbSingleEntry,
+          previewConfig: getPreviewConfig(contentType, ctRoot(res)),
+          pageData: dbPageData,
+        });
         if (Object.keys(dbSingleEntry).length > 0) {
           const dbResolved = resolveAllTemplateVars(dbPageData, {
             singleEntry: dbSingleEntry,
@@ -872,12 +880,6 @@ export function registerContentRoutes(app: Express): void {
         }
         const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
         await enhanceArticleSectionsInPage(dbPageData);
-        await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
-          contentType,
-          entry: dbSingleEntry,
-          previewConfig: getPreviewConfig(contentType, ctRoot(res)),
-          pageData: dbPageData,
-        });
         const dbRaw = getCI(res).loadMergedContent(contentType, slug, locale);
         const dbLayout = resolveLayout(contentType, dbRaw.data || {}, getContentRoot(res));
         injectCanonicalIfMissing(dbPageData, contentType, locale);
@@ -914,6 +916,7 @@ export function registerContentRoutes(app: Express): void {
       );
       if (merged) {
         if (merged.sections && Array.isArray(merged.sections)) {
+          attachVariableFieldsToSections(merged.sections as unknown[]);
           merged.sections = (await resolveDynamicEntries(
             merged.sections as unknown[],
             locale,
@@ -930,6 +933,12 @@ export function registerContentRoutes(app: Express): void {
         const param = contentParamBag(req, res, contentType, slug, locale, merged);
         if (singleEntry) {
           merged.singleEntry = singleEntry;
+          await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
+            contentType,
+            entry: singleEntry,
+            previewConfig: getPreviewConfig(contentType, root),
+            pageData: merged,
+          });
           const resolved = resolveAllTemplateVars(merged, {
             singleEntry,
             param,
@@ -2384,15 +2393,17 @@ export function registerContentRoutes(app: Express): void {
       const results = entries.map((entry) => {
         const urls = getCI(res).getLocaleUrls(entry.slug, type);
         const versionCounts = versioningManager.getVersionCounts(type, entry.slug);
+        const locales = entry.locales.filter(
+          (l) => !l.startsWith("_") && !l.includes("."),
+        );
         return {
           slug: entry.slug,
           title: entry.title || entry.slug,
-          locales: entry.locales.filter(
-            (l) => !l.startsWith("_") && !l.includes("."),
-          ),
+          locales,
           urls,
           versionCounts,
           mappingErrors: missingBySlug.get(entry.slug) ?? [],
+          updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, ctRoot(res)),
         };
       });
       res.json({ count: results.length, results });
@@ -3495,7 +3506,7 @@ Return JSON with this exact structure:
     "image": "<source field name or dot.path or null>",
     "author": "<source field name or dot.path or null>",
     "published_at": "<source field name or dot.path or null>",
-    "updated_at": "<source field name or dot.path or null>",
+    "_updated_at": "<source field name or dot.path for last-modified date or null>",
     "status": "<source field name or dot.path or null>",
     "category": "<source field name or dot.path or null>",
     "tags": "<source field name or dot.path or null>",
@@ -3632,7 +3643,7 @@ Return JSON with this exact structure:
     "image": "<source field name or dot.path or null>",
     "author": "<source field name or dot.path or null>",
     "published_at": "<source field name or dot.path or null>",
-    "updated_at": "<source field name or dot.path or null>",
+    "_updated_at": "<source field name or dot.path for last-modified date or null>",
     "status": "<source field name or dot.path or null>",
     "category": "<source field name or dot.path or null>",
     "tags": "<source field name or dot.path or null>",

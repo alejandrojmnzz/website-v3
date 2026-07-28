@@ -7,12 +7,16 @@ import {
   getContentTypeConfig,
   getDirectory,
   getFieldMapping,
+  getFullFieldMapping,
   getLocaleDefault,
   getLocaleKey,
   getLocaleSource,
   resolveContentTypeUrl,
+  resolveEntryUpdatedAt,
+  RESERVED_UPDATED_AT_FIELD,
+  applyUpdatedAtAliasToEntry,
 } from "./content-types";
-import { applyTransformIfNeeded } from "./transform";
+import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
 import {
   getStaticListingCache,
   invalidateStaticListingCache,
@@ -267,6 +271,17 @@ function loadStaticContentTypeItems(
       if (item.slug == null) item.slug = slug;
       normalizeCategory(item, !!mapping?.category);
       if (item.id == null) item.id = idx++;
+      applyUpdatedAtAliasToEntry(
+        item,
+        resolveEntryUpdatedAt({
+          contentType,
+          slug,
+          locale,
+          record: item,
+          contentRoot,
+          isDb: false,
+        }),
+      );
       items.push(item);
     }
   }
@@ -319,6 +334,27 @@ async function loadFromContentType(
     if (locale) {
       items = filterByContentTypeLocale(items, contentType, locale, contentRoot);
     }
+    const fullMapping = getFullFieldMapping(contentType, contentRoot);
+    const updatedAtSource = fullMapping?.[RESERVED_UPDATED_AT_FIELD];
+    items = items.map((item) => {
+      const mapped = { ...item };
+      if (updatedAtSource) {
+        const raw = resolveFieldValue(updatedAtSource, item, RESERVED_UPDATED_AT_FIELD);
+        applyUpdatedAtAliasToEntry(mapped, raw);
+      }
+      applyUpdatedAtAliasToEntry(
+        mapped,
+        resolveEntryUpdatedAt({
+          contentType,
+          slug: String(mapped.slug ?? item.slug ?? ""),
+          locale: locale || String(mapped.locale ?? ""),
+          record: mapped,
+          contentRoot,
+          isDb: true,
+        }),
+      );
+      return mapped;
+    });
     return { items, source: "database" };
   }
 

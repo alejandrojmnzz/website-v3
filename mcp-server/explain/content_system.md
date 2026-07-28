@@ -37,7 +37,7 @@ Types are declared in `content-types.yml`. Each entry specifies:
 
 - `directory` — subfolder inside `4geeks-com/`
 - `url_pattern` — per-locale URL templates with `:slug` placeholder
-- `field_mapping` — content-type **schema** keys. Non-underscore keys are available as `{{ single.* }}` and in the Fields tab (content-type fields, not SEO). Values are auto-fill sources: identity (same YAML/DB name); `{ source, default }` with required default (may be `null`); DB remap (column → schema key); `function:` computed. Mapping remaps are for **DB-attached types** and calculated fields — static YAML uses identity (schema key = YAML parent key). System identity is auto-exposed as `single.slug` / `single.locale` / `single.image` and underscore aliases (`_slug`, `_locale`, `_image`). `_hreflangs` is routing-only (not a template var). Do not declare regular keys `slug` or `image`. Values also come from `field_overrides` / Fields tab.
+- `field_mapping` — content-type **schema** keys. Non-underscore keys are available as `{{ single.* }}` and in the Fields tab (content-type fields, not SEO). Values are auto-fill sources: identity (same YAML/DB name); `{ source, default }` with required default (may be `null`); DB remap (column → schema key); `function:` computed. Mapping remaps are for **DB-attached types** and calculated fields — static YAML uses identity (schema key = YAML parent key). System identity is auto-exposed as `single.slug` / `single.locale` / `single.image` / `single.updated_at` and underscore aliases (`_slug`, `_locale`, `_image`, `_updated_at`). `_hreflangs` is routing-only (not a template var). `_updated_at` is DB-mappable; on static types it is inject-only from content-hash-gated sync-state (`getFileLastmod` / SHA change). Do not declare regular keys `slug` or `image`. Values also come from `field_overrides` / Fields tab.
 - `database.slug` — if present, the type is DB-backed (blog posts); YAML editing tools skip these
 - `layout.menu` — which navbar/footer menus to render
 
@@ -63,7 +63,7 @@ Content files may reference template expressions that are resolved at **delivery
 
 | Namespace | Source | Example |
 |-----------|--------|---------|
-| `{{ single.<field> }}` | Type schema / DB row / `field_overrides`; plus auto `slug`/`locale`/`image` (and `_slug`/`_locale`/`_image`) | `{{ single.title }}`, `{{ single._slug }}` |
+| `{{ single.<field> }}` | Type schema / DB row / `field_overrides`; plus auto `slug`/`locale`/`image`/`updated_at` (and `_slug`/`_locale`/`_image`/`_updated_at`) | `{{ single.title }}`, `{{ single._slug }}`, `{{ single.updated_at }}` |
 | `{{ meta.<key> }}` | Page SEO block (`meta:`), after `single.*` inside meta is resolved | `{{ meta.page_title }}` |
 | `{{ param.<key> }}` | URL path params + querystring (path wins on conflict) | `{{ param.category }}`, `{{ param.utm }}` |
 | `{{ brand.* }}` | Protected site identity in `variables.yml` (Brand Settings) | `{{ brand.logo }}`, `{{ brand.title }}` |

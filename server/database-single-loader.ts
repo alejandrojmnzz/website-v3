@@ -17,10 +17,13 @@ import {
   RESERVED_IMAGE_FIELD,
   RESERVED_SLUG_FIELD,
   RESERVED_LOCALE_FIELD,
+  RESERVED_UPDATED_AT_FIELD,
   applyImageAliasToEntry,
   applySlugAliasToEntry,
   applyLocaleAliasToEntry,
+  applyUpdatedAtAliasToEntry,
   finalizeSingleEntryForTemplates,
+  resolveEntryUpdatedAt,
 } from "./content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
 import { fetchMarkdownContent } from "./markdown";
@@ -57,6 +60,29 @@ export function extractVariableFields(
     }
   }
   return result;
+}
+
+/**
+ * Attach `_variableFields` / `_variableKeys` on sections that still contain
+ * `{{ single.* }}` expressions (before delivery-time resolution). Needed for
+ * static single_template types as well as DB-backed singles.
+ */
+export function attachVariableFieldsToSections(sections: unknown[]): void {
+  for (const section of sections) {
+    if (!section || typeof section !== "object") continue;
+    const variableFields = extractVariableFields(section);
+    if (Object.keys(variableFields).length === 0) continue;
+    (section as Record<string, unknown>)._variableFields = variableFields;
+    const variableKeys: Record<string, string> = {};
+    const keyRe = /\{\{\s*single\.([^|}\s]+)/;
+    for (const [dotPath, expr] of Object.entries(variableFields)) {
+      const m = keyRe.exec(expr);
+      if (m) variableKeys[dotPath] = m[1].trim();
+    }
+    if (Object.keys(variableKeys).length > 0) {
+      (section as Record<string, unknown>)._variableKeys = variableKeys;
+    }
+  }
 }
 
 export function mergeSingleTemplate(
@@ -227,6 +253,7 @@ export async function loadMergedSinglePage(
   }
 
   const sections = (merged.sections as TemplatePage["sections"]) || [];
+  attachVariableFieldsToSections(sections as unknown[]);
   applyComponentSectionDefaults(sections as unknown[]);
   applyComponentImageSizes(sections as unknown[]);
 
@@ -317,7 +344,7 @@ export async function loadDatabaseSinglePage(
 
     let items = result.items as Record<string, unknown>[];
 
-    if (fieldMapping || fullMapping?.[RESERVED_IMAGE_FIELD] || fullMapping?.[RESERVED_SLUG_FIELD]) {
+    if (fieldMapping || fullMapping?.[RESERVED_IMAGE_FIELD] || fullMapping?.[RESERVED_SLUG_FIELD] || fullMapping?.[RESERVED_UPDATED_AT_FIELD]) {
       items = items.map((item) => {
         const mapped: Record<string, unknown> = { ...item };
         const itemSlug = String(item[lookupKey] ?? item.slug ?? "unknown");
@@ -358,6 +385,24 @@ export async function loadDatabaseSinglePage(
           });
           applyImageAliasToEntry(mapped, imageValue);
         }
+        const updatedAtSource = fullMapping?.[RESERVED_UPDATED_AT_FIELD];
+        if (updatedAtSource) {
+          const updatedAtValue = resolveFieldValue(updatedAtSource, item, RESERVED_UPDATED_AT_FIELD, {
+            contentType,
+            slug: itemSlug,
+            fieldPath: RESERVED_UPDATED_AT_FIELD,
+          });
+          applyUpdatedAtAliasToEntry(mapped, updatedAtValue);
+        }
+        const iso = resolveEntryUpdatedAt({
+          contentType,
+          slug: itemSlug,
+          locale: String(mapped.locale || item.locale || ""),
+          record: mapped,
+          contentRoot: resolvedRoot,
+          isDb: true,
+        });
+        applyUpdatedAtAliasToEntry(mapped, iso);
         return mapped;
       });
     }
@@ -407,27 +452,20 @@ export async function loadDatabaseSinglePage(
     const singleItemBase = { ...matchItem, content };
     const ctOverrides = readFieldOverrides(contentType, slug, locale, resolvedRoot);
     const singleItem = applyFieldOverridesToItem(singleItemBase, ctOverrides);
+    applyUpdatedAtAliasToEntry(
+      singleItem,
+      resolveEntryUpdatedAt({
+        contentType,
+        slug,
+        locale,
+        record: singleItem,
+        contentRoot: resolvedRoot,
+        isDb: true,
+      }),
+    );
 
     const sections = (merged.sections as TemplatePage["sections"]) || [];
-
-    for (const section of sections as unknown[]) {
-      const variableFields = extractVariableFields(section);
-      if (Object.keys(variableFields).length > 0) {
-        (section as Record<string, unknown>)._variableFields = variableFields;
-        // Build a dotPath→templateKey map (e.g. "image.src" → "image") for client badge logic.
-        // Values are plain strings so resolveSingleVars won't alter them.
-        const variableKeys: Record<string, string> = {};
-        const keyRe = /\{\{\s*single\.([^|}\s]+)/;
-        for (const [dotPath, expr] of Object.entries(variableFields)) {
-          const m = keyRe.exec(expr);
-          if (m) variableKeys[dotPath] = m[1].trim();
-        }
-        if (Object.keys(variableKeys).length > 0) {
-          (section as Record<string, unknown>)._variableKeys = variableKeys;
-        }
-      }
-    }
-
+    attachVariableFieldsToSections(sections as unknown[]);
     applyComponentSectionDefaults(sections as unknown[]);
     applyComponentImageSizes(sections as unknown[]);
 

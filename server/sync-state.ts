@@ -354,13 +354,19 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
     const content = fs.readFileSync(fullPath, 'utf-8');
     const sha = computeFileSha(content);
     const stats = fs.statSync(fullPath);
-    
+    const prev = state.files[relativePath];
+    const contentChanged = !prev || prev.sha !== sha;
+    const now = new Date().toISOString();
+
     state.files[relativePath] = {
       sha,
       lastModified: stats.mtimeMs,
-      remoteSha: state.files[relativePath]?.remoteSha,
-      author: author || state.files[relativePath]?.author,
-      modifiedAt: new Date().toISOString(),
+      remoteSha: prev?.remoteSha,
+      author: author || prev?.author,
+      // Content-hash gated: only bump modifiedAt when bytes change.
+      modifiedAt: contentChanged ? now : (prev?.modifiedAt || prev?.committedAt || now),
+      ...(prev?.committedAt ? { committedAt: prev.committedAt } : {}),
+      ...(prev?.pulledFromCommit ? { pulledFromCommit: prev.pulledFromCommit } : {}),
     };
     
     saveSyncState(state, contentRoot);
@@ -370,10 +376,10 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
     }
     fileModifiedListeners.forEach(cb => cb(relativePath));
   } else if (state.files[relativePath]) {
+    // File deleted / missing — do not invent a content-change timestamp from a touch.
     state.files[relativePath] = {
       ...state.files[relativePath],
       author: author || state.files[relativePath].author,
-      modifiedAt: new Date().toISOString(),
     };
     
     saveSyncState(state, contentRoot);
@@ -656,13 +662,19 @@ export function rebuildSyncStateFromLocal(
       }
 
       const keepLocalMeta = hadLocalChanges || remoteSha === undefined;
+      const shaUnchanged = !!(existing && existing.sha === sha);
 
       state.files[filePath] = {
         sha,
         lastModified: stats.mtimeMs,
         ...(remoteSha !== undefined ? { remoteSha } : {}),
         ...(keepLocalMeta && existing?.author ? { author: existing.author } : {}),
-        ...(keepLocalMeta && existing?.modifiedAt ? { modifiedAt: existing.modifiedAt } : {}),
+        // Hash-gated content-changed time: keep when bytes unchanged.
+        ...(shaUnchanged && existing?.modifiedAt
+          ? { modifiedAt: existing.modifiedAt }
+          : keepLocalMeta && existing?.modifiedAt
+            ? { modifiedAt: existing.modifiedAt }
+            : {}),
         // Always preserve committedAt and pulledFromCommit — these represent real GitHub
         // timestamps and must survive reconcile/rebuild cycles so sitemap lastmod stays accurate.
         ...(existing?.committedAt ? { committedAt: existing.committedAt } : {}),
@@ -682,23 +694,44 @@ export function getLastSyncedCommit(contentRoot?: string): string | null {
 }
 
 /**
- * Get the best available lastmod date for a file, for use in sitemaps.
- * Priority: committedAt > modifiedAt > today's date.
+ * Get the best available lastmod date for a file, for use in sitemaps / updated_at.
+ * Priority: content-hash-gated modifiedAt > committedAt > today's date.
+ * Prefer modifiedAt when present — it only advances when file SHA changes.
  */
 export function getFileLastmod(filePath: string, contentRoot?: string): string {
   const relativePath = normalizePath(filePath, contentRoot);
   const state = loadSyncState(contentRoot);
   const info = state.files[relativePath];
 
-  if (info?.committedAt) {
-    return info.committedAt.split('T')[0];
-  }
-
   if (info?.modifiedAt) {
     return info.modifiedAt.split('T')[0];
   }
 
+  if (info?.committedAt) {
+    return info.committedAt.split('T')[0];
+  }
+
   return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Full ISO timestamp for content-hash-gated file changes (templates / lists).
+ * Priority: modifiedAt > committedAt > today ISO.
+ */
+export function getFileUpdatedAtIso(filePath: string, contentRoot?: string): string {
+  const relativePath = normalizePath(filePath, contentRoot);
+  const state = loadSyncState(contentRoot);
+  const info = state.files[relativePath];
+
+  if (info?.modifiedAt) {
+    return info.modifiedAt.includes('T') ? info.modifiedAt : `${info.modifiedAt}T00:00:00.000Z`;
+  }
+
+  if (info?.committedAt) {
+    return info.committedAt.includes('T') ? info.committedAt : `${info.committedAt}T00:00:00.000Z`;
+  }
+
+  return new Date().toISOString();
 }
 
 export function getFileStatus(filePath: string, contentRoot?: string): {
@@ -754,13 +787,20 @@ export function updateFileAfterPull(filePath: string, pulledFromCommit?: string,
     const content = fs.readFileSync(fullPath, 'utf-8');
     const sha = computeFileSha(content);
     const stats = fs.statSync(fullPath);
-    
+    const prev = state.files[relativePath];
+    const contentChanged = !prev || prev.sha !== sha;
+    const now = new Date().toISOString();
+
     state.files[relativePath] = {
       sha,
       lastModified: stats.mtimeMs,
       remoteSha: sha,
       pulledFromCommit,
       ...(committedAt ? { committedAt } : {}),
+      // Hash-gated: identical pull content keeps previous content-changed time.
+      modifiedAt: contentChanged
+        ? (committedAt || now)
+        : (prev?.modifiedAt || committedAt || prev?.committedAt || now),
     };
     
     saveSyncState(state, contentRoot);
@@ -796,12 +836,16 @@ export function updateFileAfterCommit(filePath: string, commitSha: string, conte
     const content = fs.readFileSync(fullPath, 'utf-8');
     const sha = computeFileSha(content);
     const stats = fs.statSync(fullPath);
-    
+    const prev = state.files[relativePath];
+    const contentChanged = !prev || prev.sha !== sha;
+    const now = new Date().toISOString();
+
     state.files[relativePath] = {
       sha,
       lastModified: stats.mtimeMs,
       remoteSha: sha,
-      committedAt: new Date().toISOString(),
+      committedAt: now,
+      modifiedAt: contentChanged ? now : (prev?.modifiedAt || prev?.committedAt || now),
     };
   } else {
     delete state.files[relativePath];

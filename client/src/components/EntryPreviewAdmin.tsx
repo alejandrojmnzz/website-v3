@@ -1095,18 +1095,7 @@ export function EntryPreviewCard({
                     {queueBusyCount > 0 ? ` · generating ${queueBusyCount}` : ""}
                     {queuePaused ? " · paused (tab hidden)" : ""}
                   </p>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {canGenerateAll && (
-                      <button
-                        type="button"
-                        className="text-xs text-primary hover:underline"
-                        onClick={openGenerateAllDialog}
-                        data-testid="button-generate-all-entry-previews"
-                      >
-                        Generate all…
-                      </button>
-                    )}
-                    {(data?.failed ?? 0) > 0 && (
+                  {(data?.failed ?? 0) > 0 && (
                     <button
                       type="button"
                       className="text-xs text-destructive hover:underline"
@@ -1115,8 +1104,7 @@ export function EntryPreviewCard({
                     >
                       {data!.failed} failed — Retry
                     </button>
-                    )}
-                  </div>
+                  )}
                 </>
               )}
             </div>
