@@ -133,10 +133,14 @@ flowchart LR
 - **Serving:** contenedor FastAPI (mismo repo, deploy aparte p.ej. Cloud Run o compose local) ← Express proxy.
   - **Puertos (obligatorio):** Express usa `PORT` (default **5000**). El contenedor del recomendador **no** puede publicar el mismo host port. Default local: FastAPI **`8090`** (o `RECOMMENDER_PORT`); map Docker `8090:8090` (o `8090:8000` si uvicorn escucha 8000 *dentro* del container). Express proxy → `http://127.0.0.1:8090` (o `RECOMMENDER_URL`). En compose/prod, no reusar `5000` en el servicio ML.
 - **UX slot + cold start / errores:** **no** pintar copy YAML al instante y luego overlay (evita flash venta↔nurturing). Con `recommender.enabled`: **hold ~200ms** (skeleton / misma altura, sin CTA legible) → **una sola pintura**. Timeout Express **200ms**. Cascada de contenido al revelar:
-  1. ML/cache listo → pintar pack + destino (asset o venta).
-  2. Timeout/error + YAML con defaults útiles → revelar **ese** fallback (primera vez que el usuario ve copy).
+  1. ML/cache listo **y** pack publicado → pintar pack + destino (asset o venta).
+  2. Timeout / error / **0 packs** (catálogo vacío o sin match de clave) + YAML con defaults → revelar **ese** fallback (primera vez que el usuario ve copy).
   3. YAML sin fallback útil → `**resolveOffer`** en Express; revelar reglas.
   4. Sin reglas → no romper layout (ocultar slot o CTA mínimo seguro).
+- **Defaults YAML = copy genérico seguro:** el fallback de la sección **no** nombra un producto concreto ni un exercise concreto (el ML/pack sí lo hacen cuando hay match). Debe leerse bien aunque no exista ningún offer pack. Ejemplos de tono (locale real en el YAML de la página):
+  - Venta / CTA genérico: *“Te recomendamos seguir con este producto”* / *“Explorá el programa”*.
+  - Nurturing / contenido: *“Este ejercicio podría interesarte”* / *“Seguí aprendiendo con este recurso”*.
+  El href del fallback apunta a un destino **seguro de la página** (programa actual, listado, apply genérico, etc.) — no a un `product_id`/`asset_id` inventado por el ML.
 - **Contrato:** `shared/recommender.ts` = fuente de verdad del JSON (Zod). OpenAPI FastAPI alineado. En Cursor rules (`services-recommender.mdc` / `recommender-feeding.mdc`): cambio de contrato → `**warnings`** obligatorio: actualizar `shared/recommender.ts` en el mismo cambio (+ `next_actions` para proxy/UI/OpenAPI).
 
 ---
@@ -664,7 +668,7 @@ Artefactos versionados: `models/intent_vN`, `fit_vN`, `product_index_vN`, `asset
 
 1. FastAPI carga modelos + `product_index` en memoria → predicción 10–30ms → JSON contrato (producto ∈ catálogo vigente).
 2. Express: `POST /api/recommend` proxy + Zod + caché (LRU; Redis si escala) + **timeout 200ms**.
-3. **Fallback (cascada al revelar):** timeout/error/low confidence → (1) defaults del YAML; (2) si el YAML no trae fallback útil → `resolveOffer`; (3) último recurso: no romper layout. Slots con `recommender.enabled` **deben** declarar defaults YAML *o* estar cubiertos por `resolveOffer`.
+3. **Fallback (cascada al revelar):** timeout/error/low confidence/**0 packs** → (1) defaults del YAML (**copy genérico**, no producto/asset específico); (2) si el YAML no trae fallback útil → `resolveOffer`; (3) último recurso: no romper layout. Slots con `recommender.enabled` **deben** declarar defaults YAML genéricos *o* estar cubiertos por `resolveOffer`.
 4. Hook `useRecommendation(slot)`: **hold ~200ms** → una pintura; GTM `recommendation_served` con `source: ml|cache|fallback_yaml|fallback_rules`.
 
 **No** edge LLM; el “edge” aquí es un servicio pequeño cerca de la app. Cloudflare Worker opcional solo como proxy de caché, no para entrenar.
@@ -871,7 +875,7 @@ copy:
   subhead: "Carrera completa con mentores"
   cta_label: "Aplicar ahora"
 destination:
-  type: apply          # apply | program | url
+  type: apply          # ver enum destination.type abajo
   program: ai-engineering
   # url: opcional si type=url
 
@@ -891,26 +895,62 @@ destination:
   type: asset          # siempre asset en nurturing — URL la resuelve recommended_asset_*
 ```
 
-Placeholders permitidos en copy: `{asset_title}` (y similares documentados). En nurturing **prohibido** `destination.type: apply` en packs publicados (validación admin).
+Placeholders permitidos en copy: `{asset_title}` (y similares documentados). En nurturing **prohibido** `destination.type: apply` (y `program`) en packs publicados (validación admin).
 
-#### Cómo el serving elige el pack (runtime)
+#### `destination.type` — enum v1 (cómo “sé” los types)
+
+No es un string libre: en **Recommender → Offer packs** es un **select** validado por schema/Zod (`shared/recommender.ts` / admin API). Valores v1:
+
+| `type` | Cuándo | Qué más pide el form | Qué hace el componente |
+|--------|--------|----------------------|-------------------------|
+| **`apply`** | Solo `direct_sale` | `program` (product_id / bc_slug del catálogo) | CTA → flujo apply / lead con ese `program` |
+| **`program`** | Solo `direct_sale` | `program` (product_id) | CTA → URL de la página `program/{slug}` |
+| **`url`** | Sobre todo `direct_sale` (caso raro) | `url` absoluta o interna | CTA → ese href tal cual |
+| **`asset`** | **Obligatorio** en `nurturing` | (ninguno en el pack) | CTA → URL de `recommended_asset_type` + `recommended_asset_id` que devolvió el ML |
+
+Reglas:
+
+- `direct_sale` → `apply` \| `program` \| `url` (no `asset`).
+- `nurturing` → solo `asset` (el pack no elige el exercise; el k-NN sí).
+- La UI oculta opciones inválidas según `strategy` (no mostrás “apply” si estás creando un pack nurturing).
+
+#### Cómo el serving elige el pack (runtime) — orden explícito
+
+**No** es: “cargar todos los packs con `slot: sticky_cta` y que el ML elija entre ellos”.  
+**Sí** es: el ML decide strategy/product/asset **antes**; el pack es un **lookup por clave completa** (idealmente 1 fila).
+
+| Paso | Quién | Qué pasa |
+|------|--------|----------|
+| **1** | Intent model | `intent_stage` → `strategy` (`nurturing` \| `direct_sale`) |
+| **2** | Product-fit | `product_id` (visible si venta; latente/tono si nurturing) |
+| **3** | Asset k-NN | Solo si nurturing → `recommended_asset_type` + `recommended_asset_id` |
+| **4** | Request / sesión | Aporta `slot` (p.ej. `sticky_cta`), `locale`, `site_id` |
+| **5** | Lookup packs | Filtrar `status=published` **AND** `site_id` **AND** `strategy` **AND** `slot` **AND** `locale` **AND** (`product_id` si `direct_sale`, o tono opcional si nurturing) |
+| **6** | Resultado | **0** packs (vacío o sin match) → fallback YAML **genérico** de la sección → `resolveOffer`. **1** pack → usar `copy` + destination/asset. **≥2** packs con la misma clave → error de config / warning (clave debe ser única); no “elegir al azar” |
+| **7** | Respuesta | JSON `/api/recommend` con `offer_pack_id` + `copy` (+ asset si nurturing) → el componente mapea a props |
 
 ```text
-intent → strategy
-fit    → product_id (latente o visible)
-request.slot + session.locale (+ site_id)
+[1] Intent → strategy
+[2] Fit → product_id
+[3] k-NN → asset? (solo nurturing)
+[4] slot + locale + site_id (del request)
         ↓
-lookup offer_packs where status=published
-  match strategy + slot + locale
-  + product_id si direct_sale (o tono nurturing)
+[5] SELECT pack WHERE published
+      AND site AND strategy AND slot AND locale
+      AND (product_id si venta)
         ↓
-offer_pack_id + copy (+ destination si venta)
-(+ asset id si nurturing)
-        ↓
-JSON /api/recommend → componente mapea copy → props
+[6] 0 → fallback | 1 → OK | ≥2 → config error
+[7] paint CTA from that one pack
 ```
 
-Si no hay pack publicado para esa clave → cascada fallback YAML de la sección → `resolveOffer` (no half-pack).
+Ejemplo: request con `slot=sticky_cta`, intent hot → `direct_sale`, fit `ai-engineering`, `locale=es`  
+→ **un** pack `direct_sale|ai-engineering|es|sticky_cta`, no “todos los sticky_cta del catálogo”.
+
+**Mismo slot, muchos packs — OK:** puede haber decenas de packs con `slot: sticky_cta` (uno por `product_id` × locale × strategy, etc.). Eso **no** significa que el serving elija entre “todos los sticky_cta”. El `slot` solo acota la clave; el match es por **clave completa**.
+
+**El genérico no es un pack:** el mensaje neutro (“Este ejercicio podría interesarte” / “Te recomendamos seguir con este producto”) vive en el **YAML default de la sección de la página**, no como un `offer_pack` especial tipo `strategy=generic` o `product_id=*`. No hay pack “catch-all” en el CRUD; si el lookup da **0**, se cae a ese YAML (luego `resolveOffer`).
+
+**Si no existen packs (o no hay match):** tras el hold se pinta el **default YAML genérico** de esa sección, con el CTA/href seguro de la página — **no** un mensaje personalizado por producto/asset. El personalizado solo aparece cuando hay pack publicado (+ asset si nurturing). Misma cascada que timeout/error ML.
 
 #### Flujo staff al crear/editar (UI)
 
@@ -940,14 +980,31 @@ Si no hay pack publicado para esa clave → cascada fallback YAML de la sección
 
 **No** hace falta una versión del componente por cada producto/estrategia. Un solo `sticky_cta` (o `cta_banner`, etc.) sirve; cambian los **datos**.
 
-1. **En la página:** insertás el componente de siempre, rellenás el YAML **default** (fallback si ML falla/timeout — **no** se muestra antes del hold) + activás el slot:
+1. **En la página:** insertás el componente de siempre, rellenás el YAML **default genérico** (fallback si ML falla/timeout/**0 packs** — tono neutro, sin nombrar un producto/exercise concreto; **no** se muestra antes del hold) + activás el slot:
 
 ```yaml
-   recommender:
-     enabled: true
-     slot: sticky_cta
+# Sección en la página (ejemplo sticky_cta).
+# Los campos heading / button_label / … = fallback GENÉRICO de la página.
+# NO son un offer pack. El pack (si hay match) sobrescribe estos campos al revelar.
+- type: sticky_cta
+  heading: "Este ejercicio podría interesarte"   # o tono venta: "Te recomendamos seguir explorando"
+  button_label: "Ver más"                        # CTA neutro; el pack pondrá "Apply" / "Empezar ejercicio" etc.
+  show_dismiss: true
+  # form: …                                    # opcional; en fallback no fuerza un product_id concreto
+  recommender:
+    enabled: true
+    slot: sticky_cta   # nombre del slot UI; misma clave que en Offer packs
 ```
 
+Con `enabled: true` el slot hace **hold ~200ms** y luego pinta **una** de estas fuentes:
+
+| Condición | Qué se muestra |
+|-----------|----------------|
+| Pack publicado match (strategy×locale×slot×product) | `copy` del pack (+ href asset si nurturing) |
+| 0 packs / timeout / error | `heading` + `button_label` de **este** YAML (genérico) |
+| YAML vacío de copy útil | `resolveOffer` |
+
+Los packs **no** se escriben aquí: van en **DebugBubble → Recommender → Offer packs**.
 2. **Offer packs:** se configuran en **DebugBubble → Recommender → Offer packs** (CRUD + publish) — [detalle completo](#offer-packs-config). No en el YAML de la sección (salvo fallback). No un pack por cold/warm/hot ni por cada asset.
    - `direct_sale` + `ai-engineering` + `es` + slot → títulos/CTA **apply**
    - `nurturing` + `es` + slot → plantilla educativa; asset = k-NN
