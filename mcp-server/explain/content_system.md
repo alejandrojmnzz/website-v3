@@ -7,7 +7,8 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
 ```
 4geeks-com/
   content-types.yml       # single source of truth for all content types
-  settings.yml            # site-wide settings (locales, tag manager, etc.)
+  settings.yml            # site-wide settings (locales, optimization.tagmanager web_container_id + sGTM proxy, etc.)
+                          # Web GTM ID is injected into the HTML shell from web_container_id (see server/gtm-web-inject.ts)
   image-registry.json     # centralized image metadata
   theme.json              # color theme tokens
   component-registry/     # versioned component schemas and examples
@@ -36,7 +37,7 @@ Types are declared in `content-types.yml`. Each entry specifies:
 
 - `directory` — subfolder inside `4geeks-com/`
 - `url_pattern` — per-locale URL templates with `:slug` placeholder
-- `field_mapping` — which YAML keys are exposed as `{{ single.* }}` template variables
+- `field_mapping` — content-type **schema** keys. Non-underscore keys are available as `{{ single.* }}` and in the Fields tab (content-type fields, not SEO). Values are auto-fill sources: identity (same YAML/DB name); `{ source, default }` with required default (may be `null`); DB remap (column → schema key); `function:` computed. Mapping remaps are for **DB-attached types** and calculated fields — static YAML uses identity (schema key = YAML parent key). System identity is auto-exposed as `single.slug` / `single.locale` / `single.image` and underscore aliases (`_slug`, `_locale`, `_image`). `_hreflangs` is routing-only (not a template var). Do not declare regular keys `slug` or `image`. Values also come from `field_overrides` / Fields tab.
 - `database.slug` — if present, the type is DB-backed (blog posts); YAML editing tools skip these
 - `layout.menu` — which navbar/footer menus to render
 
@@ -58,4 +59,28 @@ Types with a `database.slug` key (or static types with `single_template: true`) 
 
 ## Template variables
 
-Content files may reference `{{ single.<field> }}` variables that are resolved at render time using the `field_mapping` for the content type. These expressions must survive YAML parsing — use `safeYamlLoad` which swaps them out temporarily.
+Content files may reference template expressions that are resolved at **delivery** time (API / SSR / menus / section render). Prefer the safe YAML loader so expressions survive parsing.
+
+| Namespace | Source | Example |
+|-----------|--------|---------|
+| `{{ single.<field> }}` | Type schema / DB row / `field_overrides`; plus auto `slug`/`locale`/`image` (and `_slug`/`_locale`/`_image`) | `{{ single.title }}`, `{{ single._slug }}` |
+| `{{ meta.<key> }}` | Page SEO block (`meta:`), after `single.*` inside meta is resolved | `{{ meta.page_title }}` |
+| `{{ param.<key> }}` | URL path params + querystring (path wins on conflict) | `{{ param.category }}`, `{{ param.utm }}` |
+| `{{ brand.* }}` | Protected site identity in `variables.yml` (Brand Settings) | `{{ brand.logo }}`, `{{ brand.title }}` |
+| `{{ global.* }}` / `reserved.*` | Other site variables in `variables.yml` | `{{ global.campus_phone }}` |
+
+Resolve order: **single → meta → param → brand/global**. Editors keep unresolved templates on write paths.
+
+**Mental model:** schema / Fields stay in `single.*`. SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
+
+### Entry preview (`preview.props`)
+
+OG / list thumbnail captures map component props to source keys using the **same namespaces**:
+
+- Schema / mapped field key → `single` bag (`title`, …)
+- `meta.<key>` → entry SEO meta (loaded like the SEO UI; `{{ single.* }}` inside meta is expanded before apply)
+- `brand.<key>` → `variables.yml` brand vars (resolved live at capture). Logo IDs (`brand.logo`, `brand.logo_dark`) are resolved to Media Gallery URLs for the screenshot.
+
+Blocked (circular): `_image`, `image`, `og_image`, `meta.og_image`. Prefixes `brand.*` / `meta.*` are reserved (not dotted paths into the entry).
+
+**Non-effect:** changing brand does **not** dirty / auto-recapture — brand is omitted from `propsHash`. Missing or unusable mapped sources fail **that** entry’s capture only; the queue continues.

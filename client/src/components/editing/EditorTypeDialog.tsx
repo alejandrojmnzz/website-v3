@@ -76,7 +76,7 @@ function CheckboxInfoPopover({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-80 space-y-2 text-sm text-muted-foreground z-[10001] pointer-events-auto"
+        className="w-80 space-y-2 text-sm text-muted-foreground z-[10003] pointer-events-auto"
         side="top"
         align="start"
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -197,7 +197,7 @@ export function EditorTypeDialog({
               <SelectTrigger className="text-sm" data-testid="select-hint-type">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[10003]">
                 <SelectItem value="text">text — single-line input</SelectItem>
                 <SelectItem value="textarea">textarea — multi-line</SelectItem>
                 <SelectItem value="markdown">markdown — editor with preview</SelectItem>

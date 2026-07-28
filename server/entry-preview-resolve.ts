@@ -1,0 +1,178 @@
+/**
+ * Build the resolve context for entry-preview prop mappings:
+ * mapped entry + SEO meta (templates expanded) + brand vars.
+ */
+import * as fs from "fs";
+import * as path from "path";
+import type { PreviewPropResolveContext } from "@shared/entry-preview-props";
+import { PREVIEW_BRAND_SOURCE_OPTIONS } from "@shared/entry-preview-props";
+import { getContentTypeConfig, getFolder, hasDatabaseSingle } from "./content-types";
+import { getDefaultContentRoot } from "./site-config";
+import { contentIndex } from "./content-index";
+import { deepMerge } from "./utils/deepMerge";
+import { resolveAllTemplateVars } from "./resolve-template-vars";
+import { getVariableManager, BRAND_VAR_KEYS } from "./variable-manager";
+import { loadDatabaseSinglePage, loadMergedSinglePage } from "./database-single-loader";
+import type { DatabaseManager } from "./database";
+import { databaseManager } from "./database";
+import { mediaGallery, type MediaGallery } from "./media-gallery";
+
+function stripUnresolvedTokens(meta: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (typeof v === "string" && /\{\{/.test(v)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Resolve a brand logo registry ID to a concrete image URL for preview capture. */
+function resolveBrandLogoUrl(idOrUrl: string, mg: MediaGallery): string {
+  const raw = idOrUrl.trim();
+  if (!raw) return "";
+  if (
+    raw.startsWith("http://") ||
+    raw.startsWith("https://") ||
+    raw.startsWith("/") ||
+    raw.startsWith("data:")
+  ) {
+    return raw;
+  }
+  return mg.getImage(raw)?.src ?? "";
+}
+
+function brandMapFromRoot(
+  contentRoot: string,
+  mg: MediaGallery,
+  theme: "dark" | "light" = "dark",
+): Record<string, unknown> {
+  const vm = getVariableManager(contentRoot);
+  const settings = vm.getBrandSettings();
+  const defs = vm.getDefinitions();
+  const title =
+    (typeof defs["brand.title"]?.default === "string" ? defs["brand.title"].default : null) ??
+    settings.title;
+  const logoId =
+    (typeof defs["brand.logo"]?.default === "string" ? defs["brand.logo"].default : null) ??
+    settings.logo;
+  const logoDarkId =
+    (typeof defs["brand.logo_dark"]?.default === "string" ? defs["brand.logo_dark"].default : null) ??
+    settings.logo_dark;
+
+  const lightUrl = resolveBrandLogoUrl(String(logoId || ""), mg);
+  const darkUrl = resolveBrandLogoUrl(String(logoDarkId || ""), mg) || lightUrl;
+
+  const map: Record<string, unknown> = {
+    "brand.title": title,
+    // Preview components need a URL; brand.* logos are stored as image-registry IDs.
+    // For dark capture theme, brand.logo resolves to the dark logo when available
+    // (same behavior as navbar light/dark imageId pair).
+    "brand.logo": theme === "dark" ? darkUrl : lightUrl,
+    "brand.logo_dark": darkUrl,
+  };
+  for (const key of PREVIEW_BRAND_SOURCE_OPTIONS) {
+    if (map[key] === undefined) map[key] = "";
+  }
+  for (const key of BRAND_VAR_KEYS) {
+    if (map[key] === undefined) map[key] = "";
+  }
+  return map;
+}
+
+async function loadRawSeoMeta(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot: string,
+  db: DatabaseManager,
+): Promise<Record<string, unknown>> {
+  if (hasDatabaseSingle(contentType, contentRoot)) {
+    const page = await loadDatabaseSinglePage(contentType, slug, locale, contentRoot, db);
+    const meta = page?.meta;
+    return meta && typeof meta === "object" && !Array.isArray(meta)
+      ? { ...(meta as Record<string, unknown>) }
+      : {};
+  }
+
+  const config = getContentTypeConfig(contentType, contentRoot);
+  if (config?.single_template) {
+    const page = await loadMergedSinglePage(contentType, slug, locale, contentRoot, db);
+    const meta = page?.meta;
+    return meta && typeof meta === "object" && !Array.isArray(meta)
+      ? { ...(meta as Record<string, unknown>) }
+      : {};
+  }
+
+  // Classic static YAML: _common + locale
+  const folder = getFolder(contentType, contentRoot);
+  const dir = path.join(contentRoot, folder, slug);
+  const localePath = path.join(dir, `${locale}.yml`);
+  if (!fs.existsSync(localePath)) return {};
+
+  let commonData: Record<string, unknown> = {};
+  const commonPath = path.join(dir, "_common.yml");
+  if (fs.existsSync(commonPath)) {
+    try {
+      const parsed = contentIndex.safeYamlLoad(fs.readFileSync(commonPath, "utf-8"));
+      if (parsed && typeof parsed === "object") commonData = parsed as Record<string, unknown>;
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const localeData =
+      (contentIndex.safeYamlLoad(fs.readFileSync(localePath, "utf-8")) as Record<string, unknown>) ||
+      {};
+    const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
+    const meta = merged.meta;
+    return meta && typeof meta === "object" && !Array.isArray(meta)
+      ? { ...(meta as Record<string, unknown>) }
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Load SEO meta for an entry (same sources as SEO UI), expand `{{ single.* }}`
+ * (and site vars) inside meta, drop still-unresolved tokens, and attach brand.
+ */
+export async function buildPreviewPropResolveContext(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  entry: Record<string, unknown>;
+  contentRoot?: string;
+  db?: DatabaseManager;
+  mediaGallery?: MediaGallery;
+  /** Capture / live-preview theme — dark uses brand.logo_dark for brand.logo when set. */
+  theme?: "dark" | "light";
+}): Promise<PreviewPropResolveContext> {
+  const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
+  const db = opts.db ?? databaseManager;
+  const mg = opts.mediaGallery ?? mediaGallery;
+  const theme = opts.theme === "light" ? "light" : "dark";
+  const rawMeta = await loadRawSeoMeta(
+    opts.contentType,
+    opts.slug,
+    opts.locale,
+    contentRoot,
+    db,
+  );
+
+  const resolvedMeta = resolveAllTemplateVars(rawMeta, {
+    singleEntry: opts.entry,
+    contentRoot,
+    context: { locale: opts.locale },
+  }) as Record<string, unknown>;
+
+  return {
+    entry: opts.entry,
+    meta: stripUnresolvedTokens(
+      resolvedMeta && typeof resolvedMeta === "object" && !Array.isArray(resolvedMeta)
+        ? resolvedMeta
+        : {},
+    ),
+    brand: brandMapFromRoot(contentRoot, mg, theme),
+  };
+}

@@ -394,6 +394,10 @@ interface SectionRendererProps {
   landingLocations?: string[];
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** Page SEO meta for {{ meta.* }} in sections (may still contain {{ single.* }}). */
+  meta?: Record<string, unknown>;
+  /** Unified URL path + querystring params for {{ param.* }}. */
+  param?: Record<string, unknown>;
   /** When false, hide entry-scoped structural actions on attached shared-layout pages. */
   allowEntryStructuralOverrides?: boolean;
   perEntryRemovedSections?: Array<{ section: Record<string, unknown>; originalIndex: number }>;
@@ -670,7 +674,7 @@ function toSingularLabel(ct: string | undefined, rawTypes: { name: string; label
   return lower;
 }
 
-export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, allowEntryStructuralOverrides = true, perEntryRemovedSections }: SectionRendererProps) {
+export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, meta, param, allowEntryStructuralOverrides = true, perEntryRemovedSections }: SectionRendererProps) {
   const { toast } = useToast();
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
@@ -745,8 +749,14 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
   const resolvedSections = (() => {
     const hasGlobalDefs = varDefinitions && Object.keys(varDefinitions).length > 0;
-    if (!hasGlobalDefs && !singleEntry) {
+    if (!hasGlobalDefs && !singleEntry && !meta && !param) {
       return sections;
+    }
+    // Resolve {{ single.* }} inside meta so {{ meta.page_title }} sees concrete SEO strings
+    let metaBag = meta;
+    if (meta && singleEntry) {
+      const { data: resolvedMeta } = resolveDeep(meta, {}, varContext, { singleEntry });
+      metaBag = resolvedMeta as Record<string, unknown>;
     }
     const { data } = resolveDeep(
       sections,
@@ -755,6 +765,8 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       {
         preserveTemplate: isEditMode ? true : undefined,
         singleEntry,
+        meta: metaBag,
+        param,
       },
     );
     let result = data as Section[];

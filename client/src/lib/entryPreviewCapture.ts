@@ -22,6 +22,8 @@ function frameUrl(job: EntryPreviewCaptureJob): string {
   const params = new URLSearchParams({
     locale: job.locale,
     capture: "1",
+    // Bust sticky 301 caches from older redirect middleware bugs.
+    _: String(Date.now()),
   });
   return `/private/entry-preview-frame/${encodeURIComponent(job.contentType)}/${encodeURIComponent(job.slug)}?${params}`;
 }
@@ -30,15 +32,25 @@ function frameUrl(job: EntryPreviewCaptureJob): string {
  * Capture an entry preview frame to WebP and upload to the site media bucket.
  */
 export async function captureEntryPreview(job: EntryPreviewCaptureJob): Promise<string> {
+  const CAPTURE_TIMEOUT_MS = 45_000;
   try {
-    const blob = await captureIframeToWebp({
-      url: frameUrl(job),
-      width: job.width,
-      minHeight: Math.min(360, job.maxHeight),
-      maxHeight: job.maxHeight,
-      theme: job.theme,
-      testId: `entry-preview-capture-${job.slug}`,
-    });
+    const blob = await Promise.race([
+      captureIframeToWebp({
+        url: frameUrl(job),
+        width: job.width,
+        minHeight: Math.min(360, job.maxHeight),
+        maxHeight: job.maxHeight,
+        theme: job.theme,
+        timeoutMs: 20_000,
+        testId: `entry-preview-capture-${job.slug}`,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Entry preview capture timed out")),
+          CAPTURE_TIMEOUT_MS,
+        ),
+      ),
+    ]);
 
     const query: Record<string, string> = {
       locale: job.locale,

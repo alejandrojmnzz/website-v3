@@ -10,6 +10,21 @@ interface PreviewFramePayload {
   error?: string;
 }
 
+function coercePreviewScalar(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const t = value.trim();
+    return t || undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    for (const key of ["title", "name", "label", "slug"]) {
+      if (typeof o[key] === "string" && o[key].trim()) return (o[key] as string).trim();
+    }
+  }
+  return undefined;
+}
+
 export default function EntryPreviewFrame() {
   const { contentType, slug } = useParams<{ contentType: string; slug: string }>();
   const searchString = useSearch();
@@ -22,10 +37,12 @@ export default function EntryPreviewFrame() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const rootRef = useRef<HTMLDivElement>(null);
+  const contentReady = !loading && !!section && !error;
 
   useScreenshotFrameProtocol({
     rootRef,
-    enabled: true,
+    // Only handshake once the screenshot root with section content is mounted.
+    enabled: contentReady,
     onThemeUpdate: setTheme,
   });
 
@@ -51,12 +68,40 @@ export default function EntryPreviewFrame() {
       .then(async (res) => {
         const data = (await res.json()) as PreviewFramePayload & { error?: string };
         if (!res.ok) throw new Error(data.error || "Failed to load preview frame");
-        setSection(data.section);
+        const raw = data.section as Record<string, unknown>;
+        // Scalar OG props may arrive as nested objects from DB field mapping (e.g. category).
+        // Preserve string[] for category (tags → badges in og_image_preview).
+        // Preserve full `content` string for reading-time calculation.
+        const category = Array.isArray(raw.category)
+          ? raw.category
+          : (coercePreviewScalar(raw.category) ?? raw.category);
+        const content =
+          typeof raw.content === "string" ? raw.content : (coercePreviewScalar(raw.content) ?? raw.content);
+        const normalized = {
+          ...raw,
+          title: coercePreviewScalar(raw.title) ?? raw.title,
+          category,
+          author: coercePreviewScalar(raw.author) ?? raw.author,
+          content,
+          reading_time: coercePreviewScalar(raw.reading_time) ?? raw.reading_time,
+          logo: coercePreviewScalar(raw.logo) ?? raw.logo,
+        } as Section;
+        setSection(normalized);
         if (data.theme === "light" || data.theme === "dark") setTheme(data.theme);
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }, [contentType, slug, locale]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!error && section) return;
+    if (window.parent === window) return;
+    window.parent.postMessage(
+      { type: "preview-error", error: error || "No section" },
+      "*",
+    );
+  }, [loading, error, section]);
 
   if (loading) {
     return (

@@ -152,6 +152,8 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
           locale={effectiveLocale}
           programSlug={type === "program" ? slug : undefined}
           singleEntry={data.singleEntry as Record<string, unknown> | undefined}
+          meta={data.meta as Record<string, unknown> | undefined}
+          param={data.param as Record<string, unknown> | undefined}
         />
       </MenuVisualContextProvider>
       <div className="group relative">

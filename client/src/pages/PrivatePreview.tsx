@@ -270,6 +270,8 @@ export default function PrivatePreview() {
           version={version ? Number(version) : undefined}
           isSharedTemplate={isSharedTemplate}
           singleEntry={(content as any).singleEntry}
+          meta={(content as any).meta}
+          param={(content as any).param}
           allowEntryStructuralOverrides={!isSharedLayout || pageDetached}
         />
       </MenuVisualContextProvider>

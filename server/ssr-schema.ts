@@ -12,7 +12,7 @@ import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRob
 import { applyFilters, applyMatchCountSort, type QueryFilter } from "./query-entries";
 import { faqItemKey } from "./dynamic-entries";
 import { mergeSingleTemplate } from "./database-single-loader";
-import { resolveSingleVars } from "./single-resolver";
+import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
@@ -470,7 +470,12 @@ export function generateDatabaseSsrHtml(
     const template = mergeSingleTemplate(contentType, locale, (record.slug as string) || undefined, undefined, contentRoot);
     const templateSections = template?.sections;
     if (Array.isArray(templateSections)) {
-      const resolvedSections = resolveSingleVars(templateSections, record) as Array<Record<string, unknown>>;
+      const resolvedSections = resolveAllTemplateVars(templateSections, {
+        singleEntry: record,
+        meta: (template?.meta as Record<string, unknown> | undefined),
+        contentRoot,
+        context: { locale },
+      }) as Array<Record<string, unknown>>;
       const context: SchemaComponentContext = {
         locale,
         contentRoot,
@@ -597,7 +602,11 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
     if (merged.data && merged.isSharedTemplate) {
       // Shared-template pages may reference {{ single.* }} vars; the merged
       // entry data itself is the "single" record for static entries.
-      pageData = resolveSingleVars(pageData, pageData) as Record<string, unknown>;
+      pageData = resolveAllTemplateVars(pageData, {
+        singleEntry: pageData,
+        contentRoot,
+        context: { locale: route.locale },
+      }) as Record<string, unknown>;
     }
 
     const scripts: string[] = [];

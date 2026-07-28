@@ -67,7 +67,13 @@ describe("updateContentTypeConfig database unlink", () => {
     resetRegistry(contentRoot);
     const after = getContentTypeConfig("blog", contentRoot);
     expect(after?.database).toBeUndefined();
-    expect(after?.field_mapping).toEqual({ slug: "slug", title: "title" });
+    expect(after?.field_mapping).toMatchObject({
+      _slug: "slug",
+      title: "title",
+      _locale: expect.any(String),
+      _image: expect.any(String),
+    });
+    expect(after?.field_mapping).not.toHaveProperty("slug");
     expect(after?.url_pattern.en).toBe("/en/blog/:slug");
 
     const raw = fs.readFileSync(path.join(contentRoot, "content-types.yml"), "utf-8");

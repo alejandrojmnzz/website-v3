@@ -383,6 +383,9 @@ export default function MediaGallery() {
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteResults, setBulkDeleteResults] = useState<BulkDeleteResult[] | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProviderView, setSettingsProviderView] = useState<string | null>(null);
   const [deduplicating, setDeduplicating] = useState(false);
@@ -557,12 +560,25 @@ export default function MediaGallery() {
           variant: "destructive",
           duration: 8000,
         });
-        return;
+        return false;
       }
       toast({ title: "Deleted", description: data.message });
       queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+      return true;
     } catch {
       toast({ title: "Delete failed", description: "Could not delete image from registry", variant: "destructive" });
+      return false;
+    }
+  };
+
+  const confirmSingleDelete = async () => {
+    if (!deleteConfirmId) return;
+    setDeleting(true);
+    try {
+      await handleDelete(deleteConfirmId);
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmId(null);
     }
   };
 
@@ -891,6 +907,7 @@ export default function MediaGallery() {
   const handleBulkDelete = async () => {
     if (selectedImages.size === 0) return;
     setBulkDeleting(true);
+    setBulkDeleteConfirmOpen(false);
     try {
       const res = await apiRequest("POST", "/api/image-registry/bulk-delete", {
         ids: Array.from(selectedImages),
@@ -1944,7 +1961,7 @@ export default function MediaGallery() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
-                              onClick={() => handleDelete(id)}
+                              onClick={() => setDeleteConfirmId(id)}
                               data-testid={`button-delete-${id}`}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
@@ -2045,7 +2062,7 @@ export default function MediaGallery() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={handleBulkDelete}
+                  onClick={() => setBulkDeleteConfirmOpen(true)}
                   disabled={bulkDeleting}
                   data-testid="button-bulk-delete"
                 >
@@ -2840,6 +2857,99 @@ export default function MediaGallery() {
               data-testid="button-confirm-reset-db"
             >
               {resettingDb ? "Resetting…" : "Reset all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteConfirmId !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteConfirmId(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-confirm-delete-image">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this image?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Permanently remove{" "}
+                  <span className="font-mono font-semibold text-foreground">{deleteConfirmId}</span>{" "}
+                  from the Media Gallery.
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Removes the entry from <code className="text-xs">image-registry.json</code></li>
+                  <li>Deletes the file and any optimized srcset variants from storage</li>
+                  <li>Blocked if the image is still referenced in content YAML</li>
+                </ul>
+                <p>
+                  Content fields that only store this URL are not auto-cleared — fix those separately
+                  if needed.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} data-testid="button-delete-image-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmSingleDelete();
+              }}
+              data-testid="button-delete-image-confirm"
+            >
+              {deleting ? "Deleting…" : "Delete image"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={bulkDeleteConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !bulkDeleting) setBulkDeleteConfirmOpen(false);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-confirm-bulk-delete">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedImages.size} image{selectedImages.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Permanently remove the selected images from the Media Gallery.
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Removes each entry from <code className="text-xs">image-registry.json</code></li>
+                  <li>Deletes files and optimized srcset variants from storage</li>
+                  <li>Skips any image still referenced in content YAML (reported in results)</li>
+                </ul>
+                <p>
+                  URL fields on database entries or pages are not auto-cleared.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting} data-testid="button-bulk-delete-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleBulkDelete();
+              }}
+              data-testid="button-bulk-delete-confirm"
+            >
+              {bulkDeleting ? "Deleting…" : "Delete selected"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

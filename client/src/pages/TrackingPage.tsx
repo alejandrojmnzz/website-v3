@@ -7,6 +7,7 @@ import {
   IconChevronUp,
   IconCircleCheck,
   IconCircleX,
+  IconCode,
   IconDeviceFloppy,
   IconInfoCircle,
   IconLoader2,
@@ -27,10 +28,12 @@ import JsonViewer from "@/components/editing/JsonViewer";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { getGtmWebStatus, type GtmWebStatus } from "@/lib/gtm-web";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { TRACKING_EVENTS } from "@/lib/tracking";
 
 interface TagManagerConfig {
+  web_container_id: string;
   sgtm_enabled: boolean;
   sgtm_server_url: string;
   sgtm_proxy_path: string;
@@ -38,6 +41,248 @@ interface TagManagerConfig {
 
 interface OptimizationConfig {
   tagmanager: TagManagerConfig;
+}
+
+function WebContainerSection() {
+  const { toast } = useToast();
+  const [status, setStatus] = useState<GtmWebStatus>(() => getGtmWebStatus());
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const { data, isLoading } = useQuery<OptimizationConfig>({
+    queryKey: ["/api/settings/optimization"],
+  });
+
+  const [webContainerId, setWebContainerId] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (data?.tagmanager) {
+      setWebContainerId(data.tagmanager.web_container_id || "");
+      setDirty(false);
+    }
+  }, [data]);
+
+  useEffect(() => {
+    setStatus(getGtmWebStatus());
+
+    const interval = window.setInterval(() => {
+      const next = getGtmWebStatus();
+      setStatus(next);
+      if (next.scriptLoaded) {
+        window.clearInterval(interval);
+      }
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await apiRequest("PUT", "/api/settings/optimization", {
+        tagmanager: {
+          web_container_id: webContainerId.trim(),
+        },
+      });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/optimization"] });
+      setDirty(false);
+      toast({
+        title: "Web container ID saved",
+        description: "Reload the page for the new ID to appear in the HTML shell.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Failed to save",
+        description: err.message || String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card data-testid="card-gtm-web-container">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <IconCode className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Web Container</CardTitle>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {status.valid ? (
+            <Badge
+              variant="outline"
+              className="gap-1.5 text-sm px-3 py-1 text-green-700 dark:text-green-400 border-green-500/40 bg-green-500/10"
+              data-testid="badge-gtm-web-configured"
+            >
+              <IconCircleCheck className="h-4 w-4" />
+              Correctly Configured
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="gap-1.5 text-sm px-3 py-1 text-destructive border-destructive/40 bg-destructive/10"
+              data-testid="badge-gtm-web-error"
+            >
+              <IconCircleX className="h-4 w-4" />
+              Configuration Error
+            </Badge>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!dirty || saving || isLoading}
+            data-testid="button-save-web-container"
+          >
+            {saving ? (
+              <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+            )}
+            Save
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <label
+                className="text-xs font-medium text-muted-foreground"
+                htmlFor="gtm-web-container-id"
+              >
+                Tag ID
+              </label>
+              <Input
+                id="gtm-web-container-id"
+                placeholder="GTM-XXXXXXX"
+                value={webContainerId}
+                onChange={(e) => {
+                  setWebContainerId(e.target.value);
+                  setDirty(true);
+                }}
+                className="font-mono text-sm max-w-sm"
+                data-testid="input-gtm-web-container-id"
+              />
+              <p className="text-xs text-muted-foreground">
+                Active in this page shell:{" "}
+                <code className="font-mono" data-testid="text-gtm-web-container-id">
+                  {status.containerId || "(not set)"}
+                </code>
+                {status.containerId &&
+                  webContainerId.trim() &&
+                  status.containerId !== webContainerId.trim() && (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {" "}
+                      — reload after save to apply
+                    </span>
+                  )}
+              </p>
+            </div>
+
+            {!status.valid && status.issues.length > 0 && (
+              <div
+                className="flex items-start gap-1.5 text-xs text-destructive"
+                data-testid="status-gtm-web-issues"
+              >
+                <IconCircleX className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{status.issues[0]}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium flex items-center gap-1.5">
+                <IconInfoCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                How it works
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Stored in{" "}
+                <code className="font-mono text-xs">settings.yml</code> as{" "}
+                <code className="font-mono text-xs">
+                  optimization.tagmanager.web_container_id
+                </code>{" "}
+                and injected into the HTML shell on each request (no client API wait). Separate
+                from the server-side (sGTM) proxy in the card below. Deferred load timing is
+                unchanged.
+              </p>
+              <ul className="list-disc pl-5 space-y-1.5 text-sm text-muted-foreground">
+                <li>
+                  Early <code className="font-mono text-xs">window.dataLayer</code> init in{" "}
+                  <code className="font-mono text-xs">&lt;head&gt;</code> so events queue before
+                  GTM loads.
+                </li>
+                <li>
+                  Deferred <code className="font-mono text-xs">gtm.js</code> on first interaction (
+                  <code className="font-mono text-xs">pointerdown</code> /{" "}
+                  <code className="font-mono text-xs">keydown</code> /{" "}
+                  <code className="font-mono text-xs">scroll</code> /{" "}
+                  <code className="font-mono text-xs">touchstart</code>) or after a 15s fallback —
+                  keeps GTM out of Lighthouse&apos;s main trace.
+                </li>
+                <li>
+                  Noscript iframe in <code className="font-mono text-xs">&lt;body&gt;</code> for
+                  browsers with JavaScript disabled.
+                </li>
+              </ul>
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid="text-gtm-web-script-status"
+              >
+                Script:{" "}
+                {status.scriptLoaded
+                  ? "loaded"
+                  : "waiting (loads on first interaction or after 15s)"}
+              </p>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowAdvanced((v) => !v)}
+                data-testid="button-gtm-web-advanced"
+              >
+                {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+                <IconChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+                />
+              </button>
+              {showAdvanced && (
+                <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs text-muted-foreground">
+                  <p>
+                    Settings:{" "}
+                    <code className="font-mono">
+                      settings.yml → optimization.tagmanager.web_container_id
+                    </code>
+                  </p>
+                  <p>
+                    HTML placeholder + inject:{" "}
+                    <code className="font-mono">client/index.html</code>,{" "}
+                    <code className="font-mono">server/gtm-web-inject.ts</code>
+                  </p>
+                  <p>
+                    Status helper: <code className="font-mono">client/src/lib/gtm-web.ts</code>
+                  </p>
+                  <p>
+                    App events push to dataLayer via{" "}
+                    <code className="font-mono">client/src/lib/tracking.ts</code>
+                  </p>
+                  <p>
+                    Operator guide:{" "}
+                    <code className="font-mono">docs/gtm-analytics-setup.md</code>
+                  </p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function GTMSection() {
@@ -127,6 +372,8 @@ function GTMSection() {
 
   return (
     <div className="space-y-4">
+      <WebContainerSection />
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
           <div className="flex items-center gap-2">

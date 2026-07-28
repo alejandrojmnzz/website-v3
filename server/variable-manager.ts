@@ -11,6 +11,16 @@ import { markFileAsModified } from "./sync-state";
 import { child } from "./logger";
 const log = child({ module: "variable-manager" });
 
+export const BRAND_VAR_KEYS = ["brand.title", "brand.logo", "brand.logo_dark"] as const;
+export type BrandVarKey = (typeof BRAND_VAR_KEYS)[number];
+
+export function isBrandVariable(name: string): boolean {
+  return name.startsWith("brand.");
+}
+
+const DEFAULT_BRAND_LOGO_ID = "4geeks-devs-logo-1763162063433";
+const DEFAULT_BRAND_TITLE = "4Geeks Academy";
+
 export interface VariableCondition {
   query: Record<string, string>;
   value: string;
@@ -85,6 +95,8 @@ class VariableManager {
       this.initialized = true;
 
       this.aliasReservedIntoGlobal();
+      this.ensureBrandDefaults();
+      this.markBrandProtected();
 
       const count = Object.keys(this.variables).length;
       log.info(`[VariableManager] Loaded ${count} variable definitions from ${this.contentFolderName}`);
@@ -94,7 +106,63 @@ class VariableManager {
       log.error({ err: err }, "[VariableManager] Failed to load variables.yml:");
       this.variables = {};
       this.initialized = true;
+      this.ensureBrandDefaults();
+      this.markBrandProtected();
     }
+  }
+
+  private markBrandProtected(): void {
+    for (const key of Object.keys(this.variables)) {
+      if (isBrandVariable(key)) {
+        this.variables[key] = { ...this.variables[key], isReserved: true };
+      }
+    }
+  }
+
+  /** Seed brand.* keys if missing (in-memory + persist when any were added). */
+  private ensureBrandDefaults(): void {
+    let changed = false;
+    const defaults: Record<BrandVarKey, string> = {
+      "brand.title": DEFAULT_BRAND_TITLE,
+      "brand.logo": DEFAULT_BRAND_LOGO_ID,
+      "brand.logo_dark": "",
+    };
+    for (const key of BRAND_VAR_KEYS) {
+      if (!this.variables[key]) {
+        this.variables[key] = { default: defaults[key], isReserved: true };
+        changed = true;
+      } else {
+        this.variables[key] = { ...this.variables[key], isReserved: true };
+      }
+    }
+    if (changed && fs.existsSync(path.dirname(this.variablesPath))) {
+      try {
+        this.save();
+        log.info("[VariableManager] Seeded brand.* defaults into variables.yml");
+      } catch (err) {
+        log.warn({ err }, "[VariableManager] Could not persist brand.* defaults");
+      }
+    }
+  }
+
+  getBrandSettings(): { title: string; logo: string; logo_dark: string } {
+    this.ensureInitialized();
+    return {
+      title: this.variables["brand.title"]?.default ?? DEFAULT_BRAND_TITLE,
+      logo: this.variables["brand.logo"]?.default ?? DEFAULT_BRAND_LOGO_ID,
+      logo_dark: this.variables["brand.logo_dark"]?.default ?? "",
+    };
+  }
+
+  updateBrandSetting(key: "title" | "logo" | "logo_dark", value: string): void {
+    this.ensureInitialized();
+    const varKey = `brand.${key}` as BrandVarKey;
+    if (!this.variables[varKey]) {
+      this.variables[varKey] = {};
+    }
+    this.variables[varKey].default = value;
+    this.variables[varKey].isReserved = true;
+    this.save();
   }
 
   private aliasReservedIntoGlobal(): void {
@@ -406,6 +474,9 @@ class VariableManager {
 
   renameVariable(oldName: string, newName: string): void {
     this.ensureInitialized();
+    if (isBrandVariable(oldName) || this.variables[oldName]?.isReserved) {
+      throw new Error(`Variable "${oldName}" is protected and cannot be renamed`);
+    }
     if (!this.variables[oldName]) {
       throw new Error(`Variable "${oldName}" does not exist`);
     }

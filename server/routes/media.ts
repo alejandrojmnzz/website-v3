@@ -92,6 +92,7 @@ import {
 } from "../versioning";
 import { mediaGallery, MediaGallery } from "../media-gallery";
 import { getMergedImageRegistry } from "../image-registry-resolver";
+import { applyTagsToRegistry } from "../image-auto-tagger";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
@@ -355,6 +356,29 @@ export function registerMediaRoutes(app: Express): void {
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Delete failed" });
+    }
+  });
+
+  /** Idempotent merge of tags onto a registry image (e.g. ensure og-image after gallery pick). */
+  app.post("/api/image-registry/:id/tags", (req, res) => {
+    try {
+      const add = (req.body as { add?: unknown })?.add;
+      if (!Array.isArray(add) || add.length === 0 || !add.every((t) => typeof t === "string" && t.trim())) {
+        res.status(400).json({ error: "Body must include non-empty 'add' string array" });
+        return;
+      }
+      const tags = add.map((t: string) => t.trim()).filter(Boolean);
+      const result = applyTagsToRegistry(req.params.id, tags);
+      res.json({
+        success: true,
+        id: req.params.id,
+        applied: result.applied,
+        tags: result.existing,
+      });
+    } catch (error: any) {
+      const message = error?.message || "Failed to apply tags";
+      const status = typeof message === "string" && message.includes("not found") ? 404 : 500;
+      res.status(status).json({ error: message });
     }
   });
 

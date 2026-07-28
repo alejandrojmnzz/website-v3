@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import {
   EntryPreviewCard,
+  EntryPreviewConfigDialog,
   type ContentTypePreviewConfig,
+  type EntryPreviewFailure,
 } from "@/components/EntryPreviewAdmin";
 import {
   captureEntryPreview,
@@ -19,6 +21,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -45,6 +48,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageModal";
@@ -53,6 +57,7 @@ import type { SitemapUrl } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
 import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
+import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
@@ -112,7 +117,7 @@ interface ContentTypeConfig {
   name: string;
   label: string;
   directory: string;
-  field_mapping?: Record<string, string | { source: string; default: string }>;
+  field_mapping?: Record<string, string | { source: string; default: string | null }>;
   editor?: Record<string, {
     type?: string;
     options?: (string | { value: string; label: string })[];
@@ -538,7 +543,7 @@ function ClearCacheConfirmDialog({
             </div>
             <p>
               To use Clear Cache here, connect a database first via{" "}
-              <span className="text-foreground">Manage Connection</span>.
+              <span className="text-foreground">Add Connection</span>.
             </p>
           </div>
         )}
@@ -1066,6 +1071,8 @@ function DataSourceDialog({
       const hreflangsSource = hreflangsIsTransformer ? null : hreflangsField;
       for (const [k, v] of Object.entries(fieldMapping)) {
         if (v != null && v !== "__none__") {
+          // Aliases of system specials — not regular schema keys
+          if (k === "slug" || k === "image") continue;
           // skip any regular mapping whose source is the same as the locale field —
           // it's already captured by _locale and would create a redundant duplicate
           if (!transformerModes[k] && localeSource && v === localeSource) continue;
@@ -1552,11 +1559,13 @@ function DataSourceDialog({
             {step === "mapping" && (
               <div className="space-y-4" data-testid="step-mapping">
                 <p className="text-sm text-muted-foreground">
-                  Map database fields to content type properties. Pick from detected fields, type a custom dot-path, or compute a value with a function.
+                  Map database fields to content type properties. Pick from detected fields, type a custom dot-path, or use the Code button to compute a value with a function.
                 </p>
 
                 <p className="text-xs text-muted-foreground" data-testid="text-field-mapping-note">
                   Use <code className="font-mono bg-muted px-1 rounded">raw.fieldName</code> to reference original API fields, or <code className="font-mono bg-muted px-1 rounded">db.fieldName</code> (default) for normalized database fields.
+                  The <strong className="font-medium text-foreground">Code</strong> menu chooses how the live value is produced: another field, or a function{" "}
+                  <code className="font-mono bg-muted px-1 rounded">(value, item) =&gt; result</code>.
                 </p>
 
                 {fieldMappingNotes && (
@@ -1675,23 +1684,51 @@ function DataSourceDialog({
                               {isOptional ? "optional" : "required"}
                             </button>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={`flex-shrink-0 ${isFnMode ? "text-primary" : ""}`}
-                            onClick={() => {
+                          <ComputeModeMenu
+                            fieldKey={standardField}
+                            mode={isFnMode ? "function" : "field"}
+                            testId={`button-toggle-transform-${standardField}`}
+                            onNotComputed={() => {
                               setTransformerModes((prev) => {
-                                const next = { ...prev, [standardField]: !prev[standardField] };
-                                if (!next[standardField]) {
-                                  setFieldMapping((p) => ({ ...p, [standardField]: null }));
-                                }
+                                const next = { ...prev };
+                                delete next[standardField];
                                 return next;
                               });
+                              setFieldMapping((prev) => {
+                                const cur = prev[standardField];
+                                if (typeof cur === "string" && (cur.includes("=>") || cur.includes("return "))) {
+                                  return { ...prev, [standardField]: standardField };
+                                }
+                                return prev;
+                              });
                             }}
-                            data-testid={`button-toggle-transform-${standardField}`}
-                          >
-                            <Code className="h-3.5 w-3.5" />
-                          </Button>
+                            onPickField={() => {
+                              setTransformerModes((prev) => {
+                                const next = { ...prev };
+                                delete next[standardField];
+                                return next;
+                              });
+                              setFieldMapping((prev) => {
+                                const cur = prev[standardField];
+                                if (typeof cur === "string" && (cur.includes("=>") || cur.includes("return "))) {
+                                  return { ...prev, [standardField]: standardField };
+                                }
+                                return prev;
+                              });
+                            }}
+                            onPickFunction={() => {
+                              setTransformerModes((prev) => ({ ...prev, [standardField]: true }));
+                              setFieldMapping((prev) => {
+                                const cur = prev[standardField];
+                                const looksLikeFn =
+                                  typeof cur === "string" && (cur.includes("=>") || cur.includes("return "));
+                                return {
+                                  ...prev,
+                                  [standardField]: looksLikeFn ? cur : "(value, item) => value",
+                                };
+                              });
+                            }}
+                          />
                           <Button
                             variant="ghost"
                             size="icon"
@@ -2192,13 +2229,22 @@ function DbLangCell({
 }
 
 type MissingEntry = { slug: string; files: string[] };
-type FieldValidationResult = { valid: boolean; total: number; found: number; missing: MissingEntry[] };
+type FieldValidationResult = {
+  valid: boolean;
+  total: number;
+  found: number;
+  missing: MissingEntry[];
+  isNewField?: boolean;
+};
 type ValidationState = Record<string, FieldValidationResult | "loading" | null>;
 
 function FieldValidationIndicator({ result, optional }: { result: FieldValidationResult | "loading" | null | undefined; optional?: boolean }) {
   if (!result) return null;
   if (result === "loading") {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground flex-shrink-0" />;
+  }
+  if (result.isNewField) {
+    return <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" data-testid="icon-validation-new-field" />;
   }
   if (result.valid || optional) {
     return <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 flex-shrink-0" data-testid="icon-validation-valid" />;
@@ -2324,9 +2370,16 @@ function FieldValidationMessage({
   );
 }
 
-const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs"] as const;
-const RESERVED_IMAGE_FIELD = "image";
+const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_image"] as const;
+/** Must match server RESERVED_IMAGE_FIELD — preview/OG system special. */
+const RESERVED_IMAGE_FIELD = "_image";
+const FORBIDDEN_SCHEMA_FIELD = "image";
+/** Must match server SLUG_ALIAS_FIELD — runtime alias of `_slug`. */
+const FORBIDDEN_SLUG_ALIAS = "slug";
+const FORBIDDEN_SCHEMA_FIELDS = new Set([FORBIDDEN_SCHEMA_FIELD, FORBIDDEN_SLUG_ALIAS]);
 const SPECIAL_FIELD_DEFAULTS: Record<string, string> = {
+  _slug: "slug",
+  _locale: "locale",
   _hreflangs: "translations",
 };
 
@@ -2337,55 +2390,301 @@ const SPECIAL_FIELD_INFO: Record<
   _slug: {
     title: "_slug — Entry identity",
     summary:
-      "Required for database-backed content types. Points at the field that uniquely identifies each item for URL routing and lookups.",
+      "System field on every content type. Points at the value that uniquely identifies each entry for URL routing and lookups. The resolved value is also available as {{ single.slug }} (alias). You cannot declare a custom field named slug.",
     howItWorks: [
-      "The value is the source field (or computed function) on each database record that holds the entry’s URL slug.",
-      "The site uses it to resolve /en/…/:slug and /es/…/:slug to the correct row.",
-      "It is a system field: it is not exposed as {{ single._slug }} in templates.",
+      "For database types, this is usually a column on each row (e.g. slug).",
+      "For static types, default identity is the YAML/folder slug field.",
+      "Templates use {{ single.slug }} or {{ single._slug }} (both exposed).",
     ],
     howToSet: [
-      "Map it to a string field such as slug or id.",
+      "Map it to a string field such as slug or id (DB identity).",
       "Or use a computed function: (value, item) => item.slug",
-      "In the identity wizard step, pick the Slug Field (_slug) control.",
     ],
     expected: "A non-empty string unique per locale (e.g. \"how-to-write-quizzes\").",
   },
   _locale: {
-    title: "_locale — Language of the row",
+    title: "_locale — Language of the entry",
     summary:
-      "Recommended for multi-locale database types. Identifies which language each database row belongs to.",
+      "System field on every content type. Identifies which language each entry/row belongs to. May be empty on static types when locale comes from the file name. Exposed as {{ single.locale }} and {{ single._locale }}.",
     howItWorks: [
       "Each DB row is one locale; _locale tells the system whether the row is en, es, etc.",
-      "Used when filtering items by locale and when building locale-aware URLs.",
-      "API values like \"us\" are often normalized to \"en\" via a transform function.",
+      "On static types, locale often comes from the filename (en.yml); mapping locale is optional.",
+      "Used when filtering by locale and building locale-aware URLs. Not required for template exposure.",
     ],
     howToSet: [
-      "Map it to lang, language, or locale on the mapped item.",
-      "Or use a function: (value, item) => String(item.lang) === 'us' ? 'en' : String(item.lang)",
-      "In the identity wizard, use Locale Field (_locale).",
+      "Map it to lang, language, or locale when present on the entry (DB).",
+      "Leave empty on static types if locale is implied by the file / URL.",
     ],
-    expected: "A site locale code matching url_pattern keys (typically \"en\" or \"es\").",
+    expected: "A site locale code matching url_pattern keys (typically \"en\" or \"es\"), or empty on static.",
   },
   _hreflangs: {
     title: "_hreflangs — Locale → slug map",
     summary:
-      "Recommended for multi-locale database types when EN/ES (or other) slugs differ. Links translation partners for language switching, hreflang tags, and sitemap alternates.",
+      "Routing-only system field for alternate URLs when EN/ES (or other) slugs differ. Not available as a template variable. On static types this is read-only — alternates use locale files / slug overrides.",
     howItWorks: [
       "Expects a dictionary: { en: \"english-slug\", es: \"spanish-slug\" }.",
-      "Keys are site locales (us is normalized to en). Values are the counterpart entry’s slug.",
-      "getAlternateUrls reads this map to build alternate URLs; the same-slug hreflang fallback is skipped when _hreflangs is configured.",
-      "Converting the type to static uses this map to create one folder with per-locale slug: overrides.",
+      "getAlternateUrls reads this map for language switching, hreflang, and sitemap alternates.",
+      "Static types keep folder / per-locale slug behavior; do not set _hreflangs there.",
+      "Do not use {{ single._hreflangs }} in templates — it is stripped from the single bag.",
     ],
     howToSet: [
-      "Map it to a field that already holds the map (e.g. translations from the API).",
-      "Or compute it: (value, item) => item.translations",
-      "Keep the DB field_mapping so the source column exists on mapped items (e.g. translations: translations).",
-      "In the identity wizard, use Hreflangs Field (_hreflangs).",
+      "On DB types: map to a translations-like field or a function.",
+      "On static types: not editable — use locale YAML slug overrides instead.",
     ],
     expected:
-      "Record<locale, slug>, e.g. { \"en\": \"how-to-write-quizzes\", \"es\": \"como-crear-qui\" }. Partial maps are fine; the current row’s locale/slug is merged in automatically.",
+      "Record<locale, slug> on DB types. Unused on static (read-only).",
+  },
+  _image: {
+    title: "_image — Preview / OG image",
+    summary:
+      "System field for entry list thumbnails and Open Graph. Exposed as {{ single.image }} and {{ single._image }}. You cannot declare a custom field named image.",
+    howItWorks: [
+      "Maps to a URL (or path) on the entry / database row.",
+      "When empty, optional preview.component screenshots can fill the gap.",
+      "Not indexable or unique.",
+    ],
+    howToSet: [
+      "Activate automatic preview generation on the content type.",
+      "Upload a specific image per entry.",
+      "Or use Code → Use a function to build a dynamic URL.",
+      "On DB types you can also map to an image URL field (e.g. featured_image, og_image).",
+    ],
+    expected: "A URL string, or empty.",
   },
 };
+
+function formatDefaultDisplay(value: string | null | undefined): string {
+  if (value === null) return "null";
+  if (value === undefined) return "(no default)";
+  return JSON.stringify(value);
+}
+
+/** Read-only default until clicked; then inline edit with null affordance. */
+function ClickToEditDefault({
+  fieldKey,
+  value,
+  onChange,
+}: {
+  fieldKey: string;
+  value: string | null | undefined;
+  onChange: (v: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [draftIsNull, setDraftIsNull] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEditing = () => {
+    setDraftIsNull(value === null);
+    setDraft(value === null || value === undefined ? "" : value);
+    setEditing(true);
+  };
+
+  useEffect(() => {
+    if (editing && !draftIsNull) inputRef.current?.focus();
+  }, [editing, draftIsNull]);
+
+  const commit = () => {
+    onChange(draftIsNull ? null : draft);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 min-w-0 flex-1" data-testid={`edit-default-${fieldKey}`}>
+        <Input
+          ref={inputRef}
+          value={draftIsNull ? "" : draft}
+          onChange={(e) => {
+            setDraftIsNull(false);
+            setDraft(e.target.value);
+          }}
+          placeholder="Default value"
+          className="text-xs font-mono h-7 flex-1 min-w-0"
+          disabled={draftIsNull}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") cancel();
+          }}
+          onBlur={(e) => {
+            // Don't commit if clicking null / cancel within the edit group
+            const next = e.relatedTarget as HTMLElement | null;
+            if (next?.closest(`[data-testid="edit-default-${fieldKey}"]`)) return;
+            commit();
+          }}
+          data-testid={`input-default-${fieldKey}`}
+        />
+        <Button
+          type="button"
+          variant={draftIsNull ? "default" : "outline"}
+          size="sm"
+          className="text-[10px] h-7 flex-shrink-0"
+          onClick={() => {
+            setDraftIsNull(true);
+            setDraft("");
+          }}
+          data-testid={`button-default-null-${fieldKey}`}
+        >
+          null
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 flex-shrink-0"
+          onClick={commit}
+          data-testid={`button-default-save-${fieldKey}`}
+        >
+          <Check className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="flex-1 min-w-0 text-left text-[11px] text-muted-foreground truncate rounded-md px-1.5 py-1 hover:bg-muted/60 focus:outline-none focus:ring-1 focus:ring-ring"
+      onClick={startEditing}
+      title="Click to edit default"
+      data-testid={`button-default-display-${fieldKey}`}
+    >
+      default: <code className="font-mono">{formatDefaultDisplay(value)}</code>
+    </button>
+  );
+}
+
+/** Code icon menu for choosing how a field value is computed. */
+function ComputeModeMenu({
+  fieldKey,
+  mode,
+  onNotComputed,
+  onPickField,
+  onPickFunction,
+  testId,
+}: {
+  fieldKey: string;
+  mode: "none" | "field" | "function";
+  onNotComputed: () => void;
+  onPickField: () => void;
+  onPickFunction: () => void;
+  /** Override trigger test id (wizard uses button-toggle-transform-*). */
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const pick = (action: () => void) => {
+    action();
+    setOpen(false);
+  };
+
+  const items: {
+    id: "none" | "field" | "function";
+    label: string;
+    info: string;
+    testIdSuffix: string;
+    onSelect: () => void;
+  }[] = [
+    {
+      id: "none",
+      label: "Not computed",
+      info: "Use the field as-is (same-name identity). No remap and no function — the default when you only need a fallback default value.",
+      testIdSuffix: "none",
+      onSelect: onNotComputed,
+    },
+    {
+      id: "field",
+      label: "Value from another field",
+      info: "Read this property from a different source field or dotted path on the entry / database row.",
+      testIdSuffix: "field",
+      onSelect: onPickField,
+    },
+    {
+      id: "function",
+      label: "Use a function",
+      info: "Compute with a JavaScript function (value, item) => result. Runs in a secure sandbox (50ms timeout).",
+      testIdSuffix: "function",
+      onSelect: onPickFunction,
+    },
+  ];
+
+  return (
+    <Popover modal={false} open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={`flex-shrink-0 ${mode !== "none" ? "text-primary" : ""}`}
+          title="How to compute this value"
+          data-testid={testId ?? `button-code-${fieldKey}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Code className="h-3.5 w-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={4}
+        className="z-[10001] w-64 p-1 pointer-events-auto"
+        data-testid={`menu-compute-${fieldKey}`}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        <TooltipProvider delayDuration={200}>
+          <div className="flex flex-col">
+            {items.map((item) => {
+              const selected = mode === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className={`flex items-center gap-0.5 rounded-sm ${selected ? "bg-accent/60" : ""}`}
+                >
+                  <button
+                    type="button"
+                    className="relative flex flex-1 min-w-0 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => pick(item.onSelect)}
+                    data-testid={`menu-compute-${item.testIdSuffix}-${fieldKey}`}
+                  >
+                    {selected ? (
+                      <Check className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+                    ) : (
+                      <span className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                    )}
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex-shrink-0 p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
+                        aria-label={`About ${item.label}`}
+                        onClick={(e) => e.stopPropagation()}
+                        data-testid={`menu-compute-info-${item.testIdSuffix}-${fieldKey}`}
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="left"
+                      className="z-[10002] max-w-[220px] text-xs"
+                    >
+                      {item.info}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+        </TooltipProvider>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function SpecialFieldInfoDialog({
   fieldKey,
@@ -2406,7 +2705,7 @@ function SpecialFieldInfoDialog({
           <DialogTitle className="font-mono text-base">{title}</DialogTitle>
           <DialogDescription>
             {info?.summary ??
-              "Underscore-prefixed keys are system fields used for routing and locale linking. They are not exposed as {{ single.* }} template variables."}
+              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image are also exposed on {{ single.* }}; _hreflangs is routing-only."}
           </DialogDescription>
         </DialogHeader>
         {info ? (
@@ -2461,6 +2760,9 @@ function FieldMappingDialog({
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [specialInfoKey, setSpecialInfoKey] = useState<string | null>(null);
+  const [previewConfigOpen, setPreviewConfigOpen] = useState(false);
+  const reopenMappingAfterPreviewRef = useRef(false);
+  const skipNextConfigHydrateRef = useRef(false);
   const label = contentType.charAt(0).toUpperCase() + contentType.slice(1);
 
   const { data: config, isLoading } = useQuery<ContentTypeConfig>({
@@ -2472,21 +2774,28 @@ function FieldMappingDialog({
   const isDbBacked = !!config?.database?.slug;
 
   const [mappings, setMappings] = useState<Record<string, string>>({});
+  const [fieldDefaults, setFieldDefaults] = useState<Record<string, string | null>>({});
   const [indexedFields, setIndexedFields] = useState<string[]>([]);
   const [uniqueFields, setUniqueFields] = useState<string[]>(["slug"]);
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
+  const [newDefault, setNewDefault] = useState("");
+  const [newDefaultIsNull, setNewDefaultIsNull] = useState(false);
+  const [defaultSpecified, setDefaultSpecified] = useState(false);
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [showAddField, setShowAddField] = useState(false);
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [transformerModes, setTransformerModes] = useState<Record<string, boolean>>({});
   const [customModes, setCustomModes] = useState<Record<string, boolean>>({});
+  /** YAML: show source picker for a field (map from another field). */
+  const [remapModes, setRemapModes] = useState<Record<string, boolean>>({});
   const [optionalFields, setOptionalFields] = useState<Record<string, boolean>>({});
   const [newOptional, setNewOptional] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({});
   const [newValueValidation, setNewValueValidation] = useState<FieldValidationResult | "loading" | null>(null);
   const [editorHints, setEditorHints] = useState<Record<string, EditorHint>>({});
   const [hintDialogField, setHintDialogField] = useState<string | null>(null);
+  const [showFillFromAdvanced, setShowFillFromAdvanced] = useState(false);
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const requestCounters = useRef<Record<string, number>>({});
 
@@ -2524,6 +2833,21 @@ function FieldMappingDialog({
     enabled: open,
   });
 
+  // Raw DB columns — needed so specials/custom Fill-from can pick unmapped source keys
+  const { data: dbRawFieldsData } = useQuery<{ fields: string[] }>({
+    queryKey: ["/api/databases", dbSlugForHints, "raw-fields"],
+    queryFn: () => fetch(`/api/databases/${dbSlugForHints}/raw-fields`).then((r) => r.json()),
+    enabled: open && !!dbSlugForHints,
+    staleTime: 60_000,
+  });
+
+  const mergedSourceOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const k of allAvailableProps?.common ?? []) set.add(k);
+    for (const k of dbRawFieldsData?.fields ?? []) set.add(k);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allAvailableProps?.common, dbRawFieldsData?.fields]);
+
   // Unmapped props only — used in the "add new field" combobox
   const { data: availableProps } = useQuery<{ common: string[]; partial: { key: string; count: number; total: number }[] }>({
     queryKey: ["/api/content-types", contentType, "available-properties-exclude-mapped"],
@@ -2532,10 +2856,15 @@ function FieldMappingDialog({
   });
 
   useEffect(() => {
-    if (!config) return;
+    if (!open || !config) return;
+    if (skipNextConfigHydrateRef.current) {
+      skipNextConfigHydrateRef.current = false;
+      return;
+    }
     const fm: Record<string, string> = {};
     const tmodes: Record<string, boolean> = {};
     const optFields: Record<string, boolean> = {};
+    const defaults: Record<string, string | null> = {};
     if (config.field_mapping) {
       for (const [k, v] of Object.entries(config.field_mapping)) {
         if (typeof v === "string") {
@@ -2555,39 +2884,58 @@ function FieldMappingDialog({
           } else {
             fm[k] = v.source;
           }
+          if ("default" in v) {
+            defaults[k] = v.default as string | null;
+          }
         }
       }
     }
-    // DB types always expose known special fields in the UI (even if not yet mapped)
-    if (config.database?.slug) {
-      for (const key of KNOWN_SPECIAL_FIELDS) {
-        if (!(key in fm)) {
+    // System specials on every type (DB and static)
+    for (const key of KNOWN_SPECIAL_FIELDS) {
+      if (!(key in fm)) {
+        if (key === "_hreflangs" && !config.database?.slug) {
+          fm[key] = "";
+        } else if (key === "_image") {
+          fm[key] = "";
+        } else {
           fm[key] = SPECIAL_FIELD_DEFAULTS[key] ?? "";
         }
       }
     }
-    // Reserved image field is always present (source mapping optional / blank allowed)
-    if (!(RESERVED_IMAGE_FIELD in fm)) {
-      fm[RESERVED_IMAGE_FIELD] = "";
+    // Migrate legacy plain image → _image
+    if ("image" in fm) {
+      if (!fm[RESERVED_IMAGE_FIELD]) fm[RESERVED_IMAGE_FIELD] = fm.image;
+      delete fm.image;
+    }
+    // Migrate legacy plain slug → _slug
+    if ("slug" in fm) {
+      if (!fm._slug) fm._slug = fm.slug;
+      delete fm.slug;
     }
     setMappings(fm);
+    setFieldDefaults(defaults);
     setTransformerModes(tmodes);
     setOptionalFields(optFields);
     setNewOptional(false);
     // A source is "custom" if it contains a dot (dotted path like category.slug)
     const cmodes: Record<string, boolean> = {};
+    const rmodes: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(fm)) {
       if (!tmodes[k] && v.includes(".")) cmodes[k] = true;
+      // Non-identity source = remap (YAML shows source picker)
+      if (!tmodes[k] && !k.startsWith("_") && v && v !== k) rmodes[k] = true;
     }
     setCustomModes(cmodes);
+    setRemapModes(rmodes);
     setIndexedFields(config.indexes || []);
     setEditorHints(config.editor || {});
     setUniqueFields(config.unique_fields ?? ["slug"]);
     setValidation({});
     setShowAddField(false);
     setPendingDeleteKey(null);
+    setShowFillFromAdvanced(false);
     requestCounters.current = {};
-  }, [config]);
+  }, [open, config]);
 
   const validateSingleField = (key: string, source: string) => {
     if (isDbBacked || !source || key.startsWith("_")) return;
@@ -2598,6 +2946,23 @@ function FieldMappingDialog({
       .then((r) => r.ok ? r.json() : null)
       .then((result: FieldValidationResult | null) => {
         if (requestCounters.current[key] !== reqId) return;
+        if (!result) {
+          setValidation((prev) => ({ ...prev, [key]: null }));
+          return;
+        }
+        // Identity schema: always valid; warn when no entry has the key
+        if (source === key) {
+          setValidation((prev) => ({
+            ...prev,
+            [key]: {
+              ...result,
+              valid: true,
+              isNewField: result.total > 0 && result.found === 0,
+              missing: result.found === 0 ? [] : result.missing,
+            },
+          }));
+          return;
+        }
         setValidation((prev) => ({ ...prev, [key]: result }));
       })
       .catch(() => {
@@ -2710,8 +3075,32 @@ function FieldMappingDialog({
   const handleAddField = () => {
     const key = newKey.trim();
     if (!key || key in mappings) return;
-    const source = newValue.trim() || key;
+    if (FORBIDDEN_SCHEMA_FIELDS.has(key) || key === RESERVED_IMAGE_FIELD || key.startsWith("_")) {
+      toast({
+        title: key === FORBIDDEN_SCHEMA_FIELD
+          ? `Use system field ${RESERVED_IMAGE_FIELD} for preview/OG (aliased to {{ single.image }})`
+          : key === FORBIDDEN_SLUG_ALIAS
+            ? "Use system field _slug for entry identity (aliased to {{ single.slug }})"
+            : "Reserved or system field names cannot be added here",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!defaultSpecified) {
+      toast({
+        title: "Default required",
+        description: "Specify a default value for the new schema field (or set it to null).",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Static types: schema key = YAML parent key (identity). Remaps only for DB.
+    const source = isDbBacked ? (newValue.trim() || key) : key;
     setMappings((prev) => ({ ...prev, [key]: source }));
+    setFieldDefaults((prev) => ({
+      ...prev,
+      [key]: newDefaultIsNull ? null : newDefault,
+    }));
     if (newOptional) {
       setOptionalFields((prev) => ({ ...prev, [key]: true }));
     }
@@ -2722,6 +3111,9 @@ function FieldMappingDialog({
     }
     setNewKey("");
     setNewValue("");
+    setNewDefault("");
+    setNewDefaultIsNull(false);
+    setDefaultSpecified(false);
     setNewOptional(false);
     setNewValueValidation(null);
     setSourceDropdownOpen(false);
@@ -2731,18 +3123,37 @@ function FieldMappingDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const fullMapping: Record<string, string> = {};
+      const fullMapping: Record<string, string | { source: string; default: string | null }> = {};
       for (const [k, v] of Object.entries(mappings)) {
-        if (v) {
-          fullMapping[k] = transformerModes[k] ? "function:" + btoa(v) : (optionalFields[k] ? "?" + v : v);
+        if (FORBIDDEN_SCHEMA_FIELDS.has(k)) continue;
+        // Static regular fields: force identity (no rename)
+        const sourceValue = !isDbBacked && !k.startsWith("_") && !transformerModes[k]
+          ? k
+          : v;
+        if (sourceValue || KNOWN_SPECIAL_FIELDS.includes(k as typeof KNOWN_SPECIAL_FIELDS[number])) {
+          const encoded = transformerModes[k]
+            ? "function:" + btoa(sourceValue || "")
+            : (optionalFields[k] && sourceValue ? "?" + sourceValue : sourceValue || "");
+          if (!k.startsWith("_") && k in fieldDefaults) {
+            fullMapping[k] = { source: encoded, default: fieldDefaults[k] };
+          } else {
+            fullMapping[k] = encoded;
+          }
         }
       }
+
+      const safeIndexes = indexedFields.filter(
+        (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
+      );
+      const safeUnique = uniqueFields.filter(
+        (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
+      );
 
       const payload = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
         editor: Object.keys(editorHints).length > 0 ? editorHints : undefined,
-        indexes: indexedFields.length > 0 ? indexedFields : undefined,
-        unique_fields: uniqueFields,
+        indexes: safeIndexes.length > 0 ? safeIndexes : undefined,
+        unique_fields: safeUnique,
       };
 
       const res = await fetch(`/api/content-types/${contentType}/config`, {
@@ -2765,7 +3176,15 @@ function FieldMappingDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] });
       queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
-      toast({ title: `${label} field mappings saved` });
+      const newFieldWarnings = Object.entries(validation)
+        .filter(([, r]) => r && r !== "loading" && (r as FieldValidationResult).isNewField)
+        .map(([k]) => k);
+      toast({
+        title: `${label} fields saved`,
+        description: newFieldWarnings.length
+          ? `New schema fields (not yet on entries): ${newFieldWarnings.join(", ")}`
+          : undefined,
+      });
       onOpenChange(false);
     } catch {
       toast({ title: "Failed to save field mappings", variant: "destructive" });
@@ -2774,18 +3193,373 @@ function FieldMappingDialog({
     }
   };
 
-  const regularKeys = Object.keys(mappings).filter((k) => !k.startsWith("_"));
-  const specialKeysFromMappings = Object.keys(mappings).filter((k) => k.startsWith("_"));
-  const specialKeys = isDbBacked
-    ? Array.from(new Set<string>([...KNOWN_SPECIAL_FIELDS, ...specialKeysFromMappings]))
-    : specialKeysFromMappings;
+  const regularKeys = Object.keys(mappings).filter(
+    (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k),
+  );
+  const specialKeys = Array.from(
+    new Set<string>([...KNOWN_SPECIAL_FIELDS, ...Object.keys(mappings).filter((k) => k.startsWith("_"))]),
+  );
+  // Always show Fill from (source) for custom fields — unified schema model
+  const showSourceEditor = isDbBacked;
+
+  const defaultFunctionBody = (key: string) => {
+    if (key === "_slug") return "(value, item) => item.slug";
+    if (key === "_locale") return "(value) => value === 'us' ? 'en' : value";
+    if (key === "_hreflangs") return "(value, item) => item.translations";
+    if (key === "_image") return "(value, item) => value";
+    return "(value, item) => value";
+  };
+
+  const enterFunctionMode = (key: string) => {
+    setCustomModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setRemapModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setTransformerModes((prev) => ({ ...prev, [key]: true }));
+    setMappings((prev) => {
+      const cur = prev[key] || "";
+      // Don't keep a plain field path as function source text
+      const looksLikeFn = cur.includes("=>") || cur.includes("return ");
+      return {
+        ...prev,
+        [key]: looksLikeFn ? cur : defaultFunctionBody(key),
+      };
+    });
+    setValidation((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const exitFunctionMode = (key: string) => {
+    setTransformerModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    const fallback = key.startsWith("_")
+      ? (SPECIAL_FIELD_DEFAULTS[key] ?? "")
+      : key;
+    setMappings((prev) => ({ ...prev, [key]: fallback }));
+    setRemapModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    if (!isDbBacked && !key.startsWith("_") && fallback) {
+      validateSingleField(key, fallback);
+    }
+  };
+
+  const enterRemapMode = (key: string) => {
+    setTransformerModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setRemapModes((prev) => ({ ...prev, [key]: true }));
+    setMappings((prev) => {
+      const cur = prev[key] || "";
+      const looksLikeFn = cur.includes("=>") || cur.includes("return ");
+      // Keep an existing field path; don't leave a function body as the source
+      return { ...prev, [key]: looksLikeFn ? key : (cur || key) };
+    });
+    if (!isDbBacked && !key.startsWith("_")) {
+      const cur = mappings[key] || key;
+      const looksLikeFn = cur.includes("=>") || cur.includes("return ");
+      validateSingleField(key, looksLikeFn ? key : cur);
+    }
+  };
+
+  const resetComputeMode = (key: string) => {
+    setTransformerModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setRemapModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setCustomModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    const fallback = key.startsWith("_")
+      ? (SPECIAL_FIELD_DEFAULTS[key] ?? "")
+      : key;
+    setMappings((prev) => ({ ...prev, [key]: fallback }));
+    if (!isDbBacked && !key.startsWith("_") && fallback) {
+      validateSingleField(key, fallback);
+    }
+  };
+
+  const renderSourceEditor = (
+    key: string,
+    opts?: { allowEmpty?: boolean; hideOptionalToggle?: boolean },
+  ) => {
+    const isFn = !!transformerModes[key];
+    const isCustom = !!customModes[key];
+    const isSpecial = key.startsWith("_");
+    const vResult = isFn ? null : validation[key];
+    const currentSrc = mappings[key] || "";
+    const selectOptions = mergedSourceOptions;
+    const sameNameKey = isSpecial ? null : key;
+    const currentInList =
+      !currentSrc ||
+      selectOptions.includes(currentSrc) ||
+      (!!sameNameKey && currentSrc === sameNameKey);
+    const extraOption = currentSrc && !currentInList ? currentSrc : null;
+    const selectValue =
+      key === "_image" && !currentSrc && !!config?.preview?.component
+        ? "__auto_preview__"
+        : currentSrc
+          ? currentSrc
+          : opts?.allowEmpty
+            ? "__none__"
+            : sameNameKey || "__none__";
+    return (
+      <>
+        {isFn ? (
+          <div className="flex-1 flex items-start gap-1">
+            <div className="flex-1 space-y-1">
+              <p className="text-[10px] text-muted-foreground font-mono">(value, item) =&gt; ...</p>
+              <Textarea
+                value={currentSrc}
+                onChange={(e) => setMappings((prev) => ({ ...prev, [key]: e.target.value }))}
+                placeholder="(value, item) => value"
+                className="text-xs font-mono min-h-[3rem] resize-y"
+                data-testid={`textarea-transform-${key}`}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="flex-shrink-0 text-muted-foreground mt-4"
+              title="Pick from list"
+              onClick={() => exitFunctionMode(key)}
+              data-testid={`button-pick-from-list-${key}`}
+            >
+              <List className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ) : isCustom ? (
+          <div className="flex-1 flex items-center gap-1">
+            <Input
+              value={currentSrc}
+              onChange={(e) => handleSourceChange(key, e.target.value)}
+              placeholder="path.to.field"
+              className="text-xs font-mono flex-1"
+              data-testid={`input-mapping-${key}`}
+              autoFocus
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="flex-shrink-0 text-muted-foreground"
+              title="Pick from list"
+              onClick={() => {
+                setCustomModes((prev) => { const n = { ...prev }; delete n[key]; return n; });
+                if (selectOptions.length) {
+                  handleSourceChange(key, sameNameKey || selectOptions[0] || "");
+                }
+              }}
+              data-testid={`button-pick-from-list-${key}`}
+            >
+              <List className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <Select
+            value={selectValue}
+            onValueChange={(v) => {
+              if (v === "__auto_preview__") {
+                handleSourceChange(key, "");
+                reopenMappingAfterPreviewRef.current = true;
+                skipNextConfigHydrateRef.current = true;
+                onOpenChange(false);
+                window.setTimeout(() => setPreviewConfigOpen(true), 150);
+              } else if (v === "__function__") {
+                enterFunctionMode(key);
+              } else if (v === "__custom__") {
+                setCustomModes((prev) => ({ ...prev, [key]: true }));
+                setMappings((prev) => ({ ...prev, [key]: "" }));
+              } else if (v === "__none__") {
+                handleSourceChange(key, "");
+              } else {
+                if ((allAvailableProps?.partial ?? []).some((p) => p.key === v)) {
+                  setOptionalFields((prev) => ({ ...prev, [key]: true }));
+                }
+                handleSourceChange(key, v);
+              }
+            }}
+          >
+            <SelectTrigger className="flex-1 text-xs font-mono h-9" data-testid={`select-mapping-${key}`}>
+              <SelectValue placeholder="Select source…" />
+            </SelectTrigger>
+            <SelectContent>
+              {(opts?.allowEmpty || selectValue === "__none__") && (
+                <SelectItem value="__none__" className="text-xs font-mono text-muted-foreground">
+                  (none)
+                </SelectItem>
+              )}
+              {key === "_image" && (
+                <SelectItem value="__auto_preview__" className="text-xs font-mono">
+                  Activate automatic preview…
+                </SelectItem>
+              )}
+              {extraOption && (
+                <SelectItem key={extraOption} value={extraOption} className="text-xs font-mono">
+                  <span className="flex items-center gap-2">
+                    <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
+                    {extraOption}
+                  </span>
+                </SelectItem>
+              )}
+              {sameNameKey && !selectOptions.includes(sameNameKey) && sameNameKey !== extraOption && (
+                <SelectItem value={sameNameKey} className="text-xs font-mono">
+                  <span className="flex items-center gap-2">
+                    <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
+                    {sameNameKey}
+                    <span className="text-[10px] text-muted-foreground">(same name)</span>
+                  </span>
+                </SelectItem>
+              )}
+              {selectOptions.map((opt) => (
+                <SelectItem key={opt} value={opt} className="text-xs font-mono">
+                  <span className="flex items-center gap-2">
+                    <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
+                    {opt}
+                  </span>
+                </SelectItem>
+              ))}
+              {(allAvailableProps?.partial ?? []).map((p) => (
+                <SelectItem key={p.key} value={p.key} className="text-xs font-mono">
+                  <span className="flex items-center gap-2">
+                    <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                    {p.key}
+                    <span className="text-[10px] text-muted-foreground">{p.count}/{p.total} — added as optional</span>
+                  </span>
+                </SelectItem>
+              ))}
+              <SelectItem value="__custom__" className="text-xs font-mono text-muted-foreground italic">
+                Custom path…
+              </SelectItem>
+              <SelectItem value="__function__" className="text-xs font-mono text-muted-foreground italic">
+                Compute with function…
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {!isFn && !isDbBacked && !isSpecial && currentSrc !== key && (
+          <FieldValidationIndicator result={vResult} optional={!!optionalFields[key]} />
+        )}
+        {!isFn && !isDbBacked && !opts?.hideOptionalToggle && currentSrc !== key && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`flex-shrink-0 ${optionalFields[key] ? "text-primary" : ""}`}
+            title={optionalFields[key] ? "Optional field — not required in all entries. Click to make it required." : "Make optional — allow entries without this property"}
+            onClick={() => {
+              setOptionalFields((prev) => {
+                const next = { ...prev };
+                if (next[key]) delete next[key];
+                else next[key] = true;
+                return next;
+              });
+            }}
+            data-testid={`button-toggle-optional-${key}`}
+          >
+            <CircleDashed className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </>
+    );
+  };
+
+  const renderDeleteConfirm = (key: string) => (
+    pendingDeleteKey === key && (
+      <div className="flex items-center gap-2 ml-[7.5rem] text-[11px] mt-1" data-testid={`confirm-delete-${key}`}>
+        <span className="text-muted-foreground">
+          Remove &quot;<span className="font-mono font-medium">{key}</span>&quot;{" "}
+          {isDbBacked ? "mapping" : "field"}? Values in your YML files will not be affected.
+        </span>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="text-[11px]"
+          onClick={() => {
+            setMappings((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setTransformerModes((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setRemapModes((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setCustomModes((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setFieldDefaults((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setOptionalFields((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setValidation((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setIndexedFields((prev) => prev.filter((f) => f !== key));
+            setUniqueFields((prev) => prev.filter((f) => f !== key));
+            setPendingDeleteKey(null);
+          }}
+          data-testid={`button-confirm-delete-${key}`}
+        >
+          Remove
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-[11px]"
+          onClick={() => setPendingDeleteKey(null)}
+          data-testid={`button-cancel-delete-${key}`}
+        >
+          Cancel
+        </Button>
+      </div>
+    )
+  );
 
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{label} Field Mappings</DialogTitle>
+          <DialogTitle>{label} Fields</DialogTitle>
         </DialogHeader>
 
         {isLoading ? (
@@ -2795,9 +3569,61 @@ function FieldMappingDialog({
           </div>
         ) : (
           <div className="space-y-5">
-            <p className="text-sm text-muted-foreground">
-              Field mappings define which values are available as <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.fieldName }}"}</code> template variables in sections.
-            </p>
+            <div className="space-y-2 text-sm text-muted-foreground" data-testid="fields-schema-education">
+              <p>
+                Declare schema fields for this type. A YAML parent key becomes{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ single.fieldName }}"}</code>{" "}
+                when added here. New fields require a default (including <code className="font-mono text-xs">null</code>).
+                SEO head keys use the Meta tab and{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ meta.* }}"}</code>.
+                URL / query values use{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ param.* }}"}</code>.
+              </p>
+              <p data-testid="fields-compute-education">
+                The <strong className="font-medium text-foreground">default</strong> is the fallback when an entry has no value
+                (click it to edit). Use the <strong className="font-medium text-foreground">Code</strong> button to compute
+                the live value from another field or a function{" "}
+                <code className="font-mono bg-muted px-1 rounded text-xs">(value, item) =&gt; result</code>.
+              </p>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+                onClick={() => setShowFillFromAdvanced((v) => !v)}
+                data-testid="button-toggle-fields-advanced"
+              >
+                {showFillFromAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+                <IconChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${showFillFromAdvanced ? "rotate-180" : ""}`}
+                />
+              </button>
+              {showFillFromAdvanced && (
+                <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
+                  <p>
+                    UI: <code className="font-mono">client/src/pages/ContentTypeManagePage.tsx</code>{" "}
+                    (<code className="font-mono">FieldMappingDialog</code>. Stored in{" "}
+                    <code className="font-mono">content-types.yml</code>{" "}
+                    <code className="font-mono">field_mapping</code> as a path string,{" "}
+                    <code className="font-mono">{"{ source, default }"}</code>, or{" "}
+                    <code className="font-mono">function:</code>-prefixed base64 for calculated fields /
+                    <code className="font-mono">editor</code> hints. Remap sources only when a database is
+                    attached (column → schema key), or via Code → Value from another field on static types.
+                    System identity (<code className="font-mono">slug</code>,{" "}
+                    <code className="font-mono">locale</code>, <code className="font-mono">image</code> and
+                    underscore forms) is auto-exposed on{" "}
+                    <code className="font-mono">{"{{ single.* }}"}</code>;{" "}
+                    <code className="font-mono">_hreflangs</code> is routing-only. Do not add fields named{" "}
+                    <code className="font-mono">slug</code> or <code className="font-mono">image</code> — use{" "}
+                    <code className="font-mono">_slug</code> / <code className="font-mono">_image</code>{" "}
+                    for DB identity config.
+                  </p>
+                  <p>
+                    Per-entry overrides live under <code className="font-mono">field_overrides</code> in{" "}
+                    <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> (Fields tab —
+                    content-type fields, not SEO).
+                  </p>
+                </div>
+              )}
+            </div>
 
             {Object.values(transformerModes).some(Boolean) && (
               <div className="rounded-md bg-muted px-3 py-2">
@@ -2809,9 +3635,14 @@ function FieldMappingDialog({
 
             {specialKeys.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Special Fields</Label>
-                {specialKeys.map((key) => (
-                  <div key={key} className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">System fields</Label>
+                {specialKeys.map((key) => {
+                  const staticHreflangsLocked = key === "_hreflangs" && !isDbBacked;
+                  const staticImageGuidance = key === "_image" && !isDbBacked;
+                  const allowEmpty = key === "_locale" || key === "_image" || key === "_hreflangs";
+                  return (
+                  <div key={key} className="space-y-1">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -2828,173 +3659,95 @@ function FieldMappingDialog({
                       </Badge>
                     </button>
                     <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                    {transformerModes[key] ? (
-                      <Textarea
-                        value={mappings[key] || ""}
-                        onChange={(e) => setMappings((prev) => ({ ...prev, [key]: e.target.value }))}
-                        placeholder="(value, item) => value"
-                        className="text-xs font-mono min-h-[3rem] resize-y flex-1"
-                        data-testid={`textarea-transform-${key}`}
-                      />
+                    {staticHreflangsLocked ? (
+                      <p
+                        className="text-[11px] text-muted-foreground flex-1 leading-snug"
+                        data-testid={`note-mapping-${key}`}
+                      >
+                        Alternative locales are calculated automatically from{" "}
+                        <code className="font-mono">en.yml</code>,{" "}
+                        <code className="font-mono">es.yml</code>, or{" "}
+                        <code className="font-mono">[lang].yml</code>.
+                      </p>
                     ) : (
-                      <Input
-                        value={mappings[key] || ""}
-                        onChange={(e) => setMappings((prev) => ({ ...prev, [key]: e.target.value }))}
-                        className="text-xs font-mono flex-1"
-                        data-testid={`input-mapping-${key}`}
-                      />
+                      renderSourceEditor(key, {
+                        allowEmpty,
+                        hideOptionalToggle: true,
+                      })
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={`flex-shrink-0 ${transformerModes[key] ? "text-primary" : ""}`}
-                      onClick={() => setTransformerModes((prev) => ({ ...prev, [key]: !prev[key] }))}
-                      data-testid={`button-toggle-transform-${key}`}
-                    >
-                      <Code className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
-                ))}
+                  {key === "_locale" && !isDbBacked && !(mappings[key] || "").trim() && (
+                    <p className="text-[11px] text-muted-foreground ml-[7.5rem]">
+                      Locale usually comes from the file name / URL. Map a source only if the entry stores locale explicitly.
+                    </p>
+                  )}
+                  {staticImageGuidance && !transformerModes[key] && !(mappings[key] || "").trim() && !config?.preview?.component && (
+                    <p className="text-[11px] text-muted-foreground ml-[7.5rem]" data-testid={`note-mapping-${key}`}>
+                      Or upload a specific image per entry, or use a function to build a dynamic OG preview URL.
+                    </p>
+                  )}
+                  </div>
+                  );
+                })}
               </div>
             )}
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Field Mappings</Label>
+              <Label className="text-xs text-muted-foreground">Fields</Label>
               {regularKeys.length > 0 ? (
                 <div className="space-y-1">
                   {regularKeys.map((key) => {
                     const isFn = !!transformerModes[key];
-                    const isCustom = !!customModes[key];
+                    const isRemap = !!remapModes[key] || showSourceEditor;
+                    const showComputeEditor = isFn || isRemap;
                     const vResult = isFn ? null : validation[key];
                     const currentSrc = mappings[key] || "";
-                    // Build Select options from all props (not just unmapped) so editing existing rows shows full list
-                    const selectOptions = allAvailableProps?.common ?? [];
-                    const currentInList = !currentSrc || selectOptions.includes(currentSrc) || currentSrc === key;
-                    const extraOption = !currentInList ? currentSrc : null;
-                    const selectValue = currentSrc || key;
                     return (
                       <div key={key}>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-mono w-28 flex-shrink-0 text-right text-muted-foreground truncate" title={key}>
                             {key}
-                            {key === RESERVED_IMAGE_FIELD ? (
-                              <span className="block text-[10px] text-primary font-sans">reserved</span>
-                            ) : null}
                           </span>
                           <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                          {isFn ? (
-                            <Textarea
-                              value={currentSrc}
-                              onChange={(e) => setMappings((prev) => ({ ...prev, [key]: e.target.value }))}
-                              placeholder="(value, item) => value"
-                              className="text-xs font-mono min-h-[3rem] resize-y flex-1"
-                              data-testid={`textarea-transform-${key}`}
-                            />
-                          ) : isCustom ? (
-                            <div className="flex-1 flex items-center gap-1">
-                              <Input
-                                value={currentSrc}
-                                onChange={(e) => handleSourceChange(key, e.target.value)}
-                                placeholder="path.to.field"
-                                className="text-xs font-mono flex-1"
-                                data-testid={`input-mapping-${key}`}
-                                autoFocus
+                          {showComputeEditor ? (
+                            <div className="flex-1 flex flex-col gap-1 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {renderSourceEditor(key)}
+                              </div>
+                              <ClickToEditDefault
+                                fieldKey={key}
+                                value={fieldDefaults[key]}
+                                onChange={(v) =>
+                                  setFieldDefaults((prev) => ({ ...prev, [key]: v }))
+                                }
                               />
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="flex-shrink-0 text-muted-foreground"
-                                title="Pick from list"
-                                onClick={() => {
-                                  setCustomModes((prev) => { const n = { ...prev }; delete n[key]; return n; });
-                                  if (availableProps?.common.length) {
-                                    handleSourceChange(key, key);
-                                  }
-                                }}
-                                data-testid={`button-pick-from-list-${key}`}
-                              >
-                                <List className="h-3.5 w-3.5" />
-                              </Button>
                             </div>
                           ) : (
-                            <Select
-                              value={selectValue}
-                              onValueChange={(v) => {
-                                if (v === "__custom__") {
-                                  setCustomModes((prev) => ({ ...prev, [key]: true }));
-                                  setMappings((prev) => ({ ...prev, [key]: "" }));
-                                } else {
-                                  if ((allAvailableProps?.partial ?? []).some((p) => p.key === v)) {
-                                    setOptionalFields((prev) => ({ ...prev, [key]: true }));
-                                  }
-                                  handleSourceChange(key, v);
+                            <div className="flex-1 flex items-center gap-2 min-w-0">
+                              <ClickToEditDefault
+                                fieldKey={key}
+                                value={fieldDefaults[key]}
+                                onChange={(v) =>
+                                  setFieldDefaults((prev) => ({ ...prev, [key]: v }))
                                 }
-                              }}
-                            >
-                              <SelectTrigger className="flex-1 text-xs font-mono h-9" data-testid={`select-mapping-${key}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {extraOption && (
-                                  <SelectItem key={extraOption} value={extraOption} className="text-xs font-mono">
-                                    <span className="flex items-center gap-2">
-                                      <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
-                                      {extraOption}
-                                    </span>
-                                  </SelectItem>
-                                )}
-                                {/* Always include the "same as key" option */}
-                                {!selectOptions.includes(key) && key !== extraOption && (
-                                  <SelectItem value={key} className="text-xs font-mono">
-                                    <span className="flex items-center gap-2">
-                                      <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
-                                      {key}
-                                      <span className="text-[10px] text-muted-foreground">(same name)</span>
-                                    </span>
-                                  </SelectItem>
-                                )}
-                                {selectOptions.map((opt) => (
-                                  <SelectItem key={opt} value={opt} className="text-xs font-mono">
-                                    <span className="flex items-center gap-2">
-                                      <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
-                                      {opt}
-                                    </span>
-                                  </SelectItem>
-                                ))}
-                                {(allAvailableProps?.partial ?? []).map((p) => (
-                                  <SelectItem key={p.key} value={p.key} className="text-xs font-mono">
-                                    <span className="flex items-center gap-2">
-                                      <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                                      {p.key}
-                                      <span className="text-[10px] text-muted-foreground">{p.count}/{p.total} — added as optional</span>
-                                    </span>
-                                  </SelectItem>
-                                ))}
-                                <SelectItem value="__custom__" className="text-xs font-mono text-muted-foreground italic">
-                                  Custom path…
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
+                              />
+                            </div>
                           )}
-                          {!isFn && !isDbBacked && <FieldValidationIndicator result={vResult} optional={!!optionalFields[key]} />}
-                          {!isFn && !isDbBacked && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className={`flex-shrink-0 ${optionalFields[key] ? "text-primary" : ""}`}
-                              title={optionalFields[key] ? "Optional field — not required in all entries. Click to make it required." : "Make optional — allow entries without this property"}
-                              onClick={() => {
-                                setOptionalFields((prev) => {
-                                  const next = { ...prev };
-                                  if (next[key]) delete next[key];
-                                  else next[key] = true;
-                                  return next;
-                                });
-                              }}
-                              data-testid={`button-toggle-optional-${key}`}
-                            >
-                              <CircleDashed className="h-3.5 w-3.5" />
-                            </Button>
+                          <ComputeModeMenu
+                            fieldKey={key}
+                            mode={
+                              isFn
+                                ? "function"
+                                : !!remapModes[key] || (showSourceEditor && currentSrc !== key)
+                                  ? "field"
+                                  : "none"
+                            }
+                            onNotComputed={() => resetComputeMode(key)}
+                            onPickField={() => enterRemapMode(key)}
+                            onPickFunction={() => enterFunctionMode(key)}
+                          />
+                          {(isDbBacked || isFn || currentSrc === key || !showComputeEditor) && (
+                            <FieldValidationIndicator result={vResult} optional={optionalFields[key]} />
                           )}
                           <Button
                             variant="ghost"
@@ -3009,82 +3762,52 @@ function FieldMappingDialog({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className={`flex-shrink-0 ${isFn ? "text-primary" : ""}`}
-                            onClick={() => {
-                              const nowFn = !transformerModes[key];
-                              setTransformerModes((prev) => ({ ...prev, [key]: nowFn }));
-                              if (nowFn) {
-                                setValidation((prev) => { const n = { ...prev }; delete n[key]; return n; });
-                              } else if (!isDbBacked && mappings[key]) {
-                                validateSingleField(key, mappings[key]);
-                              }
-                            }}
-                            data-testid={`button-toggle-transform-${key}`}
-                          >
-                            <Code className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
                             className="flex-shrink-0"
-                            disabled={key === RESERVED_IMAGE_FIELD}
-                            title={key === RESERVED_IMAGE_FIELD ? "Reserved image field cannot be removed" : "Remove mapping"}
+                            title="Remove field"
                             onClick={() => setPendingDeleteKey(key)}
                             data-testid={`button-delete-mapping-${key}`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                        {pendingDeleteKey === key && (
-                          <div className="flex items-center gap-2 ml-[7.5rem] text-[11px] mt-1" data-testid={`confirm-delete-${key}`}>
-                            <span className="text-muted-foreground">
-                              Remove "<span className="font-mono font-medium">{key}</span>" mapping? Values in your YML files will not be affected.
+                        {!showComputeEditor && (
+                          <p className="text-[10px] text-muted-foreground ml-[7.5rem] mt-0.5 flex items-center gap-1">
+                            <span>
+                              Use it as <code className="font-mono">{`{{ single.${key} }}`}</code> on any yml
                             </span>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              className="text-[11px]"
-                              onClick={() => {
-                                setMappings((prev) => {
-                                  const next = { ...prev };
-                                  delete next[key];
-                                  return next;
-                                });
-                                setTransformerModes((prev) => {
-                                  const next = { ...prev };
-                                  delete next[key];
-                                  return next;
-                                });
-                                setOptionalFields((prev) => {
-                                  const next = { ...prev };
-                                  delete next[key];
-                                  return next;
-                                });
-                                setValidation((prev) => {
-                                  const next = { ...prev };
-                                  delete next[key];
-                                  return next;
-                                });
-                                setIndexedFields((prev) => prev.filter((f) => f !== key));
-                                setUniqueFields((prev) => prev.filter((f) => f !== key));
-                                setPendingDeleteKey(null);
-                              }}
-                              data-testid={`button-confirm-delete-${key}`}
-                            >
-                              Remove
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-[11px]"
-                              onClick={() => setPendingDeleteKey(null)}
-                              data-testid={`button-cancel-delete-${key}`}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    aria-label={`About {{ single.${key} }}`}
+                                    data-testid={`button-single-var-info-${key}`}
+                                  >
+                                    <Info className="h-3 w-3" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side="top"
+                                  className="z-[10001] max-w-[260px] text-xs"
+                                >
+                                  In page or component YAML, reference this field with{" "}
+                                  <code className="font-mono">{`{{ single.${key} }}`}</code>.
+                                  The value comes from the entry&apos;s{" "}
+                                  <code className="font-mono">{key}</code> property (or its default when missing).
+                                  Use the Code button only if you need to remap or compute it.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </p>
                         )}
-                        {!isFn && !isDbBacked && pendingDeleteKey !== key && (
+                        {renderDeleteConfirm(key)}
+                        {!isFn && !isDbBacked && vResult && vResult !== "loading" && vResult.isNewField && pendingDeleteKey !== key && (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1" data-testid={`text-new-field-warn-${key}`}>
+                            New field — no entry YAML has <code className="font-mono">{key}</code> yet. Defaults will apply until entries set a value.
+                          </p>
+                        )}
+                        {!isFn && !isDbBacked && currentSrc !== key && pendingDeleteKey !== key && (
                           optionalFields[key] ? (
                             <OptionalFieldHint result={vResult} fieldKey={key} />
                           ) : (
@@ -3102,125 +3825,131 @@ function FieldMappingDialog({
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground py-2">No field mappings defined yet.</p>
+                <p className="text-xs text-muted-foreground py-2">
+                  {isDbBacked ? "No field mappings defined yet." : "No fields declared yet."}
+                </p>
               )}
 
               <div className="pt-1">
                 {showAddField ? (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={newKey}
-                        onChange={(e) => setNewKey(e.target.value)}
-                        placeholder="Field name"
-                        className="text-xs font-mono flex-1"
-                        onKeyDown={(e) => { if (e.key === "Enter") handleAddField(); }}
-                        autoFocus
-                        data-testid="input-new-mapping-key"
-                      />
-                      <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                      <div className="relative flex-1">
+                  <div className="flex items-center gap-2 min-w-0" data-testid="section-add-field">
+                    <Input
+                      value={newKey}
+                      onChange={(e) => setNewKey(e.target.value)}
+                      placeholder="Field name"
+                      title={
+                        isDbBacked
+                          ? "Schema key + optional DB remap. Default is required (may be null)."
+                          : "Schema key must match the YAML parent key. Default is required (may be null)."
+                      }
+                      className="text-xs font-mono flex-1 min-w-0"
+                      onKeyDown={(e) => { if (e.key === "Enter") handleAddField(); }}
+                      autoFocus
+                      data-testid="input-new-mapping-key"
+                    />
+                    {defaultSpecified && !newDefaultIsNull ? (
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
                         <Input
-                          value={newValue}
-                          onChange={(e) => { handleNewValueChange(e.target.value); setSourceDropdownOpen(true); }}
-                          onFocus={() => setSourceDropdownOpen(true)}
-                          onBlur={() => setTimeout(() => setSourceDropdownOpen(false), 150)}
-                          placeholder="Source (default: same)"
-                          className="text-xs font-mono"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleAddField();
-                            if (e.key === "Escape") setSourceDropdownOpen(false);
+                          value={newDefault}
+                          onChange={(e) => {
+                            setNewDefault(e.target.value);
+                            setDefaultSpecified(true);
                           }}
-                          data-testid="input-new-mapping-value"
+                          placeholder="Default value"
+                          className="text-xs font-mono flex-1 min-w-0"
+                          onKeyDown={(e) => { if (e.key === "Enter") handleAddField(); }}
+                          autoFocus
+                          data-testid="input-new-field-default"
                         />
-                        {sourceDropdownOpen && availableProps && (filteredAvailableProps.common.length > 0 || filteredAvailableProps.partial.length > 0) && (
-                          <div className="absolute top-full left-0 right-0 z-50 mt-0.5 border rounded-md bg-popover shadow-md max-h-[180px] overflow-y-auto" data-testid="source-dropdown">
-                            {filteredAvailableProps.common.map((k) => (
-                              <button
-                                key={k}
-                                type="button"
-                                className="w-full text-left px-2 py-1.5 flex items-center gap-2 text-xs hover-elevate border-b last:border-b-0"
-                                onClick={() => {
-                                  handleNewValueChange(k);
-                                  setSourceDropdownOpen(false);
-                                  if (!newKey.trim()) {
-                                    setNewKey(k.split(".").pop() || k);
-                                  }
-                                }}
-                                data-testid={`source-option-${k}`}
-                              >
-                                <Check className="w-3 h-3 text-green-600 flex-shrink-0" />
-                                <span className="font-mono">{k}</span>
-                                <span className="text-[10px] text-muted-foreground ml-auto">all entries</span>
-                              </button>
-                            ))}
-                            {filteredAvailableProps.partial.map((p) => (
-                              <button
-                                key={p.key}
-                                type="button"
-                                className="w-full text-left px-2 py-1.5 flex items-center gap-2 text-xs hover-elevate border-b last:border-b-0"
-                                onClick={() => {
-                                  handleNewValueChange(p.key);
-                                  setNewOptional(true);
-                                  setSourceDropdownOpen(false);
-                                  if (!newKey.trim()) {
-                                    setNewKey(p.key.split(".").pop() || p.key);
-                                  }
-                                }}
-                                data-testid={`source-option-${p.key}`}
-                              >
-                                <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                <span className="font-mono">{p.key}</span>
-                                <span className="text-[10px] text-muted-foreground ml-auto">{p.count}/{p.total} — added as optional</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {!isDbBacked && (newValue.trim() || newKey.trim()) && <FieldValidationIndicator result={newValueValidation} optional={newOptional} />}
-                      {!isDbBacked && (
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
-                          className={`flex-shrink-0 ${newOptional ? "text-primary" : ""}`}
-                          title={newOptional ? "Optional field — not required in all entries. Click to make it required." : "Make optional — allow entries without this property"}
-                          onClick={() => setNewOptional((v) => !v)}
-                          data-testid="button-toggle-optional-new"
+                          className="h-8 w-8 flex-shrink-0 text-muted-foreground"
+                          title="Back to default options"
+                          onClick={() => {
+                            setNewDefault("");
+                            setNewDefaultIsNull(false);
+                            setDefaultSpecified(false);
+                          }}
+                          data-testid="button-new-field-default-back"
                         >
-                          <CircleDashed className="h-3.5 w-3.5" />
+                          <X className="h-3.5 w-3.5" />
                         </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleAddField}
-                        disabled={!newKey.trim() || newKey.trim() in mappings}
-                        data-testid="button-add-mapping"
+                      </div>
+                    ) : (
+                      <div
+                        className="inline-flex items-center rounded-md border border-border p-0.5 flex-shrink-0"
+                        role="group"
+                        aria-label="Default type"
+                        data-testid="toggle-new-field-default"
                       >
-                        <Check className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => { setShowAddField(false); setNewKey(""); setNewValue(""); setNewValueValidation(null); }}
-                        data-testid="button-cancel-add-field"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    {!isDbBacked && (
-                      newOptional ? (
-                        <OptionalFieldHint result={newValueValidation} fieldKey="__new" />
-                      ) : (
-                        <FieldValidationMessage
-                          result={newValueValidation}
-                          fieldKey="__new"
-                          source={newValue.trim() || newKey.trim()}
-                          onSetOptional={() => setNewOptional(true)}
-                          onBackfill={(value) => handleBackfill("__new", newValue.trim() || newKey.trim(), value)}
-                        />
-                      )
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-[10px] h-7 px-2"
+                          onClick={() => {
+                            setNewDefaultIsNull(false);
+                            setDefaultSpecified(true);
+                          }}
+                          data-testid="button-new-field-default-value"
+                        >
+                          Default value
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={newDefaultIsNull ? "default" : "ghost"}
+                          size="sm"
+                          className="text-[10px] h-7 px-2"
+                          onClick={() => {
+                            setNewDefaultIsNull(true);
+                            setNewDefault("");
+                            setDefaultSpecified(true);
+                          }}
+                          data-testid="button-new-field-default-null"
+                        >
+                          Default null
+                        </Button>
+                      </div>
                     )}
+                    {isDbBacked && (
+                      <Input
+                        value={newValue}
+                        onChange={(e) => handleNewValueChange(e.target.value)}
+                        placeholder="DB source (optional)"
+                        className="text-xs font-mono flex-1 min-w-0"
+                        data-testid="input-new-mapping-source"
+                      />
+                    )}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="flex-shrink-0"
+                      onClick={handleAddField}
+                      disabled={!newKey.trim() || newKey.trim() in mappings || !defaultSpecified}
+                      data-testid="button-add-mapping"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="flex-shrink-0"
+                      onClick={() => {
+                        setShowAddField(false);
+                        setNewKey("");
+                        setNewValue("");
+                        setNewDefault("");
+                        setNewDefaultIsNull(false);
+                        setDefaultSpecified(false);
+                        setNewValueValidation(null);
+                        setNewOptional(false);
+                      }}
+                      data-testid="button-cancel-add-field"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 ) : (
                   <Button
@@ -3262,7 +3991,9 @@ function FieldMappingDialog({
                   );
                 })}
                 {regularKeys.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Add field mappings first to enable indexing.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Add fields first to enable indexing.
+                  </p>
                 )}
               </div>
             </div>
@@ -3301,7 +4032,9 @@ function FieldMappingDialog({
                   );
                 })}
                 {regularKeys.length === 0 && (
-                  <p className="text-[11px] text-muted-foreground italic">Add field mappings first to enable unique field selection.</p>
+                  <p className="text-[11px] text-muted-foreground italic">
+                    Add fields first to enable unique field selection.
+                  </p>
                 )}
               </div>
             </div>
@@ -3341,6 +4074,18 @@ function FieldMappingDialog({
         if (!field) return;
         setEditorHints((prev) => ({ ...prev, [field]: hint }));
         setHintDialogField(null);
+      }}
+    />
+    <EntryPreviewConfigDialog
+      open={previewConfigOpen}
+      onOpenChange={setPreviewConfigOpen}
+      contentType={contentType}
+      preview={config?.preview}
+      fieldMapping={mappings}
+      onFinished={() => {
+        if (!reopenMappingAfterPreviewRef.current) return;
+        reopenMappingAfterPreviewRef.current = false;
+        window.setTimeout(() => onOpenChange(true), 150);
       }}
     />
     </>
@@ -3887,45 +4632,167 @@ export default function ContentTypeManagePage() {
     enqueue: enqueueEntryPreview,
     status: entryPreviewStatus,
     urls: entryPreviewUrls,
+    paused: entryPreviewQueuePaused,
   } = useSerializedCaptureQueue<EntryPreviewCaptureJob>({
     jobKey: entryPreviewJobKey,
     run: runEntryPreviewCapture,
+    delayBetweenJobsMs: 2_500,
+    pauseWhenHidden: true,
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      // Immediate bump: one less dirty/missing, one more generated (reconciled by poll/idle refetch).
+      // Do not refetch stats here — in-flight list/stats races were overwriting failed/gen bumps.
+      queryClient.setQueryData(
+        ["/api/content-types", contentType, "entry-previews", "stats"],
+        (old: {
+          fromSource?: number;
+          generated?: number;
+          missing?: number;
+          dirty?: number;
+          failed?: number;
+        } | undefined) => {
+          if (!old) return old;
+          const dirty = old.dirty ?? 0;
+          if (dirty > 0) {
+            return {
+              ...old,
+              dirty: dirty - 1,
+              generated: (old.generated ?? 0) + 1,
+            };
+          }
+          return {
+            ...old,
+            missing: Math.max(0, (old.missing ?? 0) - 1),
+            generated: (old.generated ?? 0) + 1,
+          };
+        },
+      );
+      void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentType, "entry-previews"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+        exact: true,
       });
     },
-    onError: () => {
+    onError: (_job, err) => {
       // preview-failed marks meta.failedAt so needsCapture becomes false
-      queryClient.invalidateQueries({
+      queryClient.setQueryData(
+        ["/api/content-types", contentType, "entry-previews", "stats"],
+        (old: {
+          fromSource?: number;
+          generated?: number;
+          missing?: number;
+          dirty?: number;
+          failed?: number;
+        } | undefined) => {
+          if (!old) return old;
+          const dirty = old.dirty ?? 0;
+          return {
+            ...old,
+            failed: (old.failed ?? 0) + 1,
+            dirty: dirty > 0 ? dirty - 1 : dirty,
+            missing: dirty > 0 ? old.missing : Math.max(0, (old.missing ?? 0) - 1),
+          };
+        },
+      );
+      void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentType, "entry-previews"],
+        exact: true,
       });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+      toast({
+        title: "Couldn't generate OG preview",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
       });
     },
   });
 
+  const entryPreviewQueueBusyCount = useMemo(
+    () =>
+      Object.values(entryPreviewStatus).filter((s) => s === "queued" || s === "capturing").length,
+    [entryPreviewStatus],
+  );
+
+  // Reconcile KPI (including failed) from the server when the capture queue drains.
+  const prevBusyRef = useRef(0);
   useEffect(() => {
-    if (!entryPreviewsData?.preview || !entryPreviewsData.index) return;
-    if (entryPreviewsData.captureReady === false) return;
-    const preview = entryPreviewsData.preview;
-    for (const row of Object.values(entryPreviewsData.index)) {
-      if (!row.needsCapture) continue;
-      enqueueEntryPreview({
-        contentType,
-        slug: row.slug,
-        locale: row.locale,
-        width: entryPreviewsData.width || 1200,
-        maxHeight: entryPreviewsData.maxHeight || 630,
-        theme: preview.theme === "light" ? "light" : "dark",
-        propsHash: row.propsHash,
+    const prev = prevBusyRef.current;
+    prevBusyRef.current = entryPreviewQueueBusyCount;
+    if (prev > 0 && entryPreviewQueueBusyCount === 0) {
+      void queryClient.refetchQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+        exact: true,
+        type: "active",
       });
     }
-  }, [contentType, entryPreviewsData, enqueueEntryPreview]);
+  }, [contentType, entryPreviewQueueBusyCount]);
+
+  const entryPreviewGenCounts = useMemo(() => {
+    if (!entryPreviewsData?.index) return { missing: 0, all: 0 };
+    const rows = Object.values(entryPreviewsData.index).filter(
+      (r) => !r.fromSource && !r.meta?.failedAt,
+    );
+    return {
+      missing: rows.filter((r) => r.needsCapture).length,
+      all: rows.length,
+    };
+  }, [entryPreviewsData]);
+
+  const handleGenerateAllPreviews = useCallback(
+    async (mode: "missing" | "all") => {
+      if (!entryPreviewsData?.preview || entryPreviewsData.captureReady === false) return;
+      const preview = entryPreviewsData.preview;
+      const rows = Object.values(entryPreviewsData.index).filter(
+        (r) => !r.fromSource && !r.meta?.failedAt,
+      );
+      const targets = mode === "missing" ? rows.filter((r) => r.needsCapture) : rows;
+      if (targets.length === 0) return;
+
+      if (mode === "all") {
+        for (const row of targets) {
+          if (!row.meta?.url && !row.cacheBustedUrl) continue;
+          void apiRequest(
+            "POST",
+            `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(row.slug)}/preview-dirty`,
+            { locale: row.locale },
+          );
+        }
+        queryClient.setQueryData(
+          ["/api/content-types", contentType, "entry-previews", "stats"],
+          (old: {
+            generated?: number;
+            dirty?: number;
+          } | undefined) => {
+            if (!old) return old;
+            const regenCount = targets.filter((r) => r.meta?.url || r.cacheBustedUrl).length;
+            return {
+              ...old,
+              dirty: (old.dirty ?? 0) + regenCount,
+              generated: Math.max(0, (old.generated ?? 0) - regenCount),
+            };
+          },
+        );
+      }
+
+      for (const row of targets) {
+        enqueueEntryPreview(
+          {
+            contentType,
+            slug: row.slug,
+            locale: row.locale,
+            width: entryPreviewsData.width || preview.widths?.[0] || 1200,
+            maxHeight: entryPreviewsData.maxHeight || preview.maxHeight || 630,
+            theme: preview.theme === "light" ? "light" : "dark",
+            propsHash: row.propsHash,
+          },
+          true,
+        );
+      }
+
+      void queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews"],
+        exact: true,
+      });
+    },
+    [contentType, entryPreviewsData, enqueueEntryPreview],
+  );
 
   const markEntryPreviewDirty = async (slug: string, locale: string) => {
     try {
@@ -3934,11 +4801,32 @@ export default function ContentTypeManagePage() {
         `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(slug)}/preview-dirty`,
         { locale },
       );
-      queryClient.invalidateQueries({
+      // Optimistic: move one entry into dirty so the KPI reacts before the slow list refetch.
+      queryClient.setQueryData(
+        ["/api/content-types", contentType, "entry-previews", "stats"],
+        (old: {
+          fromSource?: number;
+          generated?: number;
+          missing?: number;
+          dirty?: number;
+          failed?: number;
+        } | undefined) => {
+          if (!old) return old;
+          const row = entryPreviewsData?.index?.[`${slug}:${locale}`];
+          const hadUrl = !!(row?.meta?.url || row?.cacheBustedUrl);
+          const alreadyDirty = !!row?.meta?.dirty;
+          if (alreadyDirty) return old;
+          return {
+            ...old,
+            dirty: (old.dirty ?? 0) + 1,
+            generated: hadUrl ? Math.max(0, (old.generated ?? 0) - 1) : old.generated,
+            missing: hadUrl ? old.missing : Math.max(0, (old.missing ?? 0) - 1),
+          };
+        },
+      );
+      void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentType, "entry-previews"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
+        exact: true,
       });
       const preview = typeConfig?.preview;
       if (preview?.component && entryPreviewsData?.captureReady !== false) {
@@ -3960,9 +4848,13 @@ export default function ContentTypeManagePage() {
   };
 
   const urlPatterns = typeConfig?.url_pattern || {};
+  // Static listings inject locale from the filename as `lang` when `_locale` is unset
+  // (see loadStaticContentTypeItems). Mirror that so Language KPIs / filters work for
+  // YAML-backed types without requiring an explicit _locale mapping.
   const localeKey = (() => {
+    const staticFallback = typeConfig?.database?.slug ? null : "lang";
     const raw = typeConfig?.field_mapping?._locale;
-    if (!raw) return null;
+    if (!raw) return staticFallback;
     const val = typeof raw === "object" ? raw.source : raw;
     if (typeof val === "string" && val.startsWith("function:")) {
       const fm = typeConfig?.field_mapping || {};
@@ -3970,7 +4862,7 @@ export default function ContentTypeManagePage() {
       for (const f of localeLike) {
         if (f in fm && !f.startsWith("_")) return f;
       }
-      return null;
+      return staticFallback;
     }
     return val;
   })();
@@ -4147,6 +5039,7 @@ export default function ContentTypeManagePage() {
   const singleTemplateEnabled = !!typeConfig?.single_template;
   const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
   const [explainSharedLayoutOpen, setExplainSharedLayoutOpen] = useState(false);
+  const [explainLinkedDatabaseOpen, setExplainLinkedDatabaseOpen] = useState(false);
   const [enableSharedLayoutOpen, setEnableSharedLayoutOpen] = useState(false);
   const [sharedLayoutDivergences, setSharedLayoutDivergences] = useState<
     Array<{ locale: string; sectionCount: number; sectionIds: string[] }>
@@ -4162,6 +5055,13 @@ export default function ContentTypeManagePage() {
     }>
   >([]);
 
+  const { data: databasesForLabel } = useQuery<DatabaseListItem[]>({
+    queryKey: ["/api/databases"],
+    enabled: hasDb,
+    staleTime: 60000,
+  });
+  const linkedDbLabel =
+    (dbSlug && databasesForLabel?.find((d) => d.name === dbSlug)?.label) || dbSlug || null;
   const applySingleTemplateToggle = async (checked: boolean, baseLocale?: string) => {
     setSingleTemplateSaving(true);
     try {
@@ -4657,63 +5557,14 @@ export default function ContentTypeManagePage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  data-testid="button-data-source"
-                >
-                  <Database className="h-4 w-4 mr-1" />
-                  Database
-                  {cacheStatus?.exists && cacheStatus.age_hours != null && (
-                    <span className="text-[10px] text-muted-foreground ml-1" data-testid="text-cache-age">
-                      ({cacheStatus.age_hours}h)
-                    </span>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => setConnectDbConfirmOpen(true)}
-                  data-testid="button-manage-connection"
-                >
-                  <Database className="h-4 w-4 mr-2" />
-                  Manage Connection
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild data-testid="button-open-database-page">
-                  <Link href={dbSlug ? `/private/databases/${dbSlug}` : "/private/databases"}>
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    {dbSlug ? "Open Database" : "Open Databases"}
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setClearCacheConfirmOpen(true)}
-                  disabled={clearing}
-                  data-testid="button-clear-cache"
-                >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${clearing ? "animate-spin" : ""}`} />
-                  Clear Cache
-                </DropdownMenuItem>
-                {hasDb && (
-                  <DropdownMenuItem
-                    onClick={handleOpenConvertDialog}
-                    data-testid="button-convert-to-static"
-                  >
-                    <FileText className="h-4 w-4 mr-2" />
-                    Convert to static
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setMappingDialogOpen(true)}
               data-testid="button-field-mappings"
             >
-              <Shuffle className="h-4 w-4 mr-1" />
-              Mappings
+              <List className="h-4 w-4 mr-1" />
+              Fields
             </Button>
             <Button
               variant="outline"
@@ -4861,7 +5712,112 @@ export default function ContentTypeManagePage() {
             contentType={contentType}
             preview={typeConfig?.preview}
             fieldMapping={typeConfig?.field_mapping}
+            queueBusyCount={entryPreviewQueueBusyCount}
+            queuePaused={entryPreviewQueuePaused}
+            generateAllCounts={entryPreviewGenCounts}
+            onGenerateAll={handleGenerateAllPreviews}
+            onRetryQueued={(failures: EntryPreviewFailure[]) => {
+              const preview = typeConfig?.preview;
+              if (!preview?.component) return;
+              for (const f of failures) {
+                enqueueEntryPreview(
+                  {
+                    contentType,
+                    slug: f.slug,
+                    locale: f.locale || "en",
+                    width: preview.widths?.[0] || 1200,
+                    maxHeight: preview.maxHeight || 630,
+                    theme: preview.theme === "light" ? "light" : "dark",
+                  },
+                  true,
+                );
+              }
+            }}
           />
+          <Card data-testid="card-kpi-linked-database">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Linked Database
+              </CardTitle>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-testid="button-data-source"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => setConnectDbConfirmOpen(true)}
+                    data-testid="button-manage-connection"
+                  >
+                    <Database className="h-4 w-4 mr-2" />
+                    {hasDb ? "Manage Connection" : "Add Connection"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild data-testid="button-open-database-page">
+                    <Link href={dbSlug ? `/private/databases/${dbSlug}` : "/private/databases"}>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      {dbSlug ? "Open Database" : "Open Databases"}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setClearCacheConfirmOpen(true)}
+                    disabled={clearing}
+                    data-testid="button-clear-cache"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${clearing ? "animate-spin" : ""}`} />
+                    Clear Cache
+                  </DropdownMenuItem>
+                  {hasDb && (
+                    <DropdownMenuItem
+                      onClick={handleOpenConvertDialog}
+                      data-testid="button-convert-to-static"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Convert to static
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {hasDb
+                  ? `${linkedDbLabel} — entries come from this database; field mapping maps columns onto this content type.`
+                  : "Entries live as static YAML. Connect a database to pull titles, slugs, and locales from an external source."}
+              </p>
+              {hasDb && (
+                <p className="text-sm font-medium" data-testid="text-linked-database-stats">
+                  {cacheStatus?.exists &&
+                  cacheStatus.post_count != null &&
+                  cacheStatus.age_hours != null ? (
+                    <>
+                      <span data-testid="text-cache-age">
+                        {cacheStatus.post_count} entries · Last cached {cacheStatus.age_hours}h ago
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground font-normal">
+                      Cache empty — clear/refresh to fetch
+                    </span>
+                  )}
+                </p>
+              )}
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setExplainLinkedDatabaseOpen(true)}
+                  data-testid="button-linked-database-advanced"
+                >
+                  How linked databases work
+                </button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <Card>
@@ -5091,7 +6047,7 @@ export default function ContentTypeManagePage() {
                   <table className="w-full text-sm" data-testid="table-seo-entries">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground w-[220px]">Title</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground w-[140px]">Image</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Meta</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground w-[160px]">Link</th>
                       </tr>
@@ -5111,6 +6067,26 @@ export default function ContentTypeManagePage() {
                         const changeFreq = typeof meta.change_frequency === "string" ? meta.change_frequency : "";
                         const redirects = Array.isArray(meta.redirects) ? meta.redirects : [];
                         const rowKey = `${slug}-${locale}`;
+                        const previewKey = `${slug}:${locale}`;
+                        const previewRow = entryPreviewsData?.index?.[previewKey];
+                        const captureKey = entryPreviewJobKey({
+                          contentType,
+                          slug,
+                          locale,
+                          width: entryPreviewsData?.width || 1200,
+                          maxHeight: entryPreviewsData?.maxHeight || 630,
+                          theme: "dark",
+                        });
+                        const captureSt = entryPreviewStatus[captureKey];
+                        const isUsableOg =
+                          !!ogImage &&
+                          !/\{\{/.test(ogImage) &&
+                          (/^https?:\/\//i.test(ogImage) || ogImage.startsWith("/"));
+                        const thumbSrc =
+                          (isUsableOg ? ogImage : "") ||
+                          entryPreviewUrls[captureKey] ||
+                          previewRow?.cacheBustedUrl ||
+                          "";
                         return (
                           <tr
                             key={rowKey}
@@ -5118,16 +6094,64 @@ export default function ContentTypeManagePage() {
                             data-testid={`row-seo-${rowKey}`}
                           >
                             <td className="px-4 py-3">
-                              <div className="min-w-0">
-                                <div className="font-medium truncate max-w-[200px]" title={entry.title || undefined}>
-                                  {entry.title || slug}
+                              <div className="space-y-1.5">
+                                <div className="relative w-[120px] h-[63px] flex-shrink-0 rounded-md overflow-hidden bg-muted">
+                                  {thumbSrc ? (
+                                    <a
+                                      href={thumbSrc}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="Open preview image"
+                                      className="block w-full h-full hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                      data-testid={`link-seo-preview-thumb-${rowKey}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <img
+                                        src={thumbSrc}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </a>
+                                  ) : (
+                                    <div
+                                      className="w-full h-full flex items-center justify-center"
+                                      data-testid={`placeholder-seo-preview-thumb-${rowKey}`}
+                                    >
+                                      {captureSt === "capturing" || captureSt === "queued" ? (
+                                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                      ) : (
+                                        <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                  <div className="text-xs text-muted-foreground truncate max-w-[160px]">{slug}</div>
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-                                    {locale.toUpperCase()}
-                                  </Badge>
-                                </div>
+                                {typeConfig?.preview?.component &&
+                                  !previewRow?.fromSource &&
+                                  entryPreviewsData?.captureReady !== false && (
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline",
+                                        captureSt === "failed"
+                                          ? "text-destructive hover:text-destructive/90"
+                                          : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                                      )}
+                                      disabled={captureSt === "capturing" || captureSt === "queued"}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void markEntryPreviewDirty(slug, locale);
+                                      }}
+                                      data-testid={`button-generate-seo-preview-${rowKey}`}
+                                    >
+                                      {captureSt === "capturing" || captureSt === "queued"
+                                        ? "Generating…"
+                                        : captureSt === "failed"
+                                          ? "Retry OG"
+                                          : thumbSrc
+                                            ? "Regenerate OG"
+                                            : "Generate OG"}
+                                    </button>
+                                  )}
                               </div>
                             </td>
                             <td className="px-4 py-3">
@@ -5500,6 +6524,22 @@ export default function ContentTypeManagePage() {
                                       Edit YAML
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
+                                      onClick={() => {
+                                        setSeoModalTarget({
+                                          contentType,
+                                          slug: entry.slug,
+                                          locale: entry.locales[0] || "en",
+                                          initialTab: "fields",
+                                        });
+                                        setSeoModalOpen(true);
+                                      }}
+                                      className="text-[13px]"
+                                      data-testid={`menu-edit-fields-${entry.slug}`}
+                                    >
+                                      <Table2 className="h-4 w-4 mr-2" />
+                                      Edit Fields & Values
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
                                       onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(entry.slug)}`; }}
                                       className="text-[13px]"
                                       data-testid={`menu-changelog-${entry.slug}`}
@@ -5640,11 +6680,21 @@ export default function ContentTypeManagePage() {
                               <div className="flex items-center gap-3">
                                 <div className="relative w-10 h-10 flex-shrink-0 hidden sm:block">
                                   {thumbSrc ? (
-                                    <img
-                                      src={thumbSrc}
-                                      alt=""
-                                      className="w-10 h-10 rounded-md object-cover"
-                                    />
+                                    <a
+                                      href={thumbSrc}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="Open preview image"
+                                      className="block w-10 h-10 rounded-md overflow-hidden hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                      data-testid={`link-entry-preview-thumb-${item.slug}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <img
+                                        src={thumbSrc}
+                                        alt=""
+                                        className="w-10 h-10 rounded-md object-cover"
+                                      />
+                                    </a>
                                   ) : (
                                     <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
                                       {captureSt === "capturing" || captureSt === "queued" ? (
@@ -5662,6 +6712,33 @@ export default function ContentTypeManagePage() {
                                   <div className="text-xs text-muted-foreground truncate max-w-[300px]">
                                     {item.slug}
                                   </div>
+                                  {typeConfig?.preview?.component &&
+                                    !previewRow?.fromSource &&
+                                    entryPreviewsData?.captureReady !== false && (
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          "text-[10px] underline underline-offset-2 disabled:opacity-50 disabled:no-underline",
+                                          captureSt === "failed"
+                                            ? "text-destructive hover:text-destructive/90"
+                                            : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                                        )}
+                                        disabled={captureSt === "capturing" || captureSt === "queued"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void markEntryPreviewDirty(String(item.slug), itemLocale);
+                                        }}
+                                        data-testid={`button-generate-entry-preview-${item.id || item.slug}`}
+                                      >
+                                        {captureSt === "capturing" || captureSt === "queued"
+                                          ? "Generating…"
+                                          : captureSt === "failed"
+                                            ? "Retry OG"
+                                            : thumbSrc
+                                              ? "Regenerate OG"
+                                              : "Generate OG"}
+                                      </button>
+                                    )}
                                 </div>
                               </div>
                             </td>
@@ -6066,6 +7143,19 @@ export default function ContentTypeManagePage() {
           dbName={dbSlug}
           item={editingDbEntry.item}
           title="Edit database entry"
+          imageFallbackFieldKeys={(() => {
+            const keys = new Set<string>(["image", "preview"]);
+            const raw = typeConfig?.field_mapping?._image ?? typeConfig?.field_mapping?.image;
+            const source =
+              typeof raw === "string"
+                ? raw
+                : raw && typeof raw === "object" && "source" in raw
+                  ? String((raw as { source: string }).source || "")
+                  : "";
+            const dbField = source.replace(/^\?/, "").trim();
+            if (dbField) keys.add(dbField);
+            return Array.from(keys);
+          })()}
           imageFallbackPreviewSrc={(() => {
             const item = editingDbEntry.item;
             const itemLocale = localeKey ? String(item[localeKey] || "en") : "en";
@@ -6125,6 +7215,11 @@ export default function ContentTypeManagePage() {
         open={explainSharedLayoutOpen}
         onClose={() => setExplainSharedLayoutOpen(false)}
         alwaysOn={hasDb}
+      />
+      <LinkedDatabaseExplainDialog
+        open={explainLinkedDatabaseOpen}
+        onClose={() => setExplainLinkedDatabaseOpen(false)}
+        databaseSlug={dbSlug}
       />
       <SharedLayoutEnableDialog
         open={enableSharedLayoutOpen}

@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import type { ImageRegistry } from "@shared/schema";
 import { ImagePickerDialog } from "./ImagePickerDialog";
+import { BRAND_LOGO_ENSURE_TAGS } from "@shared/standardMediaTags";
 
 export interface ImageWithStylePickerProps {
   label: string;
@@ -26,6 +27,8 @@ export interface ImageWithStylePickerProps {
   objectFit?: string;
   objectPosition?: string;
   tagFilter?: string;
+  /** Standard tags applied on gallery Save (e.g. logo + brand). */
+  ensureTagsOnSave?: string[];
   testId?: string;
   disabled?: boolean;
   onChangeSrc: (src: string, alt: string, registryId?: string) => void;
@@ -42,6 +45,7 @@ export function ImageWithStylePicker({
   objectFit = "",
   objectPosition = "",
   tagFilter,
+  ensureTagsOnSave,
   testId = "image-style",
   disabled = false,
   onChangeSrc,
@@ -185,6 +189,10 @@ export function ImageWithStylePicker({
         initialSrc={value}
         initialAlt={alt}
         tagFilter={tagFilter}
+        ensureTagsOnSave={
+          ensureTagsOnSave ??
+          (tagFilter === "logo" ? [...BRAND_LOGO_ENSURE_TAGS] : undefined)
+        }
         onSave={handleSave}
         onRemove={onRemove}
       />

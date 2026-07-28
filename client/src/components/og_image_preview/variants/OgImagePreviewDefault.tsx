@@ -1,5 +1,7 @@
 import type { OgImagePreviewSection } from "@shared/schema";
 import UniversalImage from "@/components/UniversalImage";
+import { Badge } from "@/components/ui/badge";
+import { formatReadingTimeLabel } from "@/lib/readingTime";
 
 const DEFAULT_LOGO_ID = "4geeks-devs-logo-1763162063433";
 
@@ -7,17 +9,48 @@ interface OgImagePreviewProps {
   data: OgImagePreviewSection;
 }
 
-function formatMetaLine(author?: string, readingTime?: string): string | null {
+function formatMetaLine(author?: string, readingTime?: string | null): string | null {
   const parts = [author?.trim(), readingTime?.trim()].filter(Boolean) as string[];
   if (parts.length === 0) return null;
   return parts.join(" · ");
 }
 
+/** Normalize category to badge labels (string, string[], or object-ish tag items). */
+function categoryLabels(category: unknown): string[] {
+  if (category == null) return [];
+
+  const fromItem = (item: unknown): string | undefined => {
+    if (typeof item === "string") {
+      const t = item.trim();
+      return t || undefined;
+    }
+    if (typeof item === "number" || typeof item === "boolean") return String(item);
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const o = item as Record<string, unknown>;
+      for (const key of ["title", "name", "label", "slug"]) {
+        if (typeof o[key] === "string" && (o[key] as string).trim()) {
+          return (o[key] as string).trim();
+        }
+      }
+    }
+    return undefined;
+  };
+
+  if (Array.isArray(category)) {
+    return category.map(fromItem).filter((v): v is string => !!v);
+  }
+
+  const single = fromItem(category);
+  return single ? [single] : [];
+}
+
 export function OgImagePreviewDefault({ data }: OgImagePreviewProps) {
-  const { logo, category, title, author, reading_time } = data;
+  const { logo, category, title, author, content, reading_time } = data;
   const logoId = typeof logo === "string" && logo.length > 0 ? logo : DEFAULT_LOGO_ID;
-  const metaLine = formatMetaLine(author, reading_time);
-  const categoryLabel = category?.trim();
+  const readingLabel =
+    (typeof reading_time === "string" && reading_time.trim()) || formatReadingTimeLabel(content);
+  const metaLine = formatMetaLine(author, readingLabel);
+  const labels = categoryLabels(category);
 
   return (
     <section
@@ -32,6 +65,7 @@ export function OgImagePreviewDefault({ data }: OgImagePreviewProps) {
         <UniversalImage
           id={logoId}
           alt="4Geeks"
+          loading="eager"
           className="h-10 w-auto max-w-[280px]"
           style={{ objectFit: "contain" }}
           fieldContext={{ fieldPath: "logo" }}
@@ -39,13 +73,21 @@ export function OgImagePreviewDefault({ data }: OgImagePreviewProps) {
       </div>
 
       <div className="flex max-w-[920px] flex-col gap-4">
-        {categoryLabel ? (
-          <p
-            className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground"
+        {labels.length > 0 ? (
+          <div
+            className="flex flex-wrap items-center gap-2"
             data-testid="og-image-preview-category"
           >
-            {categoryLabel}
-          </p>
+            {labels.map((label) => (
+              <Badge
+                key={label}
+                variant="secondary"
+                className="border-transparent bg-background/35 px-3 py-1 text-sm font-semibold uppercase tracking-[0.15em] text-muted-foreground backdrop-blur-sm"
+              >
+                {label}
+              </Badge>
+            ))}
+          </div>
         ) : null}
 
         <h1

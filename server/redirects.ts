@@ -153,6 +153,16 @@ function getQueryString(req: Request): string {
 }
 
 export function redirectMiddleware(req: Request, res: Response, next: NextFunction): void {
+  if (
+    req.path.startsWith("/api/") ||
+    req.path.startsWith("/assets/") ||
+    req.path.startsWith("/@") ||
+    req.path.startsWith("/private/")
+  ) {
+    next();
+    return;
+  }
+
   const siteCi = (res.locals.site as any)?.contentIndex as typeof contentIndex | undefined;
   const siteMaps = siteCi ? _getSiteRedirectMaps(siteCi) : null;
   const map = siteMaps ? siteMaps.map : getRedirectMap();
@@ -186,7 +196,14 @@ export function redirectMiddleware(req: Request, res: Response, next: NextFuncti
 }
 
 export function fallbackRedirectMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/assets/") || req.path.startsWith("/@")) {
+  // Admin / capture frames must never be rewritten to public content URLs
+  // (canonical DB slug matching would steal `/private/entry-preview-frame/.../:slug`).
+  if (
+    req.path.startsWith("/api/") ||
+    req.path.startsWith("/assets/") ||
+    req.path.startsWith("/@") ||
+    req.path.startsWith("/private/")
+  ) {
     next();
     return;
   }

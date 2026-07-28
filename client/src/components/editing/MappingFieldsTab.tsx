@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calculator, ChevronDown, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,10 @@ type ContentTypeConfig = {
   database?: { slug?: string } | null;
 };
 
+function isSystemSpecialField(field: string): boolean {
+  return field.startsWith("_");
+}
+
 function FieldsEducationBlock({
   hasDatabase,
   directory,
@@ -67,6 +71,7 @@ function FieldsEducationBlock({
   slug: string;
   locale: string;
 }) {
+  const [open, setOpen] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dbPath = `db/${databaseSlug || "<database>"}/overrides.json`;
   const ctPath = `${directory}/${slug}/${locale}.yml`;
@@ -76,128 +81,120 @@ function FieldsEducationBlock({
       className="rounded-md border border-border bg-muted/20 p-3 space-y-3 text-sm text-muted-foreground"
       data-testid="fields-education"
     >
-      <div className="space-y-2">
-        <p className="font-medium text-foreground">How Fields work</p>
-        <p>
-          This tab lists mapping fields available in templates as{" "}
-          <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ single.fieldName }}`}</code>.
-          Values can come from the original database row
-          {hasDatabase ? ", a database override, or a content-type override" : " or a content-type override"}.
-        </p>
-        {hasDatabase ? (
-          <div className="space-y-1.5">
-            <p>
-              <span className="font-medium text-foreground">Database override</span> — Updates the cached
-              database value. It appears in listings, dropdowns, filters, and other database-powered UI,
-              and also on this page. Database overrides are shared across locales.
-            </p>
-            <p>
-              <span className="font-medium text-foreground">Content type override</span> — Writes to this
-              page&apos;s YAML only (page/HTML-specific). It does{" "}
-              <strong className="text-foreground">not</strong> change listings or the database. Content-type
-              overrides apply to <strong className="text-foreground">this locale ({locale})</strong> only;
-              sibling locales are unchanged.
-            </p>
-          </div>
-        ) : (
-          <p>
-            <span className="font-medium text-foreground">Content type override</span> — Stores the value in
-            this entry&apos;s live locale YAML. It applies to{" "}
-            <strong className="text-foreground">this locale ({locale})</strong> only; sibling locales are
-            unchanged.
-          </p>
-        )}
-        <p>
-          <span className="font-medium text-foreground">Precedence:</span>{" "}
-          {hasDatabase
-            ? "Content type override → Database override → Original database value."
-            : "Content type override → Entry default."}{" "}
-          Badges show which layer is providing the effective value you see in the table.
-        </p>
-        <p>
-          Under the hood, edits write to files on disk
-          {hasDatabase ? ` (${dbPath} and/or ${ctPath})` : ` (${ctPath})`} — open advanced details for the
-          full path rules.
-        </p>
-      </div>
-
       <button
         type="button"
-        className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
-        onClick={() => setShowAdvanced((v) => !v)}
-        data-testid="button-toggle-fields-advanced"
+        className="flex w-full items-center justify-between gap-2 text-left"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid="button-toggle-fields-education"
       >
-        {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+        <p className="font-medium text-foreground">How Fields work</p>
         <ChevronDown
-          className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
-      {showAdvanced && (
-        <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
-          <div>
-            <p className="font-medium text-foreground mb-1">Files written</p>
-            <ul className="list-disc pl-5 space-y-1">
-              {hasDatabase && (
-                <li>
-                  Database override:{" "}
-                  <code className="text-[11px] font-mono">{dbPath}</code>
-                </li>
-              )}
-              <li>
-                Content type override:{" "}
-                <code className="text-[11px] font-mono">{ctPath}</code> under the key{" "}
-                <code className="text-[11px] font-mono">field_overrides</code>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <p className="font-medium text-foreground mb-1">Locale and variants</p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>
-                Content-type overrides live on the <strong className="text-foreground">live</strong>{" "}
-                locale file only — not <code className="text-[11px] font-mono">_common.yml</code>, not
-                draft variant files. Sibling locales are not updated automatically.
-              </li>
-              {hasDatabase && (
-                <li>
-                  Database overrides in{" "}
-                  <code className="text-[11px] font-mono">overrides.json</code> are shared across locales
-                  (listings and pages that use the cached row).
-                </li>
-              )}
-              <li>
-                Layout/template variants still resolve{" "}
-                <code className="text-[11px] font-mono">{`{{ single.* }}`}</code> from this shared data
-                layer (DB + overrides + live <code className="text-[11px] font-mono">field_overrides</code>
-                ).
-              </li>
-            </ul>
-          </div>
-          {hasDatabase && (
-            <div>
-              <p className="font-medium text-foreground mb-1">Reset and buried overrides</p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>
-                  Reset clears <strong className="text-foreground">both</strong> the content-type and
-                  database override for that field, restoring the original database value.
-                </li>
-                <li>
-                  If a content-type override is winning, a buried database override is not editable from
-                  this table until you reset the content-type layer (or edit database overrides from the
-                  database dashboard).
-                </li>
-              </ul>
-            </div>
-          )}
-          <div>
-            <p className="font-medium text-foreground mb-1">Calculated fields</p>
+      {open && (
+        <>
+          <div className="space-y-2">
             <p>
-              Fields mapped with <code className="text-[11px] font-mono">function:</code> are
-              calculated and read-only here (calculator icon).
+              Fields are the content-type schema (Manage → Fields). Custom fields appear here and as{" "}
+              <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ single.fieldName }}`}</code>.
+              They are not SEO fields — use the SEO Meta tab for SEO head keys (
+              <code className="text-xs font-mono">{`{{ meta.* }}`}</code>). System identity is auto-available as{" "}
+              <code className="text-xs font-mono">{`{{ single.slug }}`}</code> /{" "}
+              <code className="text-xs font-mono">{`{{ single.locale }}`}</code> /{" "}
+              <code className="text-xs font-mono">{`{{ single.image }}`}</code> (and underscore forms).{" "}
+              <code className="text-xs font-mono">_hreflangs</code> is routing-only. Change DB identity sources on
+              Manage → Fields when a database is attached.
+            </p>
+            {hasDatabase ? (
+              <div className="space-y-1.5">
+                <p>
+                  <span className="font-medium text-foreground">Database override</span> — Updates the cached
+                  database value (listings and this page). Shared across locales.
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Content type override</span> — Writes to this
+                  page&apos;s YAML only for <strong className="text-foreground">this locale ({locale})</strong>.
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Precedence:</span> Content type override →
+                  Database override → Original database value.
+                </p>
+              </div>
+            ) : (
+              <p>
+                <span className="font-medium text-foreground">Content type override</span> — Stores the value
+                under <code className="text-xs bg-muted px-1 rounded font-mono">field_overrides</code> for{" "}
+                <strong className="text-foreground">this locale ({locale})</strong> only.
+              </p>
+            )}
+            <p>
+              Edits write to disk
+              {hasDatabase ? ` (${dbPath} and/or ${ctPath})` : ` (${ctPath})`} — open advanced for path rules.
             </p>
           </div>
-        </div>
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+            onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="button-toggle-fields-advanced"
+          >
+            {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {showAdvanced && (
+            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
+              <div>
+                <p className="font-medium text-foreground mb-1">Files written</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  {hasDatabase && (
+                    <li>
+                      Database override: <code className="text-[11px] font-mono">{dbPath}</code>
+                    </li>
+                  )}
+                  <li>
+                    Content type override:{" "}
+                    <code className="text-[11px] font-mono">{ctPath}</code> under{" "}
+                    <code className="text-[11px] font-mono">field_overrides</code>
+                  </li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-medium text-foreground mb-1">System fields</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>
+                    Remap sources only on Manage → Fields.{" "}
+                    <code className="text-[11px] font-mono">_slug</code> aliases to{" "}
+                    <code className="text-[11px] font-mono">{`{{ single.slug }}`}</code>;{" "}
+                    <code className="text-[11px] font-mono">_image</code> drives preview/OG and aliases to{" "}
+                    <code className="text-[11px] font-mono">{`{{ single.image }}`}</code>.
+                  </li>
+                  {!hasDatabase && (
+                    <li>
+                      Static <code className="text-[11px] font-mono">_hreflangs</code> is unused — alternates
+                      use locale files / slug overrides.
+                    </li>
+                  )}
+                </ul>
+              </div>
+              {hasDatabase && (
+                <div>
+                  <p className="font-medium text-foreground mb-1">Reset</p>
+                  <p>
+                    Reset clears content-type and database overrides for a custom field, restoring the
+                    original database value.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -217,7 +214,6 @@ function formatDisplayValue(value: unknown, maxLength?: number): string {
       text = String(value);
     }
   }
-  // Collapse whitespace so markdown/HTML blobs don't blow up the table row
   text = text.replace(/\s+/g, " ").trim();
   if (maxLength != null && text.length > maxLength) {
     return `${text.slice(0, maxLength).trimEnd()}…`;
@@ -322,7 +318,7 @@ export function MappingFieldsTab({
   };
 
   const openPencil = (row: FieldProvenance) => {
-    if (row.calculated) return;
+    if (row.calculated || isSystemSpecialField(row.field)) return;
     if (row.source === "ct_override" || (!hasDatabase && row.source === "entry_default")) {
       setEditing({ field: row.field, level: "content_type", value: row.effective });
       return;
@@ -331,12 +327,11 @@ export function MappingFieldsTab({
       setEditing({ field: row.field, level: "database", value: row.effective });
       return;
     }
-    // original database — ask level
     setLevelChooserField(row);
   };
 
   const handleReset = async () => {
-    if (!resetTarget || !hasDatabase) return;
+    if (!resetTarget || !hasDatabase || isSystemSpecialField(resetTarget.field)) return;
     setResetting(true);
     try {
       const headers = await authHeaders();
@@ -382,15 +377,14 @@ export function MappingFieldsTab({
       <div className="space-y-3 pt-4" data-testid="fields-tab-empty">
         {education}
         <p className="text-sm text-muted-foreground">
-          {label}&apos;s don&apos;t have any fields yet. You can add fields if you want to store meta
-          information about content type entries. For example, if you want to store the author of a blog
-          post you can add the field <code className="font-mono text-xs bg-muted px-1 rounded">author_name</code>{" "}
-          to the {contentType} custom type.
+          {label} entries don&apos;t have any fields declared yet. Declare fields on the content type
+          (for example <code className="font-mono text-xs bg-muted px-1 rounded">author_name</code>),
+          then come back here to set each entry&apos;s values.
         </p>
         <Button variant="outline" size="sm" asChild data-testid="link-configure-fields">
-          <Link href={`/private/content-types/${encodeURIComponent(contentType)}`}>
+          <Link href={`/private/type/${encodeURIComponent(contentType)}`}>
             <Link2 className="h-3.5 w-3.5 mr-1.5" />
-            Configure fields for {label}
+            Declare fields for {label}
           </Link>
         </Button>
       </div>
@@ -413,11 +407,20 @@ export function MappingFieldsTab({
           <tbody>
             {fields.map((row) => {
               const badge = sourceBadge(row.source);
+              const special = isSystemSpecialField(row.field);
+              const localeEmptyNote =
+                row.field === "_locale" && !hasDatabase && (row.effective === undefined || row.effective === "");
+              const hreflangsStaticNote = row.field === "_hreflangs" && !hasDatabase;
               return (
                 <tr key={row.field} className="border-b last:border-b-0" data-testid={`row-field-${row.field}`}>
                   <td className="px-3 py-2 font-mono text-xs align-top">
                     <span className="inline-flex items-center gap-1">
                       {row.field}
+                      {special && (
+                        <Badge variant="outline" className="text-[9px] font-sans font-normal">
+                          system
+                        </Badge>
+                      )}
                       {row.calculated && (
                         <Calculator
                           className="h-3 w-3 text-muted-foreground"
@@ -425,6 +428,13 @@ export function MappingFieldsTab({
                         />
                       )}
                     </span>
+                    {(localeEmptyNote || hreflangsStaticNote) && (
+                      <p className="text-[10px] text-muted-foreground font-sans mt-0.5 max-w-[160px]">
+                        {localeEmptyNote
+                          ? "Usually from file/URL — map a source on Manage → Fields if needed."
+                          : "Static alternates use locale files — not set here."}
+                      </p>
+                    )}
                   </td>
                   <td
                     className="px-3 py-2 text-xs align-top break-all max-w-[220px]"
@@ -433,13 +443,20 @@ export function MappingFieldsTab({
                     {formatDisplayValue(row.effective, VALUE_PREVIEW_MAX)}
                   </td>
                   <td className="px-3 py-2 align-top">
-                    <Badge variant={badge.variant} className="text-[10px] font-normal">
-                      {badge.label}
-                    </Badge>
+                    {special ? (
+                      <Badge variant="outline" className="text-[10px] font-normal gap-1">
+                        <Info className="h-3 w-3" />
+                        Read-only
+                      </Badge>
+                    ) : (
+                      <Badge variant={badge.variant} className="text-[10px] font-normal">
+                        {badge.label}
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="flex items-center gap-0.5">
-                      {!row.calculated && (
+                      {!row.calculated && !special && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -451,12 +468,12 @@ export function MappingFieldsTab({
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                      {hasDatabase && !row.calculated && (
+                      {hasDatabase && !row.calculated && !special && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          title="Reset to original"
+                          title="Reset"
                           disabled={row.source === "original"}
                           onClick={() => setResetTarget(row)}
                           data-testid={`button-reset-field-${row.field}`}
@@ -487,13 +504,11 @@ export function MappingFieldsTab({
           <div className="space-y-3 text-sm text-muted-foreground">
             <p>
               <span className="font-medium text-foreground">Database override</span> — Updates the cached
-              database value. It will appear in listings, dropdowns, filters, and other database-powered UI
-              across the site.
+              database value across listings and this page.
             </p>
             <p>
               <span className="font-medium text-foreground">Content type override</span> — Updates this
-              page&apos;s YAML only. Use for page/HTML-specific fields. It does{" "}
-              <strong className="text-foreground">not</strong> change the database or listing data.
+              page&apos;s YAML only for this locale.
             </p>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">

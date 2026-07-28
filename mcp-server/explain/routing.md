@@ -42,7 +42,7 @@ Routes are also used to generate the sitemap automatically. Every page with a va
 
 ## DB-backed content types
 
-For database-backed types (e.g. `blog`), the slug comes from the database record rather than the file system. The URL pattern still applies, but the `:slug` is resolved from the `_slug` field mapping.
+For database-backed types (e.g. `blog`), the slug comes from the database record via `field_mapping._slug` rather than the file system. Static types also declare `_slug` (default identity `slug`). The URL pattern still applies; `:slug` is resolved from that mapping or the folder name.
 
 ## Canonical URLs and Open Graph
 

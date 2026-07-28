@@ -41,13 +41,23 @@ function waitForPreviewReady(
       resolve(lastHeight);
     };
 
-    const timer = setTimeout(() => {
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
       cleanup();
-      reject(new Error("Timed out waiting for preview"));
+      reject(new Error(message));
+    };
+
+    const timer = setTimeout(() => {
+      fail("Timed out waiting for preview");
     }, timeoutMs);
 
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframe.contentWindow) return;
+      if (event.data?.type === "preview-error") {
+        fail(String(event.data.error || "Preview frame error"));
+        return;
+      }
       if (event.data?.type === "preview-ready") {
         ready = true;
       }

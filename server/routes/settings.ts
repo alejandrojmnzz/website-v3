@@ -125,7 +125,7 @@ import {
   getDirectory,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
-import { resolveSingleVars } from "../single-resolver";
+import { resolveAllTemplateVars } from "../resolve-template-vars";
 import {
   normalizeLocale,
   getSupportedLocales,
@@ -379,7 +379,10 @@ export function registerSettingsRoutes(app: Express): void {
 
       const def = getVM(res).getDefinition(name);
       if (def?.isReserved) {
-        return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be modified here. Use Settings → Legal.` });
+        const hint = name.startsWith("brand.")
+          ? "Use Settings → Brand."
+          : "Use Settings → Legal.";
+        return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be modified here. ${hint}` });
       }
 
       const { action } = body as { action: string };
@@ -469,7 +472,10 @@ export function registerSettingsRoutes(app: Express): void {
 
       const defToDelete = getVM(res).getDefinition(name);
       if (defToDelete?.isReserved) {
-        return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be deleted. Manage it in Settings → Legal.` });
+        const hint = name.startsWith("brand.")
+          ? "Manage it in Settings → Brand."
+          : "Manage it in Settings → Legal.";
+        return res.status(403).json({ error: `Variable "${name}" is reserved and cannot be deleted. ${hint}` });
       }
 
       if (body.level) {
@@ -1593,7 +1599,10 @@ export function registerSettingsRoutes(app: Express): void {
         location: req.query.location as string | undefined,
         region: req.query.region as string | undefined,
       };
-      const { data: resolved } = getVM(res).resolveDeep(data, context);
+      const resolved = resolveAllTemplateVars(data, {
+        contentRoot: getContentRoot(res),
+        context,
+      });
       res.json({ name, locale: locale || "en", data: resolved });
     } catch (error) {
       log.error({ err: error }, `Error loading menu ${name}:`);

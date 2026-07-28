@@ -387,7 +387,19 @@ export function getWebsiteDefaultSocialImage(contentRoot?: string): string | nul
   return typeof img === "string" && img.trim() !== "" ? img.trim() : null;
 }
 
-export function updateOrganizationTwitterHandle(handle: string): void {
+export function getOrganizationLogo(contentRoot?: string): string | null {
+  const config = loadSchemaConfig(contentRoot);
+  const logo = (config.organization as Record<string, unknown> | undefined)?.logo;
+  return typeof logo === "string" && logo.trim() !== "" ? logo.trim() : null;
+}
+
+export function getOrganizationName(contentRoot?: string): string | null {
+  const config = loadSchemaConfig(contentRoot);
+  const name = (config.organization as Record<string, unknown> | undefined)?.name;
+  return typeof name === "string" && name.trim() !== "" ? name.trim() : null;
+}
+
+function loadWritableSchemaConfig(): { schemaPath: string; existing: Record<string, unknown> } {
   const schemaPath = path.join(process.cwd(), getDefaultContentFolder(), "schema-org.yml");
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
@@ -396,6 +408,35 @@ export function updateOrganizationTwitterHandle(handle: string): void {
       existing = (yaml.load(raw) as Record<string, unknown>) || {};
     } catch {}
   }
+  return { schemaPath, existing };
+}
+
+function writeSchemaConfig(schemaPath: string, existing: Record<string, unknown>): void {
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(schemaPath, output, "utf-8");
+  clearSchemaCache();
+}
+
+export function updateOrganizationLogo(imageUrl: string): void {
+  const { schemaPath, existing } = loadWritableSchemaConfig();
+  if (!existing.organization || typeof existing.organization !== "object") {
+    existing.organization = {};
+  }
+  (existing.organization as Record<string, unknown>).logo = imageUrl;
+  writeSchemaConfig(schemaPath, existing);
+}
+
+export function updateOrganizationName(name: string): void {
+  const { schemaPath, existing } = loadWritableSchemaConfig();
+  if (!existing.organization || typeof existing.organization !== "object") {
+    existing.organization = {};
+  }
+  (existing.organization as Record<string, unknown>).name = name;
+  writeSchemaConfig(schemaPath, existing);
+}
+
+export function updateOrganizationTwitterHandle(handle: string): void {
+  const { schemaPath, existing } = loadWritableSchemaConfig();
 
   if (!existing.organization || typeof existing.organization !== "object") {
     existing.organization = {};
@@ -422,28 +463,16 @@ export function updateOrganizationTwitterHandle(handle: string): void {
   }
 
   org.same_as = sameAs;
-
-  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
-  fs.writeFileSync(schemaPath, output, "utf-8");
-  clearSchemaCache();
+  writeSchemaConfig(schemaPath, existing);
 }
 
 export function updateWebsiteDefaultSocialImage(imageUrl: string): void {
-  const schemaPath = path.join(process.cwd(), getDefaultContentFolder(), "schema-org.yml");
-  let existing: Record<string, unknown> = {};
-  if (fs.existsSync(schemaPath)) {
-    try {
-      const raw = fs.readFileSync(schemaPath, "utf-8");
-      existing = (yaml.load(raw) as Record<string, unknown>) || {};
-    } catch {}
-  }
+  const { schemaPath, existing } = loadWritableSchemaConfig();
   if (!existing.website || typeof existing.website !== "object") {
     existing.website = {};
   }
   (existing.website as Record<string, unknown>).default_social_image = imageUrl;
-  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
-  fs.writeFileSync(schemaPath, output, "utf-8");
-  clearSchemaCache();
+  writeSchemaConfig(schemaPath, existing);
 }
 
 export function getAvailableSchemaKeys(contentRoot?: string): string[] {

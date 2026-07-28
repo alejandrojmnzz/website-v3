@@ -11,6 +11,8 @@ export interface FieldValidationResult {
   total: number;
   found: number;
   missing: MissingEntry[];
+  /** Identity schema key present on no entries yet — warn, do not block save. */
+  isNewField?: boolean;
 }
 
 export interface MappingValidationResult {
@@ -106,6 +108,21 @@ export function validateFieldSource(
   };
 }
 
+/** Strip optional `?` prefix from a mapping source string. */
+export function stripOptionalPrefix(value: string): string {
+  return isOptionalSource(value) ? value.slice(1) : value;
+}
+
+/**
+ * Identity mapping (key === source) is a static schema declaration — the key need not
+ * exist in every entry YAML yet. Values are filled later via field_overrides / Fields tab.
+ * When *no* entry has the key, mark isNewField (warning only; still valid).
+ */
+export function isIdentityFieldMapping(key: string, value: string): boolean {
+  if (isTransformerValue(value)) return false;
+  return stripOptionalPrefix(value) === key;
+}
+
 export function validateFieldMapping(
   contentType: string,
   fieldMapping: Record<string, string>
@@ -118,6 +135,18 @@ export function validateFieldMapping(
     if (typeof value !== "string" || !value) continue;
     if (isTransformerValue(value)) continue;
     if (isOptionalSource(value)) continue;
+
+    if (isIdentityFieldMapping(key, value)) {
+      const presence = validateFieldSource(contentType, value);
+      // Identity is always valid for save; warn when no entry has the key yet
+      results[key] = {
+        ...presence,
+        valid: true,
+        isNewField: presence.total > 0 && presence.found === 0,
+        missing: presence.found === 0 ? [] : presence.missing,
+      };
+      continue;
+    }
 
     const result = validateFieldSource(contentType, value);
     results[key] = result;

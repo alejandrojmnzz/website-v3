@@ -36,6 +36,7 @@ import {
   setCachedHtml,
   shouldBypassHtmlCache,
 } from "./html-page-cache";
+import { injectGtmWebContainerId } from "./gtm-web-inject";
 import { child as loggerChild } from "./logger";
 
 const ssrLogger = loggerChild({ module: "ssr" });
@@ -244,6 +245,8 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
         html = html.replace("</body>", scriptTag + "</body>");
       }
 
+      html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+
       const status = isKnownRoute(url) ? 200 : 404;
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
@@ -372,8 +375,13 @@ export function serveStatic(app: Express) {
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
 
+        // Cache HTML with the GTM placeholder intact; inject the live ID only on send
+        // so settings changes apply on cache HITs without busting the page cache.
+        const htmlForCache = html;
+        html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+
         if (!bypassCache && status === 200) {
-          setCachedHtml(cacheKey, html, status);
+          setCachedHtml(cacheKey, htmlForCache, status);
           res.setHeader("X-HTML-Cache", "MISS");
         }
 
@@ -392,6 +400,7 @@ export function serveStatic(app: Express) {
         }
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
+        html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
       } catch {
@@ -403,6 +412,7 @@ export function serveStatic(app: Express) {
       let html = await fs.promises.readFile(indexHtmlPath, "utf-8");
       html = applyEntryModulePreload(html);
       html = applyEntryPreloads(html, res);
+      html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
     } catch {
       res.status(status).sendFile(indexHtmlPath);

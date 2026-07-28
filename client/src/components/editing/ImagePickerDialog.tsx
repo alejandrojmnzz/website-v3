@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Check, CloudUpload, Crop as CropIcon, Loader2, Search, Upload, X } from "lucide-react";
+import { Check, CloudUpload, Crop as CropIcon, Loader2, Search, Tags, Upload, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactCrop from "react-image-crop";
 import type { Crop } from "react-image-crop";
@@ -57,7 +57,19 @@ export interface ImagePickerDialogProps {
   title?: string;
   initialSrc?: string;
   initialAlt?: string;
+  /** Locked tag filter (e.g. logo pickers) — cannot be cleared by the user. */
   tagFilter?: string;
+  /**
+   * Initial tag filter when the dialog opens; user can clear via chip to browse all tags.
+   * Ignored when `tagFilter` is set.
+   */
+  defaultTagFilter?: string;
+  /**
+   * Tags ensured on the registry image when Save is clicked (idempotent POST).
+   * Shown as a footer hint when a gallery image is selected.
+   * Standard project tags: `og-image`, `logo`, `brand`.
+   */
+  ensureTagsOnSave?: string[];
   onSave: (src: string, alt: string, registryId: string | undefined) => Promise<void> | void;
   onRemove?: () => void;
   renderPreset?: string;
@@ -80,6 +92,8 @@ export function ImagePickerDialog({
   initialSrc = "",
   initialAlt = "",
   tagFilter,
+  defaultTagFilter,
+  ensureTagsOnSave,
   onSave,
   onRemove,
   renderPreset,
@@ -108,8 +122,19 @@ export function ImagePickerDialog({
 
   const hasCloudProvider = (mediaStatus?.providers ?? []).some((p) => p !== "local");
 
+  const lockedTagFilter = typeof tagFilter === "string" && tagFilter.trim() ? tagFilter.trim() : "";
+  const initialDefaultFilter =
+    typeof defaultTagFilter === "string" && defaultTagFilter.trim() ? defaultTagFilter.trim() : "";
+  const tagFilterSelectable = !lockedTagFilter;
+
   const [pickerMode, setPickerMode] = useState<"browse" | "upload">("browse");
   const [search, setSearch] = useState("");
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [activeTagFilters, setActiveTagFilters] = useState<string[]>(() => {
+    const initial = lockedTagFilter || initialDefaultFilter;
+    return initial ? [initial] : [];
+  });
   const [visibleCount, setVisibleCount] = useState(48);
   const [selectedSrc, setSelectedSrc] = useState(initialSrc);
   const [selectedAlt, setSelectedAlt] = useState(initialAlt);
@@ -118,6 +143,7 @@ export function ImagePickerDialog({
   const [dragOver, setDragOver] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const popoverContainerRef = useRef<HTMLDivElement>(null);
 
@@ -201,16 +227,26 @@ export function ImagePickerDialog({
       }
       setSelectedRegistryId(resolvedId);
       setSearch("");
+      setSearchExpanded(false);
+      setTagsExpanded(false);
       setPickerMode("browse");
+      const initial = lockedTagFilter || initialDefaultFilter;
+      setActiveTagFilters(initial ? [initial] : []);
     } else {
       setOpenPanelId(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialSrc, initialAlt]);
+  }, [open, initialSrc, initialAlt, lockedTagFilter, initialDefaultFilter]);
 
   useEffect(() => {
     setVisibleCount(48);
-  }, [search, open]);
+  }, [search, open, activeTagFilters]);
+
+  useEffect(() => {
+    if (searchExpanded) {
+      searchInputRef.current?.focus();
+    }
+  }, [searchExpanded]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -232,15 +268,47 @@ export function ImagePickerDialog({
     return map;
   })();
 
+  const effectiveTagFilters = lockedTagFilter
+    ? [lockedTagFilter]
+    : activeTagFilters;
+  const activeTagFilterCount = effectiveTagFilters.length;
+
+  const availableTags = (() => {
+    const defs = imageRegistry?.tagDefinitions;
+    if (defs && Object.keys(defs).length > 0) {
+      return Object.entries(defs).map(([key, def]) => ({
+        key,
+        label: def.label || key,
+      }));
+    }
+    // Fallback: unique tags present on images
+    const seen = new Set<string>();
+    for (const img of Object.values(imageRegistry?.images ?? {})) {
+      for (const t of img.tags ?? []) {
+        if (t) seen.add(t);
+      }
+    }
+    return Array.from(seen)
+      .sort()
+      .map((key) => ({ key, label: key }));
+  })();
+
+  const toggleTagFilter = (key: string) => {
+    setActiveTagFilters((prev) =>
+      prev.includes(key) ? prev.filter((t) => t !== key) : [...prev, key],
+    );
+  };
+
   const filteredImages = (() => {
     if (!imageRegistry?.images) return [];
     const searchLower = search.toLowerCase();
-    const tagLower = tagFilter?.toLowerCase();
+    const tagSet = new Set(effectiveTagFilters.map((t) => t.toLowerCase()));
     return Object.entries(imageRegistry.images)
       .filter(([id, img]) => {
         if (img.parentId) return false;
-        if (tagLower && !img.tags?.some((t) => t.toLowerCase() === tagLower)) {
-          return false;
+        if (tagSet.size > 0) {
+          const hasMatch = img.tags?.some((t) => tagSet.has(t.toLowerCase()));
+          if (!hasMatch) return false;
         }
         if (!searchLower) return true;
         return (
@@ -271,6 +339,9 @@ export function ImagePickerDialog({
       try {
         const formData = new FormData();
         formData.append("file", file);
+        if (effectiveTagFilters.length > 0) {
+          formData.append("tags", JSON.stringify(effectiveTagFilters));
+        }
         const resp = await fetch("/api/image-registry/upload", {
           method: "POST",
           body: formData,
@@ -311,6 +382,25 @@ export function ImagePickerDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
+      if (
+        ensureTagsOnSave &&
+        ensureTagsOnSave.length > 0 &&
+        selectedRegistryId
+      ) {
+        const resp = await fetch(
+          `/api/image-registry/${encodeURIComponent(selectedRegistryId)}/tags`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ add: ensureTagsOnSave }),
+          },
+        );
+        if (!resp.ok) {
+          const err = (await resp.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error || "Failed to apply standard image tags");
+        }
+        await queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+      }
       await onSave(selectedSrc, selectedAlt, selectedRegistryId);
       onOpenChange(false);
     } catch (err: unknown) {
@@ -556,15 +646,118 @@ export function ImagePickerDialog({
 
             {pickerMode === "browse" ? (
               <>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search images..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-10"
-                    data-testid="input-image-gallery-search"
-                  />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    {searchExpanded ? (
+                      <div className="relative flex-1 min-w-0">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          ref={searchInputRef}
+                          placeholder="Search images..."
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              setSearchExpanded(false);
+                            }
+                          }}
+                          className="pl-10 pr-9"
+                          data-testid="input-image-gallery-search"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setSearch("");
+                            setSearchExpanded(false);
+                          }}
+                          aria-label="Close search"
+                          data-testid="button-close-search"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={search ? "secondary" : "outline"}
+                        className="h-9 w-9 shrink-0 p-0 relative"
+                        onClick={() => {
+                          setSearchExpanded(true);
+                          setTagsExpanded(false);
+                        }}
+                        aria-label="Search images"
+                        data-testid="button-expand-search"
+                      >
+                        <Search className="h-4 w-4" />
+                        {!!search && (
+                          <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </Button>
+                    )}
+
+                    {lockedTagFilter ? (
+                      <Badge
+                        variant="secondary"
+                        className="font-normal shrink-0"
+                        data-testid="badge-active-tag-filter"
+                      >
+                        Tag: {lockedTagFilter}
+                      </Badge>
+                    ) : availableTags.length > 0 ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={tagsExpanded || activeTagFilterCount > 0 ? "secondary" : "outline"}
+                        className="h-9 shrink-0 gap-1.5"
+                        onClick={() => {
+                          setTagsExpanded((v) => !v);
+                          setSearchExpanded(false);
+                        }}
+                        data-testid="button-expand-tag-filter"
+                      >
+                        <Tags className="h-4 w-4" />
+                        <span className="text-xs">Tags</span>
+                        {activeTagFilterCount > 0 && (
+                          <Badge
+                            variant="default"
+                            className="h-5 min-w-5 px-1.5 text-[10px] leading-none"
+                            data-testid="badge-active-tag-count"
+                          >
+                            {activeTagFilterCount}
+                          </Badge>
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {tagsExpanded && tagFilterSelectable && availableTags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5" data-testid="tag-filter-row">
+                      <Badge
+                        variant={activeTagFilters.length === 0 ? "default" : "outline"}
+                        className="cursor-pointer text-xs"
+                        onClick={() => setActiveTagFilters([])}
+                        data-testid="badge-tag-all"
+                      >
+                        All
+                      </Badge>
+                      {availableTags.map(({ key, label }) => {
+                        const selected = activeTagFilters.includes(key);
+                        return (
+                          <Badge
+                            key={key}
+                            variant={selected ? "default" : "outline"}
+                            className="cursor-pointer text-xs"
+                            onClick={() => toggleTagFilter(key)}
+                            data-testid={`badge-tag-${key}`}
+                          >
+                            {label}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto min-h-0" ref={scrollContainerRef}>
@@ -682,7 +875,48 @@ export function ImagePickerDialog({
                     </div>
                   )}
                   {filteredImages.length === 0 && (
-                    <div className="text-center py-8 text-muted-foreground">No images found</div>
+                    <div className="text-center py-8 px-4 space-y-2" data-testid="empty-gallery-results">
+                      <p className="text-muted-foreground">No images found</p>
+                      {(search.trim() || activeTagFilterCount > 0) && (
+                        <p className="text-xs text-muted-foreground">
+                          {(() => {
+                            const parts: string[] = [];
+                            if (search.trim()) {
+                              parts.push(`search “${search.trim()}”`);
+                            }
+                            if (activeTagFilterCount > 0) {
+                              const labels = effectiveTagFilters.map(
+                                (key) =>
+                                  availableTags.find((t) => t.key === key)?.label || key,
+                              );
+                              parts.push(
+                                labels.length === 1
+                                  ? `tag “${labels[0]}”`
+                                  : `tags ${labels.map((l) => `“${l}”`).join(", ")}`,
+                              );
+                            }
+                            return `Filtered by ${parts.join(" and ")}.`;
+                          })()}
+                        </p>
+                      )}
+                      {(!!search.trim() || (!lockedTagFilter && activeTagFilterCount > 0)) && (
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                          onClick={() => {
+                            setSearch("");
+                            setSearchExpanded(false);
+                            if (!lockedTagFilter) {
+                              setActiveTagFilters([]);
+                            }
+                            setTagsExpanded(false);
+                          }}
+                          data-testid="button-clear-gallery-filters"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </>
@@ -764,78 +998,98 @@ export function ImagePickerDialog({
               </div>
             )}
 
-            <div className="border-t pt-4">
-              <div className="flex gap-3">
-                <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border flex-shrink-0">
-                  {selectedDisplaySrc ? (
-                    <img
-                      src={selectedDisplaySrc}
-                      alt={selectedAlt || "Preview"}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
-                      None
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 space-y-2">
-                  <div className="flex gap-2">
-                    <Input
-                      value={selectedSrc}
-                      onChange={(e) => {
-                        setSelectedSrc(e.target.value);
-                        setSelectedRegistryId(undefined);
-                      }}
-                      placeholder="Image URL or registry ID"
-                      className="text-sm flex-1"
-                      data-testid="input-image-url"
-                    />
-                    {selectedRegistryId && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleOpenCrop}
-                        data-testid="button-crop-resize"
-                      >
-                        <CropIcon className="h-4 w-4 mr-1.5" />
-                        Crop & Resize
-                      </Button>
+            {(selectedSrc || selectedDisplaySrc) && (
+              <div className="border-t pt-4">
+                <div className="flex gap-3">
+                  <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border flex-shrink-0">
+                    {selectedDisplaySrc ? (
+                      <img
+                        src={selectedDisplaySrc}
+                        alt={selectedAlt || "Preview"}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
+                        None
+                      </div>
                     )}
                   </div>
-                  <div className="flex">
-                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 bg-muted text-muted-foreground text-xs select-none">
-                      Alt
-                    </span>
-                    <Input
-                      value={selectedAlt}
-                      onChange={(e) => setSelectedAlt(e.target.value)}
-                      placeholder="Alt text"
-                      className="text-sm rounded-l-none"
-                      data-testid="input-image-alt"
-                    />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        value={selectedSrc}
+                        onChange={(e) => {
+                          setSelectedSrc(e.target.value);
+                          setSelectedRegistryId(undefined);
+                        }}
+                        placeholder="Image URL or registry ID"
+                        className="text-sm flex-1"
+                        data-testid="input-image-url"
+                      />
+                      {selectedRegistryId && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleOpenCrop}
+                          data-testid="button-crop-resize"
+                        >
+                          <CropIcon className="h-4 w-4 mr-1.5" />
+                          Crop & Resize
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex">
+                      <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 bg-muted text-muted-foreground text-xs select-none">
+                        Alt
+                      </span>
+                      <Input
+                        value={selectedAlt}
+                        onChange={(e) => setSelectedAlt(e.target.value)}
+                        placeholder="Alt text"
+                        className="text-sm rounded-l-none"
+                        data-testid="input-image-alt"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           <DialogFooter className="flex-row gap-2 sm:justify-between">
-            {onRemove ? (
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleRemove}
-                data-testid="button-image-remove"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Remove
-              </Button>
-            ) : (
-              <div />
-            )}
-            <div className="flex gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
+              {onRemove ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleRemove}
+                  data-testid="button-image-remove"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Remove
+                </Button>
+              ) : null}
+              {ensureTagsOnSave &&
+                ensureTagsOnSave.length > 0 &&
+                selectedSrc &&
+                selectedRegistryId && (
+                  <p
+                    className="text-[11px] text-muted-foreground leading-snug"
+                    data-testid="text-auto-tag-hint"
+                  >
+                    Saving will tag this image as{" "}
+                    {ensureTagsOnSave
+                      .map(
+                        (key) =>
+                          availableTags.find((t) => t.key === key)?.label || key,
+                      )
+                      .join(", ")}
+                    .
+                  </p>
+                )}
+            </div>
+            <div className="flex shrink-0 gap-2">
               <Button
                 type="button"
                 variant="outline"

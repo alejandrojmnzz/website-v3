@@ -127,7 +127,7 @@ import {
   getDirectory,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
-import { resolveSingleVars } from "../single-resolver";
+import { resolveAllTemplateVars } from "../resolve-template-vars";
 import {
   normalizeLocale,
   getSupportedLocales,
@@ -546,7 +546,11 @@ export function registerSeoRoutes(app: Express): void {
         }
 
         const singleEntry = (page.singleEntry as Record<string, unknown>) || {};
-        const resolvedPage = resolveSingleVars(page, singleEntry) as typeof page;
+        const resolvedPage = resolveAllTemplateVars(page, {
+          singleEntry,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as typeof page;
 
         let faqSchema: Record<string, unknown> | null = null;
         const dbSections = resolvedPage.sections as Array<Record<string, unknown>> | undefined;
@@ -609,7 +613,11 @@ export function registerSeoRoutes(app: Express): void {
       const mergedContent = getCI(res).loadMergedContent(contentType, slug, locale);
       let sectionsSource = mergedContent.data ?? pageData;
       if (mergedContent.data && mergedContent.isSharedTemplate) {
-        sectionsSource = resolveSingleVars(sectionsSource, sectionsSource) as Record<string, unknown>;
+        sectionsSource = resolveAllTemplateVars(sectionsSource, {
+          singleEntry: sectionsSource as Record<string, unknown>,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>;
       }
       const sections = sectionsSource.sections as
         | Array<Record<string, unknown>>

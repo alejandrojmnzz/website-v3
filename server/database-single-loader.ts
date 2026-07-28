@@ -9,10 +9,18 @@ import {
   getFolder,
   getLookupKey,
   getFieldMapping,
+  getFullFieldMapping,
   getLocaleKey,
   getLocaleSource,
   hasDatabaseSingle,
   getContentTypeConfig,
+  RESERVED_IMAGE_FIELD,
+  RESERVED_SLUG_FIELD,
+  RESERVED_LOCALE_FIELD,
+  applyImageAliasToEntry,
+  applySlugAliasToEntry,
+  applyLocaleAliasToEntry,
+  finalizeSingleEntryForTemplates,
 } from "./content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
 import { fetchMarkdownContent } from "./markdown";
@@ -305,20 +313,50 @@ export async function loadDatabaseSinglePage(
     const result = await db.fetchItems(dbName);
     const lookupKey = getLookupKey(contentType, resolvedRoot) || "slug";
     const fieldMapping = getFieldMapping(contentType, resolvedRoot);
+    const fullMapping = getFullFieldMapping(contentType, resolvedRoot);
 
     let items = result.items as Record<string, unknown>[];
 
-    if (fieldMapping) {
+    if (fieldMapping || fullMapping?.[RESERVED_IMAGE_FIELD] || fullMapping?.[RESERVED_SLUG_FIELD]) {
       items = items.map((item) => {
         const mapped: Record<string, unknown> = { ...item };
         const itemSlug = String(item[lookupKey] ?? item.slug ?? "unknown");
-        for (const [targetField, sourcePath] of Object.entries(fieldMapping)) {
-          const value = resolveFieldValue(sourcePath, item, targetField, {
+        if (fieldMapping) {
+          for (const [targetField, sourcePath] of Object.entries(fieldMapping)) {
+            const value = resolveFieldValue(sourcePath, item, targetField, {
+              contentType,
+              slug: itemSlug,
+              fieldPath: targetField,
+            });
+            if (value !== undefined) mapped[targetField] = value;
+          }
+        }
+        const slugMapSource = fullMapping?.[RESERVED_SLUG_FIELD];
+        if (slugMapSource) {
+          const slugValue = resolveFieldValue(slugMapSource, item, RESERVED_SLUG_FIELD, {
             contentType,
             slug: itemSlug,
-            fieldPath: targetField,
+            fieldPath: RESERVED_SLUG_FIELD,
           });
-          if (value !== undefined) mapped[targetField] = value;
+          applySlugAliasToEntry(mapped, slugValue);
+        }
+        const localeMapSource = fullMapping?.[RESERVED_LOCALE_FIELD];
+        if (localeMapSource) {
+          const localeValue = resolveFieldValue(localeMapSource, item, RESERVED_LOCALE_FIELD, {
+            contentType,
+            slug: itemSlug,
+            fieldPath: RESERVED_LOCALE_FIELD,
+          });
+          applyLocaleAliasToEntry(mapped, localeValue);
+        }
+        const imageSource = fullMapping?.[RESERVED_IMAGE_FIELD];
+        if (imageSource) {
+          const imageValue = resolveFieldValue(imageSource, item, RESERVED_IMAGE_FIELD, {
+            contentType,
+            slug: itemSlug,
+            fieldPath: RESERVED_IMAGE_FIELD,
+          });
+          applyImageAliasToEntry(mapped, imageValue);
         }
         return mapped;
       });
@@ -400,7 +438,10 @@ export async function loadDatabaseSinglePage(
       sections,
       settings: (merged.settings as TemplatePage["settings"]) || undefined,
       schema: (merged.schema as TemplatePage["schema"]) || undefined,
-      singleEntry: singleItem as Record<string, unknown>,
+      singleEntry: finalizeSingleEntryForTemplates(singleItem as Record<string, unknown>, {
+        slug,
+        locale,
+      }),
       perEntryRemovedSections: perEntryRemovedSections.length > 0 ? perEntryRemovedSections : undefined,
     };
 
