@@ -1,4 +1,5 @@
 import { createContext, useContext, useRef } from "react";
+import type { MediaDoctype } from "@shared/media-doctype";
 
 export interface ImagePickerTarget {
   arrayPath?: string;
@@ -14,6 +15,8 @@ export interface ImagePickerTarget {
   _fromImageClick?: boolean;
   _oldRegistryId?: string;
   _oldSrc?: string;
+  /** Restrict picker browse/upload; defaults to image when omitted. */
+  doctype?: MediaDoctype;
 }
 
 interface OpenImagePickerOptions {

@@ -18,6 +18,7 @@ import {
   type LocationPage,
   type TemplatePage,
 } from "@shared/schema";
+import { MEDIA_EXTENSIONS } from "@shared/media-doctype";
 import {
   getSitemap,
   clearSitemapCache,
@@ -732,18 +733,8 @@ export function registerMediaRoutes(app: Express): void {
     storage: multer.memoryStorage(),
     limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      const allowedImages = [
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".webp",
-        ".svg",
-        ".avif",
-        ".gif",
-      ];
-      const allowedVideos = [".mp4", ".webm", ".mov", ".ogg", ".m4v"];
       const ext = path.extname(file.originalname).toLowerCase();
-      if ([...allowedImages, ...allowedVideos].includes(ext)) {
+      if (MEDIA_EXTENSIONS.has(ext)) {
         cb(null, true);
       } else {
         cb(new Error(`Unsupported file type: ${ext}`));

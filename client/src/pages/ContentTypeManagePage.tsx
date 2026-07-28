@@ -3151,7 +3151,7 @@ function FieldMappingDialog({
 
       const payload = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
-        editor: Object.keys(editorHints).length > 0 ? editorHints : undefined,
+        editor: Object.keys(editorHints).length > 0 ? editorHints : null,
         indexes: safeIndexes.length > 0 ? safeIndexes : undefined,
         unique_fields: safeUnique,
       };

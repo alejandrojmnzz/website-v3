@@ -741,11 +741,13 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview">> & {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor">> & {
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
   /** Pass `null` to remove preview screenshot config. */
   preview?: ContentTypePreviewConfig | null;
+  /** Pass `null` to remove all content-type editor hints. */
+  editor?: ContentTypeEntry["editor"] | null;
 };
 
 export function updateContentTypeConfig(type: string, update: ContentTypeConfigUpdate, contentRoot?: string): void {
@@ -756,7 +758,7 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     throw new Error(`Content type "${type}" not found`);
   }
 
-  const { database: databaseUpdate, preview: previewUpdate, ...rest } = update;
+  const { database: databaseUpdate, preview: previewUpdate, editor: editorUpdate, ...rest } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
   if (databaseUpdate === null) {
     delete merged.database;
@@ -770,6 +772,12 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     delete merged.preview;
   } else if (previewUpdate) {
     merged.preview = previewUpdate;
+  }
+
+  if (editorUpdate === null) {
+    delete merged.editor;
+  } else if (editorUpdate) {
+    merged.editor = editorUpdate;
   }
 
   // Database-backed types always use a shared template.
@@ -1086,6 +1094,7 @@ export function extractUrlPatternParams(
   pattern: string,
   record: Record<string, unknown>,
   fieldMapping?: Record<string, string | null> | null,
+  defaults?: Record<string, string | null> | null,
 ): { params: Record<string, string>; missing: string[] } {
   const params: Record<string, string> = {};
   const missing: string[] = [];
@@ -1107,7 +1116,10 @@ export function extractUrlPatternParams(
       rawValue = extractDotPath(record, key);
     }
 
-    const resolved = resolveFieldValue(rawValue);
+    let resolved = resolveFieldValue(rawValue);
+    if (!resolved && defaults && defaults[key] != null && defaults[key] !== "") {
+      resolved = resolveFieldValue(defaults[key]);
+    }
     if (!resolved) {
       if (!missing.includes(key)) missing.push(key);
       continue;
@@ -1123,6 +1135,7 @@ export function resolveUrlPatternWithMapping(
   record: Record<string, unknown>,
   locale: string,
   fieldMapping?: Record<string, string | null> | null,
+  defaults?: Record<string, string | null> | null,
 ): string {
   let result = pattern.replaceAll(":locale", locale);
 
@@ -1144,7 +1157,11 @@ export function resolveUrlPatternWithMapping(
       rawValue = extractDotPath(record, key);
     }
 
-    result = result.replaceAll(param, resolveFieldValue(rawValue));
+    let resolved = resolveFieldValue(rawValue);
+    if (!resolved && key !== "slug" && key !== "locale" && defaults && defaults[key] != null && defaults[key] !== "") {
+      resolved = resolveFieldValue(defaults[key]);
+    }
+    result = result.replaceAll(param, resolved);
   }
 
   result = result.replace(/\/\/+/g, "/");
@@ -1163,7 +1180,8 @@ export function resolveContentTypeUrl(
   const pattern = config.url_pattern[locale] || config.url_pattern["default"] || config.url_pattern["en"];
   if (!pattern) return null;
   const mapping = getFullFieldMapping(type, contentRoot);
-  return resolveUrlPatternWithMapping(pattern, record, locale, mapping);
+  const defaults = getFieldMappingDefaults(type, contentRoot);
+  return resolveUrlPatternWithMapping(pattern, record, locale, mapping, defaults);
 }
 
 const SYSTEM_DEFAULT_LAYOUT: LayoutConfig = {

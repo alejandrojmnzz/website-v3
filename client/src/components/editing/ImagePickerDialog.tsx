@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Check, CloudUpload, Crop as CropIcon, Loader2, Search, Tags, Upload, X } from "lucide-react";
+import { Check, CloudUpload, Crop as CropIcon, FileText, Film, Loader2, Search, Tags, Upload, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactCrop from "react-image-crop";
 import type { Crop } from "react-image-crop";
@@ -27,6 +27,12 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { ImageRegistry, ImageEntry } from "@shared/schema";
+import {
+  type MediaDoctype,
+  acceptAttrForDoctype,
+  extensionsForDoctype,
+  inferDoctypeFromSrc,
+} from "@shared/media-doctype";
 
 interface FamilyUsageEntry {
   filePath: string;
@@ -74,7 +80,23 @@ export interface ImagePickerDialogProps {
   onRemove?: () => void;
   renderPreset?: string;
   renderedSize?: { width: number; height: number };
+  /**
+   * Restrict browse/upload to this media type. Defaults to `"image"` (current behavior).
+   */
+  doctype?: MediaDoctype;
 }
+
+const DOCTYPE_TITLES: Record<MediaDoctype, string> = {
+  image: "Choose image",
+  video: "Choose video",
+  pdf: "Choose PDF",
+};
+
+const DOCTYPE_UPLOAD_HINTS: Record<MediaDoctype, string> = {
+  image: "PNG, JPG, WebP, SVG, AVIF, GIF (max 10 MB)",
+  video: "MP4, WebM, MOV, OGG, M4V (max 100 MB)",
+  pdf: "PDF documents (max 100 MB)",
+};
 
 const ASPECT_RATIO_MAP: Record<string, number> = {
   "16:9": 16 / 9,
@@ -88,7 +110,7 @@ const ASPECT_RATIO_MAP: Record<string, number> = {
 export function ImagePickerDialog({
   open,
   onOpenChange,
-  title = "Select Image",
+  title,
   initialSrc = "",
   initialAlt = "",
   tagFilter,
@@ -98,9 +120,12 @@ export function ImagePickerDialog({
   onRemove,
   renderPreset,
   renderedSize,
+  doctype = "image",
 }: ImagePickerDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const resolvedTitle = title ?? DOCTYPE_TITLES[doctype];
+  const allowCrop = doctype === "image";
 
   const { data: imageRegistry } = useQuery<ImageRegistry>({
     queryKey: ["/api/image-registry"],
@@ -306,6 +331,7 @@ export function ImagePickerDialog({
     return Object.entries(imageRegistry.images)
       .filter(([id, img]) => {
         if (img.parentId) return false;
+        if (inferDoctypeFromSrc(img.src) !== doctype) return false;
         if (tagSet.size > 0) {
           const hasMatch = img.tags?.some((t) => tagSet.has(t.toLowerCase()));
           if (!hasMatch) return false;
@@ -325,12 +351,12 @@ export function ImagePickerDialog({
   const handleUpload = async (files: FileList | File[]) => {
       if (!files.length) return;
       const file = files[0];
-      const allowed = [".png", ".jpg", ".jpeg", ".webp", ".svg", ".avif", ".gif"];
+      const allowed = extensionsForDoctype(doctype);
       const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
       if (!allowed.includes(ext)) {
         toast({
           title: "Unsupported file type",
-          description: `${ext} files are not supported`,
+          description: `${ext} is not allowed for ${doctype} (expected ${allowed.join(", ")})`,
           variant: "destructive",
         });
         return;
@@ -362,8 +388,9 @@ export function ImagePickerDialog({
         setSelectedAlt(result.alt);
         setSelectedRegistryId(result.id);
         setPickerMode("browse");
+        const noun = doctype === "pdf" ? "PDF" : doctype === "video" ? "Video" : "Image";
         toast({
-          title: result.duplicate ? "Image already exists" : "Image uploaded",
+          title: result.duplicate ? `${noun} already exists` : `${noun} uploaded`,
           description: result.duplicate
             ? `Already registered as "${result.existingId}". Using the existing one.`
             : `Registered as "${result.id}"`,
@@ -614,7 +641,7 @@ export function ImagePickerDialog({
         <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
           <div ref={popoverContainerRef} />
           <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle>{resolvedTitle}</DialogTitle>
           </DialogHeader>
 
           <div className="flex-1 overflow-hidden flex flex-col gap-4 py-2">
@@ -653,7 +680,13 @@ export function ImagePickerDialog({
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                           ref={searchInputRef}
-                          placeholder="Search images..."
+                          placeholder={
+                            doctype === "pdf"
+                              ? "Search PDFs..."
+                              : doctype === "video"
+                                ? "Search videos..."
+                                : "Search images..."
+                          }
                           value={search}
                           onChange={(e) => setSearch(e.target.value)}
                           onKeyDown={(e) => {
@@ -791,7 +824,23 @@ export function ImagePickerDialog({
                               data-testid={`gallery-image-${id}`}
                             >
                               <div className="relative">
-                                <img src={img.src} alt={img.alt} className="w-full h-auto" loading="lazy" />
+                                {doctype === "pdf" ? (
+                                  <div className="aspect-square flex flex-col items-center justify-center gap-1 p-2 bg-muted">
+                                    <FileText className="h-6 w-6 text-muted-foreground" />
+                                    <span className="text-[9px] text-muted-foreground truncate w-full text-center">
+                                      {img.src.split("/").pop()?.split("?")[0] || id}
+                                    </span>
+                                  </div>
+                                ) : doctype === "video" ? (
+                                  <div className="aspect-square flex flex-col items-center justify-center gap-1 p-2 bg-muted">
+                                    <Film className="h-6 w-6 text-muted-foreground" />
+                                    <span className="text-[9px] text-muted-foreground truncate w-full text-center">
+                                      {img.src.split("/").pop()?.split("?")[0] || id}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <img src={img.src} alt={img.alt} className="w-full h-auto" loading="lazy" />
+                                )}
                                 {hasVariants && (
                                   <div className="absolute bottom-1 right-1 bg-black/80 text-white rounded text-[11px] font-bold px-1.5 py-0.5 leading-none">
                                     {variants.length}v
@@ -876,7 +925,13 @@ export function ImagePickerDialog({
                   )}
                   {filteredImages.length === 0 && (
                     <div className="text-center py-8 px-4 space-y-2" data-testid="empty-gallery-results">
-                      <p className="text-muted-foreground">No images found</p>
+                      <p className="text-muted-foreground">
+                        {doctype === "pdf"
+                          ? "No PDFs found"
+                          : doctype === "video"
+                            ? "No videos found"
+                            : "No images found"}
+                      </p>
                       {(search.trim() || activeTagFilterCount > 0) && (
                         <p className="text-xs text-muted-foreground">
                           {(() => {
@@ -927,7 +982,7 @@ export function ImagePickerDialog({
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".png,.jpg,.jpeg,.webp,.svg,.avif,.gif"
+                      accept={acceptAttrForDoctype(doctype)}
                       className="hidden"
                       onChange={(e) => {
                         if (e.target.files?.length) handleUpload(e.target.files);
@@ -963,10 +1018,14 @@ export function ImagePickerDialog({
                         <div className="flex flex-col items-center gap-2">
                           <CloudUpload className="h-8 w-8 text-muted-foreground" />
                           <p className="text-sm font-medium">
-                            Drop an image here or click to browse
+                            {doctype === "pdf"
+                              ? "Drop a PDF here or click to browse"
+                              : doctype === "video"
+                                ? "Drop a video here or click to browse"
+                                : "Drop an image here or click to browse"}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            PNG, JPG, WebP, SVG, AVIF, GIF (max 10 MB)
+                            {DOCTYPE_UPLOAD_HINTS[doctype]}
                           </p>
                           {hasCloudProvider && mediaStatus?.gcs && (
                             <p className="text-xs text-muted-foreground mt-1">
@@ -1003,11 +1062,21 @@ export function ImagePickerDialog({
                 <div className="flex gap-3">
                   <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border flex-shrink-0">
                     {selectedDisplaySrc ? (
-                      <img
-                        src={selectedDisplaySrc}
-                        alt={selectedAlt || "Preview"}
-                        className="w-full h-full object-cover"
-                      />
+                      doctype === "pdf" ? (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <FileText className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      ) : doctype === "video" ? (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Film className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <img
+                          src={selectedDisplaySrc}
+                          alt={selectedAlt || "Preview"}
+                          className="w-full h-full object-cover"
+                        />
+                      )
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
                         None
@@ -1022,11 +1091,17 @@ export function ImagePickerDialog({
                           setSelectedSrc(e.target.value);
                           setSelectedRegistryId(undefined);
                         }}
-                        placeholder="Image URL or registry ID"
+                        placeholder={
+                          doctype === "pdf"
+                            ? "PDF URL or registry ID"
+                            : doctype === "video"
+                              ? "Video URL or registry ID"
+                              : "Image URL or registry ID"
+                        }
                         className="text-sm flex-1"
                         data-testid="input-image-url"
                       />
-                      {selectedRegistryId && (
+                      {allowCrop && selectedRegistryId && (
                         <Button
                           type="button"
                           variant="outline"
@@ -1116,7 +1191,7 @@ export function ImagePickerDialog({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={cropPanelOpen} onOpenChange={setCropPanelOpen}>
+      <Dialog open={allowCrop && cropPanelOpen} onOpenChange={setCropPanelOpen}>
         <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Crop & Resize</DialogTitle>

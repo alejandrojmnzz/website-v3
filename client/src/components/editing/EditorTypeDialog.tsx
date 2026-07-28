@@ -206,6 +206,7 @@ export function EditorTypeDialog({
                 <SelectItem value="date">date — date only</SelectItem>
                 <SelectItem value="datetime">datetime — date + time (UTC or naive)</SelectItem>
                 <SelectItem value="image">image — URL with preview + cache status</SelectItem>
+                <SelectItem value="pdf">pdf — document URL with gallery picker</SelectItem>
                 <SelectItem value="select">select — dropdown</SelectItem>
                 <SelectItem value="tags">multi select — multi-value</SelectItem>
               </SelectContent>
@@ -213,6 +214,11 @@ export function EditorTypeDialog({
             {lockImageType && (
               <p className="text-[11px] text-muted-foreground">
                 Editor type is locked to image while image caching is enabled.
+              </p>
+            )}
+            {type === "pdf" && !lockImageType && (
+              <p className="text-[11px] text-muted-foreground" data-testid="text-hint-pdf-howto">
+                Item editor shows a gallery picker limited to PDFs. Paste a URL or choose from the media gallery.
               </p>
             )}
           </div>

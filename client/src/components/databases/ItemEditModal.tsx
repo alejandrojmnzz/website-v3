@@ -43,7 +43,7 @@ import {
   expandEditorFieldTokens,
 } from "@shared/editor-field-values";
 import type { ImageEntry } from "@shared/schema";
-import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon, Images } from "lucide-react";
+import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon, Images, FileText } from "lucide-react";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 
 const MARKDOWN_TEXTAREA_KEYS = new Set(["content", "body", "readme", "markdown"]);
@@ -267,6 +267,94 @@ function ImageUrlFieldEditor({
           if (isReservedOgImageField && registryId) {
             await ensureOgTag(registryId);
           }
+        }}
+      />
+    </div>
+  );
+}
+
+function PdfUrlFieldEditor({
+  fieldKey,
+  value,
+  onChange,
+}: {
+  fieldKey: string;
+  value: unknown;
+  onChange: (v: string) => void;
+}) {
+  const url = typeof value === "string" ? value : "";
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const hasValue = !!url.trim();
+  const filename = url
+    ? url.split("/").pop()?.split("?")[0] || "document.pdf"
+    : "";
+
+  return (
+    <div className="space-y-2" data-testid={`pdf-field-${fieldKey}`}>
+      <div className="flex items-start gap-3">
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted flex items-center justify-center">
+          <FileText className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          {hasValue && (
+            <p
+              className="text-[11px] text-muted-foreground truncate"
+              data-testid={`text-pdf-filename-${fieldKey}`}
+              title={filename}
+            >
+              {filename}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Input
+              type="url"
+              value={url}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="https://…/document.pdf"
+              className="text-sm min-w-0 flex-1"
+              data-testid={`input-edit-${fieldKey}`}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 shrink-0 text-xs"
+              onClick={() => setPickerOpen(true)}
+              data-testid={`button-gallery-pdf-${fieldKey}`}
+            >
+              <Images className="h-3.5 w-3.5 mr-1.5" />
+              Choose from gallery
+            </Button>
+            {hasValue && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-9 shrink-0 text-xs text-muted-foreground px-2"
+                onClick={() => onChange("")}
+                data-testid={`button-clear-pdf-${fieldKey}`}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {!hasValue && (
+        <p className="text-[11px] text-muted-foreground" data-testid={`text-pdf-empty-hint-${fieldKey}`}>
+          Choose from gallery or paste a PDF URL.
+        </p>
+      )}
+
+      <ImagePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        doctype="pdf"
+        title="Choose PDF"
+        initialSrc={url}
+        onSave={(src) => {
+          onChange(src);
         }}
       />
     </div>
@@ -611,6 +699,14 @@ export function ItemEditModal({
               imageFallbackKeys.has(key) ? imageFallbackPreviewSrc : undefined
             }
             isReservedOgImageField={imageFallbackKeys.has(key)}
+          />
+        );
+      case "pdf":
+        return (
+          <PdfUrlFieldEditor
+            fieldKey={key}
+            value={value}
+            onChange={(v) => setValue(key, v)}
           />
         );
       case "select":

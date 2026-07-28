@@ -69,7 +69,10 @@ function buildPostUrl(pattern: string, post: Record<string, any>, locale: string
   const paramMatches = result.match(/:([a-zA-Z_]+)/g) || [];
   for (const param of paramMatches) {
     const key = param.slice(1);
-    result = result.replaceAll(param, resolveFieldValue(post[key]));
+    let value = resolveFieldValue(post[key]);
+    // Keep multi-param blog URLs well-formed when category is absent.
+    if (!value && key === "category") value = "uncategorized";
+    result = result.replaceAll(param, value);
   }
   result = result.replace(/\/\/+/g, "/");
   return result;

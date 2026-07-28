@@ -2927,18 +2927,46 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/mcp/tools", async (_req, res) => {
+    // Always 200 so the admin UI can show readiness alerts even when MCP is down.
     const siteUrl = (process.env.SITE_URL || "").replace(/\/$/, "") || null;
+    const mcpServerSecretConfigured = !!(
+      process.env.MCP_SERVER_SECRET ||
+      process.env.MCP_API_KEY
+    );
+    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN || null;
+    const readiness = {
+      siteUrlConfigured: !!siteUrl,
+      mcpServerSecretConfigured,
+      mcpReachable: false,
+      /** Fallback OAuth base when SITE_URL is unset (Replit only). */
+      replitDevDomain,
+    };
+
     try {
       const mcpPort = process.env.MCP_PORT || "3001";
       const response = await fetch(`http://localhost:${mcpPort}/tools`);
       if (!response.ok) {
-        res.status(502).json({ tools: [], error: "MCP server unavailable", siteUrl });
+        res.json({
+          tools: [],
+          error: "MCP server unavailable",
+          siteUrl,
+          readiness: { ...readiness, mcpReachable: false },
+        });
         return;
       }
       const data = await response.json();
-      res.json({ ...data, siteUrl });
+      res.json({
+        ...data,
+        siteUrl,
+        readiness: { ...readiness, mcpReachable: true },
+      });
     } catch {
-      res.status(502).json({ tools: [], error: "MCP server unavailable", siteUrl });
+      res.json({
+        tools: [],
+        error: "MCP server unavailable",
+        siteUrl,
+        readiness: { ...readiness, mcpReachable: false },
+      });
     }
   });
 

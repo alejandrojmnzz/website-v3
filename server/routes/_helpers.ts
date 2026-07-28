@@ -903,7 +903,11 @@ export function buildSingleEntryFromContent(
   const schemaDefaults = getFieldMappingDefaults(contentType, opts?.contentRoot);
   for (const [key, defVal] of Object.entries(schemaDefaults)) {
     if (!(key in entry)) {
-      entry[key] = defVal;
+      // URL-param object fields (e.g. blog category) are stored as { slug }; string defaults normalize.
+      entry[key] =
+        key === "category" && typeof defVal === "string"
+          ? { slug: defVal }
+          : defVal;
     }
   }
 

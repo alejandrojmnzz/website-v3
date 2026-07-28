@@ -1,6 +1,15 @@
 import { useState, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { IconServer, IconCopy, IconCheck, IconChevronDown, IconChevronRight, IconSearch, IconPlug } from "@tabler/icons-react";
+import {
+  IconServer,
+  IconCopy,
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconSearch,
+  IconPlug,
+  IconAlertCircle,
+} from "@tabler/icons-react";
 import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,7 +18,15 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+
+interface McpReadiness {
+  siteUrlConfigured: boolean;
+  mcpServerSecretConfigured: boolean;
+  mcpReachable: boolean;
+  replitDevDomain?: string | null;
+}
 
 interface McpParam {
   name: string;
@@ -245,7 +262,12 @@ export default function McpServerPage() {
   const claudeDesktopConfig = buildClaudeDesktopConfig(mcpUrl);
   const claudeCodeCli = buildClaudeCodeCli(mcpUrl);
 
-  const { data, isLoading, isError } = useQuery<{ tools: FetchedTool[]; siteUrl?: string | null }>({
+  const { data, isLoading, isError } = useQuery<{
+    tools: FetchedTool[];
+    siteUrl?: string | null;
+    error?: string;
+    readiness?: McpReadiness;
+  }>({
     queryKey: ["/api/mcp/tools"],
     staleTime: 60_000,
   });
@@ -254,6 +276,13 @@ export default function McpServerPage() {
     queryKey: ["/api/site/info"],
     staleTime: 60_000,
   });
+
+  const readiness = data?.readiness;
+  const siteUrlMissing = !isLoading && !isError && readiness ? !readiness.siteUrlConfigured : false;
+  const mcpSecretMissing =
+    !isLoading && !isError && readiness ? !readiness.mcpServerSecretConfigured : false;
+  const mcpUnreachable =
+    !isLoading && !isError && readiness ? !readiness.mcpReachable : isError;
 
   const allTools = useMemo<McpTool[]>(
     () => (data?.tools ?? []).map(toolFromFetched),
@@ -302,6 +331,30 @@ export default function McpServerPage() {
           </div>
         </div>
 
+        {mcpUnreachable && (
+          <Alert variant="destructive" data-testid="alert-mcp-unreachable">
+            <IconAlertCircle className="h-4 w-4" />
+            <AlertTitle>MCP server is not reachable</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>
+                Nothing is answering on the MCP port (default{" "}
+                <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                  3001
+                </code>
+                ). Locally run{" "}
+                <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                  npm run mcp
+                </code>{" "}
+                in a second terminal. On Replit production,{" "}
+                <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                  scripts/start-production.sh
+                </code>{" "}
+                should start it automatically after build.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Getting started */}
         <section className="space-y-5">
           <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
@@ -336,6 +389,64 @@ export default function McpServerPage() {
               / <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">X-Api-Key</code>{" "}
               header is still accepted as a legacy fallback (e.g. curl).
             </p>
+
+            {siteUrlMissing && (
+              <Alert variant="destructive" data-testid="alert-mcp-site-url-missing">
+                <IconAlertCircle className="h-4 w-4" />
+                <AlertTitle>SITE_URL is not set</AlertTitle>
+                <AlertDescription className="space-y-2">
+                  <p>
+                    Set <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">SITE_URL</code>{" "}
+                    to this server&apos;s public origin (local:{" "}
+                    <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                      http://localhost:3000
+                    </code>
+                    ; production:{" "}
+                    <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                      https://your-deploy-host
+                    </code>
+                    ). MCP uses it for OAuth issuer / authorize / token / callback URLs. Without it,
+                    agents can hit SSL or redirect failures during login.
+                  </p>
+                  <p>
+                    This is <span className="font-medium">not</span> related to multisite. Content
+                    sites still come from domains in{" "}
+                    <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                      sites.yml
+                    </code>
+                    . <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">SITE_URL</code>{" "}
+                    is only the public URL of this running app for MCP authentication.
+                    {readiness?.replitDevDomain
+                      ? ` Replit can fall back to https://${readiness.replitDevDomain} in the workspace, but production deploys should set SITE_URL explicitly.`
+                      : ""}
+                  </p>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {mcpSecretMissing && (
+              <Alert variant="destructive" data-testid="alert-mcp-secret-missing">
+                <IconAlertCircle className="h-4 w-4" />
+                <AlertTitle>MCP_SERVER_SECRET is not set</AlertTitle>
+                <AlertDescription>
+                  The MCP process exits at startup without{" "}
+                  <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                    MCP_SERVER_SECRET
+                  </code>{" "}
+                  (or legacy{" "}
+                  <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                    MCP_API_KEY
+                  </code>
+                  ). Set it in Secrets /{" "}
+                  <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">.env</code>{" "}
+                  so production{" "}
+                  <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">
+                    start-production.sh
+                  </code>{" "}
+                  can keep MCP running beside the website.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -518,40 +629,19 @@ export default function McpServerPage() {
             </div>
           )}
 
-          {isError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive space-y-2">
-              <p>Could not reach the MCP server. Make sure it is running on port 3001.</p>
-              {(typeof window !== "undefined" &&
-                (window.location.hostname === "localhost" ||
-                  window.location.hostname === "127.0.0.1" ||
-                  import.meta.env.DEV)) && (
-                <div className="text-destructive/90 space-y-1.5">
-                  <p>
-                    On localhost / development, start the MCP process in a separate terminal (same command as the Replit{" "}
-                    <span className="font-medium">MCP Server</span> workflow):
-                  </p>
-                  <code className="block font-mono text-xs bg-destructive/10 px-2.5 py-1.5 rounded text-destructive">
-                    tsx mcp-server/index.ts
-                  </code>
-                  <p className="text-xs">
-                    Keep it running, then reload this page. It listens on port 3001 by default (or{" "}
-                    <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">MCP_PORT</code>
-                    ). The main app proxies{" "}
-                    <code className="font-mono text-[11px] bg-destructive/10 px-1 py-0.5 rounded">/mcp</code> to that
-                    process.
-                  </p>
-                </div>
-              )}
-            </div>
+          {mcpUnreachable && (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Tools unavailable until the MCP server is reachable — see the alert under Server URL.
+            </p>
           )}
 
-          {!isLoading && !isError && filteredTools.length === 0 && (
+          {!isLoading && !mcpUnreachable && filteredTools.length === 0 && (
             <p className="text-sm text-muted-foreground py-4 text-center">
               {query ? "No tools match your search." : "No tools found."}
             </p>
           )}
 
-          {!isLoading && !isError && (
+          {!isLoading && !mcpUnreachable && (
             <div className="space-y-2">
               {filteredTools.map((tool) => (
                 <ToolCard key={tool.name} tool={tool} />

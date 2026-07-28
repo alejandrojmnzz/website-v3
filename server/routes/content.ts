@@ -1677,6 +1677,16 @@ export function registerContentRoutes(app: Express): void {
       if (body.indexes !== undefined) update.indexes = body.indexes;
       if (body.unique_fields !== undefined) update.unique_fields = body.unique_fields;
       if (body.database !== undefined) update.database = body.database;
+      if (body.editor !== undefined) {
+        if (body.editor === null) {
+          update.editor = null;
+        } else if (typeof body.editor === "object") {
+          update.editor = body.editor as import("../content-types").ContentTypeEntry["editor"];
+        } else {
+          res.status(400).json({ error: "editor must be an object or null" });
+          return;
+        }
+      }
       if (body.single_template !== undefined) update.single_template = !!body.single_template;
       if (body.preview !== undefined) {
         if (body.preview === null) {

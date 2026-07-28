@@ -12,6 +12,7 @@ import { getDefaultContentRoot } from "./site-config";
 import {
   finalizeSingleEntryForTemplates,
   getContentTypeConfig,
+  getFieldMappingDefaults,
   getFullFieldMapping,
   extractUrlPatternParams,
 } from "./content-types";
@@ -146,7 +147,8 @@ export function buildContentDeliveryParamBag(opts: {
     config?.url_pattern?.[opts.locale] || config?.url_pattern?.["default"];
   if (pattern && opts.record) {
     const mapping = getFullFieldMapping(opts.contentType, opts.contentRoot);
-    const extracted = extractUrlPatternParams(pattern, opts.record, mapping);
+    const defaults = getFieldMappingDefaults(opts.contentType, opts.contentRoot);
+    const extracted = extractUrlPatternParams(pattern, opts.record, mapping, defaults);
     Object.assign(pathParams, extracted.params);
   }
 

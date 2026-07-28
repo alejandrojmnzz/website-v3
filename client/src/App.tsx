@@ -244,10 +244,10 @@ function Router() {
         <Route path="/es/blog">
           {() => <TemplatePage />}
         </Route>
-        <Route path="/en/blog/*">
+        <Route path="/en/blog/:category/:slug">
           {() => <DatabaseSinglePage contentType="blog" />}
         </Route>
-        <Route path="/es/blog/*">
+        <Route path="/es/blog/:category/:slug">
           {() => <DatabaseSinglePage contentType="blog" />}
         </Route>
         {dynamicRoutes.map((r) => {
