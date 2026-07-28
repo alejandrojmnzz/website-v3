@@ -12,7 +12,7 @@ todos:
     content: Fase 2 eventos (resto CTAs, discovery exercises/assets/how-tos, resto navbar, scroll_depth)
     status: pending
   - id: o2-labels-baseline
-    content: Definir labels intent/product desde matriz reglas + conversiones lead
+    content: "Matriz cold/warm/hot + job build_intent_labels (heuristic|conversion) en services/recommender/training/"
     status: pending
   - id: o2-product-catalog
     content: Job product_index + embeddings SEO/meta; trigger en webhook GitHub (menus/programs/landings) + catalog_version
@@ -30,13 +30,19 @@ todos:
     content: "Scaffold services/recommender/ (training, product_index, retrain, Dockerfile EXPOSE≠Express PORT, README) + shared/recommender.ts"
     status: pending
   - id: o2-offer-packs-ui
-    content: "UI Offer packs en cucaracha: CRUD packs direct_sale×product×locale + nurturing×locale (tono opcional); storage YAML/API"
+    content: "UI Offer packs bajo DebugBubble → Recommender (no Marketing); CRUD packs sale/nurturing; storage YAML/API"
     status: pending
   - id: o2-ui-gtm-retrain
-    content: Slots UI (nurturing→asset, sale→product) + Offer packs DebugBubble + GTM + cron/shadow + educación staff/MCP
+    content: "Slots UI + apartado Recommender en cucaracha (packs, knowledge share, status) + GTM + cron/shadow + educación staff/MCP"
+    status: pending
+  - id: o2-debugbubble-recommender
+    content: "DebugBubble → Recommender: hub UI (Offer packs, Intent bootstrap matrix editable, knowledge share, status)"
     status: pending
   - id: o2-post-price-variants
     content: "POST-v1: variantes de precio/promo dentro del mismo producto (cart abandon, coupons, price_variant en contrato + packs)"
+    status: pending
+  - id: o2-site-knowledge-share
+    content: "Opt-in knowledge share (UI en DebugBubble → Recommender); donante share + consumidor consume_from; intent portable"
     status: pending
 isProject: true
 ---
@@ -337,14 +343,22 @@ Agregaciones por `user_id` / sesión activa, alimentadas desde `/api/events` →
 - Además: `country` / `country_code` crudos (sesión) para que el fit no dependa solo del tier.
 - **Pricing:** US, LATAM y EU manejan **precios distintos**; cualquier list price / promo / `showOnRegions` / variables `by_region` debe respetar esos tres buckets por separado (hoy no existe un `price_geo_bucket` tipado en código — si se añade, mismo criterio).
 - `device_category`, `language`
-- `utm_source/medium`, bucket `utm_intent` (high/branded vs free/beginner)
+- **`site_id` / content folder / domain (obligatorio multi-site):** cada site tiene catálogo, precios y compradores distintos. Eventos y features **siempre** llevan `site_id`. **Default:** train/serve **scoped por site** (no mezclar a ciegas). **Opt-in — merge de conocimiento entre sites:** ver [§ Knowledge share between sites](#knowledge-share-between-sites).
+- `utm_source/medium`, bucket `utm_intent` (high/branded vs free/beginner) — **señal principal de ads** (Google/Facebook/etc.); ya viene en sesión al aterrizar
+- **Agente de ventas / referral:** la sesión ya captura `ref` y `referral` ([`shared/session.ts`](shared/session.ts) / worker). Features: `has_sales_referral` (bool), `referral_id` / `ref` (categorical o hashed). Empuja intent hacia warm/hot en bootstrap (tráfico assisted). **No** existe hoy un campo `utm_referrer` tipado — si marketing usa otro query param (`utm_referrer`, etc.), añadirlo al parser UTM de sesión + al feature store. `document.referrer` del browser es distinto (origen web genérico); solo usarlo como señal débil si hace falta, no confundirlo con el `ref` del agente.
+- **Campaña / landings (importante):** casi nadie “clickea” una landing desde el sitio; el tráfico típico es **entrada directa desde el ad**. Eso **sí** cuenta, pero **no** vía `n_clicks_campaign`:
+  - `entry_content_type === landing` (o `landing_views`) desde `page_view` / route change al aterrizar
+  - + UTM (`utm_source`, `utm_medium`, `utm_campaign`, `utm_intent_bucket`)
+  - Feature agregada p.ej. `n_landing_views` / `entered_via_campaign` (bool) — **esta** es la cuenta útil de campaña
+- `n_clicks_campaign` — solo clicks **in-site** cuyo destino es `landing` ([reglas](#click-bucket-rules)); raro; se puede mantener como contador menor o fusionar conceptualmente con `n_landing_views` en el vector final
 
 **Comportamiento**
 
 - `n_clicks_technical`, `n_clicks_beginner` — contadores de clicks cuyo destino (asset/how-to/exercise/blog) se clasifica por `difficulty` / tags (`hard`/`advanced`/`technical` → technical; `easy`/`beginner`/`intro` → beginner)
 - `n_clicks_brand` — clicks a destinos de marca/empresa ([ver reglas de bucket abajo](#click-bucket-rules)); p.ej. about, careers, upcoming-dates como `page`, press, trust
-- `n_clicks_campaign` — clicks a **landings** (performance/venta); distintas de brand y de learning ([mismas reglas](#click-bucket-rules))
-- `clicks_by_content_type` — mapa JSON con **todos** los content types relevantes: `program`, `landing`, `page`, `blog`, `how-to`, `interactive_exercise`, etc.
+- `n_landing_views` / `entered_via_campaign` — **vistas/entrada** a landings (ads + raro click interno); ver arriba
+- `n_clicks_campaign` — subset raro: click interno → landing ([mismas reglas](#click-bucket-rules)); no es la señal de Facebook/Google
+- `clicks_by_content_type` — mapa JSON con **todos** los content types relevantes: `program`, `landing`, `page`, `blog`, `how-to`, `interactive_exercise`, etc. (incluye landings vistas vía `page_view`, no solo clicks)
 - `program_views` como mapa dinámico `{ [product_id]: count }` (no columnas fijas por tres cursos)
 - `time_on_site_s`, `depth_pages`
 - `form_starts`, `return_visit` (7d)
@@ -358,7 +372,7 @@ No se etiqueta el ítem del menú a mano en cada rediseño. Se resuelve el **des
 1. **Por `contentType` (default v1):**
   - `blog` / `how-to` / `interactive_exercise` / downloadable → **learning** (+ technical/beginner si hay difficulty)
   - `program` → **product** (también incrementa `program_views[product_id]`)
-  - `landing` → **campaign** (`n_clicks_campaign`)
+  - `landing` → **campaign** (`n_clicks_campaign`) — **solo si hubo click interno** a esa URL; la entrada desde Google/Facebook ads **no** es un click: se captura con `page_view` + UTM → `n_landing_views` / `entered_via_campaign` (ver features arriba)
   - `page` / `location` → **brand** (`n_clicks_brand`) — incluye una page nueva tipo “upcoming dates”
 2. **Override opcional `recommender_bucket`:** `brand|campaign|product|learning` — **no es obligatorio** en todos los YAML. Solo donde el default por `contentType` mienta (p.ej. una `page` que es lead magnet). Dónde se permite:
   - Entradas de contenido (`_common.yml` / locale de `page`, `landing`, `program`, `blog`, how-to, exercise, etc.) vía schema/field mapping del content type
@@ -366,7 +380,22 @@ No se etiqueta el ítem del menú a mano en cada rediseño. Se resuelve el **des
   - **No** en section components (`hero`, `cta_banner`, …): el bucket es del **destino**, no del componente CTA
 3. **Navbar:** al click, mismo pipeline: resolver URL → contentType/slug → bucket. Añadir “Upcoming dates” al menú no requiere lógica nueva: si apunta a `page/upcoming-dates`, cuenta como **brand** hasta que alguien ponga override.
 
-**Persona**
+### Knowledge share between sites
+
+**Default:** cada site entrena y sirve solo con sus eventos/`product_index` (aislamiento).
+
+**Opt-in merge de conocimiento** (cold start / sites hermanos, p.ej. Florida ← 4geeks.com):
+
+1. **Site donante** declara `recommender.share_training_data: true` (o lista de sites permitidos). Sin esto, nadie puede consumir sus datos/modelos.
+2. **Site consumidor** declara de qué donante(s) quiere beber, p.ej. `recommender.consume_from: ["4geeks-com"]`. Sin esto, no importa aunque el donante comparta.
+3. Merge **solo** si ambas condiciones se cumplen (donante permite + consumidor pide).
+4. **Qué se puede compartir (v1 del merge):** priorizar **intent** (cold/warm/hot es más portable). **Product-fit / asset index / offer packs** siguen por site salvo mapping explícito de `product_id` equivalentes.
+5. **Cómo (técnico):** train conjunto con feature `site_id`, o pretrain en donante → fine-tune en consumidor; pesos/sampling para que el site grande no ahogue al chico. Shadow metrics en el consumidor antes de cutover.
+6. **UI staff:** flags en **DebugBubble → Recommender** (knowledge share): “Allow other sites to use our recommender training data” + “Use shared knowledge from: …”. MCP/agents: `warnings` si se activa merge sin mapping de productos.
+
+**No** es merge automático al cambiar de site en el switcher staff; es política de train/ops por site.
+
+### Persona
 
 - `persona`, `goal` cuando existan (form / `ai_flex_selector`); one-hot o categorical encoded
 
@@ -384,15 +413,23 @@ Job ETL diario/horario: eventos crudos → fila de features (script Node/Python 
   "country_code": "CO",
   "device_category": "mobile",
   "language": "es",
+  "site_id": "4geeks-com",
   "utm_source": "google",
   "utm_medium": "cpc",
+  "utm_campaign": "ai-flex-latam",
   "utm_intent_bucket": "high",
+  "ref": null,
+  "referral": null,
+  "has_sales_referral": false,
+  "entered_via_campaign": true,
+  "entry_content_type": "landing",
+  "n_landing_views": 1,
   "time_on_site_s": 180,
   "depth_pages": 5,
   "n_clicks_technical": 4,
   "n_clicks_beginner": 1,
   "n_clicks_brand": 2,
-  "n_clicks_campaign": 1,
+  "n_clicks_campaign": 0,
   "clicks_by_content_type": {
     "program": 2,
     "landing": 1,
@@ -431,15 +468,83 @@ Job ETL diario/horario: eventos crudos → fila de features (script Node/Python 
 - **El modelo no recibe** `intent_stage` de entrada. Recibe el vector de features y **infiere** `P(cold)`, `P(warm)`, `P(hot)`.
 - **Nosotros fijamos el mapeo de salida:** `hot` → `direct_sale`; `cold|warm` → `nurturing` (regla de producto, no aprendida).
 
-| Fase | Quién | Qué hace |
-|------|--------|----------|
-| Bootstrap (día 0) | Marketing/data | Heurísticas → labels: p.ej. 1ª visita SEO / solo blog → **cold**; engagement medio, `form_starts`, return → **warm**; `student_application` / pricing profundo → **hot** |
-| Train | XGBoost | Aprende features → clase (a partir de esos labels + luego conversiones reales) |
-| Runtime | Modelo | Mira features actuales → predice etapa; **no** es una máquina de estados que “pasamos” a hot a mano |
+#### Qué estamos considerando como cold / warm / hot (matriz bootstrap v1)
 
-- **No es una máquina de estados manual.** En cada `POST /api/recommend` el modelo recibe el vector actual de `user_session_features` y devuelve scores; se elige la clase (o umbrales). Si el usuario hace más clicks / abre form / vuelve, las features cambian y **la próxima** inferencia puede dar otro `intent_stage` — no hay un evento mágico “pasó a hot”.
-- **Qué empuja hacia hot (aprendido + bootstrap):** patrones correlacionados con conversión en train — p.ej. `form_starts`, vistas de pricing/program, return visit, UTM high-intent, menos solo browsing de blog.
-- **Labels:** heurística inicial (matriz + `conversion_name`) → luego labels reales (aplicación / purchase webhook). Retrain mejora el umbral cold/warm/hot con datos, no con ifs en el front.
+La tabla en prosa más abajo es **solo documentación humana**. En la plataforma la matriz **no** se “envía” como ese párrafo: se guarda y se evalúa como **JSON/YAML estructurado** (reglas con `all`/`any`, campos de `user_session_features` / eventos).
+
+**Flujo de datos (cómo se envía de verdad):**
+
+```text
+Staff edita reglas en DebugBubble → Recommender → Intent labels
+        ↓
+POST/PUT /api/admin/recommender/intent-label-matrix  (JSON body)
+        ↓
+Persist: marketing-content or DB  intent_label_matrix_vN.yml|json  (por site_id)
+        ↓
+Job build_intent_labels (batch, no request del visitante)
+  — lee features de Postgres + matriz publicada
+  — evalúa rules en orden → escribe label en tabla training
+        ↓
+Train XGBoost lee (features, label)
+
+Runtime visitante: NO manda la matriz ni el label.
+POST /api/recommend { features } → respuesta { intent_stage } predicho.
+```
+
+**Formato de la matriz (ejemplo concreto v1):**
+
+```yaml
+# intent_label_matrix_v1.yml  (site-scoped)
+version: 1
+site_id: 4geeks-com
+# First matching rule wins (list order = priority)
+rules:
+  - label: hot
+    any:
+      - all:
+          - { field: conversion_names, op: includes, value: student_application }
+      - all:
+          - { field: form_starts, op: gte, value: 1 }
+          - { field: program_views_total, op: gte, value: 1 }
+      - all:
+          - { field: has_sales_referral, op: eq, value: true }
+          - { field: form_starts, op: gte, value: 1 }
+  - label: warm
+    any:
+      - { field: form_starts, op: gte, value: 1 }
+      - { field: n_learnpack_starts, op: gte, value: 1 }
+      - all:
+          - { field: n_landing_views, op: gte, value: 1 }
+          - { field: utm_intent_bucket, op: eq, value: high }
+      - all:
+          - { field: depth_pages, op: gte, value: 4 }
+          - { field: time_on_site_s, op: gte, value: 120 }
+      - { field: return_visit_7d, op: eq, value: true }
+  - label: cold
+    any:
+      - { field: "_default", op: eq, value: true }  # catch-all
+```
+
+La UI del Recommender edita ese JSON (formulario de reglas → mismo shape); no un textarea de prosa libre. Ops permitidos v1: `eq`, `gte`, `lte`, `includes`. Campos = nombres del feature store / eventos agregados.
+
+**Lectura humana de la misma matriz (equivalente):**
+
+| Label | Criterio |
+|-------|----------|
+| **hot** | `student_application` **o** (`form_starts`≥1 y vista program/pricing) **o** (referral agente + form) |
+| **warm** | form / LearnPack / landing+UTM high / profundidad+tiempo / return — si no es hot |
+| **cold** | catch-all |
+
+Cuando haya volumen: **label real** = outcome (aplicó en ≤7d → hot); la matriz heurística solo para sesiones sin outcome.
+
+#### Cómo se genera el label vs runtime
+
+1. Job **`build_intent_labels`**: Postgres features + matriz JSON → `{ …features, label, label_source: heuristic|conversion }`.
+2. Train → `intent_vN`.
+3. **Runtime:** `POST /api/recommend` manda **features**; responde `intent_stage` (predicción). La matriz **no** viaja en el request del visitante.
+
+- **No es una máquina de estados manual.** En cada `POST /api/recommend` el modelo recibe el vector actual de `user_session_features` y devuelve scores; se elige la clase (o umbrales). Si el usuario hace más clicks / abre form / vuelve, las features cambian y **la próxima** inferencia puede dar otro `intent_stage`.
+- **Labels:** heurística inicial (matriz + `conversion_name`) → luego labels reales (aplicación / purchase webhook). Retrain mejora el corte cold/warm/hot con datos, no con ifs en el front.
 - **Output:** `intent_stage` + `strategy` (`hot`→`direct_sale`, else `nurturing` con matices warm)
 
 **Cómo sabe qué recomendar (cadena):**
@@ -535,11 +640,27 @@ Misma carpeta git; **límites claros** entre Node y `services/recommender/`:
 - Cableado eventos + session summary + `POST /api/events`
 - `shared/recommender.ts` (contrato) + proxy `/api/recommend` → FastAPI del servicio recommender
 - Slots piloto: `sticky_cta`, CTA blog (nurturing → asset; sale → pack producto); override `program` en lead_form **solo** cuando `routing: auto` **y** `strategy === direct_sale`
-- **Offer packs** en DebugBubble (menú Marketing / junto a Tracking–Conversions): listar, crear, editar packs; how-it-works visible para staff
+- **DebugBubble → Recommender** (apartado nuevo; ver abajo): hub de **toda** la UI staff de este plan
 - GTM `recommendation_served` con `source: ml|fallback`, `model_version` y `catalog_version`
 - Webhook push → trigger rebuild catálogo en el servicio recommender
 
 **No** meter training/XGBoost dentro de `server/routes`. **No** importar Python desde el bundle Vite. **No** colección Qdrant visitor ni OpenRouter en este path. Extraer a repo Git externo = post-v1 si hace falta.
+
+### DebugBubble — apartado Recommender (obligatorio)
+
+Hoy la cucaracha ya tiene **Store & Monetization** (Products / Plans / Conversions) en [`DebugPanelContent.tsx`](client/src/components/DebugBubble/components/DebugPanelContent.tsx). **Toda la UI de este plan** vive en un **nuevo** `ExpandableMenuItem` hermano: **Recommender** (no bajo Marketing, no bajo Store, no en Settings sueltos).
+
+Entradas previstas (mínimo v1; se amplían sin cambiar de menú):
+
+| Item | Qué hace |
+|------|----------|
+| **Offer packs** | CRUD packs `direct_sale` × product × locale y nurturing × locale (tono opcional) |
+| **Intent labels / bootstrap matrix** | Editar la matriz cold/warm/hot (reglas día 0 + prioridad); versionar; preview “esta sesión de ejemplo → label”; usada por `build_intent_labels` |
+| **Knowledge share** | Flags donante/consumidor entre sites |
+| **Status / models** (opcional v1) | `model_version`, `catalog_version`, shadow on/off, last retrain |
+| **Event / feature sample** (opcional) | Vista de features de sesión para debug del slot |
+
+**Regla de producto:** cualquier pantalla admin nueva del recomendador (packs, share, shadow, catálogo trigger, etc.) se registra **aquí**. How-it-works visible para staff en el hub Recommender.
 
 ### Flujo marketing (cómo usar un componente con el recomendador)
 
@@ -551,16 +672,14 @@ Misma carpeta git; **límites claros** entre Node y `services/recommender/`:
    recommender:
      enabled: true
      slot: sticky_cta
-   
-
 ```
 
-1. **Offer packs (no 1 por asset):** marketing mantiene packs en **DebugBubble → Marketing → Offer packs** (decenas).
-  - `direct_sale` + `ai-engineering` + `es` → títulos/CTA **apply** (aquí sí se recomienda producto)
-  - `nurturing` (+ opcional tono `ai-flex`) + `es` → plantilla **educativa**; asset concreto lo pone el k-NN; **sin** CTA de compra
-2. **En runtime:** hold ~200ms → si nurturing: pack educativo + asset; si direct_sale: pack venta + product; si timeout: YAML/`resolveOffer`. Schema declara keys (`headline`→`title`, etc.).
-3. **Escala:** packs de venta ≈ N productos × locales; packs nurturing ≈ pocos por locale/slot (+ tonos); **A assets** crecen sin multiplicar packs.
-4. **Nuevo producto:** alta en catálogo + packs **de venta** en la cucaracha; nurturing no exige un pack de producto nuevo salvo matiz de tono.
+2. **Offer packs (no 1 por asset):** marketing mantiene packs en **DebugBubble → Recommender → Offer packs** (decenas).
+   - `direct_sale` + `ai-engineering` + `es` → títulos/CTA **apply** (aquí sí se recomienda producto)
+   - `nurturing` (+ opcional tono `ai-flex`) + `es` → plantilla **educativa**; asset concreto lo pone el k-NN; **sin** CTA de compra
+3. **En runtime:** hold ~200ms → si nurturing: pack educativo + asset; si direct_sale: pack venta + product; si timeout: YAML/`resolveOffer`. Schema declara keys (`headline`→`title`, etc.).
+4. **Escala:** packs de venta ≈ N productos × locales; packs nurturing ≈ pocos por locale/slot (+ tonos); **A assets** crecen sin multiplicar packs.
+5. **Nuevo producto:** alta en catálogo + packs **de venta** en **Recommender → Offer packs**; nurturing no exige un pack de producto nuevo salvo matiz de tono.
 
 ---
 
@@ -644,7 +763,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 
 ## Education layer
 
-**Staff (UI):** Recommender chooses **nurturing vs direct sale** from behavior. Slots with ML **hold ~200ms** (skeleton) then **one paint** — YAML defaults are fallback after timeout, not a first flash. **Nurturing** = educational asset (not product hard-sell). **Direct sale** = product packs. **Offer packs** in DebugBubble → Marketing. Catalog rebuilds via webhook; fallback = YAML then `resolveOffer`. Optional **Read more (advanced):** `cta-tracking.mdc`, `recommender-feeding.mdc`, `services/recommender/`, `POST /api/recommend`, Offer packs, `product_index`. Empty states: nurturing=content vs sale=product; banner when ML vs fallback.
+**Staff (UI):** All recommender admin UI lives under **DebugBubble → Recommender** (new menu next to **Store & Monetization** in [`DebugPanelContent.tsx`](client/src/components/DebugBubble/components/DebugPanelContent.tsx)): Offer packs, knowledge share, status/shadow. Visitor slots hold ~200ms then one paint. **Nurturing** = asset; **direct sale** = product packs. Multi-site default isolated; share only if donor+consumer opt in. Optional **Read more:** Recommender menu paths, `cta-tracking.mdc`, `recommender-feeding.mdc`, `services/recommender/`. Empty states teach nurturing vs sale; banner when ML vs fallback / consuming shared data.
 
 **Agents (MCP):** Dense EN payloads — `warnings` / `side_effects` / `next_actions` with paths (e.g. editing an offer pack invalidates nothing until publish/rebuild; changing SEO meta needs catalog rebuild). Mutating tools follow [mcp-server-responses.mdc](.cursor/rules/mcp-server-responses.mdc).
 
@@ -657,7 +776,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 3. Hook webhook → rebuild catálogo en el servicio recommender
 4. Product fit v1 + Docker/FastAPI + proxy Express `/api/recommend`
 5. Eventos fase 2 + asset k-NN en `services/recommender/`
-6. UI slots + **Offer packs en DebugBubble (Marketing)** + GTM
+6. UI slots + **DebugBubble → Recommender** (packs, knowledge share, status) + GTM
 7. Retrain cron + shadow mode → cutover
 
 ## Riesgos y prerequisitos
@@ -675,7 +794,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 
 - **Señales nuevas:** `begin_checkout`, `add_to_cart`, abandono de checkout/carrito, vistas repetidas de pricing, tal vez `coupon` intentos fallidos.
 - **Salida ampliada del contrato** (actualizar `shared/recommender.ts` + warning en Cursor rules): p.ej. `price_variant`, `coupon_code`, `offer_type: list|geo_tier|cart_abandon|winback`, o packs tipados `direct_sale_ai-engineering_us_discount10`.
-- **Offer packs / cucaracha:** marketing define packs promocionales por producto (con y sin cupón); el modelo o reglas post-fit **seleccionan** el pack promo cuando hay señal de abandono/objeción de precio.
+- **Offer packs / cucaracha:** marketing define packs promocionales en **Recommender → Offer packs** (con y sin cupón); el modelo o reglas post-fit **seleccionan** el pack promo cuando hay señal de abandono/objeción de precio.
 - **GEO pricing:** list price y promos por **`US` | `LATAM` | `EU` por separado** (mismos tres buckets que `geo_tier`; no agrupar LATAM+EU). La extensión de promo cubre variantes (cupón, abandono, etc.) **dentro** de cada geo, no un bucket comercial LATAM-EU.
 - **Canales:** overlay on-site primero; email/retargeting con el mismo `offer_pack_id` queda como capa aparte (CRM/ads).
 
