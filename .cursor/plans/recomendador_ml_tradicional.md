@@ -332,24 +332,26 @@ Agregaciones por `user_id` / sesión activa, alimentadas desde `/api/events` →
 
 **Usuario / contexto**
 
-- `geo_tier` desde `location.region` de sesión: **`US` | `LATAM` | `EU`** (mapear `usa-canada`→`US`, `latam`→`LATAM`, `europe`→`EU`). **No** fusionar LATAM+EU.
+- `geo_tier` desde `location.region` de sesión: **`US` | `LATAM` | `EU`** (mapear `usa-canada`→`US`, `latam`→`LATAM`, `europe`→`EU`). Tres perfiles distintos — **nunca** agrupar LATAM con EU (ni para ML, ni para pricing, ni para packs/ofertas).
 - **`online` no es un geo_tier.** En el producto, `online` es **campus/modalidad** (slug de academy / opción de form, p.ej. “Online”), no un país ni un perfil GEO. El session worker **excluye** `slug === 'online'` al resolver ubicación por IP; casi nadie queda con `region: 'online'`. Si hace falta para el modelo, va como feature aparte (`preferred_modality` / academy slug), no mezclado con GEO.
 - Además: `country` / `country_code` crudos (sesión) para que el fit no dependa solo del tier.
-- **No confundir con pricing:** el list price “US vs LATAM-EU” puede ser un **bucket comercial** (`price_geo_bucket`); **no** es el `geo_tier` ML.
+- **Pricing:** US, LATAM y EU manejan **precios distintos**; cualquier list price / promo / `showOnRegions` / variables `by_region` debe respetar esos tres buckets por separado (hoy no existe un `price_geo_bucket` tipado en código — si se añade, mismo criterio).
 - `device_category`, `language`
 - `utm_source/medium`, bucket `utm_intent` (high/branded vs free/beginner)
 
 **Comportamiento**
 
 - `n_clicks_technical`, `n_clicks_beginner` — contadores de clicks cuyo destino (asset/how-to/exercise/blog) se clasifica por `difficulty` / tags (`hard`/`advanced`/`technical` → technical; `easy`/`beginner`/`intro` → beginner)
-- `n_clicks_brand` — clicks a destinos de marca/empresa (ver reglas de bucket abajo); p.ej. about, careers, upcoming-dates como `page`, press, trust
-- `n_clicks_campaign` — clicks a **landings** (performance/venta); distintas de brand y de learning
+- `n_clicks_brand` — clicks a destinos de marca/empresa ([ver reglas de bucket abajo](#click-bucket-rules)); p.ej. about, careers, upcoming-dates como `page`, press, trust
+- `n_clicks_campaign` — clicks a **landings** (performance/venta); distintas de brand y de learning ([mismas reglas](#click-bucket-rules))
 - `clicks_by_content_type` — mapa JSON con **todos** los content types relevantes: `program`, `landing`, `page`, `blog`, `how-to`, `interactive_exercise`, etc.
 - `program_views` como mapa dinámico `{ [product_id]: count }` (no columnas fijas por tres cursos)
 - `time_on_site_s`, `depth_pages`
 - `form_starts`, `return_visit` (7d)
 
-**Cómo se decide el bucket de un click (navbar incluido):**
+### Click bucket rules
+
+Cómo se decide el bucket de un click (navbar incluido):
 
 No se etiqueta el ítem del menú a mano en cada rediseño. Se resuelve el **destino** (`href` → contentType + slug) y se aplica:
 
@@ -674,7 +676,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 - **Señales nuevas:** `begin_checkout`, `add_to_cart`, abandono de checkout/carrito, vistas repetidas de pricing, tal vez `coupon` intentos fallidos.
 - **Salida ampliada del contrato** (actualizar `shared/recommender.ts` + warning en Cursor rules): p.ej. `price_variant`, `coupon_code`, `offer_type: list|geo_tier|cart_abandon|winback`, o packs tipados `direct_sale_ai-engineering_us_discount10`.
 - **Offer packs / cucaracha:** marketing define packs promocionales por producto (con y sin cupón); el modelo o reglas post-fit **seleccionan** el pack promo cuando hay señal de abandono/objeción de precio.
-- **GEO pricing** (list price US vs LATAM+EU, etc.) puede seguir en la página vía un **bucket comercial** distinto de `geo_tier` ML (`US|LATAM|EU`); la extensión de promo cubre variantes además del list price geográfico.
+- **GEO pricing:** list price y promos por **`US` | `LATAM` | `EU` por separado** (mismos tres buckets que `geo_tier`; no agrupar LATAM+EU). La extensión de promo cubre variantes (cupón, abandono, etc.) **dentro** de cada geo, no un bucket comercial LATAM-EU.
 - **Canales:** overlay on-site primero; email/retargeting con el mismo `offer_pack_id` queda como capa aparte (CRM/ads).
 
 No bloquea el cutover de v1 (nurturing=contenido / venta=producto); se planifica cuando exista ecommerce/checkout instrumentado y packs promo en Offer packs UI.
