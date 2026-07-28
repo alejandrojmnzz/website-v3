@@ -159,6 +159,7 @@ website-v3/
   .cursor/rules/
     cta-tracking.mdc
     recommender-feeding.mdc
+    recommender-admin-ui.mdc   # DebugBubble → Recommender hub (all staff UI)
     services-recommender.mdc   # globs: services/recommender/** (boundary + MLOps)
 ```
 
@@ -202,7 +203,7 @@ website-v3/
 
 **Copy / campos de marketing (coherencia título ↔ CTA ↔ destino):** esta Opción 2 **no genera texto con LLM** en inferencia. El ML elige un `**offer_pack`** preaprobado **a grano grueso** + (si nurturing) un **asset dinámico** del índice — **no** un pack humano por cada uno de los ~500 assets.
 
-**Qué es un pack (escalable):**
+**Qué es un pack (escalable):** ver [§ Cómo se configuran los Offer packs](#offer-packs-config).
 
 - `**direct_sale`:** clave `(direct_sale, product_id, locale, slot)` — copy de venta + destino apply/program.
 - `**nurturing`:** clave `(nurturing, locale, slot)` o, como matiz de tono, `(nurturing, affinity_product_id, locale, slot)` — copy educativo; destino siempre el asset. El product_id aquí es **tono/rieles**, no “producto en oferta”.
@@ -791,6 +792,150 @@ Entradas previstas (mínimo v1; se amplían sin cambiar de menú):
 
 **Regla de producto:** cualquier pantalla admin nueva del recomendador (packs, share, shadow, catálogo trigger, etc.) se registra **aquí**. How-it-works visible para staff en el hub Recommender.
 
+**Cursor rule (shipped):** [`.cursor/rules/recommender-admin-ui.mdc`](.cursor/rules/recommender-admin-ui.mdc) — globs DebugBubble / private recommender pages; agents must not put recommender admin under Marketing, Store, or Settings. Emit `warnings` / `side_effects` / `next_actions` if a PR violates the hub rule.
+
+**Draft to create in Agent mode** (file not written yet while Plan mode blocks non-markdown):
+
+```markdown
+---
+description: All recommender staff admin UI must live under DebugBubble → Recommender
+globs: client/src/components/DebugBubble/**,client/src/pages/Private*.tsx,client/src/pages/**Recommender*,client/src/pages/**/recommender/**
+alwaysApply: false
+---
+# Recommender admin UI (DebugBubble hub)
+
+## Product rule (mandatory)
+
+Any **new or changed staff admin screen** for the ML recommender must be registered under **DebugBubble → Recommender** — a dedicated ExpandableMenuItem next to **Store & Monetization** in DebugPanelContent.tsx.
+
+Includes: Offer packs, Intent bootstrap / label matrix, knowledge share, Status / models / shadow, catalog or asset-index triggers, promotion thresholds, feature/event debug samples.
+
+**Do not** place recommender admin under Marketing, Store & Monetization, Settings catch-alls, or orphan /private pages with no Recommender menu entry.
+
+## Staff education
+
+Always-visible how-it-works; optional Read more (advanced) with paths; empty states that teach nurturing vs sale and ML vs fallback.
+
+## Agent checklist
+
+warnings / side_effects / next_actions — wiring MenuItem in DebugPanelContent.tsx; saving matrix ≠ retrain unless explicit job trigger.
+```
+
+<a id="offer-packs-config"></a>
+
+### Cómo se configuran los Offer packs
+
+**No** se configuran en el YAML de cada sección de página (salvo el interruptor `recommender.enabled` + `slot`). Los packs viven en el hub **DebugBubble → Recommender → Offer packs** (CRUD staff). Cold/warm/hot **no** son packs distintos: el intent elige `strategy` (`nurturing` | `direct_sale`) y el serving hace **lookup** del pack por clave.
+
+#### Dónde y quién
+
+| Quién | Dónde | Qué hace |
+|-------|--------|----------|
+| Marketing / growth | **Recommender → Offer packs** | Crear/editar/publicar packs (copy, CTA label, destino de venta) |
+| Marketing en la página | YAML de la sección | Solo `recommender.enabled` + `slot` + **defaults de fallback** (headline/cta si ML falla) |
+| ML serving | Lookup en runtime | Elige `offer_pack_id` según strategy (+ product + locale + slot) y rellena el contrato JSON |
+| Asset k-NN | Solo nurturing | Elige el exercise/how-to; el pack **no** lista 500 assets |
+
+#### Clave de un pack (v1)
+
+```text
+direct_sale:  (strategy=direct_sale, product_id, locale, slot)
+nurturing:    (strategy=nurturing, locale, slot)
+              opcional: + affinity_product_id como tono (no es “vender” ese producto)
+```
+
+Ejemplos de `id` / filas en la UI:
+
+- `direct_sale | ai-engineering | es | sticky_cta`
+- `direct_sale | ai-flex | en | cta_banner`
+- `nurturing | es | cta_banner`
+- `nurturing | ai-flex | es | sticky_cta` (tono Flex; destino = asset del k-NN)
+
+**No** crear packs `cold_*` / `warm_*` / `hot_*`. Hot → suele mapear a packs `direct_sale`; cold/warm → packs `nurturing`.
+
+#### Campos que marketing rellena en la UI (shape persistido)
+
+Storage: YAML/JSON versionado por `site_id` (p.ej. `recommender/offer_packs/*.yml`) + API admin `GET/PUT /api/admin/recommender/offer-packs`. How-it-works visible en la pantalla.
+
+```yaml
+# Ejemplo A — venta (direct_sale)
+id: direct_sale_ai-engineering_es_sticky_cta_v1
+site_id: 4geeks-com
+strategy: direct_sale
+product_id: ai-engineering
+locale: es
+slot: sticky_cta
+status: published   # draft | published
+copy:
+  headline: "Conviértete en AI Engineer"
+  subhead: "Carrera completa con mentores"
+  cta_label: "Aplicar ahora"
+destination:
+  type: apply          # apply | program | url
+  program: ai-engineering
+  # url: opcional si type=url
+
+# Ejemplo B — nurturing (plantilla; el asset lo pone el ML)
+id: nurturing_es_cta_banner_v1
+site_id: 4geeks-com
+strategy: nurturing
+product_id: null       # o ai-flex solo como tono
+locale: es
+slot: cta_banner
+status: published
+copy:
+  headline: "Practica IA a tu ritmo"
+  subhead: "Empieza con {asset_title}"
+  cta_label: "Abrir contenido"
+destination:
+  type: asset          # siempre asset en nurturing — URL la resuelve recommended_asset_*
+```
+
+Placeholders permitidos en copy: `{asset_title}` (y similares documentados). En nurturing **prohibido** `destination.type: apply` en packs publicados (validación admin).
+
+#### Cómo el serving elige el pack (runtime)
+
+```text
+intent → strategy
+fit    → product_id (latente o visible)
+request.slot + session.locale (+ site_id)
+        ↓
+lookup offer_packs where status=published
+  match strategy + slot + locale
+  + product_id si direct_sale (o tono nurturing)
+        ↓
+offer_pack_id + copy (+ destination si venta)
+(+ asset id si nurturing)
+        ↓
+JSON /api/recommend → componente mapea copy → props
+```
+
+Si no hay pack publicado para esa clave → cascada fallback YAML de la sección → `resolveOffer` (no half-pack).
+
+#### Flujo staff al crear/editar (UI)
+
+1. Abrir **DebugBubble → Recommender → Offer packs**.
+2. **New pack** → elegir `strategy`, `locale`, `slot` (dropdown de slots conocidos: `sticky_cta`, `cta_banner`, …), y si venta `product_id` del catálogo.
+3. Rellenar `copy.*` (+ destination si `direct_sale`).
+4. Guardar **draft** → Preview (opcional: “así se vería en cta_banner”).
+5. **Publish** → disponible para lookup en el próximo `/api/recommend` (sin retrain XGBoost).
+6. Editar copy de un pack publicado = cambio de marketing inmediato; **no** regenera labels ni reentrena.
+
+#### Qué no es configuración de packs
+
+- Activar ML en una página → YAML `recommender.enabled` (página), no el CRUD de packs.
+- Elegir qué exercise concreto → asset index / k-NN, no el pack.
+- Definir cold/warm/hot → Intent labels / bootstrap matrix, no packs.
+- Un pack por cada uno de los ~500 assets → **prohibido** por diseño.
+
+#### Escala esperada (v1)
+
+| Tipo | Orden de magnitud |
+|------|-------------------|
+| Packs `direct_sale` | ~ N productos × locales × slots piloto |
+| Packs `nurturing` | ~ pocos × locales × slots (+ tonos opcionales) |
+| Assets | cientos — **sin** multiplicar packs |
+
 ### Flujo marketing (cómo usar un componente con el recomendador)
 
 **No** hace falta una versión del componente por cada producto/estrategia. Un solo `sticky_cta` (o `cta_banner`, etc.) sirve; cambian los **datos**.
@@ -803,12 +948,12 @@ Entradas previstas (mínimo v1; se amplían sin cambiar de menú):
      slot: sticky_cta
 ```
 
-2. **Offer packs (no 1 por asset):** marketing mantiene packs en **DebugBubble → Recommender → Offer packs** (decenas).
-   - `direct_sale` + `ai-engineering` + `es` → títulos/CTA **apply** (aquí sí se recomienda producto)
-   - `nurturing` (+ opcional tono `ai-flex`) + `es` → plantilla **educativa**; asset concreto lo pone el k-NN; **sin** CTA de compra
-3. **En runtime:** hold ~200ms → si nurturing: pack educativo + asset; si direct_sale: pack venta + product; si timeout: YAML/`resolveOffer`. Schema declara keys (`headline`→`title`, etc.).
-4. **Escala:** packs de venta ≈ N productos × locales; packs nurturing ≈ pocos por locale/slot (+ tonos); **A assets** crecen sin multiplicar packs.
-5. **Nuevo producto:** alta en catálogo + packs **de venta** en **Recommender → Offer packs**; nurturing no exige un pack de producto nuevo salvo matiz de tono.
+2. **Offer packs:** se configuran en **DebugBubble → Recommender → Offer packs** (CRUD + publish) — [detalle completo](#offer-packs-config). No en el YAML de la sección (salvo fallback). No un pack por cold/warm/hot ni por cada asset.
+   - `direct_sale` + `ai-engineering` + `es` + slot → títulos/CTA **apply**
+   - `nurturing` + `es` + slot → plantilla educativa; asset = k-NN
+3. **En runtime:** hold ~200ms → lookup pack por strategy×locale×slot×(product) → overlay; timeout → YAML/`resolveOffer`. Schema del componente declara mapa `copy.headline`→`title`, etc.
+4. **Escala:** packs de venta ≈ N productos × locales × slots; nurturing ≈ pocos; **A assets** sin multiplicar packs.
+5. **Nuevo producto:** alta en catálogo + packs **`direct_sale`** en Offer packs UI; nurturing no exige pack nuevo salvo matiz de tono.
 
 ---
 
@@ -886,7 +1031,8 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 ### Delivery of rules
 
 - Ship `cta-tracking.mdc` + `recommender-feeding.mdc` with **event wiring phase 1**.
-- Ship `services-recommender.mdc` with `**services/recommender/` scaffold**.
+- Ship `recommender-admin-ui.mdc` with **DebugBubble → Recommender** hub (already in repo; keep updated when adding menu items).
+- Ship `services-recommender.mdc` with **`services/recommender/` scaffold**.
 
 ---
 
