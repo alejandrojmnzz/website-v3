@@ -24,6 +24,7 @@ import { useContentTypes, useContentTypesRaw, getFolderFromType } from "@/hooks/
 import { useToast } from "@/hooks/use-toast";
 import { emitContentUpdated, emitEditStarted } from "@/lib/contentEvents";
 import { renderSection } from "@/components/SectionRenderer";
+import { SectionContextProvider } from "@/contexts/SectionContext";
 import yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { canonicalSectionId } from "@shared/sectionIdentity";
@@ -1110,6 +1111,25 @@ export function EditableSection({ children, section, index, sectionType, content
     setIsEditorOpen(false);
   };
 
+  // Floating components (e.g. contact_bubble) render outside the section's
+  // in-flow slot, so their own edit buttons request the editor via this event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ sectionIndex?: number }>).detail;
+      if (!detail || detail.sectionIndex !== index) return;
+      emitEditStarted({
+        contentType: contentType || "",
+        slug: slug || "",
+        locale: locale || "en",
+        sectionIndex: index,
+        variant: variant || "",
+        resume: () => setIsEditorOpen(true),
+      });
+    };
+    window.addEventListener("contact-bubble:edit", handler);
+    return () => window.removeEventListener("contact-bubble:edit", handler);
+  }, [index, contentType, slug, locale, variant]);
+
   const handleXDefaultConfirm = async () => {
     if (!xDefaultConfirmData || !contentType) return;
     try {
@@ -1202,7 +1222,23 @@ export function EditableSection({ children, section, index, sectionType, content
     toast({ title: "Label removed", description: "Section is no longer marked for work." });
   };
   
-  const renderedContent = wasLocallyUpdated ? renderSection(currentSection, index) : children;
+  // Wrap locally re-rendered sections in a SectionContextProvider so components
+  // that rely on sectionIndex (e.g. contact_bubble's edit button and row
+  // ordering) keep working after a local update replaces the original children.
+  const renderedContent = wasLocallyUpdated ? (
+    <SectionContextProvider
+      value={{
+        isPriority: true,
+        sectionIndex: index,
+        contentType: contentType || "",
+        slug: slug || "",
+        locale: locale || "en",
+        imageSizes: {},
+      }}
+    >
+      {renderSection(currentSection, index)}
+    </SectionContextProvider>
+  ) : children;
 
   // If not in edit mode context or edit mode is not active, render children directly
   if (!editMode || !editMode.isEditMode) {

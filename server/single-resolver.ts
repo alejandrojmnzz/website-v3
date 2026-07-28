@@ -16,11 +16,13 @@ function resolveString(str: string, singleItem: Record<string, unknown>): unknow
   const exactMatch = str.match(EXACT_SINGLE_VAR_PATTERN);
   if (exactMatch) {
     const fieldPath = exactMatch[1];
+    // Group 2 is present only when `| fallback` was written (may be empty string).
+    const hasFallback = exactMatch[2] !== undefined;
     const fallback = exactMatch[2]?.trim();
     const value = getNestedValue(singleItem, fieldPath);
     if (value !== undefined && value !== null) return value;
-    if (fallback !== undefined) return fallback;
-    return str;
+    if (hasFallback) return fallback ?? "";
+    return null;
   }
 
   if (!SINGLE_VAR_PATTERN.test(str)) return str;
@@ -33,7 +35,7 @@ function resolveString(str: string, singleItem: Record<string, unknown>): unknow
       return String(value);
     }
     if (fallback !== undefined) return fallback.trim();
-    return _match;
+    return "";
   });
 }
 

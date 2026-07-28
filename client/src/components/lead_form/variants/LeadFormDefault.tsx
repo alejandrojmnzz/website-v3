@@ -1426,7 +1426,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     <div className={data.className} data-testid="lead-form">
       {formCopy.subtitle && (
         <p
-          className="text-sm text-muted-foreground leading-snug mb-3"
+          className="text-sm text-muted-foreground leading-snug mb-2.5"
           data-testid="text-form-subtitle"
         >
           {formCopy.subtitle}
