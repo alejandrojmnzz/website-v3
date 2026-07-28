@@ -11,6 +11,7 @@ import {
   normalizeHreflangMap,
   normalizeHreflangLocaleKey,
   resolveHreflangsFromRecord,
+  resolveUrlPatternWithMapping,
   resetRegistry,
   updateContentTypeConfig,
 } from "./content-types";
@@ -67,7 +68,13 @@ describe("updateContentTypeConfig database unlink", () => {
     resetRegistry(contentRoot);
     const after = getContentTypeConfig("blog", contentRoot);
     expect(after?.database).toBeUndefined();
-    expect(after?.field_mapping).toEqual({ slug: "slug", title: "title" });
+    expect(after?.field_mapping).toMatchObject({
+      _slug: "slug",
+      title: "title",
+      _locale: expect.any(String),
+      _image: expect.any(String),
+    });
+    expect(after?.field_mapping).not.toHaveProperty("slug");
     expect(after?.url_pattern.en).toBe("/en/blog/:slug");
 
     const raw = fs.readFileSync(path.join(contentRoot, "content-types.yml"), "utf-8");
@@ -109,6 +116,28 @@ describe("extractUrlPatternParams", () => {
     );
     expect(missing).toEqual(["category"]);
     expect(params).toEqual({});
+  });
+
+  it("applies field-mapping defaults when the record omits a URL param", () => {
+    const { params, missing } = extractUrlPatternParams(
+      "/en/blog/:category/:slug",
+      { slug: "my-post" },
+      { category: "category" },
+      { category: "uncategorized" },
+    );
+    expect(missing).toEqual([]);
+    expect(params).toEqual({ category: "uncategorized" });
+  });
+
+  it("resolveUrlPatternWithMapping fills defaults for missing params", () => {
+    const url = resolveUrlPatternWithMapping(
+      "/en/blog/:category/:slug",
+      { slug: "my-post" },
+      "en",
+      { category: "category", _slug: "slug" },
+      { category: "uncategorized" },
+    );
+    expect(url).toBe("/en/blog/uncategorized/my-post");
   });
 
   it("treats empty values as missing", () => {

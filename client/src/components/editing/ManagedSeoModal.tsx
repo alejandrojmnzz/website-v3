@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { SeoModal } from "@/components/DebugBubble/components/SeoModal";
+import { SeoModal, type SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "@/components/DebugBubble/types";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
@@ -10,6 +10,7 @@ export interface ManagedSeoModalTarget {
   contentType: string;
   slug: string;
   locale: string;
+  initialTab?: SeoModalTab;
 }
 
 interface ManagedSeoModalProps {
@@ -377,6 +378,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
           ? target.contentType.charAt(0).toUpperCase() + target.contentType.slice(1)
           : undefined
       }
+      initialTab={target?.initialTab}
     />
   );
 }

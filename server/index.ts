@@ -335,7 +335,7 @@ app.use((req, res, next) => {
       shouldBypassHtmlCache,
     } = await import("./html-page-cache");
     const { resolveHtmlVariantKey } = await import("./html-variant-key");
-    app.use((req, res, next) => {
+    app.use(async (req, res, next) => {
       if (req.path.startsWith("/api/") || req.path.startsWith("/private/")) {
         return next();
       }
@@ -359,10 +359,13 @@ app.use((req, res, next) => {
       const cached = getCachedHtml(buildHtmlCacheKey(siteId, cleanUrl, variantKey));
       if (!cached) return next();
 
+      const { injectGtmWebContainerId } = await import("./gtm-web-inject");
+      const html = injectGtmWebContainerId(cached.html, site?.contentRoot);
+
       res
         .status(cached.status)
         .set({ "Content-Type": "text/html", "X-HTML-Cache": "HIT" })
-        .send(cached.html);
+        .send(html);
     });
   }
 

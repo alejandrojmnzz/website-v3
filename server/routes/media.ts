@@ -18,6 +18,7 @@ import {
   type LocationPage,
   type TemplatePage,
 } from "@shared/schema";
+import { MEDIA_EXTENSIONS } from "@shared/media-doctype";
 import {
   getSitemap,
   clearSitemapCache,
@@ -92,6 +93,7 @@ import {
 } from "../versioning";
 import { mediaGallery, MediaGallery } from "../media-gallery";
 import { getMergedImageRegistry } from "../image-registry-resolver";
+import { applyTagsToRegistry } from "../image-auto-tagger";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
@@ -358,6 +360,29 @@ export function registerMediaRoutes(app: Express): void {
     }
   });
 
+  /** Idempotent merge of tags onto a registry image (e.g. ensure og-image after gallery pick). */
+  app.post("/api/image-registry/:id/tags", (req, res) => {
+    try {
+      const add = (req.body as { add?: unknown })?.add;
+      if (!Array.isArray(add) || add.length === 0 || !add.every((t) => typeof t === "string" && t.trim())) {
+        res.status(400).json({ error: "Body must include non-empty 'add' string array" });
+        return;
+      }
+      const tags = add.map((t: string) => t.trim()).filter(Boolean);
+      const result = applyTagsToRegistry(req.params.id, tags);
+      res.json({
+        success: true,
+        id: req.params.id,
+        applied: result.applied,
+        tags: result.existing,
+      });
+    } catch (error: any) {
+      const message = error?.message || "Failed to apply tags";
+      const status = typeof message === "string" && message.includes("not found") ? 404 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
   app.post("/api/image-registry/bulk-delete", async (req, res) => {
     try {
       const { ids } = req.body as { ids?: string[] };
@@ -377,6 +402,75 @@ export function registerMediaRoutes(app: Express): void {
       res.json(media.getStatus());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Same-origin image proxy for OG / entry-preview screenshots.
+   * modern-screenshot must re-fetch <img> src as data URLs; GCS often lacks CORS,
+   * so the browser capture gets a blank logo. Allowlisted hosts only (SSRF guard).
+   */
+  app.get("/api/media/fetch-image", async (req, res) => {
+    try {
+      const raw = typeof req.query.url === "string" ? req.query.url.trim() : "";
+      if (!raw) {
+        res.status(400).json({ error: "url query param is required" });
+        return;
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        res.status(400).json({ error: "Invalid url" });
+        return;
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        res.status(400).json({ error: "Only http/https urls are allowed" });
+        return;
+      }
+      const host = parsed.hostname.toLowerCase();
+      const allowed =
+        host === "storage.googleapis.com" ||
+        host.endsWith(".storage.googleapis.com") ||
+        host === "breathecode.herokuapp.com" ||
+        host.endsWith(".breathecode.herokuapp.com") ||
+        host === "4geeksacademy.com" ||
+        host.endsWith(".4geeksacademy.com") ||
+        host === "localhost" ||
+        host === "127.0.0.1";
+      if (!allowed) {
+        res.status(403).json({ error: `Host not allowlisted: ${host}` });
+        return;
+      }
+
+      const upstream = await fetch(parsed.href, {
+        redirect: "follow",
+        headers: { Accept: "image/*,*/*;q=0.8" },
+      });
+      if (!upstream.ok) {
+        res.status(upstream.status).json({ error: `Upstream fetch failed: ${upstream.status}` });
+        return;
+      }
+      const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+      if (!contentType.startsWith("image/") && !contentType.includes("octet-stream")) {
+        res.status(415).json({ error: `Unsupported content-type: ${contentType}` });
+        return;
+      }
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+      if (buffer.length === 0) {
+        res.status(502).json({ error: "Empty upstream image" });
+        return;
+      }
+      if (buffer.length > 8 * 1024 * 1024) {
+        res.status(413).json({ error: "Image too large" });
+        return;
+      }
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.send(buffer);
+    } catch (err: any) {
+      log.error({ err }, "fetch-image proxy failed");
+      res.status(500).json({ error: err.message || "fetch-image failed" });
     }
   });
 
@@ -639,18 +733,8 @@ export function registerMediaRoutes(app: Express): void {
     storage: multer.memoryStorage(),
     limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      const allowedImages = [
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".webp",
-        ".svg",
-        ".avif",
-        ".gif",
-      ];
-      const allowedVideos = [".mp4", ".webm", ".mov", ".ogg", ".m4v"];
       const ext = path.extname(file.originalname).toLowerCase();
-      if ([...allowedImages, ...allowedVideos].includes(ext)) {
+      if (MEDIA_EXTENSIONS.has(ext)) {
         cb(null, true);
       } else {
         cb(new Error(`Unsupported file type: ${ext}`));

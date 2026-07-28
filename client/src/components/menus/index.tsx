@@ -15,6 +15,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { InternalLink } from "@/components/InternalLink";
 import { useTranslation } from "react-i18next";
 import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
+import { useVariableDefinitions } from "@/hooks/useVariables";
 
 export type NavbarItem = {
   label: string;
@@ -23,6 +24,7 @@ export type NavbarItem = {
   variant?: "default" | "outline" | "secondary" | "ghost";
   dropdown?: DropdownProps["dropdown"];
   imageId?: string;
+  imageIdDark?: string;
   imageAlt?: string;
   imageObjectFit?: string;
   imageObjectPosition?: string;
@@ -75,10 +77,34 @@ export function resolveComponent(componentName: string): React.ComponentType<any
   return componentMap[componentName] || null;
 }
 
-function LogoItem({ imageId, imageAlt, href, constrained_margin }: { imageId?: string; imageAlt?: string; href: string; constrained_margin?: boolean }) {
+function LogoItem({
+  imageId,
+  imageIdDark,
+  imageAlt,
+  href,
+  constrained_margin,
+}: {
+  imageId?: string;
+  imageIdDark?: string;
+  imageAlt?: string;
+  href: string;
+  constrained_margin?: boolean;
+}) {
   const { t } = useTranslation();
   const { isCompact } = useMenuVisualContext();
-  const logoId = imageId || "4geeks-devs-logo-1763162063433";
+  const { data: varDefinitions } = useVariableDefinitions();
+
+  const brandLogo = varDefinitions?.["brand.logo"]?.default ?? "";
+  const brandLogoDark = varDefinitions?.["brand.logo_dark"]?.default ?? "";
+
+  const lightId = imageId || brandLogo || "4geeks-devs-logo-1763162063433";
+  const darkId =
+    imageIdDark ||
+    (brandLogoDark && (!imageId || imageId === brandLogo) ? brandLogoDark : "") ||
+    "";
+
+  const sizeClass = `transition-all duration-150 ease-out ${isCompact ? "h-6" : "h-6 lg:h-8"}`;
+  const imgStyle = { objectFit: "contain" as const, width: "auto", height: "100%" };
 
   return (
     <InternalLink
@@ -86,13 +112,32 @@ function LogoItem({ imageId, imageAlt, href, constrained_margin }: { imageId?: s
       className={`flex items-center hover-elevate rounded-md${constrained_margin ? "" : " px-3 md:px-0 md:ps-1  lg:ps-0 lg:px-3 py-2"}`}
       data-testid="link-home"
     >
-      <UniversalImage
-        id={logoId}
-        alt={imageAlt || t('nav.brand')}
-        className={`transition-all duration-150 ease-out ${isCompact ? "h-6" : "h-6 lg:h-8"}`}
-        loading="eager"
-        style={{ objectFit: "contain", width: "auto", height: "100%" }}
-      />
+      {darkId ? (
+        <>
+          <UniversalImage
+            id={lightId}
+            alt={imageAlt || t("nav.brand")}
+            className={`${sizeClass} dark:hidden`}
+            loading="eager"
+            style={imgStyle}
+          />
+          <UniversalImage
+            id={darkId}
+            alt={imageAlt || t("nav.brand")}
+            className={`${sizeClass} hidden dark:block`}
+            loading="eager"
+            style={imgStyle}
+          />
+        </>
+      ) : (
+        <UniversalImage
+          id={lightId}
+          alt={imageAlt || t("nav.brand")}
+          className={sizeClass}
+          loading="eager"
+          style={imgStyle}
+        />
+      )}
     </InternalLink>
   );
 }
@@ -104,7 +149,16 @@ export function renderNavbarItem(
   constrained_margin?: boolean,
 ) {
   if (item.component === "Logo") {
-    return <LogoItem key="logo" imageId={item.imageId} imageAlt={item.imageAlt} href={item.href} constrained_margin={constrained_margin} />;
+    return (
+      <LogoItem
+        key="logo"
+        imageId={item.imageId}
+        imageIdDark={item.imageIdDark}
+        imageAlt={item.imageAlt}
+        href={item.href}
+        constrained_margin={constrained_margin}
+      />
+    );
   }
 
   if (item.component === "LanguageSwitcher") {

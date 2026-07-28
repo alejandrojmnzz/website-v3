@@ -47,10 +47,15 @@ function getEntryPreviewManager(res: import("express").Response) {
   return site.entryPreviewManager;
 }
 
+function getMediaGallery(res: import("express").Response) {
+  return (res.locals.site as import("../site-manager").SiteContext | undefined)?.mediaGallery ?? mediaGallery;
+}
+
 async function loadEntriesForPreview(
   res: import("express").Response,
   type: string,
   localeFilter?: string,
+  opts?: { hydrateMappedContent?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
   const config = getContentTypeConfig(type, ctRoot(res));
   if (!config) return [];
@@ -72,21 +77,64 @@ async function loadEntriesForPreview(
       contentRoot: getContentRoot(res),
     },
   );
-  return items as Array<Record<string, unknown>>;
+  // Static listing projections omit `content`. Hydrate it when preview maps that field
+  // so OG reading-time (and capture) can use the real article body.
+  // Stats polls skip this when dirty_on_prop_change is off (no props-hash needed).
+  if (opts?.hydrateMappedContent === false) {
+    return items as Array<Record<string, unknown>>;
+  }
+  const preview = getPreviewConfig(type, ctRoot(res));
+  const needsContent =
+    !!preview?.props &&
+    Object.values(preview.props).some((src) => src.trim() === "content");
+  if (!needsContent) return items as Array<Record<string, unknown>>;
+
+  const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
+  const ci = getCI(res);
+  return (items as Array<Record<string, unknown>>).map((item) => {
+    if (typeof item.content === "string" && item.content.trim()) return item;
+    const slug = String(item.slug || "");
+    if (!slug) return item;
+    const locale = normalizeLocale(
+      String(item[localeKey] || item.lang || item.locale || item.language || "en"),
+    );
+    try {
+      const merged = ci.loadMergedContent(type, slug, locale);
+      const body = (merged?.data as Record<string, unknown> | undefined)?.content;
+      if (typeof body === "string" && body.trim()) {
+        return { ...item, content: body };
+      }
+    } catch {
+      /* keep listing row as-is */
+    }
+    return item;
+  });
 }
 
 function buildPreviewSection(
   preview: NonNullable<ReturnType<typeof getPreviewConfig>>,
-  entry: Record<string, unknown>,
-): Record<string, unknown> {
+  ctx: import("@shared/entry-preview-props").PreviewPropResolveContext,
+): { section: Record<string, unknown>; missing: string[] } {
   const data: Record<string, unknown> = {};
-  applyPreviewPropMappings(data, preview.props, entry, RESERVED_IMAGE_FIELD);
+  const { missing } = applyPreviewPropMappings(data, preview.props, ctx, RESERVED_IMAGE_FIELD);
+  materializeOgPreviewReadingTime(data, preview.props, ctx.entry);
+
+  // Only required component props block capture. Optional mappings (category, author,
+  // content → reading_time, etc.) simply omit that part of the card when empty.
+  const schema = loadSchema(preview.component, preview.version || "1.0");
+  const mappable = collectMappablePropsFromSchema(schema, preview.variant || "default");
+  const requiredKeys = new Set(mappable.filter((p) => p.required).map((p) => p.key));
+  const missingVisible = missing.filter((k) => requiredKeys.has(k));
+
   return {
-    type: preview.component,
-    version: preview.version || "1.0",
-    variant: preview.variant || "default",
-    ...data,
-    section_id: `entry-preview-${preview.component}`,
+    section: {
+      type: preview.component,
+      version: preview.version || "1.0",
+      variant: preview.variant || "default",
+      ...data,
+      section_id: `entry-preview-${preview.component}`,
+    },
+    missing: missingVisible,
   };
 }
 import {
@@ -198,7 +246,7 @@ import {
   type UrlParamValueShape,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
-import { resolveSingleVars } from "../single-resolver";
+import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
 import {
   buildFieldProvenance,
   writeFieldOverrides,
@@ -256,8 +304,10 @@ import {
   isPreviewCaptureReady,
   validatePreviewPropMappings,
 } from "../entry-preview-config";
-import { applyPreviewPropMappings } from "@shared/entry-preview-props";
-import { RESERVED_IMAGE_FIELD } from "../content-types";
+import { applyPreviewPropMappings, collectMappablePropsFromSchema, isBlockedPreviewSource, materializeOgPreviewReadingTime, formatMissingPreviewPropsMessage } from "@shared/entry-preview-props";
+import { estimateReadingMinutes } from "@shared/reading-time";
+import { RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD } from "../content-types";
+import { buildPreviewPropResolveContext } from "../entry-preview-resolve";
 import {
   isEntryDetached,
   isSharedLayoutType,
@@ -316,6 +366,25 @@ function getCI(res: Response): typeof contentIndex {
 function getContentRoot(res: Response): string {
   return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
+
+function contentParamBag(
+  req: { query: Request["query"] },
+  res: Response,
+  contentType: string,
+  slug: string,
+  locale: string,
+  record?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  return buildContentDeliveryParamBag({
+    contentType,
+    slug,
+    locale,
+    record: record ?? undefined,
+    query: req.query as Record<string, unknown>,
+    contentRoot: getContentRoot(res),
+  });
+}
+
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
@@ -385,11 +454,33 @@ export function registerContentRoutes(app: Express): void {
     const programRaw = getCI(res).loadMergedContent("program", slug, locale);
     const layout = resolveLayout("program", programRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("program", programData);
+    const param = contentParamBag(req, res, "program", slug, locale, programData);
+    if (singleEntry) {
+      Object.assign(
+        programData,
+        resolveAllTemplateVars(programData, {
+          singleEntry,
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>,
+      );
+    } else {
+      Object.assign(
+        programData,
+        resolveAllTemplateVars(programData, {
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>,
+      );
+    }
     injectCanonicalIfMissing(programData, "program", locale);
     const { layout: _stripLayout, ...rest } = programData;
     res.json({
       ...rest,
       ...(singleEntry ? { singleEntry } : {}),
+      param,
       layout,
     });
   });
@@ -471,11 +562,33 @@ export function registerContentRoutes(app: Express): void {
     const rawMerged = getCI(res).loadMergedContent("landing", slug, locale);
     const layout = resolveLayout("landing", rawMerged.data || commonData || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("landing", landingData);
+    const param = contentParamBag(req, res, "landing", slug, locale, landingData);
+    if (singleEntry) {
+      Object.assign(
+        landingData,
+        resolveAllTemplateVars(landingData, {
+          singleEntry,
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>,
+      );
+    } else {
+      Object.assign(
+        landingData,
+        resolveAllTemplateVars(landingData, {
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>,
+      );
+    }
     injectCanonicalIfMissing(landingData, "landing", locale);
     const { layout: _stripLayout, ...restLanding } = landingData;
     res.json({
       ...restLanding,
       ...(singleEntry ? { singleEntry } : {}),
+      param,
       locale,
       landing_locations: landingLocations,
       layout,
@@ -535,11 +648,33 @@ export function registerContentRoutes(app: Express): void {
     const locationRaw = getCI(res).loadMergedContent("location", slug, locale);
     const layout = resolveLayout("location", locationRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("location", locationData);
+    const param = contentParamBag(req, res, "location", slug, locale, locationData);
+    if (singleEntry) {
+      Object.assign(
+        locationData,
+        resolveAllTemplateVars(locationData, {
+          singleEntry,
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>,
+      );
+    } else {
+      Object.assign(
+        locationData,
+        resolveAllTemplateVars(locationData, {
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>,
+      );
+    }
     injectCanonicalIfMissing(locationData, "location", locale);
     const { layout: _stripLayout, ...restLocation } = locationData;
     res.json({
       ...restLocation,
       ...(singleEntry ? { singleEntry } : {}),
+      param,
       layout,
     });
   });
@@ -662,14 +797,22 @@ export function registerContentRoutes(app: Express): void {
     const pageRaw = getCI(res).loadMergedContent("page", slug, locale);
     const layout = resolveLayout("page", pageRaw.data || {}, getContentRoot(res));
     const singleEntry = buildSingleEntryFromContent("page", pageData);
+    const param = contentParamBag(req, res, "page", slug, locale, pageData);
     if (singleEntry) {
       pageData.singleEntry = singleEntry;
     }
+    const resolvedPage = resolveAllTemplateVars(pageData, {
+      singleEntry: singleEntry || undefined,
+      param,
+      contentRoot: getContentRoot(res),
+      context: { locale },
+    }) as Record<string, unknown>;
+    Object.assign(pageData, resolvedPage);
     injectCanonicalIfMissing(pageData, "page", locale);
     const { enhanceArticleSectionsInPage: enhancePage } = await import("../markdown-enhance");
     await enhancePage(pageData);
     const { layout: _stripLayout, ...restPage } = pageData;
-    res.json({ ...restPage, layout });
+    res.json({ ...restPage, param, layout });
   });
 
   app.get("/api/content-pages/:contentType/:slug", async (req, res) => {
@@ -703,6 +846,7 @@ export function registerContentRoutes(app: Express): void {
       if (page) {
         const dbPageData = page as unknown as Record<string, unknown>;
         const dbSingleEntry = (dbPageData.singleEntry as Record<string, unknown>) || {};
+        const param = contentParamBag(req, res, contentType, slug, locale, dbSingleEntry);
         if (page.sections && Array.isArray(page.sections)) {
           page.sections = (await resolveDynamicEntries(page.sections, locale, {
             ...dynamicEntriesOptions(res),
@@ -711,7 +855,19 @@ export function registerContentRoutes(app: Express): void {
           applyComponentImageSizes(page.sections as unknown[]);
         }
         if (Object.keys(dbSingleEntry).length > 0) {
-          const dbResolved = resolveSingleVars(dbPageData, dbSingleEntry) as Record<string, unknown>;
+          const dbResolved = resolveAllTemplateVars(dbPageData, {
+            singleEntry: dbSingleEntry,
+            param,
+            contentRoot: ctRoot(res),
+            context: { locale },
+          }) as Record<string, unknown>;
+          Object.assign(dbPageData, dbResolved);
+        } else {
+          const dbResolved = resolveAllTemplateVars(dbPageData, {
+            param,
+            contentRoot: ctRoot(res),
+            context: { locale },
+          }) as Record<string, unknown>;
           Object.assign(dbPageData, dbResolved);
         }
         const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
@@ -728,6 +884,7 @@ export function registerContentRoutes(app: Express): void {
         const { layout: _dbStripLayout, ...dbRest } = dbPageData;
         res.json({
           ...dbRest,
+          param,
           layout: dbLayout,
           detached,
         });
@@ -770,9 +927,22 @@ export function registerContentRoutes(app: Express): void {
           locale,
           contentRoot: root,
         });
+        const param = contentParamBag(req, res, contentType, slug, locale, merged);
         if (singleEntry) {
           merged.singleEntry = singleEntry;
-          const resolved = resolveSingleVars(merged, singleEntry) as Record<string, unknown>;
+          const resolved = resolveAllTemplateVars(merged, {
+            singleEntry,
+            param,
+            contentRoot: root,
+            context: { locale },
+          }) as Record<string, unknown>;
+          Object.assign(merged, resolved);
+        } else {
+          const resolved = resolveAllTemplateVars(merged, {
+            param,
+            contentRoot: root,
+            context: { locale },
+          }) as Record<string, unknown>;
           Object.assign(merged, resolved);
         }
         const { enhanceArticleSectionsInPage: enhanceAttached } = await import("../markdown-enhance");
@@ -781,6 +951,7 @@ export function registerContentRoutes(app: Express): void {
         const { layout: _strip, ...rest } = merged;
         res.json({
           ...rest,
+          param,
           layout: variantLayout,
           detached: false,
         });
@@ -811,6 +982,7 @@ export function registerContentRoutes(app: Express): void {
       if (variantSingleEntry) {
         variantPage.singleEntry = variantSingleEntry;
       }
+      const param = contentParamBag(req, res, contentType, slug, locale, variantPage);
       const variantSections = variantPage.sections;
       if (variantSections && Array.isArray(variantSections)) {
         (variantPage as any).sections = (await resolveDynamicEntries(variantSections, locale, {
@@ -822,7 +994,19 @@ export function registerContentRoutes(app: Express): void {
       const variantRaw = getCI(res).loadMergedContent(contentType, slug, locale);
       const variantLayout = resolveLayout(contentType, variantRaw.data || {}, getContentRoot(res));
       if (variantSingleEntry) {
-        const resolved = resolveSingleVars(variantPage, variantSingleEntry) as Record<string, unknown>;
+        const resolved = resolveAllTemplateVars(variantPage, {
+          singleEntry: variantSingleEntry,
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>;
+        Object.assign(variantPage, resolved);
+      } else {
+        const resolved = resolveAllTemplateVars(variantPage, {
+          param,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>;
         Object.assign(variantPage, resolved);
       }
       const { enhanceArticleSectionsInPage: enhanceVariant } = await import("../markdown-enhance");
@@ -831,6 +1015,7 @@ export function registerContentRoutes(app: Express): void {
       const { layout: _variantStripLayout, ...variantRest } = variantPage;
       res.json({
         ...variantRest,
+        param,
         layout: variantLayout,
         detached: isEntryDetached(contentType, slug, getContentRoot(res)),
       });
@@ -869,8 +1054,21 @@ export function registerContentRoutes(app: Express): void {
 
     const genericRaw = getCI(res).loadMergedContent(contentType, slug, locale);
     const genericLayout = resolveLayout(contentType, genericRaw.data || {}, getContentRoot(res));
+    const param = contentParamBag(req, res, contentType, slug, locale, genericPageData);
     if (singleEntry) {
-      const resolved = resolveSingleVars(genericPageData, singleEntry) as Record<string, unknown>;
+      const resolved = resolveAllTemplateVars(genericPageData, {
+        singleEntry,
+        param,
+        contentRoot: getContentRoot(res),
+        context: { locale },
+      }) as Record<string, unknown>;
+      Object.assign(genericPageData, resolved);
+    } else {
+      const resolved = resolveAllTemplateVars(genericPageData, {
+        param,
+        contentRoot: getContentRoot(res),
+        context: { locale },
+      }) as Record<string, unknown>;
       Object.assign(genericPageData, resolved);
     }
     const { enhanceArticleSectionsInPage: enhanceGeneric } = await import("../markdown-enhance");
@@ -879,6 +1077,7 @@ export function registerContentRoutes(app: Express): void {
     const { layout: _genericStripLayout, ...genericRest } = genericPageData;
     res.json({
       ...genericRest,
+      param,
       layout: genericLayout,
       detached: isEntryDetached(contentType, slug, getContentRoot(res)),
     });
@@ -1452,7 +1651,14 @@ export function registerContentRoutes(app: Express): void {
       }
 
       if (body.field_mapping && !config.database?.slug) {
-        const validation = validateFieldMapping(type, body.field_mapping);
+        const flatMapping: Record<string, string> = {};
+        for (const [k, v] of Object.entries(body.field_mapping as Record<string, unknown>)) {
+          if (typeof v === "string") flatMapping[k] = v;
+          else if (v && typeof v === "object" && "source" in (v as object)) {
+            flatMapping[k] = String((v as { source: string }).source ?? "");
+          }
+        }
+        const validation = validateFieldMapping(type, flatMapping);
         if (!validation.allValid) {
           const invalidFields = Object.entries(validation.results)
             .filter(([, r]) => !r.valid)
@@ -1471,6 +1677,16 @@ export function registerContentRoutes(app: Express): void {
       if (body.indexes !== undefined) update.indexes = body.indexes;
       if (body.unique_fields !== undefined) update.unique_fields = body.unique_fields;
       if (body.database !== undefined) update.database = body.database;
+      if (body.editor !== undefined) {
+        if (body.editor === null) {
+          update.editor = null;
+        } else if (typeof body.editor === "object") {
+          update.editor = body.editor as import("../content-types").ContentTypeEntry["editor"];
+        } else {
+          res.status(400).json({ error: "editor must be an object or null" });
+          return;
+        }
+      }
       if (body.single_template !== undefined) update.single_template = !!body.single_template;
       if (body.preview !== undefined) {
         if (body.preview === null) {
@@ -1485,7 +1701,10 @@ export function registerContentRoutes(app: Express): void {
           const circularProps: string[] = [];
           if (props) {
             for (const [k, v] of Object.entries(props)) {
-              if (k === RESERVED_IMAGE_FIELD || v === RESERVED_IMAGE_FIELD) {
+              if (
+                isBlockedPreviewSource(k, RESERVED_IMAGE_FIELD) ||
+                isBlockedPreviewSource(String(v), RESERVED_IMAGE_FIELD)
+              ) {
                 circularProps.push(`${k}→${v}`);
               }
             }
@@ -2070,9 +2289,22 @@ export function registerContentRoutes(app: Express): void {
         },
       );
 
+      const includeContent =
+        req.query.include_content === "1" ||
+        req.query.include_content === "true";
+
       const stripped = items.map((item) => {
+        const body = item.content;
+        const reading_minutes =
+          typeof body === "string" && body.trim()
+            ? estimateReadingMinutes(body)
+            : undefined;
+        if (includeContent) {
+          return reading_minutes != null ? { ...item, reading_minutes } : item;
+        }
+        // List projections omit heavy bodies; keep reading_minutes for OG live preview.
         const { content, readme, ...rest } = item as Record<string, unknown>;
-        return rest;
+        return reading_minutes != null ? { ...rest, reading_minutes } : rest;
       });
 
       let facets: Record<string, string[]> | undefined;
@@ -2245,7 +2477,11 @@ export function registerContentRoutes(app: Express): void {
           if (localeFilter && String(item[localeKey] || "en") !== localeFilter) continue;
           const locale = String(item[localeKey] || "en");
           const template = templates[locale];
-          const rawMeta = resolveSingleVars(template?.meta ?? {}, item) as Record<string, unknown>;
+          const rawMeta = resolveAllTemplateVars(template?.meta ?? {}, {
+            singleEntry: item as Record<string, unknown>,
+            contentRoot: getContentRoot(res),
+            context: { locale },
+          }) as Record<string, unknown>;
           const resolvedMeta: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(rawMeta)) {
             resolvedMeta[k] = (typeof v === "string" && /\{\{.*?\}\}/.test(v)) ? null : v;
@@ -2330,7 +2566,10 @@ export function registerContentRoutes(app: Express): void {
               const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
 
               const rawMeta = (merged.meta as Record<string, unknown>) ?? {};
-              const { data: resolvedMeta } = getVM(res).resolveDeep(rawMeta, { locale });
+              const resolvedMeta = resolveAllTemplateVars(rawMeta, {
+                contentRoot: getContentRoot(res),
+                context: { locale },
+              }) as Record<string, unknown>;
 
               let url: string | null = null;
               if (urlPattern) {
@@ -2398,14 +2637,29 @@ export function registerContentRoutes(app: Express): void {
           ? String(entry[localeKey] || "en")
           : String(entry.lang ?? entry.locale ?? entry.language ?? "en");
         const imageStr =
-          typeof entry[RESERVED_IMAGE_FIELD] === "string"
-            ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
-            : typeof entry.preview === "string"
-              ? (entry.preview as string).trim()
-              : "";
+          typeof entry[IMAGE_ALIAS_FIELD] === "string"
+            ? (entry[IMAGE_ALIAS_FIELD] as string).trim()
+            : typeof entry[RESERVED_IMAGE_FIELD] === "string"
+              ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
+              : typeof entry.preview === "string"
+                ? (entry.preview as string).trim()
+                : "";
         const fromSource = !!(imageStr && !/\{\{/.test(imageStr));
         const meta = await epm.getMeta(type, slug, locale, width);
-        const propsHash = preview ? hashPreviewProps(preview.props, entry) : undefined;
+        let propsHash: string | undefined;
+        if (preview) {
+          const ctx = await buildPreviewPropResolveContext({
+            contentType: type,
+            slug,
+            locale,
+            entry,
+            contentRoot: getContentRoot(res),
+            db: getDB(res),
+            mediaGallery: getMediaGallery(res),
+            theme: preview.theme === "light" ? "light" : "dark",
+          });
+          propsHash = hashPreviewProps(preview.props, ctx);
+        }
         const needsCapture =
           captureReady &&
           !fromSource &&
@@ -2447,7 +2701,10 @@ export function registerContentRoutes(app: Express): void {
       const preview = getPreviewConfig(type, ctRoot(res));
       const captureReady = isPreviewCaptureReady(preview);
       const mappingValidation = preview ? validatePreviewPropMappings(preview) : null;
-      const entries = await loadEntriesForPreview(res, type);
+      // Avoid hydrating every article body unless stats must recompute props hashes.
+      const entries = await loadEntriesForPreview(res, type, undefined, {
+        hydrateMappedContent: !!preview?.dirty_on_prop_change,
+      });
       const localeKey = getLocaleKey(type, ctRoot(res));
       const stats = await getEntryPreviewManager(res).stats(
         type,
@@ -2455,6 +2712,7 @@ export function registerContentRoutes(app: Express): void {
         captureReady ? preview : null,
         localeKey,
       );
+      res.setHeader("Cache-Control", "no-store");
       res.json({
         contentType: type,
         preview: !!preview,
@@ -2498,13 +2756,38 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Entry not found: ${type}/${slug}` });
         return;
       }
-      const section = buildPreviewSection(preview, entry);
-      const propsHash = hashPreviewProps(preview.props, entry);
+      // Capture job can override theme via ?theme= so logo resolve matches the iframe.
+      const themeQuery = typeof req.query.theme === "string" ? req.query.theme : "";
+      const theme: "dark" | "light" =
+        themeQuery === "light" || themeQuery === "dark"
+          ? themeQuery
+          : preview.theme === "light"
+            ? "light"
+            : "dark";
+      const ctx = await buildPreviewPropResolveContext({
+        contentType: type,
+        slug,
+        locale,
+        entry,
+        contentRoot: getContentRoot(res),
+        db: getDB(res),
+        mediaGallery: getMediaGallery(res),
+        theme,
+      });
+      const { section, missing } = buildPreviewSection(preview, ctx);
+      if (missing.length > 0) {
+        res.status(400).json({
+          error: formatMissingPreviewPropsMessage(missing, preview.props, ctx),
+          missing,
+        });
+        return;
+      }
+      const propsHash = hashPreviewProps(preview.props, ctx);
       res.json({
         contentType: type,
         slug,
         locale,
-        theme: preview.theme || "dark",
+        theme,
         width: preview.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH,
         maxHeight: preview.maxHeight ?? DEFAULT_PREVIEW_MAX_HEIGHT,
         propsHash,
@@ -2556,7 +2839,19 @@ export function registerContentRoutes(app: Express): void {
                 : String(item.lang ?? item.locale ?? item.language ?? "en");
               return String(item.slug ?? "") === slug && itemLocale === locale;
             }) || entries.find((item) => String(item.slug ?? "") === slug);
-          if (entry) propsHash = hashPreviewProps(preview.props, entry);
+          if (entry) {
+            const ctx = await buildPreviewPropResolveContext({
+              contentType: type,
+              slug,
+              locale,
+              entry,
+              contentRoot: getContentRoot(res),
+              db: getDB(res),
+              mediaGallery: getMediaGallery(res),
+              theme: preview.theme === "light" ? "light" : "dark",
+            });
+            propsHash = hashPreviewProps(preview.props, ctx);
+          }
         }
         try {
           const meta = await epm.upsertWebp({

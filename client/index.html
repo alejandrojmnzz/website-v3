@@ -7,8 +7,11 @@
       content="width=device-width, initial-scale=1.0"
     />
 
-    <!-- Google Tag Manager - Initialize dataLayer early so pushes before GTM loads are queued -->
+    <!-- Google Tag Manager - Initialize dataLayer early so pushes before GTM loads are queued.
+         __GTM_WEB_CONTAINER_ID__ is replaced per-request from settings.yml
+         (optimization.tagmanager.web_container_id). Deferred inject reuses window.__GTM_CONTAINER_ID__. -->
     <script>
+      window.__GTM_CONTAINER_ID__ = "__GTM_WEB_CONTAINER_ID__";
       window.dataLayer = window.dataLayer || [];
     </script>
 
@@ -26,6 +29,8 @@
         function injectGTM() {
           if (loaded) return;
           loaded = true;
+          var containerId = window.__GTM_CONTAINER_ID__;
+          if (!containerId) return;
           (function (w, d, s, l, i) {
             w[l] = w[l] || [];
             w[l].push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
@@ -35,7 +40,7 @@
             j.async = true;
             j.src = "https://www.googletagmanager.com/gtm.js?id=" + i + dl;
             f.parentNode.insertBefore(j, f);
-          })(window, document, "script", "dataLayer", "GTM-PGGRR6");
+          })(window, document, "script", "dataLayer", containerId);
         }
         // Schedule off the input event to avoid INP regressions.
         function scheduleGTM() {
@@ -148,10 +153,10 @@
     <link rel="stylesheet" href="/src/index.css" />
   </head>
   <body>
-    <!-- Google Tag Manager (noscript) -->
+    <!-- Google Tag Manager (noscript) — id placeholder replaced with web_container_id from settings -->
     <noscript
       ><iframe
-        src="https://www.googletagmanager.com/ns.html?id=GTM-PGGRR6"
+        src="https://www.googletagmanager.com/ns.html?id=__GTM_WEB_CONTAINER_ID__"
         height="0"
         width="0"
         style="display: none; visibility: hidden"

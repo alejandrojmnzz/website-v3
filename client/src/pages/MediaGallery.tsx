@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, Folder, Image, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Search, Settings, Square, SquareCheck, Stethoscope, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,10 @@ import { Link } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { ImageRegistry } from "@shared/schema";
+import {
+  type MediaDoctype,
+  inferDoctypeFromSrc,
+} from "@shared/media-doctype";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
@@ -372,7 +376,10 @@ function OptimizationProgressPanel({
 export default function MediaGallery() {
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
+  const [doctypeFilter, setDoctypeFilter] = useState<MediaDoctype | "all">("all");
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [doctypeExpanded, setDoctypeExpanded] = useState(false);
   const [showDerived, setShowDerived] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -383,6 +390,9 @@ export default function MediaGallery() {
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteResults, setBulkDeleteResults] = useState<BulkDeleteResult[] | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProviderView, setSettingsProviderView] = useState<string | null>(null);
   const [deduplicating, setDeduplicating] = useState(false);
@@ -396,6 +406,8 @@ export default function MediaGallery() {
   const [autoTagging, setAutoTagging] = useState(false);
   const [autoTagConfirmOpen, setAutoTagConfirmOpen] = useState(false);
   const [showAutoTagAdvanced, setShowAutoTagAdvanced] = useState(false);
+  const [scanConfirmOpen, setScanConfirmOpen] = useState(false);
+  const [showScanAdvanced, setShowScanAdvanced] = useState(false);
   const [migrateConfirmOpen, setMigrateConfirmOpen] = useState(false);
   const [migrateResults, setMigrateResults] = useState<{ message: string; migratedCount: number; totalProcessed: number; results: Array<{ id: string; oldSrc: string; newSrc: string; status: string }> } | null>(null);
   const [redundantOpen, setRedundantOpen] = useState(false);
@@ -557,16 +569,31 @@ export default function MediaGallery() {
           variant: "destructive",
           duration: 8000,
         });
-        return;
+        return false;
       }
       toast({ title: "Deleted", description: data.message });
       queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+      return true;
     } catch {
       toast({ title: "Delete failed", description: "Could not delete image from registry", variant: "destructive" });
+      return false;
+    }
+  };
+
+  const confirmSingleDelete = async () => {
+    if (!deleteConfirmId) return;
+    setDeleting(true);
+    try {
+      await handleDelete(deleteConfirmId);
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmId(null);
     }
   };
 
   const handleScan = async () => {
+    setScanConfirmOpen(false);
+    setShowScanAdvanced(false);
     setScanning(true);
     setScanResult(null);
     setValidationResult(null);
@@ -862,13 +889,50 @@ export default function MediaGallery() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  const availableTags = (() => {
+    if (registry?.tagDefinitions && Object.keys(registry.tagDefinitions).length > 0) {
+      return Object.entries(registry.tagDefinitions).map(([key, def]) => ({
+        key,
+        label: def.label || key,
+      }));
+    }
+    const seen = new Set<string>();
+    for (const img of Object.values(registry?.images ?? {})) {
+      for (const t of img.tags ?? []) {
+        if (t) seen.add(t);
+      }
+    }
+    return Array.from(seen)
+      .sort()
+      .map((key) => ({ key, label: key }));
+  })();
+
+  const toggleTagFilter = (key: string) => {
+    setActiveTagFilters((prev) =>
+      prev.includes(key) ? prev.filter((t) => t !== key) : [...prev, key],
+    );
+  };
+
+  const DOCTYPE_OPTIONS = [
+    { key: "all" as const, label: "All" },
+    { key: "image" as const, label: "Images" },
+    { key: "video" as const, label: "Videos" },
+    { key: "pdf" as const, label: "PDFs" },
+  ];
+
   const filteredImages = registry?.images
     ? Object.entries(registry.images).filter(([id, img]) => {
         if (!showDerived && (img as { parentId?: string }).parentId) {
           return false;
         }
-        if (activeTagFilter && !img.tags?.includes(activeTagFilter)) {
-          return false;
+        if (doctypeFilter !== "all") {
+          const dt = inferDoctypeFromSrc(img.src);
+          if (dt !== doctypeFilter) return false;
+        }
+        if (activeTagFilters.length > 0) {
+          const tagSet = new Set(activeTagFilters.map((t) => t.toLowerCase()));
+          const hasMatch = img.tags?.some((t) => tagSet.has(t.toLowerCase()));
+          if (!hasMatch) return false;
         }
         const searchLower = search.toLowerCase();
         return (
@@ -891,6 +955,7 @@ export default function MediaGallery() {
   const handleBulkDelete = async () => {
     if (selectedImages.size === 0) return;
     setBulkDeleting(true);
+    setBulkDeleteConfirmOpen(false);
     try {
       const res = await apiRequest("POST", "/api/image-registry/bulk-delete", {
         ids: Array.from(selectedImages),
@@ -910,7 +975,7 @@ export default function MediaGallery() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [search, activeTagFilter]);
+  }, [search, activeTagFilters, doctypeFilter]);
 
   const visibleImages = filteredImages.slice(0, visibleCount);
   const hasMore = visibleCount < filteredImages.length;
@@ -1194,9 +1259,13 @@ export default function MediaGallery() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={handleScan}
+                  onClick={() => {
+                    setShowScanAdvanced(false);
+                    setScanConfirmOpen(true);
+                  }}
                   disabled={scanning}
                   data-testid="button-scan-registry"
+                  title="Run media health diagnostic"
                 >
                   {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Stethoscope className="h-4 w-4" />}
                 </Button>
@@ -1257,26 +1326,144 @@ export default function MediaGallery() {
                   <Settings className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="flex flex-wrap gap-1.5 justify-end items-center">
-                {registry?.tagDefinitions && Object.entries(registry.tagDefinitions).map(([key, tagDef]) => (
-                  <Badge
-                    key={key}
-                    variant={activeTagFilter === key ? "default" : "outline"}
-                    className="cursor-pointer text-xs"
-                    onClick={() => setActiveTagFilter(activeTagFilter === key ? null : key)}
-                    data-testid={`badge-tag-${key}`}
+              <div className="flex flex-col items-end gap-2 w-full max-w-xl">
+                <div className="flex flex-wrap gap-1.5 justify-end items-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={doctypeExpanded || doctypeFilter !== "all" ? "secondary" : "outline"}
+                    className="h-8 shrink-0 gap-1.5"
+                    onClick={() => {
+                      setDoctypeExpanded((v) => !v);
+                      if (!doctypeExpanded) setTagsExpanded(false);
+                    }}
+                    data-testid="button-expand-doctype-filter"
                   >
-                    {tagDef.label}
-                  </Badge>
-                ))}
-                <Badge
-                  variant={showDerived ? "default" : "outline"}
-                  className="cursor-pointer text-xs"
-                  onClick={() => setShowDerived((v) => !v)}
-                  data-testid="badge-show-derived"
-                >
-                  Derived
-                </Badge>
+                    <Layers className="h-3.5 w-3.5" />
+                    <span className="text-xs">Type</span>
+                    {doctypeFilter !== "all" && (
+                      <Badge
+                        variant="default"
+                        className="h-5 min-w-5 px-1.5 text-[10px] leading-none"
+                        data-testid="badge-active-doctype-count"
+                      >
+                        1
+                      </Badge>
+                    )}
+                  </Button>
+                  {availableTags.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={tagsExpanded || activeTagFilters.length > 0 ? "secondary" : "outline"}
+                      className="h-8 shrink-0 gap-1.5"
+                      onClick={() => {
+                        setTagsExpanded((v) => !v);
+                        if (!tagsExpanded) setDoctypeExpanded(false);
+                      }}
+                      data-testid="button-expand-tag-filter"
+                    >
+                      <Tags className="h-3.5 w-3.5" />
+                      <span className="text-xs">Tags</span>
+                      {activeTagFilters.length > 0 && (
+                        <Badge
+                          variant="default"
+                          className="h-5 min-w-5 px-1.5 text-[10px] leading-none"
+                          data-testid="badge-active-tag-count"
+                        >
+                          {activeTagFilters.length}
+                        </Badge>
+                      )}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={showDerived ? "secondary" : "outline"}
+                    className="h-8 shrink-0 gap-1.5"
+                    onClick={() => setShowDerived((v) => !v)}
+                    data-testid="badge-show-derived"
+                  >
+                    <span className="text-xs">Derived</span>
+                  </Button>
+                </div>
+
+                {doctypeExpanded && (
+                  <div className="flex flex-wrap items-center gap-1.5 justify-end" data-testid="doctype-filter-row">
+                    {DOCTYPE_OPTIONS.map(({ key, label }) => (
+                      <Badge
+                        key={key}
+                        variant={doctypeFilter === key ? "default" : "outline"}
+                        className="cursor-pointer text-xs"
+                        onClick={() => setDoctypeFilter(key)}
+                        data-testid={`badge-doctype-${key}`}
+                      >
+                        {label}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {tagsExpanded && availableTags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 justify-end" data-testid="tag-filter-row">
+                    <Badge
+                      variant={activeTagFilters.length === 0 ? "default" : "outline"}
+                      className="cursor-pointer text-xs"
+                      onClick={() => setActiveTagFilters([])}
+                      data-testid="badge-tag-all"
+                    >
+                      All
+                    </Badge>
+                    {availableTags.map(({ key, label }) => {
+                      const selected = activeTagFilters.includes(key);
+                      return (
+                        <Badge
+                          key={key}
+                          variant={selected ? "default" : "outline"}
+                          className="cursor-pointer text-xs"
+                          onClick={() => toggleTagFilter(key)}
+                          data-testid={`badge-tag-${key}`}
+                        >
+                          {label}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {(doctypeFilter !== "all" || activeTagFilters.length > 0) && !doctypeExpanded && !tagsExpanded && (
+                  <div className="flex flex-wrap items-center gap-2 justify-end">
+                    <p className="text-xs text-muted-foreground" data-testid="text-gallery-filter-summary">
+                      Filtered by{" "}
+                      {[
+                        doctypeFilter !== "all"
+                          ? `type “${DOCTYPE_OPTIONS.find((o) => o.key === doctypeFilter)?.label ?? doctypeFilter}”`
+                          : null,
+                        activeTagFilters.length === 1
+                          ? `tag “${availableTags.find((t) => t.key === activeTagFilters[0])?.label || activeTagFilters[0]}”`
+                          : activeTagFilters.length > 1
+                            ? `tags ${activeTagFilters
+                                .map((k) => `“${availableTags.find((t) => t.key === k)?.label || k}”`)
+                                .join(", ")}`
+                            : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" and ")}
+                      .
+                    </p>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => {
+                        setDoctypeFilter("all");
+                        setActiveTagFilters([]);
+                      }}
+                      data-testid="button-clear-gallery-filters"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1284,6 +1471,10 @@ export default function MediaGallery() {
       </header>
 
       <div className="container mx-auto px-4 py-6 max-w-7xl">
+        <p className="text-xs text-muted-foreground mb-4" data-testid="text-gallery-doctype-hint">
+          Holds images, videos, and PDFs. Use Type and Tags to filter; tags work the same for all media.
+          Crop and optimize apply to images only.
+        </p>
 
         {scanResult && (
           <div className="mb-6 rounded-lg border p-4 space-y-3" data-testid="scan-results">
@@ -1859,6 +2050,8 @@ export default function MediaGallery() {
             >
               {visibleImages.map(([id, img]) => {
                 const isSelected = selectedImages.has(id);
+                const mediaDoctype = inferDoctypeFromSrc(img.src);
+                const filename = img.src.split("/").pop()?.split("?")[0] || id;
                 return (
                 <div 
                   key={id} 
@@ -1876,6 +2069,22 @@ export default function MediaGallery() {
                           <div className="text-center p-4">
                             <Image className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                             <p className="text-xs text-muted-foreground">Not found</p>
+                          </div>
+                        </div>
+                      ) : mediaDoctype === "pdf" ? (
+                        <div className="aspect-video flex items-center justify-center bg-muted p-4" data-testid={`preview-pdf-${id}`}>
+                          <div className="text-center">
+                            <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-xs text-muted-foreground truncate max-w-[12rem]">{filename}</p>
+                            <Badge variant="secondary" className="text-[10px] mt-1">PDF</Badge>
+                          </div>
+                        </div>
+                      ) : mediaDoctype === "video" ? (
+                        <div className="aspect-video flex items-center justify-center bg-muted p-4" data-testid={`preview-video-${id}`}>
+                          <div className="text-center">
+                            <Film className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-xs text-muted-foreground truncate max-w-[12rem]">{filename}</p>
+                            <Badge variant="secondary" className="text-[10px] mt-1">Video</Badge>
                           </div>
                         </div>
                       ) : (
@@ -1944,7 +2153,7 @@ export default function MediaGallery() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
-                              onClick={() => handleDelete(id)}
+                              onClick={() => setDeleteConfirmId(id)}
                               data-testid={`button-delete-${id}`}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
@@ -1979,9 +2188,9 @@ export default function MediaGallery() {
                           {img.tags.map((tag) => (
                             <Badge 
                               key={tag} 
-                              variant={activeTagFilter === tag ? "default" : "secondary"}
+                              variant={activeTagFilters.includes(tag) ? "default" : "secondary"}
                               className="text-xs px-1.5 py-0 cursor-pointer"
-                              onClick={() => setActiveTagFilter(activeTagFilter === tag ? null : tag)}
+                              onClick={() => toggleTagFilter(tag)}
                             >
                               {tag}
                             </Badge>
@@ -2045,7 +2254,7 @@ export default function MediaGallery() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={handleBulkDelete}
+                  onClick={() => setBulkDeleteConfirmOpen(true)}
                   disabled={bulkDeleting}
                   data-testid="button-bulk-delete"
                 >
@@ -2123,16 +2332,16 @@ export default function MediaGallery() {
                   <div className="text-xs text-muted-foreground space-y-2">
                     <p>Images stored locally are served from the <code className="bg-muted px-1 rounded text-foreground">4geeks-com/images/</code> folder.</p>
                     <div className="space-y-1.5">
-                      <p className="font-medium text-foreground text-xs">How to add images:</p>
+                      <p className="font-medium text-foreground text-xs">How to add media:</p>
                       <ol className="list-decimal list-inside space-y-1">
-                        <li>Place image files (PNG, JPG, WebP, SVG, AVIF, GIF) into <code className="bg-muted px-1 rounded text-foreground">4geeks-com/images/</code></li>
+                        <li>Place files (images, videos, or PDFs) into <code className="bg-muted px-1 rounded text-foreground">4geeks-com/images/</code></li>
                         <li>Click the scan button in the gallery toolbar to detect new files</li>
                         <li>Review the scan results and click Apply to register them</li>
                       </ol>
                     </div>
                     <div className="space-y-1.5">
                       <p className="font-medium text-foreground text-xs">How they appear in the gallery:</p>
-                      <p>Each registered image gets a unique ID derived from its filename. The ID, alt text, tags, and focal point are stored in <code className="bg-muted px-1 rounded text-foreground">image-registry.json</code>. Images can then be selected by ID or URL in any content editor.</p>
+                      <p>Each registered file gets a unique ID derived from its filename. The ID, alt text, tags, and (for images) focal point are stored in <code className="bg-muted px-1 rounded text-foreground">image-registry.json</code>. Filter by type or tag; crop/optimize apply to images only. Advanced: <code className="bg-muted px-1 rounded text-foreground">shared/media-doctype.ts</code>, <code className="bg-muted px-1 rounded text-foreground">server/media-gallery.ts</code>.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2 p-2 rounded bg-muted/50 border border-dashed">
@@ -2294,6 +2503,123 @@ export default function MediaGallery() {
           <DialogFooter>
             <Button onClick={() => setBulkDeleteResults(null)} data-testid="button-close-results">
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={scanConfirmOpen}
+        onOpenChange={(open) => {
+          setScanConfirmOpen(open);
+          if (!open) setShowScanAdvanced(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px] max-h-[85vh] flex flex-col overflow-hidden" data-testid="dialog-scan-confirm">
+          <DialogHeader>
+            <DialogTitle>Run media health diagnostic?</DialogTitle>
+            <DialogDescription>
+              This checks the image registry and content files for problems — new files, broken
+              references, duplicates, missing tags, and optimization gaps — then shows results for
+              you to review.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 text-sm text-muted-foreground pr-1">
+            <p>
+              Think of this as a checkup, not a fixer. It reports what it finds so you can decide
+              what to apply next. Adding new images, updating paths, or removing duplicates only
+              happens when you click those actions in the results panel.
+            </p>
+            <div>
+              <p className="font-medium text-foreground mb-1">Why this is useful</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Finds unregistered files sitting in the images folder</li>
+                <li>Surfaces broken image URLs in YAML and the registry</li>
+                <li>Detects duplicate files (same content, different IDs)</li>
+                <li>Runs image health validators (tags, hero tags, optimization)</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-foreground mb-1">What will happen</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Scans local image files and image references in content YAML</li>
+                <li>Runs validators: <code className="text-[11px]">images</code>, <code className="text-[11px]">image-tags</code>, <code className="text-[11px]">hero-image-tags</code>, <code className="text-[11px]">image-optimization</code></li>
+                <li>Shows a results panel with counts and suggested next actions</li>
+                <li>Does <span className="font-medium text-foreground">not</span> auto-register images, rewrite YAML, or delete duplicates</li>
+                <li>May fill in missing content hashes on registry entries (small write)</li>
+              </ul>
+            </div>
+
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+              onClick={() => setShowScanAdvanced((v) => !v)}
+              data-testid="button-toggle-scan-advanced"
+            >
+              {showScanAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showScanAdvanced ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {showScanAdvanced && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 space-y-3 text-xs">
+                <div>
+                  <p className="font-medium text-foreground mb-1">How it works under the hood</p>
+                  <p>
+                    Calls <code className="text-[11px]">mediaGallery.scan()</code> to compare disk
+                    files against the registry and YAML refs, then runs the image health validators
+                    via the validation runner. Apply / dedupe / fix actions are separate endpoints
+                    you trigger from the UI after reviewing results.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">API &amp; side effects</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>
+                      Endpoints: <code className="text-[11px]">POST /api/image-registry/scan</code> and{" "}
+                      <code className="text-[11px]">POST /api/validation/run</code>
+                    </li>
+                    <li>
+                      Registry write only when local images are missing a{" "}
+                      <code className="text-[11px]">hash</code> — those hashes are computed and saved
+                    </li>
+                    <li>YAML content files are not modified by the scan itself</li>
+                    <li>
+                      Paths: <code className="text-[11px]">server/media-gallery.ts</code> (
+                      <code className="text-[11px]">scan()</code>),{" "}
+                      <code className="text-[11px]">server/routes/media.ts</code>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="border-t pt-4 gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setScanConfirmOpen(false)}
+              disabled={scanning}
+              data-testid="button-cancel-scan"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleScan()}
+              disabled={scanning}
+              data-testid="button-confirm-scan"
+            >
+              {scanning ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Running…
+                </>
+              ) : (
+                <>
+                  <Stethoscope className="h-4 w-4 mr-2" />
+                  Run diagnostic
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2618,7 +2944,7 @@ export default function MediaGallery() {
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Image className="h-5 w-5" />
-              Image Details
+              Media Details
             </SheetTitle>
             <SheetDescription>
               {detailImageId || ""}
@@ -2626,12 +2952,43 @@ export default function MediaGallery() {
           </SheetHeader>
           {detailImageId && registry?.images[detailImageId] && (() => {
             const img = registry.images[detailImageId];
+            const mediaDoctype = inferDoctypeFromSrc(img.src);
+            const filename = img.src.split("/").pop()?.split("?")[0] || detailImageId;
+            const openUrl = img.src.startsWith("http") ? img.src : `${typeof window !== "undefined" ? window.location.origin : ""}${img.src}`;
             return (
               <div className="space-y-4 py-4">
                 <div className="rounded-lg overflow-hidden border bg-muted">
                   {failedImages.has(detailImageId) ? (
                     <div className="aspect-video flex items-center justify-center">
                       <Image className="h-12 w-12 text-muted-foreground" />
+                    </div>
+                  ) : mediaDoctype === "pdf" ? (
+                    <div className="aspect-video flex flex-col items-center justify-center gap-2 p-6">
+                      <FileText className="h-12 w-12 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground text-center break-all">{filename}</p>
+                      <a
+                        href={openUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary underline"
+                        data-testid="link-detail-open-pdf"
+                      >
+                        Open / download PDF
+                      </a>
+                    </div>
+                  ) : mediaDoctype === "video" ? (
+                    <div className="aspect-video flex flex-col items-center justify-center gap-2 p-6">
+                      <Film className="h-12 w-12 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground text-center break-all">{filename}</p>
+                      <a
+                        href={openUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary underline"
+                        data-testid="link-detail-open-video"
+                      >
+                        Open video
+                      </a>
                     </div>
                   ) : (
                     <img
@@ -2644,6 +3001,12 @@ export default function MediaGallery() {
                 </div>
 
                 <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Type</p>
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-detail-doctype">
+                      {mediaDoctype ?? "unknown"}
+                    </Badge>
+                  </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">ID</p>
                     <code className="text-sm font-mono" data-testid="text-detail-id">{detailImageId}</code>
@@ -2840,6 +3203,99 @@ export default function MediaGallery() {
               data-testid="button-confirm-reset-db"
             >
               {resettingDb ? "Resetting…" : "Reset all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteConfirmId !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteConfirmId(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-confirm-delete-image">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this image?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Permanently remove{" "}
+                  <span className="font-mono font-semibold text-foreground">{deleteConfirmId}</span>{" "}
+                  from the Media Gallery.
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Removes the entry from <code className="text-xs">image-registry.json</code></li>
+                  <li>Deletes the file and any optimized srcset variants from storage</li>
+                  <li>Blocked if the image is still referenced in content YAML</li>
+                </ul>
+                <p>
+                  Content fields that only store this URL are not auto-cleared — fix those separately
+                  if needed.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} data-testid="button-delete-image-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmSingleDelete();
+              }}
+              data-testid="button-delete-image-confirm"
+            >
+              {deleting ? "Deleting…" : "Delete image"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={bulkDeleteConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !bulkDeleting) setBulkDeleteConfirmOpen(false);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-confirm-bulk-delete">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedImages.size} image{selectedImages.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Permanently remove the selected images from the Media Gallery.
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Removes each entry from <code className="text-xs">image-registry.json</code></li>
+                  <li>Deletes files and optimized srcset variants from storage</li>
+                  <li>Skips any image still referenced in content YAML (reported in results)</li>
+                </ul>
+                <p>
+                  URL fields on database entries or pages are not auto-cleared.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting} data-testid="button-bulk-delete-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleBulkDelete();
+              }}
+              data-testid="button-bulk-delete-confirm"
+            >
+              {bulkDeleting ? "Deleting…" : "Delete selected"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

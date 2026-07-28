@@ -54,8 +54,13 @@ export function ensureSiteScaffold(options: SiteScaffoldOptions): void {
   writeIfMissing(path.join(folderPath, "custom-redirects.yml"), "redirects: []\n");
 
   writeIfMissing(
+    path.join(folderPath, "variables.yml"),
+    `brand.title:\n  default: "${displayName}"\nbrand.logo:\n  default: ""\nbrand.logo_dark:\n  default: ""\n`,
+  );
+
+  writeIfMissing(
     path.join(folderPath, "menus", "main-navbar.yml"),
-    `navbar:\n  items:\n    - label: Logo\n      href: /en\n      component: Logo\n    - label: Home\n      href: /en\n    - label: About\n      href: /en/about\n    - label: Language\n      component: LanguageSwitcher\n`,
+    `navbar:\n  items:\n    - label: Logo\n      href: /en\n      component: Logo\n      imageId: "{{ brand.logo }}"\n      imageIdDark: "{{ brand.logo_dark }}"\n    - label: Home\n      href: /en\n    - label: About\n      href: /en/about\n    - label: Language\n      component: LanguageSwitcher\n`,
   );
 
   writeIfMissing(

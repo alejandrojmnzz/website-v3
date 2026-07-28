@@ -32,6 +32,8 @@ interface HomePageSettings {
 }
 
 export interface TagManagerSettings {
+  /** Web GTM container ID (e.g. GTM-XXXX). Injected into the HTML shell; empty disables web GTM. */
+  web_container_id: string;
   sgtm_enabled: boolean;
   sgtm_server_url: string;
   sgtm_proxy_path: string;
@@ -351,6 +353,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
     },
     optimization: {
       tagmanager: {
+        web_container_id: "GTM-PGGRR6",
         sgtm_enabled: false,
         sgtm_server_url: "",
         sgtm_proxy_path: "/sgtm/",
@@ -398,6 +401,10 @@ function loadSettings(contentRoot?: string): SiteSettings {
     const defTm = defaults.optimization.tagmanager;
     const optimization: OptimizationSettings = {
       tagmanager: {
+        web_container_id:
+          typeof tmRaw?.web_container_id === "string"
+            ? tmRaw.web_container_id
+            : defTm.web_container_id,
         sgtm_enabled: typeof tmRaw?.sgtm_enabled === "boolean" ? tmRaw.sgtm_enabled : defTm.sgtm_enabled,
         sgtm_server_url: (tmRaw?.sgtm_server_url as string) || defTm.sgtm_server_url,
         sgtm_proxy_path: (tmRaw?.sgtm_proxy_path as string) || defTm.sgtm_proxy_path,
@@ -982,10 +989,16 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
   const current = loadSettings(contentRoot).optimization.tagmanager;
   const tm = input.tagmanager ?? {};
   const updated: TagManagerSettings = {
+    web_container_id:
+      typeof tm.web_container_id === "string" ? tm.web_container_id.trim() : current.web_container_id,
     sgtm_enabled: typeof tm.sgtm_enabled === "boolean" ? tm.sgtm_enabled : current.sgtm_enabled,
     sgtm_server_url: typeof tm.sgtm_server_url === "string" ? tm.sgtm_server_url : current.sgtm_server_url,
     sgtm_proxy_path: typeof tm.sgtm_proxy_path === "string" ? tm.sgtm_proxy_path : current.sgtm_proxy_path,
   };
+
+  if (updated.web_container_id && !/^GTM-[A-Z0-9]+$/.test(updated.web_container_id)) {
+    throw new Error("Web container ID must match GTM-XXXXX (uppercase letters and digits)");
+  }
 
   // Validate proxy path — must start with /, be more than just /, and contain a meaningful segment
   const pPath = updated.sgtm_proxy_path;
@@ -1004,6 +1017,7 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
 
   existing.optimization = {
     tagmanager: {
+      web_container_id: updated.web_container_id,
       sgtm_enabled: updated.sgtm_enabled,
       sgtm_server_url: updated.sgtm_server_url,
       sgtm_proxy_path: updated.sgtm_proxy_path,
@@ -1013,5 +1027,7 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
-  log.info(`[Settings] Updated optimization.tagmanager: enabled=${updated.sgtm_enabled}, url="${updated.sgtm_server_url}", path="${updated.sgtm_proxy_path}"`);
+  log.info(
+    `[Settings] Updated optimization.tagmanager: web="${updated.web_container_id}", enabled=${updated.sgtm_enabled}, url="${updated.sgtm_server_url}", path="${updated.sgtm_proxy_path}"`,
+  );
 }

@@ -53,7 +53,7 @@ export interface ContentTypeEntry {
   directory: string;
   url_pattern: Record<string, string>;
   unique_fields?: string[];
-  field_mapping?: Record<string, string | { source: string; default: string }>;
+  field_mapping?: Record<string, string | { source: string; default: string | null }>;
   /** Editor widgets for Fields tab / ItemEditModal (keyed by mapping field name). */
   editor?: Record<string, ContentTypeEditorHint>;
   indexes?: string[];
@@ -100,16 +100,23 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     - Shorthand: { default: /landing/:slug } (same path for all locales)
 #
 # field_mapping (recommended):
-#   Declares which fields are available as {{ single.* }} template variables.
-#   For database-backed types: maps content concepts to database column names.
-#     Underscore-prefixed fields are mandatory special fields:
-#       _slug: DB field containing the entry's unique identifier
-#       _locale: DB field containing the entry's language
-#       _hreflangs: DB field (or function:) returning a locale→slug map for alternate URLs
-#                   e.g. { en: "how-to-foo", es: "como-foo" }. Recommended for multi-locale DB types.
-#   For non-database types: exposes YAML keys from merged content as {{ single.* }} variables.
-#     Dot-notation supported for nested keys (e.g., page_title: meta.page_title).
+#   Keys are the content-type schema (available in Fields tab and as {{ single.* }}
+#   for non-underscore keys). Values are auto-fill sources:
+#     identity (author: author) — same-name YAML parent key (static) or DB column
+#     { source, default } — schema key with default (default may be null)
+#     other path — remap DB column → schema key (DB-attached types only)
+#     function:… — computed; ?prefix — optional non-identity source
+#   System specials (DB identity / routing; auto-exposed on single as slug|locale|image
+#   and _slug|_locale|_image — not {{ single._hreflangs }}):
+#     _slug — entry identity for URLs / lookups
+#     _locale — language of the row
+#     _hreflangs — locale→slug map (routing only; not a template var)
+#     _image — preview / OG image source
+#   Forbidden as regular schema keys: "slug" (use _slug), "image" (use _image).
+#   Do not index/unique _image. unique_fields may still list "slug" (the alias).
 #
+# Template namespaces (delivery): {{ single.* }} → {{ meta.* }} → {{ param.* }} → brand/global
+#   meta: SEO head block. param: URL path + querystring (path wins on conflict).
 # indexes (optional):
 #   Fields for filtering when listing entries. Works for DB and non-DB types.
 #
@@ -128,18 +135,26 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   if present) and apply per-entry section patches by id — same model as DB-backed singles.
 #   Set automatically when converting a DB-backed type to static.
 #
+# field_mapping — reserved / system:
+#   _slug: entry identity (aliased to single.slug at runtime)
+#   _image: preview / OG image URL source (aliased to single.image at runtime)
+#   Do not use plain "slug" or "image" as field_mapping keys.
+#
 # preview (optional):
-#   Component used to generate OG / entry list thumbnails when reserved field \`image\` is
+#   Component used to generate OG / entry list thumbnails when \`_image\` is
 #   missing or 404. Screenshots are stored in the site media bucket (not image-registry).
 #     component: registry section type (e.g. hero)
 #     variant / version / theme: optional
 #     widths: [1200] (OG default); maxHeight: 630
 #     dirty_on_prop_change: false (when true, mapped prop value changes mark dirty)
-#     props: { componentDataKey: entryField } — keys may be dotted paths into nested
-#       objects (e.g. left.heading, cta_button.text). Do not map the reserved image field.
-#
-# field_mapping — reserved regular key:
-#   image: optional DB/YAML source for the entry preview / og image URL
+#     props: { componentDataKey: source } — component keys may be dotted paths (e.g. left.heading).
+#       Sources: mapped field keys, meta.<key>, or brand.<key> (same namespaces as templates).
+#       Capture loads SEO meta and expands {{ single.* }} inside it. Brand is live at capture;
+#       brand.logo / brand.logo_dark registry IDs are resolved to image URLs for the screenshot.
+#       brand.logo is theme-aware (dark theme → logo_dark with light fallback); brand.logo_dark
+#       is dark-only (no light fallback) — prefer it for dark OG canvases.
+#       brand.* is omitted from propsHash (changing brand does not auto-recapture).
+#       Blocked: _image, image, og_image, meta.og_image.
 #
 # editor (optional):
 #   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
@@ -292,8 +307,193 @@ export function getPreviewConfig(
   return preview;
 }
 
-/** Reserved content-type field for entry / OG preview image URL. */
-export const RESERVED_IMAGE_FIELD = "image";
+/** System specials — present on every content type; remappable; never deletable. */
+export const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_image"] as const;
+export type KnownSpecialField = (typeof KNOWN_SPECIAL_FIELDS)[number];
+
+/** Preview / OG image mapping key (system special). Runtime alias on single bag: {@link IMAGE_ALIAS_FIELD}. */
+export const RESERVED_IMAGE_FIELD = "_image";
+
+/** Template / legacy key populated from `_image` when building single / mapped entries. */
+export const IMAGE_ALIAS_FIELD = "image";
+
+/** Entry identity mapping key (system special). Runtime alias on single bag: {@link SLUG_ALIAS_FIELD}. */
+export const RESERVED_SLUG_FIELD = "_slug";
+
+/** Template key populated from `_slug` when building single / mapped entries (`{{ single.slug }}`). */
+export const SLUG_ALIAS_FIELD = "slug";
+
+/** Locale mapping key (system special). Runtime alias on single bag: {@link LOCALE_ALIAS_FIELD}. */
+export const RESERVED_LOCALE_FIELD = "_locale";
+
+/** Template key populated from `_locale` (`{{ single.locale }}`). */
+export const LOCALE_ALIAS_FIELD = "locale";
+
+/** Routing-only — never expose on the template `single` bag. */
+export const RESERVED_HREFLANGS_FIELD = "_hreflangs";
+
+const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD]);
+
+export function isSystemSpecialField(key: string): boolean {
+  return (KNOWN_SPECIAL_FIELDS as readonly string[]).includes(key);
+}
+
+export function isForbiddenSchemaFieldName(key: string): boolean {
+  return FORBIDDEN_SCHEMA_KEYS.has(key);
+}
+
+type FieldMappingValue = string | { source: string; default: string | null };
+type FieldMappingRecord = Record<string, FieldMappingValue>;
+
+function mappingValueToSource(value: FieldMappingValue | undefined): string {
+  if (!value) return "";
+  return typeof value === "object" ? value.source : value;
+}
+
+/**
+ * Migrate legacy `image` → `_image` and `slug` → `_slug`, ensure system specials,
+ * strip forbidden schema keys, and remove `_image` / `image` from indexes / unique_fields.
+ * (`slug` may remain in unique_fields — it names the alias, not a schema key.)
+ */
+export function normalizeContentTypeFieldConfig(
+  fieldMapping: FieldMappingRecord | undefined,
+  opts: {
+    isDbBacked: boolean;
+    previous?: FieldMappingRecord;
+    indexes?: string[];
+    unique_fields?: string[];
+  },
+): {
+  field_mapping: FieldMappingRecord;
+  indexes?: string[];
+  unique_fields?: string[];
+} {
+  const next: FieldMappingRecord = { ...(fieldMapping || {}) };
+
+  // Migrate reserved plain image → _image
+  if ("image" in next) {
+    const legacy = next.image;
+    delete next.image;
+    if (!("_image" in next) || !mappingValueToSource(next._image)) {
+      next._image = legacy;
+    }
+  }
+
+  // Migrate reserved plain slug → _slug
+  if ("slug" in next) {
+    const legacy = next.slug;
+    delete next.slug;
+    if (!("_slug" in next) || !mappingValueToSource(next._slug)) {
+      next._slug = legacy;
+    }
+  }
+
+  for (const key of Object.keys(next)) {
+    if (isForbiddenSchemaFieldName(key)) {
+      delete next[key];
+    }
+  }
+
+  const defaults: Record<string, string> = {
+    _slug: "slug",
+    _locale: "locale",
+    _hreflangs: opts.isDbBacked ? "translations" : "",
+    _image: "",
+  };
+
+  for (const key of KNOWN_SPECIAL_FIELDS) {
+    if (!(key in next)) {
+      const prev = opts.previous?.[key];
+      if (prev !== undefined) {
+        next[key] = prev;
+      } else if (defaults[key]) {
+        next[key] = defaults[key];
+      } else {
+        next[key] = "";
+      }
+    }
+  }
+
+  const stripProtected = (arr: string[] | undefined) =>
+    arr?.filter((f) => f !== IMAGE_ALIAS_FIELD && f !== RESERVED_IMAGE_FIELD && !isSystemSpecialField(f));
+
+  return {
+    field_mapping: next,
+    indexes: stripProtected(opts.indexes),
+    unique_fields: stripProtected(opts.unique_fields),
+  };
+}
+
+function isPresentAliasValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
+}
+
+/** Resolve `_image` onto both `image` and `_image` for templates. */
+export function applyImageAliasToEntry(
+  entry: Record<string, unknown>,
+  imageValue: unknown,
+): void {
+  if (isPresentAliasValue(imageValue)) {
+    entry[IMAGE_ALIAS_FIELD] = imageValue;
+    entry[RESERVED_IMAGE_FIELD] = imageValue;
+  }
+}
+
+/** Resolve `_slug` onto both `slug` and `_slug` for templates. */
+export function applySlugAliasToEntry(
+  entry: Record<string, unknown>,
+  slugValue: unknown,
+): void {
+  if (isPresentAliasValue(slugValue)) {
+    entry[SLUG_ALIAS_FIELD] = slugValue;
+    entry[RESERVED_SLUG_FIELD] = slugValue;
+  }
+}
+
+/** Resolve `_locale` onto both `locale` and `_locale` for templates. */
+export function applyLocaleAliasToEntry(
+  entry: Record<string, unknown>,
+  localeValue: unknown,
+): void {
+  if (isPresentAliasValue(localeValue)) {
+    entry[LOCALE_ALIAS_FIELD] = localeValue;
+    entry[RESERVED_LOCALE_FIELD] = localeValue;
+  }
+}
+
+/**
+ * Prepare a single-entry bag for template resolution:
+ * - Bidirectional aliases for slug/_slug, locale/_locale, image/_image
+ * - Strip `_hreflangs` (routing-only; not a template var)
+ */
+export function finalizeSingleEntryForTemplates(
+  entry: Record<string, unknown> | null | undefined,
+  opts?: { slug?: string; locale?: string },
+): Record<string, unknown> | undefined {
+  if (!entry && !opts?.slug && !opts?.locale) return undefined;
+  const out: Record<string, unknown> = entry ? { ...entry } : {};
+  delete out[RESERVED_HREFLANGS_FIELD];
+
+  const slugVal = out[SLUG_ALIAS_FIELD] ?? out[RESERVED_SLUG_FIELD] ?? opts?.slug;
+  if (isPresentAliasValue(slugVal)) {
+    out[SLUG_ALIAS_FIELD] = slugVal;
+    out[RESERVED_SLUG_FIELD] = slugVal;
+  }
+
+  const localeVal = out[LOCALE_ALIAS_FIELD] ?? out[RESERVED_LOCALE_FIELD] ?? opts?.locale;
+  if (isPresentAliasValue(localeVal)) {
+    out[LOCALE_ALIAS_FIELD] = localeVal;
+    out[RESERVED_LOCALE_FIELD] = localeVal;
+  }
+
+  const imageVal = out[IMAGE_ALIAS_FIELD] ?? out[RESERVED_IMAGE_FIELD];
+  if (isPresentAliasValue(imageVal)) {
+    out[IMAGE_ALIAS_FIELD] = imageVal;
+    out[RESERVED_IMAGE_FIELD] = imageVal;
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 export function getAllConfigs(contentRoot?: string): Record<string, ContentTypeEntry> {
   return loadRegistry(contentRoot).types;
@@ -333,6 +533,26 @@ export function getFullFieldMapping(type: string, contentRoot?: string): Record<
     result[key] = typeof value === "object" ? value.source : value;
   }
   return Object.keys(result).length > 0 ? result : null;
+}
+
+/** Schema-field defaults from object-form field_mapping entries (`{ source, default }`). */
+export function getFieldMappingDefaults(
+  type: string,
+  contentRoot?: string,
+): Record<string, string | null> {
+  const reg = loadRegistry(contentRoot);
+  const singular = getType(type, contentRoot);
+  const entry = reg.types[singular];
+  const mapping = entry?.field_mapping;
+  if (!mapping) return {};
+  const defaults: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(mapping)) {
+    if (key.startsWith("_")) continue;
+    if (value && typeof value === "object" && "default" in value) {
+      defaults[key] = value.default;
+    }
+  }
+  return defaults;
 }
 
 export function getFieldMapping(type: string, contentRoot?: string): Record<string, string> | null {
@@ -521,11 +741,13 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview">> & {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor">> & {
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
   /** Pass `null` to remove preview screenshot config. */
   preview?: ContentTypePreviewConfig | null;
+  /** Pass `null` to remove all content-type editor hints. */
+  editor?: ContentTypeEntry["editor"] | null;
 };
 
 export function updateContentTypeConfig(type: string, update: ContentTypeConfigUpdate, contentRoot?: string): void {
@@ -536,7 +758,7 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     throw new Error(`Content type "${type}" not found`);
   }
 
-  const { database: databaseUpdate, preview: previewUpdate, ...rest } = update;
+  const { database: databaseUpdate, preview: previewUpdate, editor: editorUpdate, ...rest } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
   if (databaseUpdate === null) {
     delete merged.database;
@@ -550,6 +772,12 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     delete merged.preview;
   } else if (previewUpdate) {
     merged.preview = previewUpdate;
+  }
+
+  if (editorUpdate === null) {
+    delete merged.editor;
+  } else if (editorUpdate) {
+    merged.editor = editorUpdate;
   }
 
   // Database-backed types always use a shared template.
@@ -571,8 +799,43 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     validateUrlPatterns(merged.url_pattern);
   }
 
+  if (merged.field_mapping !== undefined || update.indexes !== undefined || update.unique_fields !== undefined) {
+    const normalized = normalizeContentTypeFieldConfig(
+      (merged.field_mapping || {}) as FieldMappingRecord,
+      {
+        isDbBacked: !!merged.database?.slug,
+        previous: existing.field_mapping as FieldMappingRecord | undefined,
+        indexes: merged.indexes,
+        unique_fields: merged.unique_fields,
+      },
+    );
+    merged.field_mapping = normalized.field_mapping;
+    if (update.indexes !== undefined || normalized.indexes !== undefined) {
+      merged.indexes = normalized.indexes?.length ? normalized.indexes : undefined;
+    }
+    if (update.unique_fields !== undefined || normalized.unique_fields !== undefined) {
+      merged.unique_fields = normalized.unique_fields?.length
+        ? normalized.unique_fields
+        : undefined;
+    }
+  }
+
   if (merged.database && !merged.field_mapping?._slug) {
     throw new Error(`Database-backed content type "${singular}" requires _slug in field_mapping`);
+  }
+
+  // Soft-ensure specials even when field_mapping was not in this update
+  if (!merged.field_mapping?._slug || !merged.field_mapping?._image) {
+    const normalized = normalizeContentTypeFieldConfig(
+      (merged.field_mapping || {}) as FieldMappingRecord,
+      {
+        isDbBacked: !!merged.database?.slug,
+        previous: existing.field_mapping as FieldMappingRecord | undefined,
+        indexes: merged.indexes,
+        unique_fields: merged.unique_fields,
+      },
+    );
+    merged.field_mapping = normalized.field_mapping;
   }
 
   const resolvedRoot = resolveContentTypeRoot(contentRoot);
@@ -831,6 +1094,7 @@ export function extractUrlPatternParams(
   pattern: string,
   record: Record<string, unknown>,
   fieldMapping?: Record<string, string | null> | null,
+  defaults?: Record<string, string | null> | null,
 ): { params: Record<string, string>; missing: string[] } {
   const params: Record<string, string> = {};
   const missing: string[] = [];
@@ -852,7 +1116,10 @@ export function extractUrlPatternParams(
       rawValue = extractDotPath(record, key);
     }
 
-    const resolved = resolveFieldValue(rawValue);
+    let resolved = resolveFieldValue(rawValue);
+    if (!resolved && defaults && defaults[key] != null && defaults[key] !== "") {
+      resolved = resolveFieldValue(defaults[key]);
+    }
     if (!resolved) {
       if (!missing.includes(key)) missing.push(key);
       continue;
@@ -868,6 +1135,7 @@ export function resolveUrlPatternWithMapping(
   record: Record<string, unknown>,
   locale: string,
   fieldMapping?: Record<string, string | null> | null,
+  defaults?: Record<string, string | null> | null,
 ): string {
   let result = pattern.replaceAll(":locale", locale);
 
@@ -889,7 +1157,11 @@ export function resolveUrlPatternWithMapping(
       rawValue = extractDotPath(record, key);
     }
 
-    result = result.replaceAll(param, resolveFieldValue(rawValue));
+    let resolved = resolveFieldValue(rawValue);
+    if (!resolved && key !== "slug" && key !== "locale" && defaults && defaults[key] != null && defaults[key] !== "") {
+      resolved = resolveFieldValue(defaults[key]);
+    }
+    result = result.replaceAll(param, resolved);
   }
 
   result = result.replace(/\/\/+/g, "/");
@@ -908,7 +1180,8 @@ export function resolveContentTypeUrl(
   const pattern = config.url_pattern[locale] || config.url_pattern["default"] || config.url_pattern["en"];
   if (!pattern) return null;
   const mapping = getFullFieldMapping(type, contentRoot);
-  return resolveUrlPatternWithMapping(pattern, record, locale, mapping);
+  const defaults = getFieldMappingDefaults(type, contentRoot);
+  return resolveUrlPatternWithMapping(pattern, record, locale, mapping, defaults);
 }
 
 const SYSTEM_DEFAULT_LAYOUT: LayoutConfig = {

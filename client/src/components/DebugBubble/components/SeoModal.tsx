@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, C
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
+import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,8 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
+
+export type SeoModalTab = "general" | "fields" | "schema" | "visibility" | "redirects";
 
 export interface SeoModalProps {
   open: boolean;
@@ -56,6 +59,8 @@ export interface SeoModalProps {
   /** Locale for Fields tab provenance / field_overrides (live locale). */
   locale?: string;
   contentTypeLabel?: string;
+  /** Tab to show when the modal opens (defaults to SEO Meta). */
+  initialTab?: SeoModalTab;
 }
 
 export function SeoModal({
@@ -94,12 +99,13 @@ export function SeoModal({
   setSlugRedirectPrompt,
   locale = "en",
   contentTypeLabel,
+  initialTab = "general",
 }: SeoModalProps) {
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState<SeoModalTab>(initialTab);
 
   useEffect(() => {
-    if (open) setActiveTab("general");
-  }, [open]);
+    if (open) setActiveTab(initialTab);
+  }, [open, initialTab]);
   const [seoFaqExpanded, setSeoFaqExpanded] = useState(true);
   const [seoSchemaExpanded, setSeoSchemaExpanded] = useState(false);
   const [ogImageError, setOgImageError] = useState(false);
@@ -147,9 +153,9 @@ export function SeoModal({
         ) : seoData ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="inline-flex h-auto w-auto max-w-full flex-wrap justify-start" data-testid="tabs-seo-nav">
-              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center justify-center gap-1.5 px-2.5" title="General" aria-label="General">
+              <TabsTrigger value="general" data-testid="tab-general" className="flex items-center justify-center gap-1.5 px-2.5" title="SEO Meta" aria-label="SEO Meta">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">General</span>
+                <span className="hidden sm:inline">SEO Meta</span>
               </TabsTrigger>
               <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center justify-center gap-1.5 px-2.5" title="Fields" aria-label="Fields">
                 <Table2 className="h-3.5 w-3.5 shrink-0" />
@@ -173,8 +179,20 @@ export function SeoModal({
               </TabsTrigger>
             </TabsList>
 
-            {/* ── General tab ────────────────────────────────────────── */}
+            {/* ── SEO Meta tab ───────────────────────────────────────── */}
             <TabsContent value="general" className="space-y-6 pt-4">
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                <p>
+                  These fields live under <code className="font-mono">meta:</code> in the entry YAML.
+                  Sections can read them as <code className="font-mono">{"{{ meta.page_title }}"}</code>,{" "}
+                  <code className="font-mono">{"{{ meta.description }}"}</code>, etc.
+                </p>
+                <p>
+                  Type fields / DB mappings are on the <strong>Fields</strong> tab (
+                  <code className="font-mono">{"{{ single.* }}"}</code>
+                  ) — not here.
+                </p>
+              </div>
 
               {/* Page Slug */}
               {contentInfo.type && (
@@ -500,7 +518,7 @@ export function SeoModal({
                 />
               ) : (
                 <p className="text-sm text-muted-foreground pt-4">
-                  Open SEO from a content entry to manage mapping fields.
+                  Open from a content entry to manage content-type fields.
                 </p>
               )}
             </TabsContent>
@@ -946,6 +964,8 @@ export function SeoModal({
       open={imagePickerOpen}
       onOpenChange={setImagePickerOpen}
       title="Choose Social Image"
+      defaultTagFilter="og-image"
+      ensureTagsOnSave={[...OG_IMAGE_ENSURE_TAGS]}
       initialSrc={seoMeta.og_image}
       onSave={(src) => {
         setSeoMeta({ ...seoMeta, og_image: src });

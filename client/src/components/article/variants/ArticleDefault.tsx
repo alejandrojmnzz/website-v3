@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { useOrderedPageSections } from "@/contexts/PageSectionsContext";
 import { useSectionContext } from "@/contexts/SectionContext";
 import { CopyCodeButton } from "../CopyCodeButton";
+import { estimateReadingMinutes } from "@/lib/readingTime";
 import "../article-prose.css";
 
 /** Must match server/markdown-enhance.ts ARTICLE_HTML_MARKER */
@@ -138,15 +139,6 @@ function extractTocItems(content: string, idPrefix = ""): TocItem[] {
     }
   }
   return items;
-}
-
-function estimateReadingMinutes(content: string): number {
-  const text = content
-    .replace(ARTICLE_HTML_MARKER, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[`#>*_\[\]()!|-]/g, " ");
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.ceil(words / 200));
 }
 
 function normalizeCategory(category: unknown): string | undefined {

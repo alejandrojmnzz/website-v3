@@ -128,7 +128,7 @@ import {
   getDirectory,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
-import { resolveSingleVars } from "../single-resolver";
+import { resolveAllTemplateVars } from "../resolve-template-vars";
 import {
   normalizeLocale,
   getSupportedLocales,
@@ -287,7 +287,17 @@ export function registerDatabasesRoutes(app: Express): void {
         })) as any;
       }
       if (Object.keys(dbSingleEntry).length > 0) {
-        const resolved = resolveSingleVars(dbSingleData, dbSingleEntry) as Record<string, unknown>;
+        const resolved = resolveAllTemplateVars(dbSingleData, {
+          singleEntry: dbSingleEntry,
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>;
+        Object.assign(dbSingleData, resolved);
+      } else {
+        const resolved = resolveAllTemplateVars(dbSingleData, {
+          contentRoot: getContentRoot(res),
+          context: { locale },
+        }) as Record<string, unknown>;
         Object.assign(dbSingleData, resolved);
       }
 

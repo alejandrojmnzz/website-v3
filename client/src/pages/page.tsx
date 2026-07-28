@@ -186,6 +186,8 @@ export default function Page() {
           locale={locale}
           variant={forceVariant}
           singleEntry={page.singleEntry}
+          meta={page.meta as Record<string, unknown> | undefined}
+          param={(page as { param?: Record<string, unknown> }).param}
         />
       </MenuVisualContextProvider>
       <div className="group relative">

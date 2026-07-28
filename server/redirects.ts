@@ -1,7 +1,14 @@
 import type { Request, Response, NextFunction } from "express";
 import { contentIndex, type RedirectEntry } from "./content-index";
 import { databaseManager } from "./database";
-import { getAllConfigs, getFullFieldMapping, getLocaleKey, resolveUrlPatternWithMapping } from "./content-types";
+import {
+  getAllConfigs,
+  getFieldMappingDefaults,
+  getFullFieldMapping,
+  getLocaleKey,
+  listExtraUrlPatternParams,
+  resolveUrlPatternWithMapping,
+} from "./content-types";
 import { child } from "./logger";
 const log = child({ module: "redirects" });
 
@@ -153,6 +160,16 @@ function getQueryString(req: Request): string {
 }
 
 export function redirectMiddleware(req: Request, res: Response, next: NextFunction): void {
+  if (
+    req.path.startsWith("/api/") ||
+    req.path.startsWith("/assets/") ||
+    req.path.startsWith("/@") ||
+    req.path.startsWith("/private/")
+  ) {
+    next();
+    return;
+  }
+
   const siteCi = (res.locals.site as any)?.contentIndex as typeof contentIndex | undefined;
   const siteMaps = siteCi ? _getSiteRedirectMaps(siteCi) : null;
   const map = siteMaps ? siteMaps.map : getRedirectMap();
@@ -186,7 +203,14 @@ export function redirectMiddleware(req: Request, res: Response, next: NextFuncti
 }
 
 export function fallbackRedirectMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/assets/") || req.path.startsWith("/@")) {
+  // Admin / capture frames must never be rewritten to public content URLs
+  // (canonical DB slug matching would steal `/private/entry-preview-frame/.../:slug`).
+  if (
+    req.path.startsWith("/api/") ||
+    req.path.startsWith("/assets/") ||
+    req.path.startsWith("/@") ||
+    req.path.startsWith("/private/")
+  ) {
     next();
     return;
   }
@@ -230,18 +254,10 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     }
   }
 
-  // Custom fallback redirects only fire when no real page exists at this URL.
+  // Canonical redirect for content types with multi-param URL patterns (e.g. blog
+  // `:category/:slug`). Runs before isKnownUrl so wrong/missing extra params still
+  // redirect — static types can match a pattern by slug alone even when category is wrong.
   const cleanUrl = req.path.split("?")[0].split("#")[0];
-  try {
-    if (activeCi.isKnownUrl(cleanUrl)) {
-      next();
-      return;
-    }
-  } catch {}
-
-  // Generic DB canonical redirect: for any DB-backed content type with a multi-param URL
-  // pattern, if the URL is not known, check if the last segment matches a slug in that DB.
-  // If so, redirect to the canonical URL (handles wrong category, missing category, etc.)
   try {
     const segments = cleanUrl.split("/").filter(Boolean);
     const lastSegment = segments[segments.length - 1];
@@ -250,33 +266,66 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
 
     if (lastSegment) {
       for (const [typeName, typeConfig] of Object.entries(getAllConfigs())) {
-        if (!typeConfig.database?.slug || !typeConfig.url_pattern) continue;
-        const items = databaseManager.getMappedItems(typeConfig.database.slug);
-        if (!items) continue;
-        const record = items.find((item) => String(item.slug || "") === lastSegment);
-        if (!record) continue;
-        // Use the record's own locale if available — handles articles served under the wrong language prefix.
-        // Try the content-type's declared locale field first, then common field names as fallback.
-        const localeField = getLocaleKey(typeName);
-        const rawLocale =
-          (localeField && record[localeField]) ||
-          record["language"] ||
-          record["lang"] ||
-          record["locale"];
-        const recordLocale = rawLocale ? String(rawLocale) : locale;
-        const canonicalLocale = typeConfig.url_pattern[recordLocale] ? recordLocale : locale;
-        const urlPattern = typeConfig.url_pattern[canonicalLocale] ?? typeConfig.url_pattern["en"];
-        if (!urlPattern) continue;
-        const fieldMapping = getFullFieldMapping(typeName);
-        const canonicalUrl = resolveUrlPatternWithMapping(urlPattern, record, canonicalLocale, fieldMapping);
-        if (canonicalUrl && canonicalUrl !== cleanUrl) {
+        if (!typeConfig.url_pattern) continue;
+        if (listExtraUrlPatternParams(typeConfig.url_pattern).length === 0) continue;
+
+        let canonicalUrl: string | null = null;
+        let matched = false;
+
+        if (typeConfig.database?.slug) {
+          const items = databaseManager.getMappedItems(typeConfig.database.slug);
+          if (!items) continue;
+          const record = items.find((item) => String(item.slug || "") === lastSegment);
+          if (!record) continue;
+          matched = true;
+          // Use the record's own locale when available (wrong language prefix).
+          const localeField = getLocaleKey(typeName);
+          const rawLocale =
+            (localeField && record[localeField]) ||
+            record["language"] ||
+            record["lang"] ||
+            record["locale"];
+          const recordLocale = rawLocale ? String(rawLocale) : locale;
+          const canonicalLocale = typeConfig.url_pattern[recordLocale] ? recordLocale : locale;
+          const urlPattern =
+            typeConfig.url_pattern[canonicalLocale] ??
+            typeConfig.url_pattern["en"] ??
+            typeConfig.url_pattern["default"];
+          if (urlPattern) {
+            const fieldMapping = getFullFieldMapping(typeName);
+            const defaults = getFieldMappingDefaults(typeName);
+            canonicalUrl = resolveUrlPatternWithMapping(
+              urlPattern,
+              record,
+              canonicalLocale,
+              fieldMapping,
+              defaults,
+            );
+          }
+        } else {
+          const matches = activeCi.findBySlug(lastSegment, { contentType: typeName });
+          if (matches.length === 0) continue;
+          matched = true;
+          const urls = activeCi.getAlternateUrls(lastSegment, typeName);
+          canonicalUrl = urls[locale] || urls.en || Object.values(urls)[0] || null;
+        }
+
+        if (matched && canonicalUrl && canonicalUrl !== cleanUrl) {
           const qs = getQueryString(req);
           log.info(`[Redirects] 301 (canonical ${typeName}): ${cleanUrl} -> ${canonicalUrl}${qs}`);
           res.redirect(301, canonicalUrl + qs);
           return;
         }
-        break;
+        if (matched) break;
       }
+    }
+  } catch {}
+
+  // Custom fallback redirects only fire when no real page exists at this URL.
+  try {
+    if (activeCi.isKnownUrl(cleanUrl)) {
+      next();
+      return;
     }
   } catch {}
 

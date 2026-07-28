@@ -6,7 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
 import { queryEntries } from "./query-entries";
-import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getFieldMapping, getPreviewConfig } from "./content-types";
+import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getFieldMapping, getPreviewConfig, finalizeSingleEntryForTemplates } from "./content-types";
 import {
   applyComponentSectionDefaults,
   applyComponentImageSizes,
@@ -21,7 +21,7 @@ import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./set
 import { getApiPath } from "../shared/api-paths";
 import { toOgLocale } from "../shared/locale";
 import { loadDatabaseSinglePage } from "./database-single-loader";
-import { resolveSingleVars } from "./single-resolver";
+import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "./resolve-template-vars";
 import { resolveFieldValue } from "./transform";
 import {
   applyFieldOverridesToItem,
@@ -33,6 +33,26 @@ import { applyEntryPreviewOgImage } from "./entry-preview-manager";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
+
+function parseUrlQuery(url: string): Record<string, unknown> {
+  const qIndex = url.indexOf("?");
+  if (qIndex < 0) return {};
+  const qs = url.slice(qIndex + 1).split("#")[0];
+  const out: Record<string, unknown> = {};
+  for (const part of qs.split("&")) {
+    if (!part) continue;
+    const eq = part.indexOf("=");
+    const key = decodeURIComponent(eq >= 0 ? part.slice(0, eq) : part);
+    const raw = eq >= 0 ? decodeURIComponent(part.slice(eq + 1).replace(/\+/g, " ")) : "";
+    if (key in out) {
+      const prev = out[key];
+      out[key] = Array.isArray(prev) ? [...prev, raw] : [prev, raw];
+    } else {
+      out[key] = raw;
+    }
+  }
+  return out;
+}
 
 function firstPresetSizesFromImageEntry(
   imageEntry: { preset?: string[] } | null | undefined,
@@ -183,8 +203,9 @@ export async function resolvePageQuery(
     const resolved = ci.resolveUrl(cleanUrl);
     if (!resolved) return null;
 
-    const { contentType, slug, fromDatabase, patternLocale } = resolved;
+    const { contentType, slug, fromDatabase, patternLocale, params: urlPathParams } = resolved;
     const isNonLocalized = patternLocale === "default";
+    const requestQuery = parseUrlQuery(url);
 
     if (fromDatabase) {
       try {
@@ -196,7 +217,24 @@ export async function resolvePageQuery(
         const page = await loadDatabaseSinglePage(contentType, slug, normalizedLocale, ci.contentRoot, dbm);
         if (!page) return null;
         const pageData = page as unknown as Record<string, unknown>;
-        const singleEntry = (pageData.singleEntry as Record<string, unknown>) || {};
+        const singleEntry = finalizeSingleEntryForTemplates(
+          (pageData.singleEntry as Record<string, unknown>) || {},
+          { slug, locale: normalizedLocale },
+        ) || {};
+        pageData.singleEntry = singleEntry;
+        const param = buildContentDeliveryParamBag({
+          contentType,
+          slug,
+          locale: normalizedLocale,
+          record: singleEntry,
+          query: requestQuery,
+          contentRoot: ci.contentRoot,
+        });
+        // Prefer URL-matched path params when present
+        if (urlPathParams) {
+          Object.assign(param, urlPathParams);
+        }
+        pageData.param = param;
         if (page.sections && Array.isArray(page.sections)) {
           page.sections = (await resolveDynamicEntries(page.sections, normalizedLocale, {
             db: dbm,
@@ -207,7 +245,19 @@ export async function resolvePageQuery(
           applyComponentImageSizes(page.sections as unknown[]);
         }
         if (Object.keys(singleEntry).length > 0) {
-          const resolvedVars = resolveSingleVars(pageData, singleEntry) as Record<string, unknown>;
+          const resolvedVars = resolveAllTemplateVars(pageData, {
+            singleEntry,
+            param,
+            contentRoot: ci.contentRoot,
+            context: { locale: normalizedLocale },
+          }) as Record<string, unknown>;
+          Object.assign(pageData, resolvedVars);
+        } else {
+          const resolvedVars = resolveAllTemplateVars(pageData, {
+            param,
+            contentRoot: ci.contentRoot,
+            context: { locale: normalizedLocale },
+          }) as Record<string, unknown>;
           Object.assign(pageData, resolvedVars);
         }
         const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
@@ -283,8 +333,19 @@ export async function resolvePageQuery(
       }
       const fo = readFieldOverrides(contentType, slug, locale, ci.contentRoot);
       singleEntry = applyFieldOverridesToItem(singleEntry || {}, fo);
-      if (Object.keys(singleEntry).length === 0) singleEntry = undefined;
-      else data.singleEntry = singleEntry;
+      singleEntry = finalizeSingleEntryForTemplates(singleEntry, { slug, locale });
+      if (singleEntry) data.singleEntry = singleEntry;
+
+      const param = buildContentDeliveryParamBag({
+        contentType,
+        slug,
+        locale,
+        record: { ...(data as Record<string, unknown>), ...(singleEntry || {}) },
+        query: requestQuery,
+        contentRoot: ci.contentRoot,
+      });
+      if (urlPathParams) Object.assign(param, urlPathParams);
+      data.param = param;
 
       if (data.sections && Array.isArray(data.sections)) {
         data.sections = (await resolveDynamicEntries(
@@ -296,7 +357,12 @@ export async function resolvePageQuery(
       }
 
       if (singleEntry) {
-        const resolved = resolveSingleVars(data, singleEntry) as Record<string, unknown>;
+        const resolved = resolveAllTemplateVars(data, {
+          singleEntry,
+          param,
+          contentRoot: ci.contentRoot,
+          context: { locale },
+        }) as Record<string, unknown>;
         Object.assign(data, resolved);
         if (site?.entryPreviewManager) {
           await applyEntryPreviewOgImage(site.entryPreviewManager, {
@@ -306,6 +372,13 @@ export async function resolvePageQuery(
             pageData: data,
           });
         }
+      } else {
+        const resolved = resolveAllTemplateVars(data, {
+          param,
+          contentRoot: ci.contentRoot,
+          context: { locale },
+        }) as Record<string, unknown>;
+        Object.assign(data, resolved);
       }
 
       const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
@@ -348,7 +421,10 @@ function resolveMenuQuery(menuId: string, locale: string, contentRoot = getDefau
     const content = fs.readFileSync(filePath, "utf-8");
     const data = yaml.load(content);
     const context = { locale };
-    const { data: resolved } = getVariableManager(contentRoot).resolveDeep(data, context);
+    const resolved = resolveAllTemplateVars(data, {
+      contentRoot,
+      context,
+    });
 
     return {
       queryKey: ["/api/menus", menuId, locale],
@@ -671,9 +747,14 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
   if (!meta) return html;
 
   const singleEntry = data.singleEntry as Record<string, unknown> | undefined;
-  if (singleEntry) {
-    meta = resolveSingleVars(meta, singleEntry) as Record<string, unknown>;
-  }
+  meta = resolveAllTemplateVars(meta, {
+    singleEntry,
+    meta,
+    contentRoot,
+    context: {
+      locale: typeof data.locale === "string" ? data.locale : undefined,
+    },
+  }) as Record<string, unknown>;
 
   if (typeof meta.page_title === "string" && !meta.page_title.includes("{{")) {
     html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeAttr(meta.page_title)}</title>`);

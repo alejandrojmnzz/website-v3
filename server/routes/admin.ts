@@ -64,7 +64,10 @@ import {
   updateWebsiteDefaultSocialImage,
   updateOrganizationTwitterHandle,
   updateOrganizationSameAsUrl,
+  updateOrganizationLogo,
+  updateOrganizationName,
 } from "../schema-org";
+import { getVariableManager } from "../variable-manager";
 import {
   getRegistryOverview,
   getComponentInfo,
@@ -1382,7 +1385,27 @@ export function registerAdminRoutes(app: Express): void {
       );
 
       const cr = getContentRoot(res);
+      const brand = getVariableManager(cr).getBrandSettings();
+      const mg = (res.locals.site as { mediaGallery?: typeof mediaGallery } | undefined)?.mediaGallery ?? mediaGallery;
+      // Only return real URLs — bare registry IDs when lookup fails are not usable srcs
+      // and blocked live-preview fallback to the light logo.
+      const resolveLogoSrc = (idOrUrl: string): string => {
+        const raw = idOrUrl.trim();
+        if (!raw) return "";
+        if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/") || raw.startsWith("data:")) {
+          return raw;
+        }
+        return mg.getImage(raw)?.src ?? "";
+      };
+      const logoSrc = brand.logo ? resolveLogoSrc(brand.logo) : "";
+      const logoDarkSrc = brand.logo_dark ? resolveLogoSrc(brand.logo_dark) : "";
+
       res.json({
+        title: brand.title,
+        logo: brand.logo,
+        logo_dark: brand.logo_dark,
+        logo_src: logoSrc,
+        logo_dark_src: logoDarkSrc,
         default_social_image: getWebsiteDefaultSocialImage(cr) ?? "",
         twitter_handle: getOrganizationTwitterHandle(cr) ?? "",
         linkedin: getOrganizationSameAsUrl("linkedin", cr) ?? "",
@@ -1401,7 +1424,54 @@ export function registerAdminRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "seo_edit");
     if (!auth.authorized) return;
     try {
-      const { default_social_image, twitter_handle, linkedin, facebook, youtube, instagram, github } = req.body;
+      const {
+        default_social_image,
+        twitter_handle,
+        linkedin,
+        facebook,
+        youtube,
+        instagram,
+        github,
+        title,
+        logo,
+        logo_dark,
+      } = req.body;
+
+      const cr = getContentRoot(res);
+      const vm = getVariableManager(cr);
+      const mg = (res.locals.site as { mediaGallery?: typeof mediaGallery } | undefined)?.mediaGallery ?? mediaGallery;
+
+      if (title !== undefined) {
+        if (typeof title !== "string") {
+          res.status(400).json({ error: "title must be a string" });
+          return;
+        }
+        const trimmedTitle = title.trim();
+        vm.updateBrandSetting("title", trimmedTitle);
+        if (trimmedTitle) updateOrganizationName(trimmedTitle);
+      }
+
+      if (logo !== undefined) {
+        if (typeof logo !== "string") {
+          res.status(400).json({ error: "logo must be a string" });
+          return;
+        }
+        const trimmedLogo = logo.trim();
+        vm.updateBrandSetting("logo", trimmedLogo);
+        if (trimmedLogo) {
+          const img = mg.getImage(trimmedLogo);
+          const src = img?.src ?? (trimmedLogo.startsWith("http") || trimmedLogo.startsWith("/") ? trimmedLogo : "");
+          if (src) updateOrganizationLogo(src);
+        }
+      }
+
+      if (logo_dark !== undefined) {
+        if (typeof logo_dark !== "string") {
+          res.status(400).json({ error: "logo_dark must be a string" });
+          return;
+        }
+        vm.updateBrandSetting("logo_dark", logo_dark.trim());
+      }
 
       if (default_social_image !== undefined) {
         if (typeof default_social_image !== "string") {
@@ -1463,16 +1533,31 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       clearSsrSchemaCache();
-      const cr2 = getContentRoot(res);
+      const brand = vm.getBrandSettings();
+      const resolveLogoSrc = (idOrUrl: string): string => {
+        const raw = idOrUrl.trim();
+        if (!raw) return "";
+        if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/") || raw.startsWith("data:")) {
+          return raw;
+        }
+        return mg.getImage(raw)?.src ?? "";
+      };
+      const logoSrc = brand.logo ? resolveLogoSrc(brand.logo) : "";
+      const logoDarkSrc = brand.logo_dark ? resolveLogoSrc(brand.logo_dark) : "";
       res.json({
         success: true,
-        default_social_image: getWebsiteDefaultSocialImage(cr2) ?? "",
-        twitter_handle: getOrganizationTwitterHandle(cr2) ?? "",
-        linkedin: getOrganizationSameAsUrl("linkedin", cr2) ?? "",
-        facebook: getOrganizationSameAsUrl("facebook", cr2) ?? "",
-        youtube: getOrganizationSameAsUrl("youtube", cr2) ?? "",
-        instagram: getOrganizationSameAsUrl("instagram", cr2) ?? "",
-        github: getOrganizationSameAsUrl("github", cr2) ?? "",
+        title: brand.title,
+        logo: brand.logo,
+        logo_dark: brand.logo_dark,
+        logo_src: logoSrc,
+        logo_dark_src: logoDarkSrc,
+        default_social_image: getWebsiteDefaultSocialImage(cr) ?? "",
+        twitter_handle: getOrganizationTwitterHandle(cr) ?? "",
+        linkedin: getOrganizationSameAsUrl("linkedin", cr) ?? "",
+        facebook: getOrganizationSameAsUrl("facebook", cr) ?? "",
+        youtube: getOrganizationSameAsUrl("youtube", cr) ?? "",
+        instagram: getOrganizationSameAsUrl("instagram", cr) ?? "",
+        github: getOrganizationSameAsUrl("github", cr) ?? "",
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });
@@ -2842,18 +2927,46 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/mcp/tools", async (_req, res) => {
+    // Always 200 so the admin UI can show readiness alerts even when MCP is down.
     const siteUrl = (process.env.SITE_URL || "").replace(/\/$/, "") || null;
+    const mcpServerSecretConfigured = !!(
+      process.env.MCP_SERVER_SECRET ||
+      process.env.MCP_API_KEY
+    );
+    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN || null;
+    const readiness = {
+      siteUrlConfigured: !!siteUrl,
+      mcpServerSecretConfigured,
+      mcpReachable: false,
+      /** Fallback OAuth base when SITE_URL is unset (Replit only). */
+      replitDevDomain,
+    };
+
     try {
       const mcpPort = process.env.MCP_PORT || "3001";
       const response = await fetch(`http://localhost:${mcpPort}/tools`);
       if (!response.ok) {
-        res.status(502).json({ tools: [], error: "MCP server unavailable", siteUrl });
+        res.json({
+          tools: [],
+          error: "MCP server unavailable",
+          siteUrl,
+          readiness: { ...readiness, mcpReachable: false },
+        });
         return;
       }
       const data = await response.json();
-      res.json({ ...data, siteUrl });
+      res.json({
+        ...data,
+        siteUrl,
+        readiness: { ...readiness, mcpReachable: true },
+      });
     } catch {
-      res.status(502).json({ tools: [], error: "MCP server unavailable", siteUrl });
+      res.json({
+        tools: [],
+        error: "MCP server unavailable",
+        siteUrl,
+        readiness: { ...readiness, mcpReachable: false },
+      });
     }
   });
 

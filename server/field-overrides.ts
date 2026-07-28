@@ -7,10 +7,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { getFolder, getContentTypeConfig, getFieldMapping, getLookupKey } from "./content-types";
+import { getFolder, getContentTypeConfig, getFieldMapping, getFullFieldMapping, getLookupKey, RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD, RESERVED_SLUG_FIELD, SLUG_ALIAS_FIELD, KNOWN_SPECIAL_FIELDS } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { contentIndex } from "./content-index";
 import { markFileAsModified } from "./sync-state";
+import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
 
 export const FIELD_OVERRIDES_KEY = "field_overrides";
@@ -179,10 +180,16 @@ export async function buildFieldProvenance(opts: {
     throw new Error(`Content type "${contentType}" not found`);
   }
 
-  const fm = getFieldMapping(contentType, contentRoot) || {};
-  const editorKeys = Object.keys(config.editor || {});
-  const mappingKeys = Object.keys(fm).filter((k) => !k.startsWith("_"));
-  const fieldKeys = Array.from(new Set([...mappingKeys, ...editorKeys])).sort();
+  const fmRegular = getFieldMapping(contentType, contentRoot) || {};
+  const fmFull = getFullFieldMapping(contentType, contentRoot) || {};
+  const editorKeys = Object.keys(config.editor || {}).filter(
+    (k) => k !== IMAGE_ALIAS_FIELD && k !== SLUG_ALIAS_FIELD && !k.startsWith("_"),
+  );
+  const mappingKeys = Object.keys(fmRegular).filter(
+    (k) => !k.startsWith("_") && k !== IMAGE_ALIAS_FIELD && k !== SLUG_ALIAS_FIELD,
+  );
+  const specialKeys = KNOWN_SPECIAL_FIELDS.filter((k) => k in fmFull || true);
+  const fieldKeys = Array.from(new Set([...specialKeys, ...mappingKeys, ...editorKeys]));
 
   const ctOverrides = readFieldOverrides(contentType, slug, locale, contentRoot);
   const hasDatabase = !!config.database?.slug;
@@ -191,13 +198,14 @@ export async function buildFieldProvenance(opts: {
   let dbOverrides: Record<string, unknown> = {};
   let originalItem: Record<string, unknown> | null = null;
   let mappedItem: Record<string, unknown> | null = null;
+  /** Merged entry YAML for static types — used as entry_default baseline. */
+  let staticPageData: Record<string, unknown> | null = null;
 
   if (hasDatabase && dbName && db.exists(dbName)) {
     const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
     const rawDbOvr = db.getDbOverridesForEntry(dbName, slug) || {};
-    // Reverse-map db keys → template keys when needed
     const reverseMap: Record<string, string> = {};
-    for (const [templateKey, dbPath] of Object.entries(fm)) {
+    for (const [templateKey, dbPath] of Object.entries(fmRegular)) {
       if (typeof dbPath === "string" && !dbPath.startsWith("function:") && !templateKey.startsWith("_")) {
         const clean = dbPath.startsWith("?") ? dbPath.slice(1) : dbPath;
         reverseMap[clean] = templateKey;
@@ -213,23 +221,29 @@ export async function buildFieldProvenance(opts: {
     const cached = await db.fetchItems(dbName);
     const items = cached.items as Record<string, unknown>[];
     mappedItem = items.find((i) => String(i[lookupKey] ?? "") === slug) ?? null;
+  } else if (!hasDatabase) {
+    const { data } = contentIndex.loadMergedContent(contentType, slug, locale);
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      staticPageData = data as Record<string, unknown>;
+    }
   }
 
   const fields: FieldProvenance[] = [];
 
   for (const field of fieldKeys) {
-    const sourceRaw = mappingSourceString(fm[field]);
+    const sourceRaw = mappingSourceString(fmFull[field] ?? fmRegular[field]);
     const calculated = isFunctionMapping(sourceRaw);
+    const isSpecial = field.startsWith("_");
 
     const ctValue = Object.prototype.hasOwnProperty.call(ctOverrides, field)
       ? ctOverrides[field]
       : undefined;
-    const hasCt = ctValue !== undefined;
+    const hasCt = ctValue !== undefined && !isSpecial;
 
     const dbValue = Object.prototype.hasOwnProperty.call(dbOverrides, field)
       ? dbOverrides[field]
       : undefined;
-    const hasDb = dbValue !== undefined;
+    const hasDb = dbValue !== undefined && !isSpecial;
 
     let baseline: unknown;
     if (hasDatabase && originalItem) {
@@ -237,6 +251,18 @@ export async function buildFieldProvenance(opts: {
       baseline =
         (dbPath && !isFunctionMapping(dbPath) ? originalItem[dbPath] : undefined) ??
         originalItem[field];
+      if (field === RESERVED_IMAGE_FIELD && baseline === undefined) {
+        baseline = originalItem[IMAGE_ALIAS_FIELD];
+      }
+      if (field === RESERVED_SLUG_FIELD && baseline === undefined) {
+        baseline = originalItem[SLUG_ALIAS_FIELD];
+      }
+    } else if (!hasDatabase && staticPageData && sourceRaw && !calculated) {
+      baseline = resolveFieldValue(sourceRaw, staticPageData, field);
+    } else if (!hasDatabase && staticPageData && field === RESERVED_IMAGE_FIELD && !sourceRaw) {
+      baseline = staticPageData[IMAGE_ALIAS_FIELD];
+    } else if (!hasDatabase && staticPageData && field === RESERVED_SLUG_FIELD && !sourceRaw) {
+      baseline = staticPageData[SLUG_ALIAS_FIELD];
     }
 
     let effective: unknown;
@@ -249,10 +275,15 @@ export async function buildFieldProvenance(opts: {
       effective = dbValue;
       source = "db_override";
     } else if (hasDatabase) {
-      effective = mappedItem?.[field] ?? baseline;
+      effective =
+        (field === RESERVED_IMAGE_FIELD
+          ? mappedItem?.[IMAGE_ALIAS_FIELD] ?? mappedItem?.[field]
+          : field === RESERVED_SLUG_FIELD
+            ? mappedItem?.[SLUG_ALIAS_FIELD] ?? mappedItem?.[field]
+            : mappedItem?.[field]) ?? baseline;
       source = "original";
     } else {
-      effective = undefined;
+      effective = baseline;
       source = "entry_default";
     }
 
@@ -262,7 +293,7 @@ export async function buildFieldProvenance(opts: {
       source,
       calculated: calculated || undefined,
     };
-    if (hasDatabase) row.baseline = baseline;
+    if (hasDatabase || baseline !== undefined) row.baseline = baseline;
     if (hasDb) row.db_value = dbValue;
     if (hasCt) row.ct_value = ctValue;
     fields.push(row);

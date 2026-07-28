@@ -7,7 +7,7 @@ import type { ZodSchema } from "zod";
 import { escapeTemplateVars, unescapeObjectVars, escapeObjectVars, unescapeYamlDump } from "../shared/templateVars";
 import { deepMerge } from "./utils/deepMerge";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
-import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, extractUrlPatternParams, getContentTypeConfig, getHreflangsSource, resolveHreflangsFromRecord } from "./content-types";
+import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, getFieldMappingDefaults, extractUrlPatternParams, getContentTypeConfig, getHreflangsSource, resolveHreflangsFromRecord } from "./content-types";
 import { databaseManager, type DatabaseManager } from "./database";
 import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
@@ -328,6 +328,7 @@ export class ContentIndex {
       if (!items || items.length === 0) continue;
       try {
         const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
+        const defaults = getFieldMappingDefaults(contentType, this.contentRoot);
         const templateEntry: ContentEntry = {
           slug: contentType,
           contentType,
@@ -344,7 +345,7 @@ export class ContentIndex {
           for (const [localeKey, pattern] of Object.entries(config.url_pattern)) {
             const locale = localeKey === "default" ? "en" : localeKey;
             if (itemLocale && itemLocale !== locale) continue;
-            const url = resolveUrlPatternWithMapping(pattern, item, locale, fieldMapping);
+            const url = resolveUrlPatternWithMapping(pattern, item, locale, fieldMapping, defaults);
             if (!url) continue;
             const params = this.extractUrlParams(pattern, url) || {};
             this.byUrl.set(url, { contentType, slug: itemSlug, entry: templateEntry, params, patternLocale: localeKey });
@@ -588,7 +589,9 @@ export class ContentIndex {
     try {
       const { data } = this.loadMergedContent(contentType, slug, locale);
       if (data) {
-        return extractUrlPatternParams(pattern, data).params;
+        const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
+        const defaults = getFieldMappingDefaults(contentType, this.contentRoot);
+        return extractUrlPatternParams(pattern, data, fieldMapping, defaults).params;
       }
     } catch {}
     return undefined;
@@ -671,7 +674,8 @@ export class ContentIndex {
       // Prefer pattern params from the target item when available
       const targetItem = items.find((i) => String(i.slug ?? "") === localeSlug) || item;
       const fieldMapping = getFullFieldMapping(contentType, this.contentRoot);
-      const url = resolveUrlPatternWithMapping(pattern, targetItem, locale, fieldMapping);
+      const defaults = getFieldMappingDefaults(contentType, this.contentRoot);
+      const url = resolveUrlPatternWithMapping(pattern, targetItem, locale, fieldMapping, defaults);
       if (url) urls[locale] = url;
     }
 
@@ -1237,12 +1241,36 @@ export class ContentIndex {
           }
 
           const found = this.findBySlug(slug, { contentType });
-          if (found.length > 0) return { contentType, slug, entry: found[0], params, patternLocale: localeKey };
+          if (found.length > 0) {
+            const patternLocale = localeKey === "default" ? "en" : localeKey;
+            const expectedParams = this.resolveUrlPatternParamsForEntry(contentType, found[0].slug, patternLocale);
+            if (expectedParams) {
+              const mismatch = Object.entries(expectedParams).some(
+                ([k, v]) => params[k] !== undefined && params[k] !== v,
+              );
+              if (mismatch) continue;
+            }
+            return { contentType, slug, entry: found[0], params, patternLocale: localeKey };
+          }
 
           const resolvedSlug = this.resolveBaseSlug(slug, contentType);
           if (resolvedSlug !== slug) {
             const foundResolved = this.findBySlug(resolvedSlug, { contentType });
-            if (foundResolved.length > 0) return { contentType, slug: resolvedSlug, entry: foundResolved[0], params, patternLocale: localeKey };
+            if (foundResolved.length > 0) {
+              const patternLocale = localeKey === "default" ? "en" : localeKey;
+              const expectedParams = this.resolveUrlPatternParamsForEntry(
+                contentType,
+                foundResolved[0].slug,
+                patternLocale,
+              );
+              if (expectedParams) {
+                const mismatch = Object.entries(expectedParams).some(
+                  ([k, v]) => params[k] !== undefined && params[k] !== v,
+                );
+                if (mismatch) continue;
+              }
+              return { contentType, slug: resolvedSlug, entry: foundResolved[0], params, patternLocale: localeKey };
+            }
           }
 
           return null;

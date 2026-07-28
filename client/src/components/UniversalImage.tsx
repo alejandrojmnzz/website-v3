@@ -132,6 +132,12 @@ export function UniversalImage({
   } = useSectionContext();
   const editModeCtx = useEditModeOptional();
   const isEditMode = editModeCtx?.isEditMode ?? false;
+  // Capture iframes are /private/* and inherit edit-mode localStorage — hide chrome
+  // so cache/override badges are not baked into OG / entry-preview WebPs.
+  const isCaptureMode =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("capture") === "1";
+  const showEditChrome = isEditMode && !isCaptureMode;
   const { toast } = useToast();
 
   // Derive the template key from fieldContext + the section's _variableKeys map from context.
@@ -284,7 +290,7 @@ export function UniversalImage({
     fieldContext?.fieldPath ||
     (fieldContext?.arrayPath !== undefined && fieldContext?.index !== undefined && fieldContext?.srcField)
   );
-  const canReplace = isEditMode && hasFieldContext && sectionIndex >= 0;
+  const canReplace = showEditChrome && hasFieldContext && sectionIndex >= 0;
 
   type CacheStatus = "cached" | "pending" | "failed" | "untracked";
   const cacheStatus: CacheStatus = isDirectPath
@@ -320,7 +326,7 @@ export function UniversalImage({
     },
   };
 
-  const statusBadge = isEditMode ? (
+  const statusBadge = showEditChrome ? (
     <Tooltip>
       <TooltipTrigger asChild>
         <div
@@ -337,7 +343,7 @@ export function UniversalImage({
     </Tooltip>
   ) : null;
 
-  const overrideBadge = isEditMode && !!templateKey ? (
+  const overrideBadge = showEditChrome && !!templateKey ? (
     <Tooltip>
       <TooltipTrigger asChild>
         <div

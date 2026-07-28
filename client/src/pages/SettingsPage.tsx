@@ -20,6 +20,7 @@ import {
   IconRobot,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { BRAND_LOGO_ENSURE_TAGS, OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { LinkPicker } from "@/components/editing/LinkPicker";
 import { Link, useSearch, useLocation } from "wouter";
@@ -77,6 +78,11 @@ interface MigrationRowState {
 
 
 interface BrandSettings {
+  title: string;
+  logo: string;
+  logo_dark: string;
+  logo_src: string;
+  logo_dark_src: string;
   default_social_image: string;
   twitter_handle: string;
   linkedin: string;
@@ -124,7 +130,11 @@ export default function SettingsPage() {
   const [dirty, setDirty] = useState(false);
   const [migrationStates, setMigrationStates] = useState<Record<string, MigrationRowState>>({});
   const [brandImagePickerOpen, setBrandImagePickerOpen] = useState(false);
+  const [logoPickerOpen, setLogoPickerOpen] = useState(false);
+  const [logoDarkPickerOpen, setLogoDarkPickerOpen] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
+  const [brandTitle, setBrandTitle] = useState("");
+  const [titleSaving, setTitleSaving] = useState(false);
   const [twitterHandle, setTwitterHandle] = useState("");
   const [twitterSaving, setTwitterSaving] = useState(false);
   const [socialLinks, setSocialLinks] = useState({ linkedin: "", facebook: "", youtube: "", instagram: "", github: "" });
@@ -254,6 +264,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (brandData) {
+      setBrandTitle(brandData.title ?? "");
       setTwitterHandle(brandData.twitter_handle ?? "");
       setSocialLinks({
         linkedin: brandData.linkedin ?? "",
@@ -334,6 +345,47 @@ export default function SettingsPage() {
       if (result.error) throw new Error(result.error);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/brand-settings"] });
       toast({ title: "Brand settings saved", description: "Default social image updated." });
+    } catch (err: any) {
+      toast({ title: "Failed to save", description: err.message || String(err), variant: "destructive" });
+    } finally {
+      setBrandSaving(false);
+    }
+  }
+
+  async function handleBrandTitleSave() {
+    setTitleSaving(true);
+    try {
+      const res = await apiRequest("PUT", "/api/admin/brand-settings", {
+        title: brandTitle.trim(),
+      });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/brand-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/variables"] });
+      toast({ title: "Brand title saved", description: "Available as {{ brand.title }} in templates." });
+    } catch (err: any) {
+      toast({ title: "Failed to save", description: err.message || String(err), variant: "destructive" });
+    } finally {
+      setTitleSaving(false);
+    }
+  }
+
+  async function handleBrandLogoSave(registryId: string | undefined, which: "logo" | "logo_dark") {
+    setBrandSaving(true);
+    try {
+      const res = await apiRequest("PUT", "/api/admin/brand-settings", {
+        [which]: registryId ?? "",
+      });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/brand-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/variables"] });
+      toast({
+        title: which === "logo" ? "Light logo saved" : "Dark logo saved",
+        description: which === "logo"
+          ? "Available as {{ brand.logo }}. Synced to Schema.org organization.logo."
+          : "Available as {{ brand.logo_dark }} for dark mode.",
+      });
     } catch (err: any) {
       toast({ title: "Failed to save", description: err.message || String(err), variant: "destructive" });
     } finally {
@@ -670,13 +722,153 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-1">
+                    <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">Template namespaces</p>
+                      <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                        <li><code className="font-mono">{"{{ brand.title }}"}</code> / <code className="font-mono">{"{{ brand.logo }}"}</code> / <code className="font-mono">{"{{ brand.logo_dark }}"}</code> — site identity (this tab; stored in <code className="font-mono">variables.yml</code>)</li>
+                        <li><code className="font-mono">{"{{ meta.page_title }}"}</code> — this page’s SEO head block (SEO modal → SEO Meta)</li>
+                        <li><code className="font-mono">{"{{ single.* }}"}</code> — mapped type fields (DB or Fields-tab overrides on the entry YAML)</li>
+                        <li><code className="font-mono">{"{{ global.* }}"}</code> — other site variables</li>
+                      </ul>
+                      <p className="text-xs text-muted-foreground">
+                        Light logo syncs to <code className="font-mono">schema-org.yml</code> <code className="font-mono">organization.logo</code> (crawlers; no dark variant). Navbar uses these when menus reference <code className="font-mono">{"{{ brand.logo }}"}</code>.
+                        Choosing a logo from the gallery auto-applies the standard <code className="font-mono">logo</code> and <code className="font-mono">brand</code> tags (same idea as <code className="font-mono">og-image</code> for social images).
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Brand title</p>
+                        <p className="text-xs text-muted-foreground">
+                          Saved as <code className="font-mono">brand.title</code> in <code className="font-mono">variables.yml</code>; also syncs <code className="font-mono">organization.name</code>.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={brandTitle}
+                          onChange={(e) => setBrandTitle(e.target.value)}
+                          placeholder="Company name"
+                          disabled={titleSaving || !canEditSeo}
+                          data-testid="input-brand-title"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={handleBrandTitleSave}
+                          disabled={titleSaving || !canEditSeo}
+                          title={!canEditSeo ? "You don't have permission to edit brand settings" : undefined}
+                          data-testid="button-brand-save-title"
+                        >
+                          {titleSaving ? (
+                            <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                          ) : (
+                            <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+                          )}
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Logo (light)</p>
+                          <p className="text-xs text-muted-foreground">
+                            Media Gallery registry ID as <code className="font-mono">{"{{ brand.logo }}"}</code>. Used in light mode and Schema.org.
+                          </p>
+                        </div>
+                        <div
+                          className="rounded-md border bg-muted flex items-center justify-center overflow-hidden p-4 min-h-[80px]"
+                          data-testid="img-brand-logo-preview-container"
+                        >
+                          {brandData?.logo_src ? (
+                            <img
+                              src={brandData.logo_src}
+                              alt="Brand logo light"
+                              className="object-contain max-h-16 w-auto"
+                              data-testid="img-brand-logo-preview"
+                            />
+                          ) : (
+                            <div className="text-center space-y-1 text-muted-foreground">
+                              <IconPhoto className="h-6 w-6 mx-auto opacity-40" />
+                              <p className="text-xs">No logo</p>
+                            </div>
+                          )}
+                        </div>
+                        {brandData?.logo && (
+                          <p className="text-xs text-muted-foreground font-mono truncate" data-testid="text-brand-logo-id">
+                            {brandData.logo}
+                          </p>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setLogoPickerOpen(true)}
+                          disabled={brandSaving || !canEditSeo}
+                          data-testid="button-brand-choose-logo"
+                        >
+                          {brandSaving ? (
+                            <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                          ) : (
+                            <IconPhoto className="h-4 w-4 mr-1.5" />
+                          )}
+                          Choose from gallery
+                        </Button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Logo (dark)</p>
+                          <p className="text-xs text-muted-foreground">
+                            Optional. <code className="font-mono">{"{{ brand.logo_dark }}"}</code> — shown when the site is in dark mode. If unset, the light logo is used in both themes.
+                          </p>
+                        </div>
+                        <div
+                          className="rounded-md border bg-zinc-900 flex items-center justify-center overflow-hidden p-4 min-h-[80px]"
+                          data-testid="img-brand-logo-dark-preview-container"
+                        >
+                          {brandData?.logo_dark_src || brandData?.logo_src ? (
+                            <img
+                              src={brandData.logo_dark_src || brandData.logo_src}
+                              alt="Brand logo dark"
+                              className="object-contain max-h-16 w-auto"
+                              data-testid="img-brand-logo-dark-preview"
+                            />
+                          ) : (
+                            <div className="text-center space-y-1 text-muted-foreground">
+                              <IconPhoto className="h-6 w-6 mx-auto opacity-40" />
+                              <p className="text-xs">No dark logo</p>
+                            </div>
+                          )}
+                        </div>
+                        {brandData?.logo_dark && (
+                          <p className="text-xs text-muted-foreground font-mono truncate" data-testid="text-brand-logo-dark-id">
+                            {brandData.logo_dark}
+                          </p>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setLogoDarkPickerOpen(true)}
+                          disabled={brandSaving || !canEditSeo}
+                          data-testid="button-brand-choose-logo-dark"
+                        >
+                          {brandSaving ? (
+                            <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                          ) : (
+                            <IconPhoto className="h-4 w-4 mr-1.5" />
+                          )}
+                          Choose from gallery
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t space-y-1">
                       <p className="text-sm font-medium">Default Social Image</p>
                       <p className="text-xs text-muted-foreground">
                         Used as the fallback <code className="font-mono">og:image</code> on pages that don't have a specific social image. Recommended size: 1200×630 px.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Saved to <code className="font-mono">4geeks-com/schema-org.yml</code> under <code className="font-mono">website.default_social_image</code>.
+                        Saved to <code className="font-mono">schema-org.yml</code> under <code className="font-mono">website.default_social_image</code>.
                       </p>
                     </div>
 
@@ -848,10 +1040,36 @@ export default function SettingsPage() {
               open={brandImagePickerOpen}
               onOpenChange={setBrandImagePickerOpen}
               title="Select Default Social Image"
+              defaultTagFilter="og-image"
+              ensureTagsOnSave={[...OG_IMAGE_ENSURE_TAGS]}
               initialSrc={brandData?.default_social_image ?? ""}
               initialAlt="Default social image"
               onSave={async (src) => {
                 await handleBrandSave(src);
+              }}
+            />
+            <ImagePickerDialog
+              open={logoPickerOpen}
+              onOpenChange={setLogoPickerOpen}
+              title="Select Brand Logo (light)"
+              tagFilter="logo"
+              ensureTagsOnSave={[...BRAND_LOGO_ENSURE_TAGS]}
+              initialSrc={brandData?.logo_src ?? ""}
+              initialAlt="Brand logo"
+              onSave={async (_src, _alt, registryId) => {
+                await handleBrandLogoSave(registryId, "logo");
+              }}
+            />
+            <ImagePickerDialog
+              open={logoDarkPickerOpen}
+              onOpenChange={setLogoDarkPickerOpen}
+              title="Select Brand Logo (dark)"
+              tagFilter="logo"
+              ensureTagsOnSave={[...BRAND_LOGO_ENSURE_TAGS]}
+              initialSrc={brandData?.logo_dark_src || brandData?.logo_src || ""}
+              initialAlt="Brand logo dark"
+              onSave={async (_src, _alt, registryId) => {
+                await handleBrandLogoSave(registryId, "logo_dark");
               }}
             />
           </TabsContent>

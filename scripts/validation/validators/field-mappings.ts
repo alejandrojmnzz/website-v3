@@ -4,7 +4,7 @@ import { validateFieldMapping } from "../shared/fieldMappingValidator";
 
 export const fieldMappingsValidator: Validator = {
   name: "field-mappings",
-  description: "Validates that field mapping sources exist in all non-database content entries",
+  description: "Validates that non-identity field mapping sources exist in all non-database content entries",
   apiExposed: true,
   estimatedDuration: "medium",
   category: "integrity",

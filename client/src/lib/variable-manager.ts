@@ -1,6 +1,10 @@
 const TEMPLATE_REGEX = /\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
 const SINGLE_PREFIX = "single.";
+const META_PREFIX = "meta.";
+const PARAM_PREFIX = "param.";
 const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
+const EXACT_META_VAR_PATTERN = /^\{\{\s*meta\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
+const EXACT_PARAM_VAR_PATTERN = /^\{\{\s*param\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
 
 export interface VariableCondition {
   query: Record<string, string>;
@@ -25,13 +29,17 @@ export interface ResolvedVariable {
   original: string;
   variableName: string;
   resolvedValue: string;
-  source: "condition" | "location" | "region" | "locale" | "default" | "inline" | "single";
+  source: "condition" | "location" | "region" | "locale" | "default" | "inline" | "single" | "meta" | "param";
   defaultValue: string;
 }
 
 export interface ResolveOptions {
   preserveTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** Resolved (or raw) page SEO meta for {{ meta.* }} */
+  meta?: Record<string, unknown>;
+  /** Unified URL path + querystring params for {{ param.* }} */
+  param?: Record<string, unknown>;
 }
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
@@ -91,6 +99,32 @@ function resolveSingleVariable(
   return null;
 }
 
+function resolveMetaVariable(
+  fieldPath: string,
+  meta: Record<string, unknown>,
+): { value: unknown; source: "meta" } | null {
+  const value = getNestedValue(meta, fieldPath);
+  if (value !== undefined && value !== null) {
+    return { value, source: "meta" };
+  }
+  return null;
+}
+
+function resolveParamVariable(
+  fieldPath: string,
+  param: Record<string, unknown>,
+): { value: unknown; source: "param" } | null {
+  const value = getNestedValue(param, fieldPath);
+  if (value !== undefined && value !== null) {
+    return { value, source: "param" };
+  }
+  return null;
+}
+
+function bagValueToDisplay(value: unknown): string {
+  return String(typeof value === "object" ? JSON.stringify(value) : value);
+}
+
 export function resolveTemplateString(
   text: string,
   definitions: Record<string, VariableDefinition>,
@@ -102,6 +136,8 @@ export function resolveTemplateString(
   const regex = new RegExp(TEMPLATE_REGEX.source, TEMPLATE_REGEX.flags);
   const preserveTemplate = options?.preserveTemplate ?? false;
   const singleEntry = options?.singleEntry;
+  const meta = options?.meta;
+  const param = options?.param;
 
   const resolved = text.replace(regex, (match, expression: string, inlineDefault: string) => {
     const name = expression.trim();
@@ -118,7 +154,7 @@ export function resolveTemplateString(
         if (!singleResult && !defVal) {
           return match;
         }
-        const displayValue = singleResult ? String(typeof singleResult.value === "object" ? JSON.stringify(singleResult.value) : singleResult.value) : defVal;
+        const displayValue = singleResult ? bagValueToDisplay(singleResult.value) : defVal;
         variables.push({
           original: match,
           variableName: name,
@@ -129,7 +165,7 @@ export function resolveTemplateString(
         return `{{ ${name} | ${displayValue} }}`;
       }
 
-      const singleValue = singleResult ? String(typeof singleResult.value === "object" ? JSON.stringify(singleResult.value) : singleResult.value) : defVal || name;
+      const singleValue = singleResult ? bagValueToDisplay(singleResult.value) : defVal || name;
       variables.push({
         original: match,
         variableName: name,
@@ -138,6 +174,72 @@ export function resolveTemplateString(
         defaultValue: defVal,
       });
       return singleValue;
+    }
+
+    if (name.startsWith(META_PREFIX)) {
+      if (!meta) {
+        return match;
+      }
+      const fieldPath = name.slice(META_PREFIX.length);
+      const metaResult = resolveMetaVariable(fieldPath, meta);
+
+      if (preserveTemplate) {
+        if (!metaResult && !defVal) {
+          return match;
+        }
+        const displayValue = metaResult ? bagValueToDisplay(metaResult.value) : defVal;
+        variables.push({
+          original: match,
+          variableName: name,
+          resolvedValue: displayValue,
+          source: metaResult ? "meta" : "inline",
+          defaultValue: defVal,
+        });
+        return `{{ ${name} | ${displayValue} }}`;
+      }
+
+      const metaValue = metaResult ? bagValueToDisplay(metaResult.value) : defVal || name;
+      variables.push({
+        original: match,
+        variableName: name,
+        resolvedValue: metaValue,
+        source: metaResult ? "meta" : "inline",
+        defaultValue: defVal,
+      });
+      return metaValue;
+    }
+
+    if (name.startsWith(PARAM_PREFIX)) {
+      if (!param) {
+        return match;
+      }
+      const fieldPath = name.slice(PARAM_PREFIX.length);
+      const paramResult = resolveParamVariable(fieldPath, param);
+
+      if (preserveTemplate) {
+        if (!paramResult && !defVal) {
+          return match;
+        }
+        const displayValue = paramResult ? bagValueToDisplay(paramResult.value) : defVal;
+        variables.push({
+          original: match,
+          variableName: name,
+          resolvedValue: displayValue,
+          source: paramResult ? "param" : "inline",
+          defaultValue: defVal,
+        });
+        return `{{ ${name} | ${displayValue} }}`;
+      }
+
+      const paramValue = paramResult ? bagValueToDisplay(paramResult.value) : defVal || name;
+      variables.push({
+        original: match,
+        variableName: name,
+        resolvedValue: paramValue,
+        source: paramResult ? "param" : "inline",
+        defaultValue: defVal,
+      });
+      return paramValue;
     }
 
     const result = resolveVariable(name, definitions, context);
@@ -172,27 +274,73 @@ export function resolveDeep(
 ): { data: unknown; variables: ResolvedVariable[] } {
   const allVariables: ResolvedVariable[] = [];
   const singleEntry = options?.singleEntry;
+  const meta = options?.meta;
+  const param = options?.param;
 
   function walk(value: unknown): unknown {
     if (typeof value === "string") {
-      if (singleEntry && !options?.preserveTemplate) {
-        const exactMatch = value.match(EXACT_SINGLE_VAR_PATTERN);
-        if (exactMatch) {
-          const fieldPath = exactMatch[1];
-          const fallback = exactMatch[2]?.trim();
-          const resolved = getNestedValue(singleEntry, fieldPath);
-          const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
-          const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
+      if (!options?.preserveTemplate) {
+        if (singleEntry) {
+          const exactMatch = value.match(EXACT_SINGLE_VAR_PATTERN);
+          if (exactMatch) {
+            const fieldPath = exactMatch[1];
+            const fallback = exactMatch[2]?.trim();
+            const resolved = getNestedValue(singleEntry, fieldPath);
+            const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
+            const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
 
-          allVariables.push({
-            original: value,
-            variableName: `single.${fieldPath}`,
-            resolvedValue: displayValue,
-            source: resolved !== undefined && resolved !== null ? "single" : "inline",
-            defaultValue: fallback || "",
-          });
+            allVariables.push({
+              original: value,
+              variableName: `single.${fieldPath}`,
+              resolvedValue: displayValue,
+              source: resolved !== undefined && resolved !== null ? "single" : "inline",
+              defaultValue: fallback || "",
+            });
 
-          return resolvedValue;
+            return resolvedValue;
+          }
+        }
+
+        if (meta) {
+          const exactMeta = value.match(EXACT_META_VAR_PATTERN);
+          if (exactMeta) {
+            const fieldPath = exactMeta[1];
+            const fallback = exactMeta[2]?.trim();
+            const resolved = getNestedValue(meta, fieldPath);
+            const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
+            const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
+
+            allVariables.push({
+              original: value,
+              variableName: `meta.${fieldPath}`,
+              resolvedValue: displayValue,
+              source: resolved !== undefined && resolved !== null ? "meta" : "inline",
+              defaultValue: fallback || "",
+            });
+
+            return resolvedValue;
+          }
+        }
+
+        if (param) {
+          const exactParam = value.match(EXACT_PARAM_VAR_PATTERN);
+          if (exactParam) {
+            const fieldPath = exactParam[1];
+            const fallback = exactParam[2]?.trim();
+            const resolved = getNestedValue(param, fieldPath);
+            const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
+            const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
+
+            allVariables.push({
+              original: value,
+              variableName: `param.${fieldPath}`,
+              resolvedValue: displayValue,
+              source: resolved !== undefined && resolved !== null ? "param" : "inline",
+              defaultValue: fallback || "",
+            });
+
+            return resolvedValue;
+          }
         }
       }
 

@@ -4,6 +4,11 @@ import * as crypto from "crypto";
 import * as yaml from "js-yaml";
 import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import type { ImageRegistry, ImageEntry } from "@shared/schema";
+import {
+  MEDIA_EXTENSIONS,
+  defaultAltForDoctype,
+  inferDoctypeFromFilename,
+} from "@shared/media-doctype";
 import { media, GCSProvider, createSiteGCSProvider } from "./media";
 import { markFileAsModified } from "./sync-state";
 import { processImageBuffer } from "./image-optimizer";
@@ -13,12 +18,7 @@ import { getDefaultContentFolder } from "./site-config";
 import { child } from "./logger";
 const log = child({ module: "media-gallery" });
 
-
-
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg", ".avif", ".gif"]);
 const OPTIMIZABLE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif"]);
-const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".ogg", ".m4v"]);
-const MEDIA_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS]);
 const SCREENSHOT_PATTERNS = [/^Screenshot_/i, /^Captura_/i, /^Capture_/i, /^Screen[\s_]?Shot/i];
 const EXISTENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -835,7 +835,7 @@ export class MediaGallery {
         } else {
           if (skipScreenshots && isScreenshot(entry.name)) continue;
           const ext = path.extname(entry.name).toLowerCase();
-          if (IMAGE_EXTENSIONS.has(ext)) {
+          if (MEDIA_EXTENSIONS.has(ext)) {
             const relPath = `${prefix}${entry.name}`;
             imageFiles.set(relPath, `${urlPrefix}${relPath}`);
           }
@@ -1289,6 +1289,9 @@ export class MediaGallery {
   private static MIME_MAP: Record<string, string> = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".webp": "image/webp", ".svg": "image/svg+xml", ".avif": "image/avif", ".gif": "image/gif",
+    ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+    ".ogg": "video/ogg", ".m4v": "video/x-m4v",
+    ".pdf": "application/pdf",
   };
 
   private async readSourceData(from: import("./media/types").StorageProvider, key: string): Promise<Buffer | null> {
@@ -1417,7 +1420,8 @@ export class MediaGallery {
       src = await storageProvider.upload(key, data, contentType);
     }
 
-    const alt = opts?.alt || `Image: ${path.parse(filename).name}`;
+    const doctype = inferDoctypeFromFilename(filename);
+    const alt = opts?.alt || defaultAltForDoctype(doctype, path.parse(filename).name);
     this.register(uniqueId, {
       src,
       alt,
@@ -1431,7 +1435,8 @@ export class MediaGallery {
       this.optimizeInBackground(uniqueId, data, src, opts?.tags || []);
     }
 
-    if (!opts?.tags || opts.tags.length === 0) {
+    // AI vision auto-tag is image-only; skip videos and PDFs.
+    if (doctype === "image" && (!opts?.tags || opts.tags.length === 0)) {
       this.classifyInBackground(uniqueId);
     }
 

@@ -167,6 +167,8 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           variant={variantFromUrl}
           isSharedTemplate={isSharedTemplate}
           singleEntry={page.singleEntry}
+          meta={page.meta as Record<string, unknown> | undefined}
+          param={(page as { param?: Record<string, unknown> }).param}
           allowEntryStructuralOverrides={allowEntryStructuralOverrides}
           perEntryRemovedSections={page.perEntryRemovedSections}
         />

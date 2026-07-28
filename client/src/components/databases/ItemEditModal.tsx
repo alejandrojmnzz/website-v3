@@ -43,7 +43,8 @@ import {
   expandEditorFieldTokens,
 } from "@shared/editor-field-values";
 import type { ImageEntry } from "@shared/schema";
-import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon } from "lucide-react";
+import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon, Images, FileText } from "lucide-react";
+import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 
 const MARKDOWN_TEXTAREA_KEYS = new Set(["content", "body", "readme", "markdown"]);
 
@@ -101,6 +102,8 @@ function ImageUrlFieldEditor({
   cacheImages,
   onChange,
   fallbackPreviewSrc,
+  /** When true, gallery opens filtered to og-image and ensures that tag on accept. */
+  isReservedOgImageField = false,
 }: {
   fieldKey: string;
   value: unknown;
@@ -108,12 +111,16 @@ function ImageUrlFieldEditor({
   onChange: (v: string) => void;
   /** Display-only when the field is empty (e.g. Entry Preview OG WebP). Never written into the input. */
   fallbackPreviewSrc?: string | null;
+  isReservedOgImageField?: boolean;
 }) {
+  const { toast } = useToast();
   const { registry } = useImageRegistry();
   const url = typeof value === "string" ? value : "";
   const [broken, setBroken] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fallback = typeof fallbackPreviewSrc === "string" ? fallbackPreviewSrc.trim() : "";
   const usingAutoOg = !url.trim() && !!fallback;
+  const hasValue = !!url.trim();
 
   useEffect(() => {
     setBroken(false);
@@ -135,18 +142,48 @@ function ImageUrlFieldEditor({
       : "");
   const previewSrc = fieldPreviewSrc || (usingAutoOg ? fallback : "");
 
+  const ensureOgTag = async (registryId: string) => {
+    try {
+      const resp = await fetch(`/api/image-registry/${encodeURIComponent(registryId)}/tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ add: ["og-image"] }),
+      });
+      if (!resp.ok) {
+        const err = (await resp.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error || "Failed to tag image");
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+    } catch (err) {
+      toast({
+        title: "Image selected, tag not updated",
+        description: err instanceof Error ? err.message : "Could not ensure og-image tag",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-2" data-testid={`image-field-${fieldKey}`}>
       <div className="flex items-start gap-3">
         <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted flex items-center justify-center">
           {previewSrc && !broken ? (
-            <img
-              src={previewSrc}
-              alt=""
-              className="h-full w-full object-cover"
-              onError={() => setBroken(true)}
-              data-testid={`img-preview-${fieldKey}`}
-            />
+            <a
+              href={previewSrc}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block h-full w-full cursor-zoom-in"
+              title="Open image in new tab"
+              data-testid={`link-preview-${fieldKey}`}
+            >
+              <img
+                src={previewSrc}
+                alt=""
+                className="h-full w-full object-cover"
+                onError={() => setBroken(true)}
+                data-testid={`img-preview-${fieldKey}`}
+              />
+            </a>
           ) : (
             <ImageIcon className="h-5 w-5 text-muted-foreground" />
           )}
@@ -159,26 +196,167 @@ function ImageUrlFieldEditor({
             {statusUi.icon}
             {statusUi.label}
           </span>
-          <Input
-            type="url"
-            value={url}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="https://…"
-            className="text-sm"
-            data-testid={`input-edit-${fieldKey}`}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              type="url"
+              value={url}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="https://…"
+              className="text-sm min-w-0 flex-1"
+              data-testid={`input-edit-${fieldKey}`}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 shrink-0 text-xs"
+              onClick={() => setPickerOpen(true)}
+              data-testid={`button-gallery-${fieldKey}`}
+            >
+              <Images className="h-3.5 w-3.5 mr-1.5" />
+              Choose from gallery
+            </Button>
+            {hasValue && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-9 shrink-0 text-xs text-muted-foreground px-2"
+                onClick={() => onChange("")}
+                data-testid={`button-clear-image-${fieldKey}`}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-      {usingAutoOg && (
+
+      {usingAutoOg ? (
         <p className="text-[11px] text-muted-foreground" data-testid={`text-auto-og-hint-${fieldKey}`}>
-          Used for og:image while this field is empty. Paste or set a URL anytime to replace it.
+          Auto Entry Preview OG is used for og:image and list thumbs while this field is empty.
+          Choose from gallery or paste a URL to override.
         </p>
-      )}
+      ) : !hasValue && isReservedOgImageField ? (
+        <p className="text-[11px] text-muted-foreground" data-testid={`text-auto-og-hint-${fieldKey}`}>
+          While empty, auto Entry Preview generates og:image / list thumbs. Choose from gallery or
+          paste a URL to override.
+        </p>
+      ) : hasValue && isReservedOgImageField ? (
+        <p className="text-[11px] text-muted-foreground" data-testid={`text-override-og-hint-${fieldKey}`}>
+          This URL overrides auto OG. Clear the field to restore auto-generated Entry Preview.
+        </p>
+      ) : null}
+
       {cacheImages && (
         <p className="text-[11px] text-muted-foreground">
           Image will be cached on the next database refresh. Original URL is stored in the field.
         </p>
       )}
+
+      <ImagePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        title={isReservedOgImageField ? "Choose OG / social image" : "Choose image"}
+        initialSrc={url}
+        defaultTagFilter={isReservedOgImageField ? "og-image" : undefined}
+        ensureTagsOnSave={isReservedOgImageField ? ["og-image"] : undefined}
+        onSave={async (src, _alt, registryId) => {
+          onChange(src);
+          // Dialog already ensures og-image via ensureTagsOnSave; keep as idempotent fallback.
+          if (isReservedOgImageField && registryId) {
+            await ensureOgTag(registryId);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+function PdfUrlFieldEditor({
+  fieldKey,
+  value,
+  onChange,
+}: {
+  fieldKey: string;
+  value: unknown;
+  onChange: (v: string) => void;
+}) {
+  const url = typeof value === "string" ? value : "";
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const hasValue = !!url.trim();
+  const filename = url
+    ? url.split("/").pop()?.split("?")[0] || "document.pdf"
+    : "";
+
+  return (
+    <div className="space-y-2" data-testid={`pdf-field-${fieldKey}`}>
+      <div className="flex items-start gap-3">
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted flex items-center justify-center">
+          <FileText className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          {hasValue && (
+            <p
+              className="text-[11px] text-muted-foreground truncate"
+              data-testid={`text-pdf-filename-${fieldKey}`}
+              title={filename}
+            >
+              {filename}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Input
+              type="url"
+              value={url}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="https://…/document.pdf"
+              className="text-sm min-w-0 flex-1"
+              data-testid={`input-edit-${fieldKey}`}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-9 shrink-0 text-xs"
+              onClick={() => setPickerOpen(true)}
+              data-testid={`button-gallery-pdf-${fieldKey}`}
+            >
+              <Images className="h-3.5 w-3.5 mr-1.5" />
+              Choose from gallery
+            </Button>
+            {hasValue && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-9 shrink-0 text-xs text-muted-foreground px-2"
+                onClick={() => onChange("")}
+                data-testid={`button-clear-pdf-${fieldKey}`}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {!hasValue && (
+        <p className="text-[11px] text-muted-foreground" data-testid={`text-pdf-empty-hint-${fieldKey}`}>
+          Choose from gallery or paste a PDF URL.
+        </p>
+      )}
+
+      <ImagePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        doctype="pdf"
+        title="Choose PDF"
+        initialSrc={url}
+        onSave={(src) => {
+          onChange(src);
+        }}
+      />
     </div>
   );
 }
@@ -282,10 +460,16 @@ export interface ItemEditModalProps {
   /** Prefer these editor hints over (or instead of) database config.editor. */
   editorOverrides?: Record<string, EditorConfig>;
   /**
-   * Display-only thumbnail for the reserved `image` field when empty
+   * Display-only thumbnail for the reserved image field when empty
    * (Entry Preview / auto OG). Never merged into form state or save payload.
    */
   imageFallbackPreviewSrc?: string | null;
+  /**
+   * Form field keys that represent the reserved OG/image source
+   * (e.g. `image`, or DB column `preview_image_url` when mapped).
+   * Defaults to `["image"]`.
+   */
+  imageFallbackFieldKeys?: string[];
 }
 
 export function ItemEditModal({
@@ -301,7 +485,12 @@ export function ItemEditModal({
   overrideLevel,
   editorOverrides,
   imageFallbackPreviewSrc,
+  imageFallbackFieldKeys,
 }: ItemEditModalProps) {
+  const imageFallbackKeys = new Set(
+    (imageFallbackFieldKeys?.length ? imageFallbackFieldKeys : ["image"]).filter(Boolean),
+  );
+
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState<Record<string, string>>({});
@@ -506,7 +695,18 @@ export function ItemEditModal({
             value={value}
             cacheImages={editorConfig?.cache_images === true}
             onChange={(v) => setValue(key, v)}
-            fallbackPreviewSrc={key === "image" ? imageFallbackPreviewSrc : undefined}
+            fallbackPreviewSrc={
+              imageFallbackKeys.has(key) ? imageFallbackPreviewSrc : undefined
+            }
+            isReservedOgImageField={imageFallbackKeys.has(key)}
+          />
+        );
+      case "pdf":
+        return (
+          <PdfUrlFieldEditor
+            fieldKey={key}
+            value={value}
+            onChange={(v) => setValue(key, v)}
           />
         );
       case "select":

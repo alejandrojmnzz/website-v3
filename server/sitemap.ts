@@ -1,5 +1,5 @@
 import { contentIndex, MARKETING_CONTENT_PATH as BASE_CONTENT_PATH } from "./content-index";
-import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, getDirectory, resolveHreflangsFromRecord, getCanonicalHreflangSlug } from "./content-types";
+import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, getFieldMappingDefaults, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, getDirectory, resolveHreflangsFromRecord, getCanonicalHreflangSlug } from "./content-types";
 import { getSupportedLocales, isIndexingBlocked } from "./settings";
 import { applyTransformIfNeeded } from "./transform";
 import { getFileLastmod } from "./sync-state";
@@ -409,14 +409,15 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         }
         const urlPattern = urlPatterns[locale] || urlPatterns["en"];
         if (!urlPattern) continue;
-        const { missing } = extractUrlPatternParams(urlPattern, item, fieldMapping);
+        const defaults = getFieldMappingDefaults(typeName, cf);
+        const { missing } = extractUrlPatternParams(urlPattern, item, fieldMapping, defaults);
         if (missing.length > 0) {
           log.warn(
             `[Sitemap] Skipping ${typeName} entry "${String(item.slug || item.id || "")}" (${locale}): cannot resolve URL pattern variable(s) ${missing.map((m) => `:${m}`).join(", ")} from entry data`,
           );
           continue;
         }
-        const itemUrl = `${getBaseUrl(ctx)}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping)}`;
+        const itemUrl = `${getBaseUrl(ctx)}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping, defaults)}`;
         const title = String(item.title || item.slug || item.id || "");
         const updatedAt = String(item.updated_at || "");
         const itemSlug = String(item.slug || item.id || "");
@@ -468,7 +469,9 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
           const urlPattern = typeConfig.url_pattern?.[locale] || typeConfig.url_pattern?.["default"];
           let params: Record<string, string> | undefined;
           if (urlPattern) {
-            const extracted = extractUrlPatternParams(urlPattern, merged);
+            const fieldMapping = getFullFieldMapping(typeName, cf);
+            const defaults = getFieldMappingDefaults(typeName, cf);
+            const extracted = extractUrlPatternParams(urlPattern, merged, fieldMapping, defaults);
             if (extracted.missing.length > 0) {
               log.warn(
                 `[Sitemap] Skipping ${typeName} entry "${slug}" (${locale}): cannot resolve URL pattern variable(s) ${extracted.missing.map((m) => `:${m}`).join(", ")} from entry data`,

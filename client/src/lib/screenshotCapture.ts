@@ -25,6 +25,74 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read blob"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * modern-screenshot re-fetches <img> URLs to embed as data URLs. GCS/CDN hosts
+ * often omit CORS headers, so browser fetch fails and logos vanish from the WebP
+ * while inline SVG chrome (e.g. edit-mode cache badges) still appears.
+ * Route cross-origin images through our same-origin proxy.
+ */
+async function fetchImageAsDataUrl(url: string): Promise<string | false> {
+  if (!url || url.startsWith("data:")) return false;
+  try {
+    const absolute = new URL(url, window.location.origin);
+    const sameOrigin = absolute.origin === window.location.origin;
+    const fetchUrl = sameOrigin
+      ? absolute.href
+      : `/api/media/fetch-image?url=${encodeURIComponent(absolute.href)}`;
+    const res = await fetch(fetchUrl, {
+      credentials: sameOrigin ? "same-origin" : "include",
+      headers: getSessionHeaders(),
+    });
+    if (!res.ok) return false;
+    const blob = await res.blob();
+    if (!blob.size) return false;
+    return await blobToDataUrl(blob);
+  } catch {
+    return false;
+  }
+}
+
+function shouldOmitFromCapture(node: Element): boolean {
+  const tag = node.tagName;
+  if (tag === "NOSCRIPT" || tag === "SCRIPT") return true;
+  if (node.getAttribute("data-edit-overlay") === "true") return true;
+  const testId = node.getAttribute("data-testid") || "";
+  if (testId.startsWith("badge-cache-status")) return true;
+  if (testId.startsWith("badge-override-status")) return true;
+  return false;
+}
+
+/** Wait until iframe images have settled (load or error) so logos are in the DOM. */
+async function waitForDocumentImages(doc: Document, timeoutMs = 8000): Promise<void> {
+  const images = Array.from(doc.images);
+  if (images.length === 0) return;
+
+  await Promise.all(
+    images.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+          setTimeout(done, timeoutMs);
+        }),
+    ),
+  );
+}
+
 function waitForPreviewReady(
   iframe: HTMLIFrameElement,
   timeoutMs = 20000,
@@ -41,13 +109,23 @@ function waitForPreviewReady(
       resolve(lastHeight);
     };
 
-    const timer = setTimeout(() => {
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
       cleanup();
-      reject(new Error("Timed out waiting for preview"));
+      reject(new Error(message));
+    };
+
+    const timer = setTimeout(() => {
+      fail("Timed out waiting for preview");
     }, timeoutMs);
 
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframe.contentWindow) return;
+      if (event.data?.type === "preview-error") {
+        fail(String(event.data.error || "Preview frame error"));
+        return;
+      }
       if (event.data?.type === "preview-ready") {
         ready = true;
       }
@@ -137,6 +215,13 @@ export async function captureIframeToWebp(options: CaptureIframeOptions): Promis
       throw new Error("No preview document");
     }
 
+    // Ensure capture theme is on <html> even if the frame ignored postMessage.
+    if (theme === "dark") {
+      doc.documentElement.classList.add("dark");
+    } else {
+      doc.documentElement.classList.remove("dark");
+    }
+
     doc.querySelectorAll("noscript").forEach((el) => el.remove());
 
     const target =
@@ -146,6 +231,8 @@ export async function captureIframeToWebp(options: CaptureIframeOptions): Promis
     if (!target) {
       throw new Error("No preview document root");
     }
+
+    await waitForDocumentImages(doc);
 
     let captureHeight = measureCaptureHeight(target, reportedHeight, minHeight, maxHeight);
     iframe.style.height = `${captureHeight}px`;
@@ -158,10 +245,10 @@ export async function captureIframeToWebp(options: CaptureIframeOptions): Promis
       width,
       height: captureHeight,
       backgroundColor,
+      fetchFn: fetchImageAsDataUrl,
       filter: (node) => {
         if (!(node instanceof Element)) return true;
-        const tag = node.tagName;
-        return tag !== "NOSCRIPT" && tag !== "SCRIPT";
+        return !shouldOmitFromCapture(node);
       },
     });
 

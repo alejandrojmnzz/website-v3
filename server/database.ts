@@ -2,7 +2,7 @@ import fs from "fs";
 import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
-import { getContentTypeConfig, getLocaleKey, getFieldMapping } from "./content-types";
+import { getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
 import { getValueByPath, resolveFieldValue, isTransformer, compileTransformer, runTransformer } from "./transform";
 import { ExternalImageCacher } from "./external-image-cacher";
 import { resolveBySourceUrl } from "./image-registry";
@@ -459,6 +459,7 @@ function applyContentTypeMapping(
   items: Record<string, unknown>[],
   mapping: Record<string, string>,
   contentType?: string,
+  fullMapping?: Record<string, string> | null,
 ): Record<string, unknown>[] {
   return items.map((src, idx) => {
     const mapped: Record<string, unknown> = { ...src };
@@ -473,6 +474,36 @@ function applyContentTypeMapping(
       if (value !== undefined) {
         mapped[targetKey] = value;
       }
+    }
+
+    const slugMapSource = fullMapping?.[RESERVED_SLUG_FIELD];
+    if (slugMapSource) {
+      const slugValue = resolveFieldValue(slugMapSource, src, RESERVED_SLUG_FIELD, contentType ? {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_SLUG_FIELD,
+      } : undefined);
+      applySlugAliasToEntry(mapped, slugValue);
+    }
+
+    const localeMapSource = fullMapping?.[RESERVED_LOCALE_FIELD];
+    if (localeMapSource) {
+      const localeValue = resolveFieldValue(localeMapSource, src, RESERVED_LOCALE_FIELD, contentType ? {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_LOCALE_FIELD,
+      } : undefined);
+      applyLocaleAliasToEntry(mapped, localeValue);
+    }
+
+    const imageSource = fullMapping?.[RESERVED_IMAGE_FIELD];
+    if (imageSource) {
+      const imageValue = resolveFieldValue(imageSource, src, RESERVED_IMAGE_FIELD, contentType ? {
+        contentType,
+        slug: itemSlug,
+        fieldPath: RESERVED_IMAGE_FIELD,
+      } : undefined);
+      applyImageAliasToEntry(mapped, imageValue);
     }
 
     if (!mapped.slug && mapped.title && typeof mapped.title === "string") {
@@ -950,10 +981,11 @@ export class DatabaseManager {
       }
 
       const ctMapping = getFieldMapping(contentType, this.contentRoot);
-      if (!ctMapping || Object.keys(ctMapping).length === 0) {
+      const fullMapping = getFullFieldMapping(contentType, this.contentRoot);
+      if ((!ctMapping || Object.keys(ctMapping).length === 0) && !fullMapping?.[RESERVED_IMAGE_FIELD] && !fullMapping?.[RESERVED_SLUG_FIELD]) {
         return rawItems;
       }
-      return applyContentTypeMapping(rawItems, ctMapping, contentType);
+      return applyContentTypeMapping(rawItems, ctMapping || {}, contentType, fullMapping);
     } catch (err) {
       log.error({ err: err }, `[DatabaseManager] Failed to fetch mapped items for "${contentType}":`);
       return [];

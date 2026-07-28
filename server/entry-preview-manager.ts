@@ -4,7 +4,12 @@ import * as path from "path";
 import type { MediaGallery } from "./media-gallery";
 import type { StorageProvider } from "./media/types";
 import type { ContentTypePreviewConfig } from "./content-types";
-import { RESERVED_IMAGE_FIELD } from "./content-types";
+import { RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD } from "./content-types";
+import {
+  buildPreviewPropsHashPayload,
+  type PreviewPropResolveContext,
+} from "@shared/entry-preview-props";
+import { buildPreviewPropResolveContext } from "./entry-preview-resolve";
 import { child } from "./logger";
 
 const log = child({ module: "entry-preview-manager" });
@@ -27,12 +32,22 @@ export interface EntryPreviewMeta {
   locale: string;
 }
 
+export interface EntryPreviewFailure {
+  slug: string;
+  locale: string;
+  error: string;
+  attempts?: number;
+  failedAt?: string;
+}
+
 export interface EntryPreviewStats {
   fromSource: number;
   generated: number;
   missing: number;
   dirty: number;
   failed: number;
+  /** Per-entry failure details (only entries counted in `failed`). */
+  failures: EntryPreviewFailure[];
 }
 
 export interface UpsertWebpInput {
@@ -64,14 +79,19 @@ function metaKey(
 
 export function hashPreviewProps(
   props: Record<string, string> | undefined,
-  entry: Record<string, unknown>,
+  ctxOrEntry: PreviewPropResolveContext | Record<string, unknown>,
 ): string {
-  const mapping = props || {};
-  const payload: Record<string, unknown> = {};
-  for (const [compKey, entryField] of Object.entries(mapping)) {
-    if (entryField === RESERVED_IMAGE_FIELD || compKey === RESERVED_IMAGE_FIELD) continue;
-    payload[compKey] = entry[entryField];
-  }
+  const ctx: PreviewPropResolveContext =
+    ctxOrEntry &&
+    typeof ctxOrEntry === "object" &&
+    "entry" in ctxOrEntry &&
+    (ctxOrEntry as PreviewPropResolveContext).entry &&
+    typeof (ctxOrEntry as PreviewPropResolveContext).entry === "object"
+      ? (ctxOrEntry as PreviewPropResolveContext)
+      : { entry: ctxOrEntry as Record<string, unknown> };
+  const payload = buildPreviewPropsHashPayload(props, ctx, RESERVED_IMAGE_FIELD);
+  // Also skip legacy image alias if it slipped through blocked list
+  if (IMAGE_ALIAS_FIELD in payload) delete payload[IMAGE_ALIAS_FIELD];
   return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
 }
 
@@ -317,11 +337,13 @@ export class EntryPreviewManager {
       width,
       locale,
     };
+    // Explicit omit of failedAt/error so JSON write clears the failure flag.
     const next: EntryPreviewMeta = {
-      ...existing,
+      url: existing.url || "",
+      capturedAt: existing.capturedAt || "",
       dirty: true,
-      failedAt: undefined,
-      error: undefined,
+      propsHash: existing.propsHash,
+      attempts: existing.attempts,
       width,
       locale,
     };
@@ -381,7 +403,7 @@ export class EntryPreviewManager {
     previewConfig: ContentTypePreviewConfig | null | undefined,
     opts?: { contentType: string; width?: number; skipHeadCheck?: boolean },
   ): Promise<{ url: string | null; source: "db" | "generated" | "none" }> {
-    const rawImage = entry[RESERVED_IMAGE_FIELD] ?? entry.preview;
+    const rawImage = entry[IMAGE_ALIAS_FIELD] ?? entry[RESERVED_IMAGE_FIELD] ?? entry.preview;
     const imageStr = typeof rawImage === "string" ? rawImage.trim() : "";
     if (imageStr) {
       const ok = opts?.skipHeadCheck ? true : await this.urlLooksUsable(imageStr);
@@ -487,6 +509,7 @@ export class EntryPreviewManager {
     let missing = 0;
     let dirty = 0;
     let failed = 0;
+    const failures: EntryPreviewFailure[] = [];
 
     for (const entry of entries) {
       const slug = String(entry.slug ?? "");
@@ -494,11 +517,13 @@ export class EntryPreviewManager {
         ? String(entry[localeKey] || "en")
         : String(entry.lang ?? entry.locale ?? entry.language ?? "en");
       const imageStr =
-        typeof entry[RESERVED_IMAGE_FIELD] === "string"
-          ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
-          : typeof entry.preview === "string"
-            ? (entry.preview as string).trim()
-            : "";
+        typeof entry[IMAGE_ALIAS_FIELD] === "string"
+          ? (entry[IMAGE_ALIAS_FIELD] as string).trim()
+          : typeof entry[RESERVED_IMAGE_FIELD] === "string"
+            ? (entry[RESERVED_IMAGE_FIELD] as string).trim()
+            : typeof entry.preview === "string"
+              ? (entry.preview as string).trim()
+              : "";
 
       if (imageStr && !/\{\{/.test(imageStr)) {
         fromSource++;
@@ -513,12 +538,39 @@ export class EntryPreviewManager {
       const meta = await this.getMeta(contentType, slug, locale, width);
       if (meta?.failedAt) {
         failed++;
+        failures.push({
+          slug,
+          locale,
+          error: meta.error?.trim() || "capture_failed",
+          attempts: meta.attempts,
+          failedAt: meta.failedAt,
+        });
         continue;
       }
-      const propsHash = hashPreviewProps(previewConfig.props, entry);
-      if (meta?.dirty || (dirtyOnPropChange && meta?.propsHash && propsHash !== meta.propsHash)) {
+      if (meta?.dirty) {
         dirty++;
         continue;
+      }
+      // Only pay for props-hash resolution when the type opts into dirty-on-change.
+      // Otherwise stats would hydrate/resolve every entry on each KPI poll (very slow
+      // for static types that map `content` for reading time).
+      if (dirtyOnPropChange) {
+        const propsHash = hashPreviewProps(
+          previewConfig.props,
+          await buildPreviewPropResolveContext({
+            contentType,
+            slug,
+            locale,
+            entry,
+            contentRoot: this.contentRoot,
+            mediaGallery: this.mediaGallery,
+            theme: previewConfig.theme === "light" ? "light" : "dark",
+          }),
+        );
+        if (meta?.propsHash && propsHash !== meta.propsHash) {
+          dirty++;
+          continue;
+        }
       }
       if (meta?.url) {
         generated++;
@@ -527,7 +579,7 @@ export class EntryPreviewManager {
       missing++;
     }
 
-    return { fromSource, generated, missing, dirty, failed };
+    return { fromSource, generated, missing, dirty, failed, failures };
   }
 }
 
@@ -552,8 +604,11 @@ export async function applyEntryPreviewOgImage(
   });
   if (!resolved.url) return null;
 
-  if (!entry[RESERVED_IMAGE_FIELD] || String(entry[RESERVED_IMAGE_FIELD]).trim() === "") {
-    entry[RESERVED_IMAGE_FIELD] = resolved.url;
+  const existing =
+    (typeof entry[IMAGE_ALIAS_FIELD] === "string" && (entry[IMAGE_ALIAS_FIELD] as string).trim()) ||
+    (typeof entry[RESERVED_IMAGE_FIELD] === "string" && (entry[RESERVED_IMAGE_FIELD] as string).trim());
+  if (!existing) {
+    entry[IMAGE_ALIAS_FIELD] = resolved.url;
   }
 
   if (pageData) {
