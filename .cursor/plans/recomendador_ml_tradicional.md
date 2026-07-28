@@ -760,6 +760,20 @@ Si **intent** pasa y **fit** no (o al revés): se puede publicar **solo** el que
 
 1–2 semanas: serving puede calcular la predicción ML y loguearla (`recommendation_served` con `source: shadow`) **sin** cambiar el CTA que ve el usuario (sigue YAML/reglas o modelo anterior). Comparar lift en `student_application` / CTR. Cutover de UI solo si shadow no empeora negocio.
 
+### Aprendizaje durante el desarrollo — riesgos que este plan YA evita
+
+**Respuesta corta: no, el plan no deja abiertos los errores típicos de “entrenar mientras desarrollo + mirar GA4”.** Aprender temprano está permitido; publicar inestable no. Mapeo explícito:
+
+| Riesgo (objeción típica) | ¿Lo tenemos como bug de diseño? | Cómo lo cierra este plan |
+|--------------------------|----------------------------------|---------------------------|
+| Dos fuentes de verdad para el mismo evento (GA4 vs collector) | **No** | **Postgres** (`POST /api/events`) = fuente **autoritativa** del feature store / train operativo. **GA4→BQ** = **solo bootstrap histórico** (volumen día 0 + labels/conversiones de marketing). El front hace dual write (`track()` + collector) para analytics + ML, pero **el job de train no suma conteos GA4 + Postgres del mismo click**. IDs: cookie/`user_id` de sesión alineada con lo que ya manda GTM; no se mezclan filas de features de ambas fuentes como si fueran independientes. |
+| “Aprendiendo” = reentrenar en cada commit de tracking | **No** | XGBoost es **batch**. Disparador de retrain = **cron semanal** (tabla Disparadores). Cablear un CTA nuevo **no** publica modelo. Webhook de contenido = rebuild índice, no XGB por default. |
+| Modelo parcial/ruido llega a la UI del visitante | **No** | **Gate F1** (no publicar si no gana a prod/reglas) + **shadow** (predice y loguea sin cambiar CTA) + fallback YAML genérico si no hay pack/ML listo. |
+| Features vacías en sesiones viejas vs densas en nuevas (sesgo mientras Fase 1 se cablea) | **No como fallo silencioso** | Se **conoce y se gestiona**: labels de conversión (`student_application`) son fiables antes; features de comportamiento maduran con el collector. Mientras el tracking esté incompleto: UI = reglas/YAML/matriz bootstrap; ML en **shadow** o train **exploratorio** (candidato no promovido). Cada artefacto lleva `model_version` + set de features usado; **no** comparar F1 a ciegas entre schemas distintos. |
+| Contrastar con GA4 “en vivo” confunde train y analytics | **No** | GA4 sirve para **métricas de negocio / contraste** (aplicaciones, CTR, funnels) y bootstrap. **No** es el feature store del serving. “Contrastar con GA4” ≠ “entrenar dos modelos en paralelo con dos verdades”. |
+
+**Qué sí está permitido desde ya:** bootstrap con GA4 histórico → candidatos en shadow → ir sumando eventos al collector → cron semanal → gate decide promoción. Eso **es** el diseño; no es un atajo fuera del plan.
+
 ### Dónde vive esto en el plan de producto
 
 - Umbrales + último score: **DebugBubble → Recommender → Status / models**  
