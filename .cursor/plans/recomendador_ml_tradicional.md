@@ -21,7 +21,7 @@ todos:
     content: Entrenar intent (XGBoost) + product fit con clases dinámicas del catálogo y versionar artefactos
     status: pending
   - id: o2-asset-index
-    content: Índice estático de assets + k-NN/embeddings offline para nurturing
+    content: "asset_index (~500 exercises + ~500 how-tos) + k-NN runtime; document ranking filters; rebuild_asset_index job"
     status: pending
   - id: o2-serving-proxy
     content: "FastAPI Docker en puerto distinto a Express (default host 8090, no 5000) + proxy Express /api/recommend + cache + fallback"
@@ -60,28 +60,34 @@ Tres piezas especializadas (ML clásico, **sin LLM en inferencia**):
 
 ### 2. Product fit — afinidad de producto (latente o venta)
 
-- **Modelo:** **Random Forest o XGBoost** multiclase.
+- **Modelo:** **XGBoost** multiclase (default; LightGBM alternativa equivalente). Misma familia que intent — un solo stack de training/serving.
 - **Clases:** los `product_id` del catálogo dinámico (no solo 3 fijos).
 - **Rol según strategy:** en `**direct_sale`** = producto a ofrecer en UI; en `**nurturing**` = afinidad interna para filtrar assets / tono del pack — **no** CTA de compra ni override de `program` en el slot.
 - **Apoyo de texto:** embeddings offline (**MiniLM** local u otro) sobre title + SEO/meta del program, para afinidad y cold start de productos nuevos — **solo en batch**, no en cada request.
 
-### 3. Content / nurturing — qué asset servir
+### 3. Content / nurturing — qué asset servir (entre cientos de exercises + how-tos)
 
-- **Modelo:** **k-NN** sobre embeddings estáticos de assets (mismo tipo de embedder en job offline).
-- Más adelante, si hay volumen: matrix factorization click→asset.
-- **Sale:** `recommended_asset_type` + `recommended_asset_id` solo si `strategy === nurturing`.
+**Problema:** en nurturing hay del orden de **~500 `interactive_exercise` + ~500 `how-to`** (más blogs, etc.). **No** hay un offer pack ni un if humano por cada uno.
+
+**Respuesta del plan:** un **índice de assets** + **k-NN sobre embeddings** elige **un** `recommended_asset_type` + `recommended_asset_id`.
+
+- **Offline:** job `rebuild_asset_index` escanea `site_*` → por cada asset guarda id, contentType, locale, title, SEO/meta, difficulty, tags → embedding (MiniLM u otro) → `asset_index_vN` en memoria del serving.
+- **Runtime (solo si `strategy === nurturing`):** arma query vector desde features de sesión (technical vs beginner, exercises ya vistos, afinidad de producto latente, idioma…) → k vecinos más cercanos en el índice → filtra ya vistos / locale → top-1 (o sample) → ese id va al JSON.
+- **Exercise vs how-to:** no es un enum a mano; sale del ranking (p.ej. mucha práctica/LearnPack acerca a exercises; browse editorial acerca a how-tos). Difficulty/tags de lo ya clickeado sesgan technical vs beginner.
+- **Pack:** solo plantilla de copy + `{asset_title}`; el **cuál** de los ~1000 lo decide el k-NN, no marketing uno a uno.
+- Más adelante, con volumen: matrix factorization click→asset además del k-NN.
 
 **En runtime (FastAPI):** carga intent + fit (+ índice de assets/productos) en memoria → ~10–30 ms.  
 **No** GPT/OpenRouter en el path de recommend; Qdrant del admin **no** se usa para el visitor (solo opcional para precomputar embeddings offline).
 
-**Default del diagrama:** Intent = XGBoost, Fit = RF/XGB, Assets = k-NN + MiniLM offline.
+**Default del diagrama:** Intent = XGBoost, Fit = XGBoost, Assets = k-NN + MiniLM offline.
 
 ```mermaid
 flowchart LR
   events[Clickstream_GEO_UTM] --> etl[ETL_FeatureStore]
   etl --> features[Session_feature_vector]
   features --> intent[Intent_XGBoost]
-  features --> fit[ProductFit_RF]
+  features --> fit[ProductFit_XGBoost]
   intent --> serve[Inference_API]
   fit --> serve
   programs[program_YAML_navbar_landings] --> productIdx[product_index_vN]
@@ -206,11 +212,15 @@ website-v3/
 
 En nurturing **no** se le recomienda al usuario un producto como CTA de compra. El `recommended_product` del product-fit es una **señal interna** (afinidad / riel del funnel: ¿contenido hacia Engineering vs Flex?) para filtrar el k-NN de assets — no para pintar “Compra AI Flex”.
 
+**Cómo sabemos qué recomendar entre ~500 exercises y ~500 how-tos:**
+
 1. Intent → `strategy: nurturing` (cold/warm).
-2. Product-fit → `recommended_product` **latente** (solo para ranking de contenido / pack de tono).
-3. Asset model → `recommended_asset_type` + `recommended_asset_id` (de los ~500).
-4. Pack **nurturing** (por locale/slot, opcionalmente matizado por afinidad de producto): plantilla de copy educativo + `{asset_title}`; **destino = asset**, nunca apply/checkout.
-5. `recommended_product` puede ir en el JSON para analytics/GTM, pero el overlay del slot **no** mapea a `program`/apply en strategy nurturing.
+2. Product-fit → `recommended_product` **latente** (filtro/boost del ranking de assets + tono del pack).
+3. **Asset k-NN** sobre `asset_index_vN` (todos los exercises + how-tos + blogs indexados) → **un** `recommended_asset_type` + `recommended_asset_id` (p.ej. `interactive_exercise/foo` o `how-to/bar`). Ver §2.3.
+4. Pack **nurturing** (pocos packs, no 1000): plantilla + `{asset_title}`; **destino = URL del asset**.
+5. `recommended_product` puede ir en el JSON para analytics; el overlay **no** mapea a `program`/apply.
+
+No hay lista manual “si cold → exercise A”. El índice + similitud + filtros (locale, already_seen, difficulty) escalan a cientos de assets.
 
 **Direct sale:** ahí sí el producto es la oferta visible (pack venta + apply/`program`).
 
@@ -551,7 +561,7 @@ Cuando haya volumen: **label real** = outcome (aplicó en ≤7d → hot); la mat
 
 1. Intent model → `intent_stage` + `strategy` (`nurturing` vs `direct_sale`)
 2. Product-fit → `recommended_product` (en **nurturing** = afinidad interna para filtrar contenido; en **direct_sale** = producto a ofrecer en UI)
-3. Si `nurturing` → asset k-NN → asset id; pack nurturing + destino = contenido (no CTA de compra)
+3. Si `nurturing` → asset k-NN → asset id; pack nurturing + destino = contenido (no CTA de compra) — [detalle: cómo se elige entre ~500 exercises / how-tos](#asset-knn-nurturing)
 4. Si `direct_sale` → pack de venta + apply/`program`; asset null
 5. Una sola pintura del pack (tras hold); si falla → cascada YAML → `resolveOffer`
 
@@ -570,7 +580,7 @@ Los productos **cambian**: nuevos `program`, cambios de navbar, landings de vent
 
 **Product fit:**
 
-- **Algo:** Random Forest o XGBoost multiclase con **clases = product_ids del catálogo en ese train**
+- **Algo:** **XGBoost** multiclase con **clases = product_ids del catálogo en ese train** (LightGBM ok como drop-in). No Random Forest como default — menos accuracy típica y otro stack que mantener.
 - **Features:** persona, clicks técnicos vs beginner, `program_views` dinámicos, GEO, UTM, scores de afinidad sesión↔embedding de producto
 - **Output:** `recommended_product` (+ opcional `secondary_product` en **direct_sale** / downsell). En **nurturing** el id es afinidad para filtrar k-NN / tono del pack; la UI no lo trata como oferta.
 - **Cold start producto nuevo:** ranking por similitud embedding (meta) + reglas hasta haber leads con ese `program`
@@ -586,13 +596,53 @@ Sí — reutilizar el push webhook ya cableado en `[POST /api/github/webhook](se
 
 Fallback: el cron semanal sigue haciendo rebuild por hash si un push se perdió o el webhook falló.
 
+<a id="asset-knn-nurturing"></a>
+
 ### 2.3 Content / asset recommendation (nurturing)
 
-- **Algo:** k-NN sobre **embeddings estáticos precomputados** de assets (batch offline; puede usar el mismo MiniLM local **solo en job**, no en request path) **o** matrix factorization cuando haya suficiente co-ocurrencia click→asset
-- **Catálogo:** inventario `{contentType}/{slug}` + difficulty + tags (scan `site_`* vía contentLoader)
-- **Output:** `recommended_asset_type` + `recommended_asset_id` solo si `strategy === nurturing`
+**Pregunta de producto:** con ~500 interactive exercises y ~500 how-tos (más blogs…), ¿quién elige cuál mostrar?  
+**Respuesta:** el **asset recommender** (k-NN + índice), no marketing creando 1000 packs ni el intent model.
 
-Artefactos versionados: `models/intent_vN.json|ubj`, `fit_vN`, `product_index_vN`, `asset_index_vN` + metadata en el serving.
+#### Offline — `rebuild_asset_index` → `asset_index_vN`
+
+1. Scan content (`interactive_exercise`, `how-to`, `blog`, lead magnets, …) por `site_id` / locale.
+2. Por cada entrada: `{ contentType, slug, title, meta, difficulty, tags, locale, url }`.
+3. Texto para embedding: title + SEO/meta (+ tags/difficulty).
+4. Embedder batch (MiniLM local u otro) → vector por asset; guardar índice versionado en el servicio recommender.
+5. Trigger: publish de exercise/how-to, cron, o tras sync de contenido (mismo espíritu que `product_index`).
+
+#### Runtime — solo si `strategy === nurturing`
+
+```text
+features sesión (+ affinity product latente)
+        ↓
+query vector / filtros (locale, site, exclude already_seen_asset_ids)
+        ↓
+k-NN sobre asset_index_vN  (~10ms en memoria)
+        ↓
+top candidatado(s): p.ej. interactive_exercise/xyz  |  how-to/abc
+        ↓
+JSON: recommended_asset_type + recommended_asset_id
+        ↓
+offer pack nurturing (plantilla) + href del asset
+```
+
+| Señal de sesión | Efecto típico en el ranking |
+|-----------------|-----------------------------|
+| `n_clicks_technical` alto / difficulty hard | Assets advanced / technical |
+| `n_clicks_beginner` / intro | Assets easy / beginner |
+| `n_learnpack_starts` / muchos exercises | Preferir siguiente exercise distinto; o how-to de refuerzo |
+| Poco hands-on, mucho blog | Sesgo hacia how-to / blog |
+| Afinidad product latente (Flex vs Engineering) | Boost assets alineados al riel |
+| Assets ya vistos en sesión/user | Exclude / downrank |
+
+**Día 0 (índice frío):** poca co-ocurrencia click→asset → ranking casi solo por similitud embedding + difficulty/tags/locale + reglas. Con datos: mejorar con MF o re-rank aprendido.
+
+**Output:** `recommended_asset_type` + `recommended_asset_id` **solo** si `strategy === nurturing`. En `direct_sale` → asset null.
+
+**No es LLM en request.** No es Qdrant visitor obligatorio (el índice puede ser fichero/memoria en FastAPI; Qdrant admin solo opcional para precomputar offline).
+
+Artefactos versionados: `models/intent_vN`, `fit_vN`, `product_index_vN`, `asset_index_vN` + metadata en el serving.
 
 ---
 
@@ -763,7 +813,7 @@ Same contract `**warnings`** must appear in `recommender-feeding.mdc` when a slo
 
 ## Education layer
 
-**Staff (UI):** All recommender admin UI lives under **DebugBubble → Recommender** (new menu next to **Store & Monetization** in [`DebugPanelContent.tsx`](client/src/components/DebugBubble/components/DebugPanelContent.tsx)): Offer packs, knowledge share, status/shadow. Visitor slots hold ~200ms then one paint. **Nurturing** = asset; **direct sale** = product packs. Multi-site default isolated; share only if donor+consumer opt in. Optional **Read more:** Recommender menu paths, `cta-tracking.mdc`, `recommender-feeding.mdc`, `services/recommender/`. Empty states teach nurturing vs sale; banner when ML vs fallback / consuming shared data.
+**Staff (UI):** All recommender admin UI under **DebugBubble → Recommender** (next to Store & Monetization). **Nurturing:** the system picks **one** asset among hundreds of exercises/how-tos via **asset_index + k-NN** (not one pack per asset); packs are templates only. **Direct sale:** product packs. Multi-site default isolated; knowledge share opt-in. Optional **Read more:** §2.3 asset k-NN, Recommender menu, `services/recommender/`, `cta-tracking.mdc`. Empty states: nurturing=asset ranking vs sale=product; banner ML vs fallback.
 
 **Agents (MCP):** Dense EN payloads — `warnings` / `side_effects` / `next_actions` with paths (e.g. editing an offer pack invalidates nothing until publish/rebuild; changing SEO meta needs catalog rebuild). Mutating tools follow [mcp-server-responses.mdc](.cursor/rules/mcp-server-responses.mdc).
 
