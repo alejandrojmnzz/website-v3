@@ -672,14 +672,93 @@ Artefactos versionados: `models/intent_vN`, `fit_vN`, `product_index_vN`, `asset
 
 ## Fase 4 — Re-entrenamiento automatizado
 
-- **Cron semanal/mensual** (GitHub Action / Cloud Scheduler) — safety net + retrain modelos:
-  1. Rebuild `product_index` si cambió hash vs `catalog_version` en prod (por si falló el webhook)
-  2. Export features + labels (leads con `program` + conversiones GTM/CRM)
-  3. Reentrenar intent + fit (clases = catálogo actual); evaluar AUC/F1 vs holdout y vs baseline reglas
-  4. Si métricas ≥ umbral → publicar `model_version` + `catalog_version` y hot-reload o redeploy serving
-  5. Si no → conservar versión anterior + alerta
-- **Push webhook (path caliente):** cambio de navbar/menus (y programs/landings/SEO) → solo rebuild de `product_index` + embeddings; retrain fit solo si el set de product_ids cambió
-- Shadow mode 1–2 semanas: loggear predicción ML vs reglas sin cambiar UI, comparar lift en `student_application` / CTR CTA.
+El visitante **no** reentrena nada. Un job batch genera candidatos (`intent_vN+1`, `fit_vN+1`), los **evalúa**, y solo entonces **publica** (reemplaza el artefacto que carga FastAPI) si pasan los umbrales.
+
+### Disparadores
+
+| Disparador | Acción | ¿Reentrena XGBoost? |
+|------------|--------|---------------------|
+| **Cron semanal** (default v1; mensual si poco tráfico) — GitHub Action / Cloud Scheduler | Flujo completo abajo | **Sí** intent + fit |
+| **Webhook** push menus/programs/landings/SEO | Rebuild `product_index` + embeddings | Fit **solo** si cambió el set de `product_id` |
+| Publish exercise/how-to | `rebuild_asset_index` | No (índice k-NN, no XGB) |
+| Request `/api/recommend` | Inferencia | **No** |
+
+### Pipeline del cron (paso a paso)
+
+1. Rebuild `product_index` si hash ≠ `catalog_version` en prod (por si falló el webhook).
+2. Export features + labels desde Postgres (`build_intent_labels` + conversiones `program` / GTM/CRM). Split temporal: **train** = sesiones antiguas; **holdout** = últimas 1–2 semanas (no mezclar el futuro en el train).
+3. Entrenar `intent_vN+1` + `fit_vN+1` (clases = catálogo actual).
+4. Calcular **métricas** en holdout (tabla abajo) y comparar vs modelo en prod + vs baseline de reglas (matriz bootstrap / `resolveOffer`).
+5. **Gate de promoción:** si pasa umbrales → escribir `model_version` activo + hot-reload/redeploy FastAPI (**eso** es “reemplazar el modelo”: el serving carga los archivos nuevos).
+6. Si no pasa → **no** tocar prod; alerta Slack/email + artefacto candidato guardado para debug. UI: **DebugBubble → Recommender → Status**.
+
+### Qué consideramos métrica (v1 — defaults concretos)
+
+**Intent (cold / warm / hot)** — clasificación multiclase:
+
+| Métrica | Qué mide | Rol |
+|---------|----------|-----|
+| **F1 macro** | Promedio del F1 de las 3 clases (no ignora la clase rara) | **Primaria** para promover |
+| **F1 de `hot`** | Qué tan bien detectamos high-intent | **Secundaria** (no regresar vs prod) |
+| Accuracy | % aciertos globales | Solo informativa (puede engañar si hay muchos cold) |
+
+**Product-fit** (clase = `product_id`):
+
+| Métrica | Qué mide | Rol |
+|---------|----------|-----|
+| **F1 macro** (o weighted si hay clase dominante) | Acierto por producto | **Primaria** |
+| **Top-1 accuracy** | ¿El producto #1 predicho = label? | Secundaria |
+| **Top-2 accuracy** | ¿El label está en top-2? (útil con downsell) | Informativa |
+
+**Assets (k-NN)** — no es el mismo gate XGB; v1 online:
+
+| Métrica | Qué mide | Rol |
+|---------|----------|-----|
+| CTR del CTA nurturing / click al asset recomendado | ¿Sirvió el asset? | Shadow / informe |
+| Diversidad / % already_seen | Salud del ranking | Alerta si colapsa a 1 asset |
+
+**Negocio (shadow / post-cutover, no bloquean el primer publish técnico):**
+
+| Métrica | Qué mide |
+|---------|----------|
+| Tasa `student_application` (o apply) por sesión con slot ML | Lift vs control/reglas |
+| CTR `recommendation_served` → click CTA | Engagement del pack |
+
+### Umbrales iniciales de promoción (defaults v1 — editables)
+
+Valores de arranque; se pueden ajustar en **Recommender → Status** / config del job (`promotion_thresholds.yml`) sin cambiar código del modelo.
+
+**Intent — publicar `intent_vN+1` solo si:**
+
+1. `F1_macro(holdout) ≥ 0.55` (primeros meses; subir a **0.65** cuando haya ≥~2–4 semanas de labels densos), **y**
+2. `F1_macro(nuevo) ≥ F1_macro(prod) - 0.02` (no regresar más de 2 puntos vs el que ya está en serving), **y**
+3. `F1_hot(nuevo) ≥ F1_hot(prod) - 0.03` (no degradar mucho la detección de hot), **y**
+4. `F1_macro(nuevo) ≥ F1_macro(baseline_reglas) + 0.03` (debe ganar a la matriz bootstrap / reglas; si no, no vale la pena el ML).
+
+**Product-fit — publicar `fit_vN+1` solo si:**
+
+1. `F1_macro(holdout) ≥ 0.40` con pocas clases/datos al inicio (subir a **0.50** con más leads por producto), **y**
+2. `F1_macro(nuevo) ≥ F1_macro(prod) - 0.02`, **y**
+3. Top-1 accuracy ≥ baseline “siempre el producto más popular del site” + margen mínimo **0.05**.
+
+Si **intent** pasa y **fit** no (o al revés): se puede publicar **solo** el que pasó (versiones independientes en `model_version`, p.ej. `intent_v5+fit_v2`).
+
+### Ejemplo numérico
+
+- Prod: intent F1 macro **0.62**, F1 hot **0.48**  
+- Candidato: F1 macro **0.67**, F1 hot **0.51**, baseline reglas **0.50**  
+→ Cumple ≥0.55, no regresa vs prod, gana a reglas en +0.03 → **sí se publica** (FastAPI carga `intent_vN+1`).
+
+- Candidato: F1 macro **0.53** → **no** se publica; sigue `intent_vN` + alerta.
+
+### Shadow mode (antes del cutover de UI)
+
+1–2 semanas: serving puede calcular la predicción ML y loguearla (`recommendation_served` con `source: shadow`) **sin** cambiar el CTA que ve el usuario (sigue YAML/reglas o modelo anterior). Comparar lift en `student_application` / CTR. Cutover de UI solo si shadow no empeora negocio.
+
+### Dónde vive esto en el plan de producto
+
+- Umbrales + último score: **DebugBubble → Recommender → Status / models**  
+- Education staff: “Publish = replace files loaded by FastAPI; failed gate = keep previous model.”
 
 ---
 
