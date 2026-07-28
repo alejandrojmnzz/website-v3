@@ -3,8 +3,6 @@ import UniversalImage from "@/components/UniversalImage";
 import { Badge } from "@/components/ui/badge";
 import { formatReadingTimeLabel } from "@/lib/readingTime";
 
-const DEFAULT_LOGO_ID = "4geeks-devs-logo-1763162063433";
-
 interface OgImagePreviewProps {
   data: OgImagePreviewSection;
 }
@@ -46,7 +44,9 @@ function categoryLabels(category: unknown): string[] {
 
 export function OgImagePreviewDefault({ data }: OgImagePreviewProps) {
   const { logo, category, title, author, content, reading_time } = data;
-  const logoId = typeof logo === "string" && logo.length > 0 ? logo : DEFAULT_LOGO_ID;
+  // No light-logo default — dark OG maps brand.logo_dark; inventing a light
+  // wordmark here is how the wrong logo got baked into captures.
+  const logoId = typeof logo === "string" && logo.trim().length > 0 ? logo.trim() : "";
   const readingLabel =
     (typeof reading_time === "string" && reading_time.trim()) || formatReadingTimeLabel(content);
   const metaLine = formatMetaLine(author, readingLabel);
@@ -62,14 +62,16 @@ export function OgImagePreviewDefault({ data }: OgImagePreviewProps) {
       data-testid="section-og-image-preview"
     >
       <div className="flex items-center" data-testid="og-image-preview-logo">
-        <UniversalImage
-          id={logoId}
-          alt="4Geeks"
-          loading="eager"
-          className="h-10 w-auto max-w-[280px]"
-          style={{ objectFit: "contain" }}
-          fieldContext={{ fieldPath: "logo" }}
-        />
+        {logoId ? (
+          <UniversalImage
+            id={logoId}
+            alt="4Geeks"
+            loading="eager"
+            className="h-10 w-auto max-w-[280px]"
+            style={{ objectFit: "contain" }}
+            fieldContext={{ fieldPath: "logo" }}
+          />
+        ) : null}
       </div>
 
       <div className="flex max-w-[920px] flex-col gap-4">

@@ -2746,6 +2746,14 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Entry not found: ${type}/${slug}` });
         return;
       }
+      // Capture job can override theme via ?theme= so logo resolve matches the iframe.
+      const themeQuery = typeof req.query.theme === "string" ? req.query.theme : "";
+      const theme: "dark" | "light" =
+        themeQuery === "light" || themeQuery === "dark"
+          ? themeQuery
+          : preview.theme === "light"
+            ? "light"
+            : "dark";
       const ctx = await buildPreviewPropResolveContext({
         contentType: type,
         slug,
@@ -2754,7 +2762,7 @@ export function registerContentRoutes(app: Express): void {
         contentRoot: getContentRoot(res),
         db: getDB(res),
         mediaGallery: getMediaGallery(res),
-        theme: preview.theme === "light" ? "light" : "dark",
+        theme,
       });
       const { section, missing } = buildPreviewSection(preview, ctx);
       if (missing.length > 0) {
@@ -2769,7 +2777,7 @@ export function registerContentRoutes(app: Express): void {
         contentType: type,
         slug,
         locale,
-        theme: preview.theme || "dark",
+        theme,
         width: preview.widths?.[0] ?? DEFAULT_PREVIEW_WIDTH,
         maxHeight: preview.maxHeight ?? DEFAULT_PREVIEW_MAX_HEIGHT,
         propsHash,

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Image, ImageOff, Loader2, Pencil, RefreshCw, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Image, ImageOff, Loader2, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -332,12 +332,13 @@ export function EntryPreviewConfigDialog({
       },
       brand: {
         "brand.title": brandData?.title || "Brand",
-        // Dark live theme prefers brand.logo_dark URL when available.
+        // brand.logo is theme-aware with light fallback; brand.logo_dark is dark-only
+        // (never substitute the light wordmark — dark OG canvases map logo_dark explicitly).
         "brand.logo":
           theme === "dark"
             ? brandData?.logo_dark_src || brandData?.logo_src || ""
             : brandData?.logo_src || "",
-        "brand.logo_dark": brandData?.logo_dark_src || brandData?.logo_src || "",
+        "brand.logo_dark": brandData?.logo_dark_src || "",
       },
     });
     for (const key of ["title", "category", "author", "logo"] as const) {
@@ -769,10 +770,12 @@ export function EntryPreviewConfigDialog({
                       <code className="font-mono">meta.og_image</code>.
                     </p>
                     <p>
-                      Brand logos: <code className="font-mono">brand.logo</code> resolves to the
-                      light URL in light theme and to <code className="font-mono">brand.logo_dark</code>{" "}
-                      (when set) in dark theme. Registry IDs in{" "}
-                      <code className="font-mono">variables.yml</code> become URLs for the screenshot.
+                      Brand logos: <code className="font-mono">brand.logo</code> is theme-aware
+                      (light URL, or dark URL in dark theme with light fallback).{" "}
+                      <code className="font-mono">brand.logo_dark</code> is the dark-mode wordmark
+                      only — use it for dark OG canvases; it never falls back to the light logo.
+                      Registry IDs in <code className="font-mono">variables.yml</code> become URLs
+                      for the screenshot. Set the dark logo under Settings → Brand if empty.
                     </p>
                   </CollapsibleContent>
                 </Collapsible>
@@ -949,9 +952,20 @@ export function EntryPreviewCard({
   const { toast } = useToast();
   const [confirmRetryOpen, setConfirmRetryOpen] = useState(false);
   const [generateAllOpen, setGenerateAllOpen] = useState(false);
+  const [generateMode, setGenerateMode] = useState<"missing" | "all">("missing");
   const [configOpen, setConfigOpen] = useState(false);
 
-  const { data, isLoading, refetch, isFetching } = useQuery<EntryPreviewStats>({
+  const missingCount = generateAllCounts?.missing ?? 0;
+  const allCount = generateAllCounts?.all ?? 0;
+  const canGenerateAll = !!onGenerateAll && missingCount + allCount > 0;
+  const selectedGenerateCount = generateMode === "missing" ? missingCount : allCount;
+
+  const openGenerateAllDialog = () => {
+    setGenerateMode(missingCount > 0 ? "missing" : "all");
+    setGenerateAllOpen(true);
+  };
+
+  const { data, isLoading } = useQuery<EntryPreviewStats>({
     queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
     queryFn: async () => {
       const r = await fetch(
@@ -1032,15 +1046,22 @@ export function EntryPreviewCard({
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">OG Preview</CardTitle>
           <div className="flex items-center gap-1">
-            {hasPreview && (
+            {hasPreview && canGenerateAll && (
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => refetch()}
-                disabled={isFetching}
-                data-testid="button-refresh-entry-preview-stats"
+                onClick={openGenerateAllDialog}
+                disabled={queueBusyCount > 0}
+                title={
+                  queueBusyCount > 0
+                    ? `Generating ${queueBusyCount}…`
+                    : "Generate OG previews"
+                }
+                data-testid="button-generate-all-entry-previews-header"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${queueBusyCount > 0 ? "animate-spin" : ""}`}
+                />
               </Button>
             )}
             <Image className="h-4 w-4 text-muted-foreground" />
@@ -1075,11 +1096,11 @@ export function EntryPreviewCard({
                     {queuePaused ? " · paused (tab hidden)" : ""}
                   </p>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {onGenerateAll && (generateAllCounts?.missing ?? 0) + (generateAllCounts?.all ?? 0) > 0 && (
+                    {canGenerateAll && (
                       <button
                         type="button"
                         className="text-xs text-primary hover:underline"
-                        onClick={() => setGenerateAllOpen(true)}
+                        onClick={openGenerateAllDialog}
                         data-testid="button-generate-all-entry-previews"
                       >
                         Generate all…
@@ -1159,51 +1180,85 @@ export function EntryPreviewCard({
       <Dialog open={generateAllOpen} onOpenChange={setGenerateAllOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Generate OG previews</DialogTitle>
-            <DialogDescription>
-              Choose which entries to capture. One at a time with a short pause between each. Keep
-              this tab open — the queue pauses when hidden.
+            <DialogTitle>Generate OG previews?</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This queues screenshot captures for this content type. Each entry is rendered with
+                  the configured preview component, then saved as the admin thumbnail and{" "}
+                  <code className="text-xs">og:image</code> when the reserved image field is empty.
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-xs">
+                  <li>Runs one at a time in this browser tab (short pause between each).</li>
+                  <li>Keep this tab open — the queue pauses when the tab is hidden.</li>
+                  <li>Does not overwrite entries that already use a source/DB image.</li>
+                  <li>Regenerate all will re-capture even when a preview already exists.</li>
+                </ul>
+              </div>
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2" role="radiogroup" aria-label="Generate scope">
             <Button
+              type="button"
               variant="outline"
-              className="justify-start h-auto py-3 px-4"
-              disabled={(generateAllCounts?.missing ?? 0) === 0}
-              onClick={() => {
-                onGenerateAll?.("missing");
-                setGenerateAllOpen(false);
-              }}
+              className={cn(
+                "justify-start h-auto py-3 px-4",
+                generateMode === "missing" && "border-primary ring-1 ring-primary",
+              )}
+              disabled={missingCount === 0}
+              onClick={() => setGenerateMode("missing")}
+              aria-checked={generateMode === "missing"}
+              role="radio"
               data-testid="button-generate-missing-previews"
             >
               <div className="text-left">
                 <div className="font-medium">Missing only</div>
                 <div className="text-xs text-muted-foreground font-normal">
-                  {generateAllCounts?.missing ?? 0} without a preview yet (or marked dirty)
+                  {missingCount} without a preview yet (or marked dirty)
                 </div>
               </div>
             </Button>
             <Button
+              type="button"
               variant="outline"
-              className="justify-start h-auto py-3 px-4"
-              disabled={(generateAllCounts?.all ?? 0) === 0}
-              onClick={() => {
-                onGenerateAll?.("all");
-                setGenerateAllOpen(false);
-              }}
+              className={cn(
+                "justify-start h-auto py-3 px-4",
+                generateMode === "all" && "border-primary ring-1 ring-primary",
+              )}
+              disabled={allCount === 0}
+              onClick={() => setGenerateMode("all")}
+              aria-checked={generateMode === "all"}
+              role="radio"
               data-testid="button-regenerate-all-previews"
             >
               <div className="text-left">
                 <div className="font-medium">Regenerate all</div>
                 <div className="text-xs text-muted-foreground font-normal">
-                  {generateAllCounts?.all ?? 0} entries — re-capture even if a preview exists
+                  {allCount} entries — re-capture even if a preview exists
                 </div>
               </div>
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground" data-testid="text-generate-confirm-summary">
+            {selectedGenerateCount > 0
+              ? `About to queue ${selectedGenerateCount} capture${selectedGenerateCount === 1 ? "" : "s"} (${generateMode === "missing" ? "missing/dirty only" : "all eligible entries"}).`
+              : "No entries match this option."}
+          </p>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={() => setGenerateAllOpen(false)}>
               Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={selectedGenerateCount === 0}
+              onClick={() => {
+                onGenerateAll?.(generateMode);
+                setGenerateAllOpen(false);
+              }}
+              data-testid="button-confirm-generate-entry-previews"
+            >
+              <Wand2 className="h-3.5 w-3.5 mr-1" />
+              Generate {selectedGenerateCount > 0 ? selectedGenerateCount : ""}
             </Button>
           </DialogFooter>
         </DialogContent>

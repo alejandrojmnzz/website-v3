@@ -31,8 +31,11 @@ export default function EntryPreviewFrame() {
   const searchParams = new URLSearchParams(searchString);
   const locale = searchParams.get("locale") || "en";
   const isCapture = searchParams.get("capture") === "1";
+  const themeFromQuery = searchParams.get("theme");
+  const initialTheme: "dark" | "light" =
+    themeFromQuery === "light" || themeFromQuery === "dark" ? themeFromQuery : "dark";
 
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
   const [section, setSection] = useState<Section | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +57,15 @@ export default function EntryPreviewFrame() {
     }
   }, [theme]);
 
+  // Apply query theme immediately so capture iframes are dark before paint.
+  useEffect(() => {
+    if (initialTheme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [initialTheme]);
+
   useEffect(() => {
     if (!contentType || !slug) {
       setError("Missing content type or slug");
@@ -62,8 +74,12 @@ export default function EntryPreviewFrame() {
     }
     setLoading(true);
     setError(null);
+    const frameQs = new URLSearchParams({ locale });
+    if (themeFromQuery === "light" || themeFromQuery === "dark") {
+      frameQs.set("theme", themeFromQuery);
+    }
     fetch(
-      `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(slug)}/preview-frame?locale=${encodeURIComponent(locale)}`,
+      `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(slug)}/preview-frame?${frameQs}`,
     )
       .then(async (res) => {
         const data = (await res.json()) as PreviewFramePayload & { error?: string };
@@ -87,11 +103,16 @@ export default function EntryPreviewFrame() {
           logo: coercePreviewScalar(raw.logo) ?? raw.logo,
         } as Section;
         setSection(normalized);
-        if (data.theme === "light" || data.theme === "dark") setTheme(data.theme);
+        // Prefer capture URL theme, then API theme.
+        if (themeFromQuery === "light" || themeFromQuery === "dark") {
+          setTheme(themeFromQuery);
+        } else if (data.theme === "light" || data.theme === "dark") {
+          setTheme(data.theme);
+        }
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
-  }, [contentType, slug, locale]);
+  }, [contentType, slug, locale, themeFromQuery]);
 
   useEffect(() => {
     if (loading) return;

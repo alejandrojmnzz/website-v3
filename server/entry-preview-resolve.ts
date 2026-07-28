@@ -60,14 +60,18 @@ function brandMapFromRoot(
     settings.logo_dark;
 
   const lightUrl = resolveBrandLogoUrl(String(logoId || ""), mg);
-  const darkUrl = resolveBrandLogoUrl(String(logoDarkId || ""), mg) || lightUrl;
+  // Do not fall back to the light logo here — callers that map brand.logo_dark
+  // explicitly (dark OG canvases) must get the dark asset or empty, never the
+  // light-mode wordmark.
+  const darkUrl = resolveBrandLogoUrl(String(logoDarkId || ""), mg);
 
   const map: Record<string, unknown> = {
     "brand.title": title,
     // Preview components need a URL; brand.* logos are stored as image-registry IDs.
-    // For dark capture theme, brand.logo resolves to the dark logo when available
-    // (same behavior as navbar light/dark imageId pair).
-    "brand.logo": theme === "dark" ? darkUrl : lightUrl,
+    // brand.logo is theme-aware (dark → logo_dark, else light) with light fallback
+    // so unmapped dark-only setups still render something.
+    // brand.logo_dark is dark-only (no light fallback).
+    "brand.logo": theme === "dark" ? darkUrl || lightUrl : lightUrl,
     "brand.logo_dark": darkUrl,
   };
   for (const key of PREVIEW_BRAND_SOURCE_OPTIONS) {

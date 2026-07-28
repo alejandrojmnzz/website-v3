@@ -151,6 +151,8 @@ const CONFIG_HEADER = `# Content Types Configuration
 #       Sources: mapped field keys, meta.<key>, or brand.<key> (same namespaces as templates).
 #       Capture loads SEO meta and expands {{ single.* }} inside it. Brand is live at capture;
 #       brand.logo / brand.logo_dark registry IDs are resolved to image URLs for the screenshot.
+#       brand.logo is theme-aware (dark theme → logo_dark with light fallback); brand.logo_dark
+#       is dark-only (no light fallback) — prefer it for dark OG canvases.
 #       brand.* is omitted from propsHash (changing brand does not auto-recapture).
 #       Blocked: _image, image, og_image, meta.og_image.
 #

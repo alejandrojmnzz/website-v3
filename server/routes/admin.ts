@@ -1387,8 +1387,18 @@ export function registerAdminRoutes(app: Express): void {
       const cr = getContentRoot(res);
       const brand = getVariableManager(cr).getBrandSettings();
       const mg = (res.locals.site as { mediaGallery?: typeof mediaGallery } | undefined)?.mediaGallery ?? mediaGallery;
-      const logoSrc = brand.logo ? (mg.getImage(brand.logo)?.src ?? brand.logo) : "";
-      const logoDarkSrc = brand.logo_dark ? (mg.getImage(brand.logo_dark)?.src ?? brand.logo_dark) : "";
+      // Only return real URLs — bare registry IDs when lookup fails are not usable srcs
+      // and blocked live-preview fallback to the light logo.
+      const resolveLogoSrc = (idOrUrl: string): string => {
+        const raw = idOrUrl.trim();
+        if (!raw) return "";
+        if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/") || raw.startsWith("data:")) {
+          return raw;
+        }
+        return mg.getImage(raw)?.src ?? "";
+      };
+      const logoSrc = brand.logo ? resolveLogoSrc(brand.logo) : "";
+      const logoDarkSrc = brand.logo_dark ? resolveLogoSrc(brand.logo_dark) : "";
 
       res.json({
         title: brand.title,
@@ -1524,8 +1534,16 @@ export function registerAdminRoutes(app: Express): void {
 
       clearSsrSchemaCache();
       const brand = vm.getBrandSettings();
-      const logoSrc = brand.logo ? (mg.getImage(brand.logo)?.src ?? brand.logo) : "";
-      const logoDarkSrc = brand.logo_dark ? (mg.getImage(brand.logo_dark)?.src ?? brand.logo_dark) : "";
+      const resolveLogoSrc = (idOrUrl: string): string => {
+        const raw = idOrUrl.trim();
+        if (!raw) return "";
+        if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/") || raw.startsWith("data:")) {
+          return raw;
+        }
+        return mg.getImage(raw)?.src ?? "";
+      };
+      const logoSrc = brand.logo ? resolveLogoSrc(brand.logo) : "";
+      const logoDarkSrc = brand.logo_dark ? resolveLogoSrc(brand.logo_dark) : "";
       res.json({
         success: true,
         title: brand.title,

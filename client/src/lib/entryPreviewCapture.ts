@@ -22,6 +22,9 @@ function frameUrl(job: EntryPreviewCaptureJob): string {
   const params = new URLSearchParams({
     locale: job.locale,
     capture: "1",
+    // Drive dark/light class + server logo resolve from the capture job theme
+    // (not only a late postMessage after preview-ready).
+    theme: job.theme,
     // Bust sticky 301 caches from older redirect middleware bugs.
     _: String(Date.now()),
   });
