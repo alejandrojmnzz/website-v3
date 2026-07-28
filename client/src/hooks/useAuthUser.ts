@@ -16,6 +16,7 @@ export interface AuthUserProfile {
   email?: string;
   first_name?: string;
   last_name?: string;
+  phone?: string;
 }
 
 export function getConsumerToken(): string | null {

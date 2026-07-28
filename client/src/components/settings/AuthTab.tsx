@@ -55,6 +55,7 @@ interface AuthEndpoint {
 
 export interface AuthSettingsResponse {
   host?: string;
+  academy?: string;
   login?: AuthEndpoint & {
     url?: string;
     payload?: Record<string, unknown>;
@@ -160,6 +161,7 @@ export function AuthTab() {
   });
 
   const [host, setHost] = useState("");
+  const [academy, setAcademy] = useState("");
   const [loginUrl, setLoginUrl] = useState("");
   const [loginPath, setLoginPath] = useState("");
   const [loginMethod, setLoginMethod] = useState<AuthHttpMethod>("POST");
@@ -189,6 +191,7 @@ export function AuthTab() {
   useEffect(() => {
     if (!data) return;
     setHost(data.host || "");
+    setAcademy(data.academy || "");
     setLoginUrl(data.login?.url || "");
     setLoginPath(data.login?.path || "");
     setLoginMethod(asMethod(data.login?.method, "POST"));
@@ -255,6 +258,7 @@ export function AuthTab() {
     try {
       await apiRequest("PUT", "/api/settings/auth", {
         host: host.trim(),
+        academy: academy.trim(),
         login: {
           url: loginUrl.trim(),
           path: loginPath.trim(),
@@ -354,6 +358,7 @@ export function AuthTab() {
       const body: Record<string, unknown> = {
         target: testTarget,
         host: host.trim() || undefined,
+        academy: academy.trim() || undefined,
         login: {
           url: loginUrl.trim() || undefined,
           path: loginPath.trim() || undefined,
@@ -430,7 +435,7 @@ export function AuthTab() {
     }
   };
 
-  const hasAnyValue = Boolean(host || loginUrl || loginPath || signupPath || profilePath);
+  const hasAnyValue = Boolean(host || academy || loginUrl || loginPath || signupPath || profilePath);
   const testTitle =
     testTarget === "login_url"
       ? "Test Login URL"
@@ -536,6 +541,27 @@ export function AuthTab() {
                 <p className="text-xs text-muted-foreground">
                   Shared base for login/signup/profile paths. Falls back to{" "}
                   <code className="text-xs">VITE_BREATHECODE_HOST</code> when empty.
+                </p>
+              </div>
+
+              <div className="space-y-1.5 max-w-xl">
+                <Label htmlFor="auth-academy" className="text-sm font-medium">
+                  Academy ID
+                </Label>
+                <Input
+                  id="auth-academy"
+                  value={academy}
+                  onChange={(e) => {
+                    setAcademy(e.target.value);
+                    markDirty();
+                  }}
+                  placeholder="4"
+                  className="font-mono text-sm"
+                  data-testid="input-auth-academy"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional. When set, sent as the <code className="text-xs">Academy</code> header
+                  on profile requests (e.g. <code className="text-xs">/v1/auth/user/me</code>).
                 </p>
               </div>
 
