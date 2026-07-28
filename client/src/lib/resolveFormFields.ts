@@ -6,12 +6,13 @@
  * prefilled and submitted with the payload.
  */
 
-export type IdentityField = "email" | "first_name" | "last_name";
+export type IdentityField = "email" | "first_name" | "last_name" | "phone";
 
 export interface KnownProfileValues {
   email?: string;
   first_name?: string;
   last_name?: string;
+  phone?: string;
 }
 
 export interface ResolvedIdentityFields {
@@ -21,7 +22,7 @@ export interface ResolvedIdentityFields {
   prefill: KnownProfileValues;
 }
 
-const IDENTITY_FIELDS: IdentityField[] = ["email", "first_name", "last_name"];
+const IDENTITY_FIELDS: IdentityField[] = ["email", "first_name", "last_name", "phone"];
 
 export function resolveFormFields(
   signupActive: boolean,

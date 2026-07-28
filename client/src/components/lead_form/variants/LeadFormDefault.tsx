@@ -449,7 +449,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const { hidden: hiddenIdentityFields, prefill: identityPrefill } = resolveFormFields(
     isSignupRequested && isLoggedIn,
     authProfile
-      ? { email: authProfile.email, first_name: authProfile.first_name, last_name: authProfile.last_name }
+      ? {
+          email: authProfile.email,
+          first_name: authProfile.first_name,
+          last_name: authProfile.last_name,
+          phone: authProfile.phone,
+        }
       : null,
   );
 
@@ -683,8 +688,15 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (identityPrefill.email) form.setValue("email", identityPrefill.email);
     if (identityPrefill.first_name) form.setValue("first_name", identityPrefill.first_name);
     if (identityPrefill.last_name) form.setValue("last_name", identityPrefill.last_name);
+    if (identityPrefill.phone) form.setValue("phone", identityPrefill.phone);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identityPrefill.email, identityPrefill.first_name, identityPrefill.last_name, form]);
+  }, [
+    identityPrefill.email,
+    identityPrefill.first_name,
+    identityPrefill.last_name,
+    identityPrefill.phone,
+    form,
+  ]);
 
   // Carry email into the in-place login form when switching views.
   useEffect(() => {
@@ -1130,6 +1142,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (identityPrefill.email) form.setValue("email", identityPrefill.email);
     if (identityPrefill.first_name) form.setValue("first_name", identityPrefill.first_name);
     if (identityPrefill.last_name) form.setValue("last_name", identityPrefill.last_name);
+    if (identityPrefill.phone) form.setValue("phone", identityPrefill.phone);
 
     const values = form.getValues();
     const requiredKeys: (keyof FormValues)[] = [];
@@ -1168,6 +1181,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     identityPrefill.email,
     identityPrefill.first_name,
     identityPrefill.last_name,
+    identityPrefill.phone,
   ]);
 
   const isInline = variant === "inline";
