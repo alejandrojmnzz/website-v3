@@ -1,8 +1,9 @@
 import { contentIndex, MARKETING_CONTENT_PATH as BASE_CONTENT_PATH } from "./content-index";
-import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, getFieldMappingDefaults, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, getDirectory, resolveHreflangsFromRecord, getCanonicalHreflangSlug } from "./content-types";
+import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, getFieldMappingDefaults, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, getDirectory, resolveHreflangsFromRecord, getCanonicalHreflangSlug, resolveEntryUpdatedAt } from "./content-types";
 import { getSupportedLocales, isIndexingBlocked } from "./settings";
 import { applyTransformIfNeeded } from "./transform";
 import { getFileLastmod } from "./sync-state";
+import { toSitemapLastmod } from "@shared/normalizeFlexibleDate";
 import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 import type { SiteContext } from "./site-manager";
@@ -419,8 +420,15 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         }
         const itemUrl = `${getBaseUrl(ctx)}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping, defaults)}`;
         const title = String(item.title || item.slug || item.id || "");
-        const updatedAt = String(item.updated_at || "");
         const itemSlug = String(item.slug || item.id || "");
+        const updatedIso = resolveEntryUpdatedAt({
+          contentType: typeName,
+          slug: itemSlug,
+          locale,
+          record: item,
+          contentRoot: cf,
+          isDb: true,
+        });
         const hreflangMap = resolveHreflangsFromRecord(item, typeName, cf);
         const canonicalSlug = hreflangMap
           ? getCanonicalHreflangSlug(hreflangMap)
@@ -432,7 +440,7 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
             : undefined;
         addEntry({
           loc: itemUrl,
-          lastmod: updatedAt ? updatedAt.split("T")[0] : today,
+          lastmod: toSitemapLastmod(updatedIso),
           label: `${typeLabel}: ${title} (${formatLocaleLabel(locale)})`,
           type: "static",
           locale,

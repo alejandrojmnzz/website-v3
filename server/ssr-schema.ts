@@ -422,7 +422,11 @@ export function generateDatabaseSsrHtml(
   const description = ((record.description as string) || (record.preview as string) || "").replace(/"/g, "&quot;");
   const image = (record.preview as string) || (record.image as string) || "";
   const publishedAt = (record.published_at as string) || (record.created_at as string) || "";
-  const updatedAt = (record.updated_at as string) || publishedAt;
+  const { normalizeFlexibleDate } = require("@shared/normalizeFlexibleDate") as typeof import("@shared/normalizeFlexibleDate");
+  const updatedAt =
+    normalizeFlexibleDate(record.updated_at) ||
+    normalizeFlexibleDate(publishedAt) ||
+    publishedAt;
 
   let authorName = "4Geeks Academy";
   if (record.author && typeof record.author === "object") {

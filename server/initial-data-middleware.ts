@@ -6,7 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
 import { queryEntries } from "./query-entries";
-import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getFieldMapping, getPreviewConfig, finalizeSingleEntryForTemplates } from "./content-types";
+import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getPreviewConfig, finalizeSingleEntryForTemplates } from "./content-types";
 import {
   applyComponentSectionDefaults,
   applyComponentImageSizes,
@@ -20,13 +20,9 @@ import { readNavigationEagerManifest } from "./navigation-eager-manifest";
 import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./settings";
 import { getApiPath } from "../shared/api-paths";
 import { toOgLocale } from "../shared/locale";
-import { loadDatabaseSinglePage } from "./database-single-loader";
+import { loadDatabaseSinglePage, attachVariableFieldsToSections } from "./database-single-loader";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "./resolve-template-vars";
-import { resolveFieldValue } from "./transform";
-import {
-  applyFieldOverridesToItem,
-  readFieldOverrides,
-} from "./field-overrides";
+import { buildSingleEntryFromContent } from "./build-single-entry";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { applyEntryPreviewOgImage } from "./entry-preview-manager";
@@ -244,6 +240,16 @@ export async function resolvePageQuery(
           })) as any;
           applyComponentImageSizes(page.sections as unknown[]);
         }
+        // Fill missing image from entry-preview BEFORE template resolution so
+        // {{ single.image | fallback }} does not bake the pipe default into sections.
+        if (site?.entryPreviewManager) {
+          await applyEntryPreviewOgImage(site.entryPreviewManager, {
+            contentType,
+            entry: singleEntry,
+            previewConfig: getPreviewConfig(contentType, ci.contentRoot),
+            pageData,
+          });
+        }
         if (Object.keys(singleEntry).length > 0) {
           const resolvedVars = resolveAllTemplateVars(pageData, {
             singleEntry,
@@ -262,14 +268,6 @@ export async function resolvePageQuery(
         }
         const { enhanceArticleSectionsInPage } = await import("./markdown-enhance");
         await enhanceArticleSectionsInPage(pageData);
-        if (site?.entryPreviewManager) {
-          await applyEntryPreviewOgImage(site.entryPreviewManager, {
-            contentType,
-            entry: singleEntry,
-            previewConfig: getPreviewConfig(contentType, ci.contentRoot),
-            pageData,
-          });
-        }
         const dbSingleRaw = ci.loadMergedContent(contentType, slug, normalizedLocale);
         const layout = resolveLayout(contentType, dbSingleRaw.data || pageData, ci.contentRoot);
         const { layout: _strip, ...pageRest } = pageData;
@@ -317,23 +315,14 @@ export async function resolvePageQuery(
       data.layout = layout;
       data.locale = locale;
 
-      // Match /api/content-pages: attach singleEntry and resolve {{ single.* }} so
-      // SSR/hydration (e.g. blog article body) is not left on pipe fallbacks.
+      // Match /api/content-pages: attach singleEntry (including _image → image) and
+      // resolve {{ single.* }} so SSR/hydration is not left on pipe fallbacks.
       // Build singleEntry before dynamic_entries so permanent_filters can use it.
-      const mapping = getFieldMapping(contentType, ci.contentRoot);
-      let singleEntry: Record<string, unknown> | undefined;
-      if (mapping && Object.keys(mapping).length > 0) {
-        singleEntry = {};
-        for (const [key, source] of Object.entries(mapping)) {
-          if (key.startsWith("_")) continue;
-          if (typeof source !== "string") continue;
-          const value = resolveFieldValue(source, data as Record<string, unknown>);
-          if (value !== undefined) singleEntry[key] = value;
-        }
-      }
-      const fo = readFieldOverrides(contentType, slug, locale, ci.contentRoot);
-      singleEntry = applyFieldOverridesToItem(singleEntry || {}, fo);
-      singleEntry = finalizeSingleEntryForTemplates(singleEntry, { slug, locale });
+      let singleEntry = buildSingleEntryFromContent(contentType, data as Record<string, unknown>, {
+        slug,
+        locale,
+        contentRoot: ci.contentRoot,
+      });
       if (singleEntry) data.singleEntry = singleEntry;
 
       const param = buildContentDeliveryParamBag({
@@ -348,12 +337,23 @@ export async function resolvePageQuery(
       data.param = param;
 
       if (data.sections && Array.isArray(data.sections)) {
+        attachVariableFieldsToSections(data.sections);
         data.sections = (await resolveDynamicEntries(
           data.sections,
           locale,
           { db: dbm, contentRoot: ci.contentRoot, contentIndex: ci, singleEntry },
         )) as any;
         applyComponentImageSizes(data.sections);
+      }
+
+      // Fill missing image from entry-preview BEFORE template resolution.
+      if (singleEntry && site?.entryPreviewManager) {
+        await applyEntryPreviewOgImage(site.entryPreviewManager, {
+          contentType,
+          entry: singleEntry,
+          previewConfig: getPreviewConfig(contentType, ci.contentRoot),
+          pageData: data,
+        });
       }
 
       if (singleEntry) {
@@ -364,14 +364,6 @@ export async function resolvePageQuery(
           context: { locale },
         }) as Record<string, unknown>;
         Object.assign(data, resolved);
-        if (site?.entryPreviewManager) {
-          await applyEntryPreviewOgImage(site.entryPreviewManager, {
-            contentType,
-            entry: singleEntry,
-            previewConfig: getPreviewConfig(contentType, ci.contentRoot),
-            pageData: data,
-          });
-        }
       } else {
         const resolved = resolveAllTemplateVars(data, {
           param,
