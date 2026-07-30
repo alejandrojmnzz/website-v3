@@ -827,7 +827,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     if (!contentType || !slug || !locale) return;
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "reorder_sections", from, to }
-    ], { variant, version, ...(variant ? { layoutTarget: "type_single" } : {}) });
+    ], { variant, version, ...(isSharedTemplate && variant ? { layoutTarget: "type_single" } : {}) });
     if (result.success) {
       toast({ title: from < to ? "Section moved down" : "Section moved up" });
       emitContentUpdated({ contentType, slug, locale });
@@ -1053,7 +1053,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
     const result = await sendEditOperation(contentType, slug, locale, [
       { action: "remove_item", path: "sections", index }
-    ], { variant, version, ...(variant ? { layoutTarget: "type_single" } : {}) });
+    ], { variant, version, ...(isSharedTemplate && variant ? { layoutTarget: "type_single" } : {}) });
 
     if (result.success) {
       // If the lookup failed entirely OR the member removal returned an error,
