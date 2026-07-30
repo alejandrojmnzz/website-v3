@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import yaml from "js-yaml";
 import {
   sectionIsTemplateExpressionsOnly,
   prepareSiblingMirroredSection,
@@ -11,7 +15,24 @@ import {
   applyAllowlistedLayout,
   stripSectionLabels,
   MIRRORED_SECTION_NEEDS_EDIT_NOTE,
+  cleanSectionIdFromEntryOverlays,
 } from "./shared-layout-sync";
+
+function safeYamlLoad(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = yaml.load(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function dumpYaml(data: unknown): string {
+  return yaml.dump(data, { lineWidth: -1, noRefs: true });
+}
 
 describe("shared-layout-sync", () => {
   it("detects template-expression-only sections", () => {
@@ -157,5 +178,52 @@ describe("shared-layout-sync", () => {
       requester: "alex",
       owner: "maria",
     });
+  });
+
+  it("skips detached entries when cleaning deleted section ids from overlays", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "shared-layout-clean-"));
+    try {
+      const attachedDir = path.join(root, "attached-post");
+      const detachedDir = path.join(root, "detached-post");
+      fs.mkdirSync(attachedDir);
+      fs.mkdirSync(detachedDir);
+
+      const sectionPayload = {
+        sections: [
+          { type: "hero", section_id: "hero-shared", title: "Keep" },
+          { type: "article", section_id: "article-gone", content: "Body" },
+        ],
+      };
+
+      fs.writeFileSync(path.join(attachedDir, "_common.yml"), "slug: attached-post\n");
+      fs.writeFileSync(path.join(attachedDir, "en.yml"), dumpYaml(sectionPayload));
+
+      fs.writeFileSync(path.join(detachedDir, "_common.yml"), "slug: detached-post\ndetached: true\n");
+      fs.writeFileSync(path.join(detachedDir, "en.yml"), dumpYaml(sectionPayload));
+
+      const written: string[] = [];
+      cleanSectionIdFromEntryOverlays(
+        root,
+        ["article-gone"],
+        safeYamlLoad,
+        dumpYaml,
+        (p) => written.push(p),
+      );
+
+      const attachedAfter = safeYamlLoad(fs.readFileSync(path.join(attachedDir, "en.yml"), "utf-8"));
+      const detachedAfter = safeYamlLoad(fs.readFileSync(path.join(detachedDir, "en.yml"), "utf-8"));
+
+      expect((attachedAfter?.sections as Record<string, unknown>[]).map((s) => s.section_id)).toEqual([
+        "hero-shared",
+      ]);
+      expect((detachedAfter?.sections as Record<string, unknown>[]).map((s) => s.section_id)).toEqual([
+        "hero-shared",
+        "article-gone",
+      ]);
+      expect(written.some((p) => p.includes("detached-post"))).toBe(false);
+      expect(written.some((p) => p.includes("attached-post"))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

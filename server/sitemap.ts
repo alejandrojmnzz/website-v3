@@ -246,6 +246,20 @@ function shouldIndex(robots?: string, contentRoot?: string): boolean {
   return !robots.toLowerCase().includes("noindex");
 }
 
+/** Unresolved {{ }} placeholders (e.g. slug: {{ single.slug }} from _common.single.yml). */
+const TEMPLATE_EXPR_RE = /\{\{[\s\S]*?\}\}/;
+
+/**
+ * URL slug for sitemap loc. Returns null when missing or still a template
+ * expression — those locales must not be indexed (stub / incomplete entries).
+ */
+function resolveSitemapUrlSlug(mergedSlug: unknown): string | null {
+  if (typeof mergedSlug !== "string") return null;
+  const trimmed = mergedSlug.trim();
+  if (!trimmed || TEMPLATE_EXPR_RE.test(trimmed)) return null;
+  return trimmed;
+}
+
 function resolveSitemapContentRoot(ctx?: ActiveSiteCtx): string {
   const name = ctx?.contentRootName ?? getDefaultContentFolder();
   return path.isAbsolute(name) ? name : path.join(process.cwd(), name);
@@ -488,7 +502,14 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
             }
             params = extracted.params;
           }
-          const url = `${getBaseUrl(ctx)}${ci.buildUrl(typeName, locale, (merged.slug as string) || slug, params)}`;
+          const urlSlug = resolveSitemapUrlSlug(merged.slug);
+          if (!urlSlug) {
+            log.warn(
+              `[Sitemap] Skipping ${typeName} entry "${slug}" (${locale}): slug is missing or unresolved template expression`,
+            );
+            continue;
+          }
+          const url = `${getBaseUrl(ctx)}${ci.buildUrl(typeName, locale, urlSlug, params)}`;
           const title = meta.page_title || (merged.title as string) || slug;
           const typeLabel = typeName.charAt(0).toUpperCase() + typeName.slice(1);
 
@@ -744,7 +765,17 @@ function buildSingleEntry(type: string, dirSlug: string, locale: string): Canoni
     if (visibility !== "listed") return null;
   }
 
-  const urlSlug = (merged.slug as string) || dirSlug;
+  // Prefer resolved merged.slug; fall back to dirSlug only when merged has no slug field
+  // (classic YAML types). Never index unresolved {{ single.slug }} placeholders.
+  const urlSlug =
+    resolveSitemapUrlSlug(merged.slug) ??
+    (merged.slug == null || merged.slug === "" ? dirSlug : null);
+  if (!urlSlug) {
+    log.warn(
+      `[Sitemap] Skipping ${type} entry "${dirSlug}" (${locale}): slug is missing or unresolved template expression`,
+    );
+    return null;
+  }
   const url = `${getBaseUrl(_activeSiteCtx ?? undefined)}${_ci().buildUrl(type, locale, urlSlug)}`;
   const title = meta.page_title || (merged.title as string) || (merged.name as string) || dirSlug;
 

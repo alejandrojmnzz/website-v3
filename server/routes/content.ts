@@ -2060,16 +2060,18 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type } = req.params;
       const locale = ((req.query.locale as string) || "en").replace(/[^a-z-]/g, "");
+      const root = getContentRoot(res);
       if (!isValidType(type, ctRoot(res))) {
         res.status(404).json({ error: `Unknown content type: ${type}` });
         return;
       }
-      if (!hasDatabaseSingle(type, getContentRoot(res))) {
+      // DB-backed and static single_template shared-layout types both use single.{locale}.yml
+      if (!isSharedLayoutType(type, root)) {
         res.status(400).json({ error: `Content type "${type}" does not use a single template` });
         return;
       }
       const variantSlug = req.query.variantSlug as string | undefined;
-      const merged = mergeSingleTemplate(type, locale, undefined, undefined, getContentRoot(res), variantSlug);
+      const merged = mergeSingleTemplate(type, locale, undefined, undefined, root, variantSlug);
       if (!merged) {
         res.status(404).json({ error: "Single template not found" });
         return;

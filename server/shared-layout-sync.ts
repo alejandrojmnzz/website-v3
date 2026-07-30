@@ -559,6 +559,21 @@ export function fanOutStructuralOpsToSiblings(opts: {
   return result;
 }
 
+/** True when entry `_common.yml` has `detached: true` (local read; no contentType needed). */
+function entryDirIsDetached(
+  entryDir: string,
+  safeYamlLoad: (raw: string) => Record<string, unknown> | null,
+): boolean {
+  const commonPath = path.join(entryDir, "_common.yml");
+  if (!fs.existsSync(commonPath)) return false;
+  try {
+    const parsed = safeYamlLoad(fs.readFileSync(commonPath, "utf-8"));
+    return parsed?.detached === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Clean a deleted section_id from all entry overlay YAML files under a type dir. */
 export function cleanSectionIdFromEntryOverlays(
   templateDir: string,
@@ -572,6 +587,8 @@ export function cleanSectionIdFromEntryOverlays(
     const entryDir = path.join(templateDir, name);
     if (!fs.statSync(entryDir).isDirectory()) continue;
     if (name.startsWith(".") || name === "node_modules") continue;
+    // Detached entries own full structure — never strip sections from template cleanup
+    if (entryDirIsDetached(entryDir, safeYamlLoad)) continue;
     for (const file of fs.readdirSync(entryDir)) {
       if (!/\.ya?ml$/i.test(file) || file.startsWith("_") || file === "versioning.yml") continue;
       const filePath = path.join(entryDir, file);
