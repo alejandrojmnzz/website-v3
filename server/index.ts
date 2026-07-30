@@ -446,6 +446,7 @@ app.use((req, res, next) => {
       .then(async () => {
         for (const ctx of getSiteContextMap().values()) {
           ctx.contentIndex.scanFast();
+          ctx.contentIndex.startSlowScanAsync();
         }
         clearSitemapCache();
 
@@ -496,6 +497,7 @@ app.use((req, res, next) => {
         for (const ctx of getSiteContextMap().values()) {
           if (filePath.startsWith(ctx.contentRootName + "/")) {
             ctx.contentIndex.scanFast();
+            ctx.contentIndex.startSlowScanAsync();
             break;
           }
         }

@@ -487,8 +487,10 @@ function makeResult(entry: RedirectEntry, locale: string, matchType: "exact" | "
 }
 
 /**
- * Fresh redirect entries for debug tools: re-reads custom-redirects.yml from disk.
- * Does not touch the live middleware redirect cache.
+ * Fresh redirect entries for debug tools.
+ * Re-reads custom redirects from disk when the index is already complete; otherwise
+ * triggers a full slow rebuild so the UI never sees a custom-only snapshot.
+ * Does not leave the index in a misleading ready state.
  */
 export function getFreshRedirectEntries(
   ci: typeof contentIndex = contentIndex,
