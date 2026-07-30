@@ -543,8 +543,9 @@ export function SectionEditorPanel({
 
   const bindingQueryClient = useQueryClient();
 
-  // Match save destination: ?force_variant= / ?variant= writes to single-{slug}.{locale}.yml
+  // Shared-template variant YAML: single.{variant}.{locale}.yml (not entry ?variant= drafts).
   const effectiveTemplateVariant = (() => {
+    if (!isSharedTemplate) return "";
     if (typeof window === "undefined") return variant ?? "";
     const params = new URLSearchParams(window.location.search);
     return params.get("force_variant") || params.get("variant") || variant || "";
@@ -2040,18 +2041,21 @@ export function SectionEditorPanel({
     }
 
     try {
-      // When previewing a DB single template variant (?force_variant=...), route
-      // the save directly to single-{variantSlug}.{locale}.yml on the server so
-      // edits land in the variant file instead of the shared base template.
+      // Shared-template A/B drafts live at single.{variant}.{locale}.yml (type_single).
+      // Entry A/B drafts (e.g. programs/ai-flex/v2.es.yml) must not use type_single —
+      // only pass the variant name so the server writes the entry variant file.
       const _urlParams = new URLSearchParams(window.location.search);
-      const forceVariantFromUrl = _urlParams.get("force_variant") || _urlParams.get("variant");
+      const forceVariant = _urlParams.get("force_variant");
+      const urlVariant = _urlParams.get("variant");
+      const effectiveVariant = forceVariant ?? urlVariant ?? variant;
+      const writeSharedTemplateVariant = !!(isSharedTemplate && effectiveVariant);
       const result = await editContent({
         contentType,
         slug,
         locale,
-        variant: forceVariantFromUrl ?? variant,
-        version: forceVariantFromUrl ? undefined : version,
-        ...(forceVariantFromUrl ? { layoutTarget: "type_single" } : {}),
+        variant: effectiveVariant,
+        version: writeSharedTemplateVariant ? undefined : version,
+        ...(writeSharedTemplateVariant ? { layoutTarget: "type_single" } : {}),
         operations: [
           {
             action: "update_section",
