@@ -287,6 +287,21 @@ export function registerDatabasesRoutes(app: Express): void {
         })) as any;
       }
       if (Object.keys(dbSingleEntry).length > 0) {
+        try {
+          const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+          if (site?.entryPreviewManager) {
+            const { applyEntryPreviewOgImage } = await import("../entry-preview-manager");
+            const { getPreviewConfig } = await import("../content-types");
+            await applyEntryPreviewOgImage(site.entryPreviewManager, {
+              contentType,
+              entry: dbSingleEntry,
+              previewConfig: getPreviewConfig(contentType, getContentRoot(res)),
+              pageData: dbSingleData,
+            });
+          }
+        } catch {
+          /* non-fatal */
+        }
         const resolved = resolveAllTemplateVars(dbSingleData, {
           singleEntry: dbSingleEntry,
           contentRoot: getContentRoot(res),
@@ -303,22 +318,6 @@ export function registerDatabasesRoutes(app: Express): void {
 
       const { enhanceArticleSectionsInPage } = await import("../markdown-enhance");
       await enhanceArticleSectionsInPage(dbSingleData);
-
-      try {
-        const site = res.locals.site as import("../site-manager").SiteContext | undefined;
-        if (site?.entryPreviewManager) {
-          const { applyEntryPreviewOgImage } = await import("../entry-preview-manager");
-          const { getPreviewConfig } = await import("../content-types");
-          await applyEntryPreviewOgImage(site.entryPreviewManager, {
-            contentType,
-            entry: dbSingleEntry,
-            previewConfig: getPreviewConfig(contentType, getContentRoot(res)),
-            pageData: dbSingleData,
-          });
-        }
-      } catch {
-        /* non-fatal */
-      }
 
       const dbSingleRaw = getCI(res).loadMergedContent(contentType, slug, locale);
       const dbSingleLayout = resolveLayout(contentType, dbSingleRaw.data || dbSingleData, getContentRoot(res));

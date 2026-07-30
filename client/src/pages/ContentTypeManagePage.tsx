@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
@@ -84,6 +84,7 @@ interface StaticEntry {
   urls: Record<string, string>;
   versionCounts?: Record<string, number>;
   mappingErrors?: string[];
+  updated_at?: string | null;
 }
 
 interface SeoEntry {
@@ -215,6 +216,59 @@ function formatDate(dateStr: string | null | undefined): string {
   } catch {
     return "—";
   }
+}
+
+type UpdatedSortDir = "asc" | "desc" | null;
+
+function updatedAtSortMs(value: unknown): number {
+  if (value == null || value === "") return Number.NaN;
+  const ms = Date.parse(String(value));
+  return Number.isNaN(ms) ? Number.NaN : ms;
+}
+
+function sortByUpdatedAt<T>(
+  list: T[],
+  dir: UpdatedSortDir,
+  getValue: (item: T) => unknown,
+): T[] {
+  if (!dir) return list;
+  const factor = dir === "asc" ? 1 : -1;
+  return [...list].sort((a, b) => {
+    const am = updatedAtSortMs(getValue(a));
+    const bm = updatedAtSortMs(getValue(b));
+    const aMissing = Number.isNaN(am);
+    const bMissing = Number.isNaN(bm);
+    if (aMissing && bMissing) return 0;
+    if (aMissing) return 1;
+    if (bMissing) return -1;
+    return (am - bm) * factor;
+  });
+}
+
+function UpdatedAtSortHeader({
+  dir,
+  onToggle,
+  className,
+}: {
+  dir: UpdatedSortDir;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const Icon = dir === "asc" ? ArrowUp : dir === "desc" ? ArrowDown : ArrowUpDown;
+  return (
+    <th className={className ?? "text-left px-4 py-3 font-medium text-muted-foreground"}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-sm"
+        onClick={onToggle}
+        data-testid="button-sort-updated-at"
+        title="Sort by Updated"
+      >
+        Updated
+        <Icon className="h-3.5 w-3.5" />
+      </button>
+    </th>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -2370,7 +2424,7 @@ function FieldValidationMessage({
   );
 }
 
-const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_image"] as const;
+const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_updated_at", "_image"] as const;
 /** Must match server RESERVED_IMAGE_FIELD — preview/OG system special. */
 const RESERVED_IMAGE_FIELD = "_image";
 const FORBIDDEN_SCHEMA_FIELD = "image";
@@ -2381,6 +2435,7 @@ const SPECIAL_FIELD_DEFAULTS: Record<string, string> = {
   _slug: "slug",
   _locale: "locale",
   _hreflangs: "translations",
+  _updated_at: "updated_at",
 };
 
 const SPECIAL_FIELD_INFO: Record<
@@ -2433,6 +2488,22 @@ const SPECIAL_FIELD_INFO: Record<
     ],
     expected:
       "Record<locale, slug> on DB types. Unused on static (read-only).",
+  },
+  _updated_at: {
+    title: "_updated_at — Last modified",
+    summary:
+      "System field for sitemap <lastmod>, {{ single.updated_at }}, and list item.updated_at. Exposed as updated_at on templates. Never authored in YAML.",
+    howItWorks: [
+      "DB types: map to the incoming date column (ISO, unix seconds/ms). Values are normalized to ISO UTC.",
+      "Static types: injected from sync-state when the locale YAML content hash changes (not on noop re-saves).",
+      "Used for sitemap lastmod (YYYY-MM-DD), Schema.org dateModified, and the Updated column on manage tables.",
+      "Ambiguous dates like 01/02/2024 are rejected — prefer ISO or unix.",
+    ],
+    howToSet: [
+      "On DB types: map to updated_at, modified_at, or a function that returns a date.",
+      "On static types: automatic — edit the locale YAML; date bumps only when file bytes change.",
+    ],
+    expected: "ISO-8601 UTC string after normalize (e.g. \"2024-03-15T12:30:00.000Z\").",
   },
   _image: {
     title: "_image — Preview / OG image",
@@ -2705,7 +2776,7 @@ function SpecialFieldInfoDialog({
           <DialogTitle className="font-mono text-base">{title}</DialogTitle>
           <DialogDescription>
             {info?.summary ??
-              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image are also exposed on {{ single.* }}; _hreflangs is routing-only."}
+              "Underscore-prefixed keys are system fields used for routing and locale linking. slug/locale/image/updated_at are also exposed on {{ single.* }}; _hreflangs is routing-only."}
           </DialogDescription>
         </DialogHeader>
         {info ? (
@@ -2893,7 +2964,7 @@ function FieldMappingDialog({
     // System specials on every type (DB and static)
     for (const key of KNOWN_SPECIAL_FIELDS) {
       if (!(key in fm)) {
-        if (key === "_hreflangs" && !config.database?.slug) {
+        if ((key === "_hreflangs" || key === "_updated_at") && !config.database?.slug) {
           fm[key] = "";
         } else if (key === "_image") {
           fm[key] = "";
@@ -2911,6 +2982,11 @@ function FieldMappingDialog({
     if ("slug" in fm) {
       if (!fm._slug) fm._slug = fm.slug;
       delete fm.slug;
+    }
+    // Migrate legacy plain updated_at → _updated_at
+    if ("updated_at" in fm) {
+      if (!fm._updated_at) fm._updated_at = fm.updated_at;
+      delete fm.updated_at;
     }
     setMappings(fm);
     setFieldDefaults(defaults);
@@ -3206,6 +3282,7 @@ function FieldMappingDialog({
     if (key === "_slug") return "(value, item) => item.slug";
     if (key === "_locale") return "(value) => value === 'us' ? 'en' : value";
     if (key === "_hreflangs") return "(value, item) => item.translations";
+    if (key === "_updated_at") return "(value, item) => item.updated_at";
     if (key === "_image") return "(value, item) => value";
     return "(value, item) => value";
   };
@@ -3611,7 +3688,9 @@ function FieldMappingDialog({
                     <code className="font-mono">locale</code>, <code className="font-mono">image</code> and
                     underscore forms) is auto-exposed on{" "}
                     <code className="font-mono">{"{{ single.* }}"}</code>;{" "}
-                    <code className="font-mono">_hreflangs</code> is routing-only. Do not add fields named{" "}
+                    <code className="font-mono">_hreflangs</code> is routing-only.{" "}
+                    <code className="font-mono">_updated_at</code> maps a DB date source (static:
+                    content-hash inject). Do not add fields named{" "}
                     <code className="font-mono">slug</code> or <code className="font-mono">image</code> — use{" "}
                     <code className="font-mono">_slug</code> / <code className="font-mono">_image</code>{" "}
                     for DB identity config.
@@ -3638,8 +3717,13 @@ function FieldMappingDialog({
                 <Label className="text-xs text-muted-foreground">System fields</Label>
                 {specialKeys.map((key) => {
                   const staticHreflangsLocked = key === "_hreflangs" && !isDbBacked;
+                  const staticUpdatedAtLocked = key === "_updated_at" && !isDbBacked;
                   const staticImageGuidance = key === "_image" && !isDbBacked;
-                  const allowEmpty = key === "_locale" || key === "_image" || key === "_hreflangs";
+                  const allowEmpty =
+                    key === "_locale" ||
+                    key === "_image" ||
+                    key === "_hreflangs" ||
+                    key === "_updated_at";
                   return (
                   <div key={key} className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -3668,6 +3752,16 @@ function FieldMappingDialog({
                         <code className="font-mono">en.yml</code>,{" "}
                         <code className="font-mono">es.yml</code>, or{" "}
                         <code className="font-mono">[lang].yml</code>.
+                      </p>
+                    ) : staticUpdatedAtLocked ? (
+                      <p
+                        className="text-[11px] text-muted-foreground flex-1 leading-snug"
+                        data-testid={`note-mapping-${key}`}
+                      >
+                        Injected from content-hash of{" "}
+                        <code className="font-mono">{"{locale}.yml"}</code> when file bytes
+                        change; not written in YAML. Use{" "}
+                        <code className="font-mono">{"{{ single.updated_at }}"}</code>.
                       </p>
                     ) : (
                       renderSourceEditor(key, {
@@ -4483,6 +4577,7 @@ export default function ContentTypeManagePage() {
 
   const [search, setSearch] = useState("");
   const [errorsOnly, setErrorsOnly] = useState(false);
+  const [updatedSortDir, setUpdatedSortDir] = useState<UpdatedSortDir>(null);
   const [tagFilters, setTagFilters] = useState<Record<string, string[]>>({});
   const [clearing, setClearing] = useState(false);
   const [dsDialogOpen, setDsDialogOpen] = useState(false);
@@ -4982,7 +5077,7 @@ export default function ContentTypeManagePage() {
           result = result.filter((p) => matchesFilter(p, field, value));
         }
       }
-      return result;
+      return sortByUpdatedAt(result, updatedSortDir, (p) => p.updated_at);
     }
 
     let result = items;
@@ -5004,7 +5099,7 @@ export default function ContentTypeManagePage() {
       );
     }
 
-    return result;
+    return sortByUpdatedAt(result, updatedSortDir, (p) => p.updated_at);
   })();
 
   const staticEntries = staticEntriesData?.results || [];
@@ -5016,11 +5111,13 @@ export default function ContentTypeManagePage() {
     if (errorsOnly) {
       list = list.filter((e) => (e.mappingErrors?.length ?? 0) > 0);
     }
-    if (!search.trim()) return list;
-    const q = search.toLowerCase();
-    return list.filter(
-      (e) => e.title.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
-    );
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (e) => e.title.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
+      );
+    }
+    return sortByUpdatedAt(list, updatedSortDir, (e) => e.updated_at);
   })();
 
   const seoEntries = seoEntriesData?.entries || [];
@@ -5539,7 +5636,10 @@ export default function ContentTypeManagePage() {
 
   const hasAuthorField = items.some(p => p.author_name || p.author);
   const hasPublishedAt = items.some(p => p.published_at);
-  const hasUpdatedAt = items.some(p => p.updated_at);
+
+  const toggleUpdatedSort = () => {
+    setUpdatedSortDir((prev) => (prev === null ? "desc" : prev === "desc" ? "asc" : null));
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -5785,9 +5885,26 @@ export default function ContentTypeManagePage() {
             </CardHeader>
             <CardContent className="space-y-2">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {hasDb
-                  ? `${linkedDbLabel} — entries come from this database; field mapping maps columns onto this content type.`
-                  : "Entries live as static YAML. Connect a database to pull titles, slugs, and locales from an external source."}
+                {hasDb ? (
+                  <>
+                    <Link
+                      href={`/private/databases/${dbSlug}`}
+                      className="inline-flex align-middle mr-1"
+                      data-testid="link-linked-database-badge"
+                    >
+                      <Badge
+                        variant="secondary"
+                        className="gap-1 text-xs font-medium hover:bg-secondary/80 cursor-pointer no-default-active-elevate"
+                      >
+                        <Database className="h-3 w-3" />
+                        {linkedDbLabel}
+                      </Badge>
+                    </Link>
+                    — entries come from this database; field mapping maps columns onto this content type.
+                  </>
+                ) : (
+                  "Entries live as static YAML. Connect a database to pull titles, slugs, and locales from an external source."
+                )}
               </p>
               {hasDb && (
                 <p className="text-sm font-medium" data-testid="text-linked-database-stats">
@@ -6297,6 +6414,7 @@ export default function ContentTypeManagePage() {
                       <tr className="border-b bg-muted/50">
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground">Locales</th>
+                        <UpdatedAtSortHeader dir={updatedSortDir} onToggle={toggleUpdatedSort} />
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground">Link</th>
                       </tr>
                     </thead>
@@ -6350,6 +6468,9 @@ export default function ContentTypeManagePage() {
                                   })
                                 )}
                               </div>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground" data-testid={`text-updated-${entry.slug}`}>
+                              {formatDate(entry.updated_at)}
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
@@ -6644,7 +6765,11 @@ export default function ContentTypeManagePage() {
                           </th>
                         ))}
                         {hasPublishedAt && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Published</th>}
-                        {hasUpdatedAt && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Updated</th>}
+                        <UpdatedAtSortHeader
+                          dir={updatedSortDir}
+                          onToggle={toggleUpdatedSort}
+                          className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell"
+                        />
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground">Link</th>
                       </tr>
                     </thead>
@@ -6786,11 +6911,9 @@ export default function ContentTypeManagePage() {
                                 {formatDate(item.published_at)}
                               </td>
                             )}
-                            {hasUpdatedAt && (
-                              <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">
-                                {formatDate(item.updated_at)}
-                              </td>
-                            )}
+                            <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell" data-testid={`text-updated-${item.id || item.slug}`}>
+                              {formatDate(item.updated_at as string | undefined)}
+                            </td>
                             <td className="px-4 py-3 text-right">
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>

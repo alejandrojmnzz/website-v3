@@ -106,14 +106,16 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     { source, default } — schema key with default (default may be null)
 #     other path — remap DB column → schema key (DB-attached types only)
 #     function:… — computed; ?prefix — optional non-identity source
-#   System specials (DB identity / routing; auto-exposed on single as slug|locale|image
-#   and _slug|_locale|_image — not {{ single._hreflangs }}):
+#   System specials (DB identity / routing; auto-exposed on single as slug|locale|image|updated_at
+#   and _slug|_locale|_image|_updated_at — not {{ single._hreflangs }}):
 #     _slug — entry identity for URLs / lookups
 #     _locale — language of the row
 #     _hreflangs — locale→slug map (routing only; not a template var)
+#     _updated_at — last-modified (DB: map source column; static: content-hash of locale.yml)
 #     _image — preview / OG image source
 #   Forbidden as regular schema keys: "slug" (use _slug), "image" (use _image).
 #   Do not index/unique _image. unique_fields may still list "slug" (the alias).
+#   _updated_at is never authored in YAML; templates use {{ single.updated_at }}.
 #
 # Template namespaces (delivery): {{ single.* }} → {{ meta.* }} → {{ param.* }} → brand/global
 #   meta: SEO head block. param: URL path + querystring (path wins on conflict).
@@ -138,6 +140,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 # field_mapping — reserved / system:
 #   _slug: entry identity (aliased to single.slug at runtime)
 #   _image: preview / OG image URL source (aliased to single.image at runtime)
+#   _updated_at: last-modified source (aliased to single.updated_at; DB-mappable, static inject)
 #   Do not use plain "slug" or "image" as field_mapping keys.
 #
 # preview (optional):
@@ -308,7 +311,7 @@ export function getPreviewConfig(
 }
 
 /** System specials — present on every content type; remappable; never deletable. */
-export const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_image"] as const;
+export const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_updated_at", "_image"] as const;
 export type KnownSpecialField = (typeof KNOWN_SPECIAL_FIELDS)[number];
 
 /** Preview / OG image mapping key (system special). Runtime alias on single bag: {@link IMAGE_ALIAS_FIELD}. */
@@ -331,6 +334,12 @@ export const LOCALE_ALIAS_FIELD = "locale";
 
 /** Routing-only — never expose on the template `single` bag. */
 export const RESERVED_HREFLANGS_FIELD = "_hreflangs";
+
+/** Last-modified mapping key (system special). Runtime alias: {@link UPDATED_AT_ALIAS_FIELD}. */
+export const RESERVED_UPDATED_AT_FIELD = "_updated_at";
+
+/** Template / list key populated from `_updated_at` (`{{ single.updated_at }}`). */
+export const UPDATED_AT_ALIAS_FIELD = "updated_at";
 
 const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD]);
 
@@ -388,6 +397,15 @@ export function normalizeContentTypeFieldConfig(
     }
   }
 
+  // Migrate legacy plain updated_at → _updated_at (system special)
+  if ("updated_at" in next) {
+    const legacy = next.updated_at;
+    delete next.updated_at;
+    if (!("_updated_at" in next) || !mappingValueToSource(next._updated_at)) {
+      next._updated_at = legacy;
+    }
+  }
+
   for (const key of Object.keys(next)) {
     if (isForbiddenSchemaFieldName(key)) {
       delete next[key];
@@ -398,6 +416,7 @@ export function normalizeContentTypeFieldConfig(
     _slug: "slug",
     _locale: "locale",
     _hreflangs: opts.isDbBacked ? "translations" : "",
+    _updated_at: opts.isDbBacked ? "updated_at" : "",
     _image: "",
   };
 
@@ -461,9 +480,20 @@ export function applyLocaleAliasToEntry(
   }
 }
 
+/** Resolve `_updated_at` onto both `updated_at` and `_updated_at` for templates. */
+export function applyUpdatedAtAliasToEntry(
+  entry: Record<string, unknown>,
+  updatedAtValue: unknown,
+): void {
+  if (isPresentAliasValue(updatedAtValue)) {
+    entry[UPDATED_AT_ALIAS_FIELD] = updatedAtValue;
+    entry[RESERVED_UPDATED_AT_FIELD] = updatedAtValue;
+  }
+}
+
 /**
  * Prepare a single-entry bag for template resolution:
- * - Bidirectional aliases for slug/_slug, locale/_locale, image/_image
+ * - Bidirectional aliases for slug/_slug, locale/_locale, image/_image, updated_at/_updated_at
  * - Strip `_hreflangs` (routing-only; not a template var)
  */
 export function finalizeSingleEntryForTemplates(
@@ -490,6 +520,12 @@ export function finalizeSingleEntryForTemplates(
   if (isPresentAliasValue(imageVal)) {
     out[IMAGE_ALIAS_FIELD] = imageVal;
     out[RESERVED_IMAGE_FIELD] = imageVal;
+  }
+
+  const updatedAtVal = out[UPDATED_AT_ALIAS_FIELD] ?? out[RESERVED_UPDATED_AT_FIELD];
+  if (isPresentAliasValue(updatedAtVal)) {
+    out[UPDATED_AT_ALIAS_FIELD] = updatedAtVal;
+    out[RESERVED_UPDATED_AT_FIELD] = updatedAtVal;
   }
 
   return Object.keys(out).length > 0 ? out : undefined;
@@ -627,6 +663,101 @@ export function getHreflangsSource(type: string, contentRoot?: string): string |
   if (!config) return null;
   if (typeof config === "object") return config.source;
   return config;
+}
+
+/** Source path or function for field_mapping._updated_at. */
+export function getUpdatedAtSource(type: string, contentRoot?: string): string | null {
+  const reg = loadRegistry(contentRoot);
+  const singular = getType(type, contentRoot);
+  const entry = reg.types[singular];
+  const config = entry?.field_mapping?._updated_at;
+  if (!config) return null;
+  if (typeof config === "object") return config.source || null;
+  return config || null;
+}
+
+export type ResolveEntryUpdatedAtOpts = {
+  contentType: string;
+  slug?: string;
+  locale?: string;
+  record?: Record<string, unknown> | null;
+  contentRoot?: string;
+  /** When true (or when type has database.slug), use mapped DB field. */
+  isDb?: boolean;
+};
+
+/**
+ * Resolve ISO `updated_at` for an entry.
+ * DB: `_updated_at` mapping / already-mapped `updated_at` → normalizeFlexibleDate.
+ * Static: content-hash-gated file timestamp for `{directory}/{slug}/{locale}.yml`.
+ * Fallback: today ISO.
+ */
+export function resolveEntryUpdatedAt(opts: ResolveEntryUpdatedAtOpts): string {
+  const { contentType, slug, locale, record, contentRoot } = opts;
+  const config = getContentTypeConfig(contentType, contentRoot);
+  const isDb = opts.isDb ?? !!config?.database?.slug;
+  const todayIso = () => new Date().toISOString();
+
+  if (isDb && record) {
+    const { normalizeFlexibleDate } = require("@shared/normalizeFlexibleDate") as typeof import("@shared/normalizeFlexibleDate");
+    const mapped = record[UPDATED_AT_ALIAS_FIELD] ?? record[RESERVED_UPDATED_AT_FIELD];
+    const fromMapped = normalizeFlexibleDate(mapped);
+    if (fromMapped) return fromMapped;
+
+    const source = getUpdatedAtSource(contentType, contentRoot);
+    if (source && source.trim()) {
+      try {
+        const { resolveFieldValue } = require("./transform") as typeof import("./transform");
+        const raw = resolveFieldValue(source, record, RESERVED_UPDATED_AT_FIELD);
+        const fromSource = normalizeFlexibleDate(raw);
+        if (fromSource) return fromSource;
+      } catch {
+        // fall through
+      }
+    }
+    return todayIso();
+  }
+
+  if (slug && locale) {
+    const { getFileUpdatedAtIso } = require("./sync-state") as typeof import("./sync-state");
+    const directory = getDirectory(contentType, contentRoot);
+    const folder = contentRoot
+      ? (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
+      : path.relative(process.cwd(), getDefaultContentRoot());
+    const filePath = `${folder}/${directory}/${slug}/${locale}.yml`;
+    return getFileUpdatedAtIso(filePath, contentRoot);
+  }
+
+  return todayIso();
+}
+
+/**
+ * Max updated_at across locale files for a static entry (manage table column).
+ */
+export function resolveStaticEntryUpdatedAt(
+  contentType: string,
+  slug: string,
+  locales: string[],
+  contentRoot?: string,
+): string {
+  let best: string | null = null;
+  let bestMs = -1;
+  for (const locale of locales) {
+    if (locale.startsWith("_") || locale.includes(".")) continue;
+    const iso = resolveEntryUpdatedAt({
+      contentType,
+      slug,
+      locale,
+      contentRoot,
+      isDb: false,
+    });
+    const ms = Date.parse(iso);
+    if (!isNaN(ms) && ms > bestMs) {
+      bestMs = ms;
+      best = iso;
+    }
+  }
+  return best || new Date().toISOString();
 }
 
 /** Normalize API locale keys (us→en), keep string slugs, optionally merge current item. */
