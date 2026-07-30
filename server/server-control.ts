@@ -163,6 +163,7 @@ export async function performSoftReload(): Promise<SoftReloadResult> {
     for (const ctx of getSiteContextMap().values()) {
       try {
         ctx.contentIndex.scanFast();
+        ctx.contentIndex.startSlowScanAsync();
       } catch (e) {
         errors.push(`${ctx.contentRootName} (rescan): ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -171,7 +172,7 @@ export async function performSoftReload(): Promise<SoftReloadResult> {
   });
 
   // Best-effort background slow scan (image/variable/redirect/SEO indexing).
-  // Not part of the pass/fail accounting — it runs asynchronously like startup.
+  // Debounced/coalesced with any startSlowScanAsync from the post-warmup rescan above.
   try {
     for (const ctx of getSiteContextMap().values()) {
       ctx.contentIndex.startSlowScanAsync();

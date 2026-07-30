@@ -486,6 +486,7 @@ export function SectionEditorPanel({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("code");
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
+  const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
 
   const hasChangesRef = useRef(hasChanges);
   hasChangesRef.current = hasChanges;
@@ -495,6 +496,11 @@ export function SectionEditorPanel({
   }, []);
 
   const hasVariableFields = !!(section as Record<string, unknown>)._variableFields;
+  const isPerEntryOverlaySection = !!(section as Record<string, unknown>)._perEntrySource;
+  /** Load raw single.*.yml into the editor for attached shared-layout template sections. */
+  const shouldLoadTemplateYaml =
+    !!contentType &&
+    (hasVariableFields || (!!isSharedTemplate && !isPerEntryOverlaySection));
 
   // Map from section field path → template key (e.g. "image.src" → "thumbnail")
   const variableFieldToTemplateKey = (() => {
@@ -561,12 +567,12 @@ export function SectionEditorPanel({
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<{ sections: string[] }>;
     },
-    enabled: hasVariableFields && !!contentType,
+    enabled: shouldLoadTemplateYaml,
   });
 
   /** After saving shared-template sections, reload YAML from disk so the editor matches the template. */
   const refreshTemplateYamlFromServer = async () => {
-    if (!hasVariableFields || !contentType) return;
+    if (!shouldLoadTemplateYaml) return;
     await bindingQueryClient.invalidateQueries({ queryKey: [...templateSectionsQueryKey] });
     const result = await refetchTemplateSections();
     const templateYaml = result.data?.sections?.[sectionIndex];
@@ -1072,7 +1078,7 @@ export function SectionEditorPanel({
     // bug reported. Skip setYamlContent in that case and let the template effect
     // own the content; we still clear hasChanges so the editor shows no dirty state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    if (hasVariableFields && templateSectionsData) {
+    if (shouldLoadTemplateYaml && templateSectionsData) {
       setHasChanges(false);
       return;
     }
@@ -2169,12 +2175,8 @@ export function SectionEditorPanel({
     const isPerEntrySection = !!(section as Record<string, unknown>)._perEntrySource;
     if (isSharedTemplate && singleEntry && !isPerEntrySection) {
       if (!allowEntryStructuralOverrides) {
-        // Attached shared-layout: only template saves are allowed
-        if (boundSiblings.length > 0) {
-          setBindingConfirmOpen(true);
-          return;
-        }
-        await executeSave();
+        // Attached shared-layout: only template saves — confirm blast radius first
+        setTemplateSaveConfirmOpen(true);
         return;
       }
       // Skip the scope dialog when previewing a variant — destination is already the variant file.
@@ -8460,6 +8462,60 @@ export function SectionEditorPanel({
               })()}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={templateSaveConfirmOpen} onOpenChange={(o) => { if (!o && !isSaving) setTemplateSaveConfirmOpen(false); }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-template-save-confirm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Update shared template?
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This page is attached to the shared template
+                  {contentType ? (
+                    <>
+                      {" "}for the content type <strong className="text-foreground">{contentType.replace(/_/g, " ")}</strong>
+                    </>
+                  ) : null}
+                  . Saving will update{" "}
+                  <code className="text-xs">single.{locale ?? "en"}.yml</code> and apply these changes to all
+                  attached {contentType ? contentType.replace(/_/g, " ") : "content type"} entries.
+                </p>
+                <p>
+                  If you only want this change on this item, detach it from the shared template first,
+                  then edit again.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              onClick={() => setTemplateSaveConfirmOpen(false)}
+              disabled={isSaving}
+              data-testid="button-template-save-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setTemplateSaveConfirmOpen(false);
+                if (boundSiblings.length > 0) {
+                  setBindingConfirmOpen(true);
+                } else {
+                  await executeSave();
+                }
+              }}
+              disabled={isSaving}
+              data-testid="button-template-save-confirm"
+            >
+              Update shared template
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

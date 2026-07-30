@@ -93,6 +93,18 @@ export interface RedirectEntry {
   priority?: "before" | "fallback";
 }
 
+function redirectEntrySignature(entry: RedirectEntry): string {
+  const to = typeof entry.to === "string" ? entry.to : JSON.stringify(entry.to);
+  return `${entry.from}\0${to}\0${entry.type}\0${entry.status}\0${entry.priority ?? "before"}\0${entry.source}`;
+}
+
+function redirectEntriesEqual(a: RedirectEntry[], b: RedirectEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = a.map(redirectEntrySignature).sort();
+  const sb = b.map(redirectEntrySignature).sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
 export interface SeoEntry {
   slug: string;
   contentType: string;
@@ -124,6 +136,11 @@ export class ContentIndex {
   private dbIndexedTypes: Set<string> = new Set();
   private initialized = false;
   private slowPhaseReady = false;
+  /** Debounce timer for coalescing background slow scans. */
+  private slowScanTimer: ReturnType<typeof setTimeout> | null = null;
+  private slowScanRunning = false;
+  private slowScanQueued = false;
+  private static readonly SLOW_SCAN_DEBOUNCE_MS = 250;
 
   /** Absolute path to the content root folder (e.g. /home/user/project/content). */
   readonly contentRoot: string;
@@ -237,7 +254,8 @@ export class ContentIndex {
     this.byPath = new Map();
     this.imageUsage = new Map();
     this.variableUsage = new Map();
-    this.redirectEntries = [];
+    // Keep previous redirectEntries + slowPhaseReady until scanSlow swaps in a
+    // fresh set — avoids empty/custom-only windows during partial reindexing.
     this.localeSlugMap = new Map();
     this.commonFieldsCache = new Map();
     this.menuUsage = new Map();
@@ -245,7 +263,6 @@ export class ContentIndex {
     this.clusterIndex = new Map();
     this.byUrl = new Map();
     this.dbIndexedTypes = new Set();
-    this.slowPhaseReady = false;
 
     for (const contentType of contentTypes) {
       const diskFolder = this.contentTypeConfigs[contentType]?.directory || contentType;
@@ -361,11 +378,12 @@ export class ContentIndex {
 
   /**
    * Phase 2 — slow scan: indexes image refs, variable refs, redirects, SEO, and menus.
-   * Runs asynchronously after the server starts listening.
-   * Routes that depend on this data handle the not-yet-ready state gracefully.
+   * Builds redirects into a temporary list and atomically swaps when complete so
+   * live traffic keeps the previous snapshot until the new one is ready.
    */
   scanSlow(): void {
     const baseDir = this.contentRoot;
+    const nextRedirects: RedirectEntry[] = [];
 
     for (const entry of this.entries) {
       const folderPath = path.join(process.cwd(), entry.directory);
@@ -385,7 +403,7 @@ export class ContentIndex {
           }
           if (parsed && this.contentTypeHasRedirects(entry.contentType)) {
             const localeSlugForRedirect = (parsed.slug && typeof parsed.slug === "string") ? parsed.slug : entry.slug;
-            this.extractRedirects(parsed, entry.slug, locale, entry.contentType, relFilePath, localeSlugForRedirect);
+            this.extractRedirects(parsed, entry.slug, locale, entry.contentType, relFilePath, localeSlugForRedirect, nextRedirects);
           }
           // Refine localeSlugMap with accurate YAML-parsed values
           if (parsed?.slug && typeof parsed.slug === "string") {
@@ -398,22 +416,72 @@ export class ContentIndex {
       }
     }
 
-    this.scanCustomRedirects(baseDir);
+    this.scanCustomRedirects(baseDir, nextRedirects);
     this.warnMissingSlugMappings();
 
+    const changed = !redirectEntriesEqual(this.redirectEntries, nextRedirects);
+    this.redirectEntries = nextRedirects;
     this.slowPhaseReady = true;
-    log.info(`[ContentIndex] Slow scan complete: ${this.imageUsage.size} image refs, ${this.variableUsage.size} variable refs, ${this.menuUsage.size} menu refs, ${this.redirectEntries.length} redirects, ${this.seoIndex.size} SEO entries`);
+
+    if (changed) {
+      this.clearLiveRedirectCache();
+    }
+
+    log.info(`[ContentIndex] Slow scan complete: ${this.imageUsage.size} image refs, ${this.variableUsage.size} variable refs, ${this.menuUsage.size} menu refs, ${this.redirectEntries.length} redirects, ${this.seoIndex.size} SEO entries${changed ? " (redirect cache cleared)" : " (redirects unchanged)"}`);
   }
 
-  /** Start the slow scan asynchronously in the next event-loop tick. */
-  startSlowScanAsync(): void {
+  /**
+   * Schedule a debounced background slow scan. Repeated calls coalesce into one
+   * run; if another request arrives while a scan is running, one follow-up runs.
+   */
+  startSlowScanAsync(debounceMs: number = ContentIndex.SLOW_SCAN_DEBOUNCE_MS): void {
+    this.slowScanQueued = true;
+    if (this.slowScanTimer) clearTimeout(this.slowScanTimer);
+    this.slowScanTimer = setTimeout(() => {
+      this.slowScanTimer = null;
+      this.runSlowScanSerialized();
+    }, debounceMs);
+  }
+
+  private cancelPendingSlowScan(): void {
+    if (this.slowScanTimer) {
+      clearTimeout(this.slowScanTimer);
+      this.slowScanTimer = null;
+    }
+    this.slowScanQueued = false;
+  }
+
+  private runSlowScanSerialized(): void {
+    if (this.slowScanRunning) {
+      this.slowScanQueued = true;
+      return;
+    }
+    this.slowScanQueued = false;
+    this.slowScanRunning = true;
     setImmediate(() => {
       try {
         this.scanSlow();
       } catch (err) {
         log.error({ err: err }, "[ContentIndex] Error during background slow scan:");
+      } finally {
+        this.slowScanRunning = false;
+        if (this.slowScanQueued) {
+          this.runSlowScanSerialized();
+        }
       }
     });
+  }
+
+  /** Invalidate middleware redirect maps after a successful redirect-set swap. */
+  private clearLiveRedirectCache(): void {
+    // Dynamic import avoids a circular dependency with redirects.ts (ESM; no require).
+    void import("./redirects")
+      .then(({ clearRedirectCache }) => {
+        clearRedirectCache();
+      })
+      .catch((err) => {
+        log.warn({ err }, "[ContentIndex] Failed to clear live redirect cache:");
+      });
   }
 
   /** Returns true once the slow phase (image/variable/redirect/SEO indexing) has completed. */
@@ -426,8 +494,17 @@ export class ContentIndex {
    * Used for explicit re-scans triggered by content edits.
    */
   scan(): void {
+    this.cancelPendingSlowScan();
     this.scanFast();
-    this.scanSlow();
+    this.slowScanRunning = true;
+    try {
+      this.scanSlow();
+    } finally {
+      this.slowScanRunning = false;
+      if (this.slowScanQueued) {
+        this.startSlowScanAsync(0);
+      }
+    }
     // Re-emit a unified log for callers that expect the original combined message
     log.info(`[ContentIndex] Scanned ${this.entries.length} content entries, ${this.imageUsage.size} image references tracked, ${this.variableUsage.size} variable references tracked, ${this.menuUsage.size} menu references tracked, ${this.redirectEntries.length} redirects, ${this.seoIndex.size} seo entries tracked`);
   }
@@ -727,6 +804,7 @@ export class ContentIndex {
     contentType: string,
     filePath: string,
     localeSlug?: string,
+    into: RedirectEntry[] = this.redirectEntries,
   ): void {
     const meta = parsed.meta as Record<string, unknown> | undefined;
     const redirects = meta?.redirects as unknown[] | undefined;
@@ -767,7 +845,7 @@ export class ContentIndex {
       if (normalized.length > 1 && normalized.endsWith("/")) {
         normalized = normalized.slice(0, -1);
       }
-      this.redirectEntries.push({
+      into.push({
         from: normalized,
         to: targetTo,
         type: typeLabel,
@@ -777,7 +855,7 @@ export class ContentIndex {
     }
   }
 
-  private scanCustomRedirects(baseDir: string): void {
+  private scanCustomRedirects(baseDir: string, into: RedirectEntry[] = this.redirectEntries): void {
     const customFile = path.join(baseDir, "custom-redirects.yml");
     if (!fs.existsSync(customFile)) return;
 
@@ -799,7 +877,7 @@ export class ContentIndex {
         const status = obj.status && [301, 302].includes(obj.status) ? obj.status : 301;
         const priority = obj.priority === "fallback" ? "fallback" : "before";
 
-        this.redirectEntries.push({
+        into.push({
           from: normalizedFrom,
           to: obj.to,
           type: "custom",
@@ -1079,22 +1157,42 @@ export class ContentIndex {
 
   getRedirects(): RedirectEntry[] {
     this.ensureInitialized();
-    // Return empty during slow-phase startup — the fallback redirect middleware
-    // will simply pass through and the redirects will be available shortly.
+    // Prefer a previous complete snapshot over an empty list during rebuild.
+    // Only return [] on cold start before the first successful slow scan.
     if (!this.slowPhaseReady) return [];
     return [...this.redirectEntries];
   }
 
   /**
    * Re-read custom-redirects.yml from disk into redirectEntries.
-   * Returns the full redirect list after refresh (bypasses slow-phase gating).
+   * Never leaves the index in a misleading custom-only + ready state: if content
+   * redirects are missing or the slow phase is not ready, runs a full slow rebuild.
    */
   refreshCustomRedirects(): RedirectEntry[] {
     this.ensureInitialized();
-    this.redirectEntries = this.redirectEntries.filter((e) => e.type !== "custom");
-    this.scanCustomRedirects(this.contentRoot);
-    // Custom redirects are loaded from disk — safe to expose via getRedirects().
-    this.slowPhaseReady = true;
+
+    const hasContentRedirects = this.redirectEntries.some((e) => e.type !== "custom");
+    if (!this.slowPhaseReady || !hasContentRedirects) {
+      this.cancelPendingSlowScan();
+      this.slowScanRunning = true;
+      try {
+        this.scanSlow();
+      } finally {
+        this.slowScanRunning = false;
+        if (this.slowScanQueued) {
+          this.startSlowScanAsync(0);
+        }
+      }
+      return [...this.redirectEntries];
+    }
+
+    const next: RedirectEntry[] = this.redirectEntries.filter((e) => e.type !== "custom");
+    this.scanCustomRedirects(this.contentRoot, next);
+    const changed = !redirectEntriesEqual(this.redirectEntries, next);
+    this.redirectEntries = next;
+    if (changed) {
+      this.clearLiveRedirectCache();
+    }
     return [...this.redirectEntries];
   }
 

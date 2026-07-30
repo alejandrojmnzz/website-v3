@@ -2,8 +2,13 @@ import fs from "fs";
 import { getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
+import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { getSupportedLocales, getDefaultLocale } from "./settings";
-import { markFileAsModified } from "./sync-state";
+import { getFileUpdatedAtIso, markFileAsModified } from "./sync-state";
+import {
+  getValueByPath,
+  resolveFieldValue as resolveMappedFieldValue,
+} from "./transform";
 import { child } from "./logger";
 const log = child({ module: "content-types" });
 
@@ -699,7 +704,6 @@ export function resolveEntryUpdatedAt(opts: ResolveEntryUpdatedAtOpts): string {
   const todayIso = () => new Date().toISOString();
 
   if (isDb && record) {
-    const { normalizeFlexibleDate } = require("@shared/normalizeFlexibleDate") as typeof import("@shared/normalizeFlexibleDate");
     const mapped = record[UPDATED_AT_ALIAS_FIELD] ?? record[RESERVED_UPDATED_AT_FIELD];
     const fromMapped = normalizeFlexibleDate(mapped);
     if (fromMapped) return fromMapped;
@@ -707,8 +711,7 @@ export function resolveEntryUpdatedAt(opts: ResolveEntryUpdatedAtOpts): string {
     const source = getUpdatedAtSource(contentType, contentRoot);
     if (source && source.trim()) {
       try {
-        const { resolveFieldValue } = require("./transform") as typeof import("./transform");
-        const raw = resolveFieldValue(source, record, RESERVED_UPDATED_AT_FIELD);
+        const raw = resolveMappedFieldValue(source, record, RESERVED_UPDATED_AT_FIELD);
         const fromSource = normalizeFlexibleDate(raw);
         if (fromSource) return fromSource;
       } catch {
@@ -719,7 +722,6 @@ export function resolveEntryUpdatedAt(opts: ResolveEntryUpdatedAtOpts): string {
   }
 
   if (slug && locale) {
-    const { getFileUpdatedAtIso } = require("./sync-state") as typeof import("./sync-state");
     const directory = getDirectory(contentType, contentRoot);
     const folder = contentRoot
       ? (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
@@ -819,14 +821,11 @@ export function resolveHreflangsFromRecord(
 
   let raw: unknown;
   if (source.startsWith("function:") || source.startsWith("?function:")) {
-    // Lazy import to avoid circular deps at module load
-    const { resolveFieldValue } = require("./transform") as typeof import("./transform");
-    raw = resolveFieldValue(source, record, "_hreflangs");
+    raw = resolveMappedFieldValue(source, record, "_hreflangs");
   } else {
     const pathKey = source.startsWith("?") ? source.slice(1) : source;
     raw = record[pathKey];
     if (raw === undefined && pathKey.includes(".")) {
-      const { getValueByPath } = require("./transform") as typeof import("./transform");
       raw = getValueByPath(record, pathKey);
     }
   }
