@@ -36,6 +36,7 @@ export function buildWebhookSamplePayload(
   if (formSettingsPath != null) {
     const fp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
     const program = getValueAtPath(sectionSource, fp("fields.program.default")) as string | undefined;
+    const currentDownload = getValueAtPath(sectionSource, fp("fields.current_download.default")) as string | undefined;
     const tags = getValueAtPath(sectionSource, fp("tags"));
     const automations = getValueAtPath(sectionSource, fp("automations")) as string | undefined;
     const consentEmail = getValueAtPath(sectionSource, fp("consent.marketing")) as boolean | undefined;
@@ -43,6 +44,7 @@ export function buildWebhookSamplePayload(
     const consentWhatsapp = getValueAtPath(sectionSource, fp("consent.whatsapp")) as boolean | undefined;
 
     if (program) formSettingsOverrides.program = program;
+    if (currentDownload) formSettingsOverrides.current_download = currentDownload;
     if (tags != null) formSettingsOverrides.tags = tags;
     if (automations) formSettingsOverrides.automations = automations;
     if (consentEmail != null) formSettingsOverrides.consent_email = consentEmail;

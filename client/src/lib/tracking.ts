@@ -270,6 +270,7 @@ export const SAMPLE_LEAD_PAYLOAD: Record<string, unknown> = {
   location: "miami-usa",
   region: "us",
   coupon: "",
+  current_download: "",
   language: "en",
   browser_lang: "en-US",
   latitude: "25.7617",

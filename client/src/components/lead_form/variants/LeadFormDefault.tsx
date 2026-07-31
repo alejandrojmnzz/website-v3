@@ -101,6 +101,8 @@ export interface LeadFormData {
     location?: FieldConfig;
     coupon?: FieldConfig;
     client_comments?: FieldConfig;
+    /** Sent on the lead webhook as current_download; usually hidden via visible: false. */
+    current_download?: FieldConfig;
   };
   success?: {
     url?: string;
@@ -170,6 +172,7 @@ interface FormValues {
   location: string;
   coupon: string;
   client_comments: string;
+  current_download: string;
   consent_email: boolean;
   consent_sms: boolean;
   consent_whatsapp: boolean;
@@ -585,6 +588,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       location: { visible: false, required: false, default: "auto" },
       coupon: { visible: false, required: false, default: "auto" },
       client_comments: { visible: false, required: false },
+      current_download: { visible: false, required: false },
     };
     const baseConfig = { ...defaults[fieldName], ...fields[fieldName] };
 
@@ -675,7 +679,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       region: resolveDefault("region", getFieldConfig("region").default),
       location: resolveDefault("location", getFieldConfig("location").default),
       coupon: resolveDefault("coupon", getFieldConfig("coupon").default),
-      client_comments: "",
+      client_comments: resolveDefault("client_comments", getFieldConfig("client_comments").default),
+      current_download: resolveDefault("current_download", getFieldConfig("current_download").default),
       consent_email: false,
       consent_sms: false,
       consent_whatsapp: false,
@@ -809,6 +814,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         region: singleLandingRegion || values.region || sessionLocation?.region || resolveDefault("region", getFieldConfig("region").default),
         coupon: values.coupon || utm.coupon || resolveDefault("coupon", getFieldConfig("coupon").default),
         program: values.program || formOptions?.programs.find(p => p.slug === programContext)?.bc_slug || programContext || resolveDefault("program", getFieldConfig("program").default),
+        current_download: values.current_download || resolveDefault("current_download", getFieldConfig("current_download").default),
         language: session.language,
         browser_lang: session.browserLang,
         latitude: session.geo?.latitude?.toString(),
@@ -1105,6 +1111,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       "region",
       "location",
       "client_comments",
+      "current_download",
     ];
     return names.filter((name) => {
       const cfg = getFieldConfig(name as keyof NonNullable<LeadFormData["fields"]>);
@@ -1159,6 +1166,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     check("region");
     check("location");
     check("client_comments");
+    check("current_download");
 
     const ready = requiredKeys.every((field) => {
       const value = values[field];
@@ -1302,7 +1310,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     showField("region") ||
     showField("location") ||
     showField("coupon") ||
-    showField("client_comments");
+    showField("client_comments") ||
+    showField("current_download");
 
   const firstNameConfig = getFieldConfig("first_name");
 
@@ -1764,6 +1773,44 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                     </FormControl>
                     {getFieldConfig("coupon").helper_text && (
                       <p className="text-sm text-muted-foreground">{getFieldConfig("coupon").helper_text}</p>
+                    )}
+                    <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {showField("current_download") && (
+              <FormField
+                control={form.control}
+                name="current_download"
+                rules={{
+                  required: getFieldConfig("current_download").required
+                    ? (locale === "es" ? "Descargable requerido" : "Download is required")
+                    : false,
+                }}
+                render={({ field }) => (
+                  <FormItem>
+                    {getFieldConfig("current_download").show_label && (
+                      <FormLabel>
+                        {getFieldConfig("current_download").label ||
+                          (locale === "es" ? "Descargable" : "Download")}
+                      </FormLabel>
+                    )}
+                    <FormControl>
+                      <Input
+                        placeholder={
+                          getFieldConfig("current_download").placeholder ||
+                          (locale === "es" ? "Descargable" : "Download")
+                        }
+                        {...field}
+                        data-testid="input-current-download"
+                      />
+                    </FormControl>
+                    {getFieldConfig("current_download").helper_text && (
+                      <p className="text-sm text-muted-foreground">
+                        {getFieldConfig("current_download").helper_text}
+                      </p>
                     )}
                     <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
                   </FormItem>
