@@ -425,9 +425,15 @@ export {
   ctaBannerSectionSchema,
   ctaBannerDefaultSchema,
   ctaBannerFormSchema,
+  ctaBannerStripSchema,
+  ctaBannerResourceShowcaseSchema,
+  ctaBannerPromotionSchema,
   type CtaBannerSection,
   type CtaBannerDefault,
   type CtaBannerForm,
+  type CtaBannerStrip,
+  type CtaBannerResourceShowcase,
+  type CtaBannerPromotion,
 } from "../site_4geeks-com/component-registry/cta_banner/v1.0/schema";
 
 // Type alias for backward compatibility

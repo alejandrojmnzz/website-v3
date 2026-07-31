@@ -1,9 +1,12 @@
 import { lazy, Suspense } from "react";
-import type { CTABannerSection as CTABannerSectionType, CtaBannerDefault, CtaBannerForm, CtaButton } from "@shared/schema";
+import type { CTABannerSection as CTABannerSectionType, CtaBannerDefault, CtaBannerForm, CtaBannerStrip, CtaBannerResourceShowcase, CtaBannerPromotion, CtaButton } from "@shared/schema";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { useSession } from "@/contexts/SessionContext";
+import { CtaBannerStrip as CtaBannerStripComponent } from "./CtaBannerStrip";
+import { CtaBannerResourceShowcase as CtaBannerResourceShowcaseComponent } from "./CtaBannerResourceShowcase";
+import { CtaBannerPromotion as CtaBannerPromotionComponent } from "./CtaBannerPromotion";
 
 const LeadForm = lazy(() => import("@/components/lead_form/variants/LeadFormDefault"));
 
@@ -27,12 +30,37 @@ function isDefaultVariant(data: CTABannerSectionType): data is CtaBannerDefault 
   return !data.variant || data.variant === "default";
 }
 
+function isStripVariant(data: CTABannerSectionType): data is CtaBannerStrip {
+  return data.variant === "strip";
+}
+
+function isResourceShowcaseVariant(data: CTABannerSectionType): data is CtaBannerResourceShowcase {
+  return data.variant === "resourceShowcase";
+}
+
+function isPromotionVariant(data: CTABannerSectionType): data is CtaBannerPromotion {
+  return data.variant === "promotion";
+}
+
 export function CTABannerSection({ data }: CTABannerSectionProps) {
   const sessionContext = useSession();
   const session = sessionContext?.session;
   
   const isUS = session?.geo?.country_code === 'US' || session?.location?.country_code === 'US';
   const handleLinkClick = useInternalNav();
+
+  // New variants
+  if (isStripVariant(data)) {
+    return <CtaBannerStripComponent data={data} />;
+  }
+
+  if (isResourceShowcaseVariant(data)) {
+    return <CtaBannerResourceShowcaseComponent data={data} />;
+  }
+
+  if (isPromotionVariant(data)) {
+    return <CtaBannerPromotionComponent data={data} />;
+  }
 
   // Form variant: show form on both mobile and desktop
   if (isFormVariant(data)) {
@@ -133,7 +161,7 @@ export function CTABannerSection({ data }: CTABannerSectionProps) {
                 return (
                   <Button
                     key={index}
-                    variant={variant}
+                    variant={variant as any}
                     size="lg"
                     asChild
                     className={outlineStyles}

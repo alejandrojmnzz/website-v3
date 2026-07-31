@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guía gratis (PDF) — banner</title>
+<style>
+  :root{
+    color-scheme: light;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, Roboto, sans-serif;
+    /* ---- Colores de marca (paleta original) ---- */
+    --blue:#2563eb;
+    --blue-strong:#1d4ed8;
+    --orange:#fb5a1f;
+    --bg-outer:#eef2f9;
+    --bg-outer-2:#e6ecf6;
+    --card:#ffffff;
+    --ink:#101828;
+    --muted:#667085;
+    --pill-bg:#e7effe;
+    --border:#e6e9f0;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;font-family:var(--sans);
+    background:
+      radial-gradient(80% 60% at 85% 0%, color-mix(in srgb, var(--blue) 10%, transparent), transparent 60%),
+      linear-gradient(160deg, var(--bg-outer) 0%, var(--bg-outer-2) 100%);
+    display:grid;place-items:center;padding:clamp(20px,5vw,60px);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{width:100%;max-width:820px}
+
+  .banner{
+    display:flex;align-items:center;gap:16px;
+    padding:15px 18px;border-radius:15px;
+    text-decoration:none;color:var(--ink);
+    background:var(--card);
+    border:1px solid var(--border);
+    box-shadow:0 16px 34px -22px rgba(28,54,120,.35), 0 4px 12px -8px rgba(28,54,120,.16);
+    transition:transform .16s ease, border-color .16s ease, box-shadow .2s ease;
+  }
+  .banner:hover{
+    transform:translateY(-1px);
+    border-color:color-mix(in srgb, var(--blue) 45%, var(--border));
+    box-shadow:0 22px 44px -22px rgba(28,54,120,.4), 0 0 0 1px color-mix(in srgb,var(--blue) 16%, transparent);
+  }
+  .banner:focus-visible{outline:none;border-color:var(--blue);box-shadow:0 0 0 4px color-mix(in srgb,var(--blue) 22%, transparent)}
+
+  .ico{
+    flex:0 0 auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+    color:var(--blue);
+    background:var(--pill-bg);
+  }
+
+  .copy{
+    flex:1 1 auto;min-width:0;
+    font-size:.98rem;line-height:1.4;color:var(--muted);
+  }
+  .copy b{color:var(--ink);font-weight:700}
+
+  .cta{
+    flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+    font-weight:700;font-size:.95rem;color:var(--blue);white-space:nowrap;
+  }
+  .cta svg{transition:transform .18s ease}
+  .banner:hover .cta svg{transform:translateX(4px)}
+
+  @media (prefers-reduced-motion:reduce){ .banner,.cta svg{transition:none} }
+
+  @media (max-width:560px){
+    .banner{flex-wrap:wrap;gap:12px}
+    .copy{flex:1 1 100%;order:3}
+    .cta{margin-left:auto}
+  }
+</style>
+</head>
+<body>
+
+  <div class="wrap">
+    <a class="banner" href="guia-captacion-ia.html">
+      <span class="ico" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 3v9m0 0l-3.2-3.2M10 12l3.2-3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 14.5v1a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5v-1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+      </span>
+
+      <span class="copy"><b>Guía gratis (PDF):</b> arma tu propio flujo de captación con IA — Apollo, Claude y Slack</span>
+
+      <span class="cta">
+        Descargar
+        <svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M4 10h11M11 5l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+    </a>
+  </div>
+
+</body>
+</html>
