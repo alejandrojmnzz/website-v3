@@ -5,9 +5,65 @@ import UniversalImage from "@/components/UniversalImage";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathSimplified } from "@shared/schema";
-import { Button } from "@/components/ui/button";
 
 type Course = AiFlexPathSimplified["courses"][0];
+type CtaButton = NonNullable<Course["cta_buttons"]>[number];
+
+/** Inline CTA button that adapts its color to the course's slot color. */
+function SlottedCtaButton({
+  btn,
+  resolved,
+  size = "md",
+  nav,
+}: {
+  btn: CtaButton;
+  resolved: ResolvedColor;
+  size?: "sm" | "md";
+  nav: (e: React.MouseEvent) => void;
+}) {
+  const [hov, setHov] = useState(false);
+  const BtnIcon = btn.icon ? getIcon(btn.icon) : null;
+  const variant = btn.variant ?? "primary";
+
+  const px = size === "sm" ? "px-[10px] py-[5px] text-[11px]" : "px-[13px] py-[6px] text-[12px]";
+
+  let style: React.CSSProperties;
+  if (variant === "primary") {
+    style = {
+      background: hov ? hslColor(resolved, 0.85) : hslColor(resolved, 1),
+      color: "#fff",
+      border: "none",
+    };
+  } else if (variant === "outline") {
+    style = {
+      background: hov ? hslColor(resolved, 0.08) : "transparent",
+      color: hslColor(resolved, 1),
+      border: `1.5px solid ${hslColor(resolved, hov ? 0.7 : 0.45)}`,
+    };
+  } else {
+    // link
+    style = {
+      background: "transparent",
+      color: hov ? hslColor(resolved, 0.75) : hslColor(resolved, 1),
+      border: "none",
+      textDecoration: hov ? "underline" : "none",
+    };
+  }
+
+  return (
+    <a
+      href={btn.url}
+      onClick={nav}
+      className={`inline-flex items-center gap-[5px] font-semibold rounded-[8px] cursor-pointer select-none whitespace-nowrap ${px}`}
+      style={{ transition: "background 140ms, color 140ms, border-color 140ms", ...style }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+    >
+      {btn.text}
+      {BtnIcon && <BtnIcon size={size === "sm" ? 12 : 13} />}
+    </a>
+  );
+}
 
 const DEFAULT_COURSE_COLORS = [
   "hsl(0 84% 60%)",
@@ -276,20 +332,9 @@ function PathItem({
               {/* Mobile CTA buttons */}
               {ctaButtons.length > 0 && (
                 <div className="md:hidden flex flex-wrap items-center gap-2 mt-2 pl-[23px]">
-                  {ctaButtons.map((btn, i) => {
-                    const variant = btn.variant === "primary" ? "default"
-                      : btn.variant === "link" ? "link"
-                      : (btn.variant as any) ?? "default";
-                    const BtnIcon = btn.icon ? getIcon(btn.icon) : null;
-                    return (
-                      <Button key={i} variant={variant} size="sm" asChild className="whitespace-nowrap">
-                        <a href={btn.url} onClick={nav}>
-                          {btn.text}
-                          {BtnIcon && <BtnIcon size={13} />}
-                        </a>
-                      </Button>
-                    );
-                  })}
+                  {ctaButtons.map((btn, i) => (
+                    <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" nav={nav} />
+                  ))}
                 </div>
               )}
             </div>
@@ -322,20 +367,9 @@ function PathItem({
                     <span className="text-[13px] leading-none transition-transform duration-200" style={{ display: "inline-block", transform: expanded ? "rotate(180deg)" : "none" }}>▾</span>
                   </div>
                 )}
-                {ctaButtons.map((btn, i) => {
-                  const variant = btn.variant === "primary" ? "default"
-                    : btn.variant === "link" ? "link"
-                    : (btn.variant as any) ?? "default";
-                  const BtnIcon = btn.icon ? getIcon(btn.icon) : null;
-                  return (
-                    <Button key={i} variant={variant} size="sm" asChild className="whitespace-nowrap">
-                      <a href={btn.url} onClick={nav}>
-                        {btn.text}
-                        {BtnIcon && <BtnIcon size={14} />}
-                      </a>
-                    </Button>
-                  );
-                })}
+                {ctaButtons.map((btn, i) => (
+                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} nav={nav} />
+                ))}
               </div>
             </div>
           </div>
