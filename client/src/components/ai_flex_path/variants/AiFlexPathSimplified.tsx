@@ -5,11 +5,18 @@ import UniversalImage from "@/components/UniversalImage";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathSimplified } from "@shared/schema";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type Course = AiFlexPathSimplified["courses"][0];
 type CtaButton = NonNullable<Course["cta_buttons"]>[number];
 
-/** Inline CTA button that adapts its color to the course's slot color. */
+/**
+ * CTA button with the exact same shape/size as the global Button component,
+ * but with colors adapted to the course's slot color.
+ * Inline styles always win over Tailwind class rules (including pseudo-classes),
+ * so we use buttonVariants for shape and override only color props via style.
+ */
 function SlottedCtaButton({
   btn,
   resolved,
@@ -24,29 +31,31 @@ function SlottedCtaButton({
   const [hov, setHov] = useState(false);
   const BtnIcon = btn.icon ? getIcon(btn.icon) : null;
   const variant = btn.variant ?? "primary";
+  const bSize = size === "sm" ? "sm" : "default";
 
-  const px = size === "sm" ? "px-[10px] py-[5px] text-[11px]" : "px-[13px] py-[6px] text-[12px]";
+  // Shape/layout from the global button system — color overridden below via inline style
+  const bVariant = variant === "primary" ? "default"
+    : variant === "outline" ? "outline"
+    : "link";
+  const shapeClass = cn(buttonVariants({ variant: bVariant, size: bSize }));
 
-  let style: React.CSSProperties;
+  let colorStyle: React.CSSProperties;
   if (variant === "primary") {
-    style = {
+    colorStyle = {
       background: hov ? hslColor(resolved, 0.85) : hslColor(resolved, 1),
+      borderColor: hov ? hslColor(resolved, 0.85) : hslColor(resolved, 1),
       color: "#fff",
-      border: "none",
     };
   } else if (variant === "outline") {
-    style = {
+    colorStyle = {
       background: hov ? hslColor(resolved, 0.08) : "transparent",
+      borderColor: hslColor(resolved, hov ? 0.6 : 0.4),
       color: hslColor(resolved, 1),
-      border: `1.5px solid ${hslColor(resolved, hov ? 0.7 : 0.45)}`,
     };
   } else {
-    // link
-    style = {
-      background: "transparent",
-      color: hov ? hslColor(resolved, 0.75) : hslColor(resolved, 1),
-      border: "none",
-      textDecoration: hov ? "underline" : "none",
+    // link — keep hover:bg-muted from Tailwind but override the text color
+    colorStyle = {
+      color: hslColor(resolved, 1),
     };
   }
 
@@ -54,13 +63,13 @@ function SlottedCtaButton({
     <a
       href={btn.url}
       onClick={nav}
-      className={`inline-flex items-center gap-[5px] font-semibold rounded-[8px] cursor-pointer select-none whitespace-nowrap ${px}`}
-      style={{ transition: "background 140ms, color 140ms, border-color 140ms", ...style }}
+      className={shapeClass}
+      style={colorStyle}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
     >
       {btn.text}
-      {BtnIcon && <BtnIcon size={size === "sm" ? 12 : 13} />}
+      {BtnIcon && <BtnIcon size={bSize === "sm" ? 12 : 14} />}
     </a>
   );
 }
