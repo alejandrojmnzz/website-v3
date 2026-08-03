@@ -41,15 +41,16 @@ function SlottedCtaButton({
 
   let colorStyle: React.CSSProperties;
   if (variant === "primary") {
+    // Soft tinted style (same family as tool-pills) instead of full solid
     colorStyle = {
-      background: hov ? hslColor(resolved, 0.85) : hslColor(resolved, 1),
-      borderColor: hov ? hslColor(resolved, 0.85) : hslColor(resolved, 1),
-      color: "#fff",
+      background: hov ? hslColor(resolved, 0.18) : hslColor(resolved, 0.12),
+      borderColor: hslColor(resolved, hov ? 0.3 : 0.2),
+      color: hslColor(resolved, 1),
     };
   } else if (variant === "outline") {
     colorStyle = {
       background: hov ? hslColor(resolved, 0.08) : "transparent",
-      borderColor: hslColor(resolved, hov ? 0.6 : 0.4),
+      borderColor: hslColor(resolved, hov ? 0.4 : 0.25),
       color: hslColor(resolved, 1),
     };
   } else {
