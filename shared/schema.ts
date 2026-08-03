@@ -985,11 +985,8 @@ export const featureQuadImageSchema = z.object({
   object_fit: z.enum(["cover", "contain", "fill", "none", "scale-down"]).optional(),
 });
 
-export const featureQuadCtaSchema = z.object({
-  text: z.string(),
-  url: z.string(),
-  variant: z.enum(["primary", "secondary", "outline"]).optional(),
-});
+// CTA uses the same shared button schema as the hero component
+export const featureQuadCtaSchema = commonCtaButtonSchema;
 
 export const featureQuadSectionSchema = z.object({
   type: z.literal("features_quad"),
@@ -1024,6 +1021,11 @@ export const featureQuadSectionSchema = z.object({
   // Legacy fields for backward compatibility (used when video is a string)
   video_ratio: z.string().optional(),
   video_preview_image: z.string().optional(),
+  // Laptop image override for the laptopEdge variant
+  laptop_image: z.object({
+    image_id: z.string(),
+    alt: z.string().optional(),
+  }).optional(),
 });
 
 export type FeatureQuadCard = z.infer<typeof featureQuadCardSchema>;

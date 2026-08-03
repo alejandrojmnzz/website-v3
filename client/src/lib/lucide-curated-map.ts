@@ -49,6 +49,7 @@ export const curatedLucideImports: Record<string, LucideIconLoader> = {
   "github": () => import("lucide-react/dist/esm/icons/github.js"),
   "globe": () => import("lucide-react/dist/esm/icons/globe.js"),
   "graduation-cap": () => import("lucide-react/dist/esm/icons/graduation-cap.js"),
+  "headset": () => import("lucide-react/dist/esm/icons/headset.js"),
   "instagram": () => import("lucide-react/dist/esm/icons/instagram.js"),
   "kanban": () => import("lucide-react/dist/esm/icons/kanban.js"),
   "key-round": () => import("lucide-react/dist/esm/icons/key-round.js"),

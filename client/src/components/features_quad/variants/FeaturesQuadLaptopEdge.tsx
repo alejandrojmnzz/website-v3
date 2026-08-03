@@ -242,7 +242,10 @@ export default function FeaturesQuadLaptopEdge({ data }: FeaturesQuadLaptopEdgeP
                 className="mt-4"
                 data-testid="button-features-quad-cta-mobile"
               >
-                <a href={data.cta.url} onClick={handleLinkClick}>{data.cta.text}</a>
+                <a href={data.cta.url} onClick={handleLinkClick} className="flex items-center gap-2">
+                  {data.cta.icon && (() => { const Ic = getIcon(data.cta!.icon!); return Ic ? <Ic className="h-4 w-4" /> : null; })()}
+                  {data.cta.text}
+                </a>
               </Button>
             )}
           </div>
@@ -282,7 +285,10 @@ export default function FeaturesQuadLaptopEdge({ data }: FeaturesQuadLaptopEdgeP
                   className="mt-4"
                   data-testid="button-features-quad-cta-tablet"
                 >
-                  <a href={data.cta.url} onClick={handleLinkClick}>{data.cta.text}</a>
+                  <a href={data.cta.url} onClick={handleLinkClick} className="flex items-center gap-2">
+                  {data.cta.icon && (() => { const Ic = getIcon(data.cta!.icon!); return Ic ? <Ic className="h-4 w-4" /> : null; })()}
+                  {data.cta.text}
+                </a>
                 </Button>
               )}
             </div>
@@ -355,7 +361,10 @@ export default function FeaturesQuadLaptopEdge({ data }: FeaturesQuadLaptopEdgeP
                       className="mt-4"
                       data-testid="button-features-quad-cta-desktop"
                     >
-                      <a href={data.cta.url} onClick={handleLinkClick}>{data.cta.text}</a>
+                      <a href={data.cta.url} onClick={handleLinkClick} className="flex items-center gap-2">
+                  {data.cta.icon && (() => { const Ic = getIcon(data.cta!.icon!); return Ic ? <Ic className="h-4 w-4" /> : null; })()}
+                  {data.cta.text}
+                </a>
                     </Button>
                   )}
                 </div>
