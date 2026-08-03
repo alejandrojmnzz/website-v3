@@ -42,8 +42,8 @@ function SlottedCtaButton({
   let colorStyle: React.CSSProperties;
   if (variant === "primary") {
     colorStyle = {
-      background: hov ? hslColor(resolved, 0.9) : hslColor(resolved, 0.75),
-      borderColor: hov ? hslColor(resolved, 0.9) : hslColor(resolved, 0.75),
+      background: hslColor(resolved, 0.75),
+      borderColor: hslColor(resolved, 0.75),
       color: "#fff",
     };
   } else if (variant === "outline") {
