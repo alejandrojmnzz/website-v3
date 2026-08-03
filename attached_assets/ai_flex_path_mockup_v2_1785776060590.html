@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>AI Flex – Elige tu camino</title>
+<style>
+  :root{
+    --ink:#0d1b2a;
+    --gray:#8a94a6;
+    --gray-light:#b7c0cc;
+    --line:#e7eaef;
+    --bg:#f7f8fa;
+    --white:#ffffff;
+    --brand-blue:#1e6bf1;
+
+    --p1:#2f6fed; --p1-bg:#eaf1fe;
+    --p2:#e6435f; --p2-bg:#fdeaed;
+    --p3:#f2994a; --p3-bg:#fef3e8;
+    --p4:#8a5cf6; --p4-bg:#f2edfe;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+  }
+
+  /* ---------- HEADER ---------- */
+  header{
+    background:#fff;
+    border-bottom:1px solid var(--line);
+    padding:14px 32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .logo{
+    display:flex;align-items:center;gap:2px;
+    font-size:22px;font-weight:800;color:#0d1b2a;
+  }
+  .logo .o{color:var(--p1);}
+  nav{display:flex;align-items:center;gap:34px;}
+  nav a{
+    font-size:13px;font-weight:700;letter-spacing:.3px;
+    color:#4a5568;text-decoration:none;text-transform:uppercase;
+    display:flex;align-items:center;gap:5px;
+  }
+  .header-right{display:flex;align-items:center;gap:22px;}
+  .lang{font-size:13px;font-weight:700;color:#4a5568;display:flex;align-items:center;gap:5px;}
+  .btn-acceder{
+    background:var(--brand-blue);color:#fff;font-weight:700;font-size:13px;
+    padding:11px 22px;border-radius:8px;text-decoration:none;letter-spacing:.3px;
+  }
+
+  /* ---------- HERO ---------- */
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 32px 70px;}
+  .hero-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:20px;}
+  .eyebrow{
+    font-size:12.5px;font-weight:800;letter-spacing:1px;color:var(--gray);
+    text-transform:uppercase;margin:0 0 10px;
+  }
+  h1{font-size:34px;line-height:1.2;margin:0 0 10px;color:var(--ink);font-weight:800;}
+  .lead{font-size:16px;color:var(--gray);max-width:620px;margin:0;line-height:1.55;}
+  .rutas-badge{
+    background:var(--p1-bg);color:var(--p1);font-weight:800;font-size:13px;
+    padding:6px 14px;border-radius:20px;white-space:nowrap;margin-top:6px;
+  }
+
+  .sub-row{
+    display:flex;justify-content:space-between;align-items:center;
+    margin:28px 0 22px;
+  }
+  .sub-caption{font-size:12.5px;font-weight:800;letter-spacing:.8px;color:var(--gray-light);text-transform:uppercase;}
+
+  /* ---------- PATH CARDS ---------- */
+  .paths{display:flex;flex-direction:column;gap:14px;}
+
+  .path-card{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:22px 24px;
+    display:flex;
+    align-items:center;
+    gap:18px;
+    transition:box-shadow .18s ease, transform .18s ease;
+  }
+  .path-card:hover{box-shadow:0 10px 28px rgba(13,27,42,.07);transform:translateY(-1px);}
+
+  .icon-circle{
+    flex:0 0 auto;width:46px;height:46px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .icon-circle svg{width:21px;height:21px;stroke-width:2.2;fill:none;}
+
+  .p1 .icon-circle{background:var(--p1-bg);} .p1 .icon-circle svg{stroke:var(--p1);}
+  .p2 .icon-circle{background:var(--p2-bg);} .p2 .icon-circle svg{stroke:var(--p2);}
+  .p3 .icon-circle{background:var(--p3-bg);} .p3 .icon-circle svg{stroke:var(--p3);}
+  .p4 .icon-circle{background:var(--p4-bg);} .p4 .icon-circle svg{stroke:var(--p4);}
+
+  .path-body{flex:1 1 auto;min-width:0;}
+  .path-name{font-size:17px;font-weight:800;color:var(--ink);margin:0 0 4px;}
+  .path-desc{font-size:14.5px;color:var(--gray);line-height:1.5;margin:0 0 12px;}
+
+  .badges{display:flex;flex-wrap:wrap;gap:7px;}
+  .badge{font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;}
+  .p1 .badge{color:var(--p1);background:var(--p1-bg);}
+  .p2 .badge{color:var(--p2);background:var(--p2-bg);}
+  .p3 .badge{color:var(--p3);background:var(--p3-bg);}
+  .p4 .badge{color:var(--p4);background:var(--p4-bg);}
+
+  .path-cta{flex:0 0 auto;}
+  .btn-choose{
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+    color:#fff;font-weight:800;font-size:13.5px;
+    padding:12px 20px;border-radius:9px;text-decoration:none;border:none;cursor:pointer;
+  }
+  .p1 .btn-choose{background:var(--p1);} .p1 .btn-choose:hover{background:#1c5cd6;}
+  .p2 .btn-choose{background:var(--p2);} .p2 .btn-choose:hover{background:#cf3450;}
+  .p3 .btn-choose{background:var(--p3);} .p3 .btn-choose:hover{background:#df8434;}
+  .p4 .btn-choose{background:var(--p4);} .p4 .btn-choose:hover{background:#754bde;}
+
+  /* ---------- QUIZ BANNER ---------- */
+  .quiz-banner{
+    margin-top:36px;
+    background:var(--brand-blue);
+    border-radius:16px;
+    padding:28px 32px;
+    display:flex;align-items:center;justify-content:space-between;
+    gap:24px;flex-wrap:wrap;
+  }
+  .quiz-banner h3{color:#fff;font-size:19px;font-weight:800;margin:0 0 4px;}
+  .quiz-banner p{color:#dce8ff;font-size:14px;margin:0;line-height:1.5;}
+  .btn-quiz{
+    flex:0 0 auto;background:#fff;color:var(--brand-blue);font-weight:800;font-size:14px;
+    padding:13px 24px;border-radius:9px;text-decoration:none;white-space:nowrap;
+  }
+
+  @media (max-width:760px){
+    nav{display:none;}
+    .path-card{flex-direction:column;align-items:stretch;text-align:left;}
+    .path-cta{align-self:stretch;}
+    .btn-choose{width:100%;justify-content:center;}
+    .quiz-banner{flex-direction:column;align-items:flex-start;}
+    .btn-quiz{width:100%;text-align:center;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">4Geeks<span class="o">⦿</span></div>
+  <nav>
+    <a>PROGRAMAS ▾</a>
+    <a>POR QUÉ 4GEEKS ▾</a>
+    <a>LA ACADEMIA ▾</a>
+    <a>CAMPUS ▾</a>
+    <a>PRÓXIMAS FECHAS</a>
+  </nav>
+  <div class="header-right">
+    <span class="lang">EN 🌐</span>
+    <a class="btn-acceder">ACCEDER</a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero-top">
+    <div>
+      <div class="eyebrow">Elige tu camino con IA</div>
+      <h1>4 rutas paralelas.<br>Elige la que se alinea con tu objetivo.</h1>
+      <p class="lead">No son pasos a seguir en orden — cada camino te lleva a un destino distinto según lo que quieras lograr.</p>
+    </div>
+    <span class="rutas-badge">4 caminos</span>
+  </div>
+
+  <div class="sub-row">
+    <span class="sub-caption">Explora las 4 rutas disponibles</span>
+  </div>
+
+  <div class="paths">
+
+    <div class="path-card p1">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+      </div>
+      <div class="path-body">
+        <div class="path-name">El Profesional AI-First</div>
+        <p class="path-desc">Automatiza tu trabajo diario, escribe mejores prompts y multiplica tu productividad con inteligencia artificial en tu rol actual.</p>
+        <div class="badges">
+          <span class="badge">ChatGPT</span><span class="badge">Claude</span><span class="badge">n8n</span><span class="badge">OpenClaw</span><span class="badge">Notion</span>
+        </div>
+      </div>
+      <div class="path-cta">
+        <a class="btn-choose" href="https://4geeks.com/es/payment-component?program=ai-flex">Elegir esta ruta →</a>
+      </div>
+    </div>
+
+    <div class="path-card p2">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </div>
+      <div class="path-body">
+        <div class="path-name">El Builder</div>
+        <p class="path-desc">Construye agentes de IA, automatiza procesos y lanza tus propias apps con asistentes de código.</p>
+        <div class="badges">
+          <span class="badge">OpenClaw</span><span class="badge">n8n</span><span class="badge">Cursor</span><span class="badge">GitHub Copilot</span><span class="badge">Replit</span>
+        </div>
+      </div>
+      <div class="path-cta">
+        <a class="btn-choose" href="https://4geeks.com/es/payment-component?program=ai-flex">Elegir esta ruta →</a>
+      </div>
+    </div>
+
+    <div class="path-card p3">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5"/></svg>
+      </div>
+      <div class="path-body">
+        <div class="path-name">El Career Switcher</div>
+        <p class="path-desc">Aprende a programar desde cero y construye tu primer proyecto real con IA, sin experiencia previa.</p>
+        <div class="badges">
+          <span class="badge">Python</span><span class="badge">VS Code</span><span class="badge">Git</span><span class="badge">FastAPI</span><span class="badge">GitHub</span>
+        </div>
+      </div>
+      <div class="path-cta">
+        <a class="btn-choose" href="https://4geeks.com/es/payment-component?program=ai-flex">Elegir esta ruta →</a>
+      </div>
+    </div>
+
+    <div class="path-card p4">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+      <div class="path-body">
+        <div class="path-name">El Analista Data-Driven</div>
+        <p class="path-desc">Analiza datos, construye modelos de Machine Learning y toma mejores decisiones apoyado en IA.</p>
+        <div class="badges">
+          <span class="badge">Python</span><span class="badge">Pandas</span><span class="badge">NumPy</span><span class="badge">scikit-learn</span><span class="badge">Jupyter</span>
+        </div>
+      </div>
+      <div class="path-cta">
+        <a class="btn-choose" href="https://4geeks.com/es/payment-component?program=ai-flex">Elegir esta ruta →</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="quiz-banner">
+    <div>
+      <h3>¿Aún no sabes cuál se alinea con tus objetivos?</h3>
+      <p>Haz un test gratuito, 100% personalizado, y te decimos qué camino te conviene.</p>
+    </div>
+    <a class="btn-quiz" href="/es/quiz">Hacer el test gratuito</a>
+  </div>
+
+</div>
+</body>
+</html>
