@@ -47,10 +47,12 @@ function SlottedCtaButton({
       color: "#fff",
     };
   } else if (variant === "outline") {
+    // Same look as the "View details" button
     colorStyle = {
-      background: hov ? hslColor(resolved, 0.1) : "transparent",
-      borderColor: hslColor(resolved, hov ? 0.6 : 0.45),
+      background: "transparent",
+      border: `1.5px solid ${hslColor(resolved, 0.45)}`,
       color: hslColor(resolved, 1),
+      transform: hov ? "scale(1.04)" : "scale(1)",
     };
   } else {
     // link — keep hover:bg-muted from Tailwind but override the text color
