@@ -145,6 +145,7 @@ function AllowlistEditor({
 
 export default function LeadsTab() {
   const { toast } = useToast();
+  const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
   const formatSitePath = useFormatSitePath();
 
@@ -177,13 +178,39 @@ export default function LeadsTab() {
 
   const pageStats = useMemo(
     () =>
-      pages.map((page) => {
-        const warningsByForm = page.forms.map((f) => formWarnings(f, expectedNames, expectedTags));
-        const warningCount = warningsByForm.reduce((acc, w) => acc + w.length, 0);
-        return { page, warningsByForm, warningCount };
-      }),
+      pages
+        .map((page) => {
+          // Within each page, show forms with warnings first.
+          const sortedForms = [...page.forms]
+            .map((f) => ({ form: f, warnings: formWarnings(f, expectedNames, expectedTags) }))
+            .sort((a, b) => b.warnings.length - a.warnings.length);
+          const warningCount = sortedForms.reduce((acc, f) => acc + f.warnings.length, 0);
+          return {
+            page: { ...page, forms: sortedForms.map((f) => f.form) },
+            warningsByForm: sortedForms.map((f) => f.warnings),
+            warningCount,
+          };
+        })
+        // Pages with warnings always first (more warnings higher), then alphabetical.
+        .sort((a, b) => b.warningCount - a.warningCount || a.page.key.localeCompare(b.page.key)),
     [pages, expectedNames, expectedTags],
   );
+
+  const filteredStats = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return pageStats;
+    return pageStats.filter(({ page }) =>
+      page.key.toLowerCase().includes(q) ||
+      page.file.toLowerCase().includes(q) ||
+      page.forms.some(
+        (f) =>
+          f.conversion_name.toLowerCase().includes(q) ||
+          f.section_type.toLowerCase().includes(q) ||
+          f.section_id.toLowerCase().includes(q) ||
+          f.tags.some((t) => t.toLowerCase().includes(q)),
+      ),
+    );
+  }, [pageStats, search]);
 
   const totalForms = pages.reduce((acc, p) => acc + p.forms.length, 0);
   const totalWarnings = pageStats.reduce((acc, s) => acc + s.warningCount, 0);
@@ -223,7 +250,15 @@ export default function LeadsTab() {
             : `${totalForms} form${totalForms === 1 ? "" : "s"} across ${pages.length} page${pages.length === 1 ? "" : "s"}` +
               (totalWarnings > 0 ? ` · ${totalWarnings} warning${totalWarnings === 1 ? "" : "s"}` : "")}
         </div>
-        <Button
+        <div className="flex items-center gap-2">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, tag, section…"
+            className="h-8 w-56 text-sm"
+            data-testid="input-search-leads"
+          />
+          <Button
           variant="outline"
           size="sm"
           onClick={() => formsQuery.refetch()}
@@ -232,7 +267,8 @@ export default function LeadsTab() {
         >
           {formsQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           Refresh
-        </Button>
+          </Button>
+        </div>
       </div>
 
       {formsQuery.isError && (
@@ -252,7 +288,7 @@ export default function LeadsTab() {
       )}
 
       <Accordion type="multiple" className="space-y-2">
-        {pageStats.map(({ page, warningsByForm, warningCount }) => (
+        {filteredStats.map(({ page, warningsByForm, warningCount }) => (
           <AccordionItem
             key={page.key}
             value={page.key}
