@@ -34,6 +34,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import LeadsTab from "@/components/diagnostics/LeadsTab";
 import {
   RedirectConflictResolverModal,
   parseRedirectConflict,
@@ -1437,6 +1438,7 @@ export default function DiagnosticsPage() {
               <TabsList data-testid="tabs-diagnostics">
                 <TabsTrigger value="global-health" data-testid="tab-global-health">Global Health</TabsTrigger>
                 <TabsTrigger value="page-analysis" data-testid="tab-page-analysis">Page Analysis</TabsTrigger>
+                <TabsTrigger value="leads" data-testid="tab-leads">Leads</TabsTrigger>
               </TabsList>
             </div>
           </div>
@@ -1445,6 +1447,9 @@ export default function DiagnosticsPage() {
           </TabsContent>
           <TabsContent value="page-analysis">
             <PageAnalysisTab />
+          </TabsContent>
+          <TabsContent value="leads">
+            <LeadsTab />
           </TabsContent>
         </Tabs>
       </div>

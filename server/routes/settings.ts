@@ -29,7 +29,8 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
-import { getConversionNameUsages, bulkReplaceConversionName, partialReplaceConversionNameBySection, buildFormState, getFormStateSuggestions, getConversionNameCounts } from "../form-state";
+import { getConversionNameUsages, bulkReplaceConversionName, partialReplaceConversionNameBySection, buildFormState, getFormStateSuggestions, getConversionNameCounts, getAllFormEntries } from "../form-state";
+import { sectionMatchesId } from "../utils/sectionIdentity";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager } from "../database";
@@ -213,6 +214,7 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  safeYamlLoad,
 } from "./_helpers";
 import { child } from "../logger";
 const log = child({ module: "routes/settings" });
@@ -943,16 +945,27 @@ export function registerSettingsRoutes(app: Express): void {
 
   app.put("/api/settings/tracking", async (req, res) => {
     try {
-      const { conversion_events, webhook } = req.body;
-      if (conversion_events === undefined && webhook === undefined) {
-        return res.status(400).json({ error: "Request body must contain conversion_events or webhook" });
+      const { conversion_events, webhook, leads_expected_conversion_names, leads_expected_tags } = req.body;
+      if (
+        conversion_events === undefined && webhook === undefined &&
+        leads_expected_conversion_names === undefined && leads_expected_tags === undefined
+      ) {
+        return res.status(400).json({ error: "Request body must contain conversion_events, webhook, leads_expected_conversion_names or leads_expected_tags" });
       }
       if (conversion_events !== undefined && !Array.isArray(conversion_events)) {
         return res.status(400).json({ error: "conversion_events must be an array" });
       }
+      if (leads_expected_conversion_names !== undefined && !Array.isArray(leads_expected_conversion_names)) {
+        return res.status(400).json({ error: "leads_expected_conversion_names must be an array of strings" });
+      }
+      if (leads_expected_tags !== undefined && !Array.isArray(leads_expected_tags)) {
+        return res.status(400).json({ error: "leads_expected_tags must be an array of strings" });
+      }
       updateTrackingSettings({
         ...(conversion_events !== undefined ? { conversion_events } : {}),
         ...(webhook !== undefined ? { webhook } : {}),
+        ...(leads_expected_conversion_names !== undefined ? { leads_expected_conversion_names } : {}),
+        ...(leads_expected_tags !== undefined ? { leads_expected_tags } : {}),
       }, getContentRoot(res));
       res.json({ success: true, ...getTrackingSettings(getContentRoot(res)) });
     } catch (err: any) {
@@ -1010,6 +1023,92 @@ export function registerSettingsRoutes(app: Express): void {
   app.get("/api/form-state/suggestions", (_req, res) => {
     buildFormState();
     res.json(getFormStateSuggestions());
+  });
+
+  app.get("/api/form-state/all-forms", (_req, res) => {
+    // Rebuild from disk so recent section edits are reflected immediately.
+    buildFormState();
+    const entries = getAllFormEntries();
+
+    // Cache parsed sections per file to avoid re-reading the same YML.
+    const fileSections = new Map<string, unknown[]>();
+    const loadSections = (relFile: string): unknown[] => {
+      if (fileSections.has(relFile)) return fileSections.get(relFile)!;
+      let sections: unknown[] = [];
+      try {
+        const raw = fs.readFileSync(path.resolve(process.cwd(), relFile), "utf-8");
+        const doc = safeYamlLoad(raw) as Record<string, unknown> | null;
+        if (doc && Array.isArray(doc.sections)) sections = doc.sections;
+      } catch {}
+      fileSections.set(relFile, sections);
+      return sections;
+    };
+
+    const sectionYml = (relFile: string, sectionId: string, sectionType: string): string | null => {
+      const sections = loadSections(relFile);
+      const match = sectionId
+        ? sections.find(
+            (s) => s && typeof s === "object" && !Array.isArray(s) && sectionMatchesId(s as Record<string, unknown>, sectionId),
+          )
+        // Fallback for sections without an id: first section of the same type.
+        : sections.find(
+            (s) => s && typeof s === "object" && !Array.isArray(s) && (s as Record<string, unknown>).type === sectionType,
+          );
+      if (!match) return null;
+      try {
+        return yaml.dump(match, { lineWidth: 100, noRefs: true });
+      } catch {
+        return null;
+      }
+    };
+
+    const pages = new Map<string, {
+      key: string;
+      content_type: string;
+      slug: string;
+      locale: string;
+      file: string;
+      page_url: string | null;
+      forms: Array<{
+        section_id: string;
+        section_type: string;
+        variant?: string;
+        conversion_name: string;
+        tags: string[];
+        automations?: string;
+        yml: string | null;
+      }>;
+    }>();
+
+    for (const e of entries) {
+      const key = `${e.content_type}::${e.slug}::${e.locale}`;
+      let page = pages.get(key);
+      if (!page) {
+        page = {
+          key,
+          content_type: e.content_type,
+          slug: e.slug,
+          locale: e.locale,
+          file: e.file,
+          page_url: resolveContentTypeUrl(e.content_type, { slug: e.slug }, e.locale) ?? null,
+          forms: [],
+        };
+        pages.set(key, page);
+      }
+      page.forms.push({
+        section_id: e.section_id,
+        section_type: e.section_type,
+        ...(e.variant ? { variant: e.variant } : {}),
+        conversion_name: e.conversion_name,
+        tags: e.tags ?? [],
+        ...(e.automations ? { automations: e.automations } : {}),
+        yml: sectionYml(e.file, e.section_id, e.section_type),
+      });
+    }
+
+    res.json({
+      pages: Array.from(pages.values()).sort((a, b) => a.key.localeCompare(b.key)),
+    });
   });
 
   app.get("/api/form-state/conversion-counts", (_req, res) => {

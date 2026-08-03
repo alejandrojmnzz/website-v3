@@ -28,6 +28,7 @@ export interface FormStateEntry {
   locale: string;
   section_id: string;
   section_type: string;
+  /** Empty string when the form block has no conversion_name (flagged in the Leads UI). */
   conversion_name: string;
   automations?: string;
   tags?: string[];
@@ -138,9 +139,13 @@ function rebuildIndexForSite(contentFolder: string): void {
   const tagsSet = new Set<string>();
 
   for (const entry of siteState.forms) {
-    if (!index[entry.conversion_name]) index[entry.conversion_name] = [];
-    if (!index[entry.conversion_name].includes(entry.file)) {
-      index[entry.conversion_name].push(entry.file);
+    // Entries without a conversion_name are tracked for the Leads inventory
+    // but excluded from the conversion-name index used by the Conversions page.
+    if (entry.conversion_name) {
+      if (!index[entry.conversion_name]) index[entry.conversion_name] = [];
+      if (!index[entry.conversion_name].includes(entry.file)) {
+        index[entry.conversion_name].push(entry.file);
+      }
     }
     if (entry.automations) automationsSet.add(entry.automations);
     if (entry.tags) {
@@ -189,6 +194,29 @@ function parseRelativePath(relPath: string): {
   return { content_type, slug, locale };
 }
 
+function blockFromRecord(
+  record: Record<string, unknown>,
+  variant: string | undefined,
+): {
+  conversion_name: string;
+  automations?: string;
+  tags: string[];
+  consent?: Record<string, unknown>;
+  variant?: string;
+} {
+  return {
+    conversion_name: typeof record.conversion_name === "string" ? record.conversion_name : "",
+    ...(typeof record.automations === "string" ? { automations: record.automations } : {}),
+    tags: Array.isArray(record.tags)
+      ? (record.tags as string[]).filter((t) => typeof t === "string")
+      : [],
+    ...(record.consent && typeof record.consent === "object" && !Array.isArray(record.consent)
+      ? { consent: record.consent as Record<string, unknown> }
+      : {}),
+    variant,
+  };
+}
+
 function extractFormBlocks(
   obj: unknown,
   sectionId: string,
@@ -212,41 +240,23 @@ function extractFormBlocks(
   const record = obj as Record<string, unknown>;
 
   if (typeof record.conversion_name === "string") {
-    results.push({
-      conversion_name: record.conversion_name,
-      ...(typeof record.automations === "string" ? { automations: record.automations } : {}),
-      tags: Array.isArray(record.tags)
-        ? (record.tags as string[]).filter((t) => typeof t === "string")
-        : [],
-      ...(record.consent && typeof record.consent === "object" && !Array.isArray(record.consent)
-        ? { consent: record.consent as Record<string, unknown> }
-        : {}),
-      variant,
-    });
+    results.push(blockFromRecord(record, variant));
     return;
   }
 
   for (const [key, value] of Object.entries(record)) {
     if (key === "form" && value && typeof value === "object" && !Array.isArray(value)) {
-      const formObj = value as Record<string, unknown>;
-      if (typeof formObj.conversion_name === "string") {
-        results.push({
-          conversion_name: formObj.conversion_name,
-          ...(typeof formObj.automations === "string" ? { automations: formObj.automations } : {}),
-          tags: Array.isArray(formObj.tags)
-            ? (formObj.tags as string[]).filter((t) => typeof t === "string")
-            : [],
-          ...(formObj.consent && typeof formObj.consent === "object" && !Array.isArray(formObj.consent)
-            ? { consent: formObj.consent as Record<string, unknown> }
-            : {}),
-          variant,
-        });
-      }
+      // A `form:` block is a form even when it lacks conversion_name — record it
+      // so the Leads inventory can flag the missing name.
+      results.push(blockFromRecord(value as Record<string, unknown>, variant));
     } else {
       extractFormBlocks(value, sectionId, sectionType, variant, results);
     }
   }
 }
+
+/** Section types that are forms by nature, even without a nested `form:` block or conversion_name. */
+const FORM_SECTION_TYPES = new Set(["lead_form"]);
 
 function scanFile(absPath: string, contentDir: string): FormStateEntry[] {
   const relPath = path.relative(process.cwd(), absPath);
@@ -285,6 +295,12 @@ function scanFile(absPath: string, contentDir: string): FormStateEntry[] {
       variant?: string;
     }> = [];
     extractFormBlocks(sec, section_id, section_type, variant, formBlocks);
+
+    // Form-type sections with no extracted block at all are still forms —
+    // record them with an empty conversion_name so they surface in Leads.
+    if (formBlocks.length === 0 && FORM_SECTION_TYPES.has(section_type)) {
+      formBlocks.push({ conversion_name: "", tags: [], variant });
+    }
 
     for (const block of formBlocks) {
       entries.push({
@@ -391,9 +407,15 @@ export function getConversionNameUsages(name: string): FormStateEntry[] {
 export function getConversionNameCounts(): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const entry of getAllForms()) {
+    if (!entry.conversion_name) continue;
     counts[entry.conversion_name] = (counts[entry.conversion_name] ?? 0) + 1;
   }
   return counts;
+}
+
+/** All form entries across every site, including those missing a conversion_name. */
+export function getAllFormEntries(): FormStateEntry[] {
+  return getAllForms();
 }
 
 export function bulkReplaceConversionName(oldName: string, newName: string): number {
