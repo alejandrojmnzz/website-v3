@@ -358,8 +358,8 @@ function PathItem({
                   {course.hrs}
                 </div>
               )}
-              {/* CTA + view-details stacked, centered vertically */}
-              <div className="flex flex-col items-end gap-[6px] my-auto">
+              {/* CTA + view-details stacked, pinned to bottom */}
+              <div className="flex flex-col items-end gap-[6px] mt-auto">
                 {ctaButtons.map((btn, i) => (
                   <SlottedCtaButton key={i} btn={btn} resolved={resolved} nav={nav} />
                 ))}
