@@ -37,7 +37,7 @@ function SlottedCtaButton({
   const bVariant = variant === "primary" ? "default"
     : variant === "outline" ? "outline"
     : "link";
-  const shapeClass = cn(buttonVariants({ variant: bVariant, size: bSize }), "font-semibold");
+  const shapeClass = cn(buttonVariants({ variant: bVariant, size: bSize }), "font-semibold no-default-hover-elevate");
 
   let colorStyle: React.CSSProperties;
   if (variant === "primary") {
@@ -499,6 +499,78 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
                 ))}
               </div>
             </div>
+
+            {/* CTA block — same as CourseColorSelector */}
+            {data.cta && (
+              data.cta.banner ? (
+                <div
+                  className="rounded-[13px] px-4 py-4 md:px-[1.4rem] md:py-[1.2rem] flex flex-col gap-1 md:flex-row md:items-center md:justify-between md:gap-4 mt-6 md:mt-[35px]"
+                  style={{
+                    background: "hsl(var(--primary))",
+                    boxShadow: "0 4px 16px hsl(var(--primary) / 0.25)",
+                  }}
+                >
+                  <div>
+                    <div className="text-[14px] md:text-[15px] font-bold leading-snug md:mb-[2px]" style={{ color: "hsl(var(--primary-foreground))" }}>
+                      {data.cta.title}
+                    </div>
+                    {data.cta.subtitle && (
+                      <div className="hidden md:block text-[12px]" style={{ color: "hsl(var(--primary-foreground) / 0.6)" }}>
+                        {data.cta.subtitle}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 md:flex-shrink-0">
+                    {data.cta.subtitle ? (
+                      <div className="text-[11px] leading-snug flex-1 min-w-0 md:hidden max-w-64" style={{ color: "hsl(var(--primary-foreground) / 0.6)" }}>
+                        {data.cta.subtitle}
+                      </div>
+                    ) : (
+                      <div className="flex-1 min-w-0 md:hidden" />
+                    )}
+                    <div className="flex gap-2 flex-shrink-0">
+                      {data.cta.buttons.map((btn, i) => (
+                        <a
+                          key={i}
+                          href={btn.url}
+                          onClick={nav}
+                          className="rounded-[8px] px-4 py-2 md:px-[18px] md:py-[10px] text-[12px] md:text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
+                          style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
+                        >
+                          {btn.text}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-4 mt-[35px]">
+                  <div className="flex gap-2 flex-shrink-0">
+                    {data.cta.buttons.map((btn, i) => (
+                      <a
+                        key={i}
+                        href={btn.url}
+                        onClick={nav}
+                        className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
+                        style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
+                      >
+                        {btn.text}
+                      </a>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="text-[15px] font-bold mb-[2px]" style={{ color: "hsl(var(--foreground))" }}>
+                      {data.cta.title}
+                    </div>
+                    {data.cta.subtitle && (
+                      <div className="text-[12px]" style={{ color: "hsl(var(--muted-foreground) / 0.6)" }}>
+                        {data.cta.subtitle}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </div>
       </div>
