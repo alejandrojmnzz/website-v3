@@ -148,9 +148,11 @@ export {
   aiFlexPathDefaultSchema,
   aiFlexPathDragAndDropSchema,
   aiFlexPathCourseColorSelectorSchema,
+  aiFlexPathSimplifiedSchema,
   type AiFlexPathDefault,
   type AiFlexPathDragAndDrop,
   type AiFlexPathCourseColorSelector,
+  type AiFlexPathSimplified,
 } from "../site_4geeks-com/component-registry/ai_flex_path/v1.0/schema";
 
 // ============================================
