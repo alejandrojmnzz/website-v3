@@ -348,7 +348,7 @@ function PathItem({
               )}
             </div>
 
-            {/* Desktop right column: hrs pill + view-details + CTA buttons */}
+            {/* Desktop right column: hrs pill top · CTA centered · view-details below CTA */}
             <div className="hidden md:flex md:flex-col md:items-end md:justify-between md:w-auto flex-shrink-0 md:self-stretch">
               {course.hrs && (
                 <div
@@ -358,7 +358,11 @@ function PathItem({
                   {course.hrs}
                 </div>
               )}
-              <div className="flex items-center gap-2 mt-auto pt-2">
+              {/* CTA + view-details stacked, centered vertically */}
+              <div className="flex flex-col items-end gap-[6px] my-auto">
+                {ctaButtons.map((btn, i) => (
+                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} nav={nav} />
+                ))}
                 {showDetails && viewDetailsLabel && (
                   <div
                     className="inline-flex items-center gap-[5px] text-[12px] font-semibold px-[11px] py-[5px] rounded-[8px] cursor-pointer select-none transition-all duration-150 whitespace-nowrap"
@@ -376,9 +380,6 @@ function PathItem({
                     <span className="text-[13px] leading-none transition-transform duration-200" style={{ display: "inline-block", transform: expanded ? "rotate(180deg)" : "none" }}>▾</span>
                   </div>
                 )}
-                {ctaButtons.map((btn, i) => (
-                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} nav={nav} />
-                ))}
               </div>
             </div>
           </div>
