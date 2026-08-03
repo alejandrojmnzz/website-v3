@@ -505,7 +505,7 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
             {data.cta && (
               data.cta.banner ? (
                 <div
-                  className="rounded-[13px] px-4 py-4 md:px-[1.4rem] md:py-[1.2rem] flex flex-col gap-1 md:flex-row md:items-center md:justify-between md:gap-4 mt-6 md:mt-[35px]"
+                  className="rounded-[13px] px-4 py-4 md:px-[1.4rem] md:py-[1.2rem] flex flex-col gap-1 md:flex-row md:items-center md:justify-between md:gap-4 mt-6 md:mt-[20px]"
                   style={{
                     background: "hsl(var(--primary))",
                     boxShadow: "0 4px 16px hsl(var(--primary) / 0.25)",
