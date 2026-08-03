@@ -360,11 +360,8 @@ function PathItem({
                   {course.hrs}
                 </div>
               )}
-              {/* CTA + view-details stacked, pinned to bottom */}
-              <div className="flex flex-col items-end gap-[6px] mt-auto">
-                {ctaButtons.map((btn, i) => (
-                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" nav={nav} />
-                ))}
+              {/* view-details (left) + CTA (right), pinned to bottom */}
+              <div className="flex items-center gap-2 mt-auto">
                 {showDetails && viewDetailsLabel && (
                   <div
                     className="inline-flex items-center gap-[5px] text-[12px] font-semibold px-[11px] py-[5px] rounded-[8px] cursor-pointer select-none transition-all duration-150 whitespace-nowrap"
@@ -382,6 +379,9 @@ function PathItem({
                     <span className="text-[13px] leading-none transition-transform duration-200" style={{ display: "inline-block", transform: expanded ? "rotate(180deg)" : "none" }}>▾</span>
                   </div>
                 )}
+                {ctaButtons.map((btn, i) => (
+                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" nav={nav} />
+                ))}
               </div>
             </div>
           </div>
