@@ -416,6 +416,7 @@ function PathItem({
 }
 
 export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplified }) {
+  const nav = useInternalNav();
   const slotColors = data.slot_colors?.length
     ? data.slot_colors.map((s) => s.color)
     : DEFAULT_COURSE_COLORS;
