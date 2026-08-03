@@ -27,6 +27,7 @@ interface LeadsFormEntry {
 
 interface LeadsPage {
   key: string;
+  site: string;
   content_type: string;
   slug: string;
   locale: string;
@@ -307,6 +308,9 @@ export default function LeadsTab() {
                   {page.content_type}/{page.slug}
                 </span>
                 <Badge variant="outline" className="text-xs uppercase">{page.locale}</Badge>
+                <Badge variant="outline" className="text-xs font-mono">
+                  {page.site.replace(/^site_/, "")}
+                </Badge>
                 <Badge variant="secondary" className="text-xs">
                   {page.forms.length} form{page.forms.length === 1 ? "" : "s"}
                 </Badge>

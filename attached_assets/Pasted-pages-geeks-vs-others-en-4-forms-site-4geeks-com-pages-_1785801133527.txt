@@ -1,0 +1,153 @@
+pages/geeks-vs-others
+en
+4 forms
+site_4geeks-com/pages/geeks-vs-others/en.yml
+Open page
+cta_banner · form
+#cta_banner-fznwja
+student_application
+
+type: cta_banner
+version: '1.0'
+title: Ready to Get Started?
+subtitle: Limited spots available. Start your transformation today.
+background: hsl(var(--primary))
+variant: form
+form:
+  variant: stacked
+  submit_label: Apply now
+  conversion_name: student_application
+  fields:
+    email:
+      visible: true
+      required: true
+      placeholder: Your email address
+    first_name:
+      visible: true
+      required: true
+      placeholder: First name
+    phone:
+      visible: true
+      required: true
+      placeholder: Phone number
+    program:
+      visible: true
+      required: true
+      default: auto
+  success:
+    message: Thank you! We'll be in touch soon.
+  button_className: bg-white text-primary hover:bg-white/90 border-white
+  terms_className: text-white/80
+marginY:
+  desktop: lg none
+paddingY:
+  desktop: md
+section_id: cta_banner-fznwja
+sticky_cta
+#sticky_cta-8xm41u
+student_application
+
+type: sticky_cta
+version: '1.0'
+heading: Ready to start your tech career?
+button_label: Apply Now
+show_dismiss: false
+form:
+  variant: inline
+  conversion_name: student_application
+  submit_label: Submit Application
+  automations: strong
+  fields:
+    email:
+      visible: true
+      required: true
+    first_name:
+      visible: true
+      required: true
+    last_name:
+      visible: true
+      required: false
+    phone:
+      visible: true
+      required: false
+    program:
+      visible: false
+      required: false
+      default: ai-engineering
+  success:
+    message: Thanks! We'll be in touch within 24 hours.
+section_id: sticky_cta-8xm41u
+cta_banner · form
+#cta_banner-fznwja
+student_application
+
+type: cta_banner
+version: '1.0'
+title: Ready to Get Started?
+subtitle: Limited spots available. Start your transformation today.
+background: hsl(var(--primary))
+variant: form
+form:
+  variant: stacked
+  submit_label: Apply now
+  conversion_name: student_application
+  fields:
+    email:
+      visible: true
+      required: true
+      placeholder: Your email address
+    first_name:
+      visible: true
+      required: true
+      placeholder: First name
+    phone:
+      visible: true
+      required: true
+      placeholder: Phone number
+    program:
+      visible: true
+      required: true
+      default: auto
+  success:
+    message: Thank you! We'll be in touch soon.
+  button_className: bg-white text-primary hover:bg-white/90 border-white
+  terms_className: text-white/80
+marginY:
+  desktop: lg none
+paddingY:
+  desktop: md
+section_id: cta_banner-fznwja
+sticky_cta
+#sticky_cta-8xm41u
+student_application
+
+type: sticky_cta
+version: '1.0'
+heading: Ready to start your tech career?
+button_label: Apply Now
+show_dismiss: false
+form:
+  variant: inline
+  conversion_name: student_application
+  submit_label: Submit Application
+  automations: strong
+  fields:
+    email:
+      visible: true
+      required: true
+    first_name:
+      visible: true
+      required: true
+    last_name:
+      visible: true
+      required: false
+    phone:
+      visible: true
+      required: false
+    program:
+      visible: false
+      required: false
+      default: ai-engineering
+  success:
+    message: Thanks! We'll be in touch within 24 hours.
+section_id: sticky_cta-8xm41u

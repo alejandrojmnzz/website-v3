@@ -1064,6 +1064,7 @@ export function registerSettingsRoutes(app: Express): void {
 
     const pages = new Map<string, {
       key: string;
+      site: string;
       content_type: string;
       slug: string;
       locale: string;
@@ -1081,11 +1082,14 @@ export function registerSettingsRoutes(app: Express): void {
     }>();
 
     for (const e of entries) {
-      const key = `${e.content_type}::${e.slug}::${e.locale}`;
+      // The same page can exist in several sites (multi-site) — keep them apart.
+      const site = e.file.split("/")[0] || "";
+      const key = `${site}::${e.content_type}::${e.slug}::${e.locale}`;
       let page = pages.get(key);
       if (!page) {
         page = {
           key,
+          site,
           content_type: e.content_type,
           slug: e.slug,
           locale: e.locale,
