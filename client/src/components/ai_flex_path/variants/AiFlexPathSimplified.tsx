@@ -37,7 +37,7 @@ function SlottedCtaButton({
   const bVariant = variant === "primary" ? "default"
     : variant === "outline" ? "outline"
     : "link";
-  const shapeClass = cn(buttonVariants({ variant: bVariant, size: bSize }));
+  const shapeClass = cn(buttonVariants({ variant: bVariant, size: bSize }), "font-semibold");
 
   let colorStyle: React.CSSProperties;
   if (variant === "primary") {
