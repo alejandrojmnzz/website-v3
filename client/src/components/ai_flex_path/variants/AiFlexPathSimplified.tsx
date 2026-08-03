@@ -213,12 +213,14 @@ function PathItem({
   slotColors,
   viewDetailsLabel,
   showDetails,
+  showMarkers,
 }: {
   course: Course;
   index: number;
   slotColors: string[];
   viewDetailsLabel?: string;
   showDetails: boolean;
+  showMarkers: boolean;
 }) {
   const nav = useInternalNav();
   const [expanded, setExpanded] = useState(false);
@@ -243,17 +245,19 @@ function PathItem({
     <div className="relative">
       <div className="relative flex md:flex-row md:gap-5 md:items-center">
 
-        {/* Desktop marker circle — only rendered if course.marker exists */}
-        <div className="hidden md:flex flex-shrink-0 z-10 items-center justify-center" style={{ width: 32 }}>
-          {course.marker && (
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold"
-              style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))" }}
-            >
-              {MarkerIcon ? <MarkerIcon size={15} /> : (course.marker.text ?? "")}
-            </div>
-          )}
-        </div>
+        {/* Desktop marker circle — only rendered when showMarkers=true and marker exists */}
+        {showMarkers && (
+          <div className="hidden md:flex flex-shrink-0 z-10 items-center justify-center" style={{ width: 32 }}>
+            {course.marker && (
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold"
+                style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))" }}
+              >
+                {MarkerIcon ? <MarkerIcon size={15} /> : (course.marker.text ?? "")}
+              </div>
+            )}
+          </div>
+        )}
 
         <div
           className="relative z-10 flex-1 w-full my-[4px] md:my-[6px] rounded-[13px]"
@@ -267,8 +271,8 @@ function PathItem({
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
-          {/* Mobile marker badge — top-right, only if marker exists */}
-          {course.marker && (
+          {/* Mobile marker badge — top-right, only if marker exists and showMarkers=true */}
+          {showMarkers && course.marker && (
             <div className="md:hidden absolute top-3 right-3 z-20">
               <div
                 className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
@@ -490,6 +494,7 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
                     slotColors={slotColors}
                     viewDetailsLabel={viewDetailsLabel}
                     showDetails={showDetails}
+                    showMarkers={data.show_markers ?? true}
                   />
                 ))}
               </div>
