@@ -361,7 +361,7 @@ function PathItem({
               {/* CTA + view-details stacked, pinned to bottom */}
               <div className="flex flex-col items-end gap-[6px] mt-auto">
                 {ctaButtons.map((btn, i) => (
-                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} nav={nav} />
+                  <SlottedCtaButton key={i} btn={btn} resolved={resolved} size="sm" nav={nav} />
                 ))}
                 {showDetails && viewDetailsLabel && (
                   <div
