@@ -60,7 +60,6 @@ export const curatedLucideImports: Record<string, LucideIconLoader> = {
   "lock-open": () => import("lucide-react/dist/esm/icons/lock-open.js"),
   "mail": () => import("lucide-react/dist/esm/icons/mail.js"),
   "medal": () => import("lucide-react/dist/esm/icons/medal.js"),
-  "message-circle": () => import("lucide-react/dist/esm/icons/message-circle.js"),
   "network": () => import("lucide-react/dist/esm/icons/network.js"),
   "notebook-pen": () => import("lucide-react/dist/esm/icons/notebook-pen.js"),
   "puzzle": () => import("lucide-react/dist/esm/icons/puzzle.js"),

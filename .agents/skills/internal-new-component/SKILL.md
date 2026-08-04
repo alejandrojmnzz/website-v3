@@ -32,16 +32,24 @@ After the user approves the mockup, build the component into the codebase. Every
 
 ### File Checklist
 
-#### 1. Component Registry — `4geeks-com/component-registry/<component_name>/v1.0/`
+#### 1. Component Registry — `site_<name>/component-registry/<component_name>/v1.0/`
 
-Create the following files inside a new versioned folder:
+Create the following files inside a new versioned folder under the site content folder from `sites.yml` (e.g. `site_4geeks-com/`):
 
 | File | Purpose |
 |---|---|
-| `schema.yml` | Human-readable component metadata: name, version, component name, file path, description, `when_to_use`, variants (if any), props with types/defaults/descriptions, and optional `section_defaults`. |
-| `schema.ts` | Zod validation schemas and TypeScript types. Export the unified section schema (use `z.union` for multi-variant components) plus all sub-schemas and types. |
+| `schema.ts` | Zod validation schemas and TypeScript types. Export the unified section schema (use `z.discriminatedUnion` / `z.union` for multi-variant components) plus all sub-schemas and types. **Source of truth for fields/variants.** |
+| `schema.yml` | Human-readable metadata for MCP / AI / admin: name, description, `when_to_use`, variants, props. Generated/updated by schema-sync from `schema.ts` (preserve hand-authored docs). |
 | `field-editors.ts` | Optional. Maps prop names to custom inline-editor types (e.g., `"font-size-picker"`). Export `fieldEditors: Record<string, EditorType>`. |
 | `examples/` | One or more `.yml` files with realistic YAML examples. Each file has `name`, `description`, and `yaml` (a YAML string showing the section in a `sections` array). **Every variant must have at least one example.** Additionally, if a single prop can drastically change the component's approach or objective — such as switching the layout structure, surfacing a completely different metric, or toggling an entire sub-UI like a form — that warrants its own separate example file. Minor content differences (different background color, different copy) do not qualify. Rule of thumb: if the component looks and behaves fundamentally differently with the prop set one way vs another, make a separate example. |
+
+After writing or changing `schema.ts`, keep `schema.yml` current:
+
+- `predev` / `prebuild` run `npm run ensure:schema-yml` (check → sync → re-check) so agents cannot leave drift unnoticed.
+- Manual while iterating: `npm run schema:sync -- --component=<type>`
+- Check only: `npm run schema:sync:check`
+
+**Non-effects:** ensure/sync does **not** push the content GitHub, does not update React, and does not fan out locales. Ship registry files via DebugBubble Sync (or a future registry-only push) when remote MCP/prod need the update.
 
 **schema.yml template:**
 
@@ -116,7 +124,7 @@ Add a re-export block so the rest of the app can import the schema and types:
 export {
   myComponentSectionSchema,
   type MyComponentSection,
-} from "../4geeks-com/component-registry/my_component/v1.0/schema";
+} from "../site_4geeks-com/component-registry/my_component/v1.0/schema";
 ```
 
 Also add the new section schema to the `Section` union type if one exists, or ensure it is included in the validation pipeline.
@@ -165,7 +173,7 @@ import { IconMyIcon } from "@tabler/icons-react"; // add to existing imports
 
 #### 6. ComponentPickerModal (Automatic)
 
-The "Add Component" modal (`client/src/components/editing/ComponentPickerModal.tsx`) reads from the `/api/component-registry` API endpoint, which scans the `4geeks-com/component-registry/` folder automatically. As long as the component registry folder (step 1) exists with a valid `schema.yml`, the component will appear in the modal with no extra code changes.
+The "Add Component" modal (`client/src/components/editing/ComponentPickerModal.tsx`) reads from the `/api/component-registry` API endpoint, which scans the site `component-registry/` folder automatically. As long as the component registry folder (step 1) exists with a valid `schema.yml`, the component will appear in the modal with no extra code changes.
 
 #### 7. YAML Content Example
 
@@ -364,7 +372,7 @@ Use the shadcn `<Button>` component. The actual `variant` prop values are: `defa
 
 - **Component type** (YAML `type` field): `snake_case` (e.g., `graduates_stats`, `cta_banner`)
 - **Component name** (React): `PascalCase` (e.g., `GraduatesStats`, `CtaBanner`)
-- **Registry folder**: matches the `type` value in `snake_case` (e.g., `4geeks-com/component-registry/graduates_stats/`)
+- **Registry folder**: matches the `type` value in `snake_case` (e.g. `site_4geeks-com/component-registry/graduates_stats/`)
 - **Schema exports**: `camelCase` with `Schema` suffix (e.g., `graduatesStatsSectionSchema`)
 - **Type exports**: `PascalCase` with `Section` suffix (e.g., `GraduatesStatsSection`)
 
@@ -375,14 +383,14 @@ Use the shadcn `<Button>` component. The actual `variant` prop values are: `defa
 When a component supports multiple layout variants:
 
 1. Define a separate Zod schema per variant with a `variant` literal discriminator.
-2. Combine into a unified schema with `z.union([...])`.
+2. Combine into a unified schema with `z.discriminatedUnion("variant", [...])` (optionally `.or(...)` for backward-compatible default).
 3. Create a main component file that switches on `variant` and delegates to sub-components.
 4. Use a folder structure: `client/src/components/<component_name>/` with `index.ts`, main component, and variant files.
-5. Document each variant in `schema.yml` under `variants:`.
+5. Keep `schema.yml` variants in sync via `npm run schema:sync -- --component=<type>` (or rely on `ensure:schema-yml` on predev). Document `description` / `best_for` in yml after sync if needed.
 
-**Reference implementation**: See `graduates_stats` component for the complete pattern:
+**Reference implementation**: See `graduates_stats` or `cta_banner` for the complete pattern:
 - `client/src/components/graduates_stats/` — folder with index, main component, and variant files
-- `4geeks-com/component-registry/graduates_stats/v1.0/` — schema.yml, schema.ts, field-editors.ts, examples/
+- `site_4geeks-com/component-registry/graduates_stats/v1.0/` — schema.yml, schema.ts, field-editors.ts, examples/
 
 ---
 

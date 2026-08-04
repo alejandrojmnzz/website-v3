@@ -21,6 +21,11 @@ Top-level `meta` (SEO, redirects) and `sections` array. Sections: `type`, `varia
 
 ## Component Registry
 
-Add/modify components in `marketing-content/component-registry/{name}/vX.Y/`. Provide `schema.ts` (Zod), `examples/`, and optional `schema.yml` (use schema-sync script). Reuse shared schemas from `@shared/schema` (e.g. `ctaButtonSchema`, `imageSchema`).
+Add/modify components in `site_*/component-registry/{name}/vX.Y/` (per-site content folders from `sites.yml`). Provide `schema.ts` (Zod), `examples/`, and `schema.yml` (MCP / AI / admin metadata).
 
-After schema changes, run `npx tsx scripts/schema-sync/sync-schemas.ts` when `schema.yml` is used. Ensure `shared/schema` exports new section types if they are used in app code.
+`schema.yml` is kept in sync by the local ensure gate:
+
+- `predev` / `prebuild` run `npm run ensure:schema-yml` (check → sync → re-check)
+- Manual: `npm run schema:sync -- --component=<type>` or `npm run schema:sync:check`
+
+Ensure does **not** push to the content GitHub. Re-export new section types from `shared/schema` when used in app code.

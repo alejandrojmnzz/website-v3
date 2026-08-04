@@ -1,0 +1,35 @@
+---
+description: Keep site_*/component-registry Zod schemas in sync with shared/schema re-exports; content pull before boot.
+globs: shared/schema.ts,site_*/component-registry/**/schema.ts,scripts/check-registry.ts,scripts/content-pull.ts,scripts/ensure-registry.ts
+alwaysApply: false
+---
+
+# Registry content sync
+
+## Why
+
+[`shared/schema.ts`](shared/schema.ts) re-exports Zod schemas from gitignored `site_*/component-registry/**/schema.ts`. Those folders are **content-synced** (GitHub), not part of the app git repo. If the app PR adds a named re-export before local/remote content has that export, `npm run dev` / `npm run build` crash at module load — before the Sync UI or startup auto-pull can run.
+
+Site-only components must keep schemas under `site_*` (do not move everything into tracked `marketing-content`).
+
+## Landing a new variant / export
+
+1. Add or update `schema.ts` in the **content** repo under `site_<name>/component-registry/<type>/vX.Y/`.
+2. Pull content locally: `npm run content:pull` (or GitHub Sync once the server is up).
+3. Then land the app change that re-exports from `shared/schema.ts`.
+
+Never ship a new `shared/schema.ts` re-export alone.
+
+## Boot-critical imports
+
+Prefer not adding new top-level re-exports in `shared/schema.ts` for purely site-only variants unless a shared union/type truly needs them. Prefer per-site registry loading when possible so one missing site-only export does not brick every boot.
+
+## Commands
+
+| Script | Role |
+|--------|------|
+| `npm run check:registry` | Import `shared/schema`; fail with recovery steps |
+| `npm run content:pull` | Hash-diff pull all sites (`--force` for full) |
+| `npm run ensure:registry` | Check → pull on failure → re-check (used by `predev` / `prebuild`) |
+
+`content:pull` needs `GITHUB_TOKEN` and `github_repo_url` in `sites.yml`. It does **not** require `GITHUB_SYNC_ENABLED`.
