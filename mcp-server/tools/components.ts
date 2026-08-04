@@ -1,8 +1,6 @@
-import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  COMPONENT_REGISTRY_PATH,
   listComponents,
   getComponentSchema,
   getComponentVariant,
@@ -10,6 +8,7 @@ import {
 } from "../lib/content.js";
 import { assertSafeSegment, assertWithinBase } from "../lib/sanitize.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { resolveComponentPath } from "../../shared/registry-resolve.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -28,11 +27,22 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
 
 const SITE_PARAM_DESC = 'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists)';
 
+function assertResolvedComponent(componentType: string, contentFolder: string): string | null {
+  try {
+    const resolved = resolveComponentPath(componentType, contentFolder);
+    if (!resolved) return `Component '${componentType}' not found in registry.`;
+    assertWithinBase(resolved.componentDir, resolved.registryRoot);
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
 export function registerComponentTools(mcp: McpServer, mcpToken?: string): void {
   // list_components
   mcp.tool(
     "list_components",
-    "List all available section component types from the component registry, with version and variant options.",
+    "List section component types available for one site: shared (platform) ∪ that site's registry. Each entry includes origin ('shared'|'site'). With multiple sites, pass site (domain). Does not list other sites' private types. Shared and site must not share the same type name (server boot error).",
     {
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
@@ -48,7 +58,7 @@ export function registerComponentTools(mcp: McpServer, mcpToken?: string): void 
   // get_component_schema
   mcp.tool(
     "get_component_schema",
-    "Get the top-level schema info for a component: name, description, when_to_use, and the list of variants (each with name, description, best_for). Use this to understand which variant fits your use case. Call get_component_variant next to get the field definitions and a worked YAML example for your chosen variant.",
+    "Get the top-level schema info for a component: name, description, when_to_use, and the list of variants (each with name, description, best_for). Resolves from shared or the selected site's registry. Use this to understand which variant fits your use case. Call get_component_variant next. Shared Zod/yml live in the app repo (shared/component-registry); site packages are content-synced.",
     {
       componentType: z.string().describe("Component type name, e.g. 'faq', 'hero', 'two_column'"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
@@ -61,13 +71,10 @@ export function registerComponentTools(mcp: McpServer, mcpToken?: string): void 
       }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
-      const { contentPath } = siteResult;
-      const registryPath = contentPath
-        ? path.join(contentPath, "component-registry")
-        : COMPONENT_REGISTRY_PATH;
-      const componentPath = path.join(registryPath, componentType);
-      try { assertWithinBase(componentPath, registryPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+      const { contentPath, contentFolder } = siteResult;
+      const pathErr = assertResolvedComponent(componentType, contentFolder);
+      if (pathErr) {
+        return { content: [{ type: "text", text: pathErr }], isError: true };
       }
       const schema = getComponentSchema(componentType, contentPath);
       if (!schema) {
@@ -95,13 +102,10 @@ export function registerComponentTools(mcp: McpServer, mcpToken?: string): void 
       }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
-      const { contentPath } = siteResult;
-      const registryPath = contentPath
-        ? path.join(contentPath, "component-registry")
-        : COMPONENT_REGISTRY_PATH;
-      const componentPath = path.join(registryPath, componentType);
-      try { assertWithinBase(componentPath, registryPath); } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+      const { contentPath, contentFolder } = siteResult;
+      const pathErr = assertResolvedComponent(componentType, contentFolder);
+      if (pathErr) {
+        return { content: [{ type: "text", text: pathErr }], isError: true };
       }
       const detail = getComponentVariant(componentType, variant, contentPath);
       if (!detail) {

@@ -285,7 +285,7 @@ export function registerComponentsRoutes(app: Express): void {
 
   // Component Registry API endpoints
   app.get("/api/component-registry", (req, res) => {
-    const overview = getRegistryOverview();
+    const overview = getRegistryOverview(getContentRootName(res));
     res.json(overview);
   });
 
@@ -552,18 +552,20 @@ export function registerComponentsRoutes(app: Express): void {
   );
 
   // Component gallery screenshot cache (private admin)
-  app.get("/api/private/component-screenshots", (_req, res) => {
-    const overview = getRegistryOverview();
-    res.json(getScreenshotIndex(overview.components));
+  app.get("/api/private/component-screenshots", (req, res) => {
+    const folder = getContentRootName(res);
+    const overview = getRegistryOverview(folder);
+    res.json(getScreenshotIndex(overview.components, folder));
   });
 
   app.get("/api/private/component-screenshots/:componentType", (req, res) => {
     const { componentType } = req.params;
+    const folder = getContentRootName(res);
     const example =
       typeof req.query.example === "string" && req.query.example.trim()
         ? req.query.example.trim()
         : null;
-    const image = readScreenshotImage(componentType, example);
+    const image = readScreenshotImage(componentType, example, folder);
     if (!image) {
       res.status(404).json({ error: "Screenshot not found" });
       return;
@@ -611,7 +613,7 @@ export function registerComponentsRoutes(app: Express): void {
         sourceSize,
         capturedAt,
       },
-      { exampleKeyed },
+      { exampleKeyed, contentFolder: getContentRootName(res) },
     );
     if (!result.success) {
       res.status(500).json({ error: result.error || "Failed to save screenshot" });
@@ -631,7 +633,7 @@ export function registerComponentsRoutes(app: Express): void {
       typeof req.query.example === "string" && req.query.example.trim()
         ? req.query.example.trim()
         : null;
-    const result = deleteScreenshot(componentType, example);
+    const result = deleteScreenshot(componentType, example, getContentRootName(res));
     if (!result.success) {
       res.status(500).json({ error: result.error || "Failed to delete screenshot" });
       return;
@@ -646,7 +648,7 @@ export function registerComponentsRoutes(app: Express): void {
       typeof req.query.version === "string" && req.query.version
         ? req.query.version
         : undefined;
-    const overview = getRegistryOverview();
+    const overview = getRegistryOverview(getContentRootName(res));
     const comp = overview.components.find((c) => c.type === componentType);
     const resolvedVersion = version || comp?.latestVersion || "v1.0";
     const examples = loadExamples(componentType, resolvedVersion);
@@ -657,6 +659,7 @@ export function registerComponentsRoutes(app: Express): void {
         ex.name,
         ex.sourceMtime,
         ex.sourceSize,
+        getContentRootName(res),
       );
     }
     res.json({ version: resolvedVersion, examples, index });

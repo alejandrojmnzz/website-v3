@@ -42,6 +42,7 @@ interface RegistryComponent {
   variants: string[];
   exampleCount: number;
   primaryExample?: PrimaryExampleMeta;
+  origin?: "shared" | "site";
 }
 
 interface RegistryOverview {
@@ -448,7 +449,10 @@ export default function ComponentGallery() {
             </h1>
             <p className="text-sm text-muted-foreground">
               Cached screenshots at their natural aspect ratio. Click a card to open the showcase
-              editor, or fork to browse all examples.
+              editor, or fork to browse all examples. Badges mark{" "}
+              <strong>Shared</strong> (platform) vs <strong>Site</strong> (this site&apos;s content
+              registry). Multi-site: switch site in DebugBubble so{" "}
+              <code className="font-mono text-xs">?__site=</code> loads that site&apos;s types.
             </p>
             <p className="text-xs text-muted-foreground" data-testid="text-insights-timing">
               Last rebuild:{" "}
@@ -703,8 +707,17 @@ export default function ComponentGallery() {
                             className="min-w-0 flex-1 space-y-0.5"
                             data-testid={`link-gallery-${comp.type}`}
                           >
-                            <div className="font-medium text-foreground text-sm leading-snug line-clamp-2">
-                              {comp.name}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="font-medium text-foreground text-sm leading-snug line-clamp-2">
+                                {comp.name}
+                              </div>
+                              <Badge
+                                variant={comp.origin === "shared" ? "default" : "outline"}
+                                className="text-[10px] shrink-0"
+                                data-testid={`badge-origin-${comp.type}`}
+                              >
+                                {comp.origin === "shared" ? "Shared" : "Site"}
+                              </Badge>
                             </div>
                             <div className="text-xs text-muted-foreground font-mono truncate">
                               {comp.type}

@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
+import {
+  assertNoRegistryCollisions,
+  listMergedComponentTypes,
+  resolveComponentPath,
+} from "../../shared/registry-resolve.js";
 
 export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
 export const COMPONENT_REGISTRY_PATH = path.join(MARKETING_CONTENT_PATH, "component-registry");
@@ -492,46 +497,60 @@ export interface ComponentInfo {
   name?: string;
   description?: string;
   variants?: ComponentVariantInfo[];
+  origin?: "shared" | "site";
+}
+
+function contentFolderFromPath(contentPath?: string): string {
+  if (!contentPath) {
+    // resolveSiteContext always passes contentPath in normal flow
+    return path.basename(MARKETING_CONTENT_PATH);
+  }
+  return path.isAbsolute(contentPath)
+    ? path.basename(contentPath)
+    : contentPath;
+}
+
+function readSchemaMeta(schemaYml: string): {
+  name?: string;
+  description?: string;
+  variants?: ComponentVariantInfo[];
+} {
+  let name: string | undefined;
+  let description: string | undefined;
+  let variants: ComponentVariantInfo[] | undefined;
+  if (!fs.existsSync(schemaYml)) return {};
+  const parsed = safeLoad(fs.readFileSync(schemaYml, "utf-8"));
+  if (!parsed) return {};
+  name = typeof parsed.name === "string" ? parsed.name : undefined;
+  description = typeof parsed.description === "string" ? parsed.description : undefined;
+  if (parsed.variants && typeof parsed.variants === "object" && !Array.isArray(parsed.variants)) {
+    const variantsMap = parsed.variants as Record<string, unknown>;
+    variants = Object.entries(variantsMap).map(([variantName]) => ({ name: variantName }));
+  } else if (Array.isArray(parsed.variants)) {
+    variants = (parsed.variants as unknown[]).map(v => ({ name: String(v) }));
+  }
+  return { name, description, variants };
 }
 
 export function listComponents(contentPath?: string): ComponentInfo[] {
-  const registryPath = contentPath
-    ? path.join(contentPath, "component-registry")
-    : COMPONENT_REGISTRY_PATH;
-  if (!fs.existsSync(registryPath)) return [];
+  const folder = contentFolderFromPath(contentPath);
+  assertNoRegistryCollisions(folder);
   const components: ComponentInfo[] = [];
 
-  const entries = fs
-    .readdirSync(registryPath, { withFileTypes: true })
-    .filter(d => d.isDirectory() && !d.name.startsWith("_"));
-
-  for (const entry of entries) {
-    const componentPath = path.join(registryPath, entry.name);
+  for (const entry of listMergedComponentTypes(folder)) {
     const versionDirs = fs
-      .readdirSync(componentPath, { withFileTypes: true })
+      .readdirSync(entry.componentDir, { withFileTypes: true })
       .filter(d => d.isDirectory() && /^v\d/.test(d.name));
 
     for (const vDir of versionDirs) {
-      const schemaYml = path.join(componentPath, vDir.name, "schema.yml");
-      let name: string | undefined;
-      let description: string | undefined;
-      let variants: ComponentVariantInfo[] | undefined;
-
-      if (fs.existsSync(schemaYml)) {
-        const parsed = safeLoad(fs.readFileSync(schemaYml, "utf-8"));
-        if (parsed) {
-          name = typeof parsed.name === "string" ? parsed.name : undefined;
-          description = typeof parsed.description === "string" ? parsed.description : undefined;
-          if (parsed.variants && typeof parsed.variants === "object" && !Array.isArray(parsed.variants)) {
-            const variantsMap = parsed.variants as Record<string, unknown>;
-            variants = Object.entries(variantsMap).map(([variantName]) => ({ name: variantName }));
-          } else if (Array.isArray(parsed.variants)) {
-            variants = (parsed.variants as unknown[]).map(v => ({ name: String(v) }));
-          }
-        }
-      }
-
-      components.push({ type: entry.name, version: vDir.name, name, description, variants });
+      const schemaYml = path.join(entry.componentDir, vDir.name, "schema.yml");
+      const meta = readSchemaMeta(schemaYml);
+      components.push({
+        type: entry.type,
+        version: vDir.name,
+        ...meta,
+        origin: entry.origin,
+      });
     }
   }
 
@@ -552,21 +571,19 @@ export interface ComponentSchemaSlim {
 }
 
 export function getComponentSchema(componentType: string, contentPath?: string): ComponentSchemaSlim | null {
-  const registryPath = contentPath
-    ? path.join(contentPath, "component-registry")
-    : COMPONENT_REGISTRY_PATH;
-  const componentPath = path.join(registryPath, componentType);
-  if (!fs.existsSync(componentPath)) return null;
+  const folder = contentFolderFromPath(contentPath);
+  const resolved = resolveComponentPath(componentType, folder);
+  if (!resolved) return null;
 
   const versionDirs = fs
-    .readdirSync(componentPath, { withFileTypes: true })
+    .readdirSync(resolved.componentDir, { withFileTypes: true })
     .filter(d => d.isDirectory() && /^v\d/.test(d.name))
     .sort((a, b) => b.name.localeCompare(a.name));
 
   if (versionDirs.length === 0) return null;
 
   const latestVersion = versionDirs[0].name;
-  const versionPath = path.join(componentPath, latestVersion);
+  const versionPath = path.join(resolved.componentDir, latestVersion);
 
   const schemaYml = path.join(versionPath, "schema.yml");
   if (!fs.existsSync(schemaYml)) return null;
@@ -621,11 +638,10 @@ export function getComponentVariant(
   variant: string,
   contentPath?: string,
 ): ComponentVariantDetail | null {
-  const registryPath = contentPath
-    ? path.join(contentPath, "component-registry")
-    : COMPONENT_REGISTRY_PATH;
-  const componentPath = path.join(registryPath, componentType);
-  if (!fs.existsSync(componentPath)) return null;
+  const folder = contentFolderFromPath(contentPath);
+  const resolved = resolveComponentPath(componentType, folder);
+  if (!resolved) return null;
+  const componentPath = resolved.componentDir;
 
   const versionDirs = fs
     .readdirSync(componentPath, { withFileTypes: true })

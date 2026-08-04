@@ -318,6 +318,12 @@ app.use((req, res, next) => {
 
   // Build site context map before routes so siteResolutionMiddleware has data
   await buildSiteContextMap();
+
+  // Shared vs site registry types must not collide
+  const { assertNoRegistryCollisionsForAllSites } = await import("../shared/registry-resolve");
+  const { getSiteConfigs } = await import("./site-config");
+  assertNoRegistryCollisionsForAllSites(getSiteConfigs().map((s) => s.contentFolder));
+
   app.use(siteResolutionMiddleware);
 
   const server = await registerRoutes(app);

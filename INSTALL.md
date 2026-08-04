@@ -59,7 +59,7 @@ Tracked [`shared/schema.ts`](shared/schema.ts) re-exports Zod schemas from gitig
 - **`npm run check:registry`** — verify those imports; prints recovery steps on failure.
 - **`npm run content:pull`** — hash-diff pull all sites from GitHub without starting the server (`--force` for a full re-download). Needs `GITHUB_TOKEN` and `github_repo_url` in `sites.yml` (does **not** require `GITHUB_SYNC_ENABLED`).
 - **`npm run ensure:registry`** — check first; on failure, pull content then re-check. Wired into `predev` and `prebuild`.
-- **`npm run ensure:schema-yml`** — check `schema.ts` ↔ `schema.yml` variant drift; on failure, run `schema:sync` then re-check. Wired into `predev` and `prebuild`. Does **not** push to the content GitHub.
+- **`npm run ensure:schema-yml`** — check `schema.ts` ↔ `schema.yml` variant drift and shared/site type collisions; on failure, run `schema:sync` then re-check. Wired into `predev` and `prebuild`. Does **not** push to the content GitHub.
 
 Once the server is up, GitHub Sync in the Debug bubble still works for day-to-day content sync.
 

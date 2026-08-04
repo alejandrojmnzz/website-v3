@@ -32,16 +32,22 @@ After the user approves the mockup, build the component into the codebase. Every
 
 ### File Checklist
 
-#### 1. Component Registry — `site_<name>/component-registry/<component_name>/v1.0/`
+#### 1. Component Registry — shared vs site
 
-Create the following files inside a new versioned folder under the site content folder from `sites.yml` (e.g. `site_4geeks-com/`):
+Choose **one** home (never both — boot fails on duplicate type names):
+
+| Kind | Path |
+|---|---|
+| **Shared** (all sites, ≤~12 platform types) | `shared/component-registry/<component_name>/v1.0/` (app repo) |
+| **Site-only** | `site_<name>/component-registry/<component_name>/v1.0/` (content folder from `sites.yml`) |
 
 | File | Purpose |
 |---|---|
-| `schema.ts` | Zod validation schemas and TypeScript types. Export the unified section schema (use `z.discriminatedUnion` / `z.union` for multi-variant components) plus all sub-schemas and types. **Source of truth for fields/variants.** |
+| `schema.ts` | Zod validation schemas and TypeScript types. Export the unified section schema (use `z.discriminatedUnion` / `z.union` for multi-variant components) plus all sub-schemas and types. **Source of truth for fields/variants.** Shared packages may import only `shared/component-registry/_common` — never site helpers. |
 | `schema.yml` | Human-readable metadata for MCP / AI / admin: name, description, `when_to_use`, variants, props. Generated/updated by schema-sync from `schema.ts` (preserve hand-authored docs). |
 | `field-editors.ts` | Optional. Maps prop names to custom inline-editor types (e.g., `"font-size-picker"`). Export `fieldEditors: Record<string, EditorType>`. |
-| `examples/` | One or more `.yml` files with realistic YAML examples. Each file has `name`, `description`, and `yaml` (a YAML string showing the section in a `sections` array). **Every variant must have at least one example.** Additionally, if a single prop can drastically change the component's approach or objective — such as switching the layout structure, surfacing a completely different metric, or toggling an entire sub-UI like a form — that warrants its own separate example file. Minor content differences (different background color, different copy) do not qualify. Rule of thumb: if the component looks and behaves fundamentally differently with the prop set one way vs another, make a separate example. |
+| `examples/` | One or more `.yml` files with realistic YAML examples. Each file has `name`, `description`, and `yaml` (a YAML string showing the section in a `sections` array). **Every variant must have at least one example.** |
+| `screenshots/` | Shared types only: tracked WebP thumbs in the app repo. Site types use site-scoped cache/GCS. |
 
 After writing or changing `schema.ts`, keep `schema.yml` current:
 
@@ -49,7 +55,7 @@ After writing or changing `schema.ts`, keep `schema.yml` current:
 - Manual while iterating: `npm run schema:sync -- --component=<type>`
 - Check only: `npm run schema:sync:check`
 
-**Non-effects:** ensure/sync does **not** push the content GitHub, does not update React, and does not fan out locales. Ship registry files via DebugBubble Sync (or a future registry-only push) when remote MCP/prod need the update.
+**Non-effects:** ensure/sync does **not** push the content GitHub, does not update React, and does not fan out locales. Shared edits are app commits; site registry edits ship via DebugBubble Sync. Another site cannot use a site-only type — promote to shared or duplicate into that site's registry.
 
 **schema.yml template:**
 
@@ -124,8 +130,10 @@ Add a re-export block so the rest of the app can import the schema and types:
 export {
   myComponentSectionSchema,
   type MyComponentSection,
-} from "../site_4geeks-com/component-registry/my_component/v1.0/schema";
+} from "../shared/component-registry/my_component/v1.0/schema";
 ```
+
+(Use `site_*/…` only for temporary legacy re-exports — prefer shared for platform types.)
 
 Also add the new section schema to the `Section` union type if one exists, or ensure it is included in the validation pipeline.
 

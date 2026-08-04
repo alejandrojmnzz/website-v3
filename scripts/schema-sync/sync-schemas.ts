@@ -76,21 +76,29 @@ async function getSiteFolders(): Promise<string[]> {
   return _siteFolders;
 }
 
-async function registryPaths(): Promise<string[]> {
+async function registryPaths(): Promise<Array<{ root: string; label: string }>> {
+  const sharedRoot = path.join(process.cwd(), "shared", "component-registry");
+  const out: Array<{ root: string; label: string }> = [];
+  if (fs.existsSync(sharedRoot)) {
+    out.push({ root: sharedRoot, label: "shared" });
+  }
   const folders = await getSiteFolders();
-  const paths: string[] = [];
   for (const contentFolder of folders) {
     const folder = path.isAbsolute(contentFolder)
       ? contentFolder
       : path.join(process.cwd(), contentFolder);
     const registry = path.join(folder, "component-registry");
-    if (fs.existsSync(registry)) paths.push(registry);
+    if (fs.existsSync(registry)) {
+      out.push({ root: registry, label: path.basename(folder) });
+    }
   }
-  return [...new Set(paths)];
-}
-
-function siteLabelForRegistry(registryPath: string): string {
-  return path.basename(path.dirname(registryPath));
+  // Dedupe by absolute path
+  const seen = new Set<string>();
+  return out.filter((e) => {
+    if (seen.has(e.root)) return false;
+    seen.add(e.root);
+    return true;
+  });
 }
 
 function unwrapEffects(schema: ZodType): ZodType {
@@ -573,14 +581,28 @@ async function runCheck(componentFilter?: string): Promise<DriftIssue[]> {
   const registries = await registryPaths();
 
   if (registries.length === 0) {
-    console.error("No component-registry folders found for sites in sites.yml");
+    console.error("No component-registry folders found (shared/ or sites.yml)");
     process.exit(1);
   }
 
-  for (const registryPath of registries) {
-    const siteLabel = siteLabelForRegistry(registryPath);
-    for (const entry of listVersionDirs(registryPath, componentFilter)) {
-      const issue = await checkComponent(entry.versionDir, siteLabel);
+  // Collision: same type in shared and any site
+  try {
+    const { assertNoRegistryCollisionsForAllSites } = await import("../../shared/registry-resolve");
+    const folders = await getSiteFolders();
+    assertNoRegistryCollisionsForAllSites(folders);
+  } catch (err) {
+    issues.push({
+      site: "shared∩site",
+      component: "*",
+      version: "-",
+      path: "shared/component-registry + site_*/component-registry",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  for (const { root, label } of registries) {
+    for (const entry of listVersionDirs(root, componentFilter)) {
+      const issue = await checkComponent(entry.versionDir, label);
       if (issue) issues.push(issue);
     }
   }
@@ -594,18 +616,17 @@ async function runSync(
 ): Promise<{ processed: number; updated: number }> {
   const registries = await registryPaths();
   if (registries.length === 0) {
-    console.error("No component-registry folders found for sites in sites.yml");
+    console.error("No component-registry folders found (shared/ or sites.yml)");
     process.exit(1);
   }
 
   let processed = 0;
   let updated = 0;
 
-  for (const registryPath of registries) {
-    const siteLabel = siteLabelForRegistry(registryPath);
-    for (const entry of listVersionDirs(registryPath, componentFilter)) {
+  for (const { root, label } of registries) {
+    for (const entry of listVersionDirs(root, componentFilter)) {
       processed++;
-      if (await processComponent(entry.versionDir, dryRun, siteLabel)) {
+      if (await processComponent(entry.versionDir, dryRun, label)) {
         updated++;
       }
     }
