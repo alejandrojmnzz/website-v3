@@ -24,7 +24,12 @@ export type EventName = ConversionName | TrackingEventName;
 
 // Payload types for different events
 export interface ConversionPayload {
+  /** Hashed email (SHA-256 truncated) — key name `email` for GTM DLVs */
+  email?: string;
+  /** @deprecated Prefer `email` (hash). Kept for older GTM variables. */
   email_hash?: string;
+  first_name?: string;
+  phone?: string;
   formentry_id?: string | number;
   attribution_id?: string;
   referral_key?: string;
@@ -314,6 +319,8 @@ export async function trackFormSubmission(
   conversionName: ConversionName,
   formData: {
     email?: string;
+    first_name?: string;
+    phone?: string;
     program?: string;
     location?: string;
     formentry_id?: string | number;
@@ -321,17 +328,23 @@ export async function trackFormSubmission(
     referral_key?: string;
   }
 ): Promise<void> {
-  const payload: ConversionPayload = {
-    program: formData.program,
-    location: formData.location,
-    formentry_id: formData.formentry_id,
-    attribution_id: formData.attribution_id,
-    referral_key: formData.referral_key,
-  };
+  const payload: ConversionPayload = {};
 
-  // Hash email for privacy
+  if (formData.first_name) payload.first_name = formData.first_name;
+  if (formData.phone) payload.phone = formData.phone;
+  if (formData.program) payload.program = formData.program;
+  if (formData.location) payload.location = formData.location;
+  if (formData.formentry_id !== undefined && formData.formentry_id !== "") {
+    payload.formentry_id = formData.formentry_id;
+  }
+  if (formData.attribution_id) payload.attribution_id = formData.attribution_id;
+  if (formData.referral_key) payload.referral_key = formData.referral_key;
+
+  // Hash email for privacy; push under `email` so GTM DLVs named email resolve
   if (formData.email) {
-    payload.email_hash = await hashEmail(formData.email);
+    const hashed = await hashEmail(formData.email);
+    payload.email = hashed;
+    payload.email_hash = hashed;
   }
 
   trackConversion(conversionName, payload);

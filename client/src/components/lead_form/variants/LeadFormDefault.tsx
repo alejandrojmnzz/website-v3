@@ -926,6 +926,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           data.conversion_name,
           {
             email: variables.email,
+            first_name: variables.first_name,
+            phone: variables.phone,
             program: variables.program || programContext,
             location: variables.location || sessionLocation?.slug,
           }
