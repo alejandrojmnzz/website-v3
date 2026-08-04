@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
@@ -147,6 +154,7 @@ function AllowlistEditor({
 export default function LeadsTab() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const [contentTypeFilter, setContentTypeFilter] = useState<string>("all");
   const queryClient = useQueryClient();
   const formatSitePath = useFormatSitePath();
 
@@ -197,10 +205,19 @@ export default function LeadsTab() {
     [pages, expectedNames, expectedTags],
   );
 
+  const contentTypes = useMemo(
+    () => Array.from(new Set(pages.map((p) => p.content_type))).sort(),
+    [pages],
+  );
+
   const filteredStats = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return pageStats;
-    return pageStats.filter(({ page }) =>
+    const byType =
+      contentTypeFilter === "all"
+        ? pageStats
+        : pageStats.filter(({ page }) => page.content_type === contentTypeFilter);
+    if (!q) return byType;
+    return byType.filter(({ page }) =>
       page.key.toLowerCase().includes(q) ||
       page.file.toLowerCase().includes(q) ||
       page.forms.some(
@@ -211,7 +228,7 @@ export default function LeadsTab() {
           f.tags.some((t) => t.toLowerCase().includes(q)),
       ),
     );
-  }, [pageStats, search]);
+  }, [pageStats, search, contentTypeFilter]);
 
   const totalForms = pages.reduce((acc, p) => acc + p.forms.length, 0);
   const totalWarnings = pageStats.reduce((acc, s) => acc + s.warningCount, 0);
@@ -252,6 +269,19 @@ export default function LeadsTab() {
               (totalWarnings > 0 ? ` · ${totalWarnings} warning${totalWarnings === 1 ? "" : "s"}` : "")}
         </div>
         <div className="flex items-center gap-2">
+          <Select value={contentTypeFilter} onValueChange={setContentTypeFilter}>
+            <SelectTrigger className="h-8 w-44 text-sm" data-testid="select-leads-content-type">
+              <SelectValue placeholder="Content type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All content types</SelectItem>
+              {contentTypes.map((ct) => (
+                <SelectItem key={ct} value={ct} data-testid={`option-content-type-${ct}`}>
+                  {ct}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
