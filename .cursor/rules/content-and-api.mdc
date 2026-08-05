@@ -21,6 +21,13 @@ Top-level `meta` (SEO, redirects) and `sections` array. Sections: `type`, `varia
 
 ## Component Registry
 
-Add/modify components in `marketing-content/component-registry/{name}/vX.Y/`. Provide `schema.ts` (Zod), `examples/`, and optional `schema.yml` (use schema-sync script). Reuse shared schemas from `@shared/schema` (e.g. `ctaButtonSchema`, `imageSchema`).
+Two registries (must not share the same `type` name — boot fails on collision):
 
-After schema changes, run `npx tsx scripts/schema-sync/sync-schemas.ts` when `schema.yml` is used. Ensure `shared/schema` exports new section types if they are used in app code.
+- **Shared** (app repo): [`shared/component-registry/`](shared/component-registry/) — platform defaults (≤~12 types). Screenshots under each type’s `screenshots/`.
+- **Per-site** (content): `site_*/component-registry/` — site-only types. Gallery thumbs under `.cache/{site}/component-screenshots/` (GCS-ready site scope).
+
+Resolve for a site = **shared ∪ that site**. Cross-site: promote to shared or duplicate — never reference another site’s registry.
+
+`schema.yml` stays in sync via `npm run ensure:schema-yml` on `predev`/`prebuild` (both trees). Manual: `npm run schema:sync -- --component=<type>`. Ensure does **not** push content GitHub.
+
+Shared Zod in `shared/schema.ts` must import from `shared/component-registry/**` only — do not add new `site_*` re-exports.

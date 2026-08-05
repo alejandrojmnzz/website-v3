@@ -9,6 +9,12 @@ import {
   escapeObjectVars,
   unescapeYamlDump,
 } from "../shared/templateVars";
+import {
+  assertNoRegistryCollisions,
+  listMergedComponentTypes,
+  resolveComponentPath,
+  type RegistryOrigin,
+} from "../shared/registry-resolve";
 import { child } from "./logger";
 const log = child({ module: "component-registry" });
 
@@ -25,7 +31,33 @@ function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
   return unescapeYamlDump(dumped, map);
 }
 
-const REGISTRY_PATH = path.join(process.cwd(), getDefaultContentFolder(), "component-registry");
+function activeContentFolder(contentFolder?: string): string {
+  return contentFolder || getDefaultContentFolder();
+}
+
+/** Absolute path to a component type dir (shared or site), or null if missing. */
+function componentTypeDir(componentType: string, contentFolder?: string): string | null {
+  try {
+    const resolved = resolveComponentPath(componentType, activeContentFolder(contentFolder));
+    return resolved?.componentDir ?? null;
+  } catch (err) {
+    log.error({ err }, `Registry collision resolving ${componentType}`);
+    throw err;
+  }
+}
+
+/** @deprecated Prefer resolveComponentPath; kept for callers that need a single site root. */
+function siteRegistryPath(contentFolder?: string): string {
+  return path.join(process.cwd(), activeContentFolder(contentFolder), "component-registry");
+}
+
+/**
+ * Assert shared vs site type names do not overlap for the active/default site.
+ * Call during server startup.
+ */
+export function assertComponentRegistryHealth(contentFolder?: string): void {
+  assertNoRegistryCollisions(activeContentFolder(contentFolder));
+}
 
 /**
  * Root of `schema.yml` for a component version.
@@ -93,6 +125,8 @@ export interface RegistryOverview {
     variants: string[];
     exampleCount: number;
     primaryExample?: PrimaryExampleMeta;
+    /** Where the registry package lives */
+    origin: RegistryOrigin;
   }>;
 }
 
@@ -111,29 +145,29 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-export function listComponents(): string[] {
+export function listComponents(contentFolder?: string): string[] {
   try {
-    if (!fs.existsSync(REGISTRY_PATH)) {
-      return [];
-    }
-    return fs.readdirSync(REGISTRY_PATH).filter(dir => {
-      // Skip shared/internal folders (e.g. `_common` holds shared Zod schemas, not a section component)
-      if (dir.startsWith("_") || dir.startsWith(".")) return false;
-      const dirPath = path.join(REGISTRY_PATH, dir);
-      if (!fs.statSync(dirPath).isDirectory()) return false;
-      // Real components have at least one version folder (v1.0, …)
-      return listVersions(dir).length > 0;
-    });
+    return listMergedComponentTypes(activeContentFolder(contentFolder)).map((t) => t.type);
   } catch (error) {
     log.error({ err: error }, "Error listing components:");
-    return [];
+    throw error;
   }
 }
 
-export function listVersions(componentType: string): string[] {
+export function listComponentOrigins(
+  contentFolder?: string,
+): Record<string, RegistryOrigin> {
+  const map: Record<string, RegistryOrigin> = {};
+  for (const t of listMergedComponentTypes(activeContentFolder(contentFolder))) {
+    map[t.type] = t.origin;
+  }
+  return map;
+}
+
+export function listVersions(componentType: string, contentFolder?: string): string[] {
   try {
-    const componentPath = path.join(REGISTRY_PATH, componentType);
-    if (!fs.existsSync(componentPath)) {
+    const componentPath = componentTypeDir(componentType, contentFolder);
+    if (!componentPath) {
       return [];
     }
     const versions = fs.readdirSync(componentPath)
@@ -149,9 +183,11 @@ export function listVersions(componentType: string): string[] {
   }
 }
 
-export function loadSchema(componentType: string, version: string): ComponentSchema | null {
+export function loadSchema(componentType: string, version: string, contentFolder?: string): ComponentSchema | null {
   try {
-    const schemaPath = path.join(REGISTRY_PATH, componentType, version, "schema.yml");
+    const componentPath = componentTypeDir(componentType, contentFolder);
+    if (!componentPath) return null;
+    const schemaPath = path.join(componentPath, version, "schema.yml");
     if (!fs.existsSync(schemaPath)) {
       return null;
     }
@@ -170,13 +206,16 @@ function normalizeRegistryFolderVersion(raw: unknown): string | null {
   return `v${t}`;
 }
 
-function resolveSchemaFolderForSection(componentType: string, sectionVersion: unknown): string | null {
+function resolveSchemaFolderForSection(componentType: string, sectionVersion: unknown, contentFolder?: string): string | null {
   const normalized = normalizeRegistryFolderVersion(sectionVersion);
   if (normalized) {
-    const schemaPath = path.join(REGISTRY_PATH, componentType, normalized, "schema.yml");
-    if (fs.existsSync(schemaPath)) return normalized;
+    const componentPath = componentTypeDir(componentType, contentFolder);
+    if (componentPath) {
+      const schemaPath = path.join(componentPath, normalized, "schema.yml");
+      if (fs.existsSync(schemaPath)) return normalized;
+    }
   }
-  const versions = listVersions(componentType);
+  const versions = listVersions(componentType, contentFolder);
   return versions.length > 0 ? versions[0]! : null;
 }
 
@@ -370,7 +409,7 @@ function extractVariantFromYaml(yamlContent: string): string | undefined {
 
 export function loadExamples(componentType: string, version: string): ComponentExample[] {
   try {
-    const examplesPath = path.join(REGISTRY_PATH, componentType, version, "examples");
+    const examplesPath = path.join(componentTypeDir(componentType) || "", version, "examples");
     if (!fs.existsSync(examplesPath)) {
       return [];
     }
@@ -432,9 +471,10 @@ export function getComponentInfo(componentType: string): ComponentInfo | null {
 export function getPrimaryExampleMeta(
   componentType: string,
   version: string,
+  contentFolder?: string,
 ): PrimaryExampleMeta | undefined {
   try {
-    const examplesPath = path.join(REGISTRY_PATH, componentType, version, "examples");
+    const examplesPath = path.join(componentTypeDir(componentType, contentFolder) || "", version, "examples");
     if (!fs.existsSync(examplesPath)) return undefined;
 
     const exampleFiles = fs
@@ -466,17 +506,18 @@ export function getPrimaryExampleMeta(
   }
 }
 
-export function getRegistryOverview(): RegistryOverview {
-  const components = listComponents();
+export function getRegistryOverview(contentFolder?: string): RegistryOverview {
+  const folder = activeContentFolder(contentFolder);
+  const merged = listMergedComponentTypes(folder);
 
   return {
-    components: components.map((type) => {
-      const versions = listVersions(type);
+    components: merged.map(({ type, origin }) => {
+      const versions = listVersions(type, folder);
       const latestVersion = versions[0] || "v1.0";
-      const schema = loadSchema(type, latestVersion);
+      const schema = loadSchema(type, latestVersion, folder);
       const variants = schema?.variants ? Object.keys(schema.variants) : [];
-      const primaryExample = getPrimaryExampleMeta(type, latestVersion);
-      const examplesPath = path.join(REGISTRY_PATH, type, latestVersion, "examples");
+      const primaryExample = getPrimaryExampleMeta(type, latestVersion, folder);
+      const examplesPath = path.join(componentTypeDir(type, folder) || "", latestVersion, "examples");
       let exampleCount = 0;
       if (fs.existsSync(examplesPath)) {
         exampleCount = fs
@@ -493,6 +534,7 @@ export function getRegistryOverview(): RegistryOverview {
         variants,
         exampleCount,
         primaryExample,
+        origin,
       };
     }),
   };
@@ -508,8 +550,8 @@ export function createNewVersion(componentType: string, baseVersion: string): { 
     const baseParts = parseVersion(baseVersion);
     const newVersionStr = `v${baseParts[0]}.${(baseParts[1] || 0) + 1}`;
     
-    const basePath = path.join(REGISTRY_PATH, componentType, baseVersion);
-    const newPath = path.join(REGISTRY_PATH, componentType, newVersionStr);
+    const basePath = path.join(componentTypeDir(componentType) || "", baseVersion);
+    const newPath = path.join(componentTypeDir(componentType) || "", newVersionStr);
     
     if (fs.existsSync(newPath)) {
       return { success: false, newVersion: '', error: `Version ${newVersionStr} already exists` };
@@ -574,8 +616,7 @@ export function loadAllFieldEditors(): AllFieldEditors {
       // Use latest version
       const latestVersion = versions[0];
       const fieldEditorsPath = path.join(
-        REGISTRY_PATH, 
-        componentType, 
+        componentTypeDir(componentType) || "",
         latestVersion, 
         "field-editors.ts"
       );
@@ -629,7 +670,7 @@ export function saveExample(
   yamlContent: string
 ): { success: boolean; filePath?: string; error?: string } {
   try {
-    const examplesPath = path.join(REGISTRY_PATH, componentType, version, "examples");
+    const examplesPath = path.join(componentTypeDir(componentType) || "", version, "examples");
     
     if (!fs.existsSync(examplesPath)) {
       return { success: false, error: `Examples path not found for ${componentType}/${version}` };
@@ -768,7 +809,7 @@ export function deleteExample(
   exampleName: string
 ): { success: boolean; filePath?: string; error?: string } {
   try {
-    const examplesPath = path.join(REGISTRY_PATH, componentType, version, "examples");
+    const examplesPath = path.join(componentTypeDir(componentType) || "", version, "examples");
     if (!fs.existsSync(examplesPath)) {
       return { success: false, error: `Examples path not found for ${componentType}/${version}` };
     }
@@ -812,7 +853,7 @@ function deleteVariantExamples(
   const normalizedTarget = normalizeVariantName(variantName);
 
   for (const v of versions) {
-    const examplesPath = path.join(REGISTRY_PATH, componentType, v, "examples");
+    const examplesPath = path.join(componentTypeDir(componentType) || "", v, "examples");
     if (!fs.existsSync(examplesPath)) continue;
 
     const exampleFiles = fs.readdirSync(examplesPath).filter(
@@ -846,7 +887,7 @@ export function createExample(
   options?: { displayName?: string; description?: string }
 ): { success: boolean; filename?: string; exampleName?: string; filePath?: string; error?: string } {
   try {
-    const examplesPath = path.join(REGISTRY_PATH, componentType, version, "examples");
+    const examplesPath = path.join(componentTypeDir(componentType) || "", version, "examples");
     if (!fs.existsSync(examplesPath)) {
       fs.mkdirSync(examplesPath, { recursive: true });
     }

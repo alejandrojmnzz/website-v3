@@ -1,0 +1,49 @@
+name: "Split article with unified TOC (toc_group)"
+description: "Two article sections sharing toc_group so the table of contents lists headings from both parts, with a CTA in between"
+yaml: |
+  - type: article
+    section_id: article-part-1
+    show_toc: true
+    toc_position: side
+    toc_group: bloomtech-review
+    content: |
+      # BloomTech Review
+
+      An introduction to the program and what changed after the rebrand.
+
+      ## What is BloomTech?
+
+      BloomTech (formerly Lambda School) is a coding bootcamp focused on outcomes.
+
+      ## Who is it for?
+
+      Career switchers and self-taught developers who want structure and career support.
+
+  - type: cta_banner
+    title: Ready to compare programs?
+    description: See how 4Geeks stacks up before you decide.
+    buttons:
+      - text: Explore programs
+        url: /us/coding-bootcamps
+        variant: primary
+
+  - type: article
+    section_id: article-part-2
+    show_toc: false
+    toc_group: bloomtech-review
+    content: |
+      ## Curriculum and outcomes
+
+      A closer look at projects, pacing, and job-search support.
+
+      ### Curriculum
+
+      Full-stack tracks with portfolio projects.
+
+      ### Outcomes
+
+      Reported hiring metrics and what to verify yourself.
+
+      ## Verdict
+
+      Weigh cost, support, and fit for your goals before enrolling.

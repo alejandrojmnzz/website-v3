@@ -2,6 +2,16 @@ import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+/**
+ * Boot-critical schemas.
+ *
+ * Shared platform components: import from shared/component-registry only.
+ * Do NOT add new re-exports from site_ folders under component-registry — site-only Zod
+ * must be resolved via the site-aware registry (shared union site) at runtime.
+ * Existing site_ imports below are legacy until those types are promoted to shared
+ * or callers stop needing them at boot.
+ */
+
 // ============================================
 // Database Schemas
 // ============================================
@@ -196,7 +206,7 @@ export {
 export {
   textBlockSectionSchema,
   type TextBlockSection,
-} from "../site_4geeks-com/component-registry/text_block/v1.0/schema";
+} from "../shared/component-registry/text_block/v1.0/schema";
 
 // ============================================
 // Re-export Why Learn AI Schemas from Component Registry
@@ -892,7 +902,7 @@ export {
   type EnrollmentSelectorPlan,
   type EnrollmentSummary,
 };
-import { articleSectionSchema, type ArticleSection } from "../site_4geeks-com/component-registry/article/v1.0/schema";
+import { articleSectionSchema, type ArticleSection } from "../shared/component-registry/article/v1.0/schema";
 export { articleSectionSchema, type ArticleSection };
 import { partnershipCarouselSectionSchema, type PartnershipCarouselSection, type PartnershipSlide } from "../site_4geeks-com/component-registry/partnership_carousel/v1.0/schema";
 export { partnershipCarouselSectionSchema, type PartnershipCarouselSection, type PartnershipSlide };

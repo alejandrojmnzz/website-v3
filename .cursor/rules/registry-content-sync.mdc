@@ -1,0 +1,30 @@
+---
+description: Keep site_*/component-registry Zod schemas in sync with shared/schema re-exports; content pull before boot.
+globs: shared/schema.ts,shared/component-registry/**/schema.ts,site_*/component-registry/**/schema.ts,scripts/check-registry.ts,scripts/content-pull.ts,scripts/ensure-registry.ts
+alwaysApply: false
+---
+
+# Registry content sync
+
+## Why
+
+[`shared/schema.ts`](shared/schema.ts) may still re-export some Zod schemas from gitignored `site_*/component-registry/**/schema.ts` (legacy). Prefer **shared** platform types under tracked [`shared/component-registry/`](shared/component-registry/). Site-only types stay under `site_*` and must **not** be added as new boot-critical re-exports.
+
+A type must not exist in both shared and a site registry — boot fails on collision.
+
+## Landing a new variant / export
+
+**Shared component:** edit under `shared/component-registry/<type>/vX.Y/`, run `npm run schema:sync -- --component=<type>`, commit in the **app** repo.
+
+**Site-only component:** edit under `site_<name>/component-registry/<type>/vX.Y/`, pull/push content as usual. Do not add a new top-level re-export in `shared/schema.ts` unless a shared union truly needs it.
+
+## Commands
+
+| Script | Role |
+|--------|------|
+| `npm run check:registry` | Import `shared/schema`; fail with recovery steps |
+| `npm run content:pull` | Hash-diff pull all sites |
+| `npm run ensure:registry` | Check → pull on failure → re-check (`predev` / `prebuild`) |
+| `npm run ensure:schema-yml` | Zod ↔ schema.yml drift + shared/site collision check |
+
+`content:pull` needs `GITHUB_TOKEN` and `github_repo_url` in `sites.yml`.
