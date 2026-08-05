@@ -11,6 +11,8 @@ export interface SiteConfig {
   githubRepoUrl?: string;
   /** When an image_id is missing locally, resolve it from this site's registry. */
   fallbackContentFolder?: string;
+  /** Hostnames that 301-redirect to this site's canonical domain (e.g. ["www.4geeks.com"]). */
+  aliases?: string[];
 }
 
 let _cached: SiteConfig[] | null = null;
@@ -85,17 +87,41 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
         (typeof c.fallback_content_folder === "string" && c.fallback_content_folder) ||
         (typeof c.fallbackContentFolder === "string" && c.fallbackContentFolder) ||
         undefined;
+      const rawAliases = (c.aliases ?? c.alias) as unknown;
+      const aliases = Array.isArray(rawAliases)
+        ? rawAliases.filter((a): a is string => typeof a === "string" && a.trim() !== "").map((a) => a.trim().toLowerCase())
+        : typeof rawAliases === "string" && rawAliases.trim() !== ""
+          ? [rawAliases.trim().toLowerCase()]
+          : undefined;
       configs.push({
         domain,
         contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
         githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
         fallbackContentFolder: fallbackFolder || undefined,
+        aliases,
       });
     }
   }
 
   if (configs.length === 0) {
     throw new SitesYmlRequiredError("sites.yml contains no site entries (add at least one domain block)");
+  }
+
+  // Validate aliases: an alias must not be a configured site domain (redirect
+  // loop / conflicting ownership) and must not be claimed by two sites.
+  const domains = new Set(configs.map((c) => c.domain.toLowerCase()));
+  const seenAliases = new Map<string, string>();
+  for (const c of configs) {
+    for (const alias of c.aliases ?? []) {
+      if (domains.has(alias)) {
+        throw new SitesYmlRequiredError(`alias "${alias}" (under ${c.domain}) is also a configured site domain — this would create a redirect loop or conflicting ownership`);
+      }
+      const owner = seenAliases.get(alias);
+      if (owner && owner !== c.domain) {
+        throw new SitesYmlRequiredError(`alias "${alias}" is claimed by both ${owner} and ${c.domain} — an alias may belong to only one site`);
+      }
+      seenAliases.set(alias, c.domain);
+    }
   }
 
   return configs;
