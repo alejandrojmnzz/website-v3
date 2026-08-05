@@ -232,12 +232,13 @@ interface MoleculeRendererProps {
   molecule: MoleculeDefinition;
 }
 
-function resolveCtaVariant(v: string): "default" | "secondary" | "outline" | "ghost" | "destructive" {
+function resolveCtaVariant(v: string): "default" | "secondary" | "outline" | "ghost" | "destructive" | "link" {
   if (v === "primary") return "default";
   if (v === "secondary") return "secondary";
   if (v === "outline") return "outline";
   if (v === "ghost") return "ghost";
   if (v === "destructive") return "destructive";
+  if (v === "link") return "link";
   return "default";
 }
 

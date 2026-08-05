@@ -148,9 +148,11 @@ export {
   aiFlexPathDefaultSchema,
   aiFlexPathDragAndDropSchema,
   aiFlexPathCourseColorSelectorSchema,
+  aiFlexPathSimplifiedSchema,
   type AiFlexPathDefault,
   type AiFlexPathDragAndDrop,
   type AiFlexPathCourseColorSelector,
+  type AiFlexPathSimplified,
 } from "../site_4geeks-com/component-registry/ai_flex_path/v1.0/schema";
 
 // ============================================
@@ -425,9 +427,15 @@ export {
   ctaBannerSectionSchema,
   ctaBannerDefaultSchema,
   ctaBannerFormSchema,
+  ctaBannerStripSchema,
+  ctaBannerResourceShowcaseSchema,
+  ctaBannerPromotionSchema,
   type CtaBannerSection,
   type CtaBannerDefault,
   type CtaBannerForm,
+  type CtaBannerStrip,
+  type CtaBannerResourceShowcase,
+  type CtaBannerPromotion,
 } from "../site_4geeks-com/component-registry/cta_banner/v1.0/schema";
 
 // Type alias for backward compatibility
@@ -977,11 +985,8 @@ export const featureQuadImageSchema = z.object({
   object_fit: z.enum(["cover", "contain", "fill", "none", "scale-down"]).optional(),
 });
 
-export const featureQuadCtaSchema = z.object({
-  text: z.string(),
-  url: z.string(),
-  variant: z.enum(["primary", "secondary", "outline"]).optional(),
-});
+// CTA uses the same shared button schema as the hero component
+export const featureQuadCtaSchema = commonCtaButtonSchema;
 
 export const featureQuadSectionSchema = z.object({
   type: z.literal("features_quad"),
@@ -1016,6 +1021,11 @@ export const featureQuadSectionSchema = z.object({
   // Legacy fields for backward compatibility (used when video is a string)
   video_ratio: z.string().optional(),
   video_preview_image: z.string().optional(),
+  // Laptop image override for the laptopEdge variant
+  laptop_image: z.object({
+    image_id: z.string(),
+    alt: z.string().optional(),
+  }).optional(),
 });
 
 export type FeatureQuadCard = z.infer<typeof featureQuadCardSchema>;
