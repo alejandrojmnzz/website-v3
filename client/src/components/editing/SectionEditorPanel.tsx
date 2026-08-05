@@ -80,6 +80,7 @@ import { buildWebhookSamplePayload } from "@/lib/webhookPayload";
 import { useSession } from "@/contexts/SessionContext";
 import { apiRequest } from "@/lib/queryClient";
 import { AutomationsTagsCard } from "./AutomationsTagsCard";
+import { FormFieldsCard } from "./FormFieldsCard";
 import { ConsentCard } from "./ConsentCard";
 import type { ConsentValues } from "./ConsentCard";
 import { WebhookCard, type WebhookSource } from "./WebhookCard";
@@ -6885,6 +6886,33 @@ export function SectionEditorPanel({
                       // empty parents, so clearing both removes `success` entirely
                       // and falls back to the conversion event default.
                       updateProperty(formProp(`success.${field}`), value);
+                    }}
+                  />
+                );
+              })()}
+
+              {/* Form fields already present in YAML (visible / required / default) */}
+              {(() => {
+                const fieldsRaw = getValueAtFieldPath(parsedSection, formProp("fields"));
+                const fields: Record<string, Record<string, unknown>> =
+                  fieldsRaw && typeof fieldsRaw === "object" && !Array.isArray(fieldsRaw)
+                    ? (fieldsRaw as Record<string, Record<string, unknown>>)
+                    : {};
+                return (
+                  <FormFieldsCard
+                    fields={fields}
+                    onFieldChange={(fieldName, key, value) => {
+                      if (key === "visible" || key === "required") {
+                        updatePropertyWithValue(
+                          formProp(`fields.${fieldName}.${key}`),
+                          value as boolean,
+                        );
+                        return;
+                      }
+                      updateProperty(
+                        formProp(`fields.${fieldName}.${key}`),
+                        String(value),
+                      );
                     }}
                   />
                 );

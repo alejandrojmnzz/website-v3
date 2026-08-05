@@ -7,18 +7,8 @@ import { useTranslation } from "react-i18next";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Form,
   FormControl,
@@ -30,10 +20,15 @@ import {
 import { useSession, useLocation as useSessionLocation, useUTM } from "@/contexts/SessionContext";
 import { useSectionContext } from "@/contexts/SectionContext";
 import { apiRequest, apiFetch } from "@/lib/queryClient";
-import { PhoneInput } from "@/components/ui/phone-input";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
+import {
+  applyLeadFormRouteOutcome,
+  normalizeLeadFormTags,
+  resolveLeadFormRoute,
+  type LeadFormRoute,
+} from "@shared/resolveLeadFormRoute";
 import { useAuthUser, getConsumerToken } from "@/hooks/useAuthUser";
 import { resolveFormFields, type IdentityField } from "@/lib/resolveFormFields";
 import {
@@ -41,10 +36,79 @@ import {
   resolveLeadFormCopy,
 } from "@/lib/resolveLeadFormCopy";
 import {
+  LeadFormFieldControl,
+  type LeadFormComponentRenderer,
+  type LeadFormOption,
+} from "@/components/lead_form/LeadFormFieldControl";
+import {
   parseFormFieldSource,
   buildQueryOptionsUrl,
   type FormFieldSourceInput,
 } from "@shared/parseFormFieldSource";
+
+/** Runtime defaults when YAML omits `fields.*.component_renderer`. */
+const SELECT_DEFAULT_FIELDS = new Set(["program", "plan", "location", "region"]);
+
+function defaultComponentRenderer(fieldName: string): LeadFormComponentRenderer {
+  if (fieldName === "phone") return "phone";
+  if (fieldName === "client_comments") return "textarea";
+  if (SELECT_DEFAULT_FIELDS.has(fieldName)) return "select";
+  return "text";
+}
+
+/**
+ * Merge pool options (form-options / source / locations) with form YAML `options[]` by `value`.
+ * YAML overlays marketing copy; unknown values from YAML are appended.
+ */
+function mergeLeadFormOptions(
+  pool: Array<{ value: string; label: string; description?: string; group?: string }>,
+  overrides?: Array<Partial<LeadFormOption> & { value: string }> | null,
+): LeadFormOption[] {
+  if (!overrides?.length) {
+    return pool.map((p) => ({
+      value: p.value,
+      label: p.label,
+      description: p.description,
+      group: p.group,
+    }));
+  }
+
+  const overrideByValue = new Map(overrides.map((o) => [o.value, o]));
+  const merged = pool.map((p) => {
+    const ov = overrideByValue.get(p.value);
+    if (!ov) {
+      return {
+        value: p.value,
+        label: p.label,
+        description: p.description,
+        group: p.group,
+      };
+    }
+    return {
+      value: p.value,
+      label: typeof ov.label === "string" && ov.label.trim() ? ov.label : p.label,
+      description: ov.description ?? p.description,
+      group: ov.group ?? p.group,
+      cta: ov.cta,
+      icon: ov.icon,
+    };
+  });
+
+  const poolValues = new Set(pool.map((p) => p.value));
+  for (const ov of overrides) {
+    if (poolValues.has(ov.value)) continue;
+    merged.push({
+      value: ov.value,
+      label: typeof ov.label === "string" && ov.label.trim() ? ov.label : ov.value,
+      description: ov.description,
+      group: ov.group,
+      cta: ov.cta,
+      icon: ov.icon,
+    });
+  }
+
+  return merged;
+}
 
 /** For is_signup success redirects: pass auth token to external destinations only. */
 function resolveSignupSuccessUrl(url: string): string {
@@ -73,6 +137,18 @@ interface FieldConfig {
   slugs?: string[]; // Legacy: limits which programs appear when `source` is omitted
   /** When set, options come from `/api/query-options` (content type or database). */
   source?: FormFieldSourceInput;
+  /** Omitting uses `defaultComponentRenderer(fieldName)` at runtime. */
+  component_renderer?: LeadFormComponentRenderer | string;
+  /** Merged by `value` over pool options (programs/locations/source). */
+  options?: Array<{
+    value: string;
+    label?: string;
+    description?: string;
+    group?: string;
+    cta?: string;
+    icon?: string;
+    [key: string]: unknown;
+  }>;
 }
 
 export interface LeadFormData {
@@ -108,6 +184,11 @@ export interface LeadFormData {
     url?: string;
     message?: string;
   };
+  /**
+   * Submit-time routes. First matching conditions (AND) overrides conversion/success/tags.
+   * No match → root form props. See shared/resolveLeadFormRoute.ts.
+   */
+  routes?: LeadFormRoute[];
   /** Phase copy for signup forms. Locale defaults apply when a stage is omitted. */
   messages?: {
     guest?: {
@@ -349,8 +430,73 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
   );
 }
 
+/** Resolve conversion/success/tags/webhook for one submit (route > form root > event). */
+function buildEffectiveSubmitConfig(
+  formData: LeadFormData,
+  values: Record<string, unknown>,
+  trackingSettings: TrackingSettingsResponse | null | undefined,
+): {
+  conversion_name?: string;
+  success?: { url?: string; message?: string };
+  tags: string;
+  automations: string;
+  formWebhook: { url: string; method?: "POST" | "GET" } | null;
+  eventWebhook: { url: string; method?: "POST" | "GET" } | null;
+} {
+  const route = resolveLeadFormRoute(values, formData.routes);
+  const overlaid = applyLeadFormRouteOutcome(
+    formData as Record<string, unknown>,
+    route,
+  ) as LeadFormData;
+
+  const conversionName = overlaid.conversion_name;
+  const eventEntry = conversionName
+    ? trackingSettings?.conversion_events?.find((e) => e.name === conversionName)
+    : undefined;
+
+  let resolved: LeadFormData = overlaid;
+  if (eventEntry) {
+    const wrapped = resolveFormDefaults(
+      { _f: overlaid } as Record<string, unknown>,
+      {
+        name: eventEntry.name,
+        automations: eventEntry.automations,
+        tags: eventEntry.tags,
+        consent: eventEntry.consent,
+        webhook: eventEntry.webhook,
+        success: eventEntry.success,
+      },
+      "_f",
+    );
+    resolved = wrapped._f as LeadFormData;
+  }
+
+  const formWebhook = resolved.webhook?.url
+    ? {
+        url: resolved.webhook.url,
+        method: (resolved.webhook.method === "GET" ? "GET" : "POST") as "POST" | "GET",
+      }
+    : null;
+  const eventWebhook =
+    eventEntry?.webhook?.url
+      ? {
+          url: eventEntry.webhook.url,
+          method: (eventEntry.webhook.method === "GET" ? "GET" : "POST") as "POST" | "GET",
+        }
+      : null;
+
+  return {
+    conversion_name: resolved.conversion_name ?? conversionName,
+    success: resolved.success,
+    tags: normalizeLeadFormTags(resolved.tags),
+    automations: resolved.automations || "strong",
+    formWebhook,
+    eventWebhook,
+  };
+}
+
 export default function LeadForm({ data, termsStyle }: LeadFormProps) {
-  const landingLocations: string[] | undefined = undefined;
+  const landingLocations = undefined as string[] | undefined;
   const { slug, contentType } = useSectionContext();
   const programContext = contentType === "program" ? slug : undefined;
   const { t, i18n } = useTranslation();
@@ -488,13 +634,6 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const consent: NonNullable<LeadFormData["consent"]> = resolvedData.consent ?? {};
   const showTerms = resolvedData.show_terms ?? true;
-  const effectiveTags = (() => {
-    const t = resolvedData.tags;
-    if (Array.isArray(t) && (t as string[]).length) return (t as string[]).join(",");
-    if (typeof t === "string" && t) return t;
-    return "website-lead";
-  })();
-  const effectiveAutomations = resolvedData.automations || "strong";
   // Effective terms/privacy URLs: form YAML wins; event default fills gap; legal settings fallback
   const effectiveTermsUrl = resolvedData.terms_url || null;
   const effectivePrivacyUrl = resolvedData.privacy_url || null;
@@ -618,6 +757,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
     return baseConfig;
   };
+
+  const resolveFieldRenderer = (
+    fieldName: keyof NonNullable<LeadFormData["fields"]>,
+  ): LeadFormComponentRenderer => {
+    const raw = getFieldConfig(fieldName).component_renderer;
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim() as LeadFormComponentRenderer;
+    }
+    return defaultComponentRenderer(fieldName);
+  };
+
   const resolveDefault = (fieldName: string, configDefault?: string): string => {
     if (!configDefault || configDefault !== "auto") {
       return configDefault || "";
@@ -796,10 +946,44 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     }
   }, [visiblePrograms, programFieldSlugs, formOptions?.programs, programSource, programQueryOptions?.options, form]);
 
+  /** Same field defaults used for lead payload and route matching. */
+  const resolveEffectiveFieldValues = (values: FormValues) => ({
+    ...values,
+    program:
+      values.program ||
+      formOptions?.programs.find((p) => p.slug === programContext)?.bc_slug ||
+      programContext ||
+      resolveDefault("program", getFieldConfig("program").default),
+    location:
+      singleLandingLocation ||
+      values.location ||
+      sessionLocation?.slug ||
+      resolveDefault("location", getFieldConfig("location").default),
+    region:
+      singleLandingRegion ||
+      values.region ||
+      sessionLocation?.region ||
+      resolveDefault("region", getFieldConfig("region").default),
+    coupon:
+      values.coupon ||
+      utm.coupon ||
+      resolveDefault("coupon", getFieldConfig("coupon").default),
+    current_download:
+      values.current_download ||
+      resolveDefault("current_download", getFieldConfig("current_download").default),
+    plan:
+      values.plan ||
+      resolveDefault("plan", getFieldConfig("plan").default) ||
+      "",
+  });
+
   const submitMutation = useMutation({
     mutationFn: async (values: FormValues) => {
       // Map consent fields to backend field names
       const { consent_email, consent_sms, consent_whatsapp, ...restValues } = values;
+
+      const fields = resolveEffectiveFieldValues(values);
+      const effective = buildEffectiveSubmitConfig(data, fields, trackingSettings);
       
       // When marketing consent is enabled, derive both email and whatsapp from consent_email checkbox
       const effectiveEmailConsent = consent_email || false;
@@ -810,11 +994,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         consent_email: effectiveEmailConsent,
         sms_consent: consent_sms || false,
         consent_whatsapp: effectiveWhatsappConsent,
-        location: singleLandingLocation || values.location || sessionLocation?.slug || resolveDefault("location", getFieldConfig("location").default),
-        region: singleLandingRegion || values.region || sessionLocation?.region || resolveDefault("region", getFieldConfig("region").default),
-        coupon: values.coupon || utm.coupon || resolveDefault("coupon", getFieldConfig("coupon").default),
-        program: values.program || formOptions?.programs.find(p => p.slug === programContext)?.bc_slug || programContext || resolveDefault("program", getFieldConfig("program").default),
-        current_download: values.current_download || resolveDefault("current_download", getFieldConfig("current_download").default),
+        location: fields.location,
+        region: fields.region,
+        coupon: fields.coupon,
+        program: fields.program,
+        current_download: fields.current_download,
         language: session.language,
         browser_lang: session.browserLang,
         latitude: session.geo?.latitude?.toString(),
@@ -831,9 +1015,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         utm_plan: utm.utm_plan,
         ppc_tracking_id: utm.ppc_tracking_id,
         referral: utm.referral || utm.ref,
-        tags: effectiveTags,
-        automations: effectiveAutomations,
-        conversion_name: data.conversion_name,
+        tags: effective.tags,
+        automations: effective.automations,
+        conversion_name: effective.conversion_name,
         token: turnstileToken,
       };
 
@@ -845,10 +1029,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           last_name: values.last_name,
           email: values.email,
           phone: values.phone,
-          course: payload.program || "",
+          course: fields.program || "",
           country: session.geo?.country || "",
           city: session.geo?.city || "",
-          plan: values.plan || resolveDefault("plan", getFieldConfig("plan").default) || "",
+          plan: fields.plan,
           language: session.language,
           has_marketing_consent: effectiveEmailConsent,
           conversion_info: {
@@ -888,14 +1072,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       // Any configured level sends the full lead payload instead of Breathecode.
       // Global webhook: server reads credentials from settings (auth_header never exposed to client).
       // Per-form / per-event: client supplies the URL; no auth credentials at those levels.
-      const formWebhook = data.webhook?.url ? data.webhook : null;
-      const eventWebhook = data.conversion_name
-        ? (trackingSettings?.conversion_events?.find(e => e.name === data.conversion_name)?.webhook ?? null)
-        : null;
+      const formWebhook = effective.formWebhook;
+      const eventWebhook = effective.eventWebhook;
       const globalWebhook = trackingSettings?.webhook?.url ? trackingSettings.webhook : null;
 
       const webhookOverride = formWebhook ?? eventWebhook ?? null;
 
+      let response: Response;
       if (webhookOverride || globalWebhook) {
         const body: Record<string, unknown> = { payload };
         if (webhookOverride) {
@@ -903,31 +1086,33 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           body.webhook = { url: webhookOverride.url, method: webhookOverride.method || "POST" };
         }
         // When no override, server reads global URL/method/auth_header from settings
-        return fetch("/api/leads/webhook-delivery", {
+        response = await fetch("/api/leads/webhook-delivery", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+      } else {
+        response = await apiRequest("POST", "/api/leads", payload);
       }
 
-      return apiRequest("POST", "/api/leads", payload);
+      return { response, fields, effective };
     },
-    onSuccess: async (_response, variables) => {
+    onSuccess: async ({ fields, effective }, variables) => {
       setSubmitError(null);
       // Track conversion if conversion_name is defined
-      if (!data.conversion_name) {
+      if (!effective.conversion_name) {
         console.error(
           '[LeadForm] Missing conversion_name in form configuration. ' +
-          'Add conversion_name to the form YAML to enable tracking.'
+          'Add conversion_name to the form YAML (or a matching route) to enable tracking.'
         );
       }
-      if (data.conversion_name) {
+      if (effective.conversion_name) {
         await trackFormSubmission(
-          data.conversion_name,
+          effective.conversion_name,
           {
             email: variables.email,
-            program: variables.program || programContext,
-            location: variables.location || sessionLocation?.slug,
+            program: fields.program,
+            location: fields.location,
           }
         );
 
@@ -935,18 +1120,22 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         // are unconfigured (i.e., primary submission went to Breathecode).
         // When any webhook level was used above, the full payload was already delivered.
         const hasAnyWebhook = !!(
-          (data.webhook?.url) ||
-          (data.conversion_name && trackingSettings?.conversion_events?.find(e => e.name === data.conversion_name)?.webhook?.url) ||
+          effective.formWebhook ||
+          effective.eventWebhook ||
           trackingSettings?.webhook?.url
         );
         if (!hasAnyWebhook) {
           try {
-            const resolvedWebhook = resolveWebhook(data.webhook ?? null, data.conversion_name, trackingSettings ?? null);
+            const resolvedWebhook = resolveWebhook(
+              effective.formWebhook ?? null,
+              effective.conversion_name,
+              trackingSettings ?? null,
+            );
             if (resolvedWebhook) {
               const webhookPayload: Record<string, unknown> = {
-                conversion_name: data.conversion_name,
-                program: variables.program || programContext,
-                location: variables.location || sessionLocation?.slug,
+                conversion_name: effective.conversion_name,
+                program: fields.program,
+                location: fields.location,
                 utm_source: utm.utm_source,
                 utm_medium: utm.utm_medium,
                 utm_campaign: utm.utm_campaign,
@@ -972,14 +1161,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         }
       }
 
-      if (resolvedData.success?.url) {
+      if (effective.success?.url) {
         const successUrl = isSignupRequested
-          ? resolveSignupSuccessUrl(resolvedData.success.url)
-          : resolvedData.success.url;
+          ? resolveSignupSuccessUrl(effective.success.url)
+          : effective.success.url;
         window.location.href = successUrl;
       } else {
         setIsSuccess(true);
-        setSuccessMessage(resolvedData.success?.message || (locale === "es" 
+        setSuccessMessage(effective.success?.message || (locale === "es" 
           ? "¡Gracias! Te contactaremos pronto." 
           : "Thanks! We'll contact you soon."));
       }
@@ -1085,6 +1274,46 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (!selectedRegion || !getFieldConfig("region").visible) return true;
     return loc.region === selectedRegion;
   }) || [];
+
+  const programChoiceOptions = mergeLeadFormOptions(
+    visiblePrograms.map((p) => ({
+      value: p.bc_slug || p.slug,
+      label: p.title,
+    })),
+    getFieldConfig("program").options,
+  );
+
+  const planChoiceOptions = mergeLeadFormOptions(
+    visiblePlans.map((p) => ({ value: p.value, label: p.label })),
+    getFieldConfig("plan").options,
+  );
+
+  const regionPool = (
+    singleLandingRegion
+      ? formOptions?.regions.filter((r) => r.slug === singleLandingRegion)
+      : multipleLandingRegions
+        ? formOptions?.regions.filter((r) => multipleLandingRegions.includes(r.slug))
+        : formOptions?.regions
+  ) ?? [];
+
+  const regionChoiceOptions = mergeLeadFormOptions(
+    regionPool.map((r) => ({ value: r.slug, label: r.label })),
+    getFieldConfig("region").options,
+  );
+
+  const locationChoiceOptions = mergeLeadFormOptions(
+    filteredLocations.map((loc) => {
+      const region = formOptions?.regions.find((r) => r.slug === loc.region);
+      const countryLabel =
+        loc.country && loc.country !== "Unknown" ? loc.country : region?.label || "";
+      return {
+        value: loc.slug,
+        label: countryLabel ? `${loc.name} - ${countryLabel}` : loc.name,
+        group: region?.label,
+      };
+    }),
+    getFieldConfig("location").options,
+  );
 
   // Watch form values to determine if required visible fields are filled
   const watchedValues = form.watch();
@@ -1472,10 +1701,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                           <FormLabel>{getFieldConfig("first_name").label || (locale === "es" ? "Nombre" : "First name")}</FormLabel>
                         )}
                         <FormControl>
-                          <Input 
+                          <LeadFormFieldControl
+                            renderer={resolveFieldRenderer("first_name")}
+                            field={field}
+                            options={mergeLeadFormOptions([], getFieldConfig("first_name").options)}
                             placeholder={getFieldConfig("first_name").placeholder || (locale === "es" ? "Nombre" : "First name")}
-                            {...field} 
-                            data-testid="input-first-name" 
+                            testId="input-first-name"
+                            dialogTitle={getFieldConfig("first_name").label || (locale === "es" ? "Nombre" : "First name")}
                           />
                         </FormControl>
                         <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
@@ -1494,10 +1726,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                           <FormLabel>{getFieldConfig("last_name").label || (locale === "es" ? "Apellido" : "Last name")}</FormLabel>
                         )}
                         <FormControl>
-                          <Input 
+                          <LeadFormFieldControl
+                            renderer={resolveFieldRenderer("last_name")}
+                            field={field}
+                            options={mergeLeadFormOptions([], getFieldConfig("last_name").options)}
                             placeholder={getFieldConfig("last_name").placeholder || (locale === "es" ? "Apellido" : "Last name")}
-                            {...field} 
-                            data-testid="input-last-name" 
+                            testId="input-last-name"
+                            dialogTitle={getFieldConfig("last_name").label || (locale === "es" ? "Apellido" : "Last name")}
                           />
                         </FormControl>
                         <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
@@ -1520,16 +1755,18 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                       <FormLabel>{getFieldConfig("phone").label || (locale === "es" ? "Teléfono" : "Phone")}</FormLabel>
                     )}
                     <FormControl>
-                      <PhoneInput
-                        value={field.value}
-                        onChange={field.onChange}
-                        defaultCountry={
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("phone")}
+                        field={field}
+                        options={mergeLeadFormOptions([], getFieldConfig("phone").options)}
+                        phoneDefaultCountry={
                           (getFieldConfig("phone").default_country ||
                             session?.geo?.country_code ||
                             "US") as Country
                         }
                         placeholder={getFieldConfig("phone").placeholder || (locale === "es" ? "Teléfono" : "Phone number")}
-                        data-testid="input-phone"
+                        testId="input-phone"
+                        dialogTitle={getFieldConfig("phone").label || (locale === "es" ? "Teléfono" : "Phone")}
                       />
                     </FormControl>
                     {getFieldConfig("phone").helper_text && (
@@ -1559,11 +1796,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                       <FormLabel>{getFieldConfig("email").label || (locale === "es" ? "Correo electrónico" : "Email")}</FormLabel>
                     )}
                     <FormControl>
-                      <Input 
-                        type="email" 
-                        placeholder={getFieldConfig("email").placeholder || (locale === "es" ? "Escribe tu correo, ej: usuario@dominio.com" : "Type your email, ex: username@domain.com")} 
-                        {...field} 
-                        data-testid="input-email"
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("email")}
+                        field={field}
+                        options={mergeLeadFormOptions([], getFieldConfig("email").options)}
+                        inputType="email"
+                        placeholder={getFieldConfig("email").placeholder || (locale === "es" ? "Escribe tu correo, ej: usuario@dominio.com" : "Type your email, ex: username@domain.com")}
+                        testId="input-email"
+                        dialogTitle={getFieldConfig("email").label || (locale === "es" ? "Correo electrónico" : "Email")}
                       />
                     </FormControl>
                     <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
@@ -1584,25 +1824,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                         {getFieldConfig("region").show_label && (
                           <FormLabel>{getFieldConfig("region").label || (locale === "es" ? "Región" : "Region")}</FormLabel>
                         )}
-                        <Select onValueChange={field.onChange} value={field.value} disabled={!!singleLandingRegion}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-region">
-                              <SelectValue placeholder={locale === "es" ? "Selecciona una región" : "Select a region"} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {(singleLandingRegion
-                              ? formOptions?.regions.filter(r => r.slug === singleLandingRegion)
-                              : multipleLandingRegions
-                                ? formOptions?.regions.filter(r => multipleLandingRegions.includes(r.slug))
-                                : formOptions?.regions
-                            )?.map((region) => (
-                              <SelectItem key={region.slug} value={region.slug}>
-                                {region.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <LeadFormFieldControl
+                            renderer={resolveFieldRenderer("region")}
+                            field={field}
+                            options={regionChoiceOptions}
+                            disabled={!!singleLandingRegion}
+                            placeholder={locale === "es" ? "Selecciona una región" : "Select a region"}
+                            testId="select-region"
+                            dialogTitle={getFieldConfig("region").label || (locale === "es" ? "Región" : "Region")}
+                          />
+                        </FormControl>
                         {getFieldConfig("region").helper_text && (
                           <p className="text-sm text-muted-foreground">{getFieldConfig("region").helper_text}</p>
                         )}
@@ -1622,34 +1854,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                         {getFieldConfig("location").show_label && (
                           <FormLabel>{getFieldConfig("location").label || (locale === "es" ? "Campus" : "Campus")}</FormLabel>
                         )}
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-location">
-                              <SelectValue placeholder={locale === "es" ? "Selecciona un campus" : "Select a campus"} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {formOptions?.regions.map((region) => {
-                              const regionLocations = filteredLocations.filter(loc => loc.region === region.slug);
-                              if (regionLocations.length === 0) return null;
-                              return (
-                                <SelectGroup key={region.slug}>
-                                  <SelectLabel>{region.label}</SelectLabel>
-                                  {regionLocations.map((loc) => {
-                                    const countryLabel = loc.country && loc.country !== "Unknown"
-                                      ? loc.country
-                                      : region.label;
-                                    return (
-                                      <SelectItem key={loc.slug} value={loc.slug}>
-                                        {loc.name} - {countryLabel}
-                                      </SelectItem>
-                                    );
-                                  })}
-                                </SelectGroup>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <LeadFormFieldControl
+                            renderer={resolveFieldRenderer("location")}
+                            field={field}
+                            options={locationChoiceOptions}
+                            groupSelectByGroup
+                            placeholder={locale === "es" ? "Selecciona un campus" : "Select a campus"}
+                            testId="select-location"
+                            dialogTitle={getFieldConfig("location").label || (locale === "es" ? "Campus" : "Campus")}
+                          />
+                        </FormControl>
                         {getFieldConfig("location").helper_text && (
                           <p className="text-sm text-muted-foreground">{getFieldConfig("location").helper_text}</p>
                         )}
@@ -1671,21 +1886,21 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                     {getFieldConfig("program").show_label && (
                       <FormLabel>{getFieldConfig("program").label || (locale === "es" ? "Programa" : "Program")}</FormLabel>
                     )}
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-program">
-                          <SelectValue placeholder={locale === "es" ? "Selecciona un programa" : "Select a program"} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {visiblePrograms.map((program) => (
-                          <SelectItem key={program.slug} value={program.bc_slug || program.slug}>
-                            {program.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {getFieldConfig("program").helper_text && (
+                    <FormControl>
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("program")}
+                        field={field}
+                        options={programChoiceOptions}
+                        placeholder={locale === "es" ? "Selecciona un programa" : "Select a program"}
+                        testId="select-program"
+                        dialogTitle={getFieldConfig("program").label || (locale === "es" ? "Programas" : "Programs")}
+                        dialogDescription={getFieldConfig("program").helper_text}
+                      />
+                    </FormControl>
+                    {getFieldConfig("program").helper_text &&
+                      !["cards", "simple-list", "grouped-list"].includes(
+                        resolveFieldRenderer("program"),
+                      ) && (
                       <p className="text-sm text-muted-foreground">{getFieldConfig("program").helper_text}</p>
                     )}
                     <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
@@ -1712,38 +1927,29 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                         {getFieldConfig("plan").label || (locale === "es" ? "Plan" : "Plan")}
                       </FormLabel>
                     )}
-                    {visiblePlans.length > 0 ? (
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-plan">
-                            <SelectValue
-                              placeholder={
-                                getFieldConfig("plan").placeholder ||
-                                (locale === "es" ? "Selecciona un plan" : "Select a plan")
-                              }
-                            />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {visiblePlans.map((plan) => (
-                            <SelectItem key={plan.value} value={plan.value}>
-                              {plan.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <FormControl>
-                        <Input
-                          placeholder={
-                            getFieldConfig("plan").placeholder ||
-                            (locale === "es" ? "Plan" : "Plan")
-                          }
-                          {...field}
-                          data-testid="input-plan"
-                        />
-                      </FormControl>
-                    )}
+                    <FormControl>
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("plan")}
+                        field={field}
+                        options={planChoiceOptions}
+                        placeholder={
+                          getFieldConfig("plan").placeholder ||
+                          (locale === "es" ? "Selecciona un plan" : "Select a plan")
+                        }
+                        testId={planChoiceOptions.length > 0 ? "select-plan" : "input-plan"}
+                        dialogTitle={getFieldConfig("plan").label || (locale === "es" ? "Plan" : "Plan")}
+                        selectEmptyFallback={
+                          <Input
+                            placeholder={
+                              getFieldConfig("plan").placeholder ||
+                              (locale === "es" ? "Plan" : "Plan")
+                            }
+                            {...field}
+                            data-testid="input-plan"
+                          />
+                        }
+                      />
+                    </FormControl>
                     {getFieldConfig("plan").helper_text && (
                       <p className="text-sm text-muted-foreground">
                         {getFieldConfig("plan").helper_text}
@@ -1765,10 +1971,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                       <FormLabel>{getFieldConfig("coupon").label || (locale === "es" ? "Código de cupón" : "Coupon Code")}</FormLabel>
                     )}
                     <FormControl>
-                      <Input 
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("coupon")}
+                        field={field}
+                        options={mergeLeadFormOptions([], getFieldConfig("coupon").options)}
                         placeholder={getFieldConfig("coupon").placeholder || (locale === "es" ? "Código de cupón" : "Coupon Code")}
-                        {...field} 
-                        data-testid="input-coupon" 
+                        testId="input-coupon"
+                        dialogTitle={getFieldConfig("coupon").label || (locale === "es" ? "Código de cupón" : "Coupon Code")}
                       />
                     </FormControl>
                     {getFieldConfig("coupon").helper_text && (
@@ -1798,13 +2007,19 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                       </FormLabel>
                     )}
                     <FormControl>
-                      <Input
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("current_download")}
+                        field={field}
+                        options={mergeLeadFormOptions([], getFieldConfig("current_download").options)}
                         placeholder={
                           getFieldConfig("current_download").placeholder ||
                           (locale === "es" ? "Descargable" : "Download")
                         }
-                        {...field}
-                        data-testid="input-current-download"
+                        testId="input-current-download"
+                        dialogTitle={
+                          getFieldConfig("current_download").label ||
+                          (locale === "es" ? "Descargable" : "Download")
+                        }
                       />
                     </FormControl>
                     {getFieldConfig("current_download").helper_text && (
@@ -1829,12 +2044,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                     <FormLabel>{getFieldConfig("client_comments").label || (locale === "es" ? "Comentarios" : "Comments")}</FormLabel>
                   )}
                   <FormControl>
-                    <Textarea 
-                      className="min-h-[100px]" 
+                    <LeadFormFieldControl
+                      renderer={resolveFieldRenderer("client_comments")}
+                      field={field}
+                      options={mergeLeadFormOptions([], getFieldConfig("client_comments").options)}
                       placeholder={getFieldConfig("client_comments").placeholder || (locale === "es" ? "Comentarios" : "Comments")}
                       rows={getFieldConfig("client_comments").rows}
-                      {...field} 
-                      data-testid="textarea-client-comments"
+                      testId="textarea-client-comments"
+                      dialogTitle={getFieldConfig("client_comments").label || (locale === "es" ? "Comentarios" : "Comments")}
                     />
                   </FormControl>
                   {getFieldConfig("client_comments").helper_text && (

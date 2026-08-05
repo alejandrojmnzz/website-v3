@@ -2,8 +2,8 @@
  * Forms Validator
  *
  * Scans all content files and reports any section with a `form:` key
- * whose `conversion_name` is missing or not in the known list.
- * Missing/invalid conversion_name causes conversion tracking to silently fail.
+ * whose `conversion_name` (root or route) is set but not in the known list.
+ * Root conversion_name is optional — routes may supply it at submit time.
  */
 
 import * as fs from "fs";
@@ -34,7 +34,8 @@ function walkYamlFiles(dir: string): string[] {
 
 export const formsValidator: Validator = {
   name: "forms",
-  description: "Validates form sections have a valid conversion_name for conversion tracking",
+  description:
+    "Validates form conversion_name values (root or routes) against known conversion events when set",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "forms",
@@ -70,8 +71,8 @@ export const formsValidator: Validator = {
             const relativePath = path.relative(process.cwd(), filePath);
             errors.push({
               type: "error",
-              code: "FORM_MISSING_CONVERSION_NAME",
-              message: `sections[${i}].form.conversion_name is missing or invalid — conversion tracking will not fire. File: ${relativePath}`,
+              code: "FORM_INVALID_CONVERSION_NAME",
+              message: `sections[${i}].form conversion_name is invalid. File: ${relativePath}`,
               file: relativePath,
               suggestion: err,
             });
