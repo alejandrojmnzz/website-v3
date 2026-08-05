@@ -648,6 +648,16 @@ function setAtDotPath(obj: Record<string, unknown>, dotPath: string, value: unkn
   cur[parts[parts.length - 1]] = value;
 }
 
+function getAtDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
+  const parts = dotPath.split(".");
+  let cur: unknown = obj;
+  for (const part of parts) {
+    if (cur === null || cur === undefined || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
 function patchVariableFieldHighlights(
   section: Record<string, unknown>,
   variableFields: Record<string, string>,
@@ -656,6 +666,9 @@ function patchVariableFieldHighlights(
 ): Record<string, unknown> {
   const patched: Record<string, unknown> = { ...section };
   for (const [dotPath, templateExpr] of Object.entries(variableFields)) {
+    // Only patch string fields; keep structured values (arrays/objects) intact in edit mode.
+    const currentValue = getAtDotPath(patched, dotPath);
+    if (typeof currentValue !== "string") continue;
     const { text } = resolveTemplateString(templateExpr, {}, context, { preserveTemplate: true, singleEntry });
     setAtDotPath(patched, dotPath, text);
   }

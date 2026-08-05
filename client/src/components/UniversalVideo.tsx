@@ -21,6 +21,7 @@ interface UniversalVideoProps extends Omit<VideoConfig, 'with_shadow_border'> {
   useSolidCard?: boolean;
   bordered?: boolean;
   mobileRatio?: string;
+  compactPlayButton?: boolean;
 }
 
 const isLocalVideo = (url: string): boolean => {
@@ -86,6 +87,7 @@ export function UniversalVideo({
   withShadowBorder = false,
   useSolidCard = false,
   bordered = false,
+  compactPlayButton = false,
 }: UniversalVideoProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPlayingInline, setIsPlayingInline] = useState(false);
@@ -94,6 +96,8 @@ export function UniversalVideo({
   const mobileAspectRatio = mobileRatio ? parseRatio(mobileRatio) : null;
   const ratioValue = parseRatioValue(ratio);
   const borderClasses = bordered ? "border-2 border-muted-foreground/40 rounded-lg" : "";
+  const playButtonSizeClasses = compactPlayButton ? "w-10 h-10 md:w-12 md:h-12" : "w-16 h-16 md:w-20 md:h-20";
+  const playIconSizeClasses = compactPlayButton ? "w-5 h-5 md:w-6 md:h-6" : "w-8 h-8 md:w-10 md:h-10";
   
   const responsiveStyles = mobileAspectRatio ? `
     #${videoId} { padding-top: ${mobileAspectRatio.paddingTop}; }
@@ -203,8 +207,8 @@ export function UniversalVideo({
             />
           </div>
           <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-primary flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-              <Play className="fill-current w-8 h-8 md:w-10 md:h-10 text-primary-foreground ml-1" />
+            <div className={`${playButtonSizeClasses} rounded-full bg-primary flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+              <Play className={`fill-current ${playIconSizeClasses} text-primary-foreground ml-1`} />
             </div>
           </div>
         </div>
@@ -223,8 +227,8 @@ export function UniversalVideo({
           data-testid="video-placeholder"
         >
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-          <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-primary/80 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-            <Play className="fill-current w-8 h-8 md:w-10 md:h-10 text-primary-foreground ml-1" />
+          <div className={`${playButtonSizeClasses} rounded-full bg-primary/80 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+            <Play className={`fill-current ${playIconSizeClasses} text-primary-foreground ml-1`} />
           </div>
           <p className="text-sm text-muted-foreground text-center px-4">
             Video preview not available
