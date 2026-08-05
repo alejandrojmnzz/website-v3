@@ -26,35 +26,39 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   wifi: Wifi,
 };
 
-interface CardItem {
+export interface CardItem {
   title: string;
   description: string;
   cta: string;
   href: string;
+  /** When set with layout `onSelect`, used as the selected value (falls back to `href`). */
+  value?: string;
   icon?: string;
 }
 
-interface ColumnItem {
+export interface ColumnItem {
   label: string;
   href: string;
+  value?: string;
 }
 
-interface Column {
+export interface Column {
   title: string;
   items: ColumnItem[];
 }
 
-interface GroupItem {
+export interface GroupItem {
   label: string;
   href: string;
+  value?: string;
 }
 
-interface Group {
+export interface Group {
   title: string;
   items: GroupItem[];
 }
 
-interface CardsDropdownData {
+export interface CardsDropdownData {
   type: "cards";
   title?: string;
   description?: string;
@@ -65,7 +69,7 @@ interface CardsDropdownData {
   };
 }
 
-interface ColumnsDropdownData {
+export interface ColumnsDropdownData {
   type: "columns";
   title?: string;
   description?: string;
@@ -73,7 +77,7 @@ interface ColumnsDropdownData {
   columns: Column[];
 }
 
-interface SimpleListDropdownData {
+export interface SimpleListDropdownData {
   type: "simple-list";
   title?: string;
   description?: string;
@@ -81,7 +85,7 @@ interface SimpleListDropdownData {
   items: ColumnItem[];
 }
 
-interface GroupedListDropdownData {
+export interface GroupedListDropdownData {
   type: "grouped-list";
   title?: string;
   description?: string;
@@ -89,7 +93,18 @@ interface GroupedListDropdownData {
   groups: Group[];
 }
 
-type DropdownData = CardsDropdownData | ColumnsDropdownData | SimpleListDropdownData | GroupedListDropdownData;
+export type DropdownData = CardsDropdownData | ColumnsDropdownData | SimpleListDropdownData | GroupedListDropdownData;
+
+/** Shared by menu layouts: navigate via href, or call onSelect(value) for form pickers. */
+export type DropdownLayoutSelectProps = {
+  onNavigate?: () => void;
+  /** When set, items render as buttons and invoke this with `value ?? href`. */
+  onSelect?: (value: string) => void;
+};
+
+function itemSelectValue(item: { value?: string; href: string }): string {
+  return item.value ?? item.href;
+}
 
 export interface DropdownProps {
   label: string;
@@ -97,35 +112,91 @@ export interface DropdownProps {
   dropdown: DropdownData;
 }
 
-function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; onNavigate?: () => void }) {
-  const { mode, cols } = resolveCardsLayout(dropdown.items?.length ?? 0, dropdown.layout);
+export function CardsDropdown({
+  dropdown,
+  onNavigate,
+  onSelect,
+}: { dropdown: CardsDropdownData } & DropdownLayoutSelectProps) {
+  const itemCount = dropdown.items?.length ?? 0;
+  const { mode, cols } = resolveCardsLayout(itemCount, dropdown.layout);
   const colsClass = cardsGridColsClass(cols);
+  // Form picker: 1 compact row until md; then multi-col vertical cards (skip awkward 2+1 for 3).
+  const formGridClass =
+    itemCount <= 1
+      ? "grid w-full max-w-full gap-2 md:gap-4 grid-cols-1"
+      : itemCount === 2
+        ? "grid w-full max-w-full gap-2 md:gap-4 grid-cols-1 md:grid-cols-2"
+        : itemCount === 3
+          ? "grid w-full max-w-full gap-2 md:gap-4 grid-cols-1 md:grid-cols-3"
+          : "grid w-full max-w-full gap-2 md:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4";
 
   return (
-    <div className="w-full min-w-0 p-6 bg-white dark:bg-zinc-900">
+    <div
+      className={
+        onSelect
+          ? "w-full min-w-0 max-w-full p-4 md:p-6 bg-white dark:bg-zinc-900"
+          : "w-full min-w-0 max-w-full p-6 bg-white dark:bg-zinc-900"
+      }
+    >
       {(dropdown.title || dropdown.description) && (
-        <div className="mb-6 min-w-0">
+        <div className={onSelect ? "mb-4 md:mb-6 min-w-0" : "mb-6 min-w-0"}>
           {dropdown.title && (
-            <h3 className="text-lg font-semibold text-foreground mb-1">{dropdown.title}</h3>
+            <h3
+              className={
+                onSelect
+                  ? "text-base md:text-lg font-semibold text-foreground mb-1"
+                  : "text-lg font-semibold text-foreground mb-1"
+              }
+            >
+              {dropdown.title}
+            </h3>
           )}
           {dropdown.description && (
-            <p className="text-sm text-muted-foreground">{dropdown.description}</p>
+            <p
+              className={
+                onSelect
+                  ? "text-xs md:text-sm text-muted-foreground line-clamp-2 md:line-clamp-none"
+                  : "text-sm text-muted-foreground"
+              }
+            >
+              {dropdown.description}
+            </p>
           )}
         </div>
       )}
       
-      <div className={`grid gap-6 ${colsClass}`}>
+      <div className={onSelect ? formGridClass : `grid gap-6 ${colsClass}`}>
         {dropdown.items.map((item, index) => {
           const IconComponent = item.icon ? iconMap[item.icon] : null;
-          return (
-            <InternalLink
-              key={index}
-              href={item.href}
-              onNavigate={onNavigate}
-              className="block min-w-0 hover-elevate rounded-lg p-2 -m-2"
-              data-testid={`dropdown-card-${(item.title || "card").toLowerCase().replace(/\s+/g, "-")}`}
-              style={mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined}
-            >
+          const className = onSelect
+            ? // Mobile: compact horizontal row; md+: vertical card
+              "flex flex-row items-start gap-3 w-full max-w-full min-w-0 hover-elevate rounded-lg border border-border bg-background p-3 text-left md:flex-col md:h-full md:p-4"
+            : "block min-w-0 hover-elevate rounded-lg p-2 -m-2 text-left w-full";
+          const testId = `dropdown-card-${(item.title || "card").toLowerCase().replace(/\s+/g, "-")}`;
+          // Navbar max-mode hugs 200px columns; form picker fills responsive grid cells.
+          const style =
+            !onSelect && mode === "max" ? { width: CARDS_COLUMN_WIDTH_PX } : undefined;
+          const body = onSelect ? (
+            <>
+              {IconComponent && (
+                <div className="shrink-0 w-9 h-9 md:w-12 md:h-12 md:mb-3 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <IconComponent className="w-4 h-4 md:w-6 md:h-6" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1 md:flex-none md:w-full">
+                <h4 className="text-sm md:text-base font-semibold text-foreground mb-0.5 md:mb-2">
+                  {item.title}
+                </h4>
+                <p className="text-xs md:text-sm text-muted-foreground mb-0 md:mb-3 line-clamp-2 md:line-clamp-4">
+                  {item.description}
+                </p>
+                <span className="hidden md:inline-flex items-center text-sm font-medium border border-border rounded-md px-4 py-2 hover-elevate">
+                  {item.cta}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
               {IconComponent && (
                 <div className="mb-3 w-12 h-12 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <IconComponent className="w-6 h-6" />
@@ -140,6 +211,35 @@ function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; 
               <span className="inline-flex items-center text-sm font-medium border border-border rounded-md px-4 py-2 hover-elevate">
                 {item.cta}
               </span>
+            </>
+          );
+          if (onSelect) {
+            return (
+              <button
+                key={index}
+                type="button"
+                className={className}
+                data-testid={testId}
+                style={style}
+                onClick={() => {
+                  onSelect(itemSelectValue(item));
+                  onNavigate?.();
+                }}
+              >
+                {body}
+              </button>
+            );
+          }
+          return (
+            <InternalLink
+              key={index}
+              href={item.href}
+              onNavigate={onNavigate}
+              className={className}
+              data-testid={testId}
+              style={style}
+            >
+              {body}
             </InternalLink>
           );
         })}
@@ -155,7 +255,11 @@ function CardsDropdown({ dropdown, onNavigate }: { dropdown: CardsDropdownData; 
   );
 }
 
-function ColumnsDropdown({ dropdown, onNavigate }: { dropdown: ColumnsDropdownData; onNavigate?: () => void }) {
+export function ColumnsDropdown({
+  dropdown,
+  onNavigate,
+  onSelect,
+}: { dropdown: ColumnsDropdownData } & DropdownLayoutSelectProps) {
   const IconComponent = dropdown.icon ? iconMap[dropdown.icon] : null;
   
   return (
@@ -188,15 +292,30 @@ function ColumnsDropdown({ dropdown, onNavigate }: { dropdown: ColumnsDropdownDa
             <ul className="space-y-2">
               {column.items.map((item, itemIndex) => (
                 <li key={itemIndex}>
-                  <InternalLink
-                    href={item.href}
-                    onNavigate={onNavigate}
-                    className="flex items-center gap-1 text-sm text-muted-foreground hover-elevate rounded-md px-1 -mx-1"
-                    data-testid={`dropdown-column-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    {item.label}
-                    <ChevronRight className="w-3 h-3" />
-                  </InternalLink>
+                  {onSelect ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelect(itemSelectValue(item));
+                        onNavigate?.();
+                      }}
+                      className="flex items-center gap-1 text-sm text-muted-foreground hover-elevate rounded-md px-1 -mx-1 w-full text-left"
+                      data-testid={`dropdown-column-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      {item.label}
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <InternalLink
+                      href={item.href}
+                      onNavigate={onNavigate}
+                      className="flex items-center gap-1 text-sm text-muted-foreground hover-elevate rounded-md px-1 -mx-1"
+                      data-testid={`dropdown-column-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      {item.label}
+                      <ChevronRight className="w-3 h-3" />
+                    </InternalLink>
+                  )}
                 </li>
               ))}
             </ul>
@@ -207,11 +326,15 @@ function ColumnsDropdown({ dropdown, onNavigate }: { dropdown: ColumnsDropdownDa
   );
 }
 
-function SimpleListDropdown({ dropdown, onNavigate }: { dropdown: SimpleListDropdownData; onNavigate?: () => void }) {
+export function SimpleListDropdown({
+  dropdown,
+  onNavigate,
+  onSelect,
+}: { dropdown: SimpleListDropdownData } & DropdownLayoutSelectProps) {
   const IconComponent = dropdown.icon ? iconMap[dropdown.icon] : null;
   
   return (
-    <div className="p-4 bg-white dark:bg-zinc-900">
+    <div className="w-full max-w-sm p-4 bg-white dark:bg-zinc-900">
       {(dropdown.title || dropdown.description) && (
         <div className="flex items-start gap-3 mb-4 pb-4 border-b">
           {IconComponent && (
@@ -233,15 +356,30 @@ function SimpleListDropdown({ dropdown, onNavigate }: { dropdown: SimpleListDrop
       <ul className="space-y-1">
         {dropdown.items.map((item, index) => (
           <li key={index}>
-            <InternalLink
-              href={item.href}
-              onNavigate={onNavigate}
-              className="flex items-center justify-between px-2 py-2 rounded-md text-sm text-foreground hover-elevate"
-              data-testid={`dropdown-list-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
-            >
-              {item.label}
-              <ChevronRight className="w-4 h-4 text-muted-foreground" />
-            </InternalLink>
+            {onSelect ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect(itemSelectValue(item));
+                  onNavigate?.();
+                }}
+                className="flex items-center justify-between px-2 py-2 rounded-md text-sm text-foreground hover-elevate w-full text-left"
+                data-testid={`dropdown-list-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {item.label}
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </button>
+            ) : (
+              <InternalLink
+                href={item.href}
+                onNavigate={onNavigate}
+                className="flex items-center justify-between px-2 py-2 rounded-md text-sm text-foreground hover-elevate"
+                data-testid={`dropdown-list-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {item.label}
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </InternalLink>
+            )}
           </li>
         ))}
       </ul>
@@ -249,12 +387,56 @@ function SimpleListDropdown({ dropdown, onNavigate }: { dropdown: SimpleListDrop
   );
 }
 
-function GroupedListDropdown({ dropdown, onNavigate }: { dropdown: GroupedListDropdownData; onNavigate?: () => void }) {
+export function GroupedListDropdown({
+  dropdown,
+  onNavigate,
+  onSelect,
+}: { dropdown: GroupedListDropdownData } & DropdownLayoutSelectProps) {
   const [activeGroup, setActiveGroup] = useState(0);
   const IconComponent = dropdown.icon ? iconMap[dropdown.icon] : null;
-  
+  const showGroupTabs = dropdown.groups.length > 1;
+  const items = dropdown.groups[showGroupTabs ? activeGroup : 0]?.items ?? [];
+
+  const renderItem = (
+    item: { label: string; href: string; value?: string },
+    index: number,
+  ) => {
+    const className =
+      "flex items-center gap-1 py-1.5 text-sm text-muted-foreground hover-elevate rounded-md px-1 -mx-1 text-left w-full";
+    const testId = `dropdown-group-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`;
+    if (onSelect) {
+      return (
+        <button
+          key={index}
+          type="button"
+          onClick={() => {
+            onSelect(itemSelectValue(item));
+            onNavigate?.();
+          }}
+          className={className}
+          data-testid={testId}
+        >
+          {item.label}
+          <ChevronRight className="w-3 h-3" />
+        </button>
+      );
+    }
+    return (
+      <InternalLink
+        key={index}
+        href={item.href}
+        onNavigate={onNavigate}
+        className={className}
+        data-testid={testId}
+      >
+        {item.label}
+        <ChevronRight className="w-3 h-3" />
+      </InternalLink>
+    );
+  };
+
   return (
-    <div className="w-full max-w-xl p-4 bg-white dark:bg-zinc-900">
+    <div className="w-full p-4 bg-white dark:bg-zinc-900">
       {(dropdown.title || dropdown.description) && (
         <div className="flex items-start gap-3 mb-4 pb-4 border-b">
           {IconComponent && (
@@ -272,42 +454,36 @@ function GroupedListDropdown({ dropdown, onNavigate }: { dropdown: GroupedListDr
           </div>
         </div>
       )}
-      
-      <div className="flex gap-6">
-        <div className="w-32 flex-shrink-0 space-y-1">
-          {dropdown.groups.map((group, index) => (
-            <button
-              key={index}
-              onClick={() => setActiveGroup(index)}
-              className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors toggle-elevate ${
-                activeGroup === index
-                  ? "text-foreground bg-muted toggle-elevated"
-                  : "text-muted-foreground"
-              }`}
-              data-testid={`dropdown-group-tab-${(group.title || "group").toLowerCase().replace(/\s+/g, "-")}`}
-            >
-              {group.title}
-            </button>
-          ))}
-        </div>
-        
-        <div className="flex-1">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            {dropdown.groups[activeGroup]?.items.map((item, index) => (
-              <InternalLink
+
+      {showGroupTabs ? (
+        <div className="flex gap-6">
+          <div className="w-32 flex-shrink-0 space-y-1">
+            {dropdown.groups.map((group, index) => (
+              <button
                 key={index}
-                href={item.href}
-                onNavigate={onNavigate}
-                className="flex items-center gap-1 py-1.5 text-sm text-muted-foreground hover-elevate rounded-md px-1 -mx-1"
-                data-testid={`dropdown-group-item-${(item.label || "item").toLowerCase().replace(/\s+/g, "-")}`}
+                type="button"
+                onClick={() => setActiveGroup(index)}
+                className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors toggle-elevate ${
+                  activeGroup === index
+                    ? "text-foreground bg-muted toggle-elevated"
+                    : "text-muted-foreground"
+                }`}
+                data-testid={`dropdown-group-tab-${(group.title || "group").toLowerCase().replace(/\s+/g, "-")}`}
               >
-                {item.label}
-                <ChevronRight className="w-3 h-3" />
-              </InternalLink>
+                {group.title}
+              </button>
             ))}
           </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {items.map(renderItem)}
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-y-1">{items.map(renderItem)}</div>
+      )}
     </div>
   );
 }

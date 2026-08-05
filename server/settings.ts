@@ -85,6 +85,10 @@ export interface TrackingWebhook {
 export interface TrackingSettings {
   conversion_events: ConversionEventEntry[];
   webhook?: TrackingWebhook;
+  /** Allowlist of expected conversion_names for the Leads diagnostics (empty = warning disabled). */
+  leads_expected_conversion_names?: string[];
+  /** Allowlist of expected ActiveCampaign tags for the Leads diagnostics (empty = warning disabled). */
+  leads_expected_tags?: string[];
 }
 
 /** GET | POST | PUT for auth API endpoints */
@@ -484,6 +488,20 @@ function loadSettings(contentRoot?: string): SiteSettings {
             })
         : defaults.tracking.conversion_events,
       webhook: parseWebhook(trackingRaw?.webhook),
+      ...(Array.isArray(trackingRaw?.leads_expected_conversion_names)
+        ? {
+            leads_expected_conversion_names: (trackingRaw.leads_expected_conversion_names as unknown[])
+              .filter((t): t is string => typeof t === "string" && !!t.trim())
+              .map((t) => t.trim()),
+          }
+        : {}),
+      ...(Array.isArray(trackingRaw?.leads_expected_tags)
+        ? {
+            leads_expected_tags: (trackingRaw.leads_expected_tags as unknown[])
+              .filter((t): t is string => typeof t === "string" && !!t.trim())
+              .map((t) => t.trim()),
+          }
+        : {}),
     };
 
     const robotsRaw = parsed.robots as Record<string, unknown> | undefined;
@@ -889,6 +907,8 @@ export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot
 export function updateTrackingSettings(input: {
   conversion_events?: ConversionEventEntry[];
   webhook?: { url: string; method?: string; auth_header?: string } | null;
+  leads_expected_conversion_names?: string[];
+  leads_expected_tags?: string[];
 }, contentRoot?: string): void {
   if (input.conversion_events !== undefined && !Array.isArray(input.conversion_events)) {
     throw new Error("conversion_events must be an array");
@@ -961,6 +981,22 @@ export function updateTrackingSettings(input: {
         ...(input.webhook.auth_header ? { auth_header: input.webhook.auth_header.trim() } : {}),
       };
     }
+  }
+
+  if (input.leads_expected_conversion_names !== undefined) {
+    const cleaned = input.leads_expected_conversion_names
+      .filter((t) => typeof t === "string" && !!t.trim())
+      .map((t) => t.trim());
+    if (cleaned.length > 0) nextTracking.leads_expected_conversion_names = cleaned;
+    else delete nextTracking.leads_expected_conversion_names;
+  }
+
+  if (input.leads_expected_tags !== undefined) {
+    const cleaned = input.leads_expected_tags
+      .filter((t) => typeof t === "string" && !!t.trim())
+      .map((t) => t.trim());
+    if (cleaned.length > 0) nextTracking.leads_expected_tags = cleaned;
+    else delete nextTracking.leads_expected_tags;
   }
 
   existing.tracking = nextTracking;

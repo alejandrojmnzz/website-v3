@@ -137,6 +137,11 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
   }
   
   if (filePath.includes('component-registry/')) {
+    // Shared schemas (leadFormDataSchema, ctaButtonSchema, …) live here — not under a version folder.
+    // Pattern: component-registry/_common/*.{ts,yml,yaml}
+    if (/component-registry\/_common\/[^/]+\.(ts|ya?ml)$/.test(filePath)) {
+      return true;
+    }
     // Allow YML files inside the examples/ subfolder
     // Pattern: component-registry/{type}/{version}/examples/{file}.yml
     if (/component-registry\/[^/]+\/[^/]+\/examples\/[^/]+\.ya?ml$/.test(filePath)) {

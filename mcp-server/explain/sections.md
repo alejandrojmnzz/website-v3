@@ -79,3 +79,28 @@ Always reference images by `image_id` (registry ID), never by raw path. The `Uni
 ## Safe YAML loading
 
 Sections may contain template variables like `{{ single.title }}`. Always load section YAML through the safe loader (`safeYamlLoad` / `safeLoad`) — never raw `yaml.load()`.
+
+## Lead form submit routes
+
+Lead forms (`lead_form` / embedded `form:` on hero, cta_banner, etc.) may include a top-level `routes` array on the form settings.
+
+- **Trigger:** presence of `routes` (no `advanced` flag).
+- **Match:** first route whose `conditions` all match (AND). Each condition is `field_property_slug` (form field name, e.g. `program`) + `value` (must equal the submitted value, e.g. program `bc_slug`).
+- **Outcome:** may override `conversion_name`, `success` (`url` / `message`), `tags`, `automations`, `webhook`.
+- **Fallback:** if nothing matches, root form props apply.
+- **Precedence:** route match > form root > conversion event defaults (`resolveFormDefaults`).
+- **Root `conversion_name`:** optional. Routes may set it per match; if neither root nor a matching route provides one, tracking is skipped (runtime console warning). Validators only reject *invalid* names when a name is set (root or route), not missing root.
+- **Non-effects:** does not change field visibility or consents; does not add arbitrary payload keys beyond those overrides.
+- **Side effects:** changes conversion tracking, webhook event resolution, and success redirect/message for that submit only.
+- **Resolver:** `shared/resolveLeadFormRoute.ts`. Example: `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml`.
+- **Next actions for agents:** add `routes` with `conditions`, ensure `value` matches submitted field values; validate with a real program `bc_slug` from form-options.
+
+### Lead form Fields card (Conversion tab)
+
+Staff UI lists keys already under form `fields` in YAML and edits `visible`, `required`, `default`, and `component_renderer` — no add/remove of field keys. Component: `client/src/components/editing/FormFieldsCard.tsx`.
+
+**How it works:** Leave `component_renderer` unset to use LeadForm runtime defaults (`email`/`first_name`/… → `text`, `phone` → `phone`, `client_comments` → `textarea`, `program`/`plan`/`location`/`region` → `select`). Enum: `text` | `phone` | `textarea` | `select` | `cards` | `simple-list` | `grouped-list`. Rich layouts open a modal using the same menu dropdown components (`client/src/components/menus/Dropdown.tsx` with `onSelect`). Optional YAML `fields.*.options[]` (require `value`) merge over form-options/source pools for marketing label/description — programs have no content `description`. (`columns` is navbar-only — not a form renderer.)
+
+**Non-effects:** does not add arbitrary field names to the runtime form; does not edit consents or routes; does not provide a UI editor for `options[]`.
+
+**Agents:** defaults + `mergeLeadFormOptions` live in `client/src/components/lead_form/variants/LeadFormDefault.tsx`; all `component_renderer` widgets (text/phone/textarea/select/menu layouts) live in `LeadFormFieldControl.tsx`. Not in `shared/`. Example: `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml`. Schema: `leadFormFieldConfigSchema` / `leadFormComponentRendererSchema` in `site_4geeks-com/component-registry/_common/schema.ts`.
