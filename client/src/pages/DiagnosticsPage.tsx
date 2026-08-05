@@ -34,6 +34,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import LeadsTab from "@/components/diagnostics/LeadsTab";
 import {
   RedirectConflictResolverModal,
   parseRedirectConflict,
@@ -370,10 +371,12 @@ function ValidatorCard({
   v,
   runSingleMutation,
   openResolver,
+  onOpenLeads,
 }: {
   v: ValidatorResult;
   runSingleMutation: { mutate: (name: string) => void; isPending: boolean };
   openResolver?: (issue: ValidatorIssue) => void;
+  onOpenLeads?: () => void;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
   const [promptText, setPromptText] = useState<string | null>(null);
@@ -501,6 +504,17 @@ function ValidatorCard({
             )}
             <span>{v.duration}ms</span>
           </div>
+
+          {v.name === "forms" && onOpenLeads && (
+            <button
+              onClick={onOpenLeads}
+              className="flex items-center gap-1 text-xs text-primary hover:underline"
+              data-testid="button-forms-view-all-sections"
+            >
+              View all diagnosed form sections in the Leads tab
+              <ArrowRight className="h-3 w-3" />
+            </button>
+          )}
 
           {hasIssues && hasFixHints && (
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs" data-testid={`fix-summary-${v.name}`}>
@@ -651,7 +665,7 @@ function ValidatorCard({
   );
 }
 
-function GlobalHealthTab() {
+function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const formatSitePath = useFormatSitePath();
@@ -920,6 +934,7 @@ function GlobalHealthTab() {
               v={v}
               runSingleMutation={runSingleMutation}
               openResolver={openResolver}
+              onOpenLeads={onOpenLeads}
             />
           ))}
         </div>
@@ -1397,10 +1412,11 @@ function PageAnalysisTab() {
 }
 
 export default function DiagnosticsPage() {
+  const [activeTab, setActiveTab] = useState("global-health");
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <Tabs defaultValue="global-health">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <div className="flex items-center gap-3">
               <Link href="/">
@@ -1437,14 +1453,18 @@ export default function DiagnosticsPage() {
               <TabsList data-testid="tabs-diagnostics">
                 <TabsTrigger value="global-health" data-testid="tab-global-health">Global Health</TabsTrigger>
                 <TabsTrigger value="page-analysis" data-testid="tab-page-analysis">Page Analysis</TabsTrigger>
+                <TabsTrigger value="leads" data-testid="tab-leads">Leads</TabsTrigger>
               </TabsList>
             </div>
           </div>
           <TabsContent value="global-health">
-            <GlobalHealthTab />
+            <GlobalHealthTab onOpenLeads={() => setActiveTab("leads")} />
           </TabsContent>
           <TabsContent value="page-analysis">
             <PageAnalysisTab />
+          </TabsContent>
+          <TabsContent value="leads">
+            <LeadsTab />
           </TabsContent>
         </Tabs>
       </div>

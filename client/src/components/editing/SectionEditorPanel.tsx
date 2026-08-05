@@ -2545,6 +2545,80 @@ export function SectionEditorPanel({
                 ]}
               />
             )}
+            {/* Features Quad CTA button editor (cta may be absent in YAML, so offer explicit add/remove) */}
+            {sectionType === "features_quad" && (
+              <div className="space-y-2 border rounded-md p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">CTA Button</Label>
+                  {parsedSection?.cta ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-destructive"
+                      onClick={() => updatePropertyWithValue("cta", undefined)}
+                      data-testid="props-features-quad-cta-remove"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      onClick={() =>
+                        updatePropertyWithValue("cta", {
+                          text: locale === "es" ? "Aplica ahora" : "Apply now",
+                          url: "/",
+                          variant: "primary",
+                        })
+                      }
+                      data-testid="props-features-quad-cta-add"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      {locale === "es" ? "Agregar botón" : "Add button"}
+                    </Button>
+                  )}
+                </div>
+                {parsedSection?.cta ? (
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Text</Label>
+                      <Input
+                        value={((parsedSection.cta as Record<string, unknown>).text as string) || ""}
+                        onChange={(e) => updateProperty("cta.text", e.target.value)}
+                        className="h-8 text-sm"
+                        data-testid="props-features-quad-cta-text"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">URL</Label>
+                      <LinkPicker
+                        value={((parsedSection.cta as Record<string, unknown>).url as string) || ""}
+                        onChange={(url) => updateProperty("cta.url", url)}
+                        locale={locale}
+                        allSections={allSections}
+                      />
+                    </div>
+                    <VariantPicker
+                      label="Style"
+                      value={((parsedSection.cta as Record<string, unknown>).variant as string) || "secondary"}
+                      onChange={(value) => updateProperty("cta.variant", value)}
+                      options={[
+                        { id: "primary", label: "Primary" },
+                        { id: "secondary", label: "Secondary" },
+                        { id: "outline", label: "Outline" },
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {locale === "es"
+                      ? "Sin botón. Agrégalo y usa el estilo Primary para el azul de marca."
+                      : "No button yet. Add one and use the Primary style for the brand blue."}
+                  </p>
+                )}
+              </div>
+            )}
             {/* Testimonials (grid, carousel, slide) related features picker */}
             {["testimonials_grid", "testimonials", "testimonials_slide"].includes(sectionType) && (
               <>
