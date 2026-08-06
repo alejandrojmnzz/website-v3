@@ -51,6 +51,12 @@ export function resolveSingleVars(data: unknown, singleItem: Record<string, unkn
   if (data !== null && typeof data === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      // Preserve runtime metadata (e.g. _variableFields) so edit mode can
+      // rehydrate {{ }} expressions after delivery-time resolution.
+      if (key.startsWith("_")) {
+        result[key] = value;
+        continue;
+      }
       result[key] = resolveSingleVars(value, singleItem);
     }
     return result;

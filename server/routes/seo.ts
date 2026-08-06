@@ -550,6 +550,7 @@ export function registerSeoRoutes(app: Express): void {
           singleEntry,
           contentRoot: getContentRoot(res),
           context: { locale },
+          skipSiteVars: false,
         }) as typeof page;
 
         let faqSchema: Record<string, unknown> | null = null;
@@ -617,6 +618,7 @@ export function registerSeoRoutes(app: Express): void {
           singleEntry: sectionsSource as Record<string, unknown>,
           contentRoot: getContentRoot(res),
           context: { locale },
+          skipSiteVars: false,
         }) as Record<string, unknown>;
       }
       const sections = sectionsSource.sections as

@@ -2494,6 +2494,7 @@ export function registerContentRoutes(app: Express): void {
             singleEntry: item as Record<string, unknown>,
             contentRoot: getContentRoot(res),
             context: { locale },
+            skipSiteVars: false,
           }) as Record<string, unknown>;
           const resolvedMeta: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(rawMeta)) {
@@ -2582,6 +2583,7 @@ export function registerContentRoutes(app: Express): void {
               const resolvedMeta = resolveAllTemplateVars(rawMeta, {
                 contentRoot: getContentRoot(res),
                 context: { locale },
+                skipSiteVars: false,
               }) as Record<string, unknown>;
 
               let url: string | null = null;

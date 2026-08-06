@@ -12,8 +12,8 @@ export const ctaButtonSchema = z.object({
   url: z.string(),
   variant: z.enum(["primary", "secondary", "outline"]),
   /**
-   * Ecommerce CTA intent. Required on field-editor `cta-tracking` paths (save-time).
-   * Optional here so legacy YAML still parses until migration completes.
+   * Ecommerce CTA intent on field-editor `cta-tracking` paths.
+   * Optional — absent/empty is treated as none at runtime and save time.
    */
   tracking: ctaTrackingSchema.optional(),
   button_variant: z.string().optional(),

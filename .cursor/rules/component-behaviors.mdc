@@ -19,8 +19,8 @@ Declare platform patterns on each component `schema.yml` under `behaviors:` — 
 | `schema_org` | SSR JSON-LD contributor |
 | `ecommerce` | funnel/catalog events or `cta-tracking` field-editors |
 
-CTA ecommerce intent is **not** on behaviors. Bind paths with field-editor type `cta-tracking`. Required `cta.tracking`: `none` | `add_to_cart` | `begin_checkout`.
+CTA ecommerce intent is **not** on behaviors. Bind paths with field-editor type `cta-tracking`. Optional `cta.tracking`: `none` | `add_to_cart` | `begin_checkout` (absent ≡ `none`).
 
-Save/MCP validate bound paths only (`validateCtaTracking` + `validateCtaPurchasable`). Non-`none` needs a purchasable product (`_ecommerce.yml`).
+Save/MCP validate bound paths only (`validateCtaTracking` + `validateCtaPurchasable`). Invalid values fail; non-`none` needs a purchasable product (`_ecommerce.yml`).
 
 Catalog: `docs/component-behaviors.md`. MCP: `explain` topic `component-behaviors`. Schema-sync **preserves** `behaviors`.

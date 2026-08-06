@@ -112,7 +112,7 @@ props:
 - If listing / `dynamic_entries` → declare `behaviors.listing`.
 - If SSR schema.org → declare `behaviors.schema_org`.
 - If ecommerce funnel/catalog or `cta-tracking` editors → declare `behaviors.ecommerce`.
-- Bind ecommerce CTAs with `"path.to.cta": "cta-tracking"` (required `tracking`: `none` | `add_to_cart` | `begin_checkout`).
+- Bind ecommerce CTAs with `"path.to.cta": "cta-tracking"` (optional `tracking`: `none` | `add_to_cart` | `begin_checkout`; absent ≡ `none`).
 - See `docs/component-behaviors.md` and `.cursor/rules/component-behaviors.mdc`. Schema-sync preserves `behaviors`.
 
 **schema.ts template:**

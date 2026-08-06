@@ -1,6 +1,10 @@
 /**
  * Multi-bag template resolution for public content delivery.
- * Order: {{ single.* }} → {{ meta.* }} → {{ param.* }} → site vars (brand.* / global.* / reserved.*).
+ * Order: {{ single.* }} → {{ meta.* }} → {{ param.* }} → optional site vars (brand.* / global.* / reserved.*).
+ *
+ * Site vars default to skipped (`skipSiteVars: true`) so React `SectionRenderer`
+ * can resolve them (and preserve `{{ }}` in edit mode). Pass `skipSiteVars: false`
+ * for non-React consumers (menus API, schema.org, SEO tools, entry preview).
  */
 
 import { resolveSingleVars } from "./single-resolver";
@@ -76,6 +80,11 @@ export function resolveBagVars(
     if (value !== null && typeof value === "object") {
       const result: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+        // Preserve runtime metadata (e.g. _variableFields / _variableKeys).
+        if (key.startsWith("_")) {
+          result[key] = val;
+          continue;
+        }
         result[key] = walk(val);
       }
       return result;
@@ -163,13 +172,18 @@ export interface ResolveAllTemplateVarsOptions {
   param?: Record<string, unknown>;
   contentRoot?: string;
   context?: VariableContext;
-  /** When true, skip VariableManager site-var pass (brand/global/reserved). */
+  /**
+   * When true (default), skip VariableManager site-var pass (brand/global/reserved)
+   * so page React render / edit mode can resolve or preserve them.
+   * Pass false for non-React consumers that need fully baked strings.
+   */
   skipSiteVars?: boolean;
 }
 
 /**
- * Resolve all template namespaces for public delivery.
- * Editors should keep unresolved templates on write paths — call this only at delivery boundaries.
+ * Resolve template namespaces for public delivery.
+ * Editors keep unresolved templates on write paths — call this only at delivery boundaries.
+ * Site vars are skipped by default; see `skipSiteVars`.
  */
 export function resolveAllTemplateVars(
   data: unknown,
@@ -207,7 +221,8 @@ export function resolveAllTemplateVars(
     result = resolveBagVars(result, "param", paramBag);
   }
 
-  if (!opts.skipSiteVars) {
+  const skipSiteVars = opts.skipSiteVars ?? true;
+  if (!skipSiteVars) {
     const root = opts.contentRoot ?? getDefaultContentRoot();
     const { data: siteResolved } = getVariableManager(root).resolveDeep(
       result,

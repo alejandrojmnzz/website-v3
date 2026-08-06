@@ -416,6 +416,7 @@ function resolveMenuQuery(menuId: string, locale: string, contentRoot = getDefau
     const resolved = resolveAllTemplateVars(data, {
       contentRoot,
       context,
+      skipSiteVars: false,
     });
 
     return {
@@ -746,6 +747,7 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
     context: {
       locale: typeof data.locale === "string" ? data.locale : undefined,
     },
+    skipSiteVars: false,
   }) as Record<string, unknown>;
 
   if (typeof meta.page_title === "string" && !meta.page_title.includes("{{")) {
