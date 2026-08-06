@@ -339,6 +339,11 @@ async function initSession(message: WorkerMessage['payload']): Promise<Session> 
   // Stable identity precedence: cached session → existing cookie → new UUID
   const userId = cachedSession?.userId || existingUserId || crypto.randomUUID();
 
+  // First-touch landing pathname (write-once); conversion preserved from cache.
+  const pathnameOnly = path.split('?')[0] || path;
+  const landing_page = cachedSession?.landing_page || pathnameOnly;
+  const conversion_page = cachedSession?.conversion_page;
+
   const session: Session = {
     version: SESSION_VERSION,
     initialized: true,
@@ -349,6 +354,8 @@ async function initSession(message: WorkerMessage['payload']): Promise<Session> 
     geo,
     utm: mergedUtm,
     device: deviceData,
+    landing_page,
+    conversion_page,
     consent: cachedSession?.consent || { geolocation: null },
     timestamp: Date.now(),
   };

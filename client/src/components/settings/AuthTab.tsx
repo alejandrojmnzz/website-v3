@@ -498,6 +498,7 @@ export function AuthTab() {
             <>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">
+                  Consumer authentication for real website visitors — not staff users.
                   Site-wide contract used by forms with <strong>Require Signup</strong> enabled.
                   Guests are registered through the signup endpoint; logged-in users skip fields
                   already known from their profile. Stored in{" "}

@@ -501,7 +501,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const programContext = contentType === "program" ? slug : undefined;
   const { t, i18n } = useTranslation();
   const locale = i18n.language === "es" ? "es" : "en";
-  const { session } = useSession();
+  const { session, setConversionPage } = useSession();
   const sessionLocation = useSessionLocation();
   const utm = useUTM();
   const [isSuccess, setIsSuccess] = useState(false);
@@ -1037,7 +1037,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           has_marketing_consent: effectiveEmailConsent,
           conversion_info: {
             user_agent: navigator.userAgent,
-            landing_url: utm.utm_url || window.location.pathname,
+            landing_url:
+              session.landing_page || utm.utm_url || window.location.pathname,
             conversion_url: window.location.pathname,
             ...(utm.utm_placement ? { internal_cta_placement: utm.utm_placement } : {}),
           },
@@ -1099,6 +1100,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     },
     onSuccess: async ({ fields, effective }, variables) => {
       setSubmitError(null);
+      setConversionPage(window.location.pathname);
       // Track conversion if conversion_name is defined
       if (!effective.conversion_name) {
         console.error(

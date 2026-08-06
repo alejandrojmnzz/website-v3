@@ -45,9 +45,9 @@ const SECURITY_TABS: {
   Icon: typeof IconShield;
   requiresManage: boolean;
 }[] = [
-  { id: "roles", href: "/private/security/roles", label: "Roles", Icon: IconShield, requiresManage: true },
-  { id: "users", href: "/private/security/users", label: "Users", Icon: IconUsers, requiresManage: true },
-  { id: "auth", href: "/private/security/auth", label: "Auth", Icon: IconUserCheck, requiresManage: false },
+  { id: "roles", href: "/private/security/roles", label: "Staff Roles", Icon: IconShield, requiresManage: true },
+  { id: "users", href: "/private/security/users", label: "Staff Users", Icon: IconUsers, requiresManage: true },
+  { id: "auth", href: "/private/security/auth", label: "Consumer Auth", Icon: IconUserCheck, requiresManage: false },
   { id: "captcha", href: "/private/security/captcha", label: "Captcha", Icon: IconShieldCheck, requiresManage: false },
 ];
 
@@ -377,7 +377,9 @@ function RolesTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Define roles and assign capabilities to them.</p>
+        <p className="text-sm text-muted-foreground">
+          Define internal staff roles and assign capabilities to them. These are not related to website consumer users.
+        </p>
         <Button variant="outline" size="sm" onClick={startNewRole} data-testid="button-new-role">
           <IconPlus className="h-4 w-4 mr-1.5" />
           New role
@@ -736,7 +738,9 @@ function UsersTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Manage users and pre-register people by email before they log in.</p>
+        <p className="text-sm text-muted-foreground">
+          Manage staff users and pre-register people by email before they log in. These are internal staff accounts only — they have no relation to your real web consumer users.
+        </p>
         <Button variant="outline" size="sm" onClick={() => { setShowAddForm(true); setAssigningEmail(null); setDeletingPendingEmail(null); }} data-testid="button-add-user">
           <IconUserPlus className="h-4 w-4 mr-1.5" />
           Add User

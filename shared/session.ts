@@ -64,14 +64,21 @@ export interface Session {
   geo: GeoData | null;
   utm: UTMParams;
   device?: DeviceData;
+  /** First-touch pathname; write-once. */
+  landing_page?: string;
+  /** Pathname of the latest successful conversion. */
+  conversion_page?: string;
   consent: {
     geolocation: boolean | null;
   };
   timestamp: number;
 }
 
+/** @deprecated Legacy localStorage key; consumer session now lives in cookie `4g_ctx`. */
 export const SESSION_STORAGE_KEY = '4geeks_session';
-export const SESSION_VERSION = 3;
+export const SESSION_COOKIE_NAME = '4g_ctx';
+export const CONSUMER_TOKEN_COOKIE_NAME = '4g_tok';
+export const SESSION_VERSION = 4;
 
 export const defaultSession: Session = {
   version: SESSION_VERSION,
@@ -82,6 +89,8 @@ export const defaultSession: Session = {
   browserLang: null,
   geo: null,
   utm: {},
+  landing_page: undefined,
+  conversion_page: undefined,
   consent: {
     geolocation: null,
   },

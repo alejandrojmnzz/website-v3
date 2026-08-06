@@ -1,32 +1,25 @@
 import type { Session } from '@shared/session';
-import { SESSION_STORAGE_KEY, SESSION_VERSION, defaultSession } from '@shared/session';
+import { defaultSession } from '@shared/session';
+import {
+  getSessionFromCookie,
+  setSessionCookie,
+  migrateLegacySessionFromLocalStorage,
+  getParentCookieDomain,
+  COOKIE_MAX_AGE_SECONDS,
+} from './sessionCookie';
 
 export function getCachedSession(): Session | null {
   if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!stored) return null;
-    
-    const session = JSON.parse(stored) as Session;
-    
-    if (session.version !== SESSION_VERSION) {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      return null;
-    }
-    
-    return session;
-  } catch {
-    return null;
-  }
+
+  const fromCookie = getSessionFromCookie();
+  if (fromCookie) return fromCookie;
+
+  return migrateLegacySessionFromLocalStorage();
 }
 
 export function saveSession(session: Session): void {
   if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-  } catch {
-    // Storage full or unavailable
-  }
+  setSessionCookie(session);
 }
 
 export function getLanguageFromCache(): 'en' | 'es' {
@@ -45,7 +38,7 @@ export function getNavigatorInfo(): string {
   if (typeof navigator === 'undefined') {
     return JSON.stringify({ languages: ['en'] });
   }
-  
+
   return JSON.stringify({
     languages: navigator.languages || [],
     language: navigator.language,
@@ -57,7 +50,7 @@ export function getDeviceInfo(): string {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return JSON.stringify({});
   }
-  
+
   return JSON.stringify({
     userAgent: navigator.userAgent,
     viewportWidth: window.innerWidth,
@@ -74,19 +67,30 @@ export function createDefaultSession(): Session {
 
 const USER_COOKIE_NAME = '4g_user_id';
 const LEGACY_USER_COOKIE_NAME = '4g_visitor_id';
-const USER_COOKIE_MAX_AGE = 180 * 24 * 60 * 60; // 180 days in seconds
 
 export function setUserIdCookie(userId: string): void {
   if (typeof document === 'undefined') return;
-  document.cookie = `${USER_COOKIE_NAME}=${userId}; max-age=${USER_COOKIE_MAX_AGE}; path=/; samesite=lax`;
+  const parts = [
+    `${USER_COOKIE_NAME}=${userId}`,
+    `max-age=${COOKIE_MAX_AGE_SECONDS}`,
+    'path=/',
+    'samesite=lax',
+  ];
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    parts.push('secure');
+  }
+  const domain = getParentCookieDomain();
+  if (domain) parts.push(`domain=${domain}`);
+  document.cookie = parts.join('; ');
 }
 
 export function getUserIdFromCookie(): string | null {
   if (typeof document === 'undefined') return null;
   const cookies = document.cookie.split('; ');
-  // Try new cookie name first, fall back to legacy for backward compatibility
-  const newCookie = cookies.find(row => row.startsWith(`${USER_COOKIE_NAME}=`));
+  const newCookie = cookies.find((row) => row.startsWith(`${USER_COOKIE_NAME}=`));
   if (newCookie) return newCookie.split('=')[1];
-  const legacyCookie = cookies.find(row => row.startsWith(`${LEGACY_USER_COOKIE_NAME}=`));
+  const legacyCookie = cookies.find((row) =>
+    row.startsWith(`${LEGACY_USER_COOKIE_NAME}=`),
+  );
   return legacyCookie ? legacyCookie.split('=')[1] : null;
 }

@@ -28,6 +28,25 @@ export function hashUserId(userId: string): string {
   return crypto.createHash("sha256").update(userId).digest("hex").substring(0, 16);
 }
 
+/**
+ * Parent Domain for sibling subdomain sharing (`learn.4geeks.com` → `.4geeks.com`).
+ * Omit for localhost / IPs / single-label hosts.
+ */
+export function getParentCookieDomain(hostname: string): string | undefined {
+  if (
+    !hostname ||
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) ||
+    hostname.includes(":")
+  ) {
+    return undefined;
+  }
+  const parts = hostname.split(".").filter(Boolean);
+  if (parts.length < 2) return undefined;
+  return `.${parts.slice(-2).join(".")}`;
+}
+
 export function readUserId(req: Request, res: Response): string {
   // Read new cookie first, fall back to legacy cookie for backward compatibility
   const existing = req.cookies?.[USER_COOKIE_NAME] || req.cookies?.[LEGACY_USER_COOKIE_NAME];
@@ -38,11 +57,13 @@ export function readUserId(req: Request, res: Response): string {
   // can read and own the identity. This also migrates legacy HttpOnly cookies
   // (created by the old server-only flow) to client-readable ones without
   // changing the user's identity, and refreshes the max-age window.
+  const domain = getParentCookieDomain(req.hostname);
   res.cookie(USER_COOKIE_NAME, userId, {
     maxAge: USER_MAX_AGE,
     httpOnly: false,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
+    ...(domain ? { domain } : {}),
   });
 
   return userId;

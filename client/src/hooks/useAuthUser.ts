@@ -1,13 +1,17 @@
 import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  getTokenFromCookie,
+  setTokenCookie,
+  clearTokenCookie,
+  migrateLegacyTokenFromLocalStorage,
+} from "@/lib/sessionCookie";
 
 /**
  * Consumer (visitor) authentication — completely separate from the debug/editor
- * auth in useDebugAuth. Stores its own token key and never touches `debug_mode`,
- * so using it can never surface the debug bubble.
+ * auth in useDebugAuth. Token lives in cookie `4g_tok` (parent Domain) so sibling
+ * subdomains can detect login. Never touches `debug_mode`.
  */
-
-const AUTH_TOKEN_KEY = "4g_auth_token";
 
 export interface AuthUserProfile {
   valid: boolean;
@@ -19,17 +23,30 @@ export interface AuthUserProfile {
   phone?: string;
 }
 
+function stripTokenFromUrl(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("token")) return;
+    url.searchParams.delete("token");
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState(window.history.state, "", next);
+  } catch {
+    // ignore
+  }
+}
+
 export function getConsumerToken(): string | null {
   if (typeof window === "undefined") return null;
 
-  const stored = localStorage.getItem(AUTH_TOKEN_KEY);
-  if (stored) return stored;
+  const fromCookie = getTokenFromCookie() ?? migrateLegacyTokenFromLocalStorage();
+  if (fromCookie) return fromCookie;
 
-  // Login redirects append ?token=; persist it under the consumer key.
-  // We intentionally do NOT set debug_mode or debug_token here.
+  // Login redirects append ?token=; persist under `4g_tok`.
   const urlToken = new URLSearchParams(window.location.search).get("token");
   if (urlToken) {
-    localStorage.setItem(AUTH_TOKEN_KEY, urlToken);
+    setTokenCookie(urlToken);
+    stripTokenFromUrl();
     return urlToken;
   }
 
@@ -38,12 +55,12 @@ export function getConsumerToken(): string | null {
 
 export function setConsumerToken(token: string): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  setTokenCookie(token);
 }
 
 export function clearConsumerToken(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(AUTH_TOKEN_KEY);
+  clearTokenCookie();
 }
 
 interface UseAuthUserOptions {

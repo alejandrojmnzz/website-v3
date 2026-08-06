@@ -34,6 +34,8 @@ interface SessionContextValue {
   setLocation: (slug: string) => void;
   setLanguage: (lang: 'en' | 'es') => void;
   updateUTM: (utm: Partial<UTMParams>) => void;
+  /** Record the pathname of a successful conversion (overwrites prior). */
+  setConversionPage: (path: string) => void;
   nearestLocations: Location[];
   getLocationsByRegion: (region: Location['region']) => Location[];
 }
@@ -152,6 +154,19 @@ export function SessionProvider({ children }: SessionProviderProps) {
     });
   };
 
+  const setConversionPage = (path: string) => {
+    const pathname = path.split('?')[0] || path;
+    setSession(prev => {
+      const updated = {
+        ...prev,
+        conversion_page: pathname,
+        timestamp: Date.now(),
+      };
+      saveSession(updated);
+      return updated;
+    });
+  };
+
   const nearestLocations = locations
     .filter(loc => loc.visibility === 'listed' && loc.slug !== 'online')
     .sort((a, b) => {
@@ -192,6 +207,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setLocation,
     setLanguage,
     updateUTM,
+    setConversionPage,
     nearestLocations,
     getLocationsByRegion,
   };

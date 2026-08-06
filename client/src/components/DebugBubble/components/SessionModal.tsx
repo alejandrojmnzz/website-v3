@@ -11,6 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { getConsumerToken, clearConsumerToken } from "@/hooks/useAuthUser";
 
 interface SessionModalProps {
@@ -117,6 +122,7 @@ export function SessionModal(props: SessionModalProps) {
   // Consumer token kept in state so logout re-renders the card immediately.
   const [consumerToken, setConsumerTokenState] = useState<string | null>(() => getConsumerToken());
   const debugToken = hasToken ? getDebugToken() : null;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Re-read on open in case the user logged in/out since the modal mounted.
   useEffect(() => {
@@ -132,6 +138,48 @@ export function SessionModal(props: SessionModalProps) {
             Current session values captured from browser, geolocation, and URL parameters.
           </DialogDescription>
         </DialogHeader>
+
+        <div
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1"
+          data-testid="session-cookie-education"
+        >
+          <p>
+            Consumer marketing context is stored in cookie <code className="text-foreground">4g_ctx</code>,
+            and the consumer login token in <code className="text-foreground">4g_tok</code>.
+            Both use a parent Domain (e.g. <code className="text-foreground">.4geeks.com</code>) so sibling
+            subdomains such as learn can read them. Staff debug tokens stay in{" "}
+            <code className="text-foreground">localStorage</code> only and are not shared that way.
+          </p>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-0 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="button-session-cookie-advanced"
+              >
+                {advancedOpen ? "Hide advanced" : "Read more (advanced)"}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-1 space-y-1">
+              <p>
+                Source of truth: cookies only (not dual localStorage). One-time migration clears legacy{" "}
+                <code className="text-foreground">4geeks_session</code> and{" "}
+                <code className="text-foreground">4g_auth_token</code> keys.
+              </p>
+              <p>
+                Paths: <code className="text-foreground">shared/session.ts</code>,{" "}
+                <code className="text-foreground">client/src/lib/sessionCookie.ts</code>,{" "}
+                <code className="text-foreground">client/src/lib/sessionBootstrap.ts</code>,{" "}
+                <code className="text-foreground">client/src/hooks/useAuthUser.ts</code>,{" "}
+                <code className="text-foreground">client/src/workers/session.worker.ts</code>.
+                Size guard slims <code className="text-foreground">4g_ctx</code> if encoded value exceeds ~3500 bytes.
+                This site still sends <code className="text-foreground">Authorization: Token …</code> from{" "}
+                <code className="text-foreground">4g_tok</code>; APIs do not auto-trust the cookie alone.
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
         
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -249,6 +297,26 @@ export function SessionModal(props: SessionModalProps) {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Location Campus:</span>
                 <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{session.location?.slug || 'N/A'}</code>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground shrink-0">Landing page:</span>
+                <code
+                  className="bg-muted px-1.5 py-0.5 rounded text-xs max-w-[220px] truncate"
+                  title={session.landing_page}
+                  data-testid="text-landing-page"
+                >
+                  {session.landing_page || '—'}
+                </code>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground shrink-0">Conversion page:</span>
+                <code
+                  className="bg-muted px-1.5 py-0.5 rounded text-xs max-w-[220px] truncate"
+                  title={session.conversion_page}
+                  data-testid="text-conversion-page"
+                >
+                  {session.conversion_page || '—'}
+                </code>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Initialized:</span>
