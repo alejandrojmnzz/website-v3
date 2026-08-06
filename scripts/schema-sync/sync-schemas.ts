@@ -51,6 +51,7 @@ interface SchemaYml {
   description?: string;
   when_to_use?: string;
   schema_org?: { handler?: string; description?: string };
+  behaviors?: Record<string, unknown>;
   variants?: Record<string, { description?: string; best_for?: string }>;
   props?: Record<string, PropDef>;
   variant_props?: Record<string, Record<string, PropDef>>;
@@ -411,6 +412,7 @@ async function processComponent(
       description: existing?.description || "",
       when_to_use: existing?.when_to_use || "",
       ...(existing?.schema_org ? { schema_org: existing.schema_org } : {}),
+      ...(existing?.behaviors ? { behaviors: existing.behaviors } : {}),
       ...(existing?.image_sizes ? { image_sizes: existing.image_sizes } : {}),
       ...(existing?.section_defaults !== undefined
         ? { section_defaults: existing.section_defaults }

@@ -19,8 +19,116 @@ export const TRACKING_EVENTS = [
 
 export type TrackingEventName = typeof TRACKING_EVENTS[number];
 
+/** GA4-aligned ecommerce funnel events (client dataLayer). */
+export const ECOMMERCE_EVENTS = [
+  "view_item",
+  "add_to_cart",
+  "view_item_list",
+  "select_item",
+  "begin_checkout",
+  "purchase",
+] as const;
+
+export type EcommerceEventName = (typeof ECOMMERCE_EVENTS)[number];
+
+/** Events fired from this site (purchase is documented off-site only). */
+export const ECOMMERCE_EVENTS_WIRED = [
+  "view_item",
+  "add_to_cart",
+  "view_item_list",
+  "select_item",
+  "begin_checkout",
+] as const;
+
+export type EcommerceWiredEventName = (typeof ECOMMERCE_EVENTS_WIRED)[number];
+
 // All valid event names
-export type EventName = ConversionName | TrackingEventName;
+export type EventName = ConversionName | TrackingEventName | EcommerceEventName;
+
+export interface EcommercePayload {
+  item_id?: string;
+  item_name?: string;
+  item_category?: string;
+  program_id?: string;
+  plan_id?: string;
+  path?: string;
+  component_type?: string;
+  component_variant?: string;
+  currency?: string;
+  [key: string]: string | number | boolean | undefined | object;
+}
+
+export type ProductLookup = (programId: string) =>
+  | { product_id: string; name?: string; active?: boolean; content_type?: string }
+  | undefined;
+
+let productLookup: ProductLookup | null = null;
+
+/** Register product resolver used by trackEcommerce purchasable gate. */
+export function setEcommerceProductLookup(fn: ProductLookup | null): void {
+  productLookup = fn;
+}
+
+export function getEcommerceProductLookup(): ProductLookup | null {
+  return productLookup;
+}
+
+/**
+ * Resolve a program/content slug to an active purchasable product.
+ */
+export function resolveEcommerceProduct(
+  programId: string | undefined | null,
+): { product_id: string; name?: string; content_type?: string } | null {
+  if (!programId || !productLookup) return null;
+  const p = productLookup(programId);
+  if (!p || p.active === false) return null;
+  return { product_id: p.product_id, name: p.name, content_type: p.content_type };
+}
+
+/**
+ * Track an ecommerce funnel event. No-ops unless a purchasable product resolves
+ * (via program_id / item_id + registered product lookup).
+ */
+export function trackEcommerce(
+  eventName: EcommerceWiredEventName,
+  payload: EcommercePayload = {},
+): void {
+  const programId =
+    (typeof payload.program_id === "string" && payload.program_id) || undefined;
+
+  let itemId = typeof payload.item_id === "string" ? payload.item_id : undefined;
+  let itemName = typeof payload.item_name === "string" ? payload.item_name : undefined;
+  let itemCategory =
+    typeof payload.item_category === "string" ? payload.item_category : undefined;
+
+  if (productLookup) {
+    const product =
+      (programId ? resolveEcommerceProduct(programId) : null) ||
+      (itemId ? resolveEcommerceProduct(itemId) : null);
+    if (!product) {
+      console.log(`[Tracking] Ecommerce skipped (no purchasable product): ${eventName}`, payload);
+      return;
+    }
+    itemId = product.product_id;
+    itemName = itemName || product.name;
+    itemCategory = itemCategory || product.content_type || "program";
+  } else if (!itemId && !programId) {
+    console.log(`[Tracking] Ecommerce skipped (no product lookup / ids): ${eventName}`, payload);
+    return;
+  }
+
+  pushToDataLayer({
+    event: eventName,
+    user_id: getUserIdFromCookie() ?? undefined,
+    ...payload,
+    item_id: itemId,
+    item_name: itemName,
+    item_category: itemCategory,
+    program_id: programId || payload.program_id,
+  });
+
+  console.log(`[Tracking] Ecommerce: ${eventName}`, { ...payload, item_id: itemId });
+}
 
 // Payload types for different events
 export interface ConversionPayload {
@@ -185,7 +293,10 @@ export function isValidConversionName(name: string, conversionNames?: string[]):
 }
 
 export function isValidEventName(name: string): boolean {
-  return TRACKING_EVENTS.includes(name as TrackingEventName);
+  return (
+    TRACKING_EVENTS.includes(name as TrackingEventName) ||
+    ECOMMERCE_EVENTS.includes(name as EcommerceEventName)
+  );
 }
 
 /**

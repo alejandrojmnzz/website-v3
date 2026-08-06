@@ -6,6 +6,7 @@ import {
   listMergedComponentTypes,
   resolveComponentPath,
 } from "../../shared/registry-resolve.js";
+import { resolveComponentBehaviors } from "../../shared/component-behaviors.js";
 
 export const MARKETING_CONTENT_PATH = path.join(process.cwd(), "4geeks-com");
 export const COMPONENT_REGISTRY_PATH = path.join(MARKETING_CONTENT_PATH, "component-registry");
@@ -568,6 +569,7 @@ export interface ComponentSchemaSlim {
   description: string | null;
   when_to_use: string | null;
   variants: ComponentVariantSummary[];
+  behaviors?: Record<string, unknown>;
 }
 
 export function getComponentSchema(componentType: string, contentPath?: string): ComponentSchemaSlim | null {
@@ -623,7 +625,16 @@ export function getComponentSchema(componentType: string, contentPath?: string):
     variants.push({ name: "default", description: "Default (single-variant) component" });
   }
 
-  return { name, description, when_to_use, variants };
+  const behaviors = resolveComponentBehaviors(parsed as Record<string, unknown>);
+  const hasBehaviors = Object.keys(behaviors).length > 0;
+
+  return {
+    name,
+    description,
+    when_to_use,
+    variants,
+    ...(hasBehaviors ? { behaviors } : {}),
+  };
 }
 
 export interface ComponentVariantDetail {

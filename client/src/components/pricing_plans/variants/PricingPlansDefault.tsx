@@ -1,6 +1,11 @@
 import { IconCheck } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useEffect, useRef } from "react";
+import { trackEcommerce } from "@/lib/tracking";
+import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
+import { resolveProgramIdForPage } from "@/lib/ecommerceProgramId";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 interface PlanItem {
   plan_id: string;
@@ -163,6 +168,35 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
   };
   const ctaLabel = data.cta_label ?? "Get Started";
   const ctaUrl = data.cta_url ?? "";
+  const editMode = useEditModeOptional();
+  const isEditMode = editMode?.isEditMode ?? false;
+  const rootRef = useRef<HTMLElement | null>(null);
+  const viewedRef = useRef(false);
+
+  useEffect(() => {
+    ensureEcommerceProductLookup();
+  }, []);
+
+  useEffect(() => {
+    if (isEditMode || viewedRef.current || plans.length === 0 || !rootRef.current) return;
+    const el = rootRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting) || viewedRef.current) return;
+        viewedRef.current = true;
+        trackEcommerce("view_item_list", {
+          program_id: resolveProgramIdForPage(),
+          item_list_name: "pricing_plans",
+          component_type: "pricing_plans",
+          path: typeof window !== "undefined" ? window.location.pathname : undefined,
+        });
+        obs.disconnect();
+      },
+      { threshold: 0.2 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [isEditMode, plans.length]);
 
   if (plans.length === 0) {
     return null;
@@ -177,6 +211,7 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
 
   return (
     <section
+      ref={rootRef}
       className="w-full px-4 py-12"
       data-testid="section-pricing-plans"
     >

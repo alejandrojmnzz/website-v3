@@ -15,6 +15,7 @@ import {
   resolveComponentPath,
   type RegistryOrigin,
 } from "../shared/registry-resolve";
+import { resolveComponentBehaviors } from "@shared/component-behaviors";
 import { child } from "./logger";
 const log = child({ module: "component-registry" });
 
@@ -78,9 +79,20 @@ export interface ComponentSchema {
   image_sizes?: Record<string, string>;
   /**
    * Advisory: this section type contributes schema.org JSON-LD during SSR.
+   * Prefer `behaviors.schema_org`. Kept for legacy schema.yml files.
    * The executable mapping lives in `server/schema-components/index.ts`.
    */
   schema_org?: { handler: string; description?: string };
+  /**
+   * Behavioral patterns (ecommerce, schema_org, listing, conversion).
+   * Discovery/docs/UI; executable wiring stays in runtime layers.
+   */
+  behaviors?: {
+    ecommerce?: { role: "funnel" | "catalog"; events: string[]; notes?: string };
+    schema_org?: { handler: string; notes?: string };
+    listing?: { source: string; notes?: string };
+    conversion?: { via: string; notes?: string };
+  };
   props: Record<string, unknown>;
   variants?: Record<string, { description?: string; best_for?: string }>;
 }
@@ -127,6 +139,8 @@ export interface RegistryOverview {
     primaryExample?: PrimaryExampleMeta;
     /** Where the registry package lives */
     origin: RegistryOrigin;
+    /** Declared behavior ids from schema.yml */
+    behaviors?: string[];
   }>;
 }
 
@@ -525,6 +539,13 @@ export function getRegistryOverview(contentFolder?: string): RegistryOverview {
           .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml")).length;
       }
 
+      const resolvedBehaviors = resolveComponentBehaviors(
+        (schema ?? {}) as unknown as Record<string, unknown>,
+      );
+      const behaviorIds = (["ecommerce", "schema_org", "listing", "conversion"] as const).filter(
+        (id) => Boolean(resolvedBehaviors[id]),
+      );
+
       return {
         type,
         name: schema?.name || type,
@@ -535,6 +556,7 @@ export function getRegistryOverview(contentFolder?: string): RegistryOverview {
         exampleCount,
         primaryExample,
         origin,
+        behaviors: behaviorIds,
       };
     }),
   };
@@ -642,7 +664,7 @@ export function loadAllFieldEditors(): AllFieldEditors {
               const [, fieldPath, editorType] = entryMatch;
               // Parse base type (e.g., "color-picker:background" -> "color-picker")
               const baseType = editorType.split(":")[0];
-              if (["icon-picker", "color-picker", "image-picker", "image-with-style-picker", "link-picker", "rich-text-editor", "markdown", "boolean-toggle", "variant-picker", "video-picker", "cta-picker", "string-picker", "font-size-picker", "related-features-picker", "faq-visibility-editor", "db-field-values-picker", "form-settings"].includes(baseType)) {
+              if (["icon-picker", "color-picker", "image-picker", "image-with-style-picker", "link-picker", "rich-text-editor", "markdown", "boolean-toggle", "variant-picker", "video-picker", "cta-picker", "cta-tracking", "string-picker", "font-size-picker", "related-features-picker", "faq-visibility-editor", "db-field-values-picker", "form-settings"].includes(baseType)) {
                 entries[fieldPath] = editorType as EditorType;
               }
             }

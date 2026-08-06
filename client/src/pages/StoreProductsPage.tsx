@@ -118,7 +118,8 @@ export default function StoreProductsPage() {
         {!isLoading && !isError && products.length > 0 && (
           <div className="space-y-3" data-testid="product-list">
             {products.map((product) => (
-              <Card key={product.product_id} data-testid={`card-product-${product.product_id}`}>
+              <Link key={product.product_id} href={`/private/store/product/${product.content_slug}`}>
+              <Card key={product.product_id} className="hover-elevate cursor-pointer" data-testid={`card-product-${product.product_id}`}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
@@ -184,6 +185,7 @@ export default function StoreProductsPage() {
                   )}
                 </CardContent>
               </Card>
+              </Link>
             ))}
           </div>
         )}

@@ -916,6 +916,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
             >
               <MenuItem
                 icon={IconShoppingBag}
+                label="Ecommerce"
+                href="/private/store/ecommerce"
+                indicator="arrow"
+                testId="link-store-ecommerce"
+              />
+              <MenuItem
+                icon={IconShoppingBag}
                 label="Products"
                 href="/private/store/products"
                 indicator="arrow"

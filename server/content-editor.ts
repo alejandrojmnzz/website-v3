@@ -4,9 +4,16 @@ import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
 import { validateFormSection } from "@shared/validateFormSection";
+import {
+  validateCtaTracking,
+  validateCtaPurchasable,
+  resolveBoundCtaPaths,
+} from "@shared/validateCtaTracking";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import { getTrackingSettings } from "./settings";
 import { generateSectionId } from "./utils/generateSectionId";
+import { loadAllFieldEditors } from "./component-registry";
+import { ecommerceManager } from "./ecommerce/ecommerce-manager";
 
 function getDefaultContentRootName(): string {
   try {
@@ -667,11 +674,40 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     // because we inspect the fully-mutated in-memory state.
     if (Array.isArray(localeData.sections)) {
       const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
+      const allFieldEditors = loadAllFieldEditors();
+      const resolveProduct = (programId: string) => {
+        const byCms = ecommerceManager.findProductByCmsEntry("program", programId);
+        if (byCms) {
+          return { product_id: byCms.product_id, active: byCms.active };
+        }
+        const byId = ecommerceManager.getProduct(programId);
+        if (byId) return { product_id: byId.product_id, active: byId.active };
+        return undefined;
+      };
       for (let i = 0; i < (localeData.sections as Record<string, unknown>[]).length; i++) {
         const section = (localeData.sections as Record<string, unknown>[])[i];
         const formErr = validateFormSection(section, conversionNames);
         if (formErr) {
           return { success: false, error: `sections[${i}]: ${formErr}` };
+        }
+
+        const sectionType = String(section.type ?? "");
+        const editors = allFieldEditors[sectionType] ?? {};
+        const variant = typeof section.variant === "string" ? section.variant : undefined;
+        const ctaPaths = resolveBoundCtaPaths(editors, variant);
+
+        const trackingErr = validateCtaTracking(section, ctaPaths);
+        if (trackingErr) {
+          return { success: false, error: `sections[${i}]: ${trackingErr}` };
+        }
+
+        const purchasableErr = validateCtaPurchasable(section, ctaPaths, {
+          contentSlug: slug,
+          contentType,
+          resolveProduct,
+        });
+        if (purchasableErr) {
+          return { success: false, error: `sections[${i}]: ${purchasableErr}` };
         }
       }
     }

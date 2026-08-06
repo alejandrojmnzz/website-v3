@@ -141,11 +141,17 @@ export function SyncModal({
     [filteredChanges],
   );
 
+  /** Filtered local changes that are not conflicts — safe bulk push/drop targets. */
+  const localOnlyFiltered = useMemo(
+    () => filteredChanges.filter((c) => c.source === "local"),
+    [filteredChanges],
+  );
+
   const hasSelection = selectedFiles.size > 0;
   const filesToPush = useMemo(() => {
     if (!hasSelection) return localOnlyFiles.map((c) => c.file);
     return pendingChanges
-      .filter((c) => selectedFiles.has(c.file) && isSelectableChange(c))
+      .filter((c) => selectedFiles.has(c.file) && c.source === "local")
       .map((c) => c.file);
   }, [hasSelection, localOnlyFiles, pendingChanges, selectedFiles]);
 
@@ -161,6 +167,10 @@ export function SyncModal({
   const allFilteredSelected =
     selectableFiltered.length > 0 &&
     selectableFiltered.every((c) => selectedFiles.has(c.file));
+
+  const allLocalOnlyFilteredSelected =
+    localOnlyFiltered.length > 0 &&
+    localOnlyFiltered.every((c) => selectedFiles.has(c.file));
 
   useEffect(() => {
     setSelectedFiles((prev) => {
@@ -205,6 +215,17 @@ export function SyncModal({
     setSelectedFiles((prev) => {
       const next = new Set(prev);
       for (const c of selectableFiltered) {
+        if (checked) next.add(c.file);
+        else next.delete(c.file);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectLocalOnlyFiltered = (checked: boolean) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      for (const c of localOnlyFiltered) {
         if (checked) next.add(c.file);
         else next.delete(c.file);
       }
@@ -641,7 +662,7 @@ export function SyncModal({
                     {isPushingAllLocal ? (
                       <><RefreshCw className="h-3 w-3 animate-spin mr-1" />Pushing...</>
                     ) : hasSelection ? (
-                      <><ArrowUp className="h-3 w-3 mr-1" />Push selected ({selectedFiles.size})</>
+                      <><ArrowUp className="h-3 w-3 mr-1" />Push selected ({filesToPush.length})</>
                     ) : (
                       <><ArrowUp className="h-3 w-3 mr-1" />Push all</>
                     )}
@@ -667,7 +688,7 @@ export function SyncModal({
                     </p>
                   ) : (
                     <>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         {selectableFiltered.length > 0 && (
                           <label
                             className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none shrink-0"
@@ -688,10 +709,36 @@ export function SyncModal({
                             {queueFilter.trim() && (
                               <span>({selectableFiltered.length})</span>
                             )}
-                            {hasSelection && (
-                              <span className="text-foreground">· {selectedFiles.size} selected</span>
-                            )}
                           </label>
+                        )}
+                        {localOnlyFiltered.length > 0 && (
+                          <label
+                            className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none shrink-0"
+                            data-testid="label-select-local-only-filtered"
+                          >
+                            <Checkbox
+                              checked={
+                                allLocalOnlyFilteredSelected
+                                  ? true
+                                  : localOnlyFiltered.some((c) => selectedFiles.has(c.file))
+                                    ? "indeterminate"
+                                    : false
+                              }
+                              onCheckedChange={(checked) =>
+                                toggleSelectLocalOnlyFiltered(checked === true)
+                              }
+                              data-testid="checkbox-select-local-only"
+                            />
+                            Local only
+                            <span className="text-muted-foreground/80">
+                              ({localOnlyFiltered.length})
+                            </span>
+                          </label>
+                        )}
+                        {hasSelection && (
+                          <span className="text-xs text-foreground shrink-0">
+                            {selectedFiles.size} selected
+                          </span>
                         )}
                         <div className="relative flex-1 min-w-[12rem] max-w-sm ml-auto">
                           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -1089,7 +1136,7 @@ export function SyncModal({
           <DialogDescription>
             {hasSelection ? (
               <>
-                The following {filesToPush.length} selected file{filesToPush.length !== 1 ? "s" : ""} will be committed and pushed to the remote repository.
+                The following {filesToPush.length} selected local file{filesToPush.length !== 1 ? "s" : ""} will be committed and pushed to the remote repository. Conflicted files in the selection are excluded and must be resolved individually.
               </>
             ) : (
               <>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Database, ExternalLink, HelpCircle, Image, Info, Laptop, Link, Unlink, Loader2, MapPin, Monitor, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Smartphone, Trash2, Undo2, Upload, Video, X } from "lucide-react";
-import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck } from "@tabler/icons-react";
+import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck, IconShoppingCart } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BindingConfirmDialog } from "./BindingConfirmDialog";
 import { getIcon } from "@/lib/icons";
@@ -1921,6 +1921,28 @@ export function SectionEditorPanel({
     return globalPath;
   })();
 
+  const ctaTrackingPaths: string[] = (() => {
+    const rawFields = allFieldEditors?.[sectionType] || {};
+    const currentVariant = (parsedSection as Record<string, unknown>)?.variant as string | undefined;
+    const paths: string[] = [];
+    for (const [fieldPath, editorType] of Object.entries(rawFields)) {
+      if (String(editorType).split(":")[0] !== "cta-tracking") continue;
+      const colonIndex = fieldPath.indexOf(":");
+      if (colonIndex > 0 && !fieldPath.startsWith("color-picker:")) {
+        const variantPrefix = fieldPath.substring(0, colonIndex);
+        const actualPath = fieldPath.substring(colonIndex + 1);
+        if (!currentVariant || currentVariant === variantPrefix) paths.push(actualPath);
+      } else {
+        paths.push(fieldPath);
+      }
+    }
+    return paths;
+  })();
+
+  const showFormsTab = formSettingsPath !== null;
+  const showEcommerceTab = ctaTrackingPaths.length > 0;
+  const editorTabCount = 2 + (showFormsTab ? 1 : 0) + (showEcommerceTab ? 1 : 0);
+
   // Join helper: "" means form settings at section root (lead_form).
   const formProp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
 
@@ -2373,7 +2395,15 @@ export function SectionEditorPanel({
         onValueChange={setActiveTab}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList className="mx-4 mt-2 grid w-auto grid-cols-3">
+        <TabsList
+          className={`mx-4 mt-2 grid w-auto ${
+            editorTabCount === 4
+              ? "grid-cols-4"
+              : editorTabCount === 3
+                ? "grid-cols-3"
+                : "grid-cols-2"
+          }`}
+        >
           <TabsTrigger value="code" className="gap-1.5" data-testid="tab-code">
             <Code className="h-4 w-4" />
             Code
@@ -2386,14 +2416,26 @@ export function SectionEditorPanel({
             <Settings className="h-4 w-4" />
             Props
           </TabsTrigger>
-          <TabsTrigger
-            value="conversion"
-            className="gap-1.5"
-            data-testid="tab-conversion"
-          >
-            <IconTargetArrow className="h-4 w-4" />
-            Conversion
-          </TabsTrigger>
+          {showFormsTab && (
+            <TabsTrigger
+              value="conversion"
+              className="gap-1.5"
+              data-testid="tab-forms"
+            >
+              <IconTargetArrow className="h-4 w-4" />
+              Forms
+            </TabsTrigger>
+          )}
+          {showEcommerceTab && (
+            <TabsTrigger
+              value="ecommerce"
+              className="gap-1.5"
+              data-testid="tab-ecommerce"
+            >
+              <IconShoppingCart className="h-4 w-4" />
+              Ecommerce
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent
@@ -6825,6 +6867,49 @@ export function SectionEditorPanel({
             </div>
           ) : (
             <div className="space-y-6">
+              {(() => {
+                const storedConversionName = String(getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? "");
+                const fieldsVal = getValueAtFieldPath(parsedSection, formProp("fields"));
+                const hasFields = Array.isArray(fieldsVal) && fieldsVal.length > 0;
+                const formNode = formSettingsPath === ""
+                  ? parsedSection
+                  : getValueAtFieldPath(parsedSection, formSettingsPath);
+                const hasFormNode = formNode != null && typeof formNode === "object";
+                const incomplete = Boolean(storedConversionName || hasFormNode) && !hasFields;
+                if (!incomplete) return null;
+                return (
+                  <div
+                    className="rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2"
+                    data-testid="forms-incomplete-warning"
+                  >
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                      This form looks incomplete (conversion name or form data without fields). Clear orphaned form data, or add fields.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      data-testid="button-clear-form"
+                      onClick={() => {
+                        if (formSettingsPath === "" || formSettingsPath == null) {
+                          updatePropertyWithValue("conversion_name", undefined);
+                          updatePropertyWithValue("fields", undefined);
+                          updatePropertyWithValue("routes", undefined);
+                          updatePropertyWithValue("webhook", undefined);
+                          updatePropertyWithValue("success", undefined);
+                          updatePropertyWithValue("consent", undefined);
+                          updatePropertyWithValue("tags", undefined);
+                          updatePropertyWithValue("automations", undefined);
+                        } else {
+                          updatePropertyWithValue(formSettingsPath, undefined);
+                        }
+                      }}
+                    >
+                      Clear form
+                    </Button>
+                  </div>
+                );
+              })()}
               {/* Conversion Name */}
               {(() => {
                 const storedConversionName = String(getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? "");
@@ -7450,6 +7535,109 @@ export function SectionEditorPanel({
             </div>
           )}
         </TabsContent>
+
+        {/* Ecommerce Tab */}
+        {showEcommerceTab && (
+        <TabsContent
+          value="ecommerce"
+          className="flex-1 overflow-auto p-4 mt-0 data-[state=inactive]:hidden"
+        >
+          <div className="space-y-6" data-testid="ecommerce-tab-content">
+            <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
+              <p className="text-foreground font-medium">How ecommerce differs from Forms</p>
+              <p>
+                Ecommerce funnel events are purchasable-gated and separate from lead Forms.
+                Products need <code className="text-xs bg-muted px-1 rounded">_ecommerce.yml</code> with{" "}
+                <code className="text-xs bg-muted px-1 rounded">purchasable: true</code>.
+                Purchase completes off-site — this site never fires <code className="text-xs">purchase</code>.
+              </p>
+              <details className="text-xs">
+                <summary className="cursor-pointer text-foreground font-medium">Read more (advanced)</summary>
+                <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
+                  <li>shared/component-behaviors.ts</li>
+                  <li>client/src/lib/tracking.ts</li>
+                  <li>docs/component-behaviors.md</li>
+                </ul>
+              </details>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">CTA inventory</h3>
+              {ctaTrackingPaths.map((ctaPath) => {
+                const raw = getValueAtFieldPath(parsedSection, ctaPath);
+                const ctas: Array<{ path: string; text?: string; url?: string; tracking?: string }> = [];
+                const visit = (v: unknown, hint: string) => {
+                  if (Array.isArray(v)) {
+                    v.forEach((item, i) => visit(item, `${hint}[${i}]`));
+                    return;
+                  }
+                  if (v && typeof v === "object") {
+                    const o = v as Record<string, unknown>;
+                    if (typeof o.url === "string" && typeof o.text === "string") {
+                      ctas.push({
+                        path: hint || ctaPath,
+                        text: o.text,
+                        url: o.url,
+                        tracking: typeof o.tracking === "string" ? o.tracking : undefined,
+                      });
+                    }
+                  }
+                };
+                visit(raw, ctaPath);
+                if (ctas.length === 0) {
+                  return (
+                    <p key={ctaPath} className="text-xs text-muted-foreground font-mono">{ctaPath}: (empty)</p>
+                  );
+                }
+                return ctas.map((cta) => {
+                  const unlinked =
+                    cta.tracking &&
+                    cta.tracking !== "none" &&
+                    !(typeof cta.url === "string" && /[?&]program=/.test(cta.url));
+                  return (
+                    <div
+                      key={cta.path}
+                      className="rounded-md border p-3 space-y-2"
+                      data-testid={`cta-inventory-${cta.path}`}
+                    >
+                      <p className="text-xs font-mono text-muted-foreground">{cta.path}</p>
+                      <p className="text-sm">{cta.text}</p>
+                      <p className="text-xs text-muted-foreground break-all">{cta.url}</p>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs">tracking</Label>
+                        <Select
+                          value={cta.tracking || "none"}
+                          onValueChange={(val) => {
+                            const target =
+                              cta.path === ctaPath || !cta.path.includes("[")
+                                ? `${ctaPath}.tracking`
+                                : `${cta.path}.tracking`;
+                            updatePropertyWithValue(target, val);
+                          }}
+                        >
+                          <SelectTrigger className="w-[180px]" data-testid={`select-cta-tracking-${cta.path}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">none</SelectItem>
+                            <SelectItem value="add_to_cart">add_to_cart</SelectItem>
+                            <SelectItem value="begin_checkout">begin_checkout</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {unlinked && (
+                        <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="cta-unlinked-hint">
+                          Unlinked: non-none tracking without <code>?program=</code> in URL — ensure page product or enrollment program resolves, or set tracking to none.
+                        </p>
+                      )}
+                    </div>
+                  );
+                });
+              })}
+            </div>
+          </div>
+        </TabsContent>
+        )}
       </Tabs>
 
       {parseError && (

@@ -10,6 +10,10 @@ import { IconChevronRight, IconCheck } from "@tabler/icons-react";
 import type { EnrollmentSelectorDefault, EnrollmentSelectorProgram } from "@shared/schema";
 import { addDays, addWeeks, addMonths } from "date-fns";
 import { resolveColorVar, hslColor } from "@/components/course_selector/shared";
+import { trackEcommerce } from "@/lib/tracking";
+import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { isCtaTrackingValue } from "@shared/component-behaviors";
 // ─── Date chip sub-components ─────────────────────────────────────────────────
 type DateChip = { text: string; color?: string };
 
@@ -432,6 +436,12 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
     getCallbackLabels: () => callbackLabelsRef.current,
   });
   const { locale } = useSectionContext();
+  const editMode = useEditModeOptional();
+  const isEditMode = editMode?.isEditMode ?? false;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listViewedRef = useRef(false);
+  const selectDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydrateDoneRef = useRef(false);
 
   const [selectedProgramIdx, setSelectedProgramIdx] = useState(0);
   const [selectedDateIdx, setSelectedDateIdx] = useState(0);
@@ -440,6 +450,53 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const [filteredByQs, setFilteredByQs] = useState(false);
   const [addonEnabled, setAddonEnabled] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    ensureEcommerceProductLookup();
+  }, []);
+
+  // Mark hydrate complete after initial URL sync effect has a chance to run
+  useEffect(() => {
+    const t = setTimeout(() => {
+      hydrateDoneRef.current = true;
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  // view_item_list once when visible
+  useEffect(() => {
+    if (isEditMode || listViewedRef.current || !rootRef.current) return;
+    const el = rootRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting) || listViewedRef.current) return;
+        listViewedRef.current = true;
+        const firstId = data.programs[0]?.id;
+        trackEcommerce("view_item_list", {
+          program_id: firstId,
+          item_list_name: "enrollment_selector",
+          component_type: "enrollment_selector",
+          path: typeof window !== "undefined" ? window.location.pathname : undefined,
+        });
+        obs.disconnect();
+      },
+      { threshold: 0.2 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [isEditMode, data.programs]);
+
+  const trackSelectItem = (programId: string | undefined) => {
+    if (!hydrateDoneRef.current || isEditMode || !programId) return;
+    if (selectDebounceRef.current) clearTimeout(selectDebounceRef.current);
+    selectDebounceRef.current = setTimeout(() => {
+      trackEcommerce("select_item", {
+        program_id: programId,
+        component_type: "enrollment_selector",
+        path: typeof window !== "undefined" ? window.location.pathname : undefined,
+      });
+    }, 300);
+  };
 
   // On mount: read ?program, ?plan, ?cohort and ?addon from URL
   useEffect(() => {
@@ -582,7 +639,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   };
 
   return (
-    <div>
+    <div ref={rootRef} data-testid="section-enrollment-selector">
       <div className="grid grid-cols-1 md:grid-cols-[1fr_370px] gap-4 md:gap-8 lg:gap-12 items-start">
 
         {/* ── LEFT COLUMN ── */}
@@ -646,6 +703,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                           nav.navigate(addonOffUrl(program.addon));
                         }
                         setAddonEnabled(false);
+                        trackSelectItem(prog.id);
                       }}
                     >
                       {active && (
@@ -919,6 +977,14 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                   onClick={(e) => {
                     // Apply selection (cohort/addon) before resolve — including ctrl/cmd+click.
                     if (e.button === 0 && !e.altKey) applySelectionParams();
+                    const tracking = (activeSummary.cta as { tracking?: string }).tracking;
+                    if (isCtaTrackingValue(tracking) && tracking !== "none") {
+                      trackEcommerce(tracking, {
+                        program_id: program?.id,
+                        component_type: "enrollment_selector",
+                        path: typeof window !== "undefined" ? window.location.pathname : undefined,
+                      });
+                    }
                     nav(e);
                   }}
                   onMouseDown={(e) => {

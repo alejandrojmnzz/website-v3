@@ -10,7 +10,12 @@ import { cn } from "@/lib/utils";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { resolveTemplateFallback } from "@/lib/variable-manager";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { trackEcommerce } from "@/lib/tracking";
+import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
+import { resolveProgramIdForPage, programIdFromCtaUrl } from "@/lib/ecommerceProgramId";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { isCtaTrackingValue } from "@shared/component-behaviors";
 
 const LeadForm = lazy(() => import("@/components/lead_form/variants/LeadFormDefault"));
 
@@ -28,6 +33,49 @@ const BADGE_COLOR_CLASSES: Record<string, string> = {
 
 export default function HeroCourse({ data }: HeroCourseProps) {
   const handleLinkClick = useInternalNav();
+  const editMode = useEditModeOptional();
+  const isEditMode = editMode?.isEditMode ?? false;
+  const viewedRef = useRef(false);
+
+  useEffect(() => {
+    if (isEditMode || viewedRef.current) return;
+    let cancelled = false;
+    (async () => {
+      await ensureEcommerceProductLookup();
+      if (cancelled || viewedRef.current) return;
+      const programId = resolveProgramIdForPage(data.signup_card?.cta_button?.url);
+      if (!programId) return;
+      viewedRef.current = true;
+      trackEcommerce("view_item", {
+        program_id: programId,
+        component_type: "hero",
+        component_variant: "course",
+        path: typeof window !== "undefined" ? window.location.pathname : undefined,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, data.signup_card?.cta_button?.url]);
+
+  const handleCtaClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const cta = data.signup_card?.cta_button as
+      | { url?: string; tracking?: string }
+      | undefined;
+    const tracking = cta?.tracking;
+    if (isCtaTrackingValue(tracking) && tracking !== "none") {
+      const programId =
+        programIdFromCtaUrl(cta?.url) || resolveProgramIdForPage(cta?.url);
+      trackEcommerce(tracking, {
+        program_id: programId,
+        component_type: "hero",
+        component_variant: "course",
+        path: typeof window !== "undefined" ? window.location.pathname : undefined,
+      });
+    }
+    handleLinkClick(e);
+  };
+
   return (
     <section className="bg-background" data-testid="section-hero">
       <div className="max-w-6xl mx-auto px-4">
@@ -311,7 +359,8 @@ export default function HeroCourse({ data }: HeroCourseProps) {
                   >
                     <a
                       href={data.signup_card?.cta_button.url}
-                      onClick={handleLinkClick}
+                      onClick={handleCtaClick}
+                      data-testid="button-hero-cta"
                     >
                       {data.signup_card?.cta_button.text}
                     </a>

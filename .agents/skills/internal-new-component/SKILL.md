@@ -67,6 +67,18 @@ file: client/src/components/MyComponent.tsx
 description: Short description of the component purpose.
 when_to_use: |
   Guidance on when to pick this component.
+# Declare behaviors when the component participates in platform patterns:
+# behaviors:
+#   conversion:
+#     via: form-settings
+#   ecommerce:
+#     role: funnel   # or catalog
+#     events: [view_item, add_to_cart]
+#   listing:
+#     source: dynamic_entries
+#   schema_org:
+#     handler: faq
+# CTA ecommerce intent is NOT on behaviors — bind paths in field-editors.ts as "cta-tracking".
 # Optional — only if this component needs non-default section-level behavior:
 # section_defaults:
 #   load: eager
@@ -93,6 +105,15 @@ props:
         type: string
         required: true
 ```
+
+### Behaviors + CTA tracking (required when applicable)
+
+- If `field-editors.ts` includes `form-settings` → declare `behaviors.conversion`.
+- If listing / `dynamic_entries` → declare `behaviors.listing`.
+- If SSR schema.org → declare `behaviors.schema_org`.
+- If ecommerce funnel/catalog or `cta-tracking` editors → declare `behaviors.ecommerce`.
+- Bind ecommerce CTAs with `"path.to.cta": "cta-tracking"` (required `tracking`: `none` | `add_to_cart` | `begin_checkout`).
+- See `docs/component-behaviors.md` and `.cursor/rules/component-behaviors.mdc`. Schema-sync preserves `behaviors`.
 
 **schema.ts template:**
 

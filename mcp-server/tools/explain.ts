@@ -9,7 +9,7 @@ import { MARKETING_CONTENT_PATH } from "../lib/content.js";
 // production bundle (dist/mcp-server.js).
 const EXPLAIN_DIR = path.join(process.cwd(), "mcp-server", "explain");
 
-const VALID_TOPICS = ["overview", "content_system", "routing", "images", "sections", "semantic_search"] as const;
+const VALID_TOPICS = ["overview", "content_system", "routing", "images", "sections", "semantic_search", "component-behaviors"] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
 // ─── Dynamic tag resolvers ────────────────────────────────────────────────────

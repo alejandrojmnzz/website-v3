@@ -5,10 +5,17 @@
 import { z } from "zod";
 
 // CTA Button - used in many components
+export const ctaTrackingSchema = z.enum(["none", "add_to_cart", "begin_checkout"]);
+
 export const ctaButtonSchema = z.object({
   text: z.string(),
   url: z.string(),
   variant: z.enum(["primary", "secondary", "outline"]),
+  /**
+   * Ecommerce CTA intent. Required on field-editor `cta-tracking` paths (save-time).
+   * Optional here so legacy YAML still parses until migration completes.
+   */
+  tracking: ctaTrackingSchema.optional(),
   button_variant: z.string().optional(),
   text_color: z.string().optional(),
   icon: z.string().optional(),

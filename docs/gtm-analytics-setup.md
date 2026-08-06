@@ -190,3 +190,20 @@ The frontend sends the following session headers with every API request:
 | `client/src/lib/tracking.ts` | All dataLayer push logic; `visitor_id` is attached to every push |
 | `client/src/lib/sessionBootstrap.ts` | Cookie read/write helpers (`getVisitorIdFromCookie`, `setVisitorIdCookie`) |
 | `client/src/contexts/SessionContext.tsx` | Calls `setVisitorContext()` after `SESSION_READY` |
+
+---
+
+## Ecommerce funnel events
+
+Purchasable-gated events via `trackEcommerce()` in `client/src/lib/tracking.ts`. Staff hub: `/private/store/ecommerce`.
+
+| Event | When | Notes |
+|-------|------|-------|
+| `view_item` | Hero `course` when product resolves | Program page / CTA `?program=` |
+| `add_to_cart` | CTA `tracking: add_to_cart` | Configurator handoff (`/payment-component`) |
+| `view_item_list` | enrollment_selector / pricing_plans visible | Once per mount; skip edit mode |
+| `select_item` | User changes enrollment program | Debounced; no hydrate |
+| `begin_checkout` | CTA `tracking: begin_checkout` | External POS (`/checkout`) |
+| `purchase` | Off-site only | **Not fired** from this site |
+
+CTA intent is explicit `cta.tracking` (field-editor `cta-tracking`), not URL sniffing at runtime. See `docs/component-behaviors.md`.

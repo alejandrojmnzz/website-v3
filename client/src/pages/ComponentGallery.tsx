@@ -43,6 +43,7 @@ interface RegistryComponent {
   exampleCount: number;
   primaryExample?: PrimaryExampleMeta;
   origin?: "shared" | "site";
+  behaviors?: string[];
 }
 
 interface RegistryOverview {
@@ -718,6 +719,16 @@ export default function ComponentGallery() {
                               >
                                 {comp.origin === "shared" ? "Shared" : "Site"}
                               </Badge>
+                              {(comp.behaviors ?? []).map((b) => (
+                                <Badge
+                                  key={b}
+                                  variant="secondary"
+                                  className="text-[10px] shrink-0"
+                                  data-testid={`badge-behavior-${b}-${comp.type}`}
+                                >
+                                  {b}
+                                </Badge>
+                              ))}
                             </div>
                             <div className="text-xs text-muted-foreground font-mono truncate">
                               {comp.type}

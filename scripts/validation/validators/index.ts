@@ -31,6 +31,8 @@ import { consentLegacyKeysValidator } from "./consent-legacy-keys";
 import { bindingIntegrityValidator } from "./binding-integrity";
 import { brokenAnchorsValidator } from "./broken-anchors";
 import { sectionVariantsValidator } from "./section-variants";
+import { componentBehaviorsValidator } from "./component-behaviors";
+import { ctaTrackingValidator } from "./cta-tracking";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -58,6 +60,8 @@ export const validators: Validator[] = [
   consentLegacyKeysValidator,
   bindingIntegrityValidator,
   brokenAnchorsValidator,
+  componentBehaviorsValidator,
+  ctaTrackingValidator,
 ];
 
 export const slowValidators: Validator[] = [lighthouseValidator];

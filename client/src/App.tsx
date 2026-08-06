@@ -10,6 +10,7 @@ import { DebugAuthProvider, isDebugModeActive, useDebugAuth } from "@/hooks/useD
 import { ImagePickerProvider } from "@/contexts/ImagePickerContext";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import type { ContentTypeApiItem } from "@/hooks/useContentTypes";
+import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import "./i18n";
 
 // Track whether the Vite HMR WebSocket is currently connected.
@@ -312,6 +313,13 @@ function PageTracker() {
   return null;
 }
 
+function EcommerceBootstrap() {
+  useEffect(() => {
+    void ensureEcommerceProductLookup();
+  }, []);
+  return null;
+}
+
 function ClientOnly({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -379,6 +387,7 @@ function App({ ssrQueryClient }: AppProps = {}) {
           <EditModeWrapper>
             <ImagePickerProvider>
             <PageTracker />
+            <EcommerceBootstrap />
             <Router />
             <ClientOnly>
               <Toaster />

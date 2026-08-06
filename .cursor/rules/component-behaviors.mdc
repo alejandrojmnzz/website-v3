@@ -1,0 +1,26 @@
+---
+description: Component schema.yml behaviors (ecommerce, schema_org, listing, conversion) and CTA tracking
+globs:
+  - "**/component-registry/**/schema.yml"
+  - "**/component-registry/**/field-editors.ts"
+  - "**/validateCta*.ts"
+  - "**/component-behaviors*"
+alwaysApply: false
+---
+
+# Component behaviors
+
+Declare platform patterns on each component `schema.yml` under `behaviors:` — do not invent parallel keys (`variant_behaviors`, etc.).
+
+| Id | When to declare |
+|----|-----------------|
+| `conversion` | field-editors include `form-settings` |
+| `listing` | `dynamic_entries` / listing cards |
+| `schema_org` | SSR JSON-LD contributor |
+| `ecommerce` | funnel/catalog events or `cta-tracking` field-editors |
+
+CTA ecommerce intent is **not** on behaviors. Bind paths with field-editor type `cta-tracking`. Required `cta.tracking`: `none` | `add_to_cart` | `begin_checkout`.
+
+Save/MCP validate bound paths only (`validateCtaTracking` + `validateCtaPurchasable`). Non-`none` needs a purchasable product (`_ecommerce.yml`).
+
+Catalog: `docs/component-behaviors.md`. MCP: `explain` topic `component-behaviors`. Schema-sync **preserves** `behaviors`.
