@@ -13,15 +13,15 @@ Structured `behaviors` on each component `schema.yml` declare how a section part
 
 ## CTA tracking (`cta.tracking`)
 
-Bound via field-editor type `cta-tracking` (parallel to `form-settings`). Required values: `none` | `add_to_cart` | `begin_checkout`.
+Bound via field-editor type `cta-tracking` (parallel to `form-settings`). Values: `none` | `add_to_cart` | `begin_checkout`. Optional — absent/empty ≡ `none`.
 
 | Value | When |
 |-------|------|
-| `none` | Apply, login, unrelated links |
+| `none` (or omitted) | Apply, login, unrelated links |
 | `add_to_cart` | Enter purchase configurator (`/payment-component`) |
 | `begin_checkout` | External POS (`/checkout`) |
 
-Save/MCP validation: missing tracking on bound paths fails; non-`none` requires a purchasable product in the ecommerce index.
+Save/MCP validation: invalid tracking values fail; non-`none` requires a purchasable product in the ecommerce index. Missing tracking is allowed.
 
 ## Funnel
 
