@@ -66,8 +66,8 @@ function flattenCtaTargets(value: unknown): Array<{ pathHint: string; cta: Recor
 }
 
 /**
- * Validate each CTA on bound `cta-tracking` paths.
- * Missing/empty tracking is allowed (runtime treats it as none).
+ * Validate each CTA on bound `cta-tracking` paths has a valid `tracking` value.
+ * Missing/empty fails — use `none` when no ecommerce event should fire.
  * Returns error message or null.
  */
 export function validateCtaTracking(
@@ -83,9 +83,8 @@ export function validateCtaTracking(
     const targets = flattenCtaTargets(raw);
     for (const { pathHint, cta } of targets) {
       const tracking = cta.tracking;
-      // Absent/empty ≡ none — do not block saves for legacy YAML.
       if (tracking === undefined || tracking === null || tracking === "") {
-        continue;
+        return `CTA at ${path}${pathHint} is missing required "tracking" (none | add_to_cart | begin_checkout) on ${sectionType || "section"}`;
       }
       if (!isCtaTrackingValue(tracking)) {
         return `CTA at ${path}${pathHint} has invalid tracking "${String(tracking)}". Valid: none, add_to_cart, begin_checkout`;
