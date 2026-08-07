@@ -132,9 +132,9 @@ export function trackEcommerce(
 
 // Payload types for different events
 export interface ConversionPayload {
-  /** Hashed email (SHA-256 truncated) — key name `email` for GTM DLVs */
+  /** Plaintext email for GTM DLVs / ESP tags */
   email?: string;
-  /** @deprecated Prefer `email` (hash). Kept for older GTM variables. */
+  /** SHA-256 truncated hash — kept for older GTM variables named email_hash */
   email_hash?: string;
   first_name?: string;
   phone?: string;
@@ -451,11 +451,11 @@ export async function trackFormSubmission(
   if (formData.attribution_id) payload.attribution_id = formData.attribution_id;
   if (formData.referral_key) payload.referral_key = formData.referral_key;
 
-  // Hash email for privacy; push under `email` so GTM DLVs named email resolve
+  // Plaintext email for GTM; hash kept under email_hash for legacy DLVs
   if (formData.email) {
-    const hashed = await hashEmail(formData.email);
-    payload.email = hashed;
-    payload.email_hash = hashed;
+    const normalized = formData.email.toLowerCase().trim();
+    payload.email = normalized;
+    payload.email_hash = await hashEmail(normalized);
   }
 
   trackConversion(conversionName, payload);

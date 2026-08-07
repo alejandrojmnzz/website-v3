@@ -37,7 +37,8 @@ Both `track()` and `trackConversion()` read the visitor ID directly from the `4g
 window.dataLayer.push({
   event: "student_application",
   visitor_id: "uuid-v4-...",   // ← present on every event
-  email_hash: "...",
+  email: "jane.doe@example.com",
+  email_hash: "...",           // legacy DLV; SHA-256 truncated
   program: "...",
 });
 
