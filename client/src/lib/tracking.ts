@@ -137,13 +137,22 @@ export interface ConversionPayload {
   /** SHA-256 truncated hash — kept for older GTM variables named email_hash */
   email_hash?: string;
   first_name?: string;
+  last_name?: string;
   phone?: string;
   formentry_id?: string | number;
   attribution_id?: string;
   referral_key?: string;
   program?: string;
+  plan?: string;
   location?: string;
-  [key: string]: string | number | undefined;
+  region?: string;
+  coupon?: string;
+  client_comments?: string;
+  current_download?: string;
+  consent_email?: boolean;
+  consent_sms?: boolean;
+  consent_whatsapp?: boolean;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export interface TrackingPayload {
@@ -423,33 +432,67 @@ export function buildSamplePayload(
   return { ...SAMPLE_LEAD_PAYLOAD, ...overrides };
 }
 
+/** Form fields eligible for conversion dataLayer pushes (PII + lead context). */
+export type FormSubmissionTrackingData = {
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  program?: string;
+  plan?: string;
+  location?: string;
+  region?: string;
+  coupon?: string;
+  client_comments?: string;
+  current_download?: string;
+  consent_email?: boolean;
+  consent_sms?: boolean;
+  consent_whatsapp?: boolean;
+  formentry_id?: string | number;
+  attribution_id?: string;
+  referral_key?: string;
+};
+
 /**
- * Helper to track form submission
+ * Helper to track form submission — pushes conversion event + collected form fields.
  */
 export async function trackFormSubmission(
   conversionName: ConversionName,
-  formData: {
-    email?: string;
-    first_name?: string;
-    phone?: string;
-    program?: string;
-    location?: string;
-    formentry_id?: string | number;
-    attribution_id?: string;
-    referral_key?: string;
-  }
+  formData: FormSubmissionTrackingData
 ): Promise<void> {
   const payload: ConversionPayload = {};
 
-  if (formData.first_name) payload.first_name = formData.first_name;
-  if (formData.phone) payload.phone = formData.phone;
-  if (formData.program) payload.program = formData.program;
-  if (formData.location) payload.location = formData.location;
+  const setString = (key: keyof ConversionPayload, value: string | undefined) => {
+    if (typeof value === "string" && value.trim() !== "") {
+      payload[key] = value;
+    }
+  };
+
+  setString("first_name", formData.first_name);
+  setString("last_name", formData.last_name);
+  setString("phone", formData.phone);
+  setString("program", formData.program);
+  setString("plan", formData.plan);
+  setString("location", formData.location);
+  setString("region", formData.region);
+  setString("coupon", formData.coupon);
+  setString("client_comments", formData.client_comments);
+  setString("current_download", formData.current_download);
+  setString("attribution_id", formData.attribution_id);
+  setString("referral_key", formData.referral_key);
+
   if (formData.formentry_id !== undefined && formData.formentry_id !== "") {
     payload.formentry_id = formData.formentry_id;
   }
-  if (formData.attribution_id) payload.attribution_id = formData.attribution_id;
-  if (formData.referral_key) payload.referral_key = formData.referral_key;
+  if (typeof formData.consent_email === "boolean") {
+    payload.consent_email = formData.consent_email;
+  }
+  if (typeof formData.consent_sms === "boolean") {
+    payload.consent_sms = formData.consent_sms;
+  }
+  if (typeof formData.consent_whatsapp === "boolean") {
+    payload.consent_whatsapp = formData.consent_whatsapp;
+  }
 
   // Plaintext email for GTM; hash kept under email_hash for legacy DLVs
   if (formData.email) {

@@ -1113,8 +1113,19 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           effective.conversion_name,
           {
             email: variables.email,
+            first_name: variables.first_name,
+            last_name: variables.last_name,
+            phone: variables.phone,
             program: fields.program,
+            plan: fields.plan,
             location: fields.location,
+            region: fields.region,
+            coupon: fields.coupon,
+            client_comments: variables.client_comments,
+            current_download: fields.current_download,
+            consent_email: variables.consent_email,
+            consent_sms: variables.consent_sms,
+            consent_whatsapp: variables.consent_whatsapp,
           }
         );
 
