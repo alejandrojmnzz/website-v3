@@ -27,7 +27,7 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
 - **Draft entry:** folder has **no** live `{locale}.yml`. Content lives in `{variant}.{locale}.yml` (often `draft.en.yml`) + `versioning.yml` at 0%. ContentIndex skips it → public 404, not in sitemap. Create/duplicate (non-shared-layout) start this way. Publish with `publish_draft` (all remaining draft locales at once).
 - **Live / published:** at least one `{locale}.yml` exists. Routable and sitemap-eligible (unless `robots: noindex`).
 - **Variant (of a live page):** `{variant}.{locale}.yml` beside a live `{locale}.yml`, registered in `versioning.yml`. Traffic allocation allowed. `promote_variant` replaces live for one locale. Soft guidance: confirm with the user before promote/publish.
-- **Shared-layout types** are excluded from draft-first create (still write live locales immediately).
+- **Shared-layout types** are excluded from draft-first create (still write live locales immediately). **Create/duplicate seeds exactly one live locale** — multi-locale create is rejected. A second language at create would go public before fields/body exist (broken listings/hreflang). Add translations later with `translate_page` → `draft.{locale}.yml` → promote (detach first if still attached). Non-effects: create does not invent sibling locales; whole-entry draft-first remains out of scope for shared-layout.
 
 ## Merge behavior
 
@@ -63,6 +63,7 @@ Types with a `database.slug` key (or static types with `single_template: true`) 
 - Empty `sections: []` stubs are invalid; new/missing locale singles should be mirrored from a sibling.
 - Content props stay locale-local. Topology + `showOn*` / generic layout sync across siblings in the structured UI.
 - Changing `type` / `version` / `variant` does **not** auto-replicate — update sibling locales manually.
+- **Entry create:** exactly one live `{locale}.yml` (EN or ES — no primary special case). Gate: `createContentEntry` / MCP `create_page`.
 - **MCP does not auto-fan-out.** After a structural edit to one locale single, follow structured `next_actions` (exact tool name + `args_hint` + blast-radius `reason`) to update sibling `single.*.yml` files yourself. Soft prose warnings alone are not enough. Use `layout_target: "type_single"` | `"entry"` (or answer `confirm_layout_target`) so writes hit the shared single vs entry overlay intentionally. Mutating tool responses always include `warnings` and `next_actions` arrays via `ok()` / `actionRequired()`.
 
 ## Template variables

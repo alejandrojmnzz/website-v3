@@ -45,6 +45,7 @@ import {
 } from "./shared-layout-sync";
 import {
   isEntryDetached,
+  isSharedLayoutType,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
 import {
@@ -54,6 +55,13 @@ import {
   writeVersioningFile,
   rejectLiveWriteIfDraft,
 } from "./draft-entry";
+
+/** Shared-layout create/duplicate: exactly one live locale (no empty sibling stubs). */
+export const SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR =
+  "Shared-layout types go live immediately and must be created with exactly one locale. " +
+  "Seeding a second locale at create writes a public locale file before content exists " +
+  "(empty/broken URLs in listings and language switchers). " +
+  "Create the first locale now; add translations later as drafts (detach if needed, then translate_page / draft locale, then promote).";
 import {
   RESERVED_PUBLISHED_AT_FIELD,
   clearPublishedAtFromCommon,
@@ -1940,20 +1948,36 @@ export async function createContentEntry(
     skipLocales = [], uniqueFieldValues = {}, urlParamValues = {}, localeTitles = {}, author,
   } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
+  const contentRootAbs = path.join(process.cwd(), rootName);
   const isFreshCreate = !sourceUrl && !sourceSlug;
 
   if (!type || !title) {
     return { success: false, statusCode: 400, error: "Missing required fields: type, title" };
   }
-  if (!isValidType(type)) {
-    return { success: false, statusCode: 400, error: `Invalid type. Must be one of: ${getAllTypes().join(", ")}` };
+  if (!isValidType(type, contentRootAbs)) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: `Invalid type. Must be one of: ${getAllTypes(contentRootAbs).join(", ")}`,
+    };
   }
 
-  const typeConfigForParams = getContentTypeConfig(type);
+  const typeConfigForParams = getContentTypeConfig(type, contentRootAbs);
   const urlParams = listExtraUrlPatternParams(typeConfigForParams?.url_pattern);
-  const urlParamShapes = inferUrlParamShapes(type, urlParams);
+  const urlParamShapes = inferUrlParamShapes(type, urlParams, rootName);
+
+  const draftFirst = usesDraftFirstCreate(type, contentRootAbs);
+  const sharedLayout = isSharedLayoutType(type, contentRootAbs);
 
   const activeUrlLocales = getSupportedLocales().filter(l => !skipLocales.includes(l));
+  if (sharedLayout && activeUrlLocales.length !== 1) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR,
+    };
+  }
+
   const urlParamValueForLocale = (param: string, loc: string): string | null =>
     normalizeUrlParamInput(urlParamValues[loc]?.[param]) ??
     normalizeUrlParamInput(uniqueFieldValues[param]);
@@ -2015,9 +2039,6 @@ export async function createContentEntry(
   }
 
   fs.mkdirSync(folderPath, { recursive: true });
-
-  const contentRootAbs = path.join(process.cwd(), rootName);
-  const draftFirst = usesDraftFirstCreate(type, contentRootAbs);
   const draftVariant = DEFAULT_DRAFT_VARIANT;
   const relFolder = `${rootName}/${getFolder(type)}/${folderSlug}`;
 
@@ -2295,52 +2316,55 @@ export async function createContentEntry(
           parsedDupFiles.push({ file: outFile, parsed });
         }
 
-        // Synthesize missing locale files from the source
-        const supportedLocs = getSupportedLocales();
-        const existingSourceLocale =
-          supportedLocs.find(l => liveLocaleStems.has(l)) ||
-          supportedLocs.find(l => draftLocaleFromFiles.has(l));
-        if (existingSourceLocale) {
-          for (const loc of supportedLocs) {
-            if (skipLocales.includes(loc) || liveLocaleStems.has(loc) || (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0)) {
+        // Synthesize missing locale files from the source (never for shared-layout —
+        // those must stay single-locale at create/duplicate).
+        if (!sharedLayout) {
+          const supportedLocs = getSupportedLocales();
+          const existingSourceLocale =
+            supportedLocs.find(l => liveLocaleStems.has(l)) ||
+            supportedLocs.find(l => draftLocaleFromFiles.has(l));
+          if (existingSourceLocale) {
+            for (const loc of supportedLocs) {
+              if (skipLocales.includes(loc) || liveLocaleStems.has(loc) || (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0)) {
+                if (skipLocales.includes(loc)) continue;
+                if (liveLocaleStems.has(loc)) continue;
+                if (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0) continue;
+              }
               if (skipLocales.includes(loc)) continue;
               if (liveLocaleStems.has(loc)) continue;
-              if (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0) continue;
-            }
-            if (skipLocales.includes(loc)) continue;
-            if (liveLocaleStems.has(loc)) continue;
-            // Already have draft for this locale from copy
-            if (parsedDupFiles.some((f) => f.file === `${draftVariant}.${loc}.yml` || f.file === `${loc}.yml`)) continue;
+              // Already have draft for this locale from copy
+              if (parsedDupFiles.some((f) => f.file === `${draftVariant}.${loc}.yml` || f.file === `${loc}.yml`)) continue;
 
-            const srcFile = liveLocaleStems.has(existingSourceLocale)
-              ? `${existingSourceLocale}.yml`
-              : `${draftLocaleFromFiles.get(existingSourceLocale)}.yml`;
-            const srcRaw = fs.readFileSync(path.join(foundSourceFolder, srcFile), "utf8");
-            const cloned = contentIndex.safeYamlLoad(srcRaw) as Record<string, unknown> | null;
-            if (!cloned) continue;
-            delete cloned.redirects;
-            if (cloned.meta && typeof cloned.meta === "object") {
-              delete (cloned.meta as Record<string, unknown>).redirects;
-            }
-            cloned.slug = loc === "es" ? (esSlug || folderSlug) : (enSlug || folderSlug);
-            cloned.locale = loc;
-            const clonedTitle = localeTitles[loc] || title;
-            cloned.title = clonedTitle;
-            if (clonedTitle) {
-              if (!cloned.meta || typeof cloned.meta !== "object") cloned.meta = {};
-              (cloned.meta as Record<string, unknown>).page_title = clonedTitle;
-            }
-            for (const param of perLocaleUrlParams) {
-              const v = urlParamValueForLocale(param, loc);
-              if (v) {
-                const existing = cloned[param];
-                cloned[param] = existing !== undefined
-                  ? coerceToOriginalType(v, existing)
-                  : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+              const srcFile = liveLocaleStems.has(existingSourceLocale)
+                ? `${existingSourceLocale}.yml`
+                : `${draftLocaleFromFiles.get(existingSourceLocale)}.yml`;
+              const srcRaw = fs.readFileSync(path.join(foundSourceFolder, srcFile), "utf8");
+              const cloned = contentIndex.safeYamlLoad(srcRaw) as Record<string, unknown> | null;
+              if (!cloned) continue;
+              delete cloned.redirects;
+              if (cloned.meta && typeof cloned.meta === "object") {
+                delete (cloned.meta as Record<string, unknown>).redirects;
               }
+              cloned.slug = loc === "es" ? (esSlug || folderSlug) : (enSlug || folderSlug);
+              cloned.locale = loc;
+              const clonedTitle = localeTitles[loc] || title;
+              cloned.title = clonedTitle;
+              if (clonedTitle) {
+                if (!cloned.meta || typeof cloned.meta !== "object") cloned.meta = {};
+                (cloned.meta as Record<string, unknown>).page_title = clonedTitle;
+              }
+              for (const param of perLocaleUrlParams) {
+                const v = urlParamValueForLocale(param, loc);
+                if (v) {
+                  const existing = cloned[param];
+                  cloned[param] = existing !== undefined
+                    ? coerceToOriginalType(v, existing)
+                    : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+                }
+              }
+              const synthFile = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
+              parsedDupFiles.push({ file: synthFile, parsed: cloned });
             }
-            const synthFile = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
-            parsedDupFiles.push({ file: synthFile, parsed: cloned });
           }
         }
 

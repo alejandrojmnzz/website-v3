@@ -1870,17 +1870,19 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Create a brand-new YAML-driven page. For normal (non-shared-layout) types this creates an unpublished DRAFT: " +
     "writes _common.yml + draft.{locale}.yml + versioning.yml (0% allocation). The page is NOT public and NOT in the sitemap until published. " +
     "Edit with variant: 'draft', then call publish_draft (all remaining locales at once). Confirm with the user before publishing.\n" +
-    "Shared-layout types still write live locale files immediately.\n\n" +
+    "Shared-layout types write exactly ONE live locale immediately (multi-locale create is rejected). " +
+    "Add translations later with translate_page (draft until promote) after the first locale exists — " +
+    "do not seed empty sibling locales at create.\n\n" +
     "What the caller must supply:\n" +
     "  • contentType — a non-DB-backed content type from content-types.yml\n" +
     "  • slug — URL-safe identifier that must not already exist\n" +
     "  • common — object written verbatim to _common.yml\n" +
-    "  • locales — map of locale code → { meta?, sections } for every locale to seed\n\n" +
+    "  • locales — map of locale code → { meta?, sections }. Shared-layout: exactly one key. Draft-first: one or more.\n\n" +
     "NOTE — copying sections from another page: staff/API page duplicate wipes conversion_name, ecommerce_products, " +
     "and CTA tracking (see explain_site topic component-behaviors). create_page does NOT auto-wipe; if you paste " +
     "sections from elsewhere, deliberately set fresh conversion/ecommerce identity fields.\n\n" +
     "Possible errors: unknown/DB-backed contentType, slug already exists, path traversal detected, " +
-    "invalid locale code, permission denied.",
+    "invalid locale code, shared-layout multi-locale create, permission denied.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing', 'location'. Must match a non-DB-backed entry in content-types.yml."),
       slug: z.string().describe("URL-safe slug for the new page, e.g. 'machine-learning-bootcamp'. Must not already exist for this content type."),
@@ -1888,7 +1890,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       locales: z.record(z.object({
         meta: z.record(z.unknown()).optional().describe("Meta/SEO fields for this locale, e.g. { page_title: '...', description: '...', robots: 'index, follow' }"),
         sections: z.array(z.record(z.unknown())).describe("Sections array for this locale. May be empty ([]) for a blank page."),
-      })).describe("Map of locale code → { meta?, sections }. Must include at least one locale. E.g. { en: { meta: { page_title: 'ML Bootcamp | 4Geeks', description: '...', robots: 'index, follow' }, sections: [] } }"),
+      })).describe("Map of locale code → { meta?, sections }. Shared-layout: exactly one locale. Draft-first: at least one. E.g. { en: { meta: { page_title: 'ML Bootcamp | 4Geeks', description: '...', robots: 'index, follow' }, sections: [] } }"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, common, locales, site }) => {
@@ -1928,6 +1930,32 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
+      const sharedLayoutCreate = isSharedLayoutConfig(config) || !!config.single_template;
+      if (sharedLayoutCreate && localeKeys.length !== 1) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "shared_layout_single_locale_create",
+            code: "shared_layout_single_locale_create",
+            message:
+              "Shared-layout types go live immediately and must be created with exactly one locale. " +
+              "Seeding a second locale at create writes a public locale file before content exists " +
+              "(empty/broken URLs). Create the first locale now; add translations later via translate_page (draft → promote).",
+            contentType,
+            slug,
+            locales_provided: localeKeys,
+          },
+          [
+            {
+              tool: "create_page",
+              reason: "Retry with exactly one key in locales (e.g. only en or only es)",
+              args_hint: { contentType, slug, locales: { [localeKeys[0]]: locales[localeKeys[0]] } },
+              priority: "required",
+            },
+          ],
+        );
+      }
+
       const ctDir = getDirectory(contentType, config);
       const pageDir = path.join(contentPath, ctDir, slug);
       try { assertWithinBase(pageDir, contentPath); } catch (e) {
@@ -1937,7 +1965,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail(`Page '${slug}' already exists for contentType '${contentType}'.`);
       }
 
-      const draftFirst = !isSharedLayoutConfig(config) && !config.single_template;
+      const draftFirst = !sharedLayoutCreate;
       const draftVariant = "draft";
 
       fs.mkdirSync(pageDir, { recursive: true });
@@ -2012,8 +2040,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           reason: "When ready, publish all remaining draft locales at once (confirm with the user first).",
           args_hint: { contentType, slug, variantSlug: draftVariant },
         });
-      } else if (isSharedLayoutConfig(config) || config.single_template) {
+      } else if (sharedLayoutCreate) {
         warnings.push(CREATE_PAGE_SHARED_LAYOUT_WARNING);
+        warnings.push({
+          code: "shared_layout_single_locale_create",
+          message:
+            `Created live ${primaryLocale}.yml only. Did not seed sibling locales. ` +
+            "Add translations later with translate_page (draft until promote) after content is ready; detach first if still attached.",
+        });
         warnings.push({
           code: "published_at_stamped",
           message:
