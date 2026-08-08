@@ -141,6 +141,7 @@ import {
   findSourceDraftVariant,
   usesDraftFirstCreate,
 } from "../draft-entry";
+import { ensurePublishedAtOnce } from "../published-at";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
 import {
@@ -671,6 +672,13 @@ export function registerVersioningRoutes(app: Express): void {
         publishedLocales.push(locale);
       }
 
+      if (!resolved.templateMode) {
+        ensurePublishedAtOnce(contentType, resolved.slug, {
+          author: auth.author || "api",
+          contentRoot: root,
+        });
+      }
+
       getCI(res).refresh();
       getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
@@ -748,6 +756,9 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const wasUnpublished =
+      !resolved.templateMode && !hasAnyLiveLocale(contentDir, resolved.templateMode);
+
     try {
       const variantContent = fs.readFileSync(variantFilePath, "utf-8");
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
@@ -763,6 +774,13 @@ export function registerVersioningRoutes(app: Express): void {
       }
 
       fs.unlinkSync(variantFilePath);
+
+      if (wasUnpublished) {
+        ensurePublishedAtOnce(contentType, resolved.slug, {
+          author: auth.author || "api",
+          contentRoot: root,
+        });
+      }
 
       getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();

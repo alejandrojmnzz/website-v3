@@ -89,25 +89,9 @@ async function loadEntriesForPreview(
     Object.values(preview.props).some((src) => src.trim() === "content");
   if (!needsContent) return items as Array<Record<string, unknown>>;
 
-  const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
-  const ci = getCI(res);
-  return (items as Array<Record<string, unknown>>).map((item) => {
-    if (typeof item.content === "string" && item.content.trim()) return item;
-    const slug = String(item.slug || "");
-    if (!slug) return item;
-    const locale = normalizeLocale(
-      String(item[localeKey] || item.lang || item.locale || item.language || "en"),
-    );
-    try {
-      const merged = ci.loadMergedContent(type, slug, locale);
-      const body = (merged?.data as Record<string, unknown> | undefined)?.content;
-      if (typeof body === "string" && body.trim()) {
-        return { ...item, content: body };
-      }
-    } catch {
-      /* keep listing row as-is */
-    }
-    return item;
+  return hydrateStaticListingContent(items as Array<Record<string, unknown>>, type, {
+    ci: getCI(res),
+    contentRoot: ctRoot(res),
   });
 }
 
@@ -298,7 +282,11 @@ import {
   clearMarkdownCacheByUrl,
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
-import { queryEntries, type QueryFilter } from "../query-entries";
+import {
+  hydrateStaticListingContent,
+  queryEntries,
+  type QueryFilter,
+} from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
 import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections } from "../database-single-loader";
 import {
@@ -2311,7 +2299,17 @@ export function registerContentRoutes(app: Express): void {
         req.query.include_content === "1" ||
         req.query.include_content === "true";
 
-      const stripped = items.map((item) => {
+      // Static listing projections omit `content`. When the caller asks for bodies
+      // (OG entry-preview live samples), restore them so reading_time can be derived.
+      const workingItems =
+        includeContent && meta.source === "content_type"
+          ? hydrateStaticListingContent(items as Array<Record<string, unknown>>, type, {
+              ci: getCI(res),
+              contentRoot: getContentRoot(res),
+            })
+          : (items as Array<Record<string, unknown>>);
+
+      const stripped = workingItems.map((item) => {
         const body = item.content;
         const reading_minutes =
           typeof body === "string" && body.trim()
@@ -2321,7 +2319,7 @@ export function registerContentRoutes(app: Express): void {
           return reading_minutes != null ? { ...item, reading_minutes } : item;
         }
         // List projections omit heavy bodies; keep reading_minutes for OG live preview.
-        const { content, readme, ...rest } = item as Record<string, unknown>;
+        const { content, readme, ...rest } = item;
         return reading_minutes != null ? { ...rest, reading_minutes } : rest;
       });
 
@@ -3304,6 +3302,15 @@ export function registerContentRoutes(app: Express): void {
               .map(([k, v]) => [k, v as string]),
           )
         : null;
+      if (Object.prototype.hasOwnProperty.call(fields, "published_at")) {
+        const pubVal = fields.published_at;
+        if (pubVal === null || pubVal === undefined || (typeof pubVal === "string" && pubVal.trim() === "")) {
+          res.status(400).json({
+            error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
+          });
+          return;
+        }
+      }
       const patched = getDB(res).patchDbEntry(
         dbName,
         lookupKey,
@@ -3332,6 +3339,12 @@ export function registerContentRoutes(app: Express): void {
       const author = typeof req.body?.author === "string" ? req.body.author : undefined;
       if (!field) {
         res.status(400).json({ error: "field is required" });
+        return;
+      }
+      if (field === "published_at") {
+        res.status(400).json({
+          error: "published_at cannot be reset or cleared; set a non-empty datetime to backdate.",
+        });
         return;
       }
       const config = getContentTypeConfig(type, ctRoot(res));

@@ -131,6 +131,13 @@ function FieldsEducationBlock({
               </p>
             )}
             <p>
+              <span className="font-medium text-foreground">Published date</span> (
+              <code className="text-xs font-mono">published_at</code>) is set when the entry first goes live
+              (create for blog / shared-layout; publish for drafts). Edit here to backdate — saves to{" "}
+              <code className="text-xs font-mono">_common.yml</code>. Cannot clear; later content edits do not
+              change it.
+            </p>
+            <p>
               Edits write to disk
               {hasDatabase ? ` (${dbPath} and/or ${ctPath})` : ` (${ctPath})`} — open advanced for path rules.
             </p>
@@ -162,6 +169,13 @@ function FieldsEducationBlock({
                     Content type override:{" "}
                     <code className="text-[11px] font-mono">{ctPath}</code> under{" "}
                     <code className="text-[11px] font-mono">field_overrides</code>
+                  </li>
+                  <li>
+                    <code className="text-[11px] font-mono">published_at</code> (static):{" "}
+                    <code className="text-[11px] font-mono">{directory}/{slug}/_common.yml</code> via{" "}
+                    <code className="text-[11px] font-mono">server/published-at.ts</code> — not locale
+                    overrides. Create stamps in <code className="text-[11px] font-mono">createContentEntry</code>;
+                    draft go-live via versioning publish/promote.
                   </li>
                 </ul>
               </div>

@@ -121,6 +121,11 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   Forbidden as regular schema keys: "slug" (use _slug), "image" (use _image).
 #   Do not index/unique _image. unique_fields may still list "slug" (the alias).
 #   _updated_at is never authored in YAML; templates use {{ single.updated_at }}.
+#   published_at — reserved editorial go-live time (not a system special). Stored in
+#     _common.yml; stamped once when the entry first goes live (create for shared-layout /
+#     non–draft-first; first draft→live publish/promote for draft-first). Never recomputed
+#     on save; cannot clear to empty. Manual override via Fields → _common.yml.
+#     Distinct from _updated_at (last modified). Not tied to YAML status: PUBLISHED.
 #
 # Template namespaces (delivery): {{ single.* }} → {{ meta.* }} → {{ param.* }} → brand/global
 #   meta: SEO head block. param: URL path + querystring (path wins on conflict).
@@ -146,6 +151,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   _slug: entry identity (aliased to single.slug at runtime)
 #   _image: preview / OG image URL source (aliased to single.image at runtime)
 #   _updated_at: last-modified source (aliased to single.updated_at; DB-mappable, static inject)
+#   published_at: reserved editorial go-live (authored; always ensured in field_mapping)
 #   Do not use plain "slug" or "image" as field_mapping keys.
 #
 # preview (optional):
@@ -346,6 +352,12 @@ export const RESERVED_UPDATED_AT_FIELD = "_updated_at";
 /** Template / list key populated from `_updated_at` (`{{ single.updated_at }}`). */
 export const UPDATED_AT_ALIAS_FIELD = "updated_at";
 
+/**
+ * Reserved editorial go-live timestamp (authored in `_common.yml`).
+ * Not a system special — never injected from file mtime; stamped once on go-live.
+ */
+export const RESERVED_PUBLISHED_AT_FIELD = "published_at";
+
 const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD]);
 
 export function isSystemSpecialField(key: string): boolean {
@@ -436,6 +448,13 @@ export function normalizeContentTypeFieldConfig(
         next[key] = "";
       }
     }
+  }
+
+  // Reserved editorial: always present as identity mapping when missing
+  if (!(RESERVED_PUBLISHED_AT_FIELD in next)) {
+    const prevPub = opts.previous?.[RESERVED_PUBLISHED_AT_FIELD];
+    next[RESERVED_PUBLISHED_AT_FIELD] =
+      prevPub !== undefined ? prevPub : RESERVED_PUBLISHED_AT_FIELD;
   }
 
   const stripProtected = (arr: string[] | undefined) =>

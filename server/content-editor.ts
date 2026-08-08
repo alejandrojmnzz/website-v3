@@ -56,6 +56,45 @@ import {
   writeVersioningFile,
   rejectLiveWriteIfDraft,
 } from "./draft-entry";
+import {
+  RESERVED_PUBLISHED_AT_FIELD,
+  clearPublishedAtFromCommon,
+  ensurePublishedAtOnce,
+  isPublishedAtEmpty,
+} from "./published-at";
+import { FIELD_OVERRIDES_KEY } from "./field-overrides";
+
+/** After duplicate copy: never keep source published_at; stamp if the copy is immediately live. */
+function applyPublishedAtAfterDuplicate(
+  type: string,
+  slug: string,
+  draftFirst: boolean,
+  author: string | undefined,
+  contentRoot: string,
+): void {
+  clearPublishedAtFromCommon(type, slug, author, contentRoot);
+  for (const loc of getSupportedLocales()) {
+    const localePath = path.join(contentRoot, getFolder(type, contentRoot), slug, `${loc}.yml`);
+    if (!fs.existsSync(localePath)) continue;
+    try {
+      const data = (yaml.load(fs.readFileSync(localePath, "utf-8")) as Record<string, unknown>) || {};
+      const ovr = data[FIELD_OVERRIDES_KEY];
+      if (ovr && typeof ovr === "object" && !Array.isArray(ovr) && RESERVED_PUBLISHED_AT_FIELD in (ovr as object)) {
+        const nextOvr = { ...(ovr as Record<string, unknown>) };
+        delete nextOvr[RESERVED_PUBLISHED_AT_FIELD];
+        if (Object.keys(nextOvr).length === 0) delete data[FIELD_OVERRIDES_KEY];
+        else data[FIELD_OVERRIDES_KEY] = nextOvr;
+        fs.writeFileSync(localePath, yaml.dump(data, { lineWidth: 120, noRefs: true, sortKeys: false }), "utf-8");
+        markFileAsModified(localePath, author, undefined, contentRoot);
+      }
+    } catch {
+      /* ignore locale cleanup errors */
+    }
+  }
+  if (!draftFirst) {
+    ensurePublishedAtOnce(type, slug, { author, contentRoot });
+  }
+}
 import { getOrCreateStaffUserId, getUser } from "./user-store";
 import {
   refreshSitemapEntry,
@@ -1351,6 +1390,14 @@ export function editCommonContent(request: CommonEditRequest): { success: boolea
       if (op.action !== "update_field") {
         return { success: false, error: `Unsupported operation: ${op.action}` };
       }
+      if (op.path === RESERVED_PUBLISHED_AT_FIELD || op.path.startsWith(`${RESERVED_PUBLISHED_AT_FIELD}.`)) {
+        if (op.value === undefined || isPublishedAtEmpty(op.value)) {
+          return {
+            success: false,
+            error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
+          };
+        }
+      }
       if (op.value === undefined) {
         delete commonData[op.path];
       } else {
@@ -1908,6 +1955,7 @@ export async function createContentEntry(
               }
             }
             writeDraftVersioning(draftLocales);
+            applyPublishedAtAfterDuplicate(type, folderSlug, true, author, contentRootAbs);
             contentIndex.refresh();
             invalidateContentCaches(type);
             return {
@@ -1926,6 +1974,7 @@ export async function createContentEntry(
             };
           }
 
+          applyPublishedAtAfterDuplicate(type, folderSlug, false, author, contentRootAbs);
           refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
           contentIndex.refresh();
           invalidateContentCaches(type);
@@ -2049,6 +2098,11 @@ export async function createContentEntry(
                 ? coerceToOriginalType(value, existing)
                 : formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
             }
+            // Duplicates never keep source go-live date
+            delete parsed[RESERVED_PUBLISHED_AT_FIELD];
+            if (!draftFirst) {
+              parsed[RESERVED_PUBLISHED_AT_FIELD] = new Date().toISOString();
+            }
           } else if (
             file === "en.yml" || file === "es.yml" ||
             (draftFirst && (/^[a-z]{2}(-[a-z]{2})?\.ya?ml$/.test(file) || localeFromDraft))
@@ -2067,6 +2121,14 @@ export async function createContentEntry(
                   ? coerceToOriginalType(v, existing)
                   : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
               }
+            }
+            // Drop locale override of reserved go-live date (canonical is _common.yml)
+            const ovr = parsed[FIELD_OVERRIDES_KEY];
+            if (ovr && typeof ovr === "object" && !Array.isArray(ovr)) {
+              const nextOvr = { ...(ovr as Record<string, unknown>) };
+              delete nextOvr[RESERVED_PUBLISHED_AT_FIELD];
+              if (Object.keys(nextOvr).length === 0) delete parsed[FIELD_OVERRIDES_KEY];
+              else parsed[FIELD_OVERRIDES_KEY] = nextOvr;
             }
           }
           parsedDupFiles.push({ file: outFile, parsed });
@@ -2186,7 +2248,10 @@ export async function createContentEntry(
     if (key === "slug") commonObj.slug = folderSlug;
     else if (key === "title") commonObj.title = title;
     else if (key === "locale") commonObj.locale = activeLocale;
-    else if (urlParams.includes(key)) {
+    else if (key === RESERVED_PUBLISHED_AT_FIELD) {
+      // Draft-first: omit until publish/promote. Live create: stamp now.
+      if (!draftFirst) commonObj[key] = new Date().toISOString();
+    } else if (urlParams.includes(key)) {
       const uniform = uniformUrlParams[key];
       commonObj[key] = uniform
         ? formatUrlParamFieldValue(uniform, urlParamShapes[key] ?? "string")

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ContentIndex } from "./content-index";
 import { resetRegistry } from "./content-types";
 import {
+  hydrateStaticListingContent,
   invalidateStaticListingCache,
   queryEntries,
 } from "./query-entries";
@@ -204,6 +205,26 @@ describe("queryEntries static content type", () => {
     );
     const alpha = items.find((i) => i.slug === "post-alpha");
     expect(alpha?._resolved_url).toBe("/en/blog/ai/post-alpha");
+  });
+
+  it("hydrates omitted content bodies for OG live preview", async () => {
+    const { items } = await queryEntries(
+      { from: { contentType: "blog" }, locale: "en" },
+      { contentIndex: ci, contentRoot },
+    );
+    const alpha = items.find((i) => i.slug === "post-alpha");
+    expect(alpha).not.toHaveProperty("content");
+
+    const hydrated = hydrateStaticListingContent(items, "blog", {
+      ci,
+      contentRoot,
+    });
+    const hydratedAlpha = hydrated.find((i) => i.slug === "post-alpha");
+    expect(typeof hydratedAlpha?.content).toBe("string");
+    expect(String(hydratedAlpha?.content)).toContain("Long markdown");
+
+    const hydratedBeta = hydrated.find((i) => i.slug === "post-beta");
+    expect(hydratedBeta).not.toHaveProperty("content");
   });
 
   it("caches static projections until invalidated", async () => {

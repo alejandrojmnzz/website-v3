@@ -1406,20 +1406,40 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         const data = await res.json() as { error?: string };
         if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+        const isPublishedAt = field === "published_at";
         return ok(
-          { message: `Content-type field_overrides set for ${ct}/${slug}.${field} → ${relPath}` },
           {
-            warnings: [
+            message: isPublishedAt
+              ? `published_at set for ${ct}/${slug} on _common.yml (static) or DB override`
+              : `Content-type field_overrides set for ${ct}/${slug}.${field} → ${relPath}`,
+          },
+          {
+            warnings: isPublishedAt
+              ? [
+                  {
+                    code: "published_at_common",
+                    message:
+                      "Static published_at writes _common.yml (listings sort from there). Locale field_overrides.published_at cleared. Cannot clear to empty. Paths: server/published-at.ts, field-overrides write path.",
+                  },
+                ]
+              : [
+                  {
+                    code: "ct_override_page_only",
+                    message: `Wrote field_overrides on ${relPath}. Page/YAML only; does not change database listings.`,
+                  },
+                  {
+                    code: "ct_override_locale_only",
+                    message: `Locale ${locale} only; sibling locales and variant files unchanged. Live file only (not _common.yml).`,
+                  },
+                ],
+            side_effects: [
               {
-                code: "ct_override_page_only",
-                message: `Wrote field_overrides on ${relPath}. Page/YAML only; does not change database listings.`,
-              },
-              {
-                code: "ct_override_locale_only",
-                message: `Locale ${locale} only; sibling locales and variant files unchanged. Live file only (not _common.yml).`,
+                kind: "wrote_file",
+                summary: isPublishedAt
+                  ? `${ctDir}/${slug}/_common.yml#published_at`
+                  : `${relPath}#field_overrides.${field}`,
               },
             ],
-            side_effects: [{ kind: "wrote_file", summary: `${relPath}#field_overrides.${field}` }],
             next_actions: [getHint],
           },
         );
@@ -1714,13 +1734,20 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             slug,
           },
           {
-            warnings: [{
-              code: "page_now_live",
-              message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
-            }],
+            warnings: [
+              {
+                code: "page_now_live",
+                message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
+              },
+              {
+                code: "published_at_stamp",
+                message:
+                  "If published_at was missing/empty, server stamped ISO now on _common.yml once (ensurePublishedAtOnce). Non-empty dates are not overwritten. Not tied to YAML status.",
+              },
+            ],
             side_effects: [{
               kind: "publish_all_locales",
-              summary: `Promoted ${variantSlug} to live locale files; remaining drafts are variants at 0%`,
+              summary: `Promoted ${variantSlug} to live locale files; remaining drafts are variants at 0%; may stamp published_at on _common.yml`,
             }],
             next_actions: [],
           },
@@ -1920,6 +1947,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           code: "draft_unpublished",
           message: "Page is an unpublished draft (no live locale files). Not in sitemap; public URL 404s until publish_draft.",
         });
+        warnings.push({
+          code: "published_at_omitted",
+          message:
+            "published_at omitted on draft create (missing OK). Stamped once on publish_draft / first promote — not recomputed; cannot clear to empty.",
+        });
         side_effects.push({
           kind: "draft_created",
           summary: `Wrote ${draftVariant}.{locale}.yml + versioning.yml; live {locale}.yml not created`,
@@ -1939,12 +1971,23 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
       } else if (isSharedLayoutConfig(config) || config.single_template) {
         warnings.push(CREATE_PAGE_SHARED_LAYOUT_WARNING);
+        warnings.push({
+          code: "published_at_stamped",
+          message:
+            "Live create stamps published_at=now on _common.yml (shared-layout/blog). Distinct from _updated_at; not tied to YAML status.",
+        });
         side_effects.push(sharedTemplateBlastSideEffect(contentType, primaryLocale));
         next_actions.push({
           tool: "get_page_content",
           priority: "recommended",
           reason: "Shared-layout entry inherits structure from single.{locale}.yml — re-read merged content before editing sections.",
           args_hint: { contentType, slug, locale: primaryLocale },
+        });
+      } else {
+        warnings.push({
+          code: "published_at_stamped",
+          message:
+            "Live create stamps published_at=now on _common.yml when the type is not draft-first.",
         });
       }
 

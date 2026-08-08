@@ -7,12 +7,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { getFolder, getContentTypeConfig, getFieldMapping, getFullFieldMapping, getLookupKey, RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD, RESERVED_SLUG_FIELD, SLUG_ALIAS_FIELD, KNOWN_SPECIAL_FIELDS } from "./content-types";
+import { getFolder, getContentTypeConfig, getFieldMapping, getFullFieldMapping, getLookupKey, RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD, RESERVED_SLUG_FIELD, SLUG_ALIAS_FIELD, KNOWN_SPECIAL_FIELDS, RESERVED_PUBLISHED_AT_FIELD } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { contentIndex } from "./content-index";
 import { markFileAsModified } from "./sync-state";
 import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
+import { isPublishedAtEmpty, setPublishedAt } from "./published-at";
 
 export const FIELD_OVERRIDES_KEY = "field_overrides";
 
@@ -95,6 +96,34 @@ export function writeFieldOverrides(
   const folder = getFolder(contentType, contentRoot);
   const entryDir = path.join(root, folder, slug);
   const filePath = path.join(entryDir, `${locale}.yml`);
+  const config = getContentTypeConfig(contentType, contentRoot);
+  const isStatic = !config?.database?.slug;
+
+  // Reserved editorial published_at: static types write _common.yml (listings sort from there).
+  const pendingUpdates: Record<string, unknown | null> = { ...updates };
+  if (Object.prototype.hasOwnProperty.call(pendingUpdates, RESERVED_PUBLISHED_AT_FIELD)) {
+    const pubVal = pendingUpdates[RESERVED_PUBLISHED_AT_FIELD];
+    if (pubVal === null || pubVal === undefined || isPublishedAtEmpty(pubVal)) {
+      return {
+        success: false,
+        error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
+      };
+    }
+    if (isStatic) {
+      const written = setPublishedAt(
+        contentType,
+        slug,
+        String(pubVal),
+        author,
+        contentRoot,
+      );
+      if (!written.success) {
+        return { success: false, error: written.error || "Failed to write published_at" };
+      }
+      // Clear any locale override so provenance matches _common
+      pendingUpdates[RESERVED_PUBLISHED_AT_FIELD] = null;
+    }
+  }
 
   try {
     if (!fs.existsSync(entryDir)) {
@@ -114,7 +143,7 @@ export function writeFieldOverrides(
         ? { ...(entryData[FIELD_OVERRIDES_KEY] as Record<string, unknown>) }
         : {};
 
-    for (const [key, value] of Object.entries(updates)) {
+    for (const [key, value] of Object.entries(pendingUpdates)) {
       if (value === null || value === undefined) {
         delete existing[key];
       } else {

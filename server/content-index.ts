@@ -517,7 +517,13 @@ export class ContentIndex {
   }
 
   private contentTypeHasRedirects(contentType: string): boolean {
-    return contentType === "program" || contentType === "landing" || contentType === "page" || contentType === "location";
+    return (
+      contentType === "program" ||
+      contentType === "landing" ||
+      contentType === "page" ||
+      contentType === "location" ||
+      contentType === "blog"
+    );
   }
 
   private addImageRef(ref: string, filePath: string): void {
