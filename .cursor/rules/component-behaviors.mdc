@@ -44,4 +44,16 @@ Funnel order is **not** a section property — use `get_product_funnel` / `updat
 
 CMS does **not** manage a billing plan catalog.
 
+## Wipe on duplicate (derived)
+
+Page/section duplicate clears conversion/ecommerce identity fields (no `reset_on_duplicate` schema key):
+
+- Any `conversion_name` under the section (including `routes[].conversion_name`)
+- Whole `ecommerce_products`
+- CTA `tracking` on bound `cta-tracking` paths (delete → save fails until re-set)
+
+Not wiped (v1): `programs[].id`, automations/webhook/tags, ordinary props.
+
+When adding a component: binding `form-settings`, `cta-tracking`, or `ecommerce-products` **implies** those values wipe on duplicate. Default for new props: do **not** wipe. Duplicate never fails; save/publish validators block empty conversion/tracking/scope.
+
 Catalog: `docs/component-behaviors.md`. MCP: `explain_site` topics `component-behaviors` + `ecommerce`. Schema-sync **preserves** `behaviors`.

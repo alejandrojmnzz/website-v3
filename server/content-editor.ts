@@ -3,7 +3,10 @@ import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
-import { validateFormSection } from "@shared/validateFormSection";
+import {
+  validateFormSection,
+  validateRequiredConversionName,
+} from "@shared/validateFormSection";
 import {
   validateCtaTracking,
   validateCtaPurchasable,
@@ -11,6 +14,12 @@ import {
 } from "@shared/validateCtaTracking";
 import { validateProductScope } from "@shared/resolveProductScope";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
+import {
+  wipeSectionOnDuplicate,
+  wipeDocumentSectionsOnDuplicate,
+  resolveBoundFormSettingsPath,
+  type ClearedField,
+} from "@shared/wipeOnDuplicate";
 import { getTrackingSettings } from "./settings";
 import { generateSectionId } from "./utils/generateSectionId";
 import { loadAllFieldEditors, getComponentInfo } from "./component-registry";
@@ -162,7 +171,11 @@ function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: un
   }
 }
 
-function applyOperation(content: Record<string, unknown>, operation: EditOperation): void {
+function applyOperation(
+  content: Record<string, unknown>,
+  operation: EditOperation,
+): { clearedFields?: ClearedField[]; insertedSectionIndex?: number } {
+  const result: { clearedFields?: ClearedField[]; insertedSectionIndex?: number } = {};
   switch (operation.action) {
     case "update_field": {
       setValueAtPath(content, operation.path, operation.value);
@@ -192,22 +205,41 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
       }
       
       let insertedIndex: number;
+      let itemToInsert = operation.item;
+      if (operation.path === "sections" && itemToInsert && typeof itemToInsert === "object") {
+        const raw = itemToInsert as Record<string, unknown>;
+        const sectionType = String(raw.type ?? "");
+        const editors = loadAllFieldEditors()[sectionType] ?? {};
+        const { section: wiped, cleared } = wipeSectionOnDuplicate(raw, editors);
+        wiped.section_id = generateSectionId((wiped.type as string) || "section");
+        if (!wiped.paddingY) {
+          wiped.paddingY = { desktop: "sm" };
+        }
+        itemToInsert = wiped;
+        if (cleared.length > 0) {
+          result.clearedFields = cleared.map((path) => ({
+            sectionType,
+            path,
+            sectionIndex: operation.index !== undefined && operation.index >= 0
+              ? operation.index
+              : arr.length,
+          }));
+        }
+      }
       if (operation.index !== undefined && operation.index >= 0 && operation.index <= arr.length) {
-        arr.splice(operation.index, 0, operation.item);
+        arr.splice(operation.index, 0, itemToInsert);
         insertedIndex = operation.index;
       } else {
-        arr.push(operation.item);
+        arr.push(itemToInsert);
         insertedIndex = arr.length - 1;
       }
       if (operation.path === "sections") {
-        const inserted = arr[insertedIndex] as Record<string, unknown>;
-        if (inserted && typeof inserted === "object") {
-          if (!inserted.section_id) {
-            inserted.section_id = generateSectionId((inserted.type as string) || "section");
-          }
-          if (!inserted.paddingY) {
-            inserted.paddingY = { desktop: "sm" };
-          }
+        result.insertedSectionIndex = insertedIndex;
+        if (result.clearedFields) {
+          result.clearedFields = result.clearedFields.map((c) => ({
+            ...c,
+            sectionIndex: insertedIndex,
+          }));
         }
       }
       break;
@@ -267,9 +299,16 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
       break;
     }
   }
+  return result;
 }
 
-export async function editContent(request: ContentEditRequest): Promise<{ success: boolean; error?: string; warning?: string; updatedSections?: unknown[] }> {
+export async function editContent(request: ContentEditRequest): Promise<{
+  success: boolean;
+  error?: string;
+  warning?: string;
+  updatedSections?: unknown[];
+  clearedFields?: ClearedField[];
+}> {
   const { contentType, slug, locale: rawLocale, operations, variant, version, contentRoot } = request;
   // Use per-site ContentIndex when provided (avoids resolving files against default site)
   const ci = request.ci ?? contentIndex;
@@ -715,8 +754,18 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     }
 
     // Apply all operations to the locale data (this is what gets saved)
+    const clearedFields: ClearedField[] = [];
+    const skipIdentityValidationIndexes = new Set<number>();
     for (const operation of resolvedOperations) {
-      applyOperation(localeData, operation);
+      const opResult = applyOperation(localeData, operation);
+      if (opResult.clearedFields?.length) {
+        clearedFields.push(...opResult.clearedFields);
+      }
+      if (typeof opResult.insertedSectionIndex === "number") {
+        // Newly duplicated sections may be invalid until staff re-sets conversion/ecommerce.
+        // Allow the duplicate write itself; later saves validate all sections.
+        skipIdentityValidationIndexes.add(opResult.insertedSectionIndex);
+      }
     }
 
     // Strip null/non-object entries from sections before writing — a null section
@@ -746,6 +795,8 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       };
       for (let i = 0; i < (localeData.sections as Record<string, unknown>[]).length; i++) {
         const section = (localeData.sections as Record<string, unknown>[])[i];
+        const skipIdentity = skipIdentityValidationIndexes.has(i);
+
         const formErr = validateFormSection(section, conversionNames);
         if (formErr) {
           return { success: false, error: `sections[${i}]: ${formErr}` };
@@ -753,36 +804,44 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
 
         const sectionType = String(section.type ?? "");
         const editors = allFieldEditors[sectionType] ?? {};
-        const variant = typeof section.variant === "string" ? section.variant : undefined;
-        const ctaPaths = resolveBoundCtaPaths(editors, variant);
+        const sectionVariant = typeof section.variant === "string" ? section.variant : undefined;
+        const ctaPaths = resolveBoundCtaPaths(editors, sectionVariant);
         const info = getComponentInfo(sectionType);
         const hasEcommerceBehavior = Boolean(info?.behaviors?.includes("ecommerce"));
+        const formSettingsPath = resolveBoundFormSettingsPath(editors, sectionVariant);
 
-        const trackingErr = validateCtaTracking(section, ctaPaths);
-        if (trackingErr) {
-          return { success: false, error: `sections[${i}]: ${trackingErr}` };
-        }
+        if (!skipIdentity) {
+          const requiredConvErr = validateRequiredConversionName(section, formSettingsPath);
+          if (requiredConvErr) {
+            return { success: false, error: `sections[${i}]: ${requiredConvErr}` };
+          }
 
-        const purchasableErr = validateCtaPurchasable(section, ctaPaths, {
-          contentSlug: slug,
-          contentType,
-          resolveProduct,
-        });
-        if (purchasableErr) {
-          return { success: false, error: `sections[${i}]: ${purchasableErr}` };
-        }
+          const trackingErr = validateCtaTracking(section, ctaPaths);
+          if (trackingErr) {
+            return { success: false, error: `sections[${i}]: ${trackingErr}` };
+          }
 
-        const scopeErr = validateProductScope(section, {
-          contentSlug: slug,
-          contentType,
-          hasEcommerceBehavior,
-          ctaPaths,
-          fieldEditors: editors,
-          resolveProduct,
-          sectionIndex: i,
-        });
-        if (scopeErr) {
-          return { success: false, error: scopeErr };
+          const purchasableErr = validateCtaPurchasable(section, ctaPaths, {
+            contentSlug: slug,
+            contentType,
+            resolveProduct,
+          });
+          if (purchasableErr) {
+            return { success: false, error: `sections[${i}]: ${purchasableErr}` };
+          }
+
+          const scopeErr = validateProductScope(section, {
+            contentSlug: slug,
+            contentType,
+            hasEcommerceBehavior,
+            ctaPaths,
+            fieldEditors: editors,
+            resolveProduct,
+            sectionIndex: i,
+          });
+          if (scopeErr) {
+            return { success: false, error: scopeErr };
+          }
         }
       }
     }
@@ -816,7 +875,11 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       ? deepMerge(commonData, localeData)
       : localeData;
     const updatedSections = (mergedContent.sections as unknown[]) || [];
-    return { success: true, updatedSections };
+    return {
+      success: true,
+      updatedSections,
+      ...(clearedFields.length > 0 ? { clearedFields } : {}),
+    };
   } catch (error) {
     log.error({ err: error }, "Content edit error:");
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
@@ -871,7 +934,13 @@ function writeStructuralChangesToTemplate(opts: {
   requesterId?: string;
   ci?: ContentIndex;
   skipSharedLayoutFanOut?: boolean;
-}): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
+}): {
+  success: boolean;
+  error?: string;
+  warning?: string;
+  updatedSections?: unknown[];
+  clearedFields?: ClearedField[];
+} {
   const { operations, filePath, localeData, author, contentRoot, contentType, requesterId } = opts;
   const ci = opts.ci ?? contentIndex;
 
@@ -881,6 +950,7 @@ function writeStructuralChangesToTemplate(opts: {
     const sectionsBefore = Array.isArray(templateData.sections)
       ? [...(templateData.sections as Record<string, unknown>[])]
       : [];
+    const clearedFields: ClearedField[] = [];
 
     // Annotate remove ops with sectionId for sibling fan-out
     const annotatedOps: EditOperation[] = operations.map((op) => {
@@ -901,9 +971,11 @@ function writeStructuralChangesToTemplate(opts: {
         if (originalTemplateSection) {
           newSectionData = restoreTemplatePlaceholders(newSectionData, originalTemplateSection);
         }
-        applyOperation(templateData, { ...op, section: newSectionData } as EditOperation);
+        const opResult = applyOperation(templateData, { ...op, section: newSectionData } as EditOperation);
+        if (opResult.clearedFields?.length) clearedFields.push(...opResult.clearedFields);
       } else {
-        applyOperation(templateData, op);
+        const opResult = applyOperation(templateData, op);
+        if (opResult.clearedFields?.length) clearedFields.push(...opResult.clearedFields);
       }
     }
 
@@ -989,7 +1061,12 @@ function writeStructuralChangesToTemplate(opts: {
     }
 
     const updatedSections = (localeData.sections as unknown[]) || [];
-    return { success: true, updatedSections, warning };
+    return {
+      success: true,
+      updatedSections,
+      warning,
+      ...(clearedFields.length > 0 ? { clearedFields } : {}),
+    };
   } catch (err) {
     log.error({ err: err }, "[editContent] Structural template write error:");
     return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
@@ -1126,7 +1203,13 @@ function handleSharedTemplateEdit(opts: {
   ci?: ContentIndex;
   requesterId?: string;
   skipSharedLayoutFanOut?: boolean;
-}): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
+}): {
+  success: boolean;
+  error?: string;
+  warning?: string;
+  updatedSections?: unknown[];
+  clearedFields?: ClearedField[];
+} {
   const { contentType, slug, locale, operations, localeData, filePath, author, contentRoot } = opts;
   const ci = opts.ci ?? contentIndex;
   const db = opts.database ?? databaseManager;
@@ -1970,6 +2053,7 @@ export async function createContentEntry(
                   strippedFields: result.strippedFields,
                   replacedVars: result.replacedVars,
                 },
+                ...(result.clearedFields.length > 0 ? { clearedFields: result.clearedFields } : {}),
               }),
             };
           }
@@ -1997,6 +2081,7 @@ export async function createContentEntry(
               directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
               duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`, typeChanged: true,
               conversion: { from: resolvedSourceType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
+              ...(result.clearedFields.length > 0 ? { clearedFields: result.clearedFields } : {}),
             },
           };
         }
@@ -2183,6 +2268,14 @@ export async function createContentEntry(
           }
         }
 
+        const fieldEditorsByType = loadAllFieldEditors();
+        const clearedFields: ClearedField[] = [];
+        for (const { file, parsed } of parsedDupFiles) {
+          clearedFields.push(
+            ...wipeDocumentSectionsOnDuplicate(parsed, fieldEditorsByType, { file }),
+          );
+        }
+
         const { objs: regeneratedDup } = regenerateSectionIds(parsedDupFiles.map(f => f.parsed));
         const draftLocalesWritten: string[] = [];
         for (let i = 0; i < parsedDupFiles.length; i++) {
@@ -2202,7 +2295,10 @@ export async function createContentEntry(
           invalidateContentCaches(type);
           return {
             success: true,
-            data: draftSuccessData({ duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}` }),
+            data: draftSuccessData({
+              duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
+              ...(clearedFields.length > 0 ? { clearedFields } : {}),
+            }),
           };
         }
 
@@ -2228,6 +2324,7 @@ export async function createContentEntry(
             success: true, slugEn: enSlug, slugEs: esSlug, type,
             directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
             duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
+            ...(clearedFields.length > 0 ? { clearedFields } : {}),
           },
         };
       }

@@ -20,12 +20,72 @@ export function resolveFormSection(
   return resolveFormDefaults(section, conversionEvent, formSettingsPath);
 }
 
+function getFormSettingsObject(
+  section: Record<string, unknown>,
+  formSettingsPath: string,
+): Record<string, unknown> | null {
+  if (!formSettingsPath) {
+    return section;
+  }
+  const parts = formSettingsPath.split(".").filter(Boolean);
+  let current: unknown = section;
+  for (const part of parts) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[part];
+  }
+  if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+  return current as Record<string, unknown>;
+}
+
+/** Collect non-empty conversion_name from form root and routes[].conversion_name. */
+export function collectConversionNames(form: Record<string, unknown>): string[] {
+  const names: string[] = [];
+  const rootName = form.conversion_name;
+  if (typeof rootName === "string" && rootName.trim()) {
+    names.push(rootName.trim());
+  }
+  const routes = form.routes;
+  if (Array.isArray(routes)) {
+    for (const route of routes) {
+      if (!route || typeof route !== "object" || Array.isArray(route)) continue;
+      const routeName = (route as Record<string, unknown>).conversion_name;
+      if (typeof routeName === "string" && routeName.trim()) {
+        names.push(routeName.trim());
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * When a section has a form-settings bind, require at least one conversion_name
+ * (form root or any route). Used on save/publish after duplicate wipe.
+ *
+ * @param formSettingsPath "" = settings on section root (lead_form); "form" = nested.
+ */
+export function validateRequiredConversionName(
+  section: Record<string, unknown>,
+  formSettingsPath: string | null | undefined,
+): string | null {
+  if (formSettingsPath == null) return null;
+  const form = getFormSettingsObject(section, formSettingsPath);
+  if (!form) {
+    return `form-settings path "${formSettingsPath || "."}" is missing; conversion_name is required`;
+  }
+  if (collectConversionNames(form).length > 0) return null;
+  const label = formSettingsPath ? `${formSettingsPath}.conversion_name` : "conversion_name";
+  return (
+    `${label} is required (or set conversion_name on a form route). ` +
+    `Duplicating clears conversion names — set a new one before saving.`
+  );
+}
+
 /**
  * Validates a section's `form` config.
  *
  * Returns null if the section has no `form` key or the config is valid.
- * Root `conversion_name` is optional — submit routes may supply it instead.
  * When a name is set (root or any route), it must be in `conversionNames` if that list is provided.
+ * Use {@link validateRequiredConversionName} to require a name when form-settings is bound.
  */
 export function validateFormSection(
   section: Record<string, unknown>,
@@ -44,22 +104,7 @@ export function validateFormSection(
   // objects (e.g. apply_form, hero signup labels) don't need conversion_name.
   if (!("variant" in form)) return null;
 
-  const namesToCheck: string[] = [];
-  const rootName = form.conversion_name;
-  if (typeof rootName === "string" && rootName.trim()) {
-    namesToCheck.push(rootName.trim());
-  }
-
-  const routes = form.routes;
-  if (Array.isArray(routes)) {
-    for (const route of routes) {
-      if (!route || typeof route !== "object" || Array.isArray(route)) continue;
-      const routeName = (route as Record<string, unknown>).conversion_name;
-      if (typeof routeName === "string" && routeName.trim()) {
-        namesToCheck.push(routeName.trim());
-      }
-    }
-  }
+  const namesToCheck = collectConversionNames(form);
 
   if (!conversionNames?.length) return null;
 

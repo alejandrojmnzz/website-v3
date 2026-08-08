@@ -1168,6 +1168,7 @@ export function registerSectionsRoutes(app: Express): void {
           updatedSections?: unknown;
           warning?: string;
           boundUpdates?: string[];
+          clearedFields?: unknown;
         } = {
           success: true,
           updatedSections: result.updatedSections,
@@ -1177,6 +1178,9 @@ export function registerSectionsRoutes(app: Express): void {
         }
         if (result.warning) {
           response.warning = result.warning;
+        }
+        if (result.clearedFields?.length) {
+          response.clearedFields = result.clearedFields;
         }
         if (bindingWarnings.length > 0) {
           response.warning =

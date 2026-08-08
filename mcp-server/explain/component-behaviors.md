@@ -4,6 +4,18 @@ See [docs/component-behaviors.md](../../docs/component-behaviors.md) for the ful
 
 Agents: when adding tracking, SSR schema contributors, `dynamic_entries`, or `form-settings`, declare matching `behaviors` on that component's `schema.yml`.
 
+## Wipe on duplicate (derived)
+
+Page/section duplicate clears identity fields — no `reset_on_duplicate` schema key:
+
+- Any `conversion_name` under the section (incl. routes)
+- Whole `ecommerce_products`
+- CTA `tracking` on `cta-tracking` binds (delete key → save fails until set)
+
+Not wiped: `programs[].id`, automations/tags/webhook, copy/layout.
+
+Adding `form-settings` / `cta-tracking` / `ecommerce-products` **implies** wipe-on-duplicate. Ordinary props stay. Staff/API responses may include `clearedFields`.
+
 ## CTA tracking (exact paths)
 
 CTA intent uses required `tracking` on CTA objects at **`cta-tracking` field-editor paths** — not URL sniffing.

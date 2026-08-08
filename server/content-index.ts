@@ -19,6 +19,11 @@ import {
   listAllSinglePaths,
 } from "./shared-layout-sync";
 import { child } from "./logger";
+import {
+  wipeDocumentSectionsOnDuplicate,
+  type ClearedField,
+} from "../shared/wipeOnDuplicate";
+import { loadAllFieldEditors } from "./component-registry";
 const log = child({ module: "content-index" });
 
 
@@ -1852,7 +1857,12 @@ export class ContentIndex {
     title: string;
     skipLocales: string[];
     localeTitles?: Record<string, string>;
-  }): { copiedFiles: string[]; strippedFields: string[]; replacedVars: number } {
+  }): {
+    copiedFiles: string[];
+    strippedFields: string[];
+    replacedVars: number;
+    clearedFields: ClearedField[];
+  } {
     this.ensureInitialized();
 
     const { sourceDir, sourceType, targetType, targetDir, newSlugs, title, skipLocales, localeTitles } = opts;
@@ -1883,11 +1893,12 @@ export class ContentIndex {
 
     const copiedFiles: string[] = [];
     const strippedFields: string[] = [...keysToStrip];
+    const clearedFields: ClearedField[] = [];
     let replacedVars = 0;
 
     const absSourceDir = path.isAbsolute(sourceDir) ? sourceDir : path.join(process.cwd(), sourceDir);
     if (!fs.existsSync(absSourceDir)) {
-      return { copiedFiles, strippedFields, replacedVars };
+      return { copiedFiles, strippedFields, replacedVars, clearedFields };
     }
 
     const sourceFiles = fs.readdirSync(absSourceDir).filter(f => f.endsWith(".yml") || f.endsWith(".yaml"));
@@ -1944,6 +1955,13 @@ export class ContentIndex {
       }
     }
 
+    const fieldEditorsByType = loadAllFieldEditors();
+    for (const { file, parsed } of parsedFiles) {
+      clearedFields.push(
+        ...wipeDocumentSectionsOnDuplicate(parsed, fieldEditorsByType, { file }),
+      );
+    }
+
     const allParsed = parsedFiles.map(f => f.parsed);
     const { objs: regenerated } = regenerateSectionIds(allParsed);
 
@@ -1961,7 +1979,7 @@ export class ContentIndex {
       copiedFiles.push(file);
     }
 
-    return { copiedFiles, strippedFields, replacedVars };
+    return { copiedFiles, strippedFields, replacedVars, clearedFields };
   }
 
   private replaceTemplateVars(

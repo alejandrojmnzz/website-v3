@@ -483,7 +483,11 @@ async function sendEditOperation(
   locale: string,
   operations: EditOperation[],
   opts?: { variant?: string; version?: number; layoutTarget?: string }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  clearedFields?: Array<{ sectionType?: string; path?: string; sectionIndex?: number }>;
+}> {
   const token = getDebugToken();
   const author = await resolveAuthorName();
   const response = await fetch("/api/content/edit-sections", {
@@ -1365,7 +1369,14 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     ], { variant, version });
 
     if (result.success) {
-      toast({ title: "Section duplicated" });
+      const cleared = result.clearedFields ?? [];
+      toast({
+        title: "Section duplicated",
+        description:
+          cleared.length > 0
+            ? `Cleared ${cleared.length} conversion/ecommerce field(s) — re-set them before save/publish.`
+            : undefined,
+      });
       emitContentUpdated({ contentType, slug, locale });
     } else {
       toast({ title: "Failed to duplicate section", description: result.error, variant: "destructive" });

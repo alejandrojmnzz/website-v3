@@ -792,15 +792,23 @@ export function CreateContentModal({
               : null;
         const newUrl = previewPath
           || buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode, urlParamValues[activeLocaleCode]);
+        const cleared = Array.isArray(data.clearedFields) ? data.clearedFields as Array<{ path?: string; sectionType?: string }> : [];
+        const clearedHint =
+          cleared.length > 0
+            ? ` Cleared ${cleared.length} conversion/ecommerce field(s) (e.g. ${cleared
+                .slice(0, 3)
+                .map((c) => `${c.sectionType || "section"}.${c.path}`)
+                .join(", ")}). Re-set them before save/publish.`
+            : "";
         toast({
           title: duplicatingPage
             ? (isDraft ? "Draft duplicated" : "Page duplicated")
             : (isDraft ? "Draft created" : "Content created"),
-          description: isDraft
+          description: (isDraft
             ? `Unpublished draft ready — publish from Page Versions when ready. Preview: ${newUrl}`
             : duplicatingPage
               ? `Created copy at ${newUrl}`
-              : `Created new ${createContentType} at ${newUrl}`,
+              : `Created new ${createContentType} at ${newUrl}`) + clearedHint,
         });
         onOpenChange(false);
         setCreateContentTitle("");

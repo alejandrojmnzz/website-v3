@@ -1836,6 +1836,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "  • slug — URL-safe identifier that must not already exist\n" +
     "  • common — object written verbatim to _common.yml\n" +
     "  • locales — map of locale code → { meta?, sections } for every locale to seed\n\n" +
+    "NOTE — copying sections from another page: staff/API page duplicate wipes conversion_name, ecommerce_products, " +
+    "and CTA tracking (see explain_site topic component-behaviors). create_page does NOT auto-wipe; if you paste " +
+    "sections from elsewhere, deliberately set fresh conversion/ecommerce identity fields.\n\n" +
     "Possible errors: unknown/DB-backed contentType, slug already exists, path traversal detected, " +
     "invalid locale code, permission denied.",
     {

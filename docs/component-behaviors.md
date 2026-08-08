@@ -11,6 +11,22 @@ Structured `behaviors` on each component `schema.yml` declare how a section part
 | `listing` | Mapping fields + queries → card lists | `dynamic_entries` pipeline | Not a product SKU; not a lead form |
 | `conversion` | Lead form conversion + webhook defaults | `form-settings` + `trackFormSubmission` | Not ecommerce funnel; CTA-only heroes are not conversions |
 
+## Wipe on page/section duplicate
+
+When a **page** or **section** is duplicated, the server clears conversion/ecommerce **identity** fields so staff must re-set them before save/publish. There is no per-component `reset_on_duplicate` list — wipe is **derived** from field-editors:
+
+| Signal | Cleared |
+|--------|---------|
+| Any key named `conversion_name` under the section (including `routes[].conversion_name`) | Deleted (missing, not `""`) |
+| `ecommerce_products` (root or `ecommerce-products` field-editor path) | Whole field deleted |
+| Bound `cta-tracking` paths | `tracking` property deleted (CTA object kept so save fails until set) |
+
+**Not wiped in v1:** `programs[].id` on `enrollment_selector`, automations/webhook/tags, ordinary copy/layout props.
+
+Duplicate always succeeds; later save/publish fails until conversion_name / CTA tracking / product scope are valid again. Response includes `clearedFields` for staff toasts and tooling.
+
+**For agents adding components:** binding `form-settings`, `cta-tracking`, or `ecommerce-products` implies those values are wiped on duplicate. Do not invent a parallel schema key. Default for ordinary props: keep on duplicate.
+
 ## CTA tracking (`cta.tracking`)
 
 Bound via field-editor type `cta-tracking` (parallel to `form-settings`). Required values: `none` | `add_to_cart` | `click_begin_checkout`.
