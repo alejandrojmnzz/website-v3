@@ -39,6 +39,16 @@ function resolveString(str: string, singleItem: Record<string, unknown>): unknow
   });
 }
 
+/**
+ * `item_template` uses `{{ single.* }}` to mean each *list item*, not the page
+ * entry. Delivery-time resolveSingleVars must leave it untouched so editors
+ * don't bake page values (e.g. title: "Blog") back into YAML on save.
+ * resolveDynamicEntries applies the template against each queried row.
+ */
+function shouldPreserveTemplateSubtree(key: string): boolean {
+  return key === "item_template" || key.startsWith("_");
+}
+
 export function resolveSingleVars(data: unknown, singleItem: Record<string, unknown>): unknown {
   if (typeof data === "string") {
     return resolveString(data, singleItem);
@@ -51,9 +61,8 @@ export function resolveSingleVars(data: unknown, singleItem: Record<string, unkn
   if (data !== null && typeof data === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-      // Preserve runtime metadata (e.g. _variableFields) so edit mode can
-      // rehydrate {{ }} expressions after delivery-time resolution.
-      if (key.startsWith("_")) {
+      // Preserve runtime metadata (_variableFields) and listing item_template.
+      if (shouldPreserveTemplateSubtree(key)) {
         result[key] = value;
         continue;
       }

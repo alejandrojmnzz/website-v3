@@ -169,6 +169,52 @@ export function setValueAtPath(obj: Record<string, unknown>, pathStr: string, va
   }
 }
 
+/** True if any string leaf in the object still contains `{{ ... }}`. */
+function templateObjectHasExpressions(value: unknown): boolean {
+  if (typeof value === "string") return TEMPLATE_EXPR_RE.test(value);
+  if (Array.isArray(value)) return value.some(templateObjectHasExpressions);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(templateObjectHasExpressions);
+  }
+  return false;
+}
+
+/**
+ * Listing `item_template` uses `{{ single.* }}` for each row. Delivery used to
+ * bake page-level values into it; if a client still sends a wiped template,
+ * keep the authored expressions from the existing section.
+ */
+function preserveListingItemTemplate(
+  sectionToSave: Record<string, unknown>,
+  existingSection: Record<string, unknown> | undefined,
+): void {
+  if (!existingSection) return;
+
+  const existingRoot = existingSection.item_template;
+  const incomingRoot = sectionToSave.item_template;
+  if (
+    templateObjectHasExpressions(existingRoot) &&
+    incomingRoot !== undefined &&
+    !templateObjectHasExpressions(incomingRoot)
+  ) {
+    sectionToSave.item_template = existingRoot;
+  }
+
+  const existingDyn = existingSection.dynamic_entries as Record<string, unknown> | undefined;
+  const incomingDyn = sectionToSave.dynamic_entries as Record<string, unknown> | undefined;
+  if (!existingDyn || !incomingDyn) return;
+
+  const existingTpl = existingDyn.item_template;
+  const incomingTpl = incomingDyn.item_template;
+  if (
+    templateObjectHasExpressions(existingTpl) &&
+    incomingTpl !== undefined &&
+    !templateObjectHasExpressions(incomingTpl)
+  ) {
+    incomingDyn.item_template = existingTpl;
+  }
+}
+
 function applyOperation(
   content: Record<string, unknown>,
   operation: EditOperation,
@@ -266,6 +312,9 @@ function applyOperation(
         delete sectionToSave._imageSizes;
       }
       const existingSection = sections[operation.index] as Record<string, unknown>;
+      if (sectionToSave && typeof sectionToSave === "object") {
+        preserveListingItemTemplate(sectionToSave, existingSection);
+      }
       const existingId = existingSection?.section_id;
       // Preserve _insertAfterSectionId: this controls where per-entry sections appear
       // in the merged view. If the client doesn't echo it back, losing it causes the

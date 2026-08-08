@@ -155,6 +155,71 @@ describe("resolveAllTemplateVars", () => {
     expect(result.sections[0]._variableFields["data.headline"]).toBe("{{ single.title }}");
   });
 
+  it("does not bake page single.* into listing item_template", () => {
+    const data = {
+      title: "Blog",
+      sections: [
+        {
+          type: "list_cards",
+          title: "{{ single.title }}",
+          dynamic_entries: {
+            content_type: "blog",
+            item_template: {
+              image: "{{ single.image }}",
+              title: "{{ single.title }}",
+              description: "{{ single.description }}",
+              meta_right: "{{ single.updated_at | }}",
+              cta_text: "Read more",
+            },
+          },
+        },
+      ],
+    };
+
+    const result = resolveAllTemplateVars(data, {
+      singleEntry: { title: "Blog", slug: "blog" },
+    }) as {
+      sections: Array<{
+        title: string;
+        dynamic_entries: {
+          item_template: Record<string, string>;
+        };
+      }>;
+    };
+
+    expect(result.sections[0].title).toBe("Blog");
+    expect(result.sections[0].dynamic_entries.item_template).toEqual({
+      image: "{{ single.image }}",
+      title: "{{ single.title }}",
+      description: "{{ single.description }}",
+      meta_right: "{{ single.updated_at | }}",
+      cta_text: "Read more",
+    });
+  });
+
+  it("preserves root-level item_template the same way", () => {
+    const data = {
+      item_template: {
+        title: "{{ single.title }}",
+        cta_text: "Read more",
+      },
+      heading: "{{ single.title }}",
+    };
+
+    const result = resolveAllTemplateVars(data, {
+      singleEntry: { title: "Page Title" },
+    }) as {
+      item_template: Record<string, string>;
+      heading: string;
+    };
+
+    expect(result.heading).toBe("Page Title");
+    expect(result.item_template).toEqual({
+      title: "{{ single.title }}",
+      cta_text: "Read more",
+    });
+  });
+
   it("exposes slug/locale/image under plain and underscore keys", () => {
     const result = resolveAllTemplateVars(
       {
