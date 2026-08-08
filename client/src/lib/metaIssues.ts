@@ -1,3 +1,5 @@
+import { isUsableOgImageUrl } from "@shared/ogImageUrl";
+
 const VALID_CHANGE_FREQUENCIES = [
   "always",
   "hourly",
@@ -48,11 +50,7 @@ export function getMetaIssues(meta: Record<string, unknown> | null | undefined):
   }
 
   const ogImage = asString(m.og_image).trim();
-  const ogImageUsable =
-    !!ogImage &&
-    !/\{\{/.test(ogImage) &&
-    (/^https?:\/\//i.test(ogImage) || ogImage.startsWith("/"));
-  if (!ogImageUsable) {
+  if (!isUsableOgImageUrl(ogImage)) {
     issues.push({ code: "MISSING_OG_IMAGE", message: "Missing og_image in meta" });
   }
 

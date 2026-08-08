@@ -9,6 +9,7 @@ import {
   buildPreviewPropsHashPayload,
   type PreviewPropResolveContext,
 } from "@shared/entry-preview-props";
+import { isUsableOgImageUrl } from "@shared/ogImageUrl";
 import { buildPreviewPropResolveContext } from "./entry-preview-resolve";
 import { child } from "./logger";
 
@@ -374,15 +375,12 @@ export class EntryPreviewManager {
   }
 
   private async urlLooksUsable(url: string): Promise<boolean> {
-    if (!url || /\{\{/.test(url)) return false;
-    if (!(url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/"))) {
-      return false;
-    }
+    if (!isUsableOgImageUrl(url)) return false;
     try {
       if (url.startsWith("/")) {
         const disk = path.join(process.cwd(), url.replace(/^\//, ""));
         if (fs.existsSync(disk)) return true;
-        // Relative public path may still be valid remotely; treat as usable without HEAD
+        // Served local prefixes are valid even when the file is not on this disk yet
         return true;
       }
       const controller = new AbortController();
@@ -615,7 +613,7 @@ export async function applyEntryPreviewOgImage(
     const meta = (pageData.meta as Record<string, unknown>) || {};
     const existing =
       typeof meta.og_image === "string" ? meta.og_image.trim() : "";
-    if (!existing || /\{\{/.test(existing)) {
+    if (!isUsableOgImageUrl(existing)) {
       meta.og_image = resolved.url;
       pageData.meta = meta;
     }

@@ -62,6 +62,7 @@ import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
+import { isUsableOgImageUrl } from "@shared/ogImageUrl";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -6195,10 +6196,7 @@ export default function ContentTypeManagePage() {
                           theme: "dark",
                         });
                         const captureSt = entryPreviewStatus[captureKey];
-                        const isUsableOg =
-                          !!ogImage &&
-                          !/\{\{/.test(ogImage) &&
-                          (/^https?:\/\//i.test(ogImage) || ogImage.startsWith("/"));
+                        const isUsableOg = isUsableOgImageUrl(ogImage);
                         const thumbSrc =
                           (isUsableOg ? ogImage : "") ||
                           entryPreviewUrls[captureKey] ||
@@ -6296,10 +6294,7 @@ export default function ContentTypeManagePage() {
                                   <span>
                                     <span className="mr-1">og_image</span>
                                     {(() => {
-                                      const isUsableOg =
-                                        !!ogImage &&
-                                        !/\{\{/.test(ogImage) &&
-                                        (/^https?:\/\//i.test(ogImage) || ogImage.startsWith("/"));
+                                      const isUsableOg = isUsableOgImageUrl(ogImage);
                                       if (!isUsableOg) {
                                         return <span className="text-destructive">not set</span>;
                                       }
