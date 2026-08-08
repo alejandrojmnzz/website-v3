@@ -19,25 +19,26 @@ export const TRACKING_EVENTS = [
 
 export type TrackingEventName = typeof TRACKING_EVENTS[number];
 
-/** GA4-aligned ecommerce funnel events (client dataLayer). */
+/** Ecommerce funnel events (client dataLayer + off-site catalog). */
 export const ECOMMERCE_EVENTS = [
   "view_item",
   "add_to_cart",
   "view_item_list",
   "select_item",
+  "click_begin_checkout",
   "begin_checkout",
   "purchase",
 ] as const;
 
 export type EcommerceEventName = (typeof ECOMMERCE_EVENTS)[number];
 
-/** Events fired from this site (purchase is documented off-site only). */
+/** Events fired from this site (begin_checkout + purchase are off-site / learn POS). */
 export const ECOMMERCE_EVENTS_WIRED = [
   "view_item",
   "add_to_cart",
   "view_item_list",
   "select_item",
-  "begin_checkout",
+  "click_begin_checkout",
 ] as const;
 
 export type EcommerceWiredEventName = (typeof ECOMMERCE_EVENTS_WIRED)[number];
@@ -51,6 +52,17 @@ export interface EcommercePayload {
   item_category?: string;
   program_id?: string;
   plan_id?: string;
+  /** Enrollment selector plans[].id (e.g. basic / pro) — not learn.4geeks billing plan */
+  selected_plan_option?: string;
+  /** Selected cohort start date ISO (enrollment date mode) */
+  cohort_date?: string;
+  /** Enrollment addon.id when enabled */
+  addon_id?: string;
+  /** Plan-mode display amount string (e.g. "129"), or date-mode summary.price_amount */
+  amount?: string;
+  /** Plan-mode period string (e.g. "/month") */
+  period?: string;
+  item_list_name?: string;
   path?: string;
   component_type?: string;
   component_variant?: string;

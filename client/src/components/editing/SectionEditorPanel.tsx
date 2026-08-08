@@ -7621,7 +7621,7 @@ export function SectionEditorPanel({
                           <SelectContent>
                             <SelectItem value="none">none</SelectItem>
                             <SelectItem value="add_to_cart">add_to_cart</SelectItem>
-                            <SelectItem value="begin_checkout">begin_checkout</SelectItem>
+                            <SelectItem value="click_begin_checkout">click_begin_checkout</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
