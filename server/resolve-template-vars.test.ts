@@ -70,7 +70,7 @@ describe("resolveAllTemplateVars", () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("resolves single → meta → param → brand in order", () => {
+  it("resolves single → meta → param; leaves site vars for the client by default", () => {
     const data = {
       meta: {
         page_title: "{{ single.title }}",
@@ -102,8 +102,57 @@ describe("resolveAllTemplateVars", () => {
     expect(result.meta.page_title).toBe("Entry Title");
     expect(result.sections[0].data.headline).toBe("Entry Title");
     expect(result.sections[0].data.cat).toBe("engineering");
+    expect(result.sections[0].data.brand).toBe("{{ brand.title }}");
+    expect(result.sections[0].data.hello).toBe("{{ global.greeting }}");
+  });
+
+  it("resolves site vars when skipSiteVars is false", () => {
+    const data = {
+      sections: [
+        {
+          type: "hero",
+          data: {
+            brand: "{{ brand.title }}",
+            hello: "{{ global.greeting }}",
+          },
+        },
+      ],
+    };
+
+    const result = resolveAllTemplateVars(data, {
+      contentRoot: tmpRoot,
+      context: { locale: "en" },
+      skipSiteVars: false,
+    }) as {
+      sections: Array<{ data: { brand: string; hello: string } }>;
+    };
+
     expect(result.sections[0].data.brand).toBe("Acme Corp");
     expect(result.sections[0].data.hello).toBe("Hi");
+  });
+
+  it("preserves _variableFields expressions while resolving section fields", () => {
+    const data = {
+      sections: [
+        {
+          type: "hero",
+          data: { headline: "{{ single.title }}" },
+          _variableFields: { "data.headline": "{{ single.title }}" },
+        },
+      ],
+    };
+
+    const result = resolveAllTemplateVars(data, {
+      singleEntry: { title: "Course Name" },
+    }) as {
+      sections: Array<{
+        data: { headline: string };
+        _variableFields: Record<string, string>;
+      }>;
+    };
+
+    expect(result.sections[0].data.headline).toBe("Course Name");
+    expect(result.sections[0]._variableFields["data.headline"]).toBe("{{ single.title }}");
   });
 
   it("exposes slug/locale/image under plain and underscore keys", () => {
@@ -118,7 +167,6 @@ describe("resolveAllTemplateVars", () => {
       },
       {
         singleEntry: { slug: "hello", locale: "en", image: "https://x/y.png" },
-        skipSiteVars: true,
       },
     ) as Record<string, string>;
 
@@ -137,13 +185,13 @@ describe("resolveAllTemplateVars", () => {
       { x: "{{ single._hreflangs }}" },
       {
         singleEntry: { slug: "a", _hreflangs: { en: "a", es: "b" } },
-        skipSiteVars: true,
       },
-    ) as { x: string };
-    expect(result.x).toBe("{{ single._hreflangs }}");
+    ) as { x: unknown };
+    // Exact missing single.* resolves to null (not the stripped routing map).
+    expect(result.x).toBeNull();
   });
 
-  it("resolves brand vars in menu-shaped data without single/meta", () => {
+  it("resolves brand vars in menu-shaped data when skipSiteVars is false", () => {
     const menu = {
       navbar: {
         items: [
@@ -159,6 +207,7 @@ describe("resolveAllTemplateVars", () => {
     const result = resolveAllTemplateVars(menu, {
       contentRoot: tmpRoot,
       context: { locale: "en" },
+      skipSiteVars: false,
     }) as { navbar: { items: Array<{ imageId: string; imageIdDark: string }> } };
 
     expect(result.navbar.items[0].imageId).toBe("logo-light-id");

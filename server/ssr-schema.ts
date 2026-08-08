@@ -479,6 +479,7 @@ export function generateDatabaseSsrHtml(
         meta: (template?.meta as Record<string, unknown> | undefined),
         contentRoot,
         context: { locale },
+        skipSiteVars: false,
       }) as Array<Record<string, unknown>>;
       const context: SchemaComponentContext = {
         locale,
@@ -610,6 +611,7 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
         singleEntry: pageData,
         contentRoot,
         context: { locale: route.locale },
+        skipSiteVars: false,
       }) as Record<string, unknown>;
     }
 

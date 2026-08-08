@@ -328,6 +328,10 @@ class VariableManager {
     if (value !== null && typeof value === "object") {
       const result: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+        if (key.startsWith("_")) {
+          result[key] = val;
+          continue;
+        }
         const childPath = currentPath ? `${currentPath}.${key}` : key;
         result[key] = this.resolveValue(val, context, childPath, variableMap);
       }

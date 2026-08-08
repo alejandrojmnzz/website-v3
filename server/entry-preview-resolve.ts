@@ -168,6 +168,7 @@ export async function buildPreviewPropResolveContext(opts: {
     singleEntry: opts.entry,
     contentRoot,
     context: { locale: opts.locale },
+    skipSiteVars: false,
   }) as Record<string, unknown>;
 
   return {

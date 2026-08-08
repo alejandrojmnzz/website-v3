@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import type { Request, Response, NextFunction } from "express";
 import { getSiteConfigs, hasMultipleSites, type SiteConfig } from "./site-config";
+// (getSiteConfigs also feeds the alias→canonical redirect map below)
 import { ContentIndex } from "./content-index";
 import { MediaGallery } from "./media-gallery";
 import { ValidationCacheService } from "./services/validationCacheService";
@@ -224,9 +225,46 @@ export function clearDevSiteFile(): void {
   try { fs.unlinkSync(DEV_SITE_FILE); } catch {}
 }
 
+/** Cached alias hostname → canonical domain map. Rebuilt when site configs change. */
+let _aliasMap: Map<string, string> | null = null;
+let _aliasMapSource: SiteConfig[] | null = null;
+
+function getAliasMap(): Map<string, string> {
+  const configs = getSiteConfigs();
+  // getSiteConfigs() returns a cached array; identity changes only on reload.
+  if (_aliasMap && _aliasMapSource === configs) return _aliasMap;
+  const map = new Map<string, string>();
+  for (const config of configs) {
+    for (const alias of config.aliases ?? []) {
+      map.set(alias.toLowerCase(), config.domain);
+    }
+  }
+  _aliasMap = map;
+  _aliasMapSource = configs;
+  return map;
+}
+
 export function siteResolutionMiddleware(req: Request, res: Response, next: NextFunction): void {
   const sites = getSiteContextMap();
   let domain = req.hostname;
+
+  // CANONICAL DOMAIN REDIRECT — alias hostnames (e.g. www.4geeks.com) get a
+  // permanent redirect to their canonical domain, preserving path and query.
+  // Runs before any dev override so aliases never serve duplicate content.
+  // In production the target is always canonical HTTPS; in development we
+  // preserve the request's protocol and port so local/hosts-file testing
+  // stays within the local environment.
+  const canonical = getAliasMap().get(domain?.toLowerCase?.() ?? "");
+  if (canonical && canonical !== domain) {
+    if (process.env.NODE_ENV === "production") {
+      res.redirect(301, `https://${canonical}${req.originalUrl}`);
+    } else {
+      const hostHeader = req.headers.host ?? "";
+      const portSuffix = hostHeader.includes(":") ? `:${hostHeader.split(":").pop()}` : "";
+      res.redirect(301, `${req.protocol}://${canonical}${portSuffix}${req.originalUrl}`);
+    }
+    return;
+  }
   let isDevOverride = false;
 
   // DEV SITE OVERRIDE — reads .local/dev-site-override (non-production only).

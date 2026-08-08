@@ -67,6 +67,7 @@ function flattenCtaTargets(value: unknown): Array<{ pathHint: string; cta: Recor
 
 /**
  * Validate each CTA on bound `cta-tracking` paths has a valid `tracking` value.
+ * Missing/empty fails — use `none` when no ecommerce event should fire.
  * Returns error message or null.
  */
 export function validateCtaTracking(

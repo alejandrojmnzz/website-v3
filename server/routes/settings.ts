@@ -1710,6 +1710,7 @@ export function registerSettingsRoutes(app: Express): void {
       const resolved = resolveAllTemplateVars(data, {
         contentRoot: getContentRoot(res),
         context,
+        skipSiteVars: false,
       });
       res.json({ name, locale: locale || "en", data: resolved });
     } catch (error) {
