@@ -58,8 +58,10 @@ export function collectConversionNames(form: Record<string, unknown>): string[] 
 }
 
 /**
- * When a section has a form-settings bind, require at least one conversion_name
- * (form root or any route). Used on save/publish after duplicate wipe.
+ * When a section has a form-settings bind, require an explicit conversion decision:
+ * - non-empty conversion_name on form root or any route → on
+ * - root `conversion_name: null` → explicit off
+ * - key missing (e.g. after duplicate wipe) → invalid
  *
  * @param formSettingsPath "" = settings on section root (lead_form); "form" = nested.
  */
@@ -73,10 +75,21 @@ export function validateRequiredConversionName(
     return `form-settings path "${formSettingsPath || "."}" is missing; conversion_name is required`;
   }
   if (collectConversionNames(form).length > 0) return null;
+
   const label = formSettingsPath ? `${formSettingsPath}.conversion_name` : "conversion_name";
+  if ("conversion_name" in form) {
+    if (form.conversion_name === null) return null;
+    if (form.conversion_name === "") {
+      return (
+        `${label} is empty — set a conversion name, or use null to turn conversion off. ` +
+        `Missing after duplicate wipe is invalid.`
+      );
+    }
+  }
+
   return (
-    `${label} is required (or set conversion_name on a form route). ` +
-    `Duplicating clears conversion names — set a new one before saving.`
+    `${label} is required (set a name, a route conversion_name, or null to turn off). ` +
+    `Duplicating clears conversion names — choose again before saving.`
   );
 }
 

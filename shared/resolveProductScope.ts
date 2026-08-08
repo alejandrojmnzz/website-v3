@@ -14,7 +14,7 @@ export type ResolveProductScopeResult = {
   scope: ProductScope | null;
   /** Dot-path under section data (or synthetic inherit) for errors/explain */
   bindPath: string;
-  source: "ecommerce_products" | "programs[].id" | "inherit" | "none";
+  source: "ecommerce_products" | "programs[].id" | "inherit" | "none" | "off";
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -23,12 +23,16 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 
 /**
  * Resolve product scope from section instance data + page context.
- * Precedence: ecommerce_products → programs[].id → inherit (program entry).
+ * Precedence: ecommerce_products (incl. null = explicit off) → programs[].id → inherit (program entry).
  */
 export function resolveProductScope(
   section: Record<string, unknown>,
   ctx: ProductScopeContext = {},
 ): ResolveProductScopeResult {
+  if ("ecommerce_products" in section && section.ecommerce_products === null) {
+    return { scope: null, bindPath: "ecommerce_products", source: "off" };
+  }
+
   const explicit = section.ecommerce_products;
   if (explicit === "all") {
     return { scope: "all", bindPath: "ecommerce_products", source: "ecommerce_products" };
@@ -67,55 +71,17 @@ export function scopeIncludesProduct(scope: ProductScope, productSlug: string): 
   return scope.includes(productSlug);
 }
 
-/** True when section type participates in ecommerce funnel/catalog. */
+/**
+ * True when section must have an explicit ecommerce product-scope decision
+ * (ecommerce_products list/"all"/null, programs[].id, or inherit).
+ * Any section with behaviors.ecommerce needs a decision when not inheriting.
+ */
 export function sectionNeedsProductScope(
   section: Record<string, unknown>,
   opts: { hasEcommerceBehavior: boolean; ctaPaths: string[]; fieldEditors: Record<string, string> },
 ): boolean {
   if (!opts.hasEcommerceBehavior) return false;
-  const type = String(section.type ?? "");
-  if (type === "enrollment_selector" || type === "pricing_plans") return true;
-  const hasEcommerceProductsEditor = Object.values(opts.fieldEditors).some(
-    (v) => String(v).split(":")[0] === "ecommerce-products",
-  );
-  if (hasEcommerceProductsEditor) return true;
-  // Hero course etc.: require when any bound CTA uses non-none tracking
-  for (const path of opts.ctaPaths) {
-    const raw = getByPath(section, path);
-    if (ctaHasNonNoneTracking(raw)) return true;
-  }
-  return false;
-}
-
-function getByPath(obj: unknown, path: string): unknown {
-  if (!obj || typeof obj !== "object") return undefined;
-  const parts = path.replace(/\[\]/g, ".$").split(".").filter(Boolean);
-  return walk(obj, parts);
-}
-
-function walk(current: unknown, parts: string[]): unknown {
-  if (parts.length === 0) return current;
-  const [head, ...rest] = parts;
-  if (head === "$") {
-    if (!Array.isArray(current)) return undefined;
-    return current.map((item) => walk(item, rest));
-  }
-  if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
-  return walk((current as Record<string, unknown>)[head!], rest);
-}
-
-function ctaHasNonNoneTracking(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(ctaHasNonNoneTracking);
-  const o = asRecord(value);
-  if (!o) return false;
-  if (typeof o.url === "string" && typeof o.text === "string") {
-    const t = o.tracking;
-    return typeof t === "string" && t !== "" && t !== "none";
-  }
-  for (const v of Object.values(o)) {
-    if (ctaHasNonNoneTracking(v)) return true;
-  }
-  return false;
+  return true;
 }
 
 export type ProductResolveFn = (programId: string) => { product_id: string; active: boolean } | undefined;
@@ -123,6 +89,9 @@ export type ProductResolveFn = (programId: string) => { product_id: string; acti
 /**
  * Validate ecommerce product scope for a section. Returns error message or null.
  * Message always cites bindPath.
+ *
+ * Missing ecommerce_products (after wipe) fails when ecommerce behavior applies and
+ * the page does not inherit. Explicit `ecommerce_products: null` turns scope off.
  */
 export function validateProductScope(
   section: Record<string, unknown>,
@@ -146,7 +115,7 @@ export function validateProductScope(
     return null;
   }
 
-  const { scope, bindPath } = resolveProductScope(section, {
+  const { scope, bindPath, source } = resolveProductScope(section, {
     contentType: opts.contentType,
     contentSlug: opts.contentSlug,
   });
@@ -154,12 +123,24 @@ export function validateProductScope(
   const prefix =
     typeof opts.sectionIndex === "number" ? `sections[${opts.sectionIndex}].` : "sections[].";
 
+  if (source === "off") return null;
+  if (source === "inherit") return null;
+
+  if (source === "none") {
+    const type = String(section.type ?? "section");
+    return (
+      `${prefix}data.ecommerce_products is required for ecommerce on ${type}. ` +
+      `Set a product slug list or "all", use null to turn product scope off, ` +
+      `provide programs[].id (enrollment_selector), or place this section on a program entry (inherit). ` +
+      `Missing after duplicate wipe is invalid.`
+    );
+  }
+
   if (!scope) {
     return (
       `${prefix}data.${bindPath === "inherit (content entry slug)" ? "ecommerce_products" : bindPath} ` +
       `is required for ecommerce scope on ${String(section.type ?? "section")}. ` +
-      `Set ecommerce_products to a product slug list or "all", or provide programs[].id, ` +
-      `or place this section on a program entry (inherit).`
+      `Set ecommerce_products to a product slug list or "all", null to turn off, or provide programs[].id.`
     );
   }
 

@@ -77,6 +77,7 @@ import {
   deleteContentEntry,
   renameContentSlug,
 } from "../content-editor";
+import { validateYamlIdentity } from "../validate-content-identity";
 import { bindingManager } from "../bindings";
 import {
   escapeTemplateVars,
@@ -648,6 +649,19 @@ export function registerVersioningRoutes(app: Express): void {
           resolved.templateMode ? `single.${locale}.yml` : `${locale}.yml`,
         );
         const variantContent = fs.readFileSync(variantFilePath, "utf-8");
+        const identityErr = validateYamlIdentity(variantContent, {
+          contentType,
+          contentSlug: resolved.slug,
+        });
+        if (identityErr) {
+          res.status(400).json({
+            error:
+              `Cannot publish: ${identityErr} (locale ${locale}). ` +
+              `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before publishing.`,
+            locale,
+          });
+          return;
+        }
         fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
         const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -761,6 +775,18 @@ export function registerVersioningRoutes(app: Express): void {
 
     try {
       const variantContent = fs.readFileSync(variantFilePath, "utf-8");
+      const identityErr = validateYamlIdentity(variantContent, {
+        contentType,
+        contentSlug: resolved.slug,
+      });
+      if (identityErr) {
+        res.status(400).json({
+          error:
+            `Cannot promote: ${identityErr}. ` +
+            `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before promoting.`,
+        });
+        return;
+      }
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
       const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};

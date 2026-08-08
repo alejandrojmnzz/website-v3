@@ -1221,8 +1221,21 @@ export function SectionEditorPanel({
         pushUndoState(yamlContent);
 
         const pathParts = key.split(".");
+        const leaf = pathParts[pathParts.length - 1] ?? "";
+        // Persist YAML null for identity opt-out (missing ≠ off after duplicate wipe)
+        const persistNull =
+          value === null &&
+          (leaf === "conversion_name" ||
+            leaf === "ecommerce_products" ||
+            key.endsWith(".conversion_name") ||
+            key.endsWith(".ecommerce_products"));
+        const shouldDelete =
+          value === undefined ||
+          (value === null && !persistNull) ||
+          (value === "" && !persistNull);
+
         if (pathParts.length === 1) {
-          if (value !== undefined && value !== null && value !== "") {
+          if (!shouldDelete) {
             parsed[key] = value;
           } else {
             delete parsed[key];
@@ -1237,14 +1250,12 @@ export function SectionEditorPanel({
             current = current[part] as Record<string, unknown>;
           }
           const finalKey = pathParts[pathParts.length - 1];
-          if (value !== undefined && value !== null && value !== "") {
+          if (!shouldDelete) {
             current[finalKey] = value;
           } else {
             delete current[finalKey];
-
-            }
             // Clean up empty parent objects after deletion
-            if (!value && value !== false && value !== 0) {
+            if (!persistNull) {
               for (let i = pathParts.length - 2; i >= 0; i--) {
                 const parentPath = pathParts.slice(0, i);
                 let parent: Record<string, unknown> = parsed;
@@ -1258,8 +1269,8 @@ export function SectionEditorPanel({
                   break;
                 }
               }
+            }
           }
-          
         }
 
         const newYaml = safeYamlDump(parsed, {
@@ -1940,8 +1951,28 @@ export function SectionEditorPanel({
     return paths;
   })();
 
+  const { data: componentRegistryData } = useQuery<{
+    components: Array<{ type: string; behaviors?: string[] }>;
+  }>({
+    queryKey: ["/api/component-registry"],
+    staleTime: 60000,
+  });
+  const hasEcommerceBehavior = Boolean(
+    componentRegistryData?.components?.find((c) => c.type === sectionType)?.behaviors?.includes(
+      "ecommerce",
+    ),
+  );
+
+  const { data: ecommerceProductsData } = useQuery<{
+    products: Array<{ product_id: string; name: string; content_slug: string; active: boolean }>;
+  }>({
+    queryKey: ["/api/ecommerce/products"],
+    staleTime: 60000,
+    enabled: hasEcommerceBehavior || ctaTrackingPaths.length > 0,
+  });
+
   const showFormsTab = formSettingsPath !== null;
-  const showEcommerceTab = ctaTrackingPaths.length > 0;
+  const showEcommerceTab = ctaTrackingPaths.length > 0 || hasEcommerceBehavior;
   const editorTabCount = 2 + (showFormsTab ? 1 : 0) + (showEcommerceTab ? 1 : 0);
 
   // Join helper: "" means form settings at section root (lead_form).
@@ -6916,10 +6947,56 @@ export function SectionEditorPanel({
                   </div>
                 );
               })()}
+              {(() => {
+                const formNode =
+                  formSettingsPath === ""
+                    ? parsedSection
+                    : (getValueAtFieldPath(parsedSection, formSettingsPath ?? "") as
+                        | Record<string, unknown>
+                        | undefined);
+                if (!formNode || typeof formNode !== "object") return null;
+                const rootVal = formNode.conversion_name;
+                const routes = formNode.routes;
+                let routeHasName = false;
+                if (Array.isArray(routes)) {
+                  for (const r of routes) {
+                    if (
+                      r &&
+                      typeof r === "object" &&
+                      typeof (r as Record<string, unknown>).conversion_name === "string" &&
+                      String((r as Record<string, unknown>).conversion_name).trim()
+                    ) {
+                      routeHasName = true;
+                      break;
+                    }
+                  }
+                }
+                const missing =
+                  !("conversion_name" in formNode) && !routeHasName;
+                if (!missing) return null;
+                return (
+                  <div
+                    className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
+                    data-testid="banner-conversion-name-required"
+                  >
+                    <p className="text-sm font-medium text-destructive">
+                      Conversion name required
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      This field is missing (often after duplicate). Choose a conversion event, or turn
+                      conversion off with <strong>None</strong> (<code className="text-[10px]">null</code>).
+                      Save and publish will fail until you decide.
+                    </p>
+                  </div>
+                );
+              })()}
               {/* Conversion Name */}
               {(() => {
-                const storedConversionName = String(getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? "");
-                const showPicker = conversionNameEditing || !storedConversionName;
+                const rawConversion = getValueAtFieldPath(parsedSection, formProp("conversion_name"));
+                const isOff = rawConversion === null;
+                const storedConversionName =
+                  typeof rawConversion === "string" ? rawConversion : "";
+                const showPicker = conversionNameEditing || (!storedConversionName && !isOff);
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -6930,7 +7007,7 @@ export function SectionEditorPanel({
                       >
                         Conversion Name
                       </Label>
-                      {storedConversionName && !showPicker && (
+                      {(storedConversionName || isOff) && !showPicker && (
                         <Button
                           type="button"
                           size="icon"
@@ -6942,7 +7019,7 @@ export function SectionEditorPanel({
                           <IconPencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                      {showPicker && storedConversionName && (
+                      {showPicker && (storedConversionName || isOff) && (
                         <Button
                           type="button"
                           size="icon"
@@ -6962,27 +7039,30 @@ export function SectionEditorPanel({
                         data-testid="display-conversion-name"
                       >
                         <IconTargetArrow className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <span className="text-sm font-mono">{storedConversionName}</span>
+                        <span className="text-sm font-mono">
+                          {isOff ? "— Off (null) —" : storedConversionName}
+                        </span>
                       </div>
                     ) : (
                       <Select
-                        value={storedConversionName}
+                        value={isOff ? "__clear__" : storedConversionName || undefined}
                         onValueChange={(val) => {
-                          updateProperty(formProp("conversion_name"), val === "__clear__" ? "" : val);
+                          updatePropertyWithValue(
+                            formProp("conversion_name"),
+                            val === "__clear__" ? null : val,
+                          );
                           setConversionNameEditing(false);
                         }}
                         data-testid="select-conversion-name"
-                        open={conversionNameEditing || !storedConversionName ? undefined : false}
+                        open={conversionNameEditing || (!storedConversionName && !isOff) ? undefined : false}
                       >
                         <SelectTrigger className="w-full" data-testid="combobox-conversion-name">
                           <SelectValue placeholder="Select conversion event…" />
                         </SelectTrigger>
                         <SelectContent>
-                          {storedConversionName && (
-                            <SelectItem value="__clear__" data-testid="conversion-name-option-clear">
-                              <span className="text-muted-foreground">— None —</span>
-                            </SelectItem>
-                          )}
+                          <SelectItem value="__clear__" data-testid="conversion-name-option-clear">
+                            <span className="text-muted-foreground">— None (turn off) —</span>
+                          </SelectItem>
                           {conversionNames.length === 0 && (
                             <SelectItem value="__loading__" disabled>
                               {conversionNamesLoading ? "Loading…" : "No events configured"}
@@ -7566,6 +7646,118 @@ export function SectionEditorPanel({
                 </ul>
               </details>
             </div>
+
+            {hasEcommerceBehavior &&
+              (() => {
+                const sec = parsedSection as Record<string, unknown> | null;
+                if (!sec) return null;
+                let programsHaveIds = false;
+                if (Array.isArray(sec.programs)) {
+                  for (const p of sec.programs) {
+                    if (
+                      p &&
+                      typeof p === "object" &&
+                      typeof (p as Record<string, unknown>).id === "string" &&
+                      String((p as Record<string, unknown>).id)
+                    ) {
+                      programsHaveIds = true;
+                      break;
+                    }
+                  }
+                }
+                const inherits = contentType === "program" && !!slug;
+                const missingProducts =
+                  !("ecommerce_products" in sec) && !programsHaveIds && !inherits;
+                if (!missingProducts) return null;
+                return (
+                  <div
+                    className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
+                    data-testid="banner-ecommerce-products-required"
+                  >
+                    <p className="text-sm font-medium text-destructive">
+                      Product scope required
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <code className="text-[10px]">ecommerce_products</code> is missing (often after
+                      duplicate). Choose product slugs, <code className="text-[10px]">all</code>, or turn
+                      scope off with <strong>None</strong> (<code className="text-[10px]">null</code>).
+                      Save and publish will fail until you decide.
+                    </p>
+                  </div>
+                );
+              })()}
+
+            {hasEcommerceBehavior &&
+              (() => {
+                const sec = parsedSection as Record<string, unknown> | null;
+                if (!sec) return null;
+                const raw = sec.ecommerce_products;
+                const keyPresent = "ecommerce_products" in sec;
+                const isOff = raw === null;
+                const isAll = raw === "all";
+                const selectedSlugs = Array.isArray(raw)
+                  ? raw.filter((x): x is string => typeof x === "string")
+                  : [];
+                const mode = !keyPresent
+                  ? undefined
+                  : isOff
+                    ? "off"
+                    : isAll
+                      ? "all"
+                      : "list";
+                const productOptions = (ecommerceProductsData?.products ?? [])
+                  .filter((p) => p.active)
+                  .map((p) => ({
+                    value: p.content_slug || p.product_id,
+                    label: p.name || p.content_slug || p.product_id,
+                  }));
+                return (
+                  <div className="space-y-3" data-testid="ecommerce-products-scope">
+                    <h3 className="text-sm font-medium">Product scope</h3>
+                    <Select
+                      value={mode}
+                      onValueChange={(val) => {
+                        if (val === "off") {
+                          updatePropertyWithValue("ecommerce_products", null);
+                        } else if (val === "all") {
+                          updatePropertyWithValue("ecommerce_products", "all");
+                        } else {
+                          updatePropertyWithValue(
+                            "ecommerce_products",
+                            selectedSlugs.length > 0 ? selectedSlugs : [],
+                          );
+                        }
+                      }}
+                      data-testid="select-ecommerce-products-mode"
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose product scope…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off">None (turn off — null)</SelectItem>
+                        <SelectItem value="all">All purchasable products</SelectItem>
+                        <SelectItem value="list">Specific products…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {mode === "list" && (
+                      <SearchableMultiSelect
+                        label="Products"
+                        options={productOptions}
+                        value={selectedSlugs}
+                        onChange={(next) => updatePropertyWithValue("ecommerce_products", next)}
+                        searchPlaceholder="Select product slugs…"
+                        emptyMessage="No active purchasable products"
+                        testIdPrefix="ecommerce-product"
+                      />
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Missing after duplicate is invalid. Explicit null turns product scope off;{" "}
+                      <code className="text-[10px]">programs[].id</code> or a program page can also
+                      supply scope.
+                    </p>
+                  </div>
+                );
+              })()}
 
             <div className="space-y-3">
               <h3 className="text-sm font-medium">CTA inventory</h3>

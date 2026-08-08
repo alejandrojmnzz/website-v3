@@ -23,7 +23,17 @@ When a **page** or **section** is duplicated, the server clears conversion/ecomm
 
 **Not wiped in v1:** `programs[].id` on `enrollment_selector`, automations/webhook/tags, ordinary copy/layout props.
 
-Duplicate always succeeds; later save/publish fails until conversion_name / CTA tracking / product scope are valid again. Response includes `clearedFields` for staff toasts and tooling.
+Duplicate always succeeds; later save/publish/promote fails until conversion_name / CTA tracking / product scope are valid again. Response includes `clearedFields` for staff toasts and tooling.
+
+**Missing ≠ off.** Wipe **deletes** keys. After wipe you must choose again:
+
+| Field | Explicit off | Valid on |
+|-------|--------------|----------|
+| `conversion_name` | YAML `null` | non-empty known name (or route name) |
+| CTA `tracking` | `none` | `add_to_cart` / `click_begin_checkout` / … |
+| `ecommerce_products` (ecommerce behavior, not inherit) | YAML `null` | string[] / `"all"` (or `programs[].id` / inherit) |
+
+Empty string or a deleted key is invalid. Staff Conversion/Ecommerce tabs show banners when identity keys are missing. Publish and promote run the same identity validators as save.
 
 **For agents adding components:** binding `form-settings`, `cta-tracking`, or `ecommerce-products` implies those values are wiped on duplicate. Do not invent a parallel schema key. Default for ordinary props: keep on duplicate.
 

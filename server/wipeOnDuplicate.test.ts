@@ -151,4 +151,13 @@ describe("validateRequiredConversionName", () => {
       ),
     ).toBeNull();
   });
+
+  it("passes when conversion_name is null (explicit off)", () => {
+    expect(
+      validateRequiredConversionName(
+        { type: "lead_form", conversion_name: null },
+        "",
+      ),
+    ).toBeNull();
+  });
 });

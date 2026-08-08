@@ -3,27 +3,15 @@ import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
-import {
-  validateFormSection,
-  validateRequiredConversionName,
-} from "@shared/validateFormSection";
-import {
-  validateCtaTracking,
-  validateCtaPurchasable,
-  resolveBoundCtaPaths,
-} from "@shared/validateCtaTracking";
-import { validateProductScope } from "@shared/resolveProductScope";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import {
   wipeSectionOnDuplicate,
   wipeDocumentSectionsOnDuplicate,
-  resolveBoundFormSettingsPath,
   type ClearedField,
 } from "@shared/wipeOnDuplicate";
-import { getTrackingSettings } from "./settings";
 import { generateSectionId } from "./utils/generateSectionId";
-import { loadAllFieldEditors, getComponentInfo } from "./component-registry";
-import { ecommerceManager } from "./ecommerce/ecommerce-manager";
+import { loadAllFieldEditors } from "./component-registry";
+import { validateDocIdentity } from "./validate-content-identity";
 
 function getDefaultContentRootName(): string {
   try {
@@ -148,7 +136,8 @@ function getValueAtPath(obj: Record<string, unknown>, pathStr: string): unknown 
   return current;
 }
 
-function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: unknown): void {
+/** Persist path updates; identity fields keep YAML `null` (opt-out) instead of deleting the key. */
+export function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: unknown): void {
   const parts = pathStr.replace(/\[(\d+)\]/g, ".$1").split(".");
   let current: Record<string, unknown> = obj;
   
@@ -163,8 +152,17 @@ function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: un
   }
   
   const lastPart = parts[parts.length - 1];
-  // null/undefined deletes the key so callers can clear fields like `_label`
-  if (value === null || value === undefined) {
+  // undefined deletes the key (e.g. `_label`). null is persisted for identity
+  // opt-out: conversion_name / ecommerce_products / *.conversion_name / *.ecommerce_products
+  const persistNull =
+    value === null &&
+    (lastPart === "conversion_name" ||
+      lastPart === "ecommerce_products" ||
+      pathStr.endsWith(".conversion_name") ||
+      pathStr.endsWith(".ecommerce_products") ||
+      pathStr === "conversion_name" ||
+      pathStr === "ecommerce_products");
+  if (value === undefined || (value === null && !persistNull)) {
     delete current[lastPart];
   } else {
     current[lastPart] = value;
@@ -776,73 +774,15 @@ export async function editContent(request: ContentEditRequest): Promise<{
       );
     }
 
-    // Validate form sections after all operations are applied, before writing to disk.
-    // This covers every edit path (update_section, update_field, add_item, replace_all_sections)
-    // because we inspect the fully-mutated in-memory state.
+    // Validate conversion / CTA / product-scope identity before writing to disk.
     if (Array.isArray(localeData.sections)) {
-      const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
-      const allFieldEditors = loadAllFieldEditors();
-      const resolveProduct = (programId: string) => {
-        const byCms = ecommerceManager.findProductByCmsEntry("program", programId);
-        if (byCms) {
-          return { product_id: byCms.product_id, active: byCms.active };
-        }
-        const bySlug = ecommerceManager.findProductByProgramId(programId);
-        if (bySlug) return { product_id: bySlug.product_id, active: bySlug.active };
-        const byId = ecommerceManager.getProduct(programId);
-        if (byId) return { product_id: byId.product_id, active: byId.active };
-        return undefined;
-      };
-      for (let i = 0; i < (localeData.sections as Record<string, unknown>[]).length; i++) {
-        const section = (localeData.sections as Record<string, unknown>[])[i];
-        const skipIdentity = skipIdentityValidationIndexes.has(i);
-
-        const formErr = validateFormSection(section, conversionNames);
-        if (formErr) {
-          return { success: false, error: `sections[${i}]: ${formErr}` };
-        }
-
-        const sectionType = String(section.type ?? "");
-        const editors = allFieldEditors[sectionType] ?? {};
-        const sectionVariant = typeof section.variant === "string" ? section.variant : undefined;
-        const ctaPaths = resolveBoundCtaPaths(editors, sectionVariant);
-        const info = getComponentInfo(sectionType);
-        const hasEcommerceBehavior = Boolean(info?.behaviors?.includes("ecommerce"));
-        const formSettingsPath = resolveBoundFormSettingsPath(editors, sectionVariant);
-
-        if (!skipIdentity) {
-          const requiredConvErr = validateRequiredConversionName(section, formSettingsPath);
-          if (requiredConvErr) {
-            return { success: false, error: `sections[${i}]: ${requiredConvErr}` };
-          }
-
-          const trackingErr = validateCtaTracking(section, ctaPaths);
-          if (trackingErr) {
-            return { success: false, error: `sections[${i}]: ${trackingErr}` };
-          }
-
-          const purchasableErr = validateCtaPurchasable(section, ctaPaths, {
-            contentSlug: slug,
-            contentType,
-            resolveProduct,
-          });
-          if (purchasableErr) {
-            return { success: false, error: `sections[${i}]: ${purchasableErr}` };
-          }
-
-          const scopeErr = validateProductScope(section, {
-            contentSlug: slug,
-            contentType,
-            hasEcommerceBehavior,
-            ctaPaths,
-            fieldEditors: editors,
-            resolveProduct,
-            sectionIndex: i,
-          });
-          if (scopeErr) {
-            return { success: false, error: scopeErr };
-          }
-        }
+      const identityErr = validateDocIdentity(localeData, {
+        contentType,
+        contentSlug: slug,
+        skipIdentityIndexes: skipIdentityValidationIndexes,
+      });
+      if (identityErr) {
+        return { success: false, error: identityErr };
       }
     }
 
@@ -930,6 +870,7 @@ function writeStructuralChangesToTemplate(opts: {
   author?: string;
   contentRoot?: string;
   contentType?: string;
+  contentSlug?: string;
   locale?: string;
   requesterId?: string;
   ci?: ContentIndex;
@@ -941,7 +882,7 @@ function writeStructuralChangesToTemplate(opts: {
   updatedSections?: unknown[];
   clearedFields?: ClearedField[];
 } {
-  const { operations, filePath, localeData, author, contentRoot, contentType, requesterId } = opts;
+  const { operations, filePath, localeData, author, contentRoot, contentType, contentSlug, requesterId } = opts;
   const ci = opts.ci ?? contentIndex;
 
   try {
@@ -990,6 +931,29 @@ function writeStructuralChangesToTemplate(opts: {
     const consentErrStructural = getConsentKeyError(templateData);
     if (consentErrStructural) {
       return { success: false, error: consentErrStructural };
+    }
+
+    const skipIdentityIndexes = new Set<number>();
+    for (const op of annotatedOps) {
+      if (op.action === "add_item" && op.path === "sections") {
+        const idx =
+          typeof op.index === "number" && op.index >= 0
+            ? op.index
+            : Array.isArray(templateData.sections)
+              ? (templateData.sections as unknown[]).length - 1
+              : -1;
+        if (idx >= 0) skipIdentityIndexes.add(idx);
+      }
+    }
+    if (contentType && Array.isArray(templateData.sections)) {
+      const identityErr = validateDocIdentity(templateData, {
+        contentType,
+        contentSlug: contentSlug || contentType,
+        skipIdentityIndexes,
+      });
+      if (identityErr) {
+        return { success: false, error: identityErr };
+      }
     }
 
     const updatedYaml = safeYamlDump(templateData, {
@@ -1243,6 +1207,7 @@ function handleSharedTemplateEdit(opts: {
       author,
       contentRoot,
       contentType,
+      contentSlug: slug,
       locale,
       requesterId,
       ci,
