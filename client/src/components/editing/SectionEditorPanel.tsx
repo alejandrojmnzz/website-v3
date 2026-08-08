@@ -1906,15 +1906,16 @@ export function SectionEditorPanel({
     for (const [fieldPath, editorType] of Object.entries(rawFields)) {
       if (editorType === "form-settings") {
         const colonIndex = fieldPath.indexOf(":");
+        // Variant-prefixed keys (e.g. "course:signup_card.form") — only match active variant.
+        // Do not fall back to another variant's path as "global".
         if (colonIndex > 0 && !fieldPath.startsWith("color-picker:")) {
           const variantPrefix = fieldPath.substring(0, colonIndex);
           const actualPath = normalizeFormSettingsPath(fieldPath.substring(colonIndex + 1));
           if (currentVariant && variantPrefix === currentVariant) {
             return actualPath;
           }
-          if (globalPath === null) globalPath = actualPath;
-        } else {
-          if (globalPath === null) globalPath = normalizeFormSettingsPath(fieldPath);
+        } else if (globalPath === null) {
+          globalPath = normalizeFormSettingsPath(fieldPath);
         }
       }
     }
