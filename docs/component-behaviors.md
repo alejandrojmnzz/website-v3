@@ -13,13 +13,13 @@ Structured `behaviors` on each component `schema.yml` declare how a section part
 
 ## CTA tracking (`cta.tracking`)
 
-Bound via field-editor type `cta-tracking`. Required values: `none` | `add_to_cart` | `begin_checkout`.
+Bound via field-editor type `cta-tracking` (parallel to `form-settings`). Required values: `none` | `add_to_cart` | `click_begin_checkout`.
 
 | Value | When |
 |-------|------|
 | `none` | Apply, login, unrelated links |
 | `add_to_cart` | Enter purchase configurator (`/payment-component`) |
-| `begin_checkout` | External POS (`/checkout`) |
+| `click_begin_checkout` | Click toward `/checkout` |
 
 Example paths: `signup_card.cta_button.tracking`, `programs[].summary.cta.tracking`.
 
@@ -42,4 +42,12 @@ Effective journey: top-of-funnel `funnel.traffic_sources` (content type + role, 
 
 MCP: `get_product_funnel` / `update_product_funnel`. Property paths: `funnel.steps` (URL steps), `funnel.traffic_sources` (inbound types — not URL steps, not auto-detected).
 
-Events: `view_item` → `add_to_cart` → `view_item_list` / `select_item` → `begin_checkout` → `purchase` (off-site only).
+Events: `view_item` (hero course) → `add_to_cart` (payment-component CTA) → `view_item_list` / `select_item` (enrollment) → `click_begin_checkout` (checkout CTA on this site) → `begin_checkout` / `purchase` (off-site learn POS only).
+
+## Ecommerce payload (UI vs central)
+
+- **Call sites** supply context the central layer cannot know: enrollment `selected_plan_option` (`plans[].id`), `cohort_date`, `addon_id`, `amount`/`period`, and `item_list_name`.
+- **Central** `trackEcommerce` resolves purchasable product identity (`item_id` / `item_name` / `item_category`) from `_ecommerce.yml` and no-ops when the product is missing or not purchasable.
+- `selected_plan_option` is the enrollment selector option slug — not the learn.4geeks billing `plan` field.
+- `cta-tracking` field-editors (hero course CTA, enrollment summary CTAs) set ecommerce **intent** (`none` | `add_to_cart` | `click_begin_checkout`). `cta_banner` does not bind `cta-tracking` and does not fire ecommerce events.
+- Display price strings are not GA4 `value` / revenue.

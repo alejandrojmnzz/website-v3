@@ -201,10 +201,25 @@ Purchasable-gated events via `trackEcommerce()` in `client/src/lib/tracking.ts`.
 | Event | When | Notes |
 |-------|------|-------|
 | `view_item` | Hero `course` when product resolves | Scope / program page / CTA `?program=` |
-| `add_to_cart` | CTA `tracking: add_to_cart` | Configurator handoff (`/payment-component`) |
+| `add_to_cart` | CTA `tracking: add_to_cart` | Configurator handoff (`/payment-component`) or enrollment CTA |
 | `view_item_list` | enrollment_selector / pricing_plans visible | Once per mount; skip edit mode |
-| `select_item` | User changes enrollment program | Debounced; no hydrate |
-| `begin_checkout` | CTA `tracking: begin_checkout` | External POS (`/checkout`) |
+| `select_item` | User changes enrollment program | Debounced; includes selection fields |
+| `click_begin_checkout` | CTA `tracking: click_begin_checkout` | Checkout CTA click on this site |
+| `begin_checkout` | Off-site only (learn.4geeks) | **Not fired** from this site |
 | `purchase` | Off-site only | **Not fired** from this site |
 
-CTA intent is explicit `cta.tracking` (field-editor `cta-tracking`). See `docs/component-behaviors.md`.
+CTA intent is explicit `cta.tracking` (field-editor `cta-tracking`), not URL sniffing at runtime. See `docs/component-behaviors.md`.
+
+### Payload split
+
+- **Central** (`trackEcommerce`): purchasable gate; flat `item_id` / `item_name` / `item_category` / `user_id` from the product map (`programs/{slug}/_ecommerce.yml`). No GA4 `items[]` array.
+- **Enrollment call site** may also send (omit when N/A):
+  - `item_list_name`: `"enrollment_selector"`
+  - `selected_plan_option`: `programs[].plans[].id` (e.g. `basic` / `pro`) — **not** learn.4geeks billing `plan`
+  - `amount` / `period`: from the selected plan (plan mode); in date mode `amount` may be `summary.price_amount` (display string, not GA4 revenue `value`)
+  - `cohort_date`: selected `date_iso` (date mode)
+  - `addon_id`: `addon.id` when the addon toggle is on
+- **Hero**: `program_id` from product scope / CTA `?program=` / career-program path; CTA click awaits product-map load
+- **Pricing**: `item_list_name: "pricing_plans"` on `view_item_list`
+
+Non-effects: does not change lead `trackFormSubmission`; does not fire `begin_checkout` or `purchase` on-site (`click_begin_checkout` is the site CTA intent); `cta_banner` has no ecommerce wiring.

@@ -84,10 +84,10 @@ export function validateCtaTracking(
     for (const { pathHint, cta } of targets) {
       const tracking = cta.tracking;
       if (tracking === undefined || tracking === null || tracking === "") {
-        return `CTA at ${path}${pathHint} is missing required "tracking" (none | add_to_cart | begin_checkout) on ${sectionType || "section"}`;
+        return `CTA at ${path}${pathHint} is missing required "tracking" (none | add_to_cart | click_begin_checkout) on ${sectionType || "section"}`;
       }
       if (!isCtaTrackingValue(tracking)) {
-        return `CTA at ${path}${pathHint} has invalid tracking "${String(tracking)}". Valid: none, add_to_cart, begin_checkout`;
+        return `CTA at ${path}${pathHint} has invalid tracking "${String(tracking)}". Valid: none, add_to_cart, click_begin_checkout`;
       }
     }
   }

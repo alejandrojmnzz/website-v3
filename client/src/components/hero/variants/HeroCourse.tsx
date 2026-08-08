@@ -85,11 +85,13 @@ export default function HeroCourse({ data }: HeroCourseProps) {
     const tracking = cta?.tracking;
     if (isCtaTrackingValue(tracking) && tracking !== "none") {
       const programId = programIdFromHeroData(data, cta?.url);
-      trackEcommerce(tracking, {
-        program_id: programId,
-        component_type: "hero",
-        component_variant: "course",
-        path: typeof window !== "undefined" ? window.location.pathname : undefined,
+      void ensureEcommerceProductLookup().then(() => {
+        trackEcommerce(tracking, {
+          program_id: programId,
+          component_type: "hero",
+          component_variant: "course",
+          path: typeof window !== "undefined" ? window.location.pathname : undefined,
+        });
       });
     }
     handleLinkClick(e);

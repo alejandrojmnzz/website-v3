@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 // CTA Button - used in many components
-export const ctaTrackingSchema = z.enum(["none", "add_to_cart", "begin_checkout"]);
+export const ctaTrackingSchema = z.enum(["none", "add_to_cart", "click_begin_checkout"]);
 
 export const ctaButtonSchema = z.object({
   text: z.string(),

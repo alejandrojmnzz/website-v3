@@ -10,7 +10,7 @@ import { IconChevronRight, IconCheck } from "@tabler/icons-react";
 import type { EnrollmentSelectorDefault, EnrollmentSelectorProgram } from "@shared/schema";
 import { addDays, addWeeks, addMonths } from "date-fns";
 import { resolveColorVar, hslColor } from "@/components/course_selector/shared";
-import { trackEcommerce } from "@/lib/tracking";
+import { trackEcommerce, type EcommercePayload } from "@/lib/tracking";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { isCtaTrackingValue } from "@shared/component-behaviors";
@@ -83,6 +83,51 @@ type DisplayDate = {
   url?: string;
   date_iso: string;
 };
+
+/** Selection fields for enrollment ecommerce dataLayer pushes (omit inapplicable keys). */
+function buildEcommerceSelectionPayload(opts: {
+  program: EnrollmentSelectorProgram | undefined;
+  selectedPlanIdx: number;
+  selectedDateIdx: number;
+  displayDates: DisplayDate[];
+  addonEnabled: boolean;
+}): EcommercePayload {
+  const path = typeof window !== "undefined" ? window.location.pathname : undefined;
+  const base: EcommercePayload = {
+    item_list_name: "enrollment_selector",
+    component_type: "enrollment_selector",
+    path,
+  };
+  const { program, selectedPlanIdx, selectedDateIdx, displayDates, addonEnabled } = opts;
+  if (!program?.id) return base;
+
+  base.program_id = program.id;
+
+  const isDateMode = !!program.dates;
+  const isPlanMode = !isDateMode && !!(program.plans?.length);
+
+  if (isPlanMode && program.plans?.length) {
+    const plan = program.plans[selectedPlanIdx] ?? program.plans[0];
+    if (plan?.id) base.selected_plan_option = plan.id;
+    if (plan?.amount?.trim()) base.amount = plan.amount;
+    if (plan?.period?.trim()) base.period = plan.period;
+  }
+
+  if (isDateMode) {
+    const date = displayDates[selectedDateIdx] ?? displayDates[0];
+    if (date?.date_iso) base.cohort_date = date.date_iso;
+    const priceAmount = program.summary?.price_amount;
+    if (typeof priceAmount === "string" && priceAmount.trim()) {
+      base.amount = priceAmount;
+    }
+  }
+
+  if (program.addon?.id && addonEnabled) {
+    base.addon_id = program.addon.id;
+  }
+
+  return base;
+}
 
 /** Current calendar date in UTC (YYYY-MM-DD) — identical on server and client. */
 function todayUtcIso(): string {
@@ -450,6 +495,10 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const [filteredByQs, setFilteredByQs] = useState(false);
   const [addonEnabled, setAddonEnabled] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionPayloadRef = useRef<EcommercePayload>({
+    item_list_name: "enrollment_selector",
+    component_type: "enrollment_selector",
+  });
 
   useEffect(() => {
     ensureEcommerceProductLookup();
@@ -462,41 +511,6 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
     }, 0);
     return () => clearTimeout(t);
   }, []);
-
-  // view_item_list once when visible
-  useEffect(() => {
-    if (isEditMode || listViewedRef.current || !rootRef.current) return;
-    const el = rootRef.current;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((e) => e.isIntersecting) || listViewedRef.current) return;
-        listViewedRef.current = true;
-        const firstId = data.programs[0]?.id;
-        trackEcommerce("view_item_list", {
-          program_id: firstId,
-          item_list_name: "enrollment_selector",
-          component_type: "enrollment_selector",
-          path: typeof window !== "undefined" ? window.location.pathname : undefined,
-        });
-        obs.disconnect();
-      },
-      { threshold: 0.2 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [isEditMode, data.programs]);
-
-  const trackSelectItem = (programId: string | undefined) => {
-    if (!hydrateDoneRef.current || isEditMode || !programId) return;
-    if (selectDebounceRef.current) clearTimeout(selectDebounceRef.current);
-    selectDebounceRef.current = setTimeout(() => {
-      trackEcommerce("select_item", {
-        program_id: programId,
-        component_type: "enrollment_selector",
-        path: typeof window !== "undefined" ? window.location.pathname : undefined,
-      });
-    }, 300);
-  };
 
   // On mount: read ?program, ?plan, ?cohort and ?addon from URL
   useEffect(() => {
@@ -579,6 +593,75 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
   const activeSummary = plan?.summary ?? program?.summary;
   const activeBenefits = plan?.benefits?.length ? plan.benefits : (program?.benefits ?? []);
   const activeUnlocks = plan?.unlocks?.length ? plan.unlocks : (program?.unlocks ?? []);
+
+  selectionPayloadRef.current = buildEcommerceSelectionPayload({
+    program,
+    selectedPlanIdx,
+    selectedDateIdx,
+    displayDates,
+    addonEnabled,
+  });
+
+  // view_item_list once when visible
+  useEffect(() => {
+    if (isEditMode || listViewedRef.current || !rootRef.current) return;
+    const el = rootRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting) || listViewedRef.current) return;
+        listViewedRef.current = true;
+        trackEcommerce("view_item_list", selectionPayloadRef.current);
+        obs.disconnect();
+      },
+      { threshold: 0.2 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [isEditMode, data.programs]);
+
+  const trackSelectItem = (
+    nextProgram: EnrollmentSelectorProgram,
+    nextPlanIdx: number,
+  ) => {
+    if (!hydrateDoneRef.current || isEditMode || !nextProgram.id) return;
+    if (selectDebounceRef.current) clearTimeout(selectDebounceRef.current);
+    selectDebounceRef.current = setTimeout(() => {
+      let nextDates: DisplayDate[] = [];
+      if (nextProgram.dates?.mode === "static") {
+        const todayIso = todayUtcIso();
+        nextDates = nextProgram.dates.items
+          .filter((item) => item.date_iso >= todayIso)
+          .sort((a, b) => a.date_iso.localeCompare(b.date_iso))
+          .slice(0, 3)
+          .map((item) => ({
+            label: item.label ?? formatDateLabel(item.date_iso, locale),
+            year: item.year ?? item.date_iso.slice(0, 4),
+            badges: asChipList(item.badges),
+            tags: asChipList(item.tags),
+            url: item.url,
+            date_iso: item.date_iso,
+          }));
+      } else if (nextProgram.dates) {
+        nextDates = generateIntervalDates(
+          nextProgram.dates.start_date_iso,
+          nextProgram.dates.interval,
+          nextProgram.dates.interval_unit,
+          locale,
+          nextProgram.dates.url,
+        );
+      }
+      trackEcommerce(
+        "select_item",
+        buildEcommerceSelectionPayload({
+          program: nextProgram,
+          selectedPlanIdx: nextPlanIdx,
+          selectedDateIdx: 0,
+          displayDates: nextDates,
+          addonEnabled: false,
+        }),
+      );
+    }, 300);
+  };
 
   // Source of truth for CTA callback labels (not the page URL).
   callbackLabelsRef.current = {
@@ -703,7 +786,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                           nav.navigate(addonOffUrl(program.addon));
                         }
                         setAddonEnabled(false);
-                        trackSelectItem(prog.id);
+                        trackSelectItem(prog, nextPlanIdx);
                       }}
                     >
                       {active && (
@@ -979,11 +1062,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                     if (e.button === 0 && !e.altKey) applySelectionParams();
                     const tracking = (activeSummary.cta as { tracking?: string }).tracking;
                     if (isCtaTrackingValue(tracking) && tracking !== "none") {
-                      trackEcommerce(tracking, {
-                        program_id: program?.id,
-                        component_type: "enrollment_selector",
-                        path: typeof window !== "undefined" ? window.location.pathname : undefined,
-                      });
+                      trackEcommerce(tracking, selectionPayloadRef.current);
                     }
                     nav(e);
                   }}

@@ -80,7 +80,7 @@ export function resolveComponentBehaviors(
   return out;
 }
 
-export const CTA_TRACKING_VALUES = ["none", "add_to_cart", "begin_checkout"] as const;
+export const CTA_TRACKING_VALUES = ["none", "add_to_cart", "click_begin_checkout"] as const;
 export type CtaTrackingValue = (typeof CTA_TRACKING_VALUES)[number];
 
 export function isCtaTrackingValue(v: unknown): v is CtaTrackingValue {
@@ -91,7 +91,7 @@ export function isCtaTrackingValue(v: unknown): v is CtaTrackingValue {
 export function inferCtaTrackingFromUrl(url: unknown): CtaTrackingValue {
   if (typeof url !== "string") return "none";
   const lower = url.toLowerCase();
-  if (lower.includes("/checkout")) return "begin_checkout";
+  if (lower.includes("/checkout")) return "click_begin_checkout";
   if (lower.includes("/payment-component")) return "add_to_cart";
   return "none";
 }
