@@ -662,6 +662,29 @@ export function registerVersioningRoutes(app: Express): void {
           });
           return;
         }
+        const parsedVariant =
+          (getCI(res).safeYamlLoad(variantContent) as Record<string, unknown>) || {};
+        const commonForGate =
+          getCI(res).loadCommonData(contentType, resolved.slug) || {};
+        const { assertLiveEntrySeoAndRequiredFields } = await import(
+          "../live-entry-seo-gate"
+        );
+        const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+          contentType,
+          slug: resolved.slug,
+          locale,
+          pageData: deepMerge(commonForGate, parsedVariant) as Record<
+            string,
+            unknown
+          >,
+          contentRoot: root,
+          mode: "publish",
+          isDraftWrite: false,
+        });
+        if (seoGateErr) {
+          res.status(400).json({ error: `Cannot publish: ${seoGateErr}`, locale });
+          return;
+        }
         fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
         const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -785,6 +808,29 @@ export function registerVersioningRoutes(app: Express): void {
             `Cannot promote: ${identityErr}. ` +
             `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before promoting.`,
         });
+        return;
+      }
+      const parsedVariant =
+        (getCI(res).safeYamlLoad(variantContent) as Record<string, unknown>) || {};
+      const commonForGate =
+        getCI(res).loadCommonData(contentType, resolved.slug) || {};
+      const { assertLiveEntrySeoAndRequiredFields } = await import(
+        "../live-entry-seo-gate"
+      );
+      const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+        contentType,
+        slug: resolved.slug,
+        locale,
+        pageData: deepMerge(commonForGate, parsedVariant) as Record<
+          string,
+          unknown
+        >,
+        contentRoot: root,
+        mode: "publish",
+        isDraftWrite: false,
+      });
+      if (seoGateErr) {
+        res.status(400).json({ error: `Cannot promote: ${seoGateErr}` });
         return;
       }
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");

@@ -47,6 +47,7 @@ export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
       files.push({
         slug: entry.slug,
         title: ((data.title || data.name || entry.title || entry.slug) as string) || entry.slug,
+        description: typeof data.description === "string" ? data.description : undefined,
         meta: data.meta as ContentFile["meta"],
         schema: data.schema as ContentFile["schema"],
         seo: data.seo as ContentFile["seo"],
@@ -54,6 +55,7 @@ export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
         locale,
         filePath: result.filePath,
         url,
+        entryFields: data,
       });
     }
   }

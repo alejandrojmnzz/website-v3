@@ -1013,6 +1013,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "page_title/description/og_image/og_type/og_url/og_locale/canonical_url → {locale}.yml. " +
     "Use 'custom_fields' + 'target' for non-standard meta fields not in the known list — target must be explicit ('locale' or 'common'). " +
     "Do NOT use this for section/content edits — use update_section_field instead.\n\n" +
+    "Live gate: live locale saves require resolved non-empty meta.page_title + meta.description " +
+    "(draft-only writes exempt). Clearing either on a live page fails. " +
+    "editor.required fields (e.g. blog title/description) are separate — drafts may be empty; publish/live cannot clear.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -1158,6 +1161,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "page_title/description/og_image/og_type/og_url/og_locale/canonical_url → {locale}.yml. " +
     "Use 'custom_fields' + 'target' for non-standard meta fields. " +
     "Do NOT use this for section/content edits — use update_section_fields instead.\n\n" +
+    "Live gate: live saves need resolved meta.page_title + meta.description; drafts exempt. " +
+    "Clearing required live meta or editor.required fields fails.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -1688,6 +1693,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Publish an unpublished draft entry: promotes the given variantSlug to live {locale}.yml for EVERY remaining draft locale that has that file (all-or-nothing). " +
     "After this, the page is public and enters the sitemap. Other drafts become normal variants at 0%. " +
     "Fails if the entry already has a live locale (use promote_variant instead) or if some draft locales lack the variantSlug. " +
+    "Also fails when resolved meta.page_title / meta.description are empty, or when editor.required fields " +
+    "(e.g. blog title + description) are empty — drafts may omit those until publish. " +
     "Confirm with the user before calling — this makes the page live.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -1764,6 +1771,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Promote a variant to become the live version for ONE locale: overwrites the default locale file with the variant's content, " +
     "removes the variant from versioning.yml, and deletes the variant file. " +
     "For unpublished draft entries (no live locales), use publish_draft instead (all-or-nothing across locales). " +
+    "Fails when resolved meta.page_title / meta.description are empty, or editor.required fields are empty on the promoted content. " +
     "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -2674,6 +2682,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "    'meta.og_url', 'meta.og_locale', 'meta.canonical_url' → locale file\n" +
     "  • Any other 'meta.*' key → locale file\n" +
     "  • Safe top-level fields: 'title', 'slug' → locale file\n\n" +
+    "Live gate: live writes need resolved meta.page_title + meta.description; " +
+    "editor.required fields (blog: title, description) cannot be cleared on live. Drafts exempt.\n\n" +
     "What the caller must supply: a non-empty updates array with valid field_path strings and values. " +
     "What the server handles: routing, conflict detection per file, atomic write(s), cache refresh, Git mark-modified.\n\n" +
     "Possible errors: invalid/disallowed field_path, page/locale not found, remote conflict " +

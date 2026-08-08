@@ -157,6 +157,25 @@ export function writeFieldOverrides(
       entryData[FIELD_OVERRIDES_KEY] = existing;
     }
 
+    const commonForGate = contentIndex.loadCommonData(contentType, slug) || {};
+    const withOverrides = applyFieldOverridesToItem(
+      { ...commonForGate, ...entryData } as Record<string, unknown>,
+      existing,
+    );
+    const { assertLiveEntrySeoAndRequiredFields } = require("./live-entry-seo-gate") as typeof import("./live-entry-seo-gate");
+    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale,
+      pageData: withOverrides,
+      contentRoot,
+      mode: "live_update",
+      isDraftWrite: false,
+    });
+    if (seoGateErr) {
+      return { success: false, error: seoGateErr };
+    }
+
     fs.writeFileSync(
       filePath,
       yaml.dump(entryData, { lineWidth: -1, noRefs: true }),

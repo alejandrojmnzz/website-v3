@@ -33,10 +33,12 @@ import { brokenAnchorsValidator } from "./broken-anchors";
 import { sectionVariantsValidator } from "./section-variants";
 import { componentBehaviorsValidator } from "./component-behaviors";
 import { ctaTrackingValidator } from "./cta-tracking";
+import { requiredFieldsValidator } from "./required-fields";
 
 export const validators: Validator[] = [
   redirectValidator,
   metaValidator,
+  requiredFieldsValidator,
   schemaValidator,
   sitemapValidator,
   componentsValidator,
@@ -129,4 +131,5 @@ export {
   consentLegacyKeysValidator,
   bindingIntegrityValidator,
   brokenAnchorsValidator,
+  requiredFieldsValidator,
 };

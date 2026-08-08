@@ -81,6 +81,12 @@ Resolve order at page delivery: **single → meta → param**. Site vars (`brand
 
 **Mental model:** schema / Fields stay in `single.*`. SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
 
+### Live SEO + Required for publish
+
+- **Live locale writes / publish / promote** require resolved non-empty `meta.page_title` and `meta.description` (no leftover `{{ }}`). Draft-only writes are exempt. Gate: `server/live-entry-seo-gate.ts` + `shared/validateRequiredMeta.ts`.
+- **`editor.<field>.required: true`** (Fields UI asterisk / YAML): drafts may omit the value; `publish_draft` / `promote_variant` and live saves fail if empty or cleared. Distinct from field_mapping `?` (key may be absent). Blog sets `title` + `description` required. Validator: `scripts/validation/validators/required-fields.ts`.
+- **Non-effects:** clearing required fields on a draft is OK; listing `pickListingFields` does not invent fallbacks for missing title/description.
+
 ### Entry preview (`preview.props`)
 
 OG / list thumbnail captures map component props to source keys using the **same namespaces**:

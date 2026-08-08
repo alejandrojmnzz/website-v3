@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
@@ -642,6 +642,74 @@ function ClearCacheConfirmDialog({
               Got it
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RequiredFieldConfirmDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+  fieldName,
+  currentlyRequired,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  fieldName: string | null;
+  currentlyRequired: boolean;
+}) {
+  const enabling = !currentlyRequired;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[480px]" data-testid="dialog-required-field-confirm">
+        <DialogHeader>
+          <DialogTitle>
+            {enabling ? "Mark as required for publish" : "Remove required for publish"}
+          </DialogTitle>
+          <DialogDescription>
+            {fieldName ? (
+              <>
+                Field{" "}
+                <code className="font-mono text-foreground text-xs">{fieldName}</code>
+              </>
+            ) : (
+              "Required for publish"
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm text-muted-foreground" data-testid="fields-required-education">
+          <p>
+            <strong className="font-medium text-foreground">Required for publish</strong> means drafts may
+            leave this field empty; publishing requires a value; live saves cannot clear it.
+          </p>
+          <p>
+            Live pages also always need{" "}
+            <code className="font-mono bg-muted px-1 rounded text-xs">meta.page_title</code> and{" "}
+            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code>{" "}
+            (Meta tab / SEO) — separate from this asterisk.
+          </p>
+          <p className="text-xs">
+            Read more:{" "}
+            <code className="font-mono text-[10px]">server/content-types.ts</code>{" "}
+            <code className="font-mono text-[10px]">editor.required</code>,{" "}
+            <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
+            <code className="font-mono text-[10px]">client/src/hooks/usePageMeta.ts</code>.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            data-testid="button-cancel-required-field"
+          >
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} data-testid="button-confirm-required-field">
+            {enabling ? "Mark required" : "Remove required"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2870,6 +2938,8 @@ function FieldMappingDialog({
   const [newValueValidation, setNewValueValidation] = useState<FieldValidationResult | "loading" | null>(null);
   const [editorHints, setEditorHints] = useState<Record<string, EditorHint>>({});
   const [hintDialogField, setHintDialogField] = useState<string | null>(null);
+  /** Field key pending Required-for-publish confirm (asterisk). */
+  const [pendingRequiredField, setPendingRequiredField] = useState<string | null>(null);
   const [showFillFromAdvanced, setShowFillFromAdvanced] = useState(false);
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const requestCounters = useRef<Record<string, number>>({});
@@ -3704,6 +3774,15 @@ function FieldMappingDialog({
                     <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> (Fields tab —
                     content-type fields, not SEO).
                   </p>
+                  <p>
+                    Asterisk (<code className="font-mono">editor.required</code>): Required for publish —
+                    drafts may be empty; publishing requires a value; live saves cannot clear it. Live pages
+                    also always need <code className="font-mono">meta.page_title</code> and{" "}
+                    <code className="font-mono">meta.description</code>. See{" "}
+                    <code className="font-mono">server/content-types.ts</code>,{" "}
+                    <code className="font-mono">server/live-entry-seo-gate.ts</code>,{" "}
+                    <code className="font-mono">client/src/hooks/usePageMeta.ts</code>.
+                  </p>
                 </div>
               )}
             </div>
@@ -3847,6 +3926,16 @@ function FieldMappingDialog({
                           {(isDbBacked || isFn || currentSrc === key || !showComputeEditor) && (
                             <FieldValidationIndicator result={vResult} optional={optionalFields[key]} />
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`flex-shrink-0 ${editorHints[key]?.required ? "text-primary" : ""}`}
+                            title="Required for publish"
+                            onClick={() => setPendingRequiredField(key)}
+                            data-testid={`button-required-field-${key}`}
+                          >
+                            <Asterisk className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -4172,6 +4261,36 @@ function FieldMappingDialog({
         if (!field) return;
         setEditorHints((prev) => ({ ...prev, [field]: hint }));
         setHintDialogField(null);
+      }}
+    />
+    <RequiredFieldConfirmDialog
+      open={pendingRequiredField !== null}
+      fieldName={pendingRequiredField}
+      currentlyRequired={
+        pendingRequiredField ? !!editorHints[pendingRequiredField]?.required : false
+      }
+      onOpenChange={(next) => {
+        if (!next) setPendingRequiredField(null);
+      }}
+      onConfirm={() => {
+        const field = pendingRequiredField;
+        if (!field) return;
+        setEditorHints((prev) => {
+          const cur = prev[field] || {};
+          const nextRequired = !cur.required;
+          const next = { ...cur, required: nextRequired };
+          if (!nextRequired) {
+            const { required: _r, ...rest } = next;
+            if (Object.keys(rest).length === 0) {
+              const clone = { ...prev };
+              delete clone[field];
+              return clone;
+            }
+            return { ...prev, [field]: rest };
+          }
+          return { ...prev, [field]: next };
+        });
+        setPendingRequiredField(null);
       }}
     />
     <EntryPreviewConfigDialog

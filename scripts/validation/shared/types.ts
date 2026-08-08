@@ -75,6 +75,8 @@ export interface ContentSeo {
 export interface ContentFile {
   slug: string;
   title: string;
+  /** Entry-level description when present on merged content. */
+  description?: string;
   meta?: ContentMeta;
   schema?: SchemaRef;
   seo?: ContentSeo;
@@ -85,6 +87,8 @@ export interface ContentFile {
   url?: string;
   variant?: string;
   version?: number;
+  /** Merged entry bag for required-field checks (subset of YAML). */
+  entryFields?: Record<string, unknown>;
 }
 
 export interface RedirectEntry {

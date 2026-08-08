@@ -34,6 +34,8 @@ export type EditorHint = {
   split_comma_values?: boolean;
   cache_images?: boolean;
   description?: string;
+  /** Required for publish / cannot clear when live. */
+  required?: boolean;
 };
 
 export type EditorTypeDialogProps = {

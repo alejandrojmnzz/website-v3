@@ -12,6 +12,7 @@ import {
 import { generateSectionId } from "./utils/generateSectionId";
 import { loadAllFieldEditors } from "./component-registry";
 import { validateDocIdentity } from "./validate-content-identity";
+import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 
 function getDefaultContentRootName(): string {
   try {
@@ -841,6 +842,31 @@ export async function editContent(request: ContentEditRequest): Promise<{
       return { success: false, error: consentErr };
     }
 
+    // Live locale writes: require resolved meta + editor.required fields.
+    // Draft variant files and shared single.*.yml template edits skip this gate.
+    const writingLiveLocale =
+      !hasVariant &&
+      !path.basename(filePath).startsWith("single.");
+    if (writingLiveLocale) {
+      const commonForGate = ci.loadCommonData(contentType, slug) || {};
+      const mergedForGate = deepMerge(commonForGate, localeData) as Record<
+        string,
+        unknown
+      >;
+      const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+        contentType,
+        slug,
+        locale,
+        pageData: mergedForGate,
+        contentRoot,
+        mode: "live_update",
+        isDraftWrite: false,
+      });
+      if (seoGateErr) {
+        return { success: false, error: seoGateErr };
+      }
+    }
+
     // Write locale data back to file (without _common.yml content)
     const updatedYaml = safeYamlDump(localeData, {
       lineWidth: -1, // Don't wrap lines
@@ -1129,6 +1155,22 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     const consentErrEntry = getConsentKeyError(entryData);
     if (consentErrEntry) {
       return { success: false, error: consentErrEntry };
+    }
+
+    const ciGate = contentIndex;
+    const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
+    const mergedForGate = deepMerge(commonForGate, entryData) as Record<string, unknown>;
+    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale,
+      pageData: mergedForGate,
+      contentRoot: opts.contentRoot,
+      mode: "live_update",
+      isDraftWrite: false,
+    });
+    if (seoGateErr) {
+      return { success: false, error: seoGateErr };
     }
 
     const dumped = safeYamlDump(entryData, { lineWidth: -1, noRefs: true });
@@ -1500,6 +1542,26 @@ export function editCommonContent(request: CommonEditRequest): { success: boolea
       } else {
         setValueAtPath(commonData, op.path, op.value);
       }
+    }
+
+    const defaultLocale = getDefaultLocale();
+    const localeLoaded = ci.loadLocaleData(contentType, slug, defaultLocale);
+    const localeDataForGate =
+      (localeLoaded.data as Record<string, unknown> | null) || {};
+    const mergedForGate = deepMerge(commonData, localeDataForGate) as Record<
+      string,
+      unknown
+    >;
+    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale: defaultLocale,
+      pageData: mergedForGate,
+      contentRoot: contentRootName,
+      mode: "live_update",
+    });
+    if (seoGateErr) {
+      return { success: false, error: seoGateErr };
     }
 
     const updatedYaml = safeYamlDump(commonData, {
