@@ -20,7 +20,7 @@ import {
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { getTokenUsername } from "../lib/oauth.js";
-import { promoteWarnings, VARIANT_WARNINGS, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
+import { promoteWarnings, VARIANT_WARNINGS, actionRequired, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
   fail,
@@ -132,7 +132,46 @@ async function callEditSectionsApi(
     });
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return { error: fail((data.error as string) || `Server error: ${res.status}`) };
+      const errMsg = (data.error as string) || `Server error: ${res.status}`;
+      // Product-scope / ecommerce validation — guide agents to exact property paths
+      if (
+        /ecommerce_products|programs\[\]\.id|ecommerce scope|purchasable product/i.test(errMsg)
+      ) {
+        const pathMatch = errMsg.match(/sections\[\d+\]\.data\.[^\s]+|programs\[\]\.id|ecommerce_products/);
+        return {
+          error: actionRequired(
+            {
+              success: false,
+              action_required: "fix_ecommerce_product_scope",
+              message: errMsg,
+              property_path: pathMatch?.[0] ?? "ecommerce_products",
+              details: {
+                allowed:
+                  'ecommerce_products: string[] | "all", or programs[].id, or inherit on program entry',
+              },
+            },
+            [
+              {
+                tool: "explain_site",
+                reason: "Read ecommerce product scope + funnel property paths",
+                args_hint: { topic: "ecommerce" },
+                priority: "required",
+              },
+              {
+                tool: "get_component_schema",
+                reason: "Confirm field-editor binds for this section type",
+                priority: "recommended",
+              },
+              {
+                tool: "update_section_field",
+                reason: "Set the cited property_path (e.g. sections[N].data.ecommerce_products or programs[].id)",
+                priority: "required",
+              },
+            ],
+          ),
+        };
+      }
+      return { error: fail(errMsg) };
     }
     return { data };
   } catch (e) {
@@ -1539,18 +1578,20 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // create_variant
   mcp.tool(
     "create_variant",
-    "Create a new draft variant for a page by copying the current live locale file to {variantSlug}.{locale}.yml " +
-    "and registering it in versioning.yml at 0% traffic allocation. " +
-    "Returns the new variant slug. After creating a variant, use update_section_field/update_section_fields/update_meta_field/update_meta_fields " +
-    "with variant: <variantSlug> to edit the draft without touching the live page.",
+    "Create a new draft/variant for a page by copying the live locale file (or an existing draft when unpublished) " +
+    "to {variantSlug}.{locale}.yml and registering it in versioning.yml at 0% traffic allocation. " +
+    "Works on unpublished draft entries (copies from an existing draft). " +
+    "Returns the new variant slug. Edit with variant: <variantSlug>. " +
+    "For unpublished entries use publish_draft to go live (all locales); for live pages use promote_variant (one locale).",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
       variantSlug: z.string().describe("Slug for the new variant, e.g. 'draft-v2' or 'ab-test-headline'. Lowercase letters, numbers, and hyphens only."),
       locale: z.string().default("en").describe("Locale to copy, e.g. 'en' or 'es'"),
+      sourceVariant: z.string().optional().describe("When page is unpublished, optional draft slug to copy from (defaults to 'draft' or first available)."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, variantSlug, locale, site }) => {
+    async ({ contentType, slug, variantSlug, locale, sourceVariant, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return fail(siteResult.error);
       const { domain, contentPath } = siteResult;
@@ -1559,6 +1600,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         assertSafeSegment(slug, "slug");
         assertSafeSegment(variantSlug, "variantSlug");
         assertSafeLocale(locale);
+        if (sourceVariant) assertSafeSegment(sourceVariant, "sourceVariant");
       } catch (e) {
         return fail((e as Error).message);
       }
@@ -1575,7 +1617,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ variantSlug, locale }),
+          body: JSON.stringify({ variantSlug, locale, ...(sourceVariant ? { sourceVariant } : {}) }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -1588,6 +1630,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             filePath: data.filePath,
             versioningSlug,
             templateMode: versioningSlug === "single",
+            seededFromDraft: data.seededFromDraft === true,
           },
           {
             warnings: [...VARIANT_WARNINGS],
@@ -1595,12 +1638,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               kind: "variant_isolated",
               summary: versioningSlug === "single"
                 ? "Created template draft (shared by all attached entries); live single.*.yml unchanged"
-                : "Created draft only; live locale YAML unchanged",
+                : data.seededFromDraft
+                  ? "Created additional draft from existing draft; still unpublished"
+                  : "Created draft only; live locale YAML unchanged",
             }],
             next_actions: [{
               tool: "update_section_field",
               priority: "recommended",
-              reason: "Edit the draft with variant set; live bindings/shared-layout will not run until promote + live edits.",
+              reason: "Edit the draft with variant set; live bindings/shared-layout will not run until publish/promote + live edits.",
               args_hint: {
                 contentType,
                 slug: versioningSlug === "single" ? slug : slug,
@@ -1617,11 +1662,81 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
+  // publish_draft — all-or-nothing publish for unpublished entries
+  mcp.tool(
+    "publish_draft",
+    "Publish an unpublished draft entry: promotes the given variantSlug to live {locale}.yml for EVERY remaining draft locale that has that file (all-or-nothing). " +
+    "After this, the page is public and enters the sitemap. Other drafts become normal variants at 0%. " +
+    "Fails if the entry already has a live locale (use promote_variant instead) or if some draft locales lack the variantSlug. " +
+    "Confirm with the user before calling — this makes the page live.",
+    {
+      contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
+      slug: z.string().describe("Page slug"),
+      variantSlug: z.string().default("draft").describe("Draft variant to publish, e.g. 'draft'"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, slug, variantSlug, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { contentPath, domain } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(slug, "slug");
+        assertSafeSegment(variantSlug, "variantSlug");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      if (mcpToken) {
+        if (!await checkCap(mcpToken, "content_promote_variant", contentType)) {
+          return denyResponse("content_promote_variant", contentType);
+        }
+      }
+
+      try {
+        const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify({ variantSlug }),
+        });
+        const data = await res.json() as Record<string, unknown>;
+        if (!res.ok) {
+          return fail((data.error as string) || `Server error: ${res.status}`);
+        }
+        return ok(
+          {
+            published: true,
+            variantSlug,
+            locales: data.locales,
+            contentType,
+            slug,
+          },
+          {
+            warnings: [{
+              code: "page_now_live",
+              message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
+            }],
+            side_effects: [{
+              kind: "publish_all_locales",
+              summary: `Promoted ${variantSlug} to live locale files; remaining drafts are variants at 0%`,
+            }],
+            next_actions: [],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to publish draft: ${(e as Error).message}`);
+      }
+    }
+  );
+
   // promote_variant
   mcp.tool(
     "promote_variant",
-    "Promote a draft variant to become the live version: overwrites the default locale file with the variant's content, " +
+    "Promote a variant to become the live version for ONE locale: overwrites the default locale file with the variant's content, " +
     "removes the variant from versioning.yml, and deletes the variant file. " +
+    "For unpublished draft entries (no live locales), use publish_draft instead (all-or-nothing across locales). " +
     "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -1685,17 +1800,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // create_page
   mcp.tool(
     "create_page",
-    "Create a brand-new YAML-driven page in a single call. " +
-    "Writes _common.yml (slug + any locale-independent data) and one or more locale files in one operation. " +
-    "Validates that the slug does not already exist and that the content type is valid and not DB-backed. " +
-    "Refreshes the cache and marks all written files for Git auto-commit.\n\n" +
+    "Create a brand-new YAML-driven page. For normal (non-shared-layout) types this creates an unpublished DRAFT: " +
+    "writes _common.yml + draft.{locale}.yml + versioning.yml (0% allocation). The page is NOT public and NOT in the sitemap until published. " +
+    "Edit with variant: 'draft', then call publish_draft (all remaining locales at once). Confirm with the user before publishing.\n" +
+    "Shared-layout types still write live locale files immediately.\n\n" +
     "What the caller must supply:\n" +
     "  • contentType — a non-DB-backed content type from content-types.yml\n" +
     "  • slug — URL-safe identifier that must not already exist\n" +
-    "  • common — object written verbatim to _common.yml (locale-independent fields, e.g. title, layout, bc_slug)\n" +
+    "  • common — object written verbatim to _common.yml\n" +
     "  • locales — map of locale code → { meta?, sections } for every locale to seed\n\n" +
-    "What the server handles: content-type + slug validation, directory creation, writing _common.yml " +
-    "and all locale files, cache refresh, and Git mark-modified for each file.\n\n" +
     "Possible errors: unknown/DB-backed contentType, slug already exists, path traversal detected, " +
     "invalid locale code, permission denied.",
     {
@@ -1754,12 +1867,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail(`Page '${slug}' already exists for contentType '${contentType}'.`);
       }
 
-      for (const loc of localeKeys) {
-        const lp = path.join(pageDir, `${loc}.yml`);
-        try { assertWithinBase(lp, contentPath); } catch (e) {
-          return fail((e as Error).message);
-        }
-      }
+      const draftFirst = !isSharedLayoutConfig(config) && !config.single_template;
+      const draftVariant = "draft";
 
       fs.mkdirSync(pageDir, { recursive: true });
 
@@ -1767,48 +1876,69 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       fs.writeFileSync(path.join(pageDir, "_common.yml"), safeDump(commonData), "utf-8");
 
       const createdLocales: string[] = [];
+      const createdFiles: string[] = ["_common.yml"];
       for (const [loc, localeContent] of Object.entries(locales)) {
         const localeData: Record<string, unknown> = {
           slug,
           sections: localeContent.sections,
           ...(localeContent.meta && Object.keys(localeContent.meta).length > 0 ? { meta: localeContent.meta } : {}),
         };
-        fs.writeFileSync(path.join(pageDir, `${loc}.yml`), safeDump(localeData), "utf-8");
+        const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
+        fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
         createdLocales.push(loc);
+        createdFiles.push(fileName);
       }
 
-      const commonRelPath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
-      const localeRelPaths = createdLocales.map(loc => `${contentFolder}/${ctDir}/${slug}/${loc}.yml`);
-      const allPaths = [commonRelPath, ...localeRelPaths];
-      const commitMsg = `Create page ${contentType}/${slug}`;
+      if (draftFirst) {
+        const versioning: Record<string, { variants: Array<{ slug: string; allocation: number }> }> = {};
+        for (const loc of createdLocales) {
+          versioning[loc] = { variants: [{ slug: draftVariant, allocation: 0 }] };
+        }
+        fs.writeFileSync(path.join(pageDir, "versioning.yml"), safeDump(versioning), "utf-8");
+        createdFiles.push("versioning.yml");
+      }
+
+      const relPaths = createdFiles.map((f) => `${contentFolder}/${ctDir}/${slug}/${f}`);
+      const commitMsg = draftFirst
+        ? `Create draft page ${contentType}/${slug}`
+        : `Create page ${contentType}/${slug}`;
       const [commitResults] = await Promise.all([
-        Promise.all(allPaths.map(p => callCommitFileApi(p, commitMsg, mcpToken, domain))),
+        Promise.all(relPaths.map(p => callCommitFileApi(p, commitMsg, mcpToken, domain))),
         callRefreshCacheApi(contentType, domain),
       ]);
 
       const commitShas = commitResults.map(r => r.commitSha).filter(Boolean) as string[];
       const commitWarnings = commitResults.map(r => r.warning).filter(Boolean) as string[];
 
-      const urlPattern = config.url_pattern;
-      let urls: Record<string, string> | undefined;
-      if (urlPattern) {
-        const resolvedUrls: Record<string, string> = {};
-        for (const loc of createdLocales) {
-          if (urlPattern["default"]) {
-            resolvedUrls[loc] = urlPattern["default"].replace(":slug", slug);
-          } else if (urlPattern[loc]) {
-            resolvedUrls[loc] = urlPattern[loc].replace(":slug", slug);
-          }
-        }
-        if (Object.keys(resolvedUrls).length > 0) urls = resolvedUrls;
-      }
-
       const warnings: McpWarning[] = commitWarnings.map(w => ({ code: "github_commit_failed", message: w }));
       const side_effects: McpSideEffect[] = [];
       const next_actions: NextAction[] = [];
-      if (isSharedLayoutConfig(config) || config.single_template) {
+      const primaryLocale = createdLocales[0] ?? "en";
+
+      if (draftFirst) {
+        warnings.push({
+          code: "draft_unpublished",
+          message: "Page is an unpublished draft (no live locale files). Not in sitemap; public URL 404s until publish_draft.",
+        });
+        side_effects.push({
+          kind: "draft_created",
+          summary: `Wrote ${draftVariant}.{locale}.yml + versioning.yml; live {locale}.yml not created`,
+          paths: relPaths,
+        });
+        next_actions.push({
+          tool: "update_section_field",
+          priority: "recommended",
+          reason: "Edit the draft with variant set before publishing.",
+          args_hint: { contentType, slug, locale: primaryLocale, variant: draftVariant },
+        });
+        next_actions.push({
+          tool: "publish_draft",
+          priority: "optional",
+          reason: "When ready, publish all remaining draft locales at once (confirm with the user first).",
+          args_hint: { contentType, slug, variantSlug: draftVariant },
+        });
+      } else if (isSharedLayoutConfig(config) || config.single_template) {
         warnings.push(CREATE_PAGE_SHARED_LAYOUT_WARNING);
-        const primaryLocale = createdLocales[0] ?? "en";
         side_effects.push(sharedTemplateBlastSideEffect(contentType, primaryLocale));
         next_actions.push({
           tool: "get_page_content",
@@ -1824,8 +1954,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           contentType,
           directory: `${contentFolder}/${ctDir}/${slug}`,
           locales: createdLocales,
+          status: draftFirst ? "draft" : "published",
+          ...(draftFirst ? { draftVariant, previewPath: `/private/preview/${contentType}/${slug}?variant=${draftVariant}&locale=${primaryLocale}` } : {}),
           ...(common.title ? { title: common.title } : {}),
-          ...(urls ? { urls } : {}),
           ...(commitShas.length > 0 ? { commitShas } : {}),
         },
         { warnings, next_actions, ...(side_effects.length > 0 ? { side_effects } : {}) },

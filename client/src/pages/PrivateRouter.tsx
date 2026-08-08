@@ -27,7 +27,6 @@ const TrackingPage = lazy(() => import("@/pages/TrackingPage"));
 const SecurityPage = lazy(() => import("@/pages/SecurityPage"));
 const ComponentInsightsPage = lazy(() => import("@/pages/ComponentInsightsPage"));
 const StoreProductsPage = lazy(() => import("@/pages/StoreProductsPage"));
-const StorePlansPage = lazy(() => import("@/pages/StorePlansPage"));
 const StoreEcommercePage = lazy(() => import("@/pages/StoreEcommercePage"));
 const StoreProductDetailPage = lazy(() => import("@/pages/StoreProductDetailPage"));
 const ConversionsPage = lazy(() => import("@/pages/ConversionsPage"));
@@ -102,7 +101,6 @@ export default function PrivateRouter() {
         <Route path="/private/theme-editor" component={ThemeEditor} />
         <Route path="/private/component-insights" component={ComponentInsightsPage} />
         <Route path="/private/store/products" component={StoreProductsPage} />
-        <Route path="/private/store/plans" component={StorePlansPage} />
         <Route path="/private/store/ecommerce" component={StoreEcommercePage} />
         <Route path="/private/store/product/:slug" component={StoreProductDetailPage} />
         <Route path="/private/store/conversions" component={ConversionsPage} />

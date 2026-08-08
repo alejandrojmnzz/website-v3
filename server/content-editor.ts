@@ -9,10 +9,11 @@ import {
   validateCtaPurchasable,
   resolveBoundCtaPaths,
 } from "@shared/validateCtaTracking";
+import { validateProductScope } from "@shared/resolveProductScope";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
 import { getTrackingSettings } from "./settings";
 import { generateSectionId } from "./utils/generateSectionId";
-import { loadAllFieldEditors } from "./component-registry";
+import { loadAllFieldEditors, getComponentInfo } from "./component-registry";
 import { ecommerceManager } from "./ecommerce/ecommerce-manager";
 
 function getDefaultContentRootName(): string {
@@ -48,6 +49,13 @@ import {
   isEntryDetached,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
+import {
+  DEFAULT_DRAFT_VARIANT,
+  usesDraftFirstCreate,
+  buildDraftVersioning,
+  writeVersioningFile,
+  rejectLiveWriteIfDraft,
+} from "./draft-entry";
 import { getOrCreateStaffUserId, getUser } from "./user-store";
 import {
   refreshSitemapEntry,
@@ -235,6 +243,17 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
   const hasValidVersion = version !== undefined && version !== null && Number.isFinite(version);
   if (hasValidVersion && !hasVariant) {
     return { success: false, error: "version cannot be provided without variant" };
+  }
+
+  const draftWriteGate = rejectLiveWriteIfDraft({
+    contentType,
+    slug,
+    locale,
+    variant: hasVariant ? variant : undefined,
+    contentRoot,
+  });
+  if (!draftWriteGate.ok) {
+    return { success: false, error: draftWriteGate.error };
   }
   
   try {
@@ -680,6 +699,8 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
         if (byCms) {
           return { product_id: byCms.product_id, active: byCms.active };
         }
+        const bySlug = ecommerceManager.findProductByProgramId(programId);
+        if (bySlug) return { product_id: bySlug.product_id, active: bySlug.active };
         const byId = ecommerceManager.getProduct(programId);
         if (byId) return { product_id: byId.product_id, active: byId.active };
         return undefined;
@@ -695,6 +716,8 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
         const editors = allFieldEditors[sectionType] ?? {};
         const variant = typeof section.variant === "string" ? section.variant : undefined;
         const ctaPaths = resolveBoundCtaPaths(editors, variant);
+        const info = getComponentInfo(sectionType);
+        const hasEcommerceBehavior = Boolean(info?.behaviors?.includes("ecommerce"));
 
         const trackingErr = validateCtaTracking(section, ctaPaths);
         if (trackingErr) {
@@ -708,6 +731,19 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
         });
         if (purchasableErr) {
           return { success: false, error: `sections[${i}]: ${purchasableErr}` };
+        }
+
+        const scopeErr = validateProductScope(section, {
+          contentSlug: slug,
+          contentType,
+          hasEcommerceBehavior,
+          ctaPaths,
+          fieldEditors: editors,
+          resolveProduct,
+          sectionIndex: i,
+        });
+        if (scopeErr) {
+          return { success: false, error: scopeErr };
         }
       }
     }
@@ -1676,6 +1712,9 @@ export interface CreateContentEntryInput {
   slugEs?: string | null;
   title: string;
   sourceUrl?: string;
+  /** Prefer when duplicating a draft (not in ContentIndex / no public URL). */
+  sourceSlug?: string;
+  sourceType?: string;
   changeContentType?: boolean;
   skipLocales?: string[];
   uniqueFieldValues?: Record<string, string | boolean>;
@@ -1690,10 +1729,12 @@ export async function createContentEntry(
   input: CreateContentEntryInput,
 ): Promise<ContentLifecycleResult<Record<string, unknown>>> {
   const {
-    type, title, sourceUrl, changeContentType = false,
+    type, title, sourceUrl, sourceSlug, sourceType,
+    changeContentType = false,
     skipLocales = [], uniqueFieldValues = {}, urlParamValues = {}, localeTitles = {}, author,
   } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
+  const isFreshCreate = !sourceUrl && !sourceSlug;
 
   if (!type || !title) {
     return { success: false, statusCode: 400, error: "Missing required fields: type, title" };
@@ -1705,7 +1746,6 @@ export async function createContentEntry(
   const typeConfigForParams = getContentTypeConfig(type);
   const urlParams = listExtraUrlPatternParams(typeConfigForParams?.url_pattern);
   const urlParamShapes = inferUrlParamShapes(type, urlParams);
-  const isFreshCreate = !sourceUrl;
 
   const activeUrlLocales = getSupportedLocales().filter(l => !skipLocales.includes(l));
   const urlParamValueForLocale = (param: string, loc: string): string | null =>
@@ -1770,19 +1810,62 @@ export async function createContentEntry(
 
   fs.mkdirSync(folderPath, { recursive: true });
 
-  if (sourceUrl) {
+  const contentRootAbs = path.join(process.cwd(), rootName);
+  const draftFirst = usesDraftFirstCreate(type, contentRootAbs);
+  const draftVariant = DEFAULT_DRAFT_VARIANT;
+  const relFolder = `${rootName}/${getFolder(type)}/${folderSlug}`;
+
+  const writeDraftVersioning = (locales: string[]) => {
+    const data = buildDraftVersioning(locales, draftVariant);
+    writeVersioningFile(
+      folderPath,
+      data,
+      `${relFolder}/versioning.yml`,
+      author,
+      contentRootAbs,
+    );
+  };
+
+  const draftSuccessData = (extra: Record<string, unknown> = {}) => ({
+    success: true,
+    slugEn: enSlug,
+    slugEs: esSlug,
+    type,
+    directory: relFolder,
+    status: "draft" as const,
+    draftVariant,
+    previewPath: `/private/preview/${type}/${folderSlug}?variant=${draftVariant}&locale=${enSlug ? "en" : "es"}`,
+    ...extra,
+  });
+
+  if (sourceUrl || sourceSlug) {
     try {
-      const sourceUrlObj = new URL(sourceUrl);
-      const sourcePath = sourceUrlObj.pathname;
-      const resolved = contentIndex.resolveUrl(sourcePath);
-      const foundSourceFolder = resolved ? path.join(process.cwd(), resolved.entry.directory) : "";
+      let foundSourceFolder = "";
+      let resolved: ReturnType<typeof contentIndex.resolveUrl> = null;
+      let resolvedSourceType = sourceType || type;
+
+      if (sourceSlug) {
+        const srcType = sourceType || type;
+        const srcFolder = getFolder(srcType);
+        const candidate = path.join(process.cwd(), rootName, srcFolder, sourceSlug);
+        if (fs.existsSync(candidate)) {
+          foundSourceFolder = candidate;
+          resolvedSourceType = srcType;
+        }
+      } else if (sourceUrl) {
+        const sourceUrlObj = new URL(sourceUrl);
+        const sourcePath = sourceUrlObj.pathname;
+        resolved = contentIndex.resolveUrl(sourcePath);
+        foundSourceFolder = resolved ? path.join(process.cwd(), resolved.entry.directory) : "";
+        if (resolved) resolvedSourceType = resolved.contentType;
+      }
 
       if (foundSourceFolder) {
         // Cross-type duplication
-        if (changeContentType && resolved && resolved.contentType !== type) {
+        if (changeContentType && resolvedSourceType !== type) {
           const result = contentIndex.duplicateWithTypeChange({
             sourceDir: foundSourceFolder,
-            sourceType: resolved.contentType,
+            sourceType: resolvedSourceType,
             targetType: type,
             targetDir: folderPath,
             newSlugs: { en: enSlug || undefined, es: esSlug || undefined },
@@ -1793,6 +1876,56 @@ export async function createContentEntry(
           for (const file of result.copiedFiles) {
             markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
           }
+
+          if (draftFirst) {
+            // Convert live locale files → draft.{locale}.yml
+            const draftLocales: string[] = [];
+            for (const loc of getSupportedLocales().filter((l) => !skipLocales.includes(l))) {
+              const livePath = path.join(folderPath, `${loc}.yml`);
+              if (!fs.existsSync(livePath)) continue;
+              const draftPath = path.join(folderPath, `${draftVariant}.${loc}.yml`);
+              fs.renameSync(livePath, draftPath);
+              markFileAsModified(`${relFolder}/${draftVariant}.${loc}.yml`, author);
+              draftLocales.push(loc);
+            }
+            // Also rename any existing draft.* copied from a draft source
+            for (const f of fs.readdirSync(folderPath)) {
+              if (f === "versioning.yml") {
+                fs.unlinkSync(path.join(folderPath, f));
+                continue;
+              }
+              const stem = f.replace(/\.ya?ml$/, "");
+              if (/^[a-z0-9-]+\.[a-z]{2}(?:-[a-z]{2})?$/.test(stem) && !stem.startsWith(`${draftVariant}.`)) {
+                // Keep as additional drafts if from draft source with other variants — for cross-type, drop extras
+                fs.unlinkSync(path.join(folderPath, f));
+              }
+            }
+            // If source was already draft-only, files may already be draft.*
+            if (draftLocales.length === 0) {
+              for (const loc of getSupportedLocales().filter((l) => !skipLocales.includes(l))) {
+                const dp = path.join(folderPath, `${draftVariant}.${loc}.yml`);
+                if (fs.existsSync(dp)) draftLocales.push(loc);
+              }
+            }
+            writeDraftVersioning(draftLocales);
+            contentIndex.refresh();
+            invalidateContentCaches(type);
+            return {
+              success: true,
+              data: draftSuccessData({
+                duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
+                typeChanged: true,
+                conversion: {
+                  from: resolvedSourceType,
+                  to: type,
+                  copiedFiles: result.copiedFiles,
+                  strippedFields: result.strippedFields,
+                  replacedVars: result.replacedVars,
+                },
+              }),
+            };
+          }
+
           refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
           contentIndex.refresh();
           invalidateContentCaches(type);
@@ -1813,8 +1946,8 @@ export async function createContentEntry(
             data: {
               success: true, slugEn: enSlug, slugEs: esSlug, type,
               directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
-              duplicatedFrom: sourceUrl, typeChanged: true,
-              conversion: { from: resolved.contentType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
+              duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`, typeChanged: true,
+              conversion: { from: resolvedSourceType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
             },
           };
         }
@@ -1825,11 +1958,44 @@ export async function createContentEntry(
         const sourceLocaleFiles = new Set(
           sourceFiles.filter(f => f.endsWith(".yml") || f.endsWith(".yaml")).map(f => f.replace(/\.ya?ml$/, ""))
         );
+        // Prefer live locale stems; fall back to draft.<locale> for draft sources
+        const liveLocaleStems = new Set(
+          [...sourceLocaleFiles].filter((s) => /^[a-z]{2}(-[a-z]{2})?$/.test(s)),
+        );
+        const draftLocaleFromFiles = new Map<string, string>(); // locale -> filename stem like draft.en
+        for (const stem of sourceLocaleFiles) {
+          const m = stem.match(/^([a-z0-9-]+)\.([a-z]{2}(?:-[a-z]{2})?)$/);
+          if (m) draftLocaleFromFiles.set(m[2], stem);
+        }
 
         for (const file of sourceFiles) {
           const fileLocale = file.replace(/\.yml$/, "");
           if (fileLocale !== "_common" && skipLocales.includes(fileLocale)) continue;
           if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
+
+          // Draft-first: only copy _common + live locale files OR primary draft files
+          if (draftFirst) {
+            if (file === "versioning.yml" || file === "versioning.yaml") continue;
+            const stem = file.replace(/\.ya?ml$/, "");
+            const isLiveLocale = /^[a-z]{2}(-[a-z]{2})?$/.test(stem);
+            const isCommon = file === "_common.yml" || file === "_common.yaml";
+            const isPrimaryDraft = stem.startsWith(`${draftVariant}.`) ||
+              (liveLocaleStems.size === 0 && /^[a-z0-9-]+\.[a-z]{2}(?:-[a-z]{2})?$/.test(stem));
+            // When source is published: copy live only. When source is draft: copy draft.* files (one set).
+            if (!isCommon && !isLiveLocale && !(liveLocaleStems.size === 0 && isPrimaryDraft && stem.startsWith(`${draftVariant}.`))) {
+              // If no "draft." but other variants exist on draft source, copy first variant only via synthesis below
+              if (!(liveLocaleStems.size === 0 && draftLocaleFromFiles.size > 0 && [...draftLocaleFromFiles.values()].includes(stem) && stem.split(".")[0] === (draftLocaleFromFiles.get(stem.split(".")[1] || "") || "").split(".")[0])) {
+                // Simpler: if no live locales, copy only files matching DEFAULT draft variant or the first variant slug consistently
+                if (liveLocaleStems.size === 0) {
+                  const firstVariant = [...draftLocaleFromFiles.values()][0]?.split(".")[0];
+                  if (!stem.startsWith(`${firstVariant}.`)) continue;
+                } else {
+                  continue;
+                }
+              }
+            }
+            if (!isCommon && !isLiveLocale && liveLocaleStems.size > 0) continue;
+          }
 
           const rawContent = fs.readFileSync(path.join(foundSourceFolder, file), "utf8");
 
@@ -1839,6 +2005,7 @@ export async function createContentEntry(
             /^.+\.[a-z]{2,5}\.ya?ml$/.test(file);
 
           if (!isContentFile) {
+            if (draftFirst) continue;
             fs.writeFileSync(path.join(folderPath, file), rawContent);
             markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
             continue;
@@ -1856,7 +2023,19 @@ export async function createContentEntry(
             delete (parsed.meta as Record<string, unknown>).redirects;
           }
 
-          parsed.slug = file === "es.yml" ? (esSlug || folderSlug) : (enSlug || folderSlug);
+          const stem = file.replace(/\.ya?ml$/, "");
+          const localeFromDraft = stem.match(/^[a-z0-9-]+\.([a-z]{2}(?:-[a-z]{2})?)$/)?.[1];
+          const effectiveLocale = localeFromDraft || (file === "es.yml" ? "es" : file === "en.yml" ? "en" : fileLocale);
+
+          const outFile = draftFirst && (file === "en.yml" || file === "es.yml" || /^[a-z]{2}(-[a-z]{2})?\.ya?ml$/.test(file) || localeFromDraft)
+            ? `${draftVariant}.${effectiveLocale}.yml`
+            : file;
+
+          if (effectiveLocale === "es") {
+            parsed.slug = esSlug || folderSlug;
+          } else {
+            parsed.slug = enSlug || folderSlug;
+          }
 
           if (file === "_common.yml") {
             parsed.title = title;
@@ -1870,15 +2049,18 @@ export async function createContentEntry(
                 ? coerceToOriginalType(value, existing)
                 : formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
             }
-          } else if (file === "en.yml" || file === "es.yml") {
-            const locTitle = localeTitles[fileLocale] || title;
+          } else if (
+            file === "en.yml" || file === "es.yml" ||
+            (draftFirst && (/^[a-z]{2}(-[a-z]{2})?\.ya?ml$/.test(file) || localeFromDraft))
+          ) {
+            const locTitle = localeTitles[effectiveLocale] || title;
             parsed.title = locTitle;
             if (locTitle) {
               if (!parsed.meta || typeof parsed.meta !== "object") parsed.meta = {};
               (parsed.meta as Record<string, unknown>).page_title = locTitle;
             }
             for (const param of perLocaleUrlParams) {
-              const v = urlParamValueForLocale(param, fileLocale);
+              const v = urlParamValueForLocale(param, effectiveLocale);
               if (v) {
                 const existing = parsed[param];
                 parsed[param] = existing !== undefined
@@ -1887,16 +2069,30 @@ export async function createContentEntry(
               }
             }
           }
-          parsedDupFiles.push({ file, parsed });
+          parsedDupFiles.push({ file: outFile, parsed });
         }
 
         // Synthesize missing locale files from the source
         const supportedLocs = getSupportedLocales();
-        const existingSourceLocale = supportedLocs.find(l => sourceLocaleFiles.has(l));
+        const existingSourceLocale =
+          supportedLocs.find(l => liveLocaleStems.has(l)) ||
+          supportedLocs.find(l => draftLocaleFromFiles.has(l));
         if (existingSourceLocale) {
           for (const loc of supportedLocs) {
-            if (skipLocales.includes(loc) || sourceLocaleFiles.has(loc)) continue;
-            const srcRaw = fs.readFileSync(path.join(foundSourceFolder, `${existingSourceLocale}.yml`), "utf8");
+            if (skipLocales.includes(loc) || liveLocaleStems.has(loc) || (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0)) {
+              if (skipLocales.includes(loc)) continue;
+              if (liveLocaleStems.has(loc)) continue;
+              if (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0) continue;
+            }
+            if (skipLocales.includes(loc)) continue;
+            if (liveLocaleStems.has(loc)) continue;
+            // Already have draft for this locale from copy
+            if (parsedDupFiles.some((f) => f.file === `${draftVariant}.${loc}.yml` || f.file === `${loc}.yml`)) continue;
+
+            const srcFile = liveLocaleStems.has(existingSourceLocale)
+              ? `${existingSourceLocale}.yml`
+              : `${draftLocaleFromFiles.get(existingSourceLocale)}.yml`;
+            const srcRaw = fs.readFileSync(path.join(foundSourceFolder, srcFile), "utf8");
             const cloned = contentIndex.safeYamlLoad(srcRaw) as Record<string, unknown> | null;
             if (!cloned) continue;
             delete cloned.redirects;
@@ -1920,16 +2116,32 @@ export async function createContentEntry(
                   : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
               }
             }
-            parsedDupFiles.push({ file: `${loc}.yml`, parsed: cloned });
+            const synthFile = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
+            parsedDupFiles.push({ file: synthFile, parsed: cloned });
           }
         }
 
         const { objs: regeneratedDup } = regenerateSectionIds(parsedDupFiles.map(f => f.parsed));
+        const draftLocalesWritten: string[] = [];
         for (let i = 0; i < parsedDupFiles.length; i++) {
           const { file } = parsedDupFiles[i];
           const content = safeYamlDump(regeneratedDup[i], { lineWidth: 120, noRefs: true, sortKeys: false });
           fs.writeFileSync(path.join(folderPath, file), content);
           markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
+          const dm = file.match(new RegExp(`^${draftVariant}\\.([a-z]{2}(?:-[a-z]{2})?)\\.ya?ml$`));
+          if (dm) draftLocalesWritten.push(dm[1]);
+        }
+
+        if (draftFirst) {
+          writeDraftVersioning(draftLocalesWritten.length > 0
+            ? draftLocalesWritten
+            : getSupportedLocales().filter((l) => !skipLocales.includes(l)));
+          contentIndex.refresh();
+          invalidateContentCaches(type);
+          return {
+            success: true,
+            data: draftSuccessData({ duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}` }),
+          };
         }
 
         refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
@@ -1953,7 +2165,7 @@ export async function createContentEntry(
           data: {
             success: true, slugEn: enSlug, slugEs: esSlug, type,
             directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
-            duplicatedFrom: sourceUrl,
+            duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
           },
         };
       }
@@ -2010,12 +2222,37 @@ export async function createContentEntry(
   const esYml = yaml.dump(makeLocaleObj(esSlug || folderSlug, "es"), { lineWidth: 120, noRefs: true, sortKeys: false });
 
   const createdFiles: string[] = [];
-  const relFolder = `${rootName}/${getFolder(type)}/${folderSlug}`;
   if (!fs.existsSync(path.join(folderPath, "_common.yml"))) {
     fs.writeFileSync(path.join(folderPath, "_common.yml"), commonYml);
     createdFiles.push("_common.yml");
     markFileAsModified(`${relFolder}/_common.yml`, author);
   }
+
+  const freshDraftLocales: string[] = [];
+  if (draftFirst) {
+    if (!skipEn) {
+      const f = `${draftVariant}.en.yml`;
+      fs.writeFileSync(path.join(folderPath, f), enYml);
+      createdFiles.push(f);
+      markFileAsModified(`${relFolder}/${f}`, author);
+      freshDraftLocales.push("en");
+    }
+    if (!skipEs) {
+      const f = `${draftVariant}.es.yml`;
+      fs.writeFileSync(path.join(folderPath, f), esYml);
+      createdFiles.push(f);
+      markFileAsModified(`${relFolder}/${f}`, author);
+      freshDraftLocales.push("es");
+    }
+    writeDraftVersioning(freshDraftLocales);
+    contentIndex.refresh();
+    invalidateContentCaches(type);
+    return {
+      success: true,
+      data: draftSuccessData({ files: createdFiles, skippedLocales: skipLocales.length > 0 ? skipLocales : undefined }),
+    };
+  }
+
   if (!skipEn && !fs.existsSync(path.join(folderPath, "en.yml"))) {
     fs.writeFileSync(path.join(folderPath, "en.yml"), enYml);
     createdFiles.push("en.yml");

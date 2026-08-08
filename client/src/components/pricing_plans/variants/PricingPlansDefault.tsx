@@ -30,7 +30,11 @@ interface PricingPlansSectionData {
   subtitle?: string;
   cta_label?: string;
   cta_url?: string;
+  ecommerce_products?: string[] | "all";
+  /** Content-owned plans (preferred). */
+  plans?: PlanItem[];
   plan_ids?: string[];
+  /** @deprecated Catalog injection removed — prefer `plans`. */
   _resolved_plans?: PlanItem[];
   _ecommerce_settings?: EcommerceSettings;
 }
@@ -160,7 +164,7 @@ interface PricingPlansDefaultProps {
 }
 
 export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) {
-  const plans = data._resolved_plans ?? [];
+  const plans = (data.plans?.length ? data.plans : data._resolved_plans) ?? [];
   const settings: EcommerceSettings = data._ecommerce_settings ?? {
     currency: "USD",
     locale: "en-US",
@@ -184,8 +188,14 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
       (entries) => {
         if (!entries.some((e) => e.isIntersecting) || viewedRef.current) return;
         viewedRef.current = true;
+        const fromScope =
+          data.ecommerce_products === "all"
+            ? undefined
+            : Array.isArray(data.ecommerce_products)
+              ? data.ecommerce_products[0]
+              : undefined;
         trackEcommerce("view_item_list", {
-          program_id: resolveProgramIdForPage(),
+          program_id: fromScope || resolveProgramIdForPage(),
           item_list_name: "pricing_plans",
           component_type: "pricing_plans",
           path: typeof window !== "undefined" ? window.location.pathname : undefined,
@@ -196,9 +206,19 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [isEditMode, plans.length]);
+  }, [isEditMode, plans.length, data.ecommerce_products]);
 
   if (plans.length === 0) {
+    if (isEditMode) {
+      return (
+        <section className="w-full px-4 py-12" data-testid="section-pricing-plans-empty">
+          <p className="text-sm text-muted-foreground text-center max-w-lg mx-auto">
+            No content-owned <code className="bg-muted px-1 rounded">plans</code> on this section.
+            Add plan cards in the section YAML (CMS no longer injects a global plan catalog).
+          </p>
+        </section>
+      );
+    }
     return null;
   }
 

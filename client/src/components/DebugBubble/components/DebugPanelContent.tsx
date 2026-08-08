@@ -929,15 +929,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 testId="link-store-products"
               />
               <MenuItem
-                icon={IconShoppingBag}
-                label="Plans"
-                href="/private/store/plans"
-                indicator="arrow"
-                testId="link-store-plans"
-              />
-              <MenuItem
                 icon={IconTargetArrow}
-                label="Conversions"
+                label="Form Conversions"
                 href="/private/store/conversions"
                 indicator="arrow"
                 testId="link-store-conversions"

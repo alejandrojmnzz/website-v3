@@ -5,6 +5,7 @@ globs:
   - "**/component-registry/**/field-editors.ts"
   - "**/validateCta*.ts"
   - "**/component-behaviors*"
+  - "**/resolveProductScope*"
 alwaysApply: false
 ---
 
@@ -17,10 +18,30 @@ Declare platform patterns on each component `schema.yml` under `behaviors:` — 
 | `conversion` | field-editors include `form-settings` |
 | `listing` | `dynamic_entries` / listing cards |
 | `schema_org` | SSR JSON-LD contributor |
-| `ecommerce` | funnel/catalog events or `cta-tracking` field-editors |
+| `ecommerce` | funnel/catalog events or `cta-tracking` / `ecommerce-products` field-editors |
+
+## CTA tracking
 
 CTA ecommerce intent is **not** on behaviors. Bind paths with field-editor type `cta-tracking`. Required `cta.tracking`: `none` | `add_to_cart` | `begin_checkout`.
 
-Save/MCP validate bound paths only (`validateCtaTracking` + `validateCtaPurchasable`). Non-`none` needs a purchasable product (`_ecommerce.yml`).
+Save/MCP validate bound paths (`validateCtaTracking` + `validateCtaPurchasable`). Non-`none` needs a purchasable product (`_ecommerce.yml`).
 
-Catalog: `docs/component-behaviors.md`. MCP: `explain` topic `component-behaviors`. Schema-sync **preserves** `behaviors`.
+## Product scope (exact property paths)
+
+Ecommerce product scope is field-editor / domain **bound paths** — not URL sniffing as the primary API.
+
+| Component | Property path |
+|-----------|---------------|
+| `hero` course on program entry | inherit entry slug; optional `ecommerce_products` |
+| `hero` course elsewhere | `ecommerce_products` (`string[]` \| `"all"`) |
+| `enrollment_selector` | `programs[].id` (default); optional `ecommerce_products: all` for shared hubs |
+| `pricing_plans` | inherit on program pages, or `ecommerce_products` |
+| CTA intent | bound CTA path + `.tracking` (e.g. `signup_card.cta_button.tracking`) |
+
+`explain_site` topics `component-behaviors` and `ecommerce` **must list these exact property paths** — never vague “set product scope” alone. Do not document a second parallel field that is not the bind.
+
+Funnel order is **not** a section property — use `get_product_funnel` / `update_product_funnel` / `_ecommerce.yml` `funnel.steps` and `funnel.traffic_sources` (top-of-funnel types; not URL steps).
+
+CMS does **not** manage a billing plan catalog.
+
+Catalog: `docs/component-behaviors.md`. MCP: `explain_site` topics `component-behaviors` + `ecommerce`. Schema-sync **preserves** `behaviors`.

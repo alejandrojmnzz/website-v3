@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { useDebugAuth, getDebugToken } from "@/hooks/useDebugAuth";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { EditModeProvider } from "@/contexts/EditModeContext";
@@ -9,14 +9,16 @@ import { PageHistoryProvider, usePageHistoryOptional } from "@/contexts/PageHist
 import { subscribeToEditStarted, emitVariantCreated } from "@/lib/contentEvents";
 import { FirstEditPromptModal, type ExistingVariant } from "@/components/editing/FirstEditPromptModal";
 import { navigate } from "wouter/use-browser-location";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { IconGitFork } from "@tabler/icons-react";
-import { useContentTypesRaw } from "@/hooks/useContentTypes";
+import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
 import {
   isSharedLayoutType,
   versioningContentSlug,
 } from "@/lib/sharedLayoutEntry";
+import { detectContentInfo } from "@/components/DebugBubble/utils/debugHelpers";
+import { cn } from "@/lib/utils";
 import type { Section } from "@shared/schema";
 
 interface EditModeWrapperProps {
@@ -63,18 +65,56 @@ interface PendingEdit {
  */
 function FirstEditGate({ children }: { children: React.ReactNode }) {
   const editMode = useEditModeOptional();
+  const [pathname] = useLocation();
   const searchString = useSearch();
+  const contentTypesMap = useContentTypes();
   const { data: contentTypesRaw } = useContentTypesRaw();
   const [pendingEdit, setPendingEdit] = useState<PendingEdit | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [existingVariants, setExistingVariants] = useState<ExistingVariant[]>([]);
   const pendingRef = useRef<PendingEdit | null>(null);
+  const [variantTraffic, setVariantTraffic] = useState<{
+    isDraft: boolean;
+    allocation: number | null;
+  } | null>(null);
 
   // Derive the active variant from the URL (?variant=xxx on private preview routes)
-  const activeVariantFromUrl = (() => {
-    const params = new URLSearchParams(searchString);
-    return params.get("variant") ?? params.get("force_variant") ?? null;
-  })();
+  const searchParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
+  const activeVariantFromUrl = searchParams.get("variant") ?? searchParams.get("force_variant") ?? null;
+  const urlLocale = searchParams.get("locale") ?? "en";
+  const contentInfo = useMemo(
+    () => detectContentInfo(pathname, contentTypesMap),
+    [pathname, contentTypesMap],
+  );
+
+  useEffect(() => {
+    if (!activeVariantFromUrl || !editMode?.isEditMode || !contentInfo.type || !contentInfo.slug) {
+      setVariantTraffic(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/versioning/${encodeURIComponent(contentInfo.type)}/${encodeURIComponent(contentInfo.slug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const isDraft = !!data.isDraft || data.hasLiveDefault === false;
+        const versioning = data.versioning as Record<string, { variants?: { slug: string; allocation: number }[] }> | null;
+        const localeData =
+          versioning?.[urlLocale] ??
+          (versioning ? versioning[Object.keys(versioning)[0]] : undefined);
+        const match = localeData?.variants?.find((v) => v.slug === activeVariantFromUrl);
+        setVariantTraffic({
+          isDraft,
+          allocation: match ? (match.allocation ?? 0) : null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setVariantTraffic(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVariantFromUrl, editMode?.isEditMode, contentInfo.type, contentInfo.slug, urlLocale]);
 
   const resolveVersioningSlug = useCallback(
     async (contentType: string, entrySlug: string): Promise<string> => {
@@ -233,10 +273,25 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
         >
           <Badge
             variant="secondary"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm shadow-md pointer-events-auto"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-sm shadow-md pointer-events-auto",
+              variantTraffic?.isDraft &&
+                "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
+            )}
           >
-            <IconGitFork className="h-3.5 w-3.5" />
-            Editing variant: <strong>{activeVariantFromUrl}</strong>
+            <IconGitFork className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Editing variant: <strong>{activeVariantFromUrl}</strong>
+              {variantTraffic?.isDraft ? (
+                <> · Page has not been published</>
+              ) : variantTraffic?.allocation != null ? (
+                variantTraffic.allocation > 0 ? (
+                  <> · {variantTraffic.allocation}% traffic</>
+                ) : (
+                  <> · 0% traffic (not receiving visitors)</>
+                )
+              ) : null}
+            </span>
           </Badge>
         </div>
       )}

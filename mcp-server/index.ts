@@ -9,6 +9,7 @@ import { registerPageTools } from "./tools/pages.js";
 import { registerComponentTools } from "./tools/components.js";
 import { registerUserTools } from "./tools/user.js";
 import { registerExplainTools } from "./tools/explain.js";
+import { registerEcommerceTools } from "./tools/ecommerce.js";
 import {
   registerClient,
   lookupClient,
@@ -162,6 +163,7 @@ function createMcpServer(mcpAuthor?: string, mcpToken?: string): McpServer {
   registerComponentTools(mcp, mcpToken);
   registerUserTools(mcp, mcpToken);
   registerExplainTools(mcp);
+  registerEcommerceTools(mcp, mcpToken);
   return mcp;
 }
 

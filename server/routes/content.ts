@@ -199,6 +199,13 @@ import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
+import {
+  usesDraftFirstCreate,
+  getEntryContentDir,
+  listDraftLocales,
+  listVariantSlugsForLocale,
+  DEFAULT_DRAFT_VARIANT,
+} from "../draft-entry";
 import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
 import {
@@ -2371,15 +2378,17 @@ export function registerContentRoutes(app: Express): void {
       const { type } = req.params;
       const entries = getCI(res).findByType(type);
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+      const root = ctRoot(res);
+      const indexedSlugs = new Set(entries.map((e) => e.slug));
 
       // Per-slug mapping gaps: invert validateFieldMapping's per-field missing
       // lists into slug → missing mapped-field names (e.g. ["image"]).
       // Only meaningful for YAML-backed types; DB-backed entries are validated
       // against the database, not per-entry YAML.
       const missingBySlug = new Map<string, string[]>();
-      const config = getContentTypeConfig(type, ctRoot(res));
+      const config = getContentTypeConfig(type, root);
       if (config && !config.database?.slug) {
-        const mapping = getFieldMapping(type, ctRoot(res));
+        const mapping = getFieldMapping(type, root);
         if (mapping) {
           const { results: mappingResults } = validateFieldMapping(type, mapping);
           for (const [field, result] of Object.entries(mappingResults)) {
@@ -2405,9 +2414,53 @@ export function registerContentRoutes(app: Express): void {
           urls,
           versionCounts,
           mappingErrors: missingBySlug.get(entry.slug) ?? [],
-          updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, ctRoot(res)),
+          updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, root),
+          status: "published" as const,
         };
       });
+
+      // Include draft-only folders (no live locales) for non-shared-layout types
+      if (usesDraftFirstCreate(type, root)) {
+        const allSlugs = getCI(res).listContentSlugs(type as ContentType);
+        for (const slug of allSlugs) {
+          if (indexedSlugs.has(slug)) continue;
+          const dir = getEntryContentDir(type, slug, root);
+          const draftLocales = listDraftLocales(dir, false);
+          if (draftLocales.length === 0 && !fs.existsSync(path.join(dir, "_common.yml"))) continue;
+
+          let title = slug;
+          const commonPath = path.join(dir, "_common.yml");
+          if (fs.existsSync(commonPath)) {
+            try {
+              const common = getCI(res).safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null;
+              if (typeof common?.title === "string" && common.title.trim()) title = common.title.trim();
+            } catch { /* ignore */ }
+          }
+
+          const draftVariants = new Set<string>();
+          for (const loc of draftLocales) {
+            for (const v of listVariantSlugsForLocale(dir, loc, false)) draftVariants.add(v);
+          }
+          const primaryVariant = draftVariants.has(DEFAULT_DRAFT_VARIANT)
+            ? DEFAULT_DRAFT_VARIANT
+            : [...draftVariants][0] ?? DEFAULT_DRAFT_VARIANT;
+          const primaryLocale = draftLocales.includes("en") ? "en" : (draftLocales[0] ?? "en");
+
+          results.push({
+            slug,
+            title,
+            locales: draftLocales,
+            urls: {},
+            versionCounts: versioningManager.getVersionCounts(type, slug),
+            mappingErrors: missingBySlug.get(slug) ?? [],
+            updated_at: resolveStaticEntryUpdatedAt(type, slug, draftLocales, root),
+            status: "draft" as const,
+            draftVariant: primaryVariant,
+            previewPath: `/private/preview/${type}/${slug}?variant=${encodeURIComponent(primaryVariant)}&locale=${primaryLocale}`,
+          } as any);
+        }
+      }
+
       res.json({ count: results.length, results });
     } catch (err) {
       res.status(500).json({ error: String(err) });

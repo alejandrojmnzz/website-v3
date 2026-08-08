@@ -31,5 +31,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `images` | How images are registered, referenced, and rendered |
 | `sections` | How section components are defined, registered, and rendered |
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |
+| `component-behaviors` | behaviors ids, CTA `tracking` property paths |
+| `ecommerce` | products, funnels, product scope property paths, no CMS plan catalog |
 
 **Before making any structural change to this codebase, call `explain_site` with the relevant topic.**

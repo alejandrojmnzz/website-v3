@@ -38,7 +38,7 @@ The frontend router reads all content types at startup and generates routes for 
 
 ## Sitemap
 
-Routes are also used to generate the sitemap automatically. Every page with a valid `url_pattern` and at least one locale file is included.
+Routes are also used to generate the sitemap automatically. Every page with a valid `url_pattern` and at least one **live** locale file (`en.yml` / `es.yml`) is included. Unpublished drafts (only `{variant}.{locale}.yml`) are not indexed and are not in the sitemap.
 
 ## DB-backed content types
 

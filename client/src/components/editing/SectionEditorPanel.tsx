@@ -6871,7 +6871,12 @@ export function SectionEditorPanel({
               {(() => {
                 const storedConversionName = String(getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? "");
                 const fieldsVal = getValueAtFieldPath(parsedSection, formProp("fields"));
-                const hasFields = Array.isArray(fieldsVal) && fieldsVal.length > 0;
+                // LeadForm `fields` is a keyed object (email, first_name, …), not an array.
+                const hasFields =
+                  fieldsVal != null &&
+                  typeof fieldsVal === "object" &&
+                  !Array.isArray(fieldsVal) &&
+                  Object.keys(fieldsVal as object).length > 0;
                 const formNode = formSettingsPath === ""
                   ? parsedSection
                   : getValueAtFieldPath(parsedSection, formSettingsPath);
@@ -8691,11 +8696,11 @@ export function SectionEditorPanel({
               <IconFileCode className="h-4 w-4 shrink-0" />
               {sectionType}{currentVariantForExample && currentVariantForExample !== "default" ? ` — ${currentVariantForExample}` : ""} — Code example
             </DialogTitle>
-            {componentExamples.length === 0 && !examplesLoading && (
-              <DialogDescription className="text-sm text-muted-foreground">
-                No examples found for this component type.
-              </DialogDescription>
-            )}
+            <DialogDescription className="text-sm text-muted-foreground">
+              {componentExamples.length === 0 && !examplesLoading
+                ? "No examples found for this component type."
+                : "Use this example as a guide on how to fill the component YML"}
+            </DialogDescription>
           </DialogHeader>
 
           {/* CodeMirror viewer */}

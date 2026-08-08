@@ -16,10 +16,18 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
   <type-directory>/       # one folder per content type (e.g. pages/, programs/)
     <slug>/
       _common.yml         # locale-independent fields (merged into every locale)
-      en.yml              # English locale content
-      es.yml              # Spanish locale content
-      versioning.yml      # optional: A/B variant configuration
+      en.yml              # English locale content (LIVE / published)
+      es.yml              # Spanish locale content (LIVE / published)
+      draft.en.yml        # unpublished draft (or any {variant}.{locale}.yml)
+      versioning.yml      # optional: A/B / draft variant configuration
 ```
+
+## Draft vs live vs variant
+
+- **Draft entry:** folder has **no** live `{locale}.yml`. Content lives in `{variant}.{locale}.yml` (often `draft.en.yml`) + `versioning.yml` at 0%. ContentIndex skips it → public 404, not in sitemap. Create/duplicate (non-shared-layout) start this way. Publish with `publish_draft` (all remaining draft locales at once).
+- **Live / published:** at least one `{locale}.yml` exists. Routable and sitemap-eligible (unless `robots: noindex`).
+- **Variant (of a live page):** `{variant}.{locale}.yml` beside a live `{locale}.yml`, registered in `versioning.yml`. Traffic allocation allowed. `promote_variant` replaces live for one locale. Soft guidance: confirm with the user before promote/publish.
+- **Shared-layout types** are excluded from draft-first create (still write live locales immediately).
 
 ## Merge behavior
 

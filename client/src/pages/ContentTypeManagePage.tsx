@@ -86,6 +86,9 @@ interface StaticEntry {
   versionCounts?: Record<string, number>;
   mappingErrors?: string[];
   updated_at?: string | null;
+  status?: "draft" | "published";
+  draftVariant?: string;
+  previewPath?: string;
 }
 
 interface SeoEntry {
@@ -4634,7 +4637,14 @@ export default function ContentTypeManagePage() {
   const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string } | null>(null);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [duplicatingPage, setDuplicatingPage] = useState<{ loc: string; label: string; contentType: string; locale?: string } | null>(null);
+  const [duplicatingPage, setDuplicatingPage] = useState<{
+    loc: string;
+    label: string;
+    contentType: string;
+    locale?: string;
+    sourceSlug?: string;
+    isDraft?: boolean;
+  } | null>(null);
   const [createContentType, setCreateContentType] = useState<string>(contentType);
   const [createContentTitle, setCreateContentTitle] = useState("");
   const [createContentSlugEn, setCreateContentSlugEn] = useState("");
@@ -5605,9 +5615,16 @@ export default function ContentTypeManagePage() {
 
   const handleDuplicate = async (entry: StaticEntry) => {
     const firstLocale = entry.locales[0] || "en";
-    const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || `/${firstLocale}/${entry.slug}`;
+    const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || "";
     const suggestedSlug = `${entry.slug}-copy`;
-    setDuplicatingPage({ loc: firstUrl, label: entry.title, contentType, locale: firstLocale });
+    setDuplicatingPage({
+      loc: firstUrl || `/${firstLocale}/${entry.slug}`,
+      label: entry.title,
+      contentType,
+      locale: firstLocale,
+      sourceSlug: entry.slug,
+      isDraft: entry.status === "draft",
+    });
     setCreateContentType(contentType);
     setCreateContentTitle(`${entry.title} (Copy)`);
     setCreateContentSlugEn(suggestedSlug);
@@ -6431,6 +6448,15 @@ export default function ContentTypeManagePage() {
                                   <div className="text-xs text-muted-foreground truncate max-w-[300px]">
                                     {entry.slug}
                                   </div>
+                                  {entry.status === "draft" && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] px-1.5 py-0 h-4 shrink-0"
+                                      data-testid={`badge-draft-${entry.slug}`}
+                                    >
+                                      Draft
+                                    </Badge>
+                                  )}
                                   {isPartialOverride(entry.slug) && (
                                     <Badge
                                       variant="outline"
@@ -6508,7 +6534,14 @@ export default function ContentTypeManagePage() {
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 )}
-                                {Object.keys(entry.urls).length > 0 && (
+                                {entry.status === "draft" && entry.previewPath ? (
+                                  <Button variant="ghost" size="sm" className="text-xs gap-1.5" asChild data-testid={`button-open-${entry.slug}`}>
+                                    <a href={entry.previewPath}>
+                                      <ExternalLink className="h-3.5 w-3.5" />
+                                      Preview draft
+                                    </a>
+                                  </Button>
+                                ) : Object.keys(entry.urls).length > 0 && (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button variant="ghost" size="sm" className="text-xs gap-1.5" data-testid={`button-open-${entry.slug}`}>

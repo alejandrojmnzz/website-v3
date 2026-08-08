@@ -605,7 +605,7 @@ export default function ConversionsPage() {
     <div className="min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
         <div className="flex items-center gap-3">
-          <Link href="/private/store/plans">
+          <Link href="/private/store/ecommerce">
             <Button variant="ghost" size="icon" data-testid="button-back-conversions">
               <IconArrowLeft className="h-4 w-4" />
             </Button>
@@ -614,7 +614,7 @@ export default function ConversionsPage() {
             <IconTargetArrow className="h-6 w-6 text-muted-foreground" />
             <div>
               <h1 className="text-xl font-semibold" data-testid="text-conversions-title">
-                Conversions
+                Form Conversions
               </h1>
               <p className="text-sm text-muted-foreground">Manage conversion event definitions</p>
             </div>

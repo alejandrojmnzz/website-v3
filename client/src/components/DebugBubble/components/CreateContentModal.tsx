@@ -39,7 +39,14 @@ import { cn } from "@/lib/utils";
 export interface CreateContentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  duplicatingPage: { loc: string; label: string; contentType: string; locale?: string } | null;
+  duplicatingPage: {
+    loc: string;
+    label: string;
+    contentType: string;
+    locale?: string;
+    sourceSlug?: string;
+    isDraft?: boolean;
+  } | null;
   createContentType: ContentTypeValue;
   setCreateContentType: (v: ContentTypeValue) => void;
   createContentTitle: string;
@@ -745,7 +752,11 @@ export function CreateContentModal({
           slugEs: (excludedLocales.has(loc1) || !isLocaleVisible(loc1)) ? undefined : createContentSlugEs,
           title: createContentTitle || localeTitles[effectiveSingleLocale] || createContentSlugEn || createContentSlugEs,
           ...(author ? { author } : {}),
-          ...(duplicatingPage ? { sourceUrl: duplicatingPage.loc } : {}),
+          ...(duplicatingPage
+            ? (duplicatingPage.sourceSlug
+                ? { sourceSlug: duplicatingPage.sourceSlug, sourceType: duplicatingPage.contentType }
+                : { sourceUrl: duplicatingPage.loc })
+            : {}),
           ...(() => {
             const skipped = new Set(excludedLocales);
             supportedLocales.forEach((l) => { if (!isLocaleVisible(l.code)) skipped.add(l.code); });
@@ -772,12 +783,24 @@ export function CreateContentModal({
         const loc0Active = !excludedLocales.has(loc0) && isLocaleVisible(loc0);
         const activeSlug = loc0Active ? createContentSlugEn : createContentSlugEs;
         const activeLocaleCode = loc0Active ? loc0 : loc1;
-        const newUrl = buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode, urlParamValues[activeLocaleCode]);
+        const isDraft = data.status === "draft";
+        const previewPath =
+          typeof data.previewPath === "string"
+            ? data.previewPath
+            : isDraft
+              ? `/private/preview/${createContentType}/${activeSlug}?variant=${encodeURIComponent(data.draftVariant || "draft")}&locale=${activeLocaleCode}`
+              : null;
+        const newUrl = previewPath
+          || buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode, urlParamValues[activeLocaleCode]);
         toast({
-          title: duplicatingPage ? "Page duplicated" : "Content created",
-          description: duplicatingPage
-            ? `Created copy at ${newUrl}`
-            : `Created new ${createContentType} at ${newUrl}`,
+          title: duplicatingPage
+            ? (isDraft ? "Draft duplicated" : "Page duplicated")
+            : (isDraft ? "Draft created" : "Content created"),
+          description: isDraft
+            ? `Unpublished draft ready — publish from Page Versions when ready. Preview: ${newUrl}`
+            : duplicatingPage
+              ? `Created copy at ${newUrl}`
+              : `Created new ${createContentType} at ${newUrl}`,
         });
         onOpenChange(false);
         setCreateContentTitle("");
@@ -795,13 +818,15 @@ export function CreateContentModal({
         setLocaleTitles({});
         setManualTitleLocales(new Set());
 
-        setSitemapLoading(true);
-        const sitemapRes = await fetch("/api/debug/sitemap-urls");
-        if (sitemapRes.ok) {
-          const urls = await sitemapRes.json();
-          setSitemapUrls(urls);
+        if (!isDraft) {
+          setSitemapLoading(true);
+          const sitemapRes = await fetch("/api/debug/sitemap-urls");
+          if (sitemapRes.ok) {
+            const urls = await sitemapRes.json();
+            setSitemapUrls(urls);
+          }
+          setSitemapLoading(false);
         }
-        setSitemapLoading(false);
 
         window.location.href = newUrl;
       } else {
@@ -945,7 +970,9 @@ export function CreateContentModal({
                 <div className="space-y-3 p-3 bg-muted/50 rounded-md">
                   {isLocaleAgnosticPattern && supportedLocales.length > 1 && (
                     <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Language:</p>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        This {createContentType.charAt(0).toUpperCase() + createContentType.slice(1)} will be in (choose one):
+                      </p>
                       <div className="flex gap-1">
                         {supportedLocales.map((loc) => (
                           <button

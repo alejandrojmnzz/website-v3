@@ -14,6 +14,9 @@ import { cn } from "@/lib/utils";
 interface SitemapEntry {
   loc: string;
   label: string;
+  locale?: string;
+  content_type?: string;
+  slug?: string;
 }
 
 function extractPath(url: string): string {
@@ -92,9 +95,11 @@ export function SitemapSearch({ value, onChange, placeholder = "/page-url", test
   const isExternal = value?.startsWith("http");
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // modal={false}: avoid Radix Dialog focus/pointer traps when nested in Dialogs
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverTrigger asChild>
         <button
+          type="button"
           className={cn(
             "group inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors max-w-full hover-elevate",
             value
@@ -111,7 +116,13 @@ export function SitemapSearch({ value, onChange, placeholder = "/page-url", test
           <span className="truncate">{displayValue}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0 z-[10001]" align="start" container={portalContainer}>
+      <PopoverContent
+        className="w-80 p-0 z-[10001] pointer-events-auto"
+        align="start"
+        container={portalContainer}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         <div className="p-2 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

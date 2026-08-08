@@ -594,12 +594,30 @@ ${urlEntries}
 
 function entriesToHumanReadable(
   entries: CanonicalSitemapEntry[],
-): Array<{ loc: string; label: string; locale?: string }> {
-  return entries.map((entry) => ({
-    loc: entry.loc,
-    label: entry.label,
-    ...(entry.locale ? { locale: entry.locale } : {}),
-  }));
+): Array<{
+  loc: string;
+  label: string;
+  locale?: string;
+  content_type?: string;
+  slug?: string;
+}> {
+  return entries.map((entry) => {
+    let content_type: string | undefined;
+    let slug: string | undefined;
+    if (entry.contentKey) {
+      const colon = entry.contentKey.indexOf(":");
+      if (colon > 0) {
+        content_type = entry.contentKey.slice(0, colon);
+        slug = entry.contentKey.slice(colon + 1);
+      }
+    }
+    return {
+      loc: entry.loc,
+      label: entry.label,
+      ...(entry.locale ? { locale: entry.locale } : {}),
+      ...(content_type && slug ? { content_type, slug } : {}),
+    };
+  });
 }
 
 // ============================================================================
@@ -639,7 +657,13 @@ export function getSitemap(ctx?: ActiveSiteCtx): string {
   return entriesToXml(Array.from(entriesMap.values()));
 }
 
-export function getSitemapUrls(ctx?: ActiveSiteCtx): Array<{ loc: string; label: string; locale?: string }> {
+export function getSitemapUrls(ctx?: ActiveSiteCtx): Array<{
+  loc: string;
+  label: string;
+  locale?: string;
+  content_type?: string;
+  slug?: string;
+}> {
   const entriesMap = getCanonicalEntries(ctx);
   return entriesToHumanReadable(Array.from(entriesMap.values()));
 }
