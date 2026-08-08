@@ -1693,8 +1693,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Publish an unpublished draft entry: promotes the given variantSlug to live {locale}.yml for EVERY remaining draft locale that has that file (all-or-nothing). " +
     "After this, the page is public and enters the sitemap. Other drafts become normal variants at 0%. " +
     "Fails if the entry already has a live locale (use promote_variant instead) or if some draft locales lack the variantSlug. " +
-    "Also fails when resolved meta.page_title / meta.description are empty, or when editor.required fields " +
-    "(e.g. blog title + description) are empty — drafts may omit those until publish. " +
+    "Also fails when resolved meta.page_title / meta.description are empty, when editor.required fields " +
+    "(e.g. blog title + description) are empty, or when a detached locale would go live empty (EMPTY_LOCALE: no sections and no content). " +
     "Confirm with the user before calling — this makes the page live.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -1730,7 +1730,22 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
-          return fail((data.error as string) || `Server error: ${res.status}`);
+          const errMsg = (data.error as string) || `Server error: ${res.status}`;
+          const isEmpty = /EMPTY_LOCALE/i.test(errMsg);
+          return fail(errMsg, {
+            code: isEmpty ? "EMPTY_LOCALE" : undefined,
+            contentType,
+            slug,
+            variantSlug,
+            next_actions: isEmpty
+              ? [{
+                  tool: "get_page_content",
+                  reason: "Edit the draft until it has sections or content, then retry publish_draft",
+                  args_hint: { slug, contentType, variant: variantSlug },
+                  priority: "required",
+                }]
+              : [],
+          });
         }
         return ok(
           {
@@ -1771,7 +1786,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Promote a variant to become the live version for ONE locale: overwrites the default locale file with the variant's content, " +
     "removes the variant from versioning.yml, and deletes the variant file. " +
     "For unpublished draft entries (no live locales), use publish_draft instead (all-or-nothing across locales). " +
-    "Fails when resolved meta.page_title / meta.description are empty, or editor.required fields are empty on the promoted content. " +
+    "Fails when resolved meta.page_title / meta.description are empty, editor.required fields are empty, " +
+    "or the promoted detached locale would be empty (EMPTY_LOCALE: no sections and no content). " +
     "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -1812,7 +1828,23 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
-          return fail((data.error as string) || `Server error: ${res.status}`);
+          const errMsg = (data.error as string) || `Server error: ${res.status}`;
+          const isEmpty = /EMPTY_LOCALE/i.test(errMsg);
+          return fail(errMsg, {
+            code: isEmpty ? "EMPTY_LOCALE" : undefined,
+            contentType,
+            slug,
+            locale,
+            variantSlug,
+            next_actions: isEmpty
+              ? [{
+                  tool: "get_page_content",
+                  reason: "Edit the draft until it has sections or content, then retry promote_variant",
+                  args_hint: { slug, contentType, locale, variant: variantSlug },
+                  priority: "required",
+                }]
+              : [],
+          });
         }
         const next_actions: NextAction[] = sharedLayout
           ? [{
@@ -2871,18 +2903,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // translate_page
   mcp.tool(
     "translate_page",
-    "Write (or overwrite) a target-locale YAML file for an existing page with a fully-translated payload. " +
-    "Does NOT perform AI translation — the caller must supply the translated content. " +
-    "Use this to create a new locale or refresh an existing translation in one call rather than N field updates.\n\n" +
-    "What the caller must supply: source_locale (used only for existence validation), target_locale, " +
-    "and a content object with at minimum a 'sections' array. " +
-    "A 'meta' block is recommended (page_title, description, etc.).\n\n" +
-    "What the server handles: validates the slug and source locale exist, path-sanitisation, " +
-    "conflict detection if the target locale file already exists, writes the target locale file " +
-    "(creates if missing, overwrites if present), cache refresh, and Git mark-modified.\n\n" +
-    "Possible errors: slug not found, source locale not found, path traversal detected, " +
-    "remote conflict on existing target locale (returns remoteContent + intendedContent for manual merge), " +
-    "permission denied.",
+    "Write translated content for a target locale. Does NOT perform AI translation — supply the translated payload.\n\n" +
+    "Shared-layout types (e.g. blog): entry must be detached first; otherwise fails with require_detach.\n" +
+    "New target locale (no live file): writes draft.{locale}.yml at 0% traffic (not public). " +
+    "Empty live stub: auto-converts to draft then writes the translation into the draft. " +
+    "Existing non-empty live locale: overwrites live (must pass empty/SEO/required gates).\n" +
+    "Go live with promote_variant (live entry) or publish_draft (all-draft entry). Confirm with the user before promote/publish.",
     {
       slug: z.string().describe("Page slug of the page to translate"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
@@ -2922,6 +2948,41 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
+      const { isEntryDetached, isSharedLayoutType } = await import("../../server/shared-layout-entry.js");
+      const {
+        convertEmptyLiveLocaleToDraft,
+        ensureDraftVariantInVersioning,
+      } = await import("../../server/convert-empty-locale-to-draft.js");
+      const { isEmptyDetachedLocaleEntry } = await import("../../server/empty-locale.js");
+      const { assertLiveEntrySeoAndRequiredFields } = await import("../../server/live-entry-seo-gate.js");
+      const { contentIndex } = await import("../../server/content-index.js");
+
+      const sharedLayout = isSharedLayoutType(resolved.contentType, contentPath);
+      const detached = isEntryDetached(resolved.contentType, slug, contentPath);
+
+      if (sharedLayout && !detached) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "require_detach",
+            code: "require_detach",
+            message:
+              `Shared-layout entry "${slug}" is still attached. Detach via POST /api/content/${resolved.contentType}/${slug}/detach ` +
+              "(or DebugBubble → Detach) before translate_page. Detach only bakes existing live locale files; it does not invent siblings.",
+            contentType: resolved.contentType,
+            slug,
+          },
+          [
+            {
+              tool: "get_page_content",
+              reason: "Confirm attached shared-layout state, then detach in admin/API, then retry translate_page",
+              args_hint: { slug, contentType: resolved.contentType, locale: source_locale },
+              priority: "required",
+            },
+          ],
+        );
+      }
+
       const ctDir = getDirectory(resolved.contentType, resolved.config);
       const dir = path.join(contentPath, ctDir, slug);
 
@@ -2930,15 +2991,50 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail((e as Error).message);
       }
       if (!fs.existsSync(sourceFilePath)) {
-        return fail(`Source locale '${source_locale}' not found for page '${slug}' (expected: ${resolved.contentType}/${slug}/${source_locale}.yml)`);
+        // Allow source from draft.{source}.yml when live missing
+        const draftSource = path.join(dir, `draft.${source_locale}.yml`);
+        if (!fs.existsSync(draftSource)) {
+          return fail(`Source locale '${source_locale}' not found for page '${slug}'`);
+        }
       }
 
-      const targetFileName = `${target_locale}.yml`;
-      const targetFilePath = path.join(dir, targetFileName);
-      try { assertWithinBase(targetFilePath, contentPath); } catch (e) {
+      const liveTargetPath = path.join(dir, `${target_locale}.yml`);
+      const draftTargetPath = path.join(dir, `draft.${target_locale}.yml`);
+      try { assertWithinBase(liveTargetPath, contentPath); } catch (e) {
         return fail((e as Error).message);
       }
 
+      let writeAsDraft = false;
+      let reason = "live_locale_refresh";
+      let autoConverted = false;
+
+      if (!fs.existsSync(liveTargetPath)) {
+        writeAsDraft = true;
+        reason = "new_locale_starts_as_draft";
+      } else if (
+        isEmptyDetachedLocaleEntry({
+          contentType: resolved.contentType,
+          slug,
+          locale: target_locale,
+          contentRoot: contentPath,
+          ci: contentIndex,
+        })
+      ) {
+        const converted = convertEmptyLiveLocaleToDraft({
+          contentType: resolved.contentType,
+          slug,
+          locale: target_locale,
+          contentRoot: contentPath,
+          ci: contentIndex,
+          author: "mcp-translate_page",
+        });
+        writeAsDraft = true;
+        reason = "empty_live_converted_to_draft";
+        autoConverted = !!converted;
+      }
+
+      const targetFileName = writeAsDraft ? `draft.${target_locale}.yml` : `${target_locale}.yml`;
+      const targetFilePath = writeAsDraft ? draftTargetPath : liveTargetPath;
       const targetRelPath = `${contentFolder}/${ctDir}/${slug}/${targetFileName}`;
 
       const localeData: Record<string, unknown> = { slug, sections: content.sections };
@@ -2946,6 +3042,21 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         localeData.meta = content.meta;
       }
       const intendedContent = safeDump(localeData);
+
+      if (!writeAsDraft) {
+        const gateErr = assertLiveEntrySeoAndRequiredFields({
+          contentType: resolved.contentType,
+          slug,
+          locale: target_locale,
+          pageData: localeData,
+          contentRoot: contentPath,
+          mode: "live_update",
+          isDraftWrite: false,
+        });
+        if (gateErr) {
+          return fail(gateErr, { code: "EMPTY_LOCALE_OR_REQUIRED", path: `${ctDir}/${slug}/${targetFileName}` });
+        }
+      }
 
       if (fs.existsSync(targetFilePath)) {
         const conflictCheck = await checkRemoteConflict(targetRelPath, domain);
@@ -2962,7 +3073,20 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const isNew = !fs.existsSync(targetFilePath);
       fs.writeFileSync(targetFilePath, intendedContent, "utf-8");
 
-      const commitMsg = `Translate ${resolved.contentType}/${slug} to ${target_locale}`;
+      if (writeAsDraft) {
+        ensureDraftVariantInVersioning({
+          contentType: resolved.contentType,
+          slug,
+          locale: target_locale,
+          contentRoot: contentPath,
+          author: "mcp-translate_page",
+          variantSlug: "draft",
+        });
+      }
+
+      const commitMsg = writeAsDraft
+        ? `Draft translate ${resolved.contentType}/${slug} to ${target_locale}`
+        : `Translate ${resolved.contentType}/${slug} to ${target_locale}`;
       const [commitResult] = await Promise.all([
         callCommitFileApi(targetRelPath, commitMsg, mcpToken, domain),
         callRefreshCacheApi(resolved.contentType, domain),
@@ -2972,27 +3096,79 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (commitResult.warning) {
         warnings.push({ code: "github_commit_failed", message: commitResult.warning });
       }
+      if (writeAsDraft) {
+        warnings.push({
+          code: "translation_not_public",
+          message: `${targetFileName} is not in listings/sitemap/hreflang until promote_variant or publish_draft. Did not create live ${target_locale}.yml as a public locale.`,
+        });
+        warnings.push({
+          code: "empty_locale_blocked_on_promote",
+          message: "Promote/publish fails if the detached locale would still be empty (no sections and no content).",
+        });
+      }
+      if (autoConverted) {
+        warnings.push({
+          code: "empty_live_auto_converted",
+          message: `Empty live ${target_locale}.yml was moved to draft.${target_locale}.yml before writing the translation.`,
+        });
+      }
+
+      const next_actions: NextAction[] = writeAsDraft
+        ? [
+            {
+              tool: "get_page_content",
+              reason: "Inspect the draft translation",
+              args_hint: { slug, contentType: resolved.contentType, locale: target_locale, variant: "draft" },
+              priority: "recommended",
+            },
+            {
+              tool: "run_page_diagnostics",
+              reason: "Validate before going live",
+              args_hint: { slugs: [slug] },
+              priority: "recommended",
+            },
+            {
+              tool: "promote_variant",
+              reason: "Make this locale live when ready (confirm with user). Use publish_draft if the entry has no live locales yet.",
+              args_hint: {
+                contentType: resolved.contentType,
+                slug,
+                locale: target_locale,
+                variantSlug: "draft",
+              },
+              priority: "optional",
+            },
+          ]
+        : [];
 
       return ok(
         {
-          message: `Translated content ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`,
+          message: writeAsDraft
+            ? `Draft translation ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`
+            : `Translated content ${isNew ? "created" : "updated"} at ${resolved.contentType}/${slug}/${targetFileName}`,
           slug,
           contentType: resolved.contentType,
           source_locale,
           target_locale,
           created: isNew,
+          live: !writeAsDraft,
+          layer: writeAsDraft ? "draft_locale" : "entry_locale",
+          reason,
           sectionsCount: content.sections.length,
           metaKeys: content.meta ? Object.keys(content.meta) : [],
           ...(commitResult.commitSha ? { commitSha: commitResult.commitSha } : {}),
           ...wrotePayload({
-            layer: "entry_locale",
+            layer: writeAsDraft ? "draft_locale" : "entry_locale",
             contentType: resolved.contentType,
             path: `${ctDir}/${slug}/${targetFileName}`,
             locale: target_locale,
             slug,
           }),
         },
-        { warnings, next_actions: [] },
+        { warnings, next_actions, side_effects: writeAsDraft ? [{
+          kind: "wrote_draft_locale",
+          summary: `Wrote ${targetFileName} + versioning 0%; did not publish live ${target_locale}.yml`,
+        }] : undefined },
       );
     }
   );

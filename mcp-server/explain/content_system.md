@@ -85,7 +85,18 @@ Resolve order at page delivery: **single → meta → param**. Site vars (`brand
 
 - **Live locale writes / publish / promote** require resolved non-empty `meta.page_title` and `meta.description` (no leftover `{{ }}`). Draft-only writes are exempt. Gate: `server/live-entry-seo-gate.ts` + `shared/validateRequiredMeta.ts`.
 - **`editor.<field>.required: true`** (Fields UI asterisk / YAML): drafts may omit the value; `publish_draft` / `promote_variant` and live saves fail if empty or cleared. Distinct from field_mapping `?` (key may be absent). Blog sets `title` + `description` required. Validator: `scripts/validation/validators/required-fields.ts`.
-- **Non-effects:** clearing required fields on a draft is OK; listing `pickListingFields` does not invent fallbacks for missing title/description.
+- **Empty detached locale (`EMPTY_LOCALE`):** A live locale is empty only when the entry is **detached** (`detached: true` in `_common.yml`) **and** merged data has no sections (`missing` / `length === 0`) **and** no non-empty string `content`. Classic blogs with body in `content` are not empty. Attached shared-layout `sections: []` on the entry is normal (structure from `single.{locale}.yml`) and is **never** empty via this rule. Empty detached locales are hidden from listings / sitemap / hreflang; direct URL returns **HTTP 404** with a custom “not available in this language” body + links to public alternates (`noindex`). Helper: `shared/isEmptyLocaleContent.ts` + `server/empty-locale.ts`. Publish/promote/live writes are blocked. Manage UI surfaces all via `emptyLocales` + Errors. MCP `run_page_diagnostics` / content-quality still scan live empty files so agents see `EMPTY_LOCALE`.
+- **Non-effects:** clearing required fields on a draft is OK; listing `pickListingFields` does not invent fallbacks for missing title/description; emptiness is not a language classifier (no fuzzy “English shell” detection); mirrored sections stay **per-section** hide/`_label` only — an entire locale is not taken offline because some section was mirrored.
+
+### Shared-layout translations (detach → draft → promote)
+
+Agent loop for adding a locale on shared-layout types (e.g. blog):
+
+1. **Detach** if still attached (`POST /api/content/{type}/{slug}/detach` / DebugBubble). Detach bakes **only locales that already have a live `{locale}.yml`** on the entry — never invents siblings from `supported_locales` / `single.*.yml`. Fails clearly if the entry has **zero** locale files.
+2. **`translate_page`** — requires detached entry (`action_required: require_detach` if attached). New target locale (no live file) → writes `draft.{locale}.yml` at 0% (`live: false`, `layer: "draft_locale"`, reason `new_locale_starts_as_draft`). Empty live stub → auto-convert to `draft.{locale}.yml` then write translation (`empty_live_converted_to_draft`). Non-empty live → overwrite live (SEO/required/empty gates). Not public until promote/publish.
+3. Edit draft (`get_page_content` with `variant: draft`) → `run_page_diagnostics` → **`promote_variant`** (one locale on a live entry) or **`publish_draft`** (all-draft entry). Confirm with the user before promote/publish.
+
+**Non-effects:** `translate_page` does not AI-translate; it does not create live public stubs for new locales; detach does not create missing locale files; migrate script `scripts/migrate-empty-detached-locales.ts` moves leftover empty live stubs to draft.
 
 ### Entry preview (`preview.props`)
 

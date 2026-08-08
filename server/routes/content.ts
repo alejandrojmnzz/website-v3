@@ -310,6 +310,10 @@ import {
   versioningContentSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
+import {
+  buildLocaleUnavailablePayload,
+  isEmptyDetachedLocaleEntry,
+} from "../empty-locale";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -821,6 +825,28 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
+    const emptyRoot = getContentRoot(res);
+    if (
+      isEmptyDetachedLocaleEntry({
+        contentType,
+        slug,
+        locale,
+        contentRoot: emptyRoot,
+        ci: getCI(res),
+      })
+    ) {
+      const availableUrls = getCI(res).getAlternateUrls(slug, contentType);
+      res.status(404).json(
+        buildLocaleUnavailablePayload({
+          contentType,
+          slug,
+          locale,
+          availableUrls,
+        }),
+      );
+      return;
+    }
+
     if (hasDatabaseSingle(contentType, getContentRoot(res))) {
       const root = getContentRoot(res);
       const detached = isEntryDetached(contentType, slug, root);
@@ -1184,24 +1210,48 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { slug } = req.params;
       const locale = req.query.locale as string | undefined;
+      const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
+      const blogRoot = getContentRoot(res);
+
+      if (
+        normalizedLocale &&
+        isEmptyDetachedLocaleEntry({
+          contentType: "blog",
+          slug,
+          locale: normalizedLocale,
+          contentRoot: blogRoot,
+          ci: getCI(res),
+        })
+      ) {
+        const availableUrls = getCI(res).getAlternateUrls(slug, "blog");
+        res.status(404).json(
+          buildLocaleUnavailablePayload({
+            contentType: "blog",
+            slug,
+            locale: normalizedLocale,
+            availableUrls,
+          }),
+        );
+        return;
+      }
+
       const { items: posts } = await queryEntries(
         {
           from: { contentType: "blog" },
-          locale: locale ? normalizeLocale(locale) : undefined,
+          locale: normalizedLocale,
         },
         {
           db: getDB(res),
           contentIndex: getCI(res),
-          contentRoot: getContentRoot(res),
+          contentRoot: blogRoot,
         },
       );
       const localeKey = getLocaleKey("blog", ctRoot(res)) || "lang";
-      const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
       const post = normalizedLocale
         ? posts.find(
             (p) =>
               p.slug === slug && (p as any)[localeKey] === normalizedLocale,
-          ) || posts.find((p) => p.slug === slug)
+          )
         : posts.find((p) => p.slug === slug);
 
       if (!post) {
@@ -2400,10 +2450,21 @@ export function registerContentRoutes(app: Express): void {
       }
 
       const results = entries.map((entry) => {
-        const urls = getCI(res).getLocaleUrls(entry.slug, type);
+        const urls = getCI(res).getLocaleUrls(entry.slug, type, {
+          includeEmptyLocales: true,
+        });
         const versionCounts = versioningManager.getVersionCounts(type, entry.slug);
         const locales = entry.locales.filter(
           (l) => !l.startsWith("_") && !l.includes("."),
+        );
+        const emptyLocales = locales.filter((loc) =>
+          isEmptyDetachedLocaleEntry({
+            contentType: type,
+            slug: entry.slug,
+            locale: loc,
+            contentRoot: root,
+            ci: getCI(res),
+          }),
         );
         return {
           slug: entry.slug,
@@ -2412,6 +2473,7 @@ export function registerContentRoutes(app: Express): void {
           urls,
           versionCounts,
           mappingErrors: missingBySlug.get(entry.slug) ?? [],
+          emptyLocales,
           updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, root),
           status: "published" as const,
         };
@@ -3455,7 +3517,8 @@ export function registerContentRoutes(app: Express): void {
         msg.includes("not a shared-layout") ||
         msg.includes("Invalid entry") ||
         msg.includes("Unknown content type") ||
-        msg.includes("No live single")
+        msg.includes("No live single") ||
+        msg.includes("no live locale files")
           ? 400
           : 500;
       res.status(status).json({ error: msg });

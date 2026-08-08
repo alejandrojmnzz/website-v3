@@ -8,8 +8,24 @@ import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 import type { SiteContext } from "./site-manager";
 import { getDefaultContentFolder } from "./site-config";
+import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import path from "path";
 const log = child({ module: "sitemap" });
+
+function shouldSkipEmptyDetachedLocale(
+  contentType: string,
+  slug: string,
+  locale: string,
+  ci: typeof contentIndex,
+): boolean {
+  return isEmptyDetachedLocaleEntry({
+    contentType,
+    slug,
+    locale,
+    contentRoot: ci.contentRoot,
+    ci,
+  });
+}
 
 // Per-request site context for per-site sitemap generation.
 // Set synchronously inside getCanonicalEntries before calling buildCanonicalSitemapEntries.
@@ -148,6 +164,7 @@ function getAvailablePrograms(ci: typeof contentIndex = _ci()): AvailableProgram
       const locales = ci.getAvailableLocalesOrVariants("program", slug);
 
       for (const locale of locales) {
+        if (shouldSkipEmptyDetachedLocale("program", slug, locale, ci)) continue;
         const merged = loadMergedContent("program", slug, locale, ci);
         if (!merged) continue;
 
@@ -178,6 +195,7 @@ function getAvailableLocations(ci: typeof contentIndex = _ci()): AvailableLocati
       const locales = ci.getAvailableLocalesOrVariants("location", slug);
 
       for (const locale of locales) {
+        if (shouldSkipEmptyDetachedLocale("location", slug, locale, ci)) continue;
         const merged = loadMergedContent("location", slug, locale, ci);
         if (!merged) continue;
 
@@ -214,6 +232,7 @@ function getAvailableTemplatePages(ci: typeof contentIndex = _ci(), cf: string =
       for (const locale of locales) {
         // Only process locale files (en, es)
         if (!getSupportedLocales(cf).includes(locale)) continue;
+        if (shouldSkipEmptyDetachedLocale("page", dirSlug, locale, ci)) continue;
 
         const merged = loadMergedContent("page", dirSlug, locale, ci);
         if (!merged) continue;
@@ -478,6 +497,10 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         const locales = ci.getAvailableLocalesOrVariants(typeName, slug);
         for (const locale of locales) {
           if (!getSupportedLocales(cf).includes(locale)) continue;
+          if (shouldSkipEmptyDetachedLocale(typeName, slug, locale, ci)) {
+            log.info(`[Sitemap] Skipping empty detached locale ${typeName}: ${slug} (${locale})`);
+            continue;
+          }
 
           const merged = loadMergedContent(typeName, slug, locale, ci);
           if (!merged) continue;

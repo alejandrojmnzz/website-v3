@@ -9,6 +9,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { UniversalImage } from "@/components/UniversalImage";
 import { SectionContextProvider } from "@/contexts/SectionContext";
+import LocaleUnavailable, {
+  type LocaleUnavailableInfo,
+} from "@/components/LocaleUnavailable";
 
 
 function formatDate(dateStr: string, locale: string): string {
@@ -44,15 +47,29 @@ export default function BlogPostPage() {
   });
   const siteName = org?.name || "";
 
-  const { data: post, isLoading, error } = useQuery<Record<string, any>>({
+  const { data: post, isLoading, error, failureReason } = useQuery<Record<string, any>>({
     queryKey: ["/api/blog/posts", slug, locale],
     queryFn: async () => {
       const response = await apiFetch(`/api/blog/posts/${slug}?locale=${locale}`);
-      if (!response.ok) throw new Error("Blog post not found");
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        if (body?.error === "locale_unavailable" || body?.code === "EMPTY_LOCALE") {
+          const err = new Error("locale_unavailable") as Error & {
+            localeUnavailable?: LocaleUnavailableInfo;
+          };
+          err.localeUnavailable = body;
+          throw err;
+        }
+        throw new Error("Blog post not found");
+      }
       return response.json();
     },
     enabled: !!slug,
   });
+
+  const localeUnavailable = (
+    failureReason as (Error & { localeUnavailable?: LocaleUnavailableInfo }) | null
+  )?.localeUnavailable;
 
   const markdownContent = post?.content || "";
 
@@ -73,6 +90,10 @@ export default function BlogPostPage() {
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (localeUnavailable) {
+    return <LocaleUnavailable info={localeUnavailable} pageLocale={locale} />;
   }
 
   if (error || !post) {

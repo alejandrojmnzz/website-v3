@@ -1223,7 +1223,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </ul>
             </div>
             <p>
-              Detach when one page needs its own experiments or layout. Stay attached when you want every entry to keep matching the shared template.
+              Detach when one page needs its own experiments or layout, or before adding a new translation locale.
+              Stay attached when you want every entry to keep matching the shared template.
+            </p>
+            <p className="text-xs">
+              Detach only updates locales that already have a live{" "}
+              <code className="text-[11px]">{"{locale}.yml"}</code> on this entry — it does not invent missing languages.
+              If this entry has no locale files yet, detach fails until you create one.
             </p>
 
             <button
@@ -1243,11 +1249,21 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 <div>
                   <p className="font-medium text-foreground mb-1">How it works under the hood</p>
                   <p>
-                    Detach copies the live shared template structure into this entry&apos;s locale YAML files and sets{" "}
+                    Detach copies the live shared template structure into this entry&apos;s <strong>existing</strong> locale YAML files and sets{" "}
                     <code className="text-[11px]">detached: true</code> in{" "}
                     <code className="text-[11px]">_common.yml</code>. Template variables like{" "}
                     <code className="text-[11px]">{"{{ single.* }}"}</code> are preserved, not resolved.
+                    Paths: <code className="text-[11px]">server/shared-layout-detach.ts</code>, emptiness rules in{" "}
+                    <code className="text-[11px]">shared/isEmptyLocaleContent.ts</code>.
                   </p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">Translations after detach</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>New locales start as <code className="text-[11px]">draft.{"{locale}"}.yml</code> (not public) until promote/publish</li>
+                    <li>Empty live stubs are converted to draft — they 404 publicly with an unavailable message</li>
+                    <li>Agents use MCP <code className="text-[11px]">translate_page</code> → edit draft → diagnose → promote</li>
+                  </ul>
                 </div>
                 <div>
                   <p className="font-medium text-foreground mb-1">Versioning</p>
@@ -1264,9 +1280,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   <p className="font-medium text-foreground mb-1">Files written</p>
                   <ul className="list-disc pl-5 space-y-1">
                     <li>
-                      Locale files (e.g. <code className="text-[11px]">en.yml</code>) receive baked{" "}
+                      Existing locale files (e.g. <code className="text-[11px]">en.yml</code>) receive baked{" "}
                       <code className="text-[11px]">sections</code> and <code className="text-[11px]">layout</code> from the live template
                     </li>
+                    <li>Sibling locales without a file are not created</li>
                     <li>Existing data fields on the entry are kept; structural keys are owned by the entry afterward</li>
                   </ul>
                 </div>

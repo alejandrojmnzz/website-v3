@@ -1012,6 +1012,11 @@ export function CreateContentModal({
                       </div>
                     </div>
                   )}
+                  {visibleLocales.length > 1 && excludedLocales.size > 0 && (
+                    <p className="text-[11px] text-muted-foreground" data-testid="text-skipped-locale-hint">
+                      Skipped locales are not created. To add a translation later on a shared-layout type, detach the entry first, then add a draft locale (not an empty live stub) and promote when ready.
+                    </p>
+                  )}
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium text-muted-foreground">
                       {visibleLocales.length > 1

@@ -21,6 +21,12 @@ import { isDraftEntry } from "./draft-entry";
 import { isEntryDetached, isSharedLayoutType } from "./shared-layout-entry";
 import { mergeSingleTemplate } from "./database-single-loader";
 import { deepMerge } from "./utils/deepMerge";
+import { isEmptyDetachedLocale } from "@shared/isEmptyLocaleContent";
+import { getFolder } from "./content-types";
+import { getDefaultContentRoot } from "./site-config";
+import path from "path";
+import fs from "fs";
+import { contentIndex } from "./content-index";
 
 export type LiveSeoGateOptions = {
   contentType: string;
@@ -112,5 +118,52 @@ export function assertLiveEntrySeoAndRequiredFields(
   const fieldErr = formatRequiredFieldErrors(fieldResult);
   if (fieldErr) return fieldErr;
 
+  const emptyLocaleErr = assertNotEmptyDetachedLocale({
+    contentType,
+    slug,
+    locale,
+    pageData: resolvedPage,
+    contentRoot,
+  });
+  if (emptyLocaleErr) return emptyLocaleErr;
+
   return null;
+}
+
+/**
+ * Block publishing / live writes of empty detached locales.
+ */
+export function assertNotEmptyDetachedLocale(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  pageData?: Record<string, unknown> | null;
+  contentRoot?: string;
+}): string | null {
+  const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
+  if (!isEntryDetached(opts.contentType, opts.slug, contentRoot)) return null;
+
+  let merged = opts.pageData;
+  if (!merged) {
+    try {
+      merged =
+        (contentIndex.loadMergedContent(opts.contentType, opts.slug, opts.locale)
+          .data as Record<string, unknown> | null) ?? null;
+    } catch {
+      merged = null;
+    }
+  }
+
+  if (!isEmptyDetachedLocale({ detached: true, merged })) return null;
+
+  const folder = getFolder(opts.contentType, contentRoot);
+  const filePath = path.join(folder, opts.slug, `${opts.locale}.yml`);
+  const abs = path.join(contentRoot, filePath);
+  const exists = fs.existsSync(abs);
+
+  return (
+    `EMPTY_LOCALE: detached locale "${opts.locale}" has no sections and no content` +
+    (exists ? ` (${filePath}).` : ".") +
+    " Translate the draft or remove the stub before publishing."
+  );
 }

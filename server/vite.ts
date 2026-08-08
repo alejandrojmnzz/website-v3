@@ -247,7 +247,12 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
 
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
 
-      const status = isKnownRoute(url) ? 200 : 404;
+      const payloadStatus =
+        initialDataPayload &&
+        typeof (initialDataPayload as { httpStatus?: number }).httpStatus === "number"
+          ? (initialDataPayload as { httpStatus: number }).httpStatus
+          : undefined;
+      const status = payloadStatus ?? (isKnownRoute(url) ? 200 : 404);
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -322,7 +327,7 @@ export function serveStatic(app: Express) {
     }
 
     const url = _req.originalUrl;
-    const status = isKnownRoute(url) ? 200 : 404;
+    let status = isKnownRoute(url) ? 200 : 404;
     const ssrSchemaHtml = _req.ssrSchemaHtml;
 
     const cleanUrlForSsr = url.split("?")[0].split("#")[0];
@@ -351,6 +356,12 @@ export function serveStatic(app: Express) {
       if (render) {
         const indexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
         const initialDataPayload = await getInitialDataForRequest(url, res);
+        if (
+          initialDataPayload &&
+          typeof (initialDataPayload as { httpStatus?: number }).httpStatus === "number"
+        ) {
+          status = (initialDataPayload as { httpStatus: number }).httpStatus;
+        }
         const appHtml = await render(url, initialDataPayload);
 
         let html = indexHtml.replace(

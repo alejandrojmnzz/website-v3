@@ -85,6 +85,7 @@ interface StaticEntry {
   urls: Record<string, string>;
   versionCounts?: Record<string, number>;
   mappingErrors?: string[];
+  emptyLocales?: string[];
   updated_at?: string | null;
   status?: "draft" | "published";
   draftVariant?: string;
@@ -5233,13 +5234,15 @@ export default function ContentTypeManagePage() {
   })();
 
   const staticEntries = staticEntriesData?.results || [];
+  const staticEntryErrorCount = (e: StaticEntry) =>
+    (e.mappingErrors?.length ?? 0) + (e.emptyLocales?.length ?? 0);
   const staticEntriesWithErrors = staticEntries.filter(
-    (e) => (e.mappingErrors?.length ?? 0) > 0,
+    (e) => staticEntryErrorCount(e) > 0,
   ).length;
   const filteredStatic = (() => {
     let list = staticEntries;
     if (errorsOnly) {
-      list = list.filter((e) => (e.mappingErrors?.length ?? 0) > 0);
+      list = list.filter((e) => staticEntryErrorCount(e) > 0);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -6180,6 +6183,7 @@ export default function ContentTypeManagePage() {
                   className={`gap-1.5 ${errorsOnly ? "border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15" : "text-muted-foreground"}`}
                   onClick={() => setErrorsOnly((v) => !v)}
                   data-testid="button-filter-errors-only"
+                  title="Includes missing mapped fields and empty detached locales (hidden publicly until translated or removed)"
                 >
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Errors only ({staticEntriesWithErrors})
@@ -6600,8 +6604,32 @@ export default function ContentTypeManagePage() {
                                 ) : (
                                   entry.locales.map((loc) => {
                                     const count = entry.versionCounts?.[loc];
+                                    const isEmptyLocale = (entry.emptyLocales ?? []).includes(loc);
                                     return (
-                                      <Badge key={loc} variant="outline" className="text-xs">
+                                      <Badge
+                                        key={loc}
+                                        variant="outline"
+                                        className={`text-xs relative ${isEmptyLocale ? "border-destructive/60 text-destructive" : ""}`}
+                                        title={
+                                          isEmptyLocale
+                                            ? "Empty detached locale — hidden from public site until translated or removed"
+                                            : undefined
+                                        }
+                                        data-testid={
+                                          isEmptyLocale
+                                            ? `badge-empty-locale-${entry.slug}-${loc}`
+                                            : undefined
+                                        }
+                                      >
+                                        {isEmptyLocale && (
+                                          <span
+                                            className="absolute -top-0.5 -right-0.5 flex h-2 w-2"
+                                            aria-hidden
+                                          >
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+                                          </span>
+                                        )}
                                         {loc.toUpperCase()}{count && count > 1 ? ` · ${count}` : ""}
                                       </Badge>
                                     );
@@ -6614,7 +6642,7 @@ export default function ContentTypeManagePage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
-                                {(entry.mappingErrors?.length ?? 0) > 0 && (
+                                {staticEntryErrorCount(entry) > 0 && (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button
@@ -6624,23 +6652,46 @@ export default function ContentTypeManagePage() {
                                         data-testid={`button-errors-${entry.slug}`}
                                       >
                                         <AlertTriangle className="h-3.5 w-3.5" />
-                                        Errors {entry.mappingErrors!.length}
+                                        Errors {staticEntryErrorCount(entry)}
                                       </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="min-w-[200px]">
-                                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                                        Missing mapped fields
-                                      </div>
-                                      {entry.mappingErrors!.map((field) => (
-                                        <div
-                                          key={field}
-                                          className="flex items-center gap-2 px-2 py-1 text-[13px]"
-                                          data-testid={`text-error-field-${entry.slug}-${field}`}
-                                        >
-                                          <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
-                                          <code className="text-xs">{field}</code>
-                                        </div>
-                                      ))}
+                                      {(entry.mappingErrors?.length ?? 0) > 0 && (
+                                        <>
+                                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                            Missing mapped fields
+                                          </div>
+                                          {entry.mappingErrors!.map((field) => (
+                                            <div
+                                              key={field}
+                                              className="flex items-center gap-2 px-2 py-1 text-[13px]"
+                                              data-testid={`text-error-field-${entry.slug}-${field}`}
+                                            >
+                                              <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                                              <code className="text-xs">{field}</code>
+                                            </div>
+                                          ))}
+                                        </>
+                                      )}
+                                      {(entry.emptyLocales?.length ?? 0) > 0 && (
+                                        <>
+                                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                            Empty locales
+                                          </div>
+                                          {entry.emptyLocales!.map((loc) => (
+                                            <div
+                                              key={loc}
+                                              className="flex items-center gap-2 px-2 py-1 text-[13px]"
+                                              data-testid={`text-error-empty-locale-${entry.slug}-${loc}`}
+                                            >
+                                              <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                                              <span className="text-xs">
+                                                {loc.toUpperCase()} — empty detached locale (hidden publicly)
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </>
+                                      )}
                                       <DropdownMenuSeparator />
                                       <DropdownMenuItem
                                         onClick={() => handleEditYaml(entry)}
@@ -7155,7 +7206,7 @@ export default function ContentTypeManagePage() {
               <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
                 Showing {filteredStatic.length} of {staticEntries.length} entries
                 {staticEntriesWithErrors > 0 && (
-                  <span data-testid="text-error-count"> · {staticEntriesWithErrors} with mapping errors</span>
+                  <span data-testid="text-error-count"> · {staticEntriesWithErrors} with errors (mapping or empty locales)</span>
                 )}
               </div>
             )}

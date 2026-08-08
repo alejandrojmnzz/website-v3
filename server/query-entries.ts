@@ -23,6 +23,7 @@ import {
   setStaticListingCache,
 } from "./static-listing-cache";
 import { normalizeLocale } from "./settings";
+import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import { child } from "./logger";
 
 const log = child({ module: "query-entries" });
@@ -266,6 +267,17 @@ function loadStaticContentTypeItems(
     const locales = ci.getAvailableLocalesOrVariants(contentType as ContentType, slug);
 
     for (const locale of locales) {
+      if (
+        isEmptyDetachedLocaleEntry({
+          contentType,
+          slug,
+          locale,
+          contentRoot,
+          ci,
+        })
+      ) {
+        continue;
+      }
       const localeData = loadStaticYamlFile(path.join(slugDir, `${locale}.yml`)) || {};
       const item = pickListingFields(common, localeData, mapping);
       item[localeKey] = locale;

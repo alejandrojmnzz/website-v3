@@ -535,7 +535,9 @@ export function VersioningView({
       {!showRestorePanel && isSharedLayout && isDetached && (
         <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">
           <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-detached-versions-notice">
-            This page is detached from the {contentTypeLabel} template, you can version manage its versions independently
+            Detached from the {contentTypeLabel} template — versions are independent.
+            New translation locales should start as a draft (not a live empty stub) and only go public after promote/publish.
+            Empty detached locales 404 publicly and show under Manage → Errors.
           </p>
           {onRequestReattach && (
             <Button

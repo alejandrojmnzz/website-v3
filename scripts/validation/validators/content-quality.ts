@@ -1,6 +1,8 @@
 import * as fs from "fs";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
+import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layout-entry";
 
 const CRITICAL_FIELDS = new Set(["title", "heading", "description", "subtitle", "tagline"]);
 
@@ -83,17 +85,45 @@ export const contentQualityValidator: Validator = {
 
       if (!parsed) continue;
 
-      const sections = parsed.sections as Array<Record<string, unknown>> | undefined;
-      if (!sections || !Array.isArray(sections) || sections.length === 0) {
+      const contentRoot = context.contentRoot;
+      const mergedForEmpty = {
+        ...parsed,
+        ...(file.entryFields || {}),
+      } as Record<string, unknown>;
+      // Prefer locale file sections/content when present; entryFields may hold mapping fields.
+      if (Array.isArray(parsed.sections)) mergedForEmpty.sections = parsed.sections;
+      if (typeof parsed.content === "string") mergedForEmpty.content = parsed.content;
+
+      const detached = isEntryDetached(file.type, file.slug, contentRoot);
+      const emptyContent = isEmptyLocaleContent(mergedForEmpty);
+
+      if (detached && emptyContent) {
+        emptySections++;
+        errors.push({
+          type: "error",
+          code: "EMPTY_LOCALE",
+          message: `Detached locale "${file.locale}" has no sections and no content — hidden from public site`,
+          file: file.filePath,
+          suggestion:
+            "Translate this locale (draft until promote) or delete the stub file. Attached shared-layout entries are not flagged for empty entry sections.",
+        });
+      } else if (
+        emptyContent &&
+        !detached &&
+        !isSharedLayoutType(file.type, contentRoot)
+      ) {
         emptySections++;
         errors.push({
           type: "error",
           code: "EMPTY_SECTIONS",
-          message: "Content file has no sections defined",
+          message: "Content file has no sections and no body content",
           file: file.filePath,
-          suggestion: "Add a sections array with at least one section",
+          suggestion: "Add a sections array with at least one section, or a non-empty content field",
         });
-      } else {
+      }
+
+      const sections = parsed.sections as Array<Record<string, unknown>> | undefined;
+      if (sections && Array.isArray(sections) && sections.length > 0) {
         for (let i = 0; i < sections.length; i++) {
           if (!sections[i].type) {
             missingTypes++;

@@ -13,6 +13,7 @@ import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { invalidateStaticListingCache } from "./static-listing-cache";
 import { isEntryDetached } from "./shared-layout-entry";
+import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import {
   findBestSingleMirrorSource,
   buildMirroredLocaleSingle,
@@ -702,28 +703,69 @@ export class ContentIndex {
    * Locale → URL path for a content entry (YAML folder or DB `_hreflangs` cluster).
    * Alias kept for callers; prefer getAlternateUrls for new code.
    */
-  getLocaleUrls(slug: string, contentType: string): Record<string, string> {
-    return this.getAlternateUrls(slug, contentType);
+  getLocaleUrls(
+    slug: string,
+    contentType: string,
+    options?: { includeEmptyLocales?: boolean },
+  ): Record<string, string> {
+    return this.getAlternateUrls(slug, contentType, options);
   }
 
   /**
    * Unified alternate URL resolver.
    * - YAML: folder locales + optional per-file slug override
    * - DB: `_hreflangs` locale→slug map on the mapped item (lookup by current URL slug)
+   * By default skips empty detached locales (public). Pass includeEmptyLocales for admin.
    */
-  getAlternateUrls(slug: string, contentType: string): Record<string, string> {
+  getAlternateUrls(
+    slug: string,
+    contentType: string,
+    options?: { includeEmptyLocales?: boolean },
+  ): Record<string, string> {
     this.ensureInitialized();
     const normalized = this.normalizeType(contentType);
     const config = this.contentTypeConfigs[normalized];
+    const includeEmpty = options?.includeEmptyLocales === true;
 
     if (config?.database?.slug && getHreflangsSource(normalized, this.contentRoot)) {
       const dbUrls = this.getAlternateUrlsFromDatabase(slug, normalized);
-      if (dbUrls !== null) return dbUrls;
+      if (dbUrls !== null) {
+        return includeEmpty
+          ? dbUrls
+          : this.filterEmptyDetachedAlternateUrls(slug, normalized, dbUrls);
+      }
     }
 
     // YAML: map per-locale URL slug → folder slug when needed
     const baseSlug = this.resolveBaseSlug(slug, normalized);
-    return this.getAlternateUrlsFromYaml(baseSlug, normalized);
+    const urls = this.getAlternateUrlsFromYaml(baseSlug, normalized);
+    return includeEmpty
+      ? urls
+      : this.filterEmptyDetachedAlternateUrls(baseSlug, normalized, urls);
+  }
+
+  private filterEmptyDetachedAlternateUrls(
+    slug: string,
+    contentType: string,
+    urls: Record<string, string>,
+  ): Record<string, string> {
+    if (!isEntryDetached(contentType, slug, this.contentRoot)) return urls;
+    const out: Record<string, string> = {};
+    for (const [locale, url] of Object.entries(urls)) {
+      if (
+        isEmptyDetachedLocaleEntry({
+          contentType,
+          slug,
+          locale,
+          contentRoot: this.contentRoot,
+          ci: this,
+        })
+      ) {
+        continue;
+      }
+      out[locale] = url;
+    }
+    return out;
   }
 
   /** Returns null if the slug is not a DB item (caller may fall through to YAML). */

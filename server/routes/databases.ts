@@ -251,6 +251,31 @@ export function registerDatabasesRoutes(app: Express): void {
       }
 
       const root = getContentRoot(res);
+      const {
+        buildLocaleUnavailablePayload,
+        isEmptyDetachedLocaleEntry,
+      } = await import("../empty-locale");
+      if (
+        isEmptyDetachedLocaleEntry({
+          contentType,
+          slug,
+          locale,
+          contentRoot: root,
+          ci: getCI(res),
+        })
+      ) {
+        const availableUrls = getCI(res).getAlternateUrls(slug, contentType);
+        res.status(404).json(
+          buildLocaleUnavailablePayload({
+            contentType,
+            slug,
+            locale,
+            availableUrls,
+          }),
+        );
+        return;
+      }
+
       const detached = isEntryDetached(contentType, slug, root);
       let templateVariant: string | undefined;
       if (!detached) {
