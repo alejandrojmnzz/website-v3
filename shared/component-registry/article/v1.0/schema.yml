@@ -1,7 +1,7 @@
 name: Article
 version: "1.0"
 component: Article
-file: client/src/components/Article.tsx
+file: client/src/components/article/variants/ArticleDefault.tsx
 description: Renders formatted markdown content with an optional auto-generated table of contents (top or sticky side)
 when_to_use: |
   Use for long-form content pages such as blog posts, documentation, terms of service,
@@ -10,11 +10,12 @@ when_to_use: |
 
   IMPORTANT — splitting an article around a mid-page CTA (or any other section):
   Prefer two (or more) `article` sections on the same page rather than one giant block.
-  Before adding a second article, ask the user whether they should share one table of
-  contents. If yes, set the same `toc_group` on every article (e.g. `group_123456789`),
-  with `show_toc: true` only on the first article in page order and `show_toc: false`
-  on the rest. See example `article_split_toc_group`. If they should stay separate,
-  omit `toc_group`.
+  2+ articles ALWAYS continue one piece (no share choice). Put the lead article first.
+  Set `show_toc: true` (and usually `toc_position: side`) on the first article only —
+  that controls the shared TOC. Reading time and meta appear only on the first (combined
+  bodies); mobile/top TOC only on the first; desktop side TOC may still appear on later
+  parts. `toc_group` is optional/legacy, not a decision knob. See example
+  `article_split_toc_group`.
 props:
   variant:
     type: string
@@ -32,7 +33,10 @@ props:
   show_toc:
     type: boolean
     required: false
-    description: Whether to show the auto-generated table of contents (based on h1, h2, h3 headings)
+    description: >
+      Whether to show the auto-generated table of contents (based on h1, h2, h3 headings).
+      On pages with 2+ articles, only the first article's show_toc controls the shared TOC;
+      later values are non-effects.
   toc_position:
     type: string
     required: false
@@ -42,3 +46,31 @@ props:
     description: >
       Position of the table of contents. "top" renders the TOC above the article content. "side" renders the TOC as a
       sticky sidebar that follows the user's scroll position and highlights the active heading.
+      On split pages, mobile/top TOC renders only on the first article; desktop side TOC may still appear on later parts.
+  toc_group:
+    type: string
+    required: false
+    description: >
+      Legacy/internal id for heading stability. Not a share decision — 2+ articles on a page always continue one piece.
+  show_reading_time:
+    type: boolean
+    required: false
+    description: >
+      Show estimated reading time on the first article (default true). On split pages, minutes combine all article
+      bodies; later articles never show meta/reading time.
+  tags:
+    type: array
+    required: false
+    description: Optional tag chips in the article meta row
+  category:
+    type: string
+    required: false
+    description: Optional category chip in the article meta row
+  category_url:
+    type: string
+    required: false
+    description: Optional link for the category chip
+  section_id:
+    type: string
+    required: false
+    description: Stable section id (also used as heading-id prefix on split pages)

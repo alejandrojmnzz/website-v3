@@ -43,7 +43,11 @@ import {
   REORDER_NO_BINDING_FANOUT,
   CREATE_PAGE_SHARED_LAYOUT_WARNING,
 } from "../lib/shared-layout.js";
-import { hintsAfterAddArticle, hintsAfterReplaceSections } from "../lib/article-hints.js";
+import {
+  hintsAfterAddArticle,
+  hintsAfterReplaceSections,
+  prepareArticleAddStamp,
+} from "../lib/article-hints.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
@@ -2088,10 +2092,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "add_section",
     "Add a new section to a page. Inserts at the given index (or appends if omitted). Section must include a 'type' field matching a component type. contentType is optional — omit it and the server will auto-detect it from the slug.\n\n" +
-    "IMPORTANT — article / TOC: Before adding a second (or later) article on a page, ask the user whether articles should share one table of contents. " +
-    "If yes, set the same toc_group on every article (e.g. group_123456789), with show_toc: true on every member so each piece shows the same merged TOC. " +
-    "Call get_component_schema/get_component_variant for article, or explain_site topic 'sections'. " +
-    "If you add an article without grouping while others already exist, the response may include warning article_toc_group_suggested.\n\n" +
+    "IMPORTANT — article / split pages: 2+ article sections on a page ALWAYS continue one piece (no share choice). " +
+    "Put the lead article first. show_toc on the first article only controls the shared TOC; later show_toc / meta are non-effects for chrome. " +
+    "Reading time (on-page and OG) combines all article bodies and shows on the first only; mobile/top TOC only on the first; desktop side TOC may still appear on later parts. " +
+    "toc_group is optional/legacy — not a decision knob. Response may include article_split_always_share / article_lead_* warnings. " +
+    "See get_component_variant → article_split_toc_group or explain_site topic 'sections'.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -2170,7 +2175,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         variant,
       });
 
-      // Snapshot sections before write (for article toc_group hints).
+      // Snapshot sections before write (for article split hints / auto-stamp).
       let existingSections: Array<Record<string, unknown>> = [];
       if (fs.existsSync(pathInfo.filePath)) {
         const before = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
@@ -2179,14 +2184,26 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const operation: Record<string, unknown> = {
+      let sectionToAdd = section as Record<string, unknown>;
+      const stamp = prepareArticleAddStamp({
+        existingSections,
+        newSection: sectionToAdd,
+        insertIndex: index,
+      });
+      const operations: Array<Record<string, unknown>> = [];
+      if (stamp) {
+        sectionToAdd = stamp.section;
+        operations.push(...stamp.siblingOps);
+      }
+      const addOp: Record<string, unknown> = {
         action: "add_item",
         path: "sections",
-        item: section,
+        item: sectionToAdd,
       };
       if (index !== undefined) {
-        operation.index = index;
+        addOp.index = index;
       }
+      operations.push(addOp);
 
       const apiResult = await callEditSectionsApi(
         {
@@ -2195,7 +2212,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           locale,
           variant,
           layoutTarget,
-          operations: [operation],
+          operations,
         },
         mcpToken,
         domain,
@@ -2213,26 +2230,47 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           contentPath,
           sourceLocale: locale,
           relativePath: pathInfo.relativeHint,
-          argsHintBase: { section, index, confirm_live_edit: true },
+          argsHintBase: { section: sectionToAdd, index, confirm_live_edit: true },
           reasonPrefix: "Shared layout section was added.",
         });
         side_effects = env.side_effects;
         next_actions = env.next_actions;
       }
 
+      if (stamp) {
+        warnings.push({
+          code: "article_split_auto_stamped",
+          message:
+            "Page already had article(s); stamped toc_group and ensured show_toc on the first article. " +
+            "Articles always continue one piece — TOC/reading time chrome follows the lead article only.",
+        });
+        side_effects = [
+          ...(side_effects ?? []),
+          {
+            kind: "article_split_auto_stamp",
+            summary:
+              `Auto-stamped toc_group on sibling articles and show_toc on the first article in ${pathInfo.relativeHint}.`,
+          },
+        ];
+      }
+
       const articleHints = hintsAfterAddArticle({
         existingSections,
-        newSection: section as Record<string, unknown>,
+        newSection: sectionToAdd,
         insertIndex: index,
         slug,
         locale,
       });
       warnings.push(...articleHints.warnings);
-      next_actions = [...next_actions, ...articleHints.next_actions];
+      // Stamp already applied — drop redundant update_section_fields next_actions.
+      next_actions = [
+        ...next_actions,
+        ...articleHints.next_actions.filter((a) => a.tool !== "update_section_fields"),
+      ];
 
       return ok(
         {
-          message: `Section of type '${section.type as string}' added to ${pathInfo.relativeHint}`,
+          message: `Section of type '${sectionToAdd.type as string}' added to ${pathInfo.relativeHint}`,
           ...wrotePayload({
             layer: pathInfo.layer,
             contentType: resolved.contentType,

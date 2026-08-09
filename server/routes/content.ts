@@ -301,7 +301,10 @@ import {
   validatePreviewPropMappings,
 } from "../entry-preview-config";
 import { applyPreviewPropMappings, collectMappablePropsFromSchema, isBlockedPreviewSource, materializeOgPreviewReadingTime, formatMissingPreviewPropsMessage } from "@shared/entry-preview-props";
-import { estimateReadingMinutes } from "@shared/reading-time";
+import {
+  estimateReadingMinutes,
+  estimateReadingMinutesFromSections,
+} from "@shared/reading-time";
 import { RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD } from "../content-types";
 import { buildPreviewPropResolveContext } from "../entry-preview-resolve";
 import {
@@ -2364,7 +2367,7 @@ export function registerContentRoutes(app: Express): void {
         const reading_minutes =
           typeof body === "string" && body.trim()
             ? estimateReadingMinutes(body)
-            : undefined;
+            : estimateReadingMinutesFromSections(item.sections);
         if (includeContent) {
           return reading_minutes != null ? { ...item, reading_minutes } : item;
         }

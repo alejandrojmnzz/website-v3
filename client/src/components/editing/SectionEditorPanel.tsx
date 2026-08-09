@@ -600,7 +600,6 @@ export function SectionEditorPanel({
   const [exampleCopied, setExampleCopied] = useState(false);
   const [locationsPickerOpen, setLocationsPickerOpen] = useState(false);
   const [conversionNameEditing, setConversionNameEditing] = useState(false);
-  const [tocShareDialogOpen, setTocShareDialogOpen] = useState(false);
   const [tocShareApplying, setTocShareApplying] = useState(false);
   const [consentsEditing, setConsentsEditing] = useState(false);
   const [webhookEditing, setWebhookEditing] = useState(false);
@@ -1789,26 +1788,7 @@ export function SectionEditorPanel({
     }
   };
 
-  const handleArticleTocToggle = (checked: boolean) => {
-    if (!checked) {
-      applyLocalTocSettings({ showToc: false });
-      return;
-    }
-    // Prompt to share when enabling TOC and other articles exist on the page
-    if (articlesOnPage.length > 1) {
-      setTocShareDialogOpen(true);
-      return;
-    }
-    applyLocalTocSettings({ showToc: true });
-  };
-
-  const handleTocShareChoice = async (shareToc: boolean) => {
-    if (!shareToc) {
-      applyLocalTocSettings({ showToc: true, tocGroup: null });
-      setTocShareDialogOpen(false);
-      return;
-    }
-
+  const unifyArticleTocOnPage = async () => {
     const groupId = resolveTocGroupId(articlesOnPage);
     applyLocalTocSettings({ showToc: true, tocGroup: groupId });
 
@@ -1819,7 +1799,6 @@ export function SectionEditorPanel({
     );
 
     if (siblingOps.length === 0 || !contentType || !slug || !locale) {
-      setTocShareDialogOpen(false);
       return;
     }
 
@@ -1836,8 +1815,9 @@ export function SectionEditorPanel({
       if (result.success) {
         emitContentUpdated({ contentType, slug, locale });
         toast({
-          title: "Shared table of contents",
-          description: "Other articles on this page now share one TOC.",
+          title: "Table of contents enabled",
+          description:
+            "Articles on this page share one TOC. Reading time and the mobile TOC appear on the first article only.",
         });
       } else {
         toast({
@@ -1847,7 +1827,7 @@ export function SectionEditorPanel({
         });
       }
     } catch (error) {
-      console.error("Error sharing TOC across articles:", error);
+      console.error("Error unifying TOC across articles:", error);
       toast({
         title: "Could not update other articles",
         description: "TOC was enabled on this article only.",
@@ -1855,8 +1835,20 @@ export function SectionEditorPanel({
       });
     } finally {
       setTocShareApplying(false);
-      setTocShareDialogOpen(false);
     }
+  };
+
+  const handleArticleTocToggle = (checked: boolean) => {
+    if (!checked) {
+      applyLocalTocSettings({ showToc: false });
+      return;
+    }
+    // Multi-article pages always continue one piece — stamp group, no choice dialog.
+    if (articlesOnPage.length > 1) {
+      void unifyArticleTocOnPage();
+      return;
+    }
+    applyLocalTocSettings({ showToc: true });
   };
 
   // Component example query — lazy, only runs when the example dialog is open
@@ -5280,6 +5272,18 @@ export function SectionEditorPanel({
                           : {})}
                         data-testid={`props-markdown-${fieldLabel}`}
                       />
+                      {supportsArticleToc && articlesOnPage.length > 1 ? (
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-testid="article-split-education"
+                        >
+                          This page has multiple article sections — they always continue one
+                          piece. Reading time and the mobile table of contents appear on the
+                          first article only; the first article&apos;s Table of Contents toggle
+                          controls the shared TOC. Desktop side TOC can still appear on later
+                          parts.
+                        </p>
+                      ) : null}
                     </div>
                   );
                 }
@@ -9062,61 +9066,6 @@ export function SectionEditorPanel({
               Cancel
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={tocShareDialogOpen}
-        onOpenChange={(open) => {
-          if (!open && !tocShareApplying) setTocShareDialogOpen(false);
-        }}
-      >
-        <DialogContent className="sm:max-w-md" data-testid="dialog-article-toc-share">
-          <DialogHeader>
-            <DialogTitle>Share table of contents?</DialogTitle>
-            <DialogDescription>
-              {articlesOnPage.length === 2
-                ? "This page already has another article. Should both articles share one table of contents?"
-                : `This page already has ${articlesOnPage.length} articles. Should they share one table of contents?`}
-              {" "}
-              {articlesOnPage.some((a) => a.toc_group)
-                ? "They’ll join the existing TOC group."
-                : "We’ll create a shared group for all of them."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 pt-1">
-            <Button
-              className="w-full"
-              disabled={tocShareApplying}
-              data-testid="button-toc-share-yes"
-              onClick={() => handleTocShareChoice(true)}
-            >
-              {tocShareApplying ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sharing…
-                </>
-              ) : (
-                "Yes — share TOC"
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={tocShareApplying}
-              data-testid="button-toc-share-no"
-              onClick={() => handleTocShareChoice(false)}
-            >
-              No — keep separate
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full"
-              disabled={tocShareApplying}
-              onClick={() => setTocShareDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

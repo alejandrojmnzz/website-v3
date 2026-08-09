@@ -57,16 +57,25 @@ The schema defines:
 
 A single component can have multiple visual layouts controlled by the `variant` field in YAML. For example, `features_quad` might have `grid`, `list`, and `carousel` variants. Always consult the component schema (via the `get_component_schema` MCP tool) before writing a section to understand which variants are available.
 
-## Split articles and shared TOC (`toc_group`)
+## Split articles (always one reading experience)
 
-Long-form pages often insert a CTA (or other section) between two halves of an article. Use **two `article` sections** on the same page rather than one oversized block.
+Long-form pages often insert a CTA between two halves of an article. Use **two (or more) `article` sections** on the same page rather than one oversized block.
 
-Before adding a second (or later) `article`, **ask the user** whether those articles should share one table of contents:
+**Invariant:** 2+ `article` sections on a page **always** continue one piece. There is no “keep separate TOC” option and no user-facing share property.
 
-- **Yes — share TOC:** set the same `toc_group` string on every article (e.g. `group_482910374`). Set `show_toc: true` (and usually `toc_position: side`) on **every** member so each piece shows the same merged TOC, sticky within that section’s scroll range. See `get_component_variant` → article example `article_split_toc_group`.
-- **No — separate:** omit `toc_group` (each article can have its own TOC or none).
+| Concern | First article (page order) | Later articles |
+|--------|----------------------------|----------------|
+| Reading time + meta (tags/category) | Combined reading time over all article bodies | Never shown |
+| TOC on/off | Only this article’s `show_toc` controls the shared TOC | `show_toc` is a non-effect |
+| Mobile / top TOC | Shown when TOC enabled | Never |
+| Desktop side TOC | Shown when TOC enabled | Still shown when TOC enabled |
+| OG / preview reading time | Combined article bodies | — |
 
-A page should use at most **one** `toc_group` value across its articles (all share, or none share). The editor UI prompts for this when adding articles; MCP agents should ask proactively the same way. If you already added a second article without grouping, `add_section` may return warning `article_toc_group_suggested` with `next_actions` to apply `toc_group` via `update_section_fields`.
+- Put the **lead** article first in `sections` order.
+- Prefer `show_toc: true` and `toc_position: side` on the first article only.
+- `toc_group` may still appear in YAML for heading-id stability — agents should not treat it as a share decision.
+- See `get_component_variant` → article example `article_split_toc_group`.
+- `add_section` / replace may return `article_split_always_share`, `article_lead_toc_misconfigured`, or `article_lead_order_suspicious` with `next_actions`.
 
 ## Database-backed content types
 

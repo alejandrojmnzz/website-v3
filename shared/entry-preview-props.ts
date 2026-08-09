@@ -1,6 +1,10 @@
 /** Shared helpers for OG / entry-preview prop mappings (including dotted paths). */
 
-import { formatReadingMinutesLabel, formatReadingTimeLabel } from "./reading-time";
+import {
+  combinedArticleContentFromSections,
+  formatReadingMinutesLabel,
+  formatReadingTimeLabel,
+} from "./reading-time";
 
 const SKIP_PROP_KEYS = new Set(["variant", "version", "type", "section_id"]);
 const SCALAR_TYPES = new Set(["string", "number", "boolean", "text"]);
@@ -295,8 +299,8 @@ export function formatMissingPreviewPropsMessage(
  * Turn mapped article `content` into a short `reading_time` label and drop the body
  * from the section (list APIs strip bodies; huge markdown must not ride on the canvas).
  *
- * Falls back to entry `reading_minutes` when the body was stripped but minutes were
- * precomputed (see content-type items API).
+ * Prefer combined bodies from all `article` sections on the entry/page when present
+ * (split articles). Falls back to mapped `content`, then entry `reading_minutes`.
  */
 export function materializeOgPreviewReadingTime(
   data: Record<string, unknown>,
@@ -304,6 +308,14 @@ export function materializeOgPreviewReadingTime(
   entry?: Record<string, unknown>,
 ): void {
   const source = props?.content?.trim();
+  const fromSections = formatReadingTimeLabel(
+    combinedArticleContentFromSections(entry?.sections),
+  );
+  if (fromSections) {
+    data.reading_time = fromSections;
+    delete data.content;
+    return;
+  }
   const fromBody = formatReadingTimeLabel(data.content);
   if (fromBody) {
     data.reading_time = fromBody;

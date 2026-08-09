@@ -136,6 +136,23 @@ describe("materializeOgPreviewReadingTime", () => {
     materializeOgPreviewReadingTime(data, { content: "content" }, { reading_minutes: 7 });
     expect(data.reading_time).toBe("7 min read");
   });
+
+  it("combines all article section bodies for split pages", () => {
+    const data: Record<string, unknown> = {
+      content: "word ".repeat(50),
+    };
+    const entry = {
+      sections: [
+        { type: "article", content: "word ".repeat(200) },
+        { type: "cta_banner", title: "x" },
+        { type: "article", content: "word ".repeat(200) },
+      ],
+    };
+    materializeOgPreviewReadingTime(data, { content: "content" }, entry);
+    // 400 words → 2 min at 200 wpm; mapped data.content alone would be 1 min.
+    expect(data.reading_time).toBe("2 min read");
+    expect(data.content).toBeUndefined();
+  });
 });
 
 describe("formatMissingPreviewPropsMessage", () => {

@@ -1,9 +1,12 @@
 /**
- * Helpers for sharing a table of contents across multiple article sections
- * on the same page (toc_group / show_toc conventions).
+ * Helpers for multi-article pages (always one logical article).
  *
- * Split articles: every member of a toc_group shows the same merged TOC,
- * sticky within that piece's scroll range.
+ * When a page has 2+ article sections they always continue one piece:
+ * - TOC on/off = first article's show_toc only
+ * - Reading time + meta only on the first article (combined bodies)
+ * - Mobile/top TOC only on the first; desktop side TOC may still appear on later parts
+ *
+ * `toc_group` is stamped for heading-id stability / legacy YAML — not a user choice.
  */
 
 export type ArticleOnPage = { index: number; toc_group?: string };
@@ -32,8 +35,8 @@ export function resolveTocGroupId(articles: ArticleOnPage[]): string {
 }
 
 /**
- * Ops to assign toc_group / show_toc on existing articles before inserting a new one.
- * Every member of the shared group gets show_toc: true (each piece shows the merged TOC).
+ * Ops to assign toc_group on existing articles before inserting a new one.
+ * Runtime treats all articles on the page as one split regardless; stamping keeps YAML consistent.
  */
 export function buildSiblingTocGroupOps(
   articles: ArticleOnPage[],
@@ -51,30 +54,35 @@ export function buildSiblingTocGroupOps(
     },
     {
       action: "update_field" as const,
-      path: `sections.${a.index}.show_toc`,
-      value: true,
-    },
-    {
-      action: "update_field" as const,
       path: `sections.${a.index}.toc_position`,
       value: "side",
     },
   ]);
 
-  return { ops, newShowToc: true };
+  // Ensure the lead (first article in page order) has show_toc when we add a continuation.
+  const first = articles[0];
+  if (first) {
+    ops.push({
+      action: "update_field" as const,
+      path: `sections.${first.index}.show_toc`,
+      value: true,
+    });
+  }
+
+  // New article is a continuation — show_toc on it is a non-effect for chrome (A1).
+  return { ops, newShowToc: false };
 }
 
 /**
- * Ops for siblings when activating TOC on an existing article and choosing to share.
- * Current section is updated locally (not via these ops). All members get show_toc: true
- * so each piece renders the same merged TOC.
+ * Ops for siblings when enabling TOC on an article (always unify the page).
+ * Current section is updated locally. Stamp toc_group on siblings; ensure lead show_toc.
  */
 export function buildSiblingShareOpsForActivation(
   articles: ArticleOnPage[],
   currentIndex: number,
   groupId: string,
 ): Array<{ action: "update_field"; path: string; value: unknown }> {
-  return articles
+  const ops = articles
     .filter((a) => a.index !== currentIndex)
     .flatMap((a) => [
       {
@@ -84,13 +92,19 @@ export function buildSiblingShareOpsForActivation(
       },
       {
         action: "update_field" as const,
-        path: `sections.${a.index}.show_toc`,
-        value: true,
-      },
-      {
-        action: "update_field" as const,
         path: `sections.${a.index}.toc_position`,
         value: "side",
       },
     ]);
+
+  const first = articles[0];
+  if (first && first.index !== currentIndex) {
+    ops.push({
+      action: "update_field" as const,
+      path: `sections.${first.index}.show_toc`,
+      value: true,
+    });
+  }
+
+  return ops;
 }

@@ -25,6 +25,7 @@ import {
 import { normalizeLocale } from "./settings";
 import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import { child } from "./logger";
+import { combinedArticleContentFromSections } from "@shared/reading-time";
 
 const log = child({ module: "query-entries" });
 
@@ -310,6 +311,8 @@ function loadStaticContentTypeItems(
 /**
  * Restore `content` on static listing rows (projections omit bodies for size).
  * Used by OG live preview (`include_content=1`) and entry-preview capture.
+ * When the page has multiple article sections, `content` is the concatenation of
+ * all article bodies so reading time matches the on-page split-article label.
  */
 export function hydrateStaticListingContent(
   items: Array<Record<string, unknown>>,
@@ -333,7 +336,12 @@ export function hydrateStaticListingContent(
     );
     try {
       const merged = ci.loadMergedContent(contentType, slug, locale);
-      const body = (merged?.data as Record<string, unknown> | undefined)?.content;
+      const data = merged?.data as Record<string, unknown> | undefined;
+      const fromArticles = combinedArticleContentFromSections(data?.sections);
+      if (fromArticles) {
+        return { ...item, content: fromArticles };
+      }
+      const body = data?.content;
       if (typeof body === "string" && body.trim()) {
         return { ...item, content: body };
       }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
@@ -289,10 +290,17 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     setDetachConfirmOpen(true);
   }, []);
 
-  const { data: versionData } = useQuery<{ version: string }>({
+  const { data: versionData } = useQuery<{ version: string; deployedAt?: string | null }>({
     queryKey: ["/api/version"],
     staleTime: Infinity,
   });
+
+  const versionDeployedLabel = (() => {
+    if (!versionData?.deployedAt) return null;
+    const deployedDate = new Date(versionData.deployedAt);
+    if (Number.isNaN(deployedDate.getTime())) return null;
+    return formatDistanceToNow(deployedDate, { addSuffix: true });
+  })();
 
   const { data: errorLogData } = useQuery<{ totalErrors: number; totalWarnings: number }>({
     queryKey: ["/api/admin/error-log", "badge"],
@@ -1020,7 +1028,14 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     )}
                   </div>
                   {versionData?.version && (
-                    <span className="text-[10px] text-muted-foreground px-1 -mx-1" data-testid="text-app-version">v{versionData.version}</span>
+                    <span
+                      className="text-[10px] text-muted-foreground px-1 -mx-1"
+                      data-testid="text-app-version"
+                      title={versionData.deployedAt || undefined}
+                    >
+                      v{versionData.version}
+                      {versionDeployedLabel ? ` · ${versionDeployedLabel}` : ""}
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1">

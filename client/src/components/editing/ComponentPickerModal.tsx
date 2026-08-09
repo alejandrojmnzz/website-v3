@@ -266,7 +266,6 @@ export default function ComponentPickerModal({
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [isStartSuggestion, setIsStartSuggestion] = useState(false);
   const [addWarnOpen, setAddWarnOpen] = useState(false);
-  const [tocShareDialogOpen, setTocShareDialogOpen] = useState(false);
   /** Used by the DbTemplateWarningDialog confirm callback (template-only path, no singleEntry). */
   const pendingAddFn = useRef<(() => Promise<void>) | null>(null);
   const { toast } = useToast();
@@ -400,7 +399,6 @@ export default function ComponentPickerModal({
       setSelectedComponent(null);
       setActivePickerTab("suggested");
       setSuggestions([]);
-      setTocShareDialogOpen(false);
     }
   }, [isOpen]);
 
@@ -747,7 +745,7 @@ export default function ComponentPickerModal({
         toast({
           title: "Section added",
           description: opts?.shareToc
-            ? `${selectedComponent?.label || "Section"} added with a shared table of contents.`
+            ? `${selectedComponent?.label || "Section"} continues the existing article (one TOC and reading time on the first article).`
             : `${selectedComponent?.label || "Section"} added to the page.`,
         });
       } else {
@@ -763,7 +761,6 @@ export default function ComponentPickerModal({
       console.error("Error adding section:", error);
     } finally {
       setIsAdding(false);
-      setTocShareDialogOpen(false);
     }
   };
 
@@ -833,7 +830,7 @@ export default function ComponentPickerModal({
         toast({
           title: "Section added",
           description: opts?.shareToc
-            ? `${selectedComponent.label} added with a shared table of contents.`
+            ? `${selectedComponent.label} continues the existing article (one TOC and reading time on the first article).`
             : `${selectedComponent.label} added to this entry only.`,
         });
       } else {
@@ -844,7 +841,6 @@ export default function ComponentPickerModal({
       toast({ title: "Error adding section", variant: "destructive" });
     } finally {
       setIsAdding(false);
-      setTocShareDialogOpen(false);
     }
   };
 
@@ -866,20 +862,10 @@ export default function ComponentPickerModal({
   };
 
   const handleAddSection = async () => {
-    const shouldPromptTocShare =
+    // 2+ articles on a page always continue one piece — no share choice.
+    const continueArticle =
       selectedComponent?.type === "article" && existingArticles.length >= 1;
-
-    if (shouldPromptTocShare) {
-      setTocShareDialogOpen(true);
-      return;
-    }
-
-    await runAddSection();
-  };
-
-  const handleTocShareChoice = async (shareToc: boolean) => {
-    setTocShareDialogOpen(false);
-    await runAddSection({ shareToc });
+    await runAddSection(continueArticle ? { shareToc: true } : undefined);
   };
 
   const previewUrl = (() => {
@@ -1276,54 +1262,6 @@ export default function ComponentPickerModal({
       isLoading={isAdding}
     />
 
-    <Dialog
-      open={tocShareDialogOpen}
-      onOpenChange={(open) => {
-        if (!open && !isAdding) setTocShareDialogOpen(false);
-      }}
-    >
-      <DialogContent className="sm:max-w-md" data-testid="dialog-article-toc-share">
-        <DialogHeader>
-          <DialogTitle>Share table of contents?</DialogTitle>
-          <DialogDescription>
-            {existingArticles.length === 1
-              ? "This page already has an article. Should both articles share one table of contents?"
-              : `This page already has ${existingArticles.length} articles. Add this one to the same shared table of contents?`}
-            {" "}
-            {existingArticles.some((a) => a.toc_group)
-              ? "They’ll join the existing TOC group."
-              : "We’ll create a shared group for all of them."}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-2 pt-1">
-          <Button
-            className="w-full"
-            disabled={isAdding}
-            data-testid="button-toc-share-yes"
-            onClick={() => handleTocShareChoice(true)}
-          >
-            Yes — share TOC
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            disabled={isAdding}
-            data-testid="button-toc-share-no"
-            onClick={() => handleTocShareChoice(false)}
-          >
-            No — keep separate
-          </Button>
-          <Button
-            variant="ghost"
-            className="w-full"
-            disabled={isAdding}
-            onClick={() => setTocShareDialogOpen(false)}
-          >
-            Cancel
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
     </>
   );
 }
