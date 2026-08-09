@@ -6,6 +6,18 @@ import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { getValidationCacheService } from "../services/validationCacheService";
 import { applyValidationRunToCache } from "../services/validationCachePostProcess";
+import {
+  DIAGNOSTICS_SKIP_FOR_PER_PAGE,
+  getDiagnosticsJob,
+  listCacheIssues,
+  listDiagnosticsJobs,
+  startDiagnosticsJob,
+} from "../services/diagnosticsJobService";
+import {
+  buildFullPageCacheEntry,
+  collectIssuesByFile,
+} from "../services/validationCacheMerge";
+import { validators as allPageValidators } from "../../scripts/validation/validators";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import {
   isNonLocalFilesystemSrc,
@@ -139,10 +151,7 @@ export function registerValidationRoutes(app: Express): void {
         return res.status(400).json({ error: "Missing or invalid 'url' field" });
       }
 
-      // These validators are inherently site-wide and cannot run meaningfully
-      // on a single page — skip them for per-page runs.
-      const SKIP_FOR_PER_PAGE = new Set(["lighthouse", "broken-anchors", "slug-conflicts"]);
-
+      // Site-wide validators cannot run meaningfully on a single page.
       const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
@@ -164,7 +173,14 @@ export function registerValidationRoutes(app: Express): void {
 
       let effectiveValidators = validatorNames as string[] | undefined;
       if (effectiveValidators) {
-        effectiveValidators = effectiveValidators.filter((n) => !SKIP_FOR_PER_PAGE.has(n));
+        effectiveValidators = effectiveValidators.filter(
+          (n) => !DIAGNOSTICS_SKIP_FOR_PER_PAGE.has(n) && n !== "lighthouse",
+        );
+      } else {
+        // Default per-page pool: skip site-wide validators even when list omitted
+        effectiveValidators = allPageValidators
+          .map((v) => v.name)
+          .filter((n) => !DIAGNOSTICS_SKIP_FOR_PER_PAGE.has(n) && n !== "lighthouse");
       }
 
       let result;
@@ -182,24 +198,8 @@ export function registerValidationRoutes(app: Express): void {
       try {
         const cache = getValidationCache(res);
         const nowIso = new Date().toISOString();
+        const byFile = collectIssuesByFile(result.validators);
 
-        const byFile = new Map<string, { errors: typeof result.validators[0]["errors"]; warnings: typeof result.validators[0]["warnings"] }>();
-        for (const v of result.validators) {
-          for (const issue of v.errors) {
-            if (!issue.file) continue;
-            if (v.category) issue.category = v.category;
-            if (!byFile.has(issue.file)) byFile.set(issue.file, { errors: [], warnings: [] });
-            byFile.get(issue.file)!.errors.push(issue);
-          }
-          for (const issue of v.warnings) {
-            if (!issue.file) continue;
-            if (v.category) issue.category = v.category;
-            if (!byFile.has(issue.file)) byFile.set(issue.file, { errors: [], warnings: [] });
-            byFile.get(issue.file)!.warnings.push(issue);
-          }
-        }
-
-        // Accumulate all issues across files that belong to this URL
         const combinedErrors: typeof result.validators[0]["errors"] = [];
         const combinedWarnings: typeof result.validators[0]["warnings"] = [];
         for (const file of filteredFiles) {
@@ -208,11 +208,7 @@ export function registerValidationRoutes(app: Express): void {
           combinedWarnings.push(...fileIssues.warnings);
         }
 
-        cache.setByUrl(url, {
-          lastRunAt: nowIso,
-          errors: combinedErrors,
-          warnings: combinedWarnings,
-        });
+        cache.setByUrl(url, buildFullPageCacheEntry(combinedErrors, combinedWarnings, nowIso));
         await cache.flush();
       } catch (err) {
         log.warn({ err }, "ValidationCache post-process error (non-fatal)");
@@ -535,6 +531,78 @@ export function registerValidationRoutes(app: Express): void {
       };
     }
     res.json(summary);
+  });
+
+  app.get("/api/validation/cache-issues", (_req, res) => {
+    res.json({ issues: listCacheIssues(getValidationCache(res)) });
+  });
+
+  app.get("/api/validation/diagnostics-jobs", (_req, res) => {
+    res.json({ jobs: listDiagnosticsJobs(getContentRoot(res)) });
+  });
+
+  app.get("/api/validation/diagnostics-jobs/:jobId", (req, res) => {
+    const result = getDiagnosticsJob(getContentRoot(res), req.params.jobId);
+    if (result.status === "not_found") {
+      return res.status(404).json({
+        status: "not_found",
+        code: result.code ?? "diagnostics_job_lost",
+        message: result.message,
+        retry_after_seconds: 0,
+      });
+    }
+    const job = result.job!;
+    return res.json({
+      status: result.status,
+      job_id: job.jobId,
+      processed: job.processed,
+      total: job.total,
+      retry_after_seconds: result.retry_after_seconds ?? 0,
+      scope: {
+        urlCount: job.urlCount,
+        staleUrlCount: job.staleUrlCount,
+        slugs: job.slugs,
+        validators: job.validators,
+        partial: job.partial,
+      },
+      summary: job.summary,
+      error: job.error,
+      issuesBySlug: job.resultIssuesBySlug,
+      validators: job.validatorResults,
+      cache_updated: result.status === "completed",
+      message: result.message,
+    });
+  });
+
+  app.post("/api/validation/diagnostics-jobs", async (req, res) => {
+    try {
+      const site = res.locals.site as { contentRootName?: string } | undefined;
+      const contentRoot = getContentRoot(res);
+      const result = await startDiagnosticsJob({
+        contentRoot,
+        contentRootName: site?.contentRootName ?? path.basename(contentRoot),
+        ci: getCI(res),
+        cache: getValidationCache(res),
+        slugs: req.body?.slugs,
+        urls: req.body?.urls,
+        freshness: req.body?.freshness,
+        max_age_seconds: req.body?.max_age_seconds,
+        validators: req.body?.validators,
+        include_artifacts: req.body?.include_artifacts,
+        categories: req.body?.categories,
+      });
+
+      if (result.status === "busy") {
+        return res.status(409).json(result);
+      }
+      return res.json(result);
+    } catch (error) {
+      log.error({ err: error }, "diagnostics-jobs start error:");
+      res.status(400).json({
+        error: "Failed to start diagnostics job",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   });
 
   // ============================================

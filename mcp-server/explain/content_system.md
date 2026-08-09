@@ -95,7 +95,7 @@ Agent loop for adding a locale on shared-layout types (e.g. blog):
 
 1. **Detach** if still attached (`POST /api/content/{type}/{slug}/detach` / DebugBubble). Detach bakes **only locales that already have a live `{locale}.yml`** on the entry — never invents siblings from `supported_locales` / `single.*.yml`. Fails clearly if the entry has **zero** locale files.
 2. **`translate_page`** — requires detached entry (`action_required: require_detach` if attached). New target locale (no live file) → writes `draft.{locale}.yml` at 0% (`live: false`, `layer: "draft_locale"`, reason `new_locale_starts_as_draft`). Empty live stub → auto-convert to `draft.{locale}.yml` then write translation (`empty_live_converted_to_draft`). Non-empty live → overwrite live (SEO/required/empty gates). Not public until promote/publish.
-3. Edit draft (`get_page_content` with `variant: draft`) → `run_page_diagnostics` → **`promote_variant`** (one locale on a live entry) or **`publish_draft`** (all-draft entry). Confirm with the user before promote/publish.
+3. Edit draft (`get_page_content` with `variant: draft`) → `run_page_diagnostics` with `slugs: [slug]` and `freshness: "hard"` (returns `queued` — do not wait) → poll `get_diagnostics_job` until `completed` → **`promote_variant`** (one locale on a live entry) or **`publish_draft`** (all-draft entry). Confirm with the user before promote/publish. Empty `validation_issues` without a completed job / `lastFullRunAt` is not proof the page is clean.
 
 **Non-effects:** `translate_page` does not AI-translate; it does not create live public stubs for new locales; detach does not create missing locale files; migrate script `scripts/migrate-empty-detached-locales.ts` moves leftover empty live stubs to draft.
 

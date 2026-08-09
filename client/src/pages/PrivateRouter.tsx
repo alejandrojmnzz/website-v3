@@ -17,7 +17,6 @@ const CloudSyncPage = lazy(() => import("@/pages/CloudSyncPage"));
 const PrivateDatabases = lazy(() => import("@/pages/PrivateDatabases"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const SeoGeoPage = lazy(() => import("@/pages/SeoGeoPage"));
-const LighthousePage = lazy(() => import("@/pages/LighthousePage"));
 const AIKnowledge = lazy(() => import("@/pages/AIKnowledge"));
 const AIConversations = lazy(() => import("@/pages/AIConversations"));
 const AIKnowledgeBlocks = lazy(() => import("@/pages/AIKnowledgeBlocks"));
@@ -81,7 +80,6 @@ export default function PrivateRouter() {
         <Route path="/private/databases" component={PrivateDatabases} />
         <Route path="/private/databases/:name" component={PrivateDatabases} />
         <Route path="/private/diagnostics/seo-geo" component={SeoGeoPage} />
-        <Route path="/private/diagnostics/lighthouse" component={LighthousePage} />
         <Route path="/private/diagnostics" component={DiagnosticsPage} />
         <Route path="/private/redirects" component={PrivateRedirects} />
         <Route path="/private/media-gallery" component={MediaGallery} />

@@ -602,106 +602,243 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // run_page_diagnostics
+  // run_page_diagnostics (async — returns cached or queues a background job)
   mcp.tool(
     "run_page_diagnostics",
-    "Trigger a fresh validation run for one or more pages and return a map of slug → validation_issues[]. " +
-    "Each issue has code, message, severity ('error' or 'warning'), and category. " +
-    "Use this after editing a page to confirm it is clean, or to get up-to-date diagnostics for specific pages. " +
-    "Parameters: " +
-    "'slugs' (optional array) — restrict to specific page slugs. If omitted or empty, all known YAML-backed pages are validated. " +
-    "'categories' (optional array, e.g. ['seo']) — filter results to specific categories. If omitted, all categories are returned. " +
-    "Note: running diagnostics on all pages may take some time. Prefer providing 'slugs' when you only need a few pages. " +
-    "This tool updates the validation cache so subsequent get_page_content / get_page_seo calls also reflect the fresh results.",
+    "Start or read page diagnostics. Does NOT wait for validators to finish. " +
+    "Returns status 'cached' (issues from validation-cache when fresh) or 'queued'/'running' with job_id. " +
+    "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
+    "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
+    "'hard' forces a recompute. Optional slugs scopes the run. categories filters the response only (cache always stores full issues). " +
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs.",
     {
-      slugs: z.array(z.string()).optional().describe("Page slugs to validate, e.g. ['home', 'full-stack-developer']. Omit or pass [] to validate all YAML-backed pages."),
-      categories: z.array(z.string()).optional().describe("Filter results to specific categories, e.g. ['seo']. Omit to return all categories."),
+      slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
+      categories: z.array(z.string()).optional().describe("Filter returned issues to categories (e.g. ['seo']). Does not narrow the job."),
+      freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
+      max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slugs, categories, site }) => {
+    async ({ slugs, categories, freshness, max_age_seconds, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
-      const { contentPath, domain } = siteResult;
-      // Resolve target pages
-      let pages = scanPages(contentPath);
-      if (slugs && slugs.length > 0) {
-        const slugSet = new Set(slugs);
-        pages = pages.filter(p => slugSet.has(p.slug));
-        if (pages.length === 0) {
-          return {
-            content: [{ type: "text", text: JSON.stringify({ error: `No YAML-backed pages found for slugs: ${slugs.join(", ")}` }, null, 2) }],
-            isError: true,
-          };
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain } = siteResult;
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      try {
+        const res = await fetch(
+          `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
+          {
+            method: "POST",
+            headers: internalHeaders(),
+            body: JSON.stringify({
+              slugs: slugs && slugs.length > 0 ? slugs : undefined,
+              categories,
+              freshness: freshness ?? "max_age",
+              max_age_seconds: max_age_seconds ?? 86400,
+            }),
+          },
+        );
+        const data = await res.json() as Record<string, unknown>;
+
+        if (res.status === 409 || data.status === "busy") {
+          const jobId = String(data.job_id ?? "");
+          const retry = Number(data.retry_after_seconds ?? 5);
+          return ok(
+            {
+              status: "busy",
+              code: "diagnostics_busy",
+              job_id: jobId,
+              retry_after_seconds: retry,
+              message: String(data.message ?? "Another diagnostics job is running for this site."),
+            },
+            {
+              warnings: [{
+                code: "diagnostics_busy",
+                message: "A different diagnostics job is already running. Poll that job_id or wait retry_after_seconds then retry.",
+              }],
+              next_actions: jobId
+                ? [{
+                    tool: "get_diagnostics_job",
+                    reason: "Poll the in-flight job until completed",
+                    args_hint: { job_id: jobId, ...(site ? { site } : {}) },
+                    priority: "required",
+                  }]
+                : [],
+            },
+          );
         }
-      }
 
-      const resultMap: Record<string, MappedValidationIssue[]> = {};
-      const catSet = categories && categories.length > 0 ? new Set(categories) : null;
+        if (!res.ok) {
+          return fail(String(data.message ?? data.error ?? `diagnostics-jobs failed (${res.status})`), data);
+        }
 
-      for (const page of pages) {
-        const slugIssues: MappedValidationIssue[] = [];
+        if (data.status === "cached") {
+          const cacheMisses = Array.isArray(data.cacheMisses) ? data.cacheMisses as string[] : [];
+          return ok(
+            {
+              status: "cached",
+              issuesBySlug: data.issuesBySlug ?? {},
+              lastFullRunAtBySlug: data.lastFullRunAtBySlug ?? {},
+              cache_misses: cacheMisses,
+              message: cacheMisses.length
+                ? "Returned cache; some slugs have no lastFullRunAt (cache_miss — not necessarily clean)."
+                : "Returned fresh-enough cached diagnostics (lastFullRunAt within max_age).",
+            },
+            { warnings: [], next_actions: [] },
+          );
+        }
 
-        // Run diagnostics for each locale URL of this page
-        for (const locale of page.locales) {
-          const url = page.urls?.[locale];
-          if (!url) continue;
-
-          try {
-            const runPageUrl = `http://localhost:${MAIN_SERVER_PORT}/api/validation/run-page${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
-            const res = await fetch(
-              runPageUrl,
+        const jobId = String(data.job_id ?? "");
+        const retry = Number(data.retry_after_seconds ?? 5);
+        const reused = data.reused === true;
+        return ok(
+          {
+            status: data.status ?? "queued",
+            job_id: jobId,
+            retry_after_seconds: retry,
+            scope: data.scope,
+            message: "Diagnostics started in the background. Do not wait on this call for results.",
+          },
+          {
+            warnings: [
               {
-                method: "POST",
-                headers: internalHeaders(),
-                body: JSON.stringify({ url }),
-              }
-            );
-            if (!res.ok) continue;
+                code: "diagnostics_async",
+                message: "This call did not return validation issues. Poll get_diagnostics_job after retry_after_seconds.",
+              },
+              ...(reused
+                ? [{
+                    code: "diagnostics_job_reused",
+                    message: "Returned an existing in-flight job with the same scope (exact dedupe).",
+                  }]
+                : []),
+            ],
+            side_effects: [{
+              kind: "diagnostics_job",
+              summary: `Background job ${jobId} will write validation-cache.json when completed.`,
+            }],
+            next_actions: [{
+              tool: "get_diagnostics_job",
+              reason: "Poll until status is completed or failed",
+              args_hint: { job_id: jobId, ...(site ? { site } : {}) },
+              priority: "required",
+            }],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to start diagnostics: ${(e as Error).message}`);
+      }
+    }
+  );
 
-            const data = await res.json() as {
-              validators: Array<{
-                name: string;
-                category?: string;
-                errors: Array<{ code: string; message: string; file?: string; suggestion?: string }>;
-                warnings: Array<{ code: string; message: string; file?: string; suggestion?: string }>;
-              }>;
-            };
+  mcp.tool(
+    "get_diagnostics_job",
+    "Poll an async diagnostics job started by run_page_diagnostics. " +
+    "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
+    "Do not call run_page_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated), failed, or not_found " +
+    "(diagnostics_job_lost — start a new run_page_diagnostics).",
+    {
+      job_id: z.string().describe("Job id from run_page_diagnostics"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ job_id, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const { domain } = siteResult;
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      try {
+        const res = await fetch(
+          `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs/${encodeURIComponent(job_id)}${q}`,
+          { headers: internalHeaders() },
+        );
+        const data = await res.json() as Record<string, unknown>;
 
-            for (const v of data.validators) {
-              const cat = v.category ?? "other";
-              for (const e of v.errors) {
-                slugIssues.push({
-                  code: e.code,
-                  message: e.message,
-                  severity: "error",
-                  category: cat,
-                  ...(e.file ? { file: e.file } : {}),
-                  ...(e.suggestion ? { suggestion: e.suggestion } : {}),
-                });
-              }
-              for (const w of v.warnings) {
-                slugIssues.push({
-                  code: w.code,
-                  message: w.message,
-                  severity: "warning",
-                  category: cat,
-                  ...(w.file ? { file: w.file } : {}),
-                  ...(w.suggestion ? { suggestion: w.suggestion } : {}),
-                });
-              }
-            }
-          } catch {
-            // Non-fatal: skip this locale if the request fails
-          }
+        if (res.status === 404 || data.status === "not_found") {
+          return ok(
+            {
+              status: "not_found",
+              code: "diagnostics_job_lost",
+              job_id,
+              message: String(data.message ?? "Job lost or expired."),
+            },
+            {
+              warnings: [{
+                code: "diagnostics_job_lost",
+                message: "Job expired, evicted, or lost on restart. Call run_page_diagnostics again — do not keep polling this job_id.",
+              }],
+              next_actions: [{
+                tool: "run_page_diagnostics",
+                reason: "Start a new diagnostics job",
+                args_hint: { freshness: "hard", ...(site ? { site } : {}) },
+                priority: "recommended",
+              }],
+            },
+          );
         }
 
-        // Apply optional category filter
-        resultMap[page.slug] = catSet
-          ? slugIssues.filter(i => catSet.has(i.category))
-          : slugIssues;
-      }
+        if (!res.ok) {
+          return fail(String(data.message ?? data.error ?? `get job failed (${res.status})`), data);
+        }
 
-      return { content: [{ type: "text", text: JSON.stringify(resultMap, null, 2) }] };
+        const status = String(data.status ?? "");
+        if (status === "queued" || status === "running") {
+          const retry = Number(data.retry_after_seconds ?? 5);
+          return ok(
+            {
+              status,
+              job_id,
+              processed: data.processed,
+              total: data.total,
+              retry_after_seconds: retry,
+              scope: data.scope,
+            },
+            {
+              warnings: [{
+                code: "diagnostics_async",
+                message: "Job still running. Wait retry_after_seconds then call get_diagnostics_job again.",
+              }],
+              next_actions: [{
+                tool: "get_diagnostics_job",
+                reason: "Continue polling",
+                args_hint: { job_id, ...(site ? { site } : {}) },
+                priority: "required",
+              }],
+            },
+          );
+        }
+
+        if (status === "failed") {
+          return ok(
+            {
+              status: "failed",
+              job_id,
+              error: data.error,
+              message: String(data.error ?? "Diagnostics job failed"),
+            },
+            {
+              warnings: [{ code: "diagnostics_failed", message: String(data.error ?? "Job failed") }],
+              next_actions: [{
+                tool: "run_page_diagnostics",
+                reason: "Start a new diagnostics job after failure",
+                args_hint: { freshness: "hard", ...(site ? { site } : {}) },
+                priority: "optional",
+              }],
+            },
+          );
+        }
+
+        return ok(
+          {
+            status: "completed",
+            job_id,
+            cache_updated: data.cache_updated === true,
+            issuesBySlug: data.issuesBySlug ?? {},
+            summary: data.summary,
+            scope: data.scope,
+          },
+          { warnings: [], next_actions: [] },
+        );
+      } catch (e) {
+        return fail(`Failed to get diagnostics job: ${(e as Error).message}`);
+      }
     }
   );
 
@@ -3195,8 +3332,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             },
             {
               tool: "run_page_diagnostics",
-              reason: "Validate before going live",
-              args_hint: { slugs: [slug] },
+              reason: "Validate before going live (async — then poll get_diagnostics_job)",
+              args_hint: { slugs: [slug], freshness: "hard" },
               priority: "recommended",
             },
             {

@@ -114,7 +114,7 @@ Variables are listed by category. "Required" means the feature that depends on t
 | `IPAPI_PRO_KEY` | No | — | API key for ipapi.pro, used to geo-locate visitors and redirect them to a locale-appropriate page. | IP-based locale detection | Register at ipapi.pro |
 | `TURNSTILE_SITE_KEY` | No | — | Cloudflare Turnstile public site key, embedded in the lead-capture form. | Bot-protection on lead forms | Must also set `TURNSTILE_SECRET_KEY` |
 | `TURNSTILE_SECRET_KEY` | No | — | Cloudflare Turnstile secret key, validated server-side. | Bot-protection on lead forms | Must also set `TURNSTILE_SITE_KEY` |
-| `GOOGLE_PSI_API_KEY` | No | — | Google PageSpeed Insights API key. Used in the SEO diagnostics panel to fetch Core Web Vitals data. | PageSpeed scores in SEO panel | Must also set `SITE_URL` |
+| `GOOGLE_PSI_API_KEY` | No | — | Deprecated for in-app diagnostics (Lighthouse/PSI UI removed). Use external Lighthouse/PageSpeed tools. | — | — |
 
 ### AI / LLM
 

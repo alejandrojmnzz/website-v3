@@ -23,6 +23,8 @@ export interface ValidationIssue {
   suggestion?: string;
   fix?: FixHint;
   category?: ValidatorMetadata["category"];
+  /** Validator name that produced this issue (for partial cache merges). */
+  validator?: string;
   /** When the validation cache / run that produced this issue was built (ISO). */
   validationCacheBuiltAt?: string;
 }
@@ -140,7 +142,12 @@ export interface ValidationRunResult {
 }
 
 export interface PageCacheEntry {
+  /** Latest of lastFullRunAt / lastPartialRunAt (backward compatible). */
   lastRunAt: string;
+  /** Set only by full-validator page jobs; drives stale-only freshness. */
+  lastFullRunAt?: string;
+  /** Set by partial (single-validator) merges; does not satisfy full-run freshness. */
+  lastPartialRunAt?: string;
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
 }

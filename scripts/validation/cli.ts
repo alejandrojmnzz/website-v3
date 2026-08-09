@@ -75,15 +75,13 @@ Options:
   -v, --validators <names>  Run specific validators (comma-separated)
   -j, --json                Output results as JSON
   -a, --artifacts           Include artifacts in output
-  -s, --slow                Include slow validators (e.g. lighthouse — makes network requests)
+  -s, --slow                Include slow validators (none registered currently)
 
 Examples:
   npx tsx scripts/validation/cli.ts                    # Run all fast validators
   npx tsx scripts/validation/cli.ts --list             # List validators
   npx tsx scripts/validation/cli.ts -v redirects,meta  # Run specific validators
   npx tsx scripts/validation/cli.ts --json             # JSON output for CI
-  npx tsx scripts/validation/cli.ts --slow             # Run all validators including lighthouse
-  npx tsx scripts/validation/cli.ts -v lighthouse      # Run only lighthouse
 `);
 }
 

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Clipboard, Code, Crosshair, FileText, Gauge, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Sparkles, Stethoscope, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Clipboard, Code, Crosshair, FileText, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Sparkles, Stethoscope, Wrench, X} from "lucide-react";
 import { IconChartBar } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
@@ -31,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import LeadsTab from "@/components/diagnostics/LeadsTab";
@@ -665,6 +665,82 @@ function ValidatorCard({
   );
 }
 
+type CachedIssueRow = {
+  url: string;
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  validator?: string;
+  category?: string;
+  lastFullRunAt?: string;
+};
+
+type JobStartResponse = {
+  status: string;
+  job_id?: string;
+  retry_after_seconds?: number;
+  message?: string;
+  code?: string;
+  validators?: ValidatorResult[];
+  issuesBySlug?: Record<string, unknown>;
+  scope?: { processed?: number; total?: number; staleUrlCount?: number; urlCount?: number };
+};
+
+type JobPollResponse = {
+  status: string;
+  job_id?: string;
+  processed?: number;
+  total?: number;
+  retry_after_seconds?: number;
+  validators?: ValidatorResult[];
+  error?: string;
+  message?: string;
+  code?: string;
+  summary?: { errorCount: number; warningCount: number };
+};
+
+async function pollDiagnosticsJob(jobId: string, onProgress?: (p: { processed: number; total: number; status: string }) => void): Promise<JobPollResponse> {
+  for (;;) {
+    const res = await apiFetch(`/api/validation/diagnostics-jobs/${encodeURIComponent(jobId)}`, {
+      credentials: "include",
+    });
+    const data = (await res.json()) as JobPollResponse;
+    if (res.status === 404 || data.status === "not_found") {
+      return { ...data, status: "not_found" };
+    }
+    if (!res.ok) {
+      throw new Error(data.message || data.error || `Job poll failed (${res.status})`);
+    }
+    if (data.status === "queued" || data.status === "running") {
+      onProgress?.({
+        processed: data.processed ?? 0,
+        total: data.total ?? 0,
+        status: data.status,
+      });
+      const waitMs = Math.max(1, data.retry_after_seconds ?? 5) * 1000;
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+    return data;
+  }
+}
+
+function runResultFromValidators(validatorsList: ValidatorResult[]): RunResult {
+  const passed = validatorsList.filter((v) => v.status === "passed").length;
+  const failed = validatorsList.filter((v) => v.status === "failed").length;
+  const warnings = validatorsList.filter((v) => v.status === "warning").length;
+  return {
+    summary: {
+      total: validatorsList.length,
+      passed,
+      failed,
+      warnings,
+      duration: validatorsList.reduce((s, v) => s + (v.duration || 0), 0),
+    },
+    validators: validatorsList,
+  };
+}
+
 function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -674,60 +750,141 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [results, setResults] = useState<RunResult | null>(null);
   const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [jobBanner, setJobBanner] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const { resolveModalOpen, setResolveModalOpen, activeConflict, openResolver } = useRedirectConflictResolver();
 
-  const { data: validators } = useQuery<{ name: string; description: string; category?: string }[]>({
-    queryKey: ["/api/validation/validators"],
+  const { data: cacheIssuesData, refetch: refetchCacheIssues } = useQuery<{ issues: CachedIssueRow[] }>({
+    queryKey: ["/api/validation/cache-issues"],
+  });
+  const cacheIssues = cacheIssuesData?.issues ?? [];
+
+  const startJobMutation = useMutation({
+    mutationFn: async (body: Record<string, unknown>) => {
+      const res = await apiFetch("/api/validation/diagnostics-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+      const data = (await res.json()) as JobStartResponse;
+      if (res.status === 409 || data.status === "busy") {
+        throw new Error(data.message || "Another diagnostics job is already running for this site.");
+      }
+      if (!res.ok) {
+        throw new Error((data as { message?: string }).message || "Failed to start diagnostics job");
+      }
+      if (data.status === "cached") {
+        return { kind: "cached" as const, data };
+      }
+      if (!data.job_id) {
+        throw new Error("Missing job_id from diagnostics-jobs");
+      }
+      setJobBanner(`Job ${data.job_id}: queued…`);
+      const final = await pollDiagnosticsJob(data.job_id, (p) => {
+        setJobBanner(`Job ${data.job_id}: ${p.status} (${p.processed}/${p.total})`);
+      });
+      if (final.status === "failed" || final.status === "not_found") {
+        throw new Error(final.error || final.message || `Job ${final.status}`);
+      }
+      return { kind: "completed" as const, data: final };
+    },
+    onSuccess: (outcome) => {
+      setJobBanner(null);
+      void refetchCacheIssues();
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      if (outcome.kind === "cached") {
+        toast({ title: "Cache fresh", description: "No stale URLs — showing cached diagnostics." });
+        setLastRun(new Date());
+        return;
+      }
+      const list = outcome.data.validators ?? [];
+      if (list.length > 0) {
+        setResults(runResultFromValidators(list));
+      }
+      setLastRun(new Date());
+      toast({ title: "Diagnostics completed", description: outcome.data.summary
+        ? `${outcome.data.summary.errorCount} errors, ${outcome.data.summary.warningCount} warnings`
+        : "Cache updated." });
+    },
+    onError: (err) => {
+      setJobBanner(null);
+      toast({
+        title: "Diagnostics failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
   });
 
-  const runAllMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/validation/run", {
-        includeArtifacts: true,
+  const runAllMutation = {
+    isPending: startJobMutation.isPending,
+    mutate: (freshness: "max_age" | "hard" = "max_age") => {
+      startJobMutation.mutate({
+        freshness,
+        max_age_seconds: 86400,
+        include_artifacts: true,
       });
-      return (await res.json()) as RunResult;
     },
-    onSuccess: (data) => {
-      setResults(data);
-      setLastRun(new Date());
-    },
-  });
+  };
 
   const runSingleMutation = useMutation({
     mutationFn: async (name: string) => {
-      const res = await apiRequest("POST", "/api/validation/run", {
-        validators: [name],
-        includeArtifacts: true,
+      const res = await apiFetch("/api/validation/diagnostics-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          validators: [name],
+          include_artifacts: true,
+          freshness: "hard",
+        }),
+        credentials: "include",
       });
-      return (await res.json()) as RunResult;
+      const data = (await res.json()) as JobStartResponse;
+      if (res.status === 409 || data.status === "busy") {
+        throw new Error(data.message || "Another diagnostics job is already running.");
+      }
+      if (!res.ok) {
+        throw new Error((data as { message?: string }).message || "Failed to start job");
+      }
+      if (data.status === "cached") {
+        return { validators: [] as ValidatorResult[] };
+      }
+      if (!data.job_id) throw new Error("Missing job_id");
+      setJobBanner(`Validator ${name}: running…`);
+      const final = await pollDiagnosticsJob(data.job_id, (p) => {
+        setJobBanner(`${name}: ${p.status} (${p.processed}/${p.total})`);
+      });
+      setJobBanner(null);
+      if (final.status === "failed" || final.status === "not_found") {
+        throw new Error(final.error || final.message || `Job ${final.status}`);
+      }
+      return { validators: final.validators ?? [] };
     },
     onSuccess: (data) => {
+      void refetchCacheIssues();
+      if (!data.validators.length) return;
       if (!results) {
-        setResults(data);
+        setResults(runResultFromValidators(data.validators));
         setLastRun(new Date());
         return;
       }
       const updated = { ...results };
       for (const v of data.validators) {
         const idx = updated.validators.findIndex((x) => x.name === v.name);
-        if (idx >= 0) {
-          updated.validators[idx] = v;
-        } else {
-          updated.validators.push(v);
-        }
+        if (idx >= 0) updated.validators[idx] = v;
+        else updated.validators.push(v);
       }
-      const passed = updated.validators.filter((v) => v.status === "passed").length;
-      const failed = updated.validators.filter((v) => v.status === "failed").length;
-      const warnings = updated.validators.filter((v) => v.status === "warning").length;
-      updated.summary = {
-        ...updated.summary,
-        total: updated.validators.length,
-        passed,
-        failed,
-        warnings,
-      };
-      setResults(updated);
+      setResults(runResultFromValidators(updated.validators));
       setLastRun(new Date());
+    },
+    onError: (err) => {
+      setJobBanner(null);
+      toast({
+        title: "Validator run failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
@@ -777,8 +934,50 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     { key: "performance", label: "Performance" },
   ];
 
+  const jobPending = startJobMutation.isPending || runSingleMutation.isPending;
+
   return (
     <div className="space-y-6">
+      <Card style={{ borderRadius: "0.8rem" }} data-testid="diagnostics-how-it-works">
+        <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
+          <p className="text-foreground font-medium">How diagnostics work</p>
+          <p>
+            Results live in <code className="text-xs">validation-cache.json</code> (shared with agents).
+            <strong className="text-foreground font-medium"> Refresh stale</strong> only recomputes URLs
+            whose <code className="text-xs">lastFullRunAt</code> is older than 24h.
+            <strong className="text-foreground font-medium"> Hard refresh</strong> recomputes everything in scope.
+            Single-validator runs merge by validator name and do not mark a URL fully fresh.
+            One background job runs at a time per site. Lighthouse/PageSpeed is not part of this dashboard — use external tools.
+          </p>
+          <button
+            type="button"
+            className="text-xs text-primary underline-offset-2 hover:underline"
+            onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="button-diagnostics-read-more"
+          >
+            {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+          </button>
+          {showAdvanced && (
+            <ul className="list-disc pl-5 text-xs space-y-1">
+              <li><code>server/services/diagnosticsJobService.ts</code> — job runner</li>
+              <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod)</li>
+              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — recent job envelopes</li>
+              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code>, <code>GET /api/validation/cache-issues</code></li>
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      {jobBanner && (
+        <div
+          className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-foreground flex items-center gap-2"
+          data-testid="diagnostics-job-banner"
+        >
+          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          {jobBanner}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-foreground" data-testid="text-global-health-title">
@@ -793,27 +992,32 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              disabled={runAllMutation.isPending || saveReportMutation.isPending}
+              disabled={jobPending || saveReportMutation.isPending}
               data-testid="button-run-all"
             >
-              {runAllMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : saveReportMutation.isPending ? (
+              {jobPending || saveReportMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              {runAllMutation.isPending ? "Running..." : saveReportMutation.isPending ? "Saving..." : "Run All"}
+              {jobPending ? "Running..." : saveReportMutation.isPending ? "Saving..." : "Refresh"}
               <ChevronDown className="h-3 w-3 ml-1" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              onClick={() => runAllMutation.mutate()}
-              data-testid="menu-item-run-validators"
+              onClick={() => runAllMutation.mutate("max_age")}
+              data-testid="menu-item-refresh-stale"
             >
               <RefreshCw className="h-4 w-4" />
-              Run validators
+              Refresh stale
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => runAllMutation.mutate("hard")}
+              data-testid="menu-item-hard-refresh"
+            >
+              <Play className="h-4 w-4" />
+              Hard refresh
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -826,6 +1030,32 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {cacheIssues.length > 0 && (
+        <Card style={{ borderRadius: "0.8rem" }} data-testid="cached-issues-panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Cached issues ({cacheIssues.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-64 overflow-auto space-y-2">
+            {cacheIssues.slice(0, 100).map((issue, idx) => (
+              <div key={`${issue.url}-${issue.code}-${idx}`} className="text-xs border-b border-border/60 pb-2">
+                <span className={issue.severity === "error" ? "text-destructive font-medium" : "text-chart-2 font-medium"}>
+                  {issue.severity}
+                </span>
+                {" · "}
+                <span className="text-muted-foreground">{issue.validator || "unknown"}</span>
+                {" · "}
+                <code>{issue.code}</code>
+                <div className="text-foreground mt-0.5">{issue.message}</div>
+                <div className="text-muted-foreground">{issue.url}</div>
+              </div>
+            ))}
+            {cacheIssues.length > 100 && (
+              <p className="text-xs text-muted-foreground">Showing first 100 of {cacheIssues.length}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {results && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="summary-bar">
@@ -899,29 +1129,39 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </div>
       </div>
 
-      {runAllMutation.isPending && !results && (
+      {jobPending && !results && (
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
-            <p className="mt-4 text-muted-foreground">Running validators...</p>
+            <p className="mt-4 text-muted-foreground">Running diagnostics job…</p>
           </div>
         </div>
       )}
 
-      {!results && !runAllMutation.isPending && (
+      {!results && !jobPending && cacheIssues.length === 0 && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-8 text-center">
             <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">
-              Click "Run All" to start the diagnostics check
+              No cached diagnostics yet — run Refresh stale or Hard refresh.
             </p>
-            <Button
-              onClick={() => runAllMutation.mutate()}
-              data-testid="button-run-all-empty"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Run All Validators
-            </Button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button
+                onClick={() => runAllMutation.mutate("max_age")}
+                data-testid="button-run-all-empty"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh stale
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => runAllMutation.mutate("hard")}
+                data-testid="button-hard-refresh-empty"
+              >
+                <Play className="h-4 w-4" />
+                Hard refresh
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -1436,12 +1676,6 @@ export default function DiagnosticsPage() {
                 <Button variant="outline" size="sm" data-testid="button-seo-geo">
                   <Crosshair className="h-3.5 w-3.5" />
                   SEO &amp; GEO
-                </Button>
-              </Link>
-              <Link href="/private/diagnostics/lighthouse">
-                <Button variant="outline" size="sm" data-testid="button-page-speed">
-                  <Gauge className="h-3.5 w-3.5" />
-                  Page Speed
                 </Button>
               </Link>
               <Link href="/private/tracking">

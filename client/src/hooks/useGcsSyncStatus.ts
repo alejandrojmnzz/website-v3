@@ -189,7 +189,7 @@ export function inventoryCategoryDescription(label: string): string | null {
     case "Media":
       return "Site images from the local images/ folder, mirrored to the GCS media prefix. Shows whether cloud copies exist and when they were last updated.";
     case "Lighthouse reports":
-      return "Stored Lighthouse audit results for this site (GCS only). Used by admin diagnostics and performance monitoring.";
+      return "Legacy Lighthouse/PSI report objects in GCS (in-app Lighthouse diagnostics removed — use external tools).";
     case "AI conversation snapshots":
       return "Backups of AI editor conversations for this site, stored in GCS so chat history survives deploys and restarts.";
     case "Site registry (sites.yml)":
