@@ -1,6 +1,6 @@
 ---
 description: Content loading patterns, YAML structure, API conventions, and component registry
-globs: "server/**/*.ts,marketing-content/**,shared/**",server/**/*.ts,shared/**
+globs: server/**/*.ts,shared/**,site_*/**/*.yml,site_*/**/*.yaml,marketing-content/**
 alwaysApply: false
 ---
 # Content and API Patterns
@@ -8,6 +8,10 @@ alwaysApply: false
 ## Content Loading
 
 Use `loadContent`, `listContentSlugs`, `loadCommonData` from [server/utils/contentLoader.ts](server/utils/contentLoader.ts). Always validate with Zod schemas from `@shared/schema`.
+
+## Site folders (`site_*`)
+
+YAML under `site_*/` is content-repo data. After editing, commit via GitHub sync APIs — see [`site-content-github.mdc`](site-content-github.mdc).
 
 ## YAML Structure
 

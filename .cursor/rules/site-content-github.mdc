@@ -1,0 +1,35 @@
+---
+description: site_* content edits must be committed to the content GitHub repo (not app git), with conflict resolve.
+alwaysApply: true
+---
+
+# Site content → content GitHub
+
+## Why
+
+Folders like `site_4geeks-com/`, `site_*/` are **gitignored** in the app repo. Local YAML/registry edits are wiped by content sync pull unless they exist on the **site content GitHub** repo (see `github_repo_url` / `contentFolder` in [`sites.yml`](sites.yml)).
+
+App-repo `git commit` / `git push` does **not** persist `site_*` changes.
+
+## Required finish step
+
+Before ending any task that modified files under `site_*` / `site_<name>/`:
+
+1. Identify `contentRoot` (e.g. `site_4geeks-com`).
+2. `markFileAsModified` for each changed path ([`server/sync-state.ts`](server/sync-state.ts)).
+3. Check conflicts for that site (`getConflictInfo` / pull-conflict helpers in [`server/github.ts`](server/github.ts)).
+4. If remote advanced on overlapping files: pull those paths, re-apply the intended local edits, then commit.
+5. Commit/push via `commitSingleFile` or `commitAndPush` with the correct `contentRoot` (and site `repoUrl` when multi-site).
+6. Confirm success (`commitSha` / `commitHash`). Leaving only-local `site_*` diffs is a bug.
+
+Use force commit only after an intentional conflict resolve when the sync API requires it.
+
+## Redirect tip (blog)
+
+Prefer exact `meta.redirects` entries for legacy `/us/...` and wrong-category paths so they 301 **once** to the canonical URL. Relying only on the global `/us/` regex plus canonical category fix causes a double redirect.
+
+## Related
+
+- [`git-and-validation.mdc`](git-and-validation.mdc) — app git + validation
+- [`registry-content-sync.mdc`](registry-content-sync.mdc) — registry pull/ensure
+- [`content-and-api.mdc`](content-and-api.mdc) — YAML / content loading patterns

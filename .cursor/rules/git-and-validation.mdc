@@ -13,6 +13,10 @@ Optional FAQ freshness check via [scripts/pre-commit-faq-check.sh](scripts/pre-c
 
 GitHub sync uses `[Author: X] Message`; consider similar clarity for human-authored commits (e.g. conventional commits or brief scope + summary).
 
+## Site content (`site_*`)
+
+Edits under `site_*/` must be committed to the **content** GitHub repo via sync APIs — not only the app git repo. See [`site-content-github.mdc`](site-content-github.mdc).
+
 ## Validation
 
 Run `scripts/validation` (CLI or service) when changing content or schemas. Fix validation errors before committing.
