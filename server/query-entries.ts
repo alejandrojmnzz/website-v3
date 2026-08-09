@@ -24,6 +24,8 @@ import {
 } from "./static-listing-cache";
 import { normalizeLocale } from "./settings";
 import { isEmptyDetachedLocaleEntry } from "./empty-locale";
+import { isEntryDetached } from "./shared-layout-entry";
+import { isHiddenViaSentinel } from "./shared-layout-sync";
 import { child } from "./logger";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
 
@@ -198,6 +200,34 @@ function normalizeCategory(item: Record<string, unknown>, hasCategoryMapping: bo
   }
 }
 
+/**
+ * Detached locales whose sections are all publicly hidden (mirrored siblings)
+ * and that have no body content should not appear in public listings.
+ */
+export function isDetachedLocaleOnlyPubliclyHidden(opts: {
+  contentType: string;
+  slug: string;
+  contentRoot: string;
+  localeData: Record<string, unknown>;
+  common?: Record<string, unknown>;
+}): boolean {
+  if (!isEntryDetached(opts.contentType, opts.slug, opts.contentRoot)) return false;
+
+  const content = opts.localeData.content ?? opts.common?.content;
+  if (typeof content === "string" && content.trim().length > 0) return false;
+
+  const sections = opts.localeData.sections;
+  if (!Array.isArray(sections) || sections.length === 0) return false;
+
+  return sections.every(
+    (section) =>
+      !!section &&
+      typeof section === "object" &&
+      !Array.isArray(section) &&
+      isHiddenViaSentinel(section as Record<string, unknown>),
+  );
+}
+
 function pickListingFields(
   common: Record<string, unknown>,
   localeData: Record<string, unknown>,
@@ -280,6 +310,17 @@ function loadStaticContentTypeItems(
         continue;
       }
       const localeData = loadStaticYamlFile(path.join(slugDir, `${locale}.yml`)) || {};
+      if (
+        isDetachedLocaleOnlyPubliclyHidden({
+          contentType,
+          slug,
+          contentRoot,
+          localeData,
+          common,
+        })
+      ) {
+        continue;
+      }
       const item = pickListingFields(common, localeData, mapping);
       item[localeKey] = locale;
       if (item.slug == null) item.slug = slug;
