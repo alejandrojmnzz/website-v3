@@ -552,8 +552,12 @@ export async function editContent(request: ContentEditRequest): Promise<{
     // (isSharedTemplate=false), the client sends indices relative to the fully
     // merged view (template + per-entry). This applies to DB-backed types AND
     // static types with single_template: true — both use mergeSingleTemplate.
-    // Translate update_section indices from the merged view to the per-entry
-    // local indices before applying, so we write to the correct section.
+    // Translate update_section / sections.N.* update_field indices from the merged
+    // view to the per-entry local indices before applying, so we write to the
+    // correct section. Template-owned sections (including layout keys like
+    // maxWidth / paddingX from the X Spacing popover) must be forwarded to
+    // single.{locale}.yml — otherwise Apply writes ignored stubs into the entry
+    // file (attached merges use dataOnly and drop entry sections).
     // Detached entries own full structure (entry-only indices); never remap or
     // forward ops to single.{locale}.yml.
     const usesSharedTemplate =
@@ -561,7 +565,17 @@ export async function editContent(request: ContentEditRequest): Promise<{
       (ci.isDatabaseBacked(contentType) ||
         !!getContentTypeConfig(contentType, contentRoot)?.single_template);
     let resolvedOperations = operations;
-    if (usesSharedTemplate && operations.some(op => op.action === "update_section")) {
+    let forwardedTemplateOps = false;
+    const needsSharedSectionRemap =
+      usesSharedTemplate &&
+      operations.some(
+        (op) =>
+          op.action === "update_section" ||
+          (op.action === "update_field" &&
+            typeof (op as { path?: string }).path === "string" &&
+            /^sections\.\d+\./.test((op as { path: string }).path)),
+      );
+    if (needsSharedSectionRemap) {
       const mergedTemplate = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedTemplate?.sections)
         ? (mergedTemplate!.sections as Record<string, unknown>[])
@@ -575,30 +589,62 @@ export async function editContent(request: ContentEditRequest): Promise<{
         const translated: EditOperation[] = [];
         const templateOps: EditOperation[] = [];
         for (const op of operations) {
-          if (op.action !== "update_section") {
-            translated.push(op);
+          if (op.action === "update_section") {
+            // Resolve the section identity from the merged view.
+            const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
+            const sectionCandidates = sectionIdCandidates(mergedSection);
+
+            // Try to find it by identity in the per-entry local file (either field).
+            const localIdx = sectionCandidates.length > 0
+              ? localSections.findIndex(
+                  s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
+                )
+              : -1;
+
+            if (localIdx === -1) {
+              // Section lives in the shared template — collect it for a separate
+              // write to single.{locale}.yml via handleSharedTemplateEdit.
+              templateOps.push(op);
+              continue;
+            }
+
+            translated.push({ ...op, index: localIdx });
             continue;
           }
 
-          // Resolve the section identity from the merged view.
-          const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
-          const sectionCandidates = sectionIdCandidates(mergedSection);
+          if (op.action === "update_field") {
+            const fieldPathFull = (op as { path?: string }).path || "";
+            const m = fieldPathFull.match(/^sections\.(\d+)\.(.+)$/);
+            if (!m) {
+              translated.push(op);
+              continue;
+            }
+            const mergedIdx = parseInt(m[1], 10);
+            const fieldPath = m[2];
+            const mergedSection = mergedSections[mergedIdx] as Record<string, unknown> | undefined;
+            const sectionCandidates = sectionIdCandidates(mergedSection);
+            const localIdx = sectionCandidates.length > 0
+              ? localSections.findIndex(
+                  s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
+                )
+              : -1;
 
-          // Try to find it by identity in the per-entry local file (either field).
-          const localIdx = sectionCandidates.length > 0
-            ? localSections.findIndex(
-                s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
-              )
-            : -1;
+            // Per-entry-only sections stay on the entry file. Everything else in the
+            // attached merged view is template-owned — including layout keys from the
+            // X Spacing popover — and must hit single.{locale}.yml.
+            if (mergedSection?._perEntrySource) {
+              translated.push({
+                ...op,
+                path: `sections.${localIdx >= 0 ? localIdx : mergedIdx}.${fieldPath}`,
+              } as EditOperation);
+              continue;
+            }
 
-          if (localIdx === -1) {
-            // Section lives in the shared template — collect it for a separate
-            // write to single.{locale}.yml via handleSharedTemplateEdit.
             templateOps.push(op);
             continue;
           }
 
-          translated.push({ ...op, index: localIdx });
+          translated.push(op);
         }
         resolvedOperations = translated;
 
@@ -612,12 +658,50 @@ export async function editContent(request: ContentEditRequest): Promise<{
           );
           if (fs.existsSync(templateFilePath)) {
             const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
-            const templateLocaleData = ci.safeYamlLoad(rawTemplate) as Record<string, unknown>;
+            const templateLocaleData = (ci.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+            const templateSections = Array.isArray(templateLocaleData.sections)
+              ? (templateLocaleData.sections as Record<string, unknown>[])
+              : [];
+
+            // Remap merged-view indices to on-disk template indices by section id.
+            const remappedTemplateOps: EditOperation[] = templateOps.map((op) => {
+              if (op.action === "update_section") {
+                const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
+                const candidates = sectionIdCandidates(mergedSection);
+                const tplIdx = candidates.length > 0
+                  ? templateSections.findIndex((s) =>
+                      candidates.some((c) => sectionMatchesId(s, c)),
+                    )
+                  : -1;
+                return tplIdx >= 0 ? ({ ...op, index: tplIdx } as EditOperation) : op;
+              }
+              if (op.action === "update_field") {
+                const fieldPathFull = (op as { path?: string }).path || "";
+                const m = fieldPathFull.match(/^sections\.(\d+)\.(.+)$/);
+                if (!m) return op;
+                const mergedSection = mergedSections[parseInt(m[1], 10)] as
+                  | Record<string, unknown>
+                  | undefined;
+                const candidates = sectionIdCandidates(mergedSection);
+                const tplIdx = candidates.length > 0
+                  ? templateSections.findIndex((s) =>
+                      candidates.some((c) => sectionMatchesId(s, c)),
+                    )
+                  : -1;
+                if (tplIdx < 0) return op;
+                return {
+                  ...op,
+                  path: `sections.${tplIdx}.${m[2]}`,
+                } as EditOperation;
+              }
+              return op;
+            });
+
             const templateResult = handleSharedTemplateEdit({
               contentType,
               slug,
               locale,
-              operations: templateOps,
+              operations: remappedTemplateOps,
               localeData: templateLocaleData,
               filePath: templateFilePath,
               author: request.author,
@@ -629,9 +713,44 @@ export async function editContent(request: ContentEditRequest): Promise<{
             if (!templateResult.success) {
               return { success: false, error: templateResult.error };
             }
+            forwardedTemplateOps = true;
+
+            // Drop layout-only stubs previously written into the entry file by the
+            // buggy update_field path (no type / section identity — ignored at load).
+            if (Array.isArray(localeData.sections)) {
+              localeData.sections = (localeData.sections as Record<string, unknown>[]).filter(
+                (s) =>
+                  !!s &&
+                  typeof s === "object" &&
+                  !!(s.type || s.section_id || s.id || s._remove || s._perEntrySource),
+              );
+            }
           }
         }
       }
+    }
+
+    // Layout-only Apply (e.g. X Spacing maxWidth) on attached entries: all ops were
+    // written to single.{locale}.yml. Persist stub scrub on the entry without
+    // re-running the live SEO gate (that gate blocked successful template saves).
+    if (forwardedTemplateOps && resolvedOperations.length === 0) {
+      if (Array.isArray(localeData.sections)) {
+        const scrubbedYaml = safeYamlDump(localeData, {
+          lineWidth: -1,
+          noRefs: true,
+          quotingType: '"',
+          forceQuotes: false,
+        });
+        fs.writeFileSync(filePath, scrubbedYaml, "utf-8");
+        markFileAsModified(filePath, request.author, undefined, contentRoot);
+      }
+      const mergedAfter = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
+      return {
+        success: true,
+        updatedSections: Array.isArray(mergedAfter?.sections)
+          ? (mergedAfter!.sections as unknown[])
+          : [],
+      };
     }
 
     // Handle reorder_sections for shared-template per-entry pages (DB-backed or
@@ -986,7 +1105,10 @@ function writeStructuralChangesToTemplate(opts: {
     });
 
     for (const op of annotatedOps) {
-      if (op.action === "update_section" && (op as { structural?: boolean }).structural) {
+      // Always restore {{ single.* }} / {{ global.* }} from the on-disk template when
+      // writing update_section — not only structural swaps. Code/Props saves omit
+      // structural:true and previously could bake resolved HTML into single.*.yml.
+      if (op.action === "update_section") {
         const templateSections = Array.isArray(templateData.sections)
           ? (templateData.sections as Record<string, unknown>[])
           : [];
