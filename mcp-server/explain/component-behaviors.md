@@ -16,7 +16,7 @@ Not wiped: `programs[].id`, automations/tags/webhook, copy/layout.
 
 Adding `form-settings` / `cta-tracking` / `ecommerce-products` **implies** wipe-on-duplicate. Ordinary props stay. Staff/API responses may include `clearedFields`.
 
-**Identity gates (missing ≠ off):** wipe deletes keys. Save/publish/promote fail until re-decided. Opt-out: `conversion_name: null`, `ecommerce_products: null`, CTA `tracking: none`. Valid on: known conversion name; product slug list / `"all"` / `programs[].id` / program inherit; non-`none` CTA + purchasable product.
+**Identity gates (missing ≠ off):** wipe deletes keys. Save/publish/promote fail until re-decided. Opt-out: `conversion_name: null`, `ecommerce_products: null`, CTA `tracking: none`. Valid on: known conversion name; product slug list / `"all"` / `programs[].id` / program inherit; non-`none` CTA + purchasable product. **Exception:** nested `form-settings` object entirely absent (CTA-only) → no conversion_name required; lead tracking belongs on the submitting form (e.g. modal).
 
 ## CTA tracking (exact paths)
 

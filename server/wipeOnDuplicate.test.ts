@@ -160,4 +160,36 @@ describe("validateRequiredConversionName", () => {
       ),
     ).toBeNull();
   });
+
+  it("passes when nested form-settings path is absent (CTA-only)", () => {
+    expect(
+      validateRequiredConversionName(
+        {
+          type: "hero",
+          variant: "course",
+          signup_card: {
+            cta_button: {
+              text: "Send Me the Details",
+              url: "#modal-ubwgcj",
+              tracking: "none",
+            },
+          },
+        },
+        "signup_card.form",
+      ),
+    ).toBeNull();
+  });
+
+  it("fails when nested form exists without conversion_name", () => {
+    expect(
+      validateRequiredConversionName(
+        {
+          type: "hero",
+          variant: "course",
+          signup_card: { form: { variant: "stacked" } },
+        },
+        "signup_card.form",
+      ),
+    ).toMatch(/required/);
+  });
 });

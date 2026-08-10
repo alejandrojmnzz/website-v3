@@ -1970,6 +1970,14 @@ export function SectionEditorPanel({
   // Join helper: "" means form settings at section root (lead_form).
   const formProp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
 
+  /** Nested form-settings may be absent (CTA-only). Root bind always has a form object (the section). */
+  const boundFormObjectPresent = (() => {
+    if (formSettingsPath == null) return false;
+    if (formSettingsPath === "") return true;
+    const node = getValueAtFieldPath(parsedSection, formSettingsPath);
+    return node != null && typeof node === "object" && !Array.isArray(node);
+  })();
+
   const resolvedParsedSection: Record<string, unknown> | null = (() => {
     if (!parsedSection || formSettingsPath == null) return parsedSection ?? null;
     const conversionName = String(
@@ -6899,6 +6907,19 @@ export function SectionEditorPanel({
               <IconTargetArrow className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">
                 This section has no conversion or telemetry components, goals or activity.
+              </p>
+            </div>
+          ) : !boundFormObjectPresent ? (
+            <div
+              className="flex flex-col items-center justify-center h-full min-h-[160px] text-center gap-3 px-4"
+              data-testid="conversion-cta-only-empty-state"
+            >
+              <IconTargetArrow className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground max-w-sm">
+                No inline lead form on this section (CTA-only is fine). Lead conversion is
+                configured on the form that actually submits — often a modal opened by the
+                button — not on the CTA click itself. CTA ecommerce intent lives under the
+                Ecommerce tab (<code className="text-[10px]">tracking</code>).
               </p>
             </div>
           ) : (

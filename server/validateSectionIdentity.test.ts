@@ -47,6 +47,21 @@ describe("validateRequiredConversionName (null vs missing)", () => {
       ),
     ).toMatch(/empty/);
   });
+
+  it("passes when nested form-settings object is absent (CTA-only hero)", () => {
+    expect(
+      validateRequiredConversionName(
+        {
+          type: "hero",
+          variant: "course",
+          signup_card: {
+            cta_button: { text: "Details", url: "#modal-x", tracking: "none" },
+          },
+        },
+        "signup_card.form",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("validateProductScope (null vs missing)", () => {

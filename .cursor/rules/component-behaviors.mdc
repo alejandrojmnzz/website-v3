@@ -54,6 +54,6 @@ Page/section duplicate clears conversion/ecommerce identity fields (no `reset_on
 
 Not wiped (v1): `programs[].id`, automations/webhook/tags, ordinary props.
 
-When adding a component: binding `form-settings`, `cta-tracking`, or `ecommerce-products` **implies** those values wipe on duplicate. Default for new props: do **not** wipe. Duplicate never fails; save/publish/**promote** validators require an explicit decision: missing keys fail; `conversion_name` / `ecommerce_products` use YAML `null` for off; CTA uses `tracking: none`. Empty string ≠ off.
+When adding a component: binding `form-settings`, `cta-tracking`, or `ecommerce-products` **implies** those values wipe on duplicate. Default for new props: do **not** wipe. Duplicate never fails; save/publish/**promote** validators require an explicit decision: missing keys fail; `conversion_name` / `ecommerce_products` use YAML `null` for off; CTA uses `tracking: none`. Empty string ≠ off. Nested `form-settings` objects may be absent (CTA-only) — no `conversion_name` required until the form object exists.
 
 Catalog: `docs/component-behaviors.md`. MCP: `explain_site` topics `component-behaviors` + `ecommerce`. Schema-sync **preserves** `behaviors`.

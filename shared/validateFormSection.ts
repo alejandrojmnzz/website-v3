@@ -58,10 +58,15 @@ export function collectConversionNames(form: Record<string, unknown>): string[] 
 }
 
 /**
- * When a section has a form-settings bind, require an explicit conversion decision:
+ * When a section has a form-settings bind **and** the form object is present,
+ * require an explicit conversion decision:
  * - non-empty conversion_name on form root or any route → on
  * - root `conversion_name: null` → explicit off
  * - key missing (e.g. after duplicate wipe) → invalid
+ *
+ * Nested binds (e.g. `signup_card.form`) may be absent when the section is CTA-only
+ * (button → modal / link). That matches cta-tracking: validate only when the object exists.
+ * Root bind (`""`, lead_form) always uses the section as the form object.
  *
  * @param formSettingsPath "" = settings on section root (lead_form); "form" = nested.
  */
@@ -71,9 +76,8 @@ export function validateRequiredConversionName(
 ): string | null {
   if (formSettingsPath == null) return null;
   const form = getFormSettingsObject(section, formSettingsPath);
-  if (!form) {
-    return `form-settings path "${formSettingsPath || "."}" is missing; conversion_name is required`;
-  }
+  // Optional presence for nested form-settings (CTA-only heroes, etc.).
+  if (!form) return null;
   if (collectConversionNames(form).length > 0) return null;
 
   const label = formSettingsPath ? `${formSettingsPath}.conversion_name` : "conversion_name";

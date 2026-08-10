@@ -3,7 +3,8 @@
  *
  * Scans all content files and reports:
  * - conversion_name values that are set but not in the known conversion events list
- * - missing conversion_name when the section type has a form-settings field-editor bind
+ * - missing conversion_name when a bound form-settings object is present
+ *   (absent nested forms, e.g. CTA-only heroes, are allowed)
  */
 
 import * as fs from "fs";
@@ -40,7 +41,7 @@ function walkYamlFiles(dir: string): string[] {
 export const formsValidator: Validator = {
   name: "forms",
   description:
-    "Validates form conversion_name (required when form-settings is bound; must match known events when set)",
+    "Validates form conversion_name (required when bound form object is present; must match known events when set)",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "forms",

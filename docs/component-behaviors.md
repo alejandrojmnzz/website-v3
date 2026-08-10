@@ -11,6 +11,8 @@ Structured `behaviors` on each component `schema.yml` declare how a section part
 | `listing` | Mapping fields + queries → card lists | `dynamic_entries` pipeline | Not a product SKU; not a lead form |
 | `conversion` | Lead form conversion + webhook defaults | `form-settings` + `trackFormSubmission` | Not ecommerce funnel; CTA-only heroes are not conversions |
 
+Nested `form-settings` paths (e.g. `course:signup_card.form`) are **optional in presence**: if the form object is absent, save does not require `conversion_name` (CTA → modal / link). When the form object exists, `conversion_name` (or `null`) is required — same as root `lead_form`. CTA clicks use `cta.tracking`, not lead `conversion_name`.
+
 ## Wipe on page/section duplicate
 
 When a **page** or **section** is duplicated, the server clears conversion/ecommerce **identity** fields so staff must re-set them before save/publish. There is no per-component `reset_on_duplicate` list — wipe is **derived** from field-editors:
