@@ -197,9 +197,9 @@ export const REMOVE_SECTION_NO_BINDING_FANOUT: McpWarning = {
 };
 
 export const REPLACE_NO_BINDING_FANOUT: McpWarning = {
-  code: "replace_page_sections_no_binding_fanout",
+  code: "replace_entry_sections_no_binding_fanout",
   message:
-    "Full sections replace applied to this page only. Section bindings were not synced. Do not use replace_page_sections to propagate bound content — edit live fields (or update_section) so server binding propagate runs.",
+    "Full sections replace applied to this page only. Section bindings were not synced. Do not use replace_entry_sections to propagate bound content — edit live fields (or update_section) so server binding propagate runs.",
 };
 
 export const REORDER_NO_BINDING_FANOUT: McpWarning = {
@@ -208,11 +208,16 @@ export const REORDER_NO_BINDING_FANOUT: McpWarning = {
     "reorder_sections only changed order on this page. Bound siblings keep their own section order; bindings sync content fields, not topology order.",
 };
 
-export const CREATE_PAGE_SHARED_LAYOUT_WARNING: McpWarning = {
-  code: "create_page_shared_layout_inherits_single",
+export const CREATE_ENTRY_SHARED_LAYOUT_WARNING: McpWarning = {
+  code: "create_entry_shared_layout_inherits_single",
   message:
-    "This content type uses a shared layout. The new entry does not own the full section shell — structure comes from single.{locale}.yml. Prefer empty or patch-shaped sections in locale files. Editing shared structure later requires layout_target on section tools and affects all entries.",
+    "This content type uses a shared layout. The new entry does not own the full section shell — structure comes from single.{locale}.yml. " +
+    "Create with sections: [] and put body/fields on the locale (e.g. title, description, content). " +
+    "Do not author hero/breadcrumb/article shells on the entry. Editing shared structure later requires layout_target and affects all attached entries.",
 };
+
+/** @deprecated Use CREATE_ENTRY_SHARED_LAYOUT_WARNING */
+export const CREATE_PAGE_SHARED_LAYOUT_WARNING = CREATE_ENTRY_SHARED_LAYOUT_WARNING;
 
 /** Extend ContentTypeConfig typing for single_template without changing loaders. */
 export function configIsSharedLayout(config: ContentTypeConfig): boolean {

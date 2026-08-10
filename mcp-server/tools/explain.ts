@@ -18,6 +18,7 @@ const VALID_TOPICS = [
   "semantic_search",
   "component-behaviors",
   "ecommerce",
+  "shared-layout",
 ] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
@@ -30,7 +31,10 @@ function resolveContentTypes(): string {
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = yaml.load(raw) as Record<string, Record<string, unknown>> | null;
     if (!parsed) return "_could not parse content-types.yml_";
-    const lines: string[] = ["| Type | Directory | URL pattern | DB-backed |", "|---|---|---|---|"];
+    const lines: string[] = [
+      "| Type | Directory | URL pattern | DB-backed | single_template |",
+      "|---|---|---|---|---|",
+    ];
     for (const [type, config] of Object.entries(parsed)) {
       const dir = (config.directory as string | undefined) || type;
       const pattern = config.url_pattern
@@ -39,7 +43,8 @@ function resolveContentTypes(): string {
             .join(", ")
         : "—";
       const dbBacked = config.database ? "yes" : "no";
-      lines.push(`| \`${type}\` | \`${dir}\` | ${pattern} | ${dbBacked} |`);
+      const singleTemplate = config.single_template ? "yes" : "no";
+      lines.push(`| \`${type}\` | \`${dir}\` | ${pattern} | ${dbBacked} | ${singleTemplate} |`);
     }
     return lines.join("\n");
   } catch {
@@ -124,13 +129,14 @@ export function registerExplainTools(mcp: McpServer): void {
       "'sections' (SectionRenderer, component registry, how sections are authored), " +
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
       "'component-behaviors' (CTA tracking, behaviors ids), " +
-      "'ecommerce' (products, funnels, product scope property paths, no CMS plans). " +
+      "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
+      "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example). " +
       "Calling an unknown topic returns a clear error listing the valid options.",
     {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, component-behaviors, ecommerce.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, component-behaviors, ecommerce, shared-layout.",
         ),
     },
     async ({ topic }) => {

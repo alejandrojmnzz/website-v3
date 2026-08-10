@@ -25,7 +25,8 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
   return headers;
 }
 
-const SITE_PARAM_DESC = 'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists)';
+const SITE_PARAM_DESC =
+  'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists). Multi-site: always pass site. If unsure, call list_sites first.';
 
 function assertResolvedComponent(componentType: string, contentFolder: string): string | null {
   try {
