@@ -60,8 +60,8 @@ export interface EcommercePayload {
   addon_id?: string;
   /** Plan-mode display amount string (e.g. "129"), or date-mode summary.price_amount */
   amount?: string;
-  /** Plan-mode period string (e.g. "/month") */
-  period?: string;
+  /** Plan-mode period display string (e.g. "/month") — aligns with learn.4geeks period_label */
+  period_label?: string;
   item_list_name?: string;
   path?: string;
   component_type?: string;

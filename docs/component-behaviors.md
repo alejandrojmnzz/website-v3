@@ -29,7 +29,7 @@ Save/MCP validation: missing tracking on bound paths fails; non-`none` requires 
 
 ## Ecommerce payload (UI vs central)
 
-- **Call sites** supply context the central layer cannot know: enrollment `selected_plan_option` (`plans[].id`), `cohort_date`, `addon_id`, `amount`/`period`, and `item_list_name`.
+- **Call sites** supply context the central layer cannot know: enrollment `selected_plan_option` (`plans[].id`), `cohort_date`, `addon_id`, `amount`/`period_label`, and `item_list_name`.
 - **Central** `trackEcommerce` resolves purchasable product identity (`item_id` / `item_name` / `item_category`) from `_ecommerce.yml` and no-ops when the product is missing or not purchasable.
 - `selected_plan_option` is the enrollment selector option slug — not the learn.4geeks billing `plan` field.
 - `cta-tracking` field-editors (hero course CTA, enrollment summary CTAs) set ecommerce **intent** (`none` | `add_to_cart` | `click_begin_checkout`). `cta_banner` does not bind `cta-tracking` and does not fire ecommerce events.
