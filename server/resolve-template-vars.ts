@@ -80,8 +80,9 @@ export function resolveBagVars(
     if (value !== null && typeof value === "object") {
       const result: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-        // Preserve runtime metadata (e.g. _variableFields / _variableKeys).
-        if (key.startsWith("_")) {
+        // Preserve runtime metadata (_variableFields) and listing item_template
+        // ({{ single.* }} there means each list row, not the page entry).
+        if (key.startsWith("_") || key === "item_template") {
           result[key] = val;
           continue;
         }

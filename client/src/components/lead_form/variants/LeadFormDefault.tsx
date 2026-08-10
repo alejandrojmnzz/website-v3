@@ -1379,8 +1379,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     return !!cfg.visible && !(hideOptionals && !cfg.required);
   };
 
-  // Terms/consent belong to account creation: show them to guests signing up
-  // (and on regular non-signup forms), hide them once the visitor is logged in.
+  // Legal notice + marketing consent: show for guests (lead submit or signup).
+  // Non-signup forms also resolve to guest_signup phase; hide once logged in.
   const showLegalAndConsent = formPhase === "guest_signup";
 
   // After in-place login: if profile filled every required field, finish submission
@@ -2132,7 +2132,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             )}
           </Button>
 
-          {showTerms && showLegalAndConsent && (
+          {isSignupRequested && showTerms && showLegalAndConsent && (
             <p className={`text-xs text-center ${data.terms_className || "text-muted-foreground"}`} style={termsStyle} data-testid="text-terms">
               {locale === "es" ? "Al registrarte, aceptas los " : "By signing up, you agree to the "}
               <a 

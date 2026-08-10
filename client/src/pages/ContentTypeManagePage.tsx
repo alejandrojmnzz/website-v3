@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Columns3, Copy, Database, Download, ExternalLink, Eye, EyeOff, FileText, Folder, GitBranch, Globe, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
@@ -85,7 +85,11 @@ interface StaticEntry {
   urls: Record<string, string>;
   versionCounts?: Record<string, number>;
   mappingErrors?: string[];
+  emptyLocales?: string[];
   updated_at?: string | null;
+  status?: "draft" | "published";
+  draftVariant?: string;
+  previewPath?: string;
 }
 
 interface SeoEntry {
@@ -639,6 +643,74 @@ function ClearCacheConfirmDialog({
               Got it
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RequiredFieldConfirmDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+  fieldName,
+  currentlyRequired,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  fieldName: string | null;
+  currentlyRequired: boolean;
+}) {
+  const enabling = !currentlyRequired;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[480px]" data-testid="dialog-required-field-confirm">
+        <DialogHeader>
+          <DialogTitle>
+            {enabling ? "Mark as required for publish" : "Remove required for publish"}
+          </DialogTitle>
+          <DialogDescription>
+            {fieldName ? (
+              <>
+                Field{" "}
+                <code className="font-mono text-foreground text-xs">{fieldName}</code>
+              </>
+            ) : (
+              "Required for publish"
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm text-muted-foreground" data-testid="fields-required-education">
+          <p>
+            <strong className="font-medium text-foreground">Required for publish</strong> means drafts may
+            leave this field empty; publishing requires a value; live saves cannot clear it.
+          </p>
+          <p>
+            Live pages also always need{" "}
+            <code className="font-mono bg-muted px-1 rounded text-xs">meta.page_title</code> and{" "}
+            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code>{" "}
+            (Meta tab / SEO) — separate from this asterisk.
+          </p>
+          <p className="text-xs">
+            Read more:{" "}
+            <code className="font-mono text-[10px]">server/content-types.ts</code>{" "}
+            <code className="font-mono text-[10px]">editor.required</code>,{" "}
+            <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
+            <code className="font-mono text-[10px]">client/src/hooks/usePageMeta.ts</code>.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            data-testid="button-cancel-required-field"
+          >
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} data-testid="button-confirm-required-field">
+            {enabling ? "Mark required" : "Remove required"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2867,6 +2939,8 @@ function FieldMappingDialog({
   const [newValueValidation, setNewValueValidation] = useState<FieldValidationResult | "loading" | null>(null);
   const [editorHints, setEditorHints] = useState<Record<string, EditorHint>>({});
   const [hintDialogField, setHintDialogField] = useState<string | null>(null);
+  /** Field key pending Required-for-publish confirm (asterisk). */
+  const [pendingRequiredField, setPendingRequiredField] = useState<string | null>(null);
   const [showFillFromAdvanced, setShowFillFromAdvanced] = useState(false);
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const requestCounters = useRef<Record<string, number>>({});
@@ -3701,6 +3775,15 @@ function FieldMappingDialog({
                     <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> (Fields tab —
                     content-type fields, not SEO).
                   </p>
+                  <p>
+                    Asterisk (<code className="font-mono">editor.required</code>): Required for publish —
+                    drafts may be empty; publishing requires a value; live saves cannot clear it. Live pages
+                    also always need <code className="font-mono">meta.page_title</code> and{" "}
+                    <code className="font-mono">meta.description</code>. See{" "}
+                    <code className="font-mono">server/content-types.ts</code>,{" "}
+                    <code className="font-mono">server/live-entry-seo-gate.ts</code>,{" "}
+                    <code className="font-mono">client/src/hooks/usePageMeta.ts</code>.
+                  </p>
                 </div>
               )}
             </div>
@@ -3844,6 +3927,16 @@ function FieldMappingDialog({
                           {(isDbBacked || isFn || currentSrc === key || !showComputeEditor) && (
                             <FieldValidationIndicator result={vResult} optional={optionalFields[key]} />
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`flex-shrink-0 ${editorHints[key]?.required ? "text-primary" : ""}`}
+                            title="Required for publish"
+                            onClick={() => setPendingRequiredField(key)}
+                            data-testid={`button-required-field-${key}`}
+                          >
+                            <Asterisk className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -4169,6 +4262,36 @@ function FieldMappingDialog({
         if (!field) return;
         setEditorHints((prev) => ({ ...prev, [field]: hint }));
         setHintDialogField(null);
+      }}
+    />
+    <RequiredFieldConfirmDialog
+      open={pendingRequiredField !== null}
+      fieldName={pendingRequiredField}
+      currentlyRequired={
+        pendingRequiredField ? !!editorHints[pendingRequiredField]?.required : false
+      }
+      onOpenChange={(next) => {
+        if (!next) setPendingRequiredField(null);
+      }}
+      onConfirm={() => {
+        const field = pendingRequiredField;
+        if (!field) return;
+        setEditorHints((prev) => {
+          const cur = prev[field] || {};
+          const nextRequired = !cur.required;
+          const next = { ...cur, required: nextRequired };
+          if (!nextRequired) {
+            const { required: _r, ...rest } = next;
+            if (Object.keys(rest).length === 0) {
+              const clone = { ...prev };
+              delete clone[field];
+              return clone;
+            }
+            return { ...prev, [field]: rest };
+          }
+          return { ...prev, [field]: next };
+        });
+        setPendingRequiredField(null);
       }}
     />
     <EntryPreviewConfigDialog
@@ -4634,7 +4757,14 @@ export default function ContentTypeManagePage() {
   const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string } | null>(null);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [duplicatingPage, setDuplicatingPage] = useState<{ loc: string; label: string; contentType: string; locale?: string } | null>(null);
+  const [duplicatingPage, setDuplicatingPage] = useState<{
+    loc: string;
+    label: string;
+    contentType: string;
+    locale?: string;
+    sourceSlug?: string;
+    isDraft?: boolean;
+  } | null>(null);
   const [createContentType, setCreateContentType] = useState<string>(contentType);
   const [createContentTitle, setCreateContentTitle] = useState("");
   const [createContentSlugEn, setCreateContentSlugEn] = useState("");
@@ -5104,13 +5234,15 @@ export default function ContentTypeManagePage() {
   })();
 
   const staticEntries = staticEntriesData?.results || [];
+  const staticEntryErrorCount = (e: StaticEntry) =>
+    (e.mappingErrors?.length ?? 0) + (e.emptyLocales?.length ?? 0);
   const staticEntriesWithErrors = staticEntries.filter(
-    (e) => (e.mappingErrors?.length ?? 0) > 0,
+    (e) => staticEntryErrorCount(e) > 0,
   ).length;
   const filteredStatic = (() => {
     let list = staticEntries;
     if (errorsOnly) {
-      list = list.filter((e) => (e.mappingErrors?.length ?? 0) > 0);
+      list = list.filter((e) => staticEntryErrorCount(e) > 0);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -5605,9 +5737,16 @@ export default function ContentTypeManagePage() {
 
   const handleDuplicate = async (entry: StaticEntry) => {
     const firstLocale = entry.locales[0] || "en";
-    const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || `/${firstLocale}/${entry.slug}`;
+    const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || "";
     const suggestedSlug = `${entry.slug}-copy`;
-    setDuplicatingPage({ loc: firstUrl, label: entry.title, contentType, locale: firstLocale });
+    setDuplicatingPage({
+      loc: firstUrl || `/${firstLocale}/${entry.slug}`,
+      label: entry.title,
+      contentType,
+      locale: firstLocale,
+      sourceSlug: entry.slug,
+      isDraft: entry.status === "draft",
+    });
     setCreateContentType(contentType);
     setCreateContentTitle(`${entry.title} (Copy)`);
     setCreateContentSlugEn(suggestedSlug);
@@ -6044,6 +6183,7 @@ export default function ContentTypeManagePage() {
                   className={`gap-1.5 ${errorsOnly ? "border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15" : "text-muted-foreground"}`}
                   onClick={() => setErrorsOnly((v) => !v)}
                   data-testid="button-filter-errors-only"
+                  title="Includes missing mapped fields and empty detached locales (hidden publicly until translated or removed)"
                 >
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Errors only ({staticEntriesWithErrors})
@@ -6431,6 +6571,15 @@ export default function ContentTypeManagePage() {
                                   <div className="text-xs text-muted-foreground truncate max-w-[300px]">
                                     {entry.slug}
                                   </div>
+                                  {entry.status === "draft" && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] px-1.5 py-0 h-4 shrink-0"
+                                      data-testid={`badge-draft-${entry.slug}`}
+                                    >
+                                      Draft
+                                    </Badge>
+                                  )}
                                   {isPartialOverride(entry.slug) && (
                                     <Badge
                                       variant="outline"
@@ -6455,8 +6604,32 @@ export default function ContentTypeManagePage() {
                                 ) : (
                                   entry.locales.map((loc) => {
                                     const count = entry.versionCounts?.[loc];
+                                    const isEmptyLocale = (entry.emptyLocales ?? []).includes(loc);
                                     return (
-                                      <Badge key={loc} variant="outline" className="text-xs">
+                                      <Badge
+                                        key={loc}
+                                        variant="outline"
+                                        className={`text-xs relative ${isEmptyLocale ? "border-destructive/60 text-destructive" : ""}`}
+                                        title={
+                                          isEmptyLocale
+                                            ? "Empty detached locale — hidden from public site until translated or removed"
+                                            : undefined
+                                        }
+                                        data-testid={
+                                          isEmptyLocale
+                                            ? `badge-empty-locale-${entry.slug}-${loc}`
+                                            : undefined
+                                        }
+                                      >
+                                        {isEmptyLocale && (
+                                          <span
+                                            className="absolute -top-0.5 -right-0.5 flex h-2 w-2"
+                                            aria-hidden
+                                          >
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+                                          </span>
+                                        )}
                                         {loc.toUpperCase()}{count && count > 1 ? ` · ${count}` : ""}
                                       </Badge>
                                     );
@@ -6469,7 +6642,7 @@ export default function ContentTypeManagePage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
-                                {(entry.mappingErrors?.length ?? 0) > 0 && (
+                                {staticEntryErrorCount(entry) > 0 && (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button
@@ -6479,23 +6652,46 @@ export default function ContentTypeManagePage() {
                                         data-testid={`button-errors-${entry.slug}`}
                                       >
                                         <AlertTriangle className="h-3.5 w-3.5" />
-                                        Errors {entry.mappingErrors!.length}
+                                        Errors {staticEntryErrorCount(entry)}
                                       </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="min-w-[200px]">
-                                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                                        Missing mapped fields
-                                      </div>
-                                      {entry.mappingErrors!.map((field) => (
-                                        <div
-                                          key={field}
-                                          className="flex items-center gap-2 px-2 py-1 text-[13px]"
-                                          data-testid={`text-error-field-${entry.slug}-${field}`}
-                                        >
-                                          <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
-                                          <code className="text-xs">{field}</code>
-                                        </div>
-                                      ))}
+                                      {(entry.mappingErrors?.length ?? 0) > 0 && (
+                                        <>
+                                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                            Missing mapped fields
+                                          </div>
+                                          {entry.mappingErrors!.map((field) => (
+                                            <div
+                                              key={field}
+                                              className="flex items-center gap-2 px-2 py-1 text-[13px]"
+                                              data-testid={`text-error-field-${entry.slug}-${field}`}
+                                            >
+                                              <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                                              <code className="text-xs">{field}</code>
+                                            </div>
+                                          ))}
+                                        </>
+                                      )}
+                                      {(entry.emptyLocales?.length ?? 0) > 0 && (
+                                        <>
+                                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                            Empty locales
+                                          </div>
+                                          {entry.emptyLocales!.map((loc) => (
+                                            <div
+                                              key={loc}
+                                              className="flex items-center gap-2 px-2 py-1 text-[13px]"
+                                              data-testid={`text-error-empty-locale-${entry.slug}-${loc}`}
+                                            >
+                                              <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                                              <span className="text-xs">
+                                                {loc.toUpperCase()} — empty detached locale (hidden publicly)
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </>
+                                      )}
                                       <DropdownMenuSeparator />
                                       <DropdownMenuItem
                                         onClick={() => handleEditYaml(entry)}
@@ -6508,7 +6704,14 @@ export default function ContentTypeManagePage() {
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 )}
-                                {Object.keys(entry.urls).length > 0 && (
+                                {entry.status === "draft" && entry.previewPath ? (
+                                  <Button variant="ghost" size="sm" className="text-xs gap-1.5" asChild data-testid={`button-open-${entry.slug}`}>
+                                    <a href={entry.previewPath}>
+                                      <ExternalLink className="h-3.5 w-3.5" />
+                                      Preview draft
+                                    </a>
+                                  </Button>
+                                ) : Object.keys(entry.urls).length > 0 && (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button variant="ghost" size="sm" className="text-xs gap-1.5" data-testid={`button-open-${entry.slug}`}>
@@ -7003,7 +7206,7 @@ export default function ContentTypeManagePage() {
               <div className="px-4 py-3 border-t text-xs text-muted-foreground" data-testid="text-showing-count">
                 Showing {filteredStatic.length} of {staticEntries.length} entries
                 {staticEntriesWithErrors > 0 && (
-                  <span data-testid="text-error-count"> · {staticEntriesWithErrors} with mapping errors</span>
+                  <span data-testid="text-error-count"> · {staticEntriesWithErrors} with errors (mapping or empty locales)</span>
                 )}
               </div>
             )}

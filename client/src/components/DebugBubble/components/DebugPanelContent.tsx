@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
@@ -289,10 +290,17 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     setDetachConfirmOpen(true);
   }, []);
 
-  const { data: versionData } = useQuery<{ version: string }>({
+  const { data: versionData } = useQuery<{ version: string; deployedAt?: string | null }>({
     queryKey: ["/api/version"],
     staleTime: Infinity,
   });
+
+  const versionDeployedLabel = (() => {
+    if (!versionData?.deployedAt) return null;
+    const deployedDate = new Date(versionData.deployedAt);
+    if (Number.isNaN(deployedDate.getTime())) return null;
+    return formatDistanceToNow(deployedDate, { addSuffix: true });
+  })();
 
   const { data: errorLogData } = useQuery<{ totalErrors: number; totalWarnings: number }>({
     queryKey: ["/api/admin/error-log", "badge"],
@@ -929,15 +937,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 testId="link-store-products"
               />
               <MenuItem
-                icon={IconShoppingBag}
-                label="Plans"
-                href="/private/store/plans"
-                indicator="arrow"
-                testId="link-store-plans"
-              />
-              <MenuItem
                 icon={IconTargetArrow}
-                label="Conversions"
+                label="Form Conversions"
                 href="/private/store/conversions"
                 indicator="arrow"
                 testId="link-store-conversions"
@@ -1027,7 +1028,14 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     )}
                   </div>
                   {versionData?.version && (
-                    <span className="text-[10px] text-muted-foreground px-1 -mx-1" data-testid="text-app-version">v{versionData.version}</span>
+                    <span
+                      className="text-[10px] text-muted-foreground px-1 -mx-1"
+                      data-testid="text-app-version"
+                      title={versionData.deployedAt || undefined}
+                    >
+                      v{versionData.version}
+                      {versionDeployedLabel ? ` · ${versionDeployedLabel}` : ""}
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -1230,7 +1238,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </ul>
             </div>
             <p>
-              Detach when one page needs its own experiments or layout. Stay attached when you want every entry to keep matching the shared template.
+              Detach when one page needs its own experiments or layout, or before adding a new translation locale.
+              Stay attached when you want every entry to keep matching the shared template.
+            </p>
+            <p className="text-xs">
+              Detach only updates locales that already have a live{" "}
+              <code className="text-[11px]">{"{locale}.yml"}</code> on this entry — it does not invent missing languages.
+              If this entry has no locale files yet, detach fails until you create one.
             </p>
 
             <button
@@ -1250,11 +1264,21 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 <div>
                   <p className="font-medium text-foreground mb-1">How it works under the hood</p>
                   <p>
-                    Detach copies the live shared template structure into this entry&apos;s locale YAML files and sets{" "}
+                    Detach copies the live shared template structure into this entry&apos;s <strong>existing</strong> locale YAML files and sets{" "}
                     <code className="text-[11px]">detached: true</code> in{" "}
                     <code className="text-[11px]">_common.yml</code>. Template variables like{" "}
                     <code className="text-[11px]">{"{{ single.* }}"}</code> are preserved, not resolved.
+                    Paths: <code className="text-[11px]">server/shared-layout-detach.ts</code>, emptiness rules in{" "}
+                    <code className="text-[11px]">shared/isEmptyLocaleContent.ts</code>.
                   </p>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground mb-1">Translations after detach</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>New locales start as <code className="text-[11px]">draft.{"{locale}"}.yml</code> (not public) until promote/publish</li>
+                    <li>Empty live stubs are converted to draft — they 404 publicly with an unavailable message</li>
+                    <li>Agents use MCP <code className="text-[11px]">translate_page</code> → edit draft → diagnose → promote</li>
+                  </ul>
                 </div>
                 <div>
                   <p className="font-medium text-foreground mb-1">Versioning</p>
@@ -1271,9 +1295,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   <p className="font-medium text-foreground mb-1">Files written</p>
                   <ul className="list-disc pl-5 space-y-1">
                     <li>
-                      Locale files (e.g. <code className="text-[11px]">en.yml</code>) receive baked{" "}
+                      Existing locale files (e.g. <code className="text-[11px]">en.yml</code>) receive baked{" "}
                       <code className="text-[11px]">sections</code> and <code className="text-[11px]">layout</code> from the live template
                     </li>
+                    <li>Sibling locales without a file are not created</li>
                     <li>Existing data fields on the entry are kept; structural keys are owned by the entry afterward</li>
                   </ul>
                 </div>

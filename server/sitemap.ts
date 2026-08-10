@@ -8,8 +8,24 @@ import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
 import type { SiteContext } from "./site-manager";
 import { getDefaultContentFolder } from "./site-config";
+import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import path from "path";
 const log = child({ module: "sitemap" });
+
+function shouldSkipEmptyDetachedLocale(
+  contentType: string,
+  slug: string,
+  locale: string,
+  ci: typeof contentIndex,
+): boolean {
+  return isEmptyDetachedLocaleEntry({
+    contentType,
+    slug,
+    locale,
+    contentRoot: ci.contentRoot,
+    ci,
+  });
+}
 
 // Per-request site context for per-site sitemap generation.
 // Set synchronously inside getCanonicalEntries before calling buildCanonicalSitemapEntries.
@@ -148,6 +164,7 @@ function getAvailablePrograms(ci: typeof contentIndex = _ci()): AvailableProgram
       const locales = ci.getAvailableLocalesOrVariants("program", slug);
 
       for (const locale of locales) {
+        if (shouldSkipEmptyDetachedLocale("program", slug, locale, ci)) continue;
         const merged = loadMergedContent("program", slug, locale, ci);
         if (!merged) continue;
 
@@ -178,6 +195,7 @@ function getAvailableLocations(ci: typeof contentIndex = _ci()): AvailableLocati
       const locales = ci.getAvailableLocalesOrVariants("location", slug);
 
       for (const locale of locales) {
+        if (shouldSkipEmptyDetachedLocale("location", slug, locale, ci)) continue;
         const merged = loadMergedContent("location", slug, locale, ci);
         if (!merged) continue;
 
@@ -214,6 +232,7 @@ function getAvailableTemplatePages(ci: typeof contentIndex = _ci(), cf: string =
       for (const locale of locales) {
         // Only process locale files (en, es)
         if (!getSupportedLocales(cf).includes(locale)) continue;
+        if (shouldSkipEmptyDetachedLocale("page", dirSlug, locale, ci)) continue;
 
         const merged = loadMergedContent("page", dirSlug, locale, ci);
         if (!merged) continue;
@@ -478,6 +497,10 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         const locales = ci.getAvailableLocalesOrVariants(typeName, slug);
         for (const locale of locales) {
           if (!getSupportedLocales(cf).includes(locale)) continue;
+          if (shouldSkipEmptyDetachedLocale(typeName, slug, locale, ci)) {
+            log.info(`[Sitemap] Skipping empty detached locale ${typeName}: ${slug} (${locale})`);
+            continue;
+          }
 
           const merged = loadMergedContent(typeName, slug, locale, ci);
           if (!merged) continue;
@@ -594,12 +617,30 @@ ${urlEntries}
 
 function entriesToHumanReadable(
   entries: CanonicalSitemapEntry[],
-): Array<{ loc: string; label: string; locale?: string }> {
-  return entries.map((entry) => ({
-    loc: entry.loc,
-    label: entry.label,
-    ...(entry.locale ? { locale: entry.locale } : {}),
-  }));
+): Array<{
+  loc: string;
+  label: string;
+  locale?: string;
+  content_type?: string;
+  slug?: string;
+}> {
+  return entries.map((entry) => {
+    let content_type: string | undefined;
+    let slug: string | undefined;
+    if (entry.contentKey) {
+      const colon = entry.contentKey.indexOf(":");
+      if (colon > 0) {
+        content_type = entry.contentKey.slice(0, colon);
+        slug = entry.contentKey.slice(colon + 1);
+      }
+    }
+    return {
+      loc: entry.loc,
+      label: entry.label,
+      ...(entry.locale ? { locale: entry.locale } : {}),
+      ...(content_type && slug ? { content_type, slug } : {}),
+    };
+  });
 }
 
 // ============================================================================
@@ -639,7 +680,13 @@ export function getSitemap(ctx?: ActiveSiteCtx): string {
   return entriesToXml(Array.from(entriesMap.values()));
 }
 
-export function getSitemapUrls(ctx?: ActiveSiteCtx): Array<{ loc: string; label: string; locale?: string }> {
+export function getSitemapUrls(ctx?: ActiveSiteCtx): Array<{
+  loc: string;
+  label: string;
+  locale?: string;
+  content_type?: string;
+  slug?: string;
+}> {
   const entriesMap = getCanonicalEntries(ctx);
   return entriesToHumanReadable(Array.from(entriesMap.values()));
 }

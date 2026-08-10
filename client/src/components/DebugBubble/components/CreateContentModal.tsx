@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { buildContentUrlFromPattern, listExtraUrlPatternParams } from "@/lib/locale";
 import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
+import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import type { ContentTypeValue, SlugCheckStatus, SitemapUrl } from "../types";
 import {
   Command,
@@ -39,7 +40,14 @@ import { cn } from "@/lib/utils";
 export interface CreateContentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  duplicatingPage: { loc: string; label: string; contentType: string; locale?: string } | null;
+  duplicatingPage: {
+    loc: string;
+    label: string;
+    contentType: string;
+    locale?: string;
+    sourceSlug?: string;
+    isDraft?: boolean;
+  } | null;
   createContentType: ContentTypeValue;
   setCreateContentType: (v: ContentTypeValue) => void;
   createContentTitle: string;
@@ -424,6 +432,9 @@ export function CreateContentModal({
   const [createError, setCreateError] = useState<string | null>(null);
   const [exampleOpen, setExampleOpen] = useState(false);
   const [dialogPortalEl, setDialogPortalEl] = useState<HTMLDivElement | null>(null);
+  const [showWhyOneLanguage, setShowWhyOneLanguage] = useState(false);
+  const [showWhenTranslation, setShowWhenTranslation] = useState(false);
+  const [showSharedLayoutCreateAdvanced, setShowSharedLayoutCreateAdvanced] = useState(false);
 
   const contentTypesMap = useContentTypes();
   const { data: rawContentTypes } = useContentTypesRaw();
@@ -439,35 +450,38 @@ export function CreateContentModal({
 
   const loc0 = supportedLocales[0]?.code ?? "en";
   const loc1 = supportedLocales[1]?.code ?? "es";
+  const defaultLocaleCode = localeSettings?.default_locale ?? loc0;
 
   useEffect(() => {
-    if (duplicatingPage) {
-      const urlPattern = contentTypesMap?.[createContentType]?.url_pattern;
-      const isAgnostic = !!urlPattern?.["default"] && !urlPattern?.[loc0] && !urlPattern?.[loc1];
+    const typeMeta = rawContentTypes?.find((ct) => ct.name === createContentType);
+    const isShared = isSharedLayoutType(typeMeta);
+    const pattern = contentTypesMap?.[createContentType]?.url_pattern;
+    const isAgnostic = !!pattern?.["default"] && !pattern?.[loc0] && !pattern?.[loc1];
+    const forceSingle = isShared || isAgnostic;
 
-      if (isAgnostic) {
-        let sourceLocale: string | null = duplicatingPage.locale ?? null;
-        if (!sourceLocale) {
-          for (const loc of supportedLocales) {
-            if (duplicatingPage.loc.includes(`/${loc.code}/`)) {
-              sourceLocale = loc.code;
-              break;
-            }
+    if (!forceSingle) {
+      setExcludedLocales(new Set());
+      return;
+    }
+
+    let chosen: string | null = null;
+    if (duplicatingPage) {
+      chosen = duplicatingPage.locale ?? null;
+      if (!chosen) {
+        for (const loc of supportedLocales) {
+          if (duplicatingPage.loc.includes(`/${loc.code}/`)) {
+            chosen = loc.code;
+            break;
           }
         }
-        if (sourceLocale) {
-          const others = supportedLocales.map((l) => l.code).filter((c) => c !== sourceLocale);
-          setExcludedLocales(new Set(others));
-        } else {
-          setExcludedLocales(new Set());
-        }
-      } else {
-        setExcludedLocales(new Set());
       }
-    } else {
-      setExcludedLocales(new Set());
     }
-  }, [duplicatingPage, localeSettings, contentTypesMap, createContentType]);
+    chosen = chosen || defaultLocaleCode;
+    setAgnosticLocale(chosen);
+    setExcludedLocales(
+      new Set(supportedLocales.map((l) => l.code).filter((c) => c !== chosen)),
+    );
+  }, [duplicatingPage, localeSettings, contentTypesMap, createContentType, rawContentTypes, loc0, loc1, defaultLocaleCode]);
 
   const isTypeChanged = !!(duplicatingPage && createContentType !== duplicatingPage.contentType);
 
@@ -537,6 +551,42 @@ export function CreateContentModal({
   }, [open, duplicatingPage, urlParams, urlPattern, supportedLocales, loc0]);
 
   const selectedTypeData = rawContentTypes?.find((ct) => ct.name === createContentType);
+  const isSharedLayoutCreate = isSharedLayoutType(selectedTypeData);
+  const isLocaleAgnosticPattern =
+    !!urlPattern?.["default"] && !urlPattern?.[loc0] && !urlPattern?.[loc1];
+  /** Shared-layout (live-on-create) and locale-agnostic URL patterns: exactly one locale. */
+  const forceSingleLocaleCreate = isLocaleAgnosticPattern || isSharedLayoutCreate;
+
+  const sourceSlug = (() => {
+    if (!duplicatingPage) return undefined;
+    const parts = duplicatingPage.loc.replace(/\/$/, "").split("/").filter(Boolean);
+    return parts[parts.length - 1] ?? undefined;
+  })();
+
+  const sourceLocale = (() => {
+    if (!duplicatingPage) return undefined;
+    if (duplicatingPage.locale) return duplicatingPage.locale;
+    for (const loc of supportedLocales) {
+      if (duplicatingPage.loc.includes(`/${loc.code}/`)) return loc.code;
+    }
+    return undefined;
+  })();
+
+  const primaryLocale = agnosticLocale ?? (sourceLocale ?? defaultLocaleCode);
+  const effectiveSingleLocale = agnosticLocale ?? primaryLocale;
+  const isLocaleVisible = (loc: string) => {
+    if (forceSingleLocaleCreate) return loc === effectiveSingleLocale;
+    return true;
+  };
+
+  const slugsConflict =
+    forceSingleLocaleCreate &&
+    !excludedLocales.has(loc0) &&
+    !excludedLocales.has(loc1) &&
+    isLocaleVisible(loc0) &&
+    isLocaleVisible(loc1) &&
+    !!createContentSlugEn &&
+    createContentSlugEn === createContentSlugEs;
 
   const extraUniqueFields = (() => {
     const unique = selectedTypeData?.unique_fields ?? ["slug"];
@@ -571,21 +621,6 @@ export function CreateContentModal({
     }
     return { editableNonUniqueFields: editable, computedFields: computed };
   }, [typeConfig, selectedTypeData]);
-
-  const sourceSlug = (() => {
-    if (!duplicatingPage) return undefined;
-    const parts = duplicatingPage.loc.replace(/\/$/, "").split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? undefined;
-  })();
-
-  const sourceLocale = (() => {
-    if (!duplicatingPage) return undefined;
-    if (duplicatingPage.locale) return duplicatingPage.locale;
-    for (const loc of supportedLocales) {
-      if (duplicatingPage.loc.includes(`/${loc.code}/`)) return loc.code;
-    }
-    return undefined;
-  })();
 
   const { data: exampleData, isLoading: exampleLoading } = useQuery<EntryFieldsResponse>({
     queryKey: ["/api/content-types", createContentType, "entry-fields"],
@@ -682,27 +717,11 @@ export function CreateContentModal({
       setExampleOpen(false);
       setLocaleTitles({});
       setManualTitleLocales(new Set());
+      setShowWhyOneLanguage(false);
+      setShowWhenTranslation(false);
+      setShowSharedLayoutCreateAdvanced(false);
     }
   };
-
-  const isLocaleAgnosticPattern =
-    !!urlPattern?.["default"] && !urlPattern?.[loc0] && !urlPattern?.[loc1];
-
-  const primaryLocale = agnosticLocale ?? (sourceLocale ?? loc0);
-  const effectiveSingleLocale = agnosticLocale ?? primaryLocale;
-  const isLocaleVisible = (loc: string) => {
-    if (isLocaleAgnosticPattern) return loc === effectiveSingleLocale;
-    return true;
-  };
-
-  const slugsConflict =
-    isLocaleAgnosticPattern &&
-    !excludedLocales.has(loc0) &&
-    !excludedLocales.has(loc1) &&
-    isLocaleVisible(loc0) &&
-    isLocaleVisible(loc1) &&
-    !!createContentSlugEn &&
-    createContentSlugEn === createContentSlugEs;
 
   const slugsReady = (() => {
     const loc0Needed = !excludedLocales.has(loc0) && isLocaleVisible(loc0);
@@ -745,7 +764,11 @@ export function CreateContentModal({
           slugEs: (excludedLocales.has(loc1) || !isLocaleVisible(loc1)) ? undefined : createContentSlugEs,
           title: createContentTitle || localeTitles[effectiveSingleLocale] || createContentSlugEn || createContentSlugEs,
           ...(author ? { author } : {}),
-          ...(duplicatingPage ? { sourceUrl: duplicatingPage.loc } : {}),
+          ...(duplicatingPage
+            ? (duplicatingPage.sourceSlug
+                ? { sourceSlug: duplicatingPage.sourceSlug, sourceType: duplicatingPage.contentType }
+                : { sourceUrl: duplicatingPage.loc })
+            : {}),
           ...(() => {
             const skipped = new Set(excludedLocales);
             supportedLocales.forEach((l) => { if (!isLocaleVisible(l.code)) skipped.add(l.code); });
@@ -772,12 +795,32 @@ export function CreateContentModal({
         const loc0Active = !excludedLocales.has(loc0) && isLocaleVisible(loc0);
         const activeSlug = loc0Active ? createContentSlugEn : createContentSlugEs;
         const activeLocaleCode = loc0Active ? loc0 : loc1;
-        const newUrl = buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode, urlParamValues[activeLocaleCode]);
+        const isDraft = data.status === "draft";
+        const previewPath =
+          typeof data.previewPath === "string"
+            ? data.previewPath
+            : isDraft
+              ? `/private/preview/${createContentType}/${activeSlug}?variant=${encodeURIComponent(data.draftVariant || "draft")}&locale=${activeLocaleCode}`
+              : null;
+        const newUrl = previewPath
+          || buildContentUrlFromPattern(pattern, activeSlug, activeLocaleCode, urlParamValues[activeLocaleCode]);
+        const cleared = Array.isArray(data.clearedFields) ? data.clearedFields as Array<{ path?: string; sectionType?: string }> : [];
+        const clearedHint =
+          cleared.length > 0
+            ? ` Cleared ${cleared.length} conversion/ecommerce field(s) (e.g. ${cleared
+                .slice(0, 3)
+                .map((c) => `${c.sectionType || "section"}.${c.path}`)
+                .join(", ")}). Re-set them before save/publish.`
+            : "";
         toast({
-          title: duplicatingPage ? "Page duplicated" : "Content created",
-          description: duplicatingPage
-            ? `Created copy at ${newUrl}`
-            : `Created new ${createContentType} at ${newUrl}`,
+          title: duplicatingPage
+            ? (isDraft ? "Draft duplicated" : "Page duplicated")
+            : (isDraft ? "Draft created" : "Content created"),
+          description: (isDraft
+            ? `Unpublished draft ready — publish from Page Versions when ready. Preview: ${newUrl}`
+            : duplicatingPage
+              ? `Created copy at ${newUrl}`
+              : `Created new ${createContentType} at ${newUrl}`) + clearedHint,
         });
         onOpenChange(false);
         setCreateContentTitle("");
@@ -795,13 +838,15 @@ export function CreateContentModal({
         setLocaleTitles({});
         setManualTitleLocales(new Set());
 
-        setSitemapLoading(true);
-        const sitemapRes = await fetch("/api/debug/sitemap-urls");
-        if (sitemapRes.ok) {
-          const urls = await sitemapRes.json();
-          setSitemapUrls(urls);
+        if (!isDraft) {
+          setSitemapLoading(true);
+          const sitemapRes = await fetch("/api/debug/sitemap-urls");
+          if (sitemapRes.ok) {
+            const urls = await sitemapRes.json();
+            setSitemapUrls(urls);
+          }
+          setSitemapLoading(false);
         }
-        setSitemapLoading(false);
 
         window.location.href = newUrl;
       } else {
@@ -943,9 +988,11 @@ export function CreateContentModal({
 
               return (
                 <div className="space-y-3 p-3 bg-muted/50 rounded-md">
-                  {isLocaleAgnosticPattern && supportedLocales.length > 1 && (
+                  {forceSingleLocaleCreate && supportedLocales.length > 1 && (
                     <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Language:</p>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        This {createContentType.charAt(0).toUpperCase() + createContentType.slice(1)} will be in (choose one):
+                      </p>
                       <div className="flex gap-1">
                         {supportedLocales.map((loc) => (
                           <button
@@ -977,9 +1024,90 @@ export function CreateContentModal({
                       </div>
                     </div>
                   )}
+                  {isSharedLayoutCreate && (
+                    <div className="space-y-1.5 text-xs text-muted-foreground" data-testid="text-shared-layout-create-education">
+                      <div>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400 hover:underline"
+                          onClick={() => setShowWhyOneLanguage((v) => !v)}
+                          aria-expanded={showWhyOneLanguage}
+                          data-testid="button-toggle-why-one-language"
+                        >
+                          Why only one language?
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 transition-transform ${showWhyOneLanguage ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {showWhyOneLanguage && (
+                          <div className="mt-1.5 space-y-1.5 pl-0.5">
+                            <p>
+                              Content types with a shared template (like Blog) do not use draft-first create.
+                              The entry is published immediately, so you can only create{" "}
+                              <strong className="text-foreground font-medium">one language at a time</strong>.
+                              Adding a second language here would put an empty public page online.
+                            </p>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400 hover:underline"
+                              onClick={() => setShowSharedLayoutCreateAdvanced((v) => !v)}
+                              data-testid="button-toggle-shared-layout-create-advanced"
+                            >
+                              {showSharedLayoutCreateAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+                              <ChevronDown
+                                className={`h-3.5 w-3.5 transition-transform ${showSharedLayoutCreateAdvanced ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                            {showSharedLayoutCreateAdvanced && (
+                              <div className="space-y-1.5 text-[11px]">
+                                <p>
+                                  Gate: <code className="text-[11px]">server/content-editor.ts</code> (
+                                  <code className="text-[11px]">createContentEntry</code>
+                                  ). Shared-layout stays live-on-create (
+                                  <code className="text-[11px]">server/draft-entry.ts</code>{" "}
+                                  <code className="text-[11px]">usesDraftFirstCreate</code>
+                                  ).
+                                </p>
+                                <p>
+                                  Later translations: DebugBubble Detach → MCP{" "}
+                                  <code className="text-[11px]">translate_page</code> →{" "}
+                                  <code className="text-[11px]">draft.{"{locale}"}.yml</code> → promote/publish. See{" "}
+                                  <code className="text-[11px]">mcp-server/explain/content_system.md</code>.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400 hover:underline"
+                          onClick={() => setShowWhenTranslation((v) => !v)}
+                          aria-expanded={showWhenTranslation}
+                          data-testid="button-toggle-when-translation"
+                        >
+                          When can you add a translation?
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 transition-transform ${showWhenTranslation ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {showWhenTranslation && (
+                          <p className="mt-1.5 pl-0.5">
+                            After this first locale exists and has real content: open the page, detach it from the shared template if it is still attached, then add the new language as a draft and promote it when the translation is ready.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!forceSingleLocaleCreate && visibleLocales.length > 1 && excludedLocales.size > 0 && (
+                    <p className="text-[11px] text-muted-foreground" data-testid="text-skipped-locale-hint">
+                      Skipped locales are not created.
+                    </p>
+                  )}
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium text-muted-foreground">
-                      {visibleLocales.length > 1
+                      {visibleLocales.length > 1 && !forceSingleLocaleCreate
                         ? "Titles per locale:"
                         : `Title in ${supportedLocales.find((l) => l.code === visibleLocales[0])?.label ?? visibleLocales[0]}:`}
                     </p>

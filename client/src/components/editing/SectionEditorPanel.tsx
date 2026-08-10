@@ -600,7 +600,6 @@ export function SectionEditorPanel({
   const [exampleCopied, setExampleCopied] = useState(false);
   const [locationsPickerOpen, setLocationsPickerOpen] = useState(false);
   const [conversionNameEditing, setConversionNameEditing] = useState(false);
-  const [tocShareDialogOpen, setTocShareDialogOpen] = useState(false);
   const [tocShareApplying, setTocShareApplying] = useState(false);
   const [consentsEditing, setConsentsEditing] = useState(false);
   const [webhookEditing, setWebhookEditing] = useState(false);
@@ -1221,8 +1220,21 @@ export function SectionEditorPanel({
         pushUndoState(yamlContent);
 
         const pathParts = key.split(".");
+        const leaf = pathParts[pathParts.length - 1] ?? "";
+        // Persist YAML null for identity opt-out (missing ≠ off after duplicate wipe)
+        const persistNull =
+          value === null &&
+          (leaf === "conversion_name" ||
+            leaf === "ecommerce_products" ||
+            key.endsWith(".conversion_name") ||
+            key.endsWith(".ecommerce_products"));
+        const shouldDelete =
+          value === undefined ||
+          (value === null && !persistNull) ||
+          (value === "" && !persistNull);
+
         if (pathParts.length === 1) {
-          if (value !== undefined && value !== null && value !== "") {
+          if (!shouldDelete) {
             parsed[key] = value;
           } else {
             delete parsed[key];
@@ -1237,14 +1249,12 @@ export function SectionEditorPanel({
             current = current[part] as Record<string, unknown>;
           }
           const finalKey = pathParts[pathParts.length - 1];
-          if (value !== undefined && value !== null && value !== "") {
+          if (!shouldDelete) {
             current[finalKey] = value;
           } else {
             delete current[finalKey];
-
-            }
             // Clean up empty parent objects after deletion
-            if (!value && value !== false && value !== 0) {
+            if (!persistNull) {
               for (let i = pathParts.length - 2; i >= 0; i--) {
                 const parentPath = pathParts.slice(0, i);
                 let parent: Record<string, unknown> = parsed;
@@ -1258,8 +1268,8 @@ export function SectionEditorPanel({
                   break;
                 }
               }
+            }
           }
-          
         }
 
         const newYaml = safeYamlDump(parsed, {
@@ -1778,26 +1788,7 @@ export function SectionEditorPanel({
     }
   };
 
-  const handleArticleTocToggle = (checked: boolean) => {
-    if (!checked) {
-      applyLocalTocSettings({ showToc: false });
-      return;
-    }
-    // Prompt to share when enabling TOC and other articles exist on the page
-    if (articlesOnPage.length > 1) {
-      setTocShareDialogOpen(true);
-      return;
-    }
-    applyLocalTocSettings({ showToc: true });
-  };
-
-  const handleTocShareChoice = async (shareToc: boolean) => {
-    if (!shareToc) {
-      applyLocalTocSettings({ showToc: true, tocGroup: null });
-      setTocShareDialogOpen(false);
-      return;
-    }
-
+  const unifyArticleTocOnPage = async () => {
     const groupId = resolveTocGroupId(articlesOnPage);
     applyLocalTocSettings({ showToc: true, tocGroup: groupId });
 
@@ -1808,7 +1799,6 @@ export function SectionEditorPanel({
     );
 
     if (siblingOps.length === 0 || !contentType || !slug || !locale) {
-      setTocShareDialogOpen(false);
       return;
     }
 
@@ -1825,8 +1815,9 @@ export function SectionEditorPanel({
       if (result.success) {
         emitContentUpdated({ contentType, slug, locale });
         toast({
-          title: "Shared table of contents",
-          description: "Other articles on this page now share one TOC.",
+          title: "Table of contents enabled",
+          description:
+            "Articles on this page share one TOC. Reading time and the mobile TOC appear on the first article only.",
         });
       } else {
         toast({
@@ -1836,7 +1827,7 @@ export function SectionEditorPanel({
         });
       }
     } catch (error) {
-      console.error("Error sharing TOC across articles:", error);
+      console.error("Error unifying TOC across articles:", error);
       toast({
         title: "Could not update other articles",
         description: "TOC was enabled on this article only.",
@@ -1844,8 +1835,20 @@ export function SectionEditorPanel({
       });
     } finally {
       setTocShareApplying(false);
-      setTocShareDialogOpen(false);
     }
+  };
+
+  const handleArticleTocToggle = (checked: boolean) => {
+    if (!checked) {
+      applyLocalTocSettings({ showToc: false });
+      return;
+    }
+    // Multi-article pages always continue one piece — stamp group, no choice dialog.
+    if (articlesOnPage.length > 1) {
+      void unifyArticleTocOnPage();
+      return;
+    }
+    applyLocalTocSettings({ showToc: true });
   };
 
   // Component example query — lazy, only runs when the example dialog is open
@@ -1940,8 +1943,28 @@ export function SectionEditorPanel({
     return paths;
   })();
 
+  const { data: componentRegistryData } = useQuery<{
+    components: Array<{ type: string; behaviors?: string[] }>;
+  }>({
+    queryKey: ["/api/component-registry"],
+    staleTime: 60000,
+  });
+  const hasEcommerceBehavior = Boolean(
+    componentRegistryData?.components?.find((c) => c.type === sectionType)?.behaviors?.includes(
+      "ecommerce",
+    ),
+  );
+
+  const { data: ecommerceProductsData } = useQuery<{
+    products: Array<{ product_id: string; name: string; content_slug: string; active: boolean }>;
+  }>({
+    queryKey: ["/api/ecommerce/products"],
+    staleTime: 60000,
+    enabled: hasEcommerceBehavior || ctaTrackingPaths.length > 0,
+  });
+
   const showFormsTab = formSettingsPath !== null;
-  const showEcommerceTab = ctaTrackingPaths.length > 0;
+  const showEcommerceTab = ctaTrackingPaths.length > 0 || hasEcommerceBehavior;
   const editorTabCount = 2 + (showFormsTab ? 1 : 0) + (showEcommerceTab ? 1 : 0);
 
   // Join helper: "" means form settings at section root (lead_form).
@@ -5249,6 +5272,18 @@ export function SectionEditorPanel({
                           : {})}
                         data-testid={`props-markdown-${fieldLabel}`}
                       />
+                      {supportsArticleToc && articlesOnPage.length > 1 ? (
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-testid="article-split-education"
+                        >
+                          This page has multiple article sections — they always continue one
+                          piece. Reading time and the mobile table of contents appear on the
+                          first article only; the first article&apos;s Table of Contents toggle
+                          controls the shared TOC. Desktop side TOC can still appear on later
+                          parts.
+                        </p>
+                      ) : null}
                     </div>
                   );
                 }
@@ -6871,7 +6906,12 @@ export function SectionEditorPanel({
               {(() => {
                 const storedConversionName = String(getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? "");
                 const fieldsVal = getValueAtFieldPath(parsedSection, formProp("fields"));
-                const hasFields = Array.isArray(fieldsVal) && fieldsVal.length > 0;
+                // LeadForm `fields` is a keyed object (email, first_name, …), not an array.
+                const hasFields =
+                  fieldsVal != null &&
+                  typeof fieldsVal === "object" &&
+                  !Array.isArray(fieldsVal) &&
+                  Object.keys(fieldsVal as object).length > 0;
                 const formNode = formSettingsPath === ""
                   ? parsedSection
                   : getValueAtFieldPath(parsedSection, formSettingsPath);
@@ -6911,10 +6951,56 @@ export function SectionEditorPanel({
                   </div>
                 );
               })()}
+              {(() => {
+                const formNode =
+                  formSettingsPath === ""
+                    ? parsedSection
+                    : (getValueAtFieldPath(parsedSection, formSettingsPath ?? "") as
+                        | Record<string, unknown>
+                        | undefined);
+                if (!formNode || typeof formNode !== "object") return null;
+                const rootVal = formNode.conversion_name;
+                const routes = formNode.routes;
+                let routeHasName = false;
+                if (Array.isArray(routes)) {
+                  for (const r of routes) {
+                    if (
+                      r &&
+                      typeof r === "object" &&
+                      typeof (r as Record<string, unknown>).conversion_name === "string" &&
+                      String((r as Record<string, unknown>).conversion_name).trim()
+                    ) {
+                      routeHasName = true;
+                      break;
+                    }
+                  }
+                }
+                const missing =
+                  !("conversion_name" in formNode) && !routeHasName;
+                if (!missing) return null;
+                return (
+                  <div
+                    className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
+                    data-testid="banner-conversion-name-required"
+                  >
+                    <p className="text-sm font-medium text-destructive">
+                      Conversion name required
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      This field is missing (often after duplicate). Choose a conversion event, or turn
+                      conversion off with <strong>None</strong> (<code className="text-[10px]">null</code>).
+                      Save and publish will fail until you decide.
+                    </p>
+                  </div>
+                );
+              })()}
               {/* Conversion Name */}
               {(() => {
-                const storedConversionName = String(getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? "");
-                const showPicker = conversionNameEditing || !storedConversionName;
+                const rawConversion = getValueAtFieldPath(parsedSection, formProp("conversion_name"));
+                const isOff = rawConversion === null;
+                const storedConversionName =
+                  typeof rawConversion === "string" ? rawConversion : "";
+                const showPicker = conversionNameEditing || (!storedConversionName && !isOff);
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -6925,7 +7011,7 @@ export function SectionEditorPanel({
                       >
                         Conversion Name
                       </Label>
-                      {storedConversionName && !showPicker && (
+                      {(storedConversionName || isOff) && !showPicker && (
                         <Button
                           type="button"
                           size="icon"
@@ -6937,7 +7023,7 @@ export function SectionEditorPanel({
                           <IconPencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                      {showPicker && storedConversionName && (
+                      {showPicker && (storedConversionName || isOff) && (
                         <Button
                           type="button"
                           size="icon"
@@ -6957,27 +7043,30 @@ export function SectionEditorPanel({
                         data-testid="display-conversion-name"
                       >
                         <IconTargetArrow className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <span className="text-sm font-mono">{storedConversionName}</span>
+                        <span className="text-sm font-mono">
+                          {isOff ? "— Off (null) —" : storedConversionName}
+                        </span>
                       </div>
                     ) : (
                       <Select
-                        value={storedConversionName}
+                        value={isOff ? "__clear__" : storedConversionName || undefined}
                         onValueChange={(val) => {
-                          updateProperty(formProp("conversion_name"), val === "__clear__" ? "" : val);
+                          updatePropertyWithValue(
+                            formProp("conversion_name"),
+                            val === "__clear__" ? null : val,
+                          );
                           setConversionNameEditing(false);
                         }}
                         data-testid="select-conversion-name"
-                        open={conversionNameEditing || !storedConversionName ? undefined : false}
+                        open={conversionNameEditing || (!storedConversionName && !isOff) ? undefined : false}
                       >
                         <SelectTrigger className="w-full" data-testid="combobox-conversion-name">
                           <SelectValue placeholder="Select conversion event…" />
                         </SelectTrigger>
                         <SelectContent>
-                          {storedConversionName && (
-                            <SelectItem value="__clear__" data-testid="conversion-name-option-clear">
-                              <span className="text-muted-foreground">— None —</span>
-                            </SelectItem>
-                          )}
+                          <SelectItem value="__clear__" data-testid="conversion-name-option-clear">
+                            <span className="text-muted-foreground">— None (turn off) —</span>
+                          </SelectItem>
                           {conversionNames.length === 0 && (
                             <SelectItem value="__loading__" disabled>
                               {conversionNamesLoading ? "Loading…" : "No events configured"}
@@ -7561,6 +7650,118 @@ export function SectionEditorPanel({
                 </ul>
               </details>
             </div>
+
+            {hasEcommerceBehavior &&
+              (() => {
+                const sec = parsedSection as Record<string, unknown> | null;
+                if (!sec) return null;
+                let programsHaveIds = false;
+                if (Array.isArray(sec.programs)) {
+                  for (const p of sec.programs) {
+                    if (
+                      p &&
+                      typeof p === "object" &&
+                      typeof (p as Record<string, unknown>).id === "string" &&
+                      String((p as Record<string, unknown>).id)
+                    ) {
+                      programsHaveIds = true;
+                      break;
+                    }
+                  }
+                }
+                const inherits = contentType === "program" && !!slug;
+                const missingProducts =
+                  !("ecommerce_products" in sec) && !programsHaveIds && !inherits;
+                if (!missingProducts) return null;
+                return (
+                  <div
+                    className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
+                    data-testid="banner-ecommerce-products-required"
+                  >
+                    <p className="text-sm font-medium text-destructive">
+                      Product scope required
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <code className="text-[10px]">ecommerce_products</code> is missing (often after
+                      duplicate). Choose product slugs, <code className="text-[10px]">all</code>, or turn
+                      scope off with <strong>None</strong> (<code className="text-[10px]">null</code>).
+                      Save and publish will fail until you decide.
+                    </p>
+                  </div>
+                );
+              })()}
+
+            {hasEcommerceBehavior &&
+              (() => {
+                const sec = parsedSection as Record<string, unknown> | null;
+                if (!sec) return null;
+                const raw = sec.ecommerce_products;
+                const keyPresent = "ecommerce_products" in sec;
+                const isOff = raw === null;
+                const isAll = raw === "all";
+                const selectedSlugs = Array.isArray(raw)
+                  ? raw.filter((x): x is string => typeof x === "string")
+                  : [];
+                const mode = !keyPresent
+                  ? undefined
+                  : isOff
+                    ? "off"
+                    : isAll
+                      ? "all"
+                      : "list";
+                const productOptions = (ecommerceProductsData?.products ?? [])
+                  .filter((p) => p.active)
+                  .map((p) => ({
+                    value: p.content_slug || p.product_id,
+                    label: p.name || p.content_slug || p.product_id,
+                  }));
+                return (
+                  <div className="space-y-3" data-testid="ecommerce-products-scope">
+                    <h3 className="text-sm font-medium">Product scope</h3>
+                    <Select
+                      value={mode}
+                      onValueChange={(val) => {
+                        if (val === "off") {
+                          updatePropertyWithValue("ecommerce_products", null);
+                        } else if (val === "all") {
+                          updatePropertyWithValue("ecommerce_products", "all");
+                        } else {
+                          updatePropertyWithValue(
+                            "ecommerce_products",
+                            selectedSlugs.length > 0 ? selectedSlugs : [],
+                          );
+                        }
+                      }}
+                      data-testid="select-ecommerce-products-mode"
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose product scope…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="off">None (turn off — null)</SelectItem>
+                        <SelectItem value="all">All purchasable products</SelectItem>
+                        <SelectItem value="list">Specific products…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {mode === "list" && (
+                      <SearchableMultiSelect
+                        label="Products"
+                        options={productOptions}
+                        value={selectedSlugs}
+                        onChange={(next) => updatePropertyWithValue("ecommerce_products", next)}
+                        searchPlaceholder="Select product slugs…"
+                        emptyMessage="No active purchasable products"
+                        testIdPrefix="ecommerce-product"
+                      />
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Missing after duplicate is invalid. Explicit null turns product scope off;{" "}
+                      <code className="text-[10px]">programs[].id</code> or a program page can also
+                      supply scope.
+                    </p>
+                  </div>
+                );
+              })()}
 
             <div className="space-y-3">
               <h3 className="text-sm font-medium">CTA inventory</h3>
@@ -8691,11 +8892,11 @@ export function SectionEditorPanel({
               <IconFileCode className="h-4 w-4 shrink-0" />
               {sectionType}{currentVariantForExample && currentVariantForExample !== "default" ? ` — ${currentVariantForExample}` : ""} — Code example
             </DialogTitle>
-            {componentExamples.length === 0 && !examplesLoading && (
-              <DialogDescription className="text-sm text-muted-foreground">
-                No examples found for this component type.
-              </DialogDescription>
-            )}
+            <DialogDescription className="text-sm text-muted-foreground">
+              {componentExamples.length === 0 && !examplesLoading
+                ? "No examples found for this component type."
+                : "Use this example as a guide on how to fill the component YML"}
+            </DialogDescription>
           </DialogHeader>
 
           {/* CodeMirror viewer */}
@@ -8865,61 +9066,6 @@ export function SectionEditorPanel({
               Cancel
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={tocShareDialogOpen}
-        onOpenChange={(open) => {
-          if (!open && !tocShareApplying) setTocShareDialogOpen(false);
-        }}
-      >
-        <DialogContent className="sm:max-w-md" data-testid="dialog-article-toc-share">
-          <DialogHeader>
-            <DialogTitle>Share table of contents?</DialogTitle>
-            <DialogDescription>
-              {articlesOnPage.length === 2
-                ? "This page already has another article. Should both articles share one table of contents?"
-                : `This page already has ${articlesOnPage.length} articles. Should they share one table of contents?`}
-              {" "}
-              {articlesOnPage.some((a) => a.toc_group)
-                ? "They’ll join the existing TOC group."
-                : "We’ll create a shared group for all of them."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 pt-1">
-            <Button
-              className="w-full"
-              disabled={tocShareApplying}
-              data-testid="button-toc-share-yes"
-              onClick={() => handleTocShareChoice(true)}
-            >
-              {tocShareApplying ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sharing…
-                </>
-              ) : (
-                "Yes — share TOC"
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={tocShareApplying}
-              data-testid="button-toc-share-no"
-              onClick={() => handleTocShareChoice(false)}
-            >
-              No — keep separate
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full"
-              disabled={tocShareApplying}
-              onClick={() => setTocShareDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -5,9 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ContentIndex } from "./content-index";
 import { resetRegistry } from "./content-types";
 import {
+  hydrateStaticListingContent,
   invalidateStaticListingCache,
+  isDetachedLocaleOnlyPubliclyHidden,
   queryEntries,
 } from "./query-entries";
+import { HIDDEN_LOCATION_SENTINEL } from "./shared-layout-sync";
 
 const ORIGINAL_CWD = process.cwd();
 let tempDir: string;
@@ -206,6 +209,26 @@ describe("queryEntries static content type", () => {
     expect(alpha?._resolved_url).toBe("/en/blog/ai/post-alpha");
   });
 
+  it("hydrates omitted content bodies for OG live preview", async () => {
+    const { items } = await queryEntries(
+      { from: { contentType: "blog" }, locale: "en" },
+      { contentIndex: ci, contentRoot },
+    );
+    const alpha = items.find((i) => i.slug === "post-alpha");
+    expect(alpha).not.toHaveProperty("content");
+
+    const hydrated = hydrateStaticListingContent(items, "blog", {
+      ci,
+      contentRoot,
+    });
+    const hydratedAlpha = hydrated.find((i) => i.slug === "post-alpha");
+    expect(typeof hydratedAlpha?.content).toBe("string");
+    expect(String(hydratedAlpha?.content)).toContain("Long markdown");
+
+    const hydratedBeta = hydrated.find((i) => i.slug === "post-beta");
+    expect(hydratedBeta).not.toHaveProperty("content");
+  });
+
   it("caches static projections until invalidated", async () => {
     const first = await queryEntries(
       { from: { contentType: "blog" }, locale: "en" },
@@ -250,5 +273,78 @@ describe("queryEntries database from", () => {
     expect(meta.key).toBe("does_not_exist");
     expect(items).toEqual([]);
     expect(total).toBe(0);
+  });
+});
+
+describe("isDetachedLocaleOnlyPubliclyHidden / listing gate", () => {
+  it("skips detached locales whose sections are all publicly hidden", async () => {
+    const hiddenPost = path.join(contentRoot, "blog", "post-hidden-mirror");
+    fs.mkdirSync(hiddenPost, { recursive: true });
+    fs.writeFileSync(
+      path.join(hiddenPost, "_common.yml"),
+      `image: https://example.com/h.jpg
+published_at: '2025-08-01T00:00:00.000Z'
+status: PUBLISHED
+category:
+  slug: ai-powered-learning
+slug: post-hidden-mirror
+detached: true
+`,
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(hiddenPost, "en.yml"),
+      `title: Visible EN
+description: Live english
+sections:
+  - type: hero
+    title: Hello
+`,
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(hiddenPost, "es.yml"),
+      `title: Mirrored ES
+description: Should not list
+sections:
+  - type: hero
+    title: Hola
+    showOnLocations:
+      - ${HIDDEN_LOCATION_SENTINEL}
+  - type: cta_banner
+    title: CTA
+    showOnLocations:
+      - ${HIDDEN_LOCATION_SENTINEL}
+`,
+      "utf-8",
+    );
+
+    invalidateStaticListingCache("blog", contentRoot);
+    ci.scanFast();
+
+    expect(
+      isDetachedLocaleOnlyPubliclyHidden({
+        contentType: "blog",
+        slug: "post-hidden-mirror",
+        contentRoot,
+        localeData: {
+          sections: [
+            { type: "hero", showOnLocations: [HIDDEN_LOCATION_SENTINEL] },
+          ],
+        },
+      }),
+    ).toBe(true);
+
+    const { items: esItems } = await queryEntries(
+      { from: { contentType: "blog" }, locale: "es" },
+      { contentIndex: ci, contentRoot },
+    );
+    expect(esItems.find((i) => i.slug === "post-hidden-mirror")).toBeUndefined();
+
+    const { items: enItems } = await queryEntries(
+      { from: { contentType: "blog" }, locale: "en" },
+      { contentIndex: ci, contentRoot },
+    );
+    expect(enItems.find((i) => i.slug === "post-hidden-mirror")?.title).toBe("Visible EN");
   });
 });

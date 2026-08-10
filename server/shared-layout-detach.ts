@@ -11,7 +11,6 @@ import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
 import { getFolder, isValidType } from "./content-types";
 import { contentIndex } from "./content-index";
 import { getDefaultContentRoot } from "./site-config";
-import { getSupportedLocales } from "./settings";
 import { markFileAsModified } from "./sync-state";
 import { mergeSingleTemplate } from "./database-single-loader";
 import {
@@ -106,9 +105,29 @@ export function detachEntry(params: DetachEntryParams): DetachEntryResult {
 
   const folder = getFolder(contentType, contentRoot);
   const entryDir = path.join(contentRoot, folder, slug);
-  const locales = params.locales?.length
-    ? params.locales
-    : getSupportedLocales(contentRoot);
+
+  // Only bake locales that already exist on the entry (or an explicit list).
+  // Never invent sibling locales from site supported_locales / single templates.
+  let locales: string[];
+  if (params.locales?.length) {
+    locales = params.locales;
+  } else {
+    const existing: string[] = [];
+    if (fs.existsSync(entryDir)) {
+      for (const f of fs.readdirSync(entryDir)) {
+        if (!f.endsWith(".yml") && !f.endsWith(".yaml")) continue;
+        const stem = f.replace(/\.ya?ml$/, "");
+        if (/^[a-z]{2}(-[a-z]{2})?$/i.test(stem)) existing.push(stem);
+      }
+    }
+    locales = existing;
+  }
+
+  if (locales.length === 0) {
+    throw new Error(
+      `Cannot detach "${slug}": no live locale files found. Create a locale file first, then detach.`,
+    );
+  }
 
   const filesWritten: string[] = [];
   const localesWritten: string[] = [];

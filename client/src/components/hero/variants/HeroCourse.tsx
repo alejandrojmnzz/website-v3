@@ -14,8 +14,28 @@ import { lazy, Suspense, useEffect, useRef } from "react";
 import { trackEcommerce } from "@/lib/tracking";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import { resolveProgramIdForPage, programIdFromCtaUrl } from "@/lib/ecommerceProgramId";
+import { resolveProductScope } from "@shared/resolveProductScope";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { isCtaTrackingValue } from "@shared/component-behaviors";
+
+function programIdFromHeroData(data: HeroCourseType, ctaUrl?: unknown): string | undefined {
+  const fromPath =
+    typeof window !== "undefined" ? resolveProgramIdForPage(ctaUrl) : programIdFromCtaUrl(ctaUrl);
+  const { scope } = resolveProductScope(data as unknown as Record<string, unknown>, {
+    contentType: fromPath ? "program" : undefined,
+    contentSlug: fromPath,
+  });
+  if (scope === "all") {
+    return programIdFromCtaUrl(ctaUrl) || fromPath;
+  }
+  if (Array.isArray(scope) && scope.length === 1) return scope[0];
+  if (Array.isArray(scope) && scope.length > 1) {
+    const fromCta = programIdFromCtaUrl(ctaUrl);
+    if (fromCta && scope.includes(fromCta)) return fromCta;
+    return scope[0];
+  }
+  return programIdFromCtaUrl(ctaUrl) || fromPath;
+}
 
 const LeadForm = lazy(() => import("@/components/lead_form/variants/LeadFormDefault"));
 
@@ -43,7 +63,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
     (async () => {
       await ensureEcommerceProductLookup();
       if (cancelled || viewedRef.current) return;
-      const programId = resolveProgramIdForPage(data.signup_card?.cta_button?.url);
+      const programId = programIdFromHeroData(data, data.signup_card?.cta_button?.url);
       if (!programId) return;
       viewedRef.current = true;
       trackEcommerce("view_item", {
@@ -56,7 +76,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
     return () => {
       cancelled = true;
     };
-  }, [isEditMode, data.signup_card?.cta_button?.url]);
+  }, [isEditMode, data]);
 
   const handleCtaClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const cta = data.signup_card?.cta_button as
@@ -64,8 +84,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
       | undefined;
     const tracking = cta?.tracking;
     if (isCtaTrackingValue(tracking) && tracking !== "none") {
-      const programId =
-        programIdFromCtaUrl(cta?.url) || resolveProgramIdForPage(cta?.url);
+      const programId = programIdFromHeroData(data, cta?.url);
       void ensureEcommerceProductLookup().then(() => {
         trackEcommerce(tracking, {
           program_id: programId,

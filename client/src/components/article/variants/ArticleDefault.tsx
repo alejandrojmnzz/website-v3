@@ -505,7 +505,7 @@ function CodeBlock({
 }
 
 interface ArticleProps {
-  data: ArticleSection & { section_id?: string; toc_group?: string };
+  data: ArticleSection;
 }
 
 export function Article({ data }: ArticleProps) {
@@ -525,54 +525,68 @@ export function Article({ data }: ArticleProps) {
   const { sectionIndex } = useSectionContext();
 
   const sectionKey = section_id || `article-${sectionIndex >= 0 ? sectionIndex : "0"}`;
-  const idPrefix = toc_group ? `${sectionKey}--` : "";
+
+  const pageArticles = useMemo(
+    () => orderedSections.filter((s) => s.data.type === "article"),
+    [orderedSections],
+  );
+
+  // Empty ordered context (isolated preview) → treat as single article.
+  const isSplit = pageArticles.length >= 2;
+  const isFirstArticle =
+    !isSplit || pageArticles[0]?.sectionKey === sectionKey;
+
+  // Prefix heading ids whenever multiple articles share the page (collision-safe).
+  const idPrefix = isSplit || toc_group ? `${sectionKey}--` : "";
 
   const tags = useMemo(() => normalizeTags(rawTags), [rawTags]);
   const categoryLabel = useMemo(() => normalizeCategory(category), [category]);
-  const readingMinutes = useMemo(
-    () => (show_reading_time && content ? estimateReadingMinutes(content) : undefined),
-    [show_reading_time, content],
-  );
 
-  const groupMembers = useMemo(() => {
-    if (!toc_group) return null;
-    return orderedSections.filter(
-      (s) => s.data.type === "article" && s.data.toc_group === toc_group,
-    );
-  }, [orderedSections, toc_group]);
+  const readingMinutes = useMemo(() => {
+    if (!show_reading_time) return undefined;
+    if (isSplit) {
+      if (!isFirstArticle) return undefined;
+      const combined = pageArticles
+        .map((m) => (typeof m.data.content === "string" ? m.data.content : ""))
+        .filter(Boolean)
+        .join("\n\n");
+      return combined ? estimateReadingMinutes(combined) : undefined;
+    }
+    return content ? estimateReadingMinutes(content) : undefined;
+  }, [show_reading_time, isSplit, isFirstArticle, pageArticles, content]);
+
+  const firstShowToc = isSplit
+    ? pageArticles[0]?.data.show_toc === true
+    : show_toc;
 
   const tocItems = useMemo(() => {
-    if (toc_group && groupMembers && groupMembers.length > 0) {
-      const anyShowToc = groupMembers.some((m) => m.data.show_toc === true);
-      if (!anyShowToc && !show_toc) return [];
-
+    if (isSplit) {
+      if (!firstShowToc) return [];
       const items: TocItem[] = [];
-      for (const member of groupMembers) {
+      for (const member of pageArticles) {
         const memberContent = typeof member.data.content === "string" ? member.data.content : "";
-        const memberPrefix = `${member.sectionKey}--`;
-        items.push(...extractTocItems(memberContent, memberPrefix));
+        items.push(...extractTocItems(memberContent, `${member.sectionKey}--`));
       }
       return items;
     }
-
     return show_toc ? extractTocItems(content) : [];
-  }, [toc_group, groupMembers, show_toc, content]);
+  }, [isSplit, firstShowToc, pageArticles, show_toc, content]);
 
   const effectiveTocPosition = useMemo(() => {
-    if (!toc_group || !groupMembers || groupMembers.length === 0) {
-      return toc_position;
-    }
+    if (!isSplit) return toc_position;
     if (data.toc_position === "top" || data.toc_position === "side") {
       return data.toc_position;
     }
-    const fromGroup = groupMembers.find(
-      (m) => m.data.toc_position === "top" || m.data.toc_position === "side",
-    );
-    return (fromGroup?.data.toc_position as "top" | "side" | undefined) || "side";
-  }, [toc_group, groupMembers, toc_position, data.toc_position]);
+    const fromFirst = pageArticles[0]?.data.toc_position;
+    if (fromFirst === "top" || fromFirst === "side") return fromFirst;
+    return "side";
+  }, [isSplit, toc_position, data.toc_position, pageArticles]);
 
   const showSideToc = tocItems.length > 0 && effectiveTocPosition === "side";
-  const showTopToc = tocItems.length > 0 && effectiveTocPosition === "top";
+  // Mobile / top TOC only on the first article of a split page (B2).
+  const showMobileOrTopToc = showSideToc
+    ? isFirstArticle
+    : tocItems.length > 0 && effectiveTocPosition === "top" && isFirstArticle;
 
   const slugCountsRef = useRef<Record<string, number>>({});
 
@@ -590,14 +604,16 @@ export function Article({ data }: ArticleProps) {
 
   slugCountsRef.current = {};
 
-  const meta = (
-    <ArticleMeta
-      tags={tags}
-      category={categoryLabel}
-      categoryUrl={category_url}
-      readingMinutes={readingMinutes}
-    />
-  );
+  // C2: later articles hide the entire meta row.
+  const meta =
+    isSplit && !isFirstArticle ? null : (
+      <ArticleMeta
+        tags={tags}
+        category={categoryLabel}
+        categoryUrl={category_url}
+        readingMinutes={readingMinutes}
+      />
+    );
 
   const body = (
     <div className="article-prose mx-auto max-w-[68ch]">
@@ -611,12 +627,16 @@ export function Article({ data }: ArticleProps) {
       className="w-full px-4 py-8 md:px-6 lg:px-8"
       data-testid="article-section"
       data-toc-group={toc_group || undefined}
+      data-article-split={isSplit ? "true" : undefined}
+      data-article-lead={isSplit && isFirstArticle ? "true" : undefined}
     >
       {showSideToc ? (
         <>
-          <div className="lg:hidden">
-            <TocTop items={tocItems} />
-          </div>
+          {showMobileOrTopToc ? (
+            <div className="lg:hidden">
+              <TocTop items={tocItems} />
+            </div>
+          ) : null}
           <div className="flex gap-10">
             <article className="min-w-0 flex-1" data-testid="article-content">
               {body}
@@ -628,7 +648,7 @@ export function Article({ data }: ArticleProps) {
         </>
       ) : (
         <>
-          {showTopToc && <TocTop items={tocItems} />}
+          {showMobileOrTopToc && <TocTop items={tocItems} />}
           <article data-testid="article-content">
             {body}
           </article>

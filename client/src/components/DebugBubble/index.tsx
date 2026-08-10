@@ -262,7 +262,14 @@ export function DebugBubble() {
   const [isCreatingContent, setIsCreatingContent] = useState(false);
   
   // Duplicate page state
-  const [duplicatingPage, setDuplicatingPage] = useState<{ loc: string; label: string; contentType: string; locale?: string } | null>(null);
+  const [duplicatingPage, setDuplicatingPage] = useState<{
+    loc: string;
+    label: string;
+    contentType: string;
+    locale?: string;
+    sourceSlug?: string;
+    isDraft?: boolean;
+  } | null>(null);
   
   // Delete page state
   const [deletePageModalOpen, setDeletePageModalOpen] = useState(false);

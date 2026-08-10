@@ -68,6 +68,7 @@ export function VersioningView({
     "";
   const versionsTitle = isTemplateVersioning ? "Template Versions" : "Page Versions";
   const contentTypeLabel = contentInfo.label || contentInfo.type || "entries";
+  const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
 
   const searchString = useSearch();
   const activeVariant = new URLSearchParams(searchString).get("variant") ?? null;
@@ -198,6 +199,43 @@ export function VersioningView({
       const token = getDebugToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Token ${token}`;
+
+      if (isDraftEntry) {
+        const res = await fetch(
+          `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/publish`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ variantSlug: promoteTarget.slug }),
+          },
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          toast({ title: data.error || "Failed to publish draft", variant: "destructive" });
+          return;
+        }
+        toast({
+          title: `Published "${promoteTarget.slug}"`,
+          description: `Live for locale(s): ${(data.locales || []).join(", ") || "all"}`,
+        });
+        emitVariantPromoted({
+          contentType: contentInfo.type,
+          slug: contentInfo.slug,
+          locale: promoteTarget.locale,
+          variantSlug: promoteTarget.slug,
+        });
+        setPromoteTarget(null);
+        if (onVersioningDataUpdate) {
+          fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
+            .then((r) => r.json())
+            .then(onVersioningDataUpdate)
+            .catch(() => {});
+        }
+        persistOpenStateForNavigation();
+        navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?locale=${promoteTarget.locale}`);
+        return;
+      }
+
       const res = await fetch(
         `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${promoteTarget.locale}/promote/${promoteTarget.slug}`,
         { method: "POST", headers }
@@ -217,7 +255,7 @@ export function VersioningView({
           .catch(() => {});
       }
     } catch {
-      toast({ title: "Failed to promote variant", variant: "destructive" });
+      toast({ title: isDraftEntry ? "Failed to publish draft" : "Failed to promote variant", variant: "destructive" });
     } finally {
       setIsPromoting(false);
     }
@@ -237,6 +275,13 @@ export function VersioningView({
       const data = await res.json();
       if (!res.ok) {
         toast({ title: data.error || "Failed to delete variant", variant: "destructive" });
+        return;
+      }
+      if (data.entryDeleted) {
+        toast({ title: "Entry deleted", description: "Last draft removed; unpublished entry was deleted." });
+        setDeleteTarget(null);
+        setMenuView("main");
+        navigate("/private");
         return;
       }
       toast({ title: `Variant "${deleteTarget.slug}" deleted` });
@@ -490,7 +535,9 @@ export function VersioningView({
       {!showRestorePanel && isSharedLayout && isDetached && (
         <div className="px-3 py-2 border-b bg-muted/40 flex items-start gap-2">
           <p className="text-xs text-muted-foreground flex-1 min-w-0" data-testid="text-detached-versions-notice">
-            This page is detached from the {contentTypeLabel} template, you can version manage its versions independently
+            Detached from the {contentTypeLabel} template — versions are independent.
+            New translation locales should start as a draft (not a live empty stub) and only go public after promote/publish.
+            Empty detached locales 404 publicly and show under Manage → Errors.
           </p>
           {onRequestReattach && (
             <Button
@@ -584,6 +631,27 @@ export function VersioningView({
       {!showRestorePanel && (
       <div className="overflow-y-auto overflow-x-hidden max-h-[570px] min-h-[246px]">
         <div className="p-2 space-y-1">
+          {isDraftEntry && versioningData?.hasVersioningFile && (
+            <div
+              className="mx-1 mb-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground space-y-1"
+              data-testid="banner-draft-unpublished"
+            >
+              <p className="font-medium">Not published</p>
+              <p className="text-muted-foreground">
+                This page has no live locale yet. Traffic cannot be assigned. Publish one draft to go live for{" "}
+                <strong>all remaining locales</strong> at once; other drafts become variants.
+              </p>
+              <details className="text-muted-foreground">
+                <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
+                <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                  <li>Draft files: <code className="bg-muted px-1 rounded">{"{variant}.{locale}.yml"}</code></li>
+                  <li>Live files: <code className="bg-muted px-1 rounded">{"{locale}.yml"}</code> (created on publish)</li>
+                  <li>Config: <code className="bg-muted px-1 rounded">versioning.yml</code></li>
+                  <li>ContentIndex skips folders with no live locales (public 404 / no sitemap).</li>
+                </ul>
+              </details>
+            </div>
+          )}
           {versioningLoading ? (
             <div className="flex items-center justify-center py-8">
               <IconRefresh className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -621,12 +689,21 @@ export function VersioningView({
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-muted-foreground">
-                        {isTemplateVersioning ? "Template variants for" : "Traffic allocation for"}
+                        {isDraftEntry
+                          ? "Drafts for"
+                          : isTemplateVersioning
+                            ? "Template variants for"
+                            : "Traffic allocation for"}
                       </span>
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
                         {locale.toUpperCase()}
                       </Badge>
                       <span className="text-xs text-muted-foreground">locale</span>
+                      {isDraftEntry && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-4">
+                          Unpublished
+                        </Badge>
+                      )}
                       {savedLocale === locale && (
                         <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 gap-0.5 flex items-center">
                           <IconCheck className="h-2.5 w-2.5" />
@@ -634,7 +711,7 @@ export function VersioningView({
                         </Badge>
                       )}
                     </div>
-                    {!isEditing ? (
+                    {!isDraftEntry && (!isEditing ? (
                       <button
                         onClick={() => openEditAllocations(locale)}
                         className="p-1 rounded-md hover-elevate text-muted-foreground"
@@ -674,12 +751,12 @@ export function VersioningView({
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   <div className="space-y-2">
-                    {/* Synthetic default row */}
-                    {(() => {
+                    {/* Synthetic default row — only when published */}
+                    {!isDraftEntry && (() => {
                       const variantTotal = localeData.variants.reduce((sum, v) => sum + (v.allocation ?? 0), 0);
                       const defaultAllocation = Math.max(0, 100 - variantTotal);
                       const isDefaultActive = activeVariant === null;
@@ -774,10 +851,15 @@ export function VersioningView({
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {!isEditing && (
+                            {!isEditing && !isDraftEntry && (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
                                 {variant.allocation ?? 0}%
                               </span>
+                            )}
+                            {isDraftEntry && (
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
+                                draft
+                              </Badge>
                             )}
                             {!isEditing && (
                               <TooltipProvider delayDuration={300}>
@@ -814,7 +896,7 @@ export function VersioningView({
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent side="top">
-                                    <p>Promote this version</p>
+                                    <p>{isDraftEntry ? "Publish this draft (all remaining locales)" : "Promote this version"}</p>
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
@@ -967,11 +1049,24 @@ export function VersioningView({
       <Dialog open={promoteTarget !== null} onOpenChange={(open) => { if (!open) setPromoteTarget(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Are you sure you want to promote this variant?</DialogTitle>
+            <DialogTitle>
+              {isDraftEntry ? "Publish this draft?" : "Are you sure you want to promote this variant?"}
+            </DialogTitle>
             <DialogDescription>
-              This action will remove the default current page and replace it with this{" "}
-              <code className="text-xs bg-muted px-1 py-0.5 rounded">{promoteTarget?.slug}</code>{" "}
-              variant and 100% of the traffic will now be directed to this by default.
+              {isDraftEntry ? (
+                <>
+                  This will publish{" "}
+                  <code className="text-xs bg-muted px-1 py-0.5 rounded">{promoteTarget?.slug}</code>{" "}
+                  as the live page for <strong>all remaining draft locales</strong> that have this draft.
+                  Other drafts become normal variants at 0% traffic. The page will appear in the sitemap.
+                </>
+              ) : (
+                <>
+                  This action will remove the default current page and replace it with this{" "}
+                  <code className="text-xs bg-muted px-1 py-0.5 rounded">{promoteTarget?.slug}</code>{" "}
+                  variant and 100% of the traffic will now be directed to this by default.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-col">
@@ -987,7 +1082,7 @@ export function VersioningView({
               ) : (
                 <IconCrown className="h-4 w-4" />
               )}
-              Yes, promote and replace original
+              {isDraftEntry ? "Yes, publish now" : "Yes, promote and replace original"}
             </Button>
             <Button
               variant="outline"
@@ -997,7 +1092,7 @@ export function VersioningView({
               data-testid="button-cancel-promote"
             >
               <IconX className="h-4 w-4" />
-              No, keep it as a secondary variant
+              {isDraftEntry ? "Cancel" : "No, keep it as a secondary variant"}
             </Button>
           </DialogFooter>
         </DialogContent>

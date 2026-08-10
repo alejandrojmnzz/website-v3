@@ -33,6 +33,11 @@ export interface VersioningResponse {
   detached?: boolean;
   isSharedLayout?: boolean;
   versioningSlug?: string;
+  /** True when at least one live locale file exists */
+  hasLiveDefault?: boolean;
+  liveByLocale?: Record<string, boolean>;
+  /** True when entry has no live locale (unpublished draft) */
+  isDraft?: boolean;
 }
 
 export interface ContentInfo {

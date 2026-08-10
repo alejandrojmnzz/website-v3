@@ -26,6 +26,10 @@ import { buildSingleEntryFromContent } from "./build-single-entry";
 import { databaseManager, type DatabaseManager, getCachedDatabaseEntryCount } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { applyEntryPreviewOgImage } from "./entry-preview-manager";
+import {
+  buildLocaleUnavailablePayload,
+  isEmptyDetachedLocaleEntry,
+} from "./empty-locale";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -70,6 +74,8 @@ interface SingleQuery {
 export interface InitialDataPayload {
   queries: SingleQuery[];
   locale?: string;
+  /** When set, SSR HTML response should use this status (e.g. empty detached locale). */
+  httpStatus?: number;
 }
 
 async function fetchBlogListingPage(
@@ -202,6 +208,38 @@ export async function resolvePageQuery(
     const { contentType, slug, fromDatabase, patternLocale, params: urlPathParams } = resolved;
     const isNonLocalized = patternLocale === "default";
     const requestQuery = parseUrlQuery(url);
+
+    {
+      let probeLocale = cleanUrl.match(/^\/(es)\b/) ? "es" : "en";
+      if (resolved.params?.locale) probeLocale = resolved.params.locale;
+      const normalizedProbe = normalizeLocale(probeLocale);
+      if (
+        isEmptyDetachedLocaleEntry({
+          contentType,
+          slug,
+          locale: normalizedProbe,
+          contentRoot: ci.contentRoot,
+          ci,
+        })
+      ) {
+        const availableUrls = ci.getAlternateUrls(slug, contentType);
+        const payload = buildLocaleUnavailablePayload({
+          contentType,
+          slug,
+          locale: normalizedProbe,
+          availableUrls,
+        });
+        const apiPath = fromDatabase
+          ? "/api/database-single"
+          : getApiPath(contentType);
+        return {
+          queryKey: fromDatabase
+            ? ["/api/database-single", contentType, slug, normalizedProbe]
+            : [apiPath, slug, normalizedProbe],
+          data: { ...payload, locale_unavailable: true },
+        };
+      }
+    }
 
     if (fromDatabase) {
       try {
@@ -736,6 +774,14 @@ export function injectSsrMetaTags(html: string, payload: InitialDataPayload | nu
   if (!pageQuery?.data) return html;
 
   const data = pageQuery.data as Record<string, unknown>;
+  if (data.locale_unavailable === true || data.error === "locale_unavailable") {
+    if (html.includes('name="robots"')) {
+      html = replaceMetaContent(html, "name", "robots", "noindex");
+    } else {
+      html = html.replace("</head>", `<meta name="robots" content="noindex" />\n</head>`);
+    }
+    return html;
+  }
   let meta = data.meta as Record<string, unknown> | undefined;
   if (!meta) return html;
 
@@ -919,7 +965,13 @@ export async function resolveInitialData(
     });
   }
 
-  return { queries, locale: resolvedLocale };
+  const pageData = pageQuery?.data as Record<string, unknown> | undefined;
+  const httpStatus =
+    pageData?.locale_unavailable === true || pageData?.error === "locale_unavailable"
+      ? 404
+      : undefined;
+
+  return { queries, locale: resolvedLocale, ...(httpStatus ? { httpStatus } : {}) };
 }
 
 function buildContentTypesPayload(

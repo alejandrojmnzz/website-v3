@@ -9,7 +9,16 @@ import { MARKETING_CONTENT_PATH } from "../lib/content.js";
 // production bundle (dist/mcp-server.js).
 const EXPLAIN_DIR = path.join(process.cwd(), "mcp-server", "explain");
 
-const VALID_TOPICS = ["overview", "content_system", "routing", "images", "sections", "semantic_search", "component-behaviors"] as const;
+const VALID_TOPICS = [
+  "overview",
+  "content_system",
+  "routing",
+  "images",
+  "sections",
+  "semantic_search",
+  "component-behaviors",
+  "ecommerce",
+] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
 // ─── Dynamic tag resolvers ────────────────────────────────────────────────────
@@ -113,13 +122,15 @@ export function registerExplainTools(mcp: McpServer): void {
       "'routing' (URL patterns, locale prefixes, /en/ vs /es/), " +
       "'images' (image registry, UniversalImage, image_id usage), " +
       "'sections' (SectionRenderer, component registry, how sections are authored), " +
-      "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback). " +
+      "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
+      "'component-behaviors' (CTA tracking, behaviors ids), " +
+      "'ecommerce' (products, funnels, product scope property paths, no CMS plans). " +
       "Calling an unknown topic returns a clear error listing the valid options.",
     {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, component-behaviors, ecommerce.",
         ),
     },
     async ({ topic }) => {

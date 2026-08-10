@@ -24,7 +24,7 @@ import { child } from "../logger";
 const log = child({ module: "validationCacheService" });
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 function emptyCache(): ValidationCacheFile {
   return {
@@ -32,6 +32,20 @@ function emptyCache(): ValidationCacheFile {
     pages: {},
     databases: {},
   };
+}
+
+/** v3→v4: treat existing lastRunAt as lastFullRunAt when missing. */
+function migratePagesToV4(
+  pages: Record<string, import("../../scripts/validation/shared/types").PageCacheEntry>,
+): Record<string, import("../../scripts/validation/shared/types").PageCacheEntry> {
+  const out: typeof pages = {};
+  for (const [url, entry] of Object.entries(pages ?? {})) {
+    out[url] = {
+      ...entry,
+      lastFullRunAt: entry.lastFullRunAt ?? entry.lastRunAt,
+    };
+  }
+  return out;
 }
 
 function migrateCache(parsed: ValidationCacheFile): ValidationCacheFile {
@@ -42,11 +56,19 @@ function migrateCache(parsed: ValidationCacheFile): ValidationCacheFile {
       databases: parsed.databases ?? {},
     };
   }
-  if (version === 2 && parsed.pages) {
-    log.info("[ValidationCache] Migrating v2 cache to v3 (adding databases section)");
+  if (version === 3 && parsed.pages) {
+    log.info("[ValidationCache] Migrating v3 cache to v4 (lastFullRunAt per page)");
     return {
       meta: { lastFullRunAt: parsed.meta?.lastFullRunAt ?? null, version: CACHE_VERSION },
-      pages: parsed.pages,
+      pages: migratePagesToV4(parsed.pages),
+      databases: parsed.databases ?? {},
+    };
+  }
+  if (version === 2 && parsed.pages) {
+    log.info("[ValidationCache] Migrating v2 cache to v4");
+    return {
+      meta: { lastFullRunAt: parsed.meta?.lastFullRunAt ?? null, version: CACHE_VERSION },
+      pages: migratePagesToV4(parsed.pages),
       databases: {},
     };
   }

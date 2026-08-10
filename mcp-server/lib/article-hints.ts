@@ -1,41 +1,157 @@
 /**
- * Hints for multi-article pages that should share a TOC via toc_group.
+ * Hints for multi-article pages (always one logical article).
+ *
+ * Runtime keys off article count + page order — not a share choice.
+ * TOC chrome / reading time / meta: first article only (desktop side TOC may
+ * still appear on later parts). See explain_site topic "sections".
  */
 
+import { estimateReadingMinutes } from "@shared/reading-time";
 import type { McpWarning, NextAction } from "./respond.js";
 
-export const ARTICLE_TOC_GROUP_SUGGESTED: McpWarning = {
-  code: "article_toc_group_suggested",
+export const ARTICLE_SPLIT_ALWAYS_SHARE: McpWarning = {
+  code: "article_split_always_share",
   message:
-    "This page already has one or more article sections. To unify their tables of contents, " +
-    "set the same toc_group on every article (e.g. group_123456789), with show_toc: true on " +
-    "every member so each piece shows the same merged TOC (sticky within that section). " +
-    "See get_component_variant for article (example: article_split_toc_group) or explain_site topic 'sections'.",
+    "This page has multiple article sections — they always continue one piece. " +
+    "TOC on/off = first article's show_toc only. Reading time and meta appear only on the first article " +
+    "(combined bodies). Mobile/top TOC only on the first; desktop side TOC may still appear on later parts. " +
+    "Put the lead article first. toc_group is optional/legacy (not a share decision). " +
+    "See get_component_variant → article_split_toc_group or explain_site topic 'sections'.",
 };
 
-function articleEntries(
-  sections: Array<Record<string, unknown>>,
-): Array<{ index: number; toc_group?: string }> {
+export const ARTICLE_LEAD_TOC_MISCONFIGURED: McpWarning = {
+  code: "article_lead_toc_misconfigured",
+  message:
+    "The first article lacks show_toc: true but a later article has show_toc: true. " +
+    "Only the first article's show_toc controls the shared TOC — later show_toc flags are non-effects. " +
+    "Set show_toc: true on the first article (sections.N.show_toc).",
+};
+
+export const ARTICLE_LEAD_ORDER_SUSPICIOUS: McpWarning = {
+  code: "article_lead_order_suspicious",
+  message:
+    "A later article has substantially more content than the first. " +
+    "Put the lead (main) article first in sections order so reading time and the mobile TOC appear at the page start. " +
+    "No auto-reorder — move sections manually if needed.",
+};
+
+type ArticleEntry = {
+  index: number;
+  toc_group?: string;
+  show_toc?: boolean;
+  content: string;
+};
+
+function articleEntries(sections: Array<Record<string, unknown>>): ArticleEntry[] {
   return sections
     .map((s, index) => ({
       index,
       type: s.type,
       toc_group: typeof s.toc_group === "string" && s.toc_group ? s.toc_group : undefined,
+      show_toc: s.show_toc === true,
+      content: typeof s.content === "string" ? s.content : "",
     }))
     .filter((s) => s.type === "article")
-    .map(({ index, toc_group }) => ({ index, toc_group }));
+    .map(({ index, toc_group, show_toc, content }) => ({
+      index,
+      toc_group,
+      show_toc,
+      content,
+    }));
 }
 
-function allShareGroup(
-  articles: Array<{ toc_group?: string }>,
+function stampGroupFields(
+  articles: ArticleEntry[],
   groupId: string,
-): boolean {
-  return articles.length > 0 && articles.every((a) => a.toc_group === groupId);
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  articles.forEach((a, i) => {
+    fields[`sections.${a.index}.toc_group`] = groupId;
+    fields[`sections.${a.index}.toc_position`] = "side";
+    if (i === 0) {
+      fields[`sections.${a.index}.show_toc`] = true;
+    }
+  });
+  return fields;
+}
+
+function leadMisconfigWarnings(articles: ArticleEntry[]): McpWarning[] {
+  if (articles.length < 2) return [];
+  const warnings: McpWarning[] = [];
+  const first = articles[0]!;
+  const laterHasToc = articles.slice(1).some((a) => a.show_toc);
+  if (!first.show_toc && laterHasToc) {
+    warnings.push(ARTICLE_LEAD_TOC_MISCONFIGURED);
+  }
+  const firstMinutes = first.content.trim()
+    ? estimateReadingMinutes(first.content)
+    : 0;
+  for (const later of articles.slice(1)) {
+    if (!later.content.trim()) continue;
+    const laterMinutes = estimateReadingMinutes(later.content);
+    if (laterMinutes > firstMinutes) {
+      warnings.push(ARTICLE_LEAD_ORDER_SUSPICIOUS);
+      break;
+    }
+  }
+  return warnings;
 }
 
 /**
- * After adding an article: warn when the page already had articles and TOC
- * grouping is incomplete. Returns post-insert indices for next_actions.
+ * Auto-stamp for add_section: when the page already has articles, mutate the new
+ * article with toc_group and return sibling field ops so the lead gets show_toc.
+ */
+export function prepareArticleAddStamp(opts: {
+  existingSections: Array<Record<string, unknown>>;
+  newSection: Record<string, unknown>;
+  insertIndex?: number;
+}): {
+  section: Record<string, unknown>;
+  siblingOps: Array<{ action: "update_field"; path: string; value: unknown }>;
+} | null {
+  if (opts.newSection.type !== "article") return null;
+  const existing = articleEntries(opts.existingSections);
+  if (existing.length === 0) return null;
+
+  const groupId =
+    (typeof opts.newSection.toc_group === "string" && opts.newSection.toc_group) ||
+    existing.find((a) => a.toc_group)?.toc_group ||
+    `group_${Math.floor(Math.random() * 1_000_000_000)}`;
+
+  const section = {
+    ...opts.newSection,
+    toc_group: groupId,
+    toc_position:
+      opts.newSection.toc_position === "top" || opts.newSection.toc_position === "side"
+        ? opts.newSection.toc_position
+        : "side",
+  };
+
+  const siblingOps: Array<{ action: "update_field"; path: string; value: unknown }> = [];
+  for (const a of existing) {
+    siblingOps.push({
+      action: "update_field",
+      path: `sections.${a.index}.toc_group`,
+      value: groupId,
+    });
+    siblingOps.push({
+      action: "update_field",
+      path: `sections.${a.index}.toc_position`,
+      value: "side",
+    });
+  }
+  const first = existing[0]!;
+  siblingOps.push({
+    action: "update_field",
+    path: `sections.${first.index}.show_toc`,
+    value: true,
+  });
+
+  return { section, siblingOps };
+}
+
+/**
+ * After adding an article when the page already had articles.
  */
 export function hintsAfterAddArticle(opts: {
   existingSections: Array<Record<string, unknown>>;
@@ -59,19 +175,23 @@ export function hintsAfterAddArticle(opts: {
       ? opts.insertIndex
       : opts.existingSections.length;
 
-  // Post-insert indices for every article (existing shifted + new).
-  const postArticles: Array<{ index: number; toc_group?: string }> = [];
+  const postArticles: ArticleEntry[] = [];
   for (const a of existingArticles) {
     postArticles.push({
+      ...a,
       index: a.index >= insertAt ? a.index + 1 : a.index,
-      toc_group: a.toc_group,
     });
   }
   const newGroup =
     typeof opts.newSection.toc_group === "string" && opts.newSection.toc_group
       ? opts.newSection.toc_group
       : undefined;
-  postArticles.push({ index: insertAt, toc_group: newGroup });
+  postArticles.push({
+    index: insertAt,
+    toc_group: newGroup,
+    show_toc: opts.newSection.show_toc === true,
+    content: typeof opts.newSection.content === "string" ? opts.newSection.content : "",
+  });
   postArticles.sort((a, b) => a.index - b.index);
 
   const preferredGroup =
@@ -79,49 +199,61 @@ export function hintsAfterAddArticle(opts: {
     existingArticles.find((a) => a.toc_group)?.toc_group ||
     `group_${Math.floor(Math.random() * 1_000_000_000)}`;
 
-  if (allShareGroup(postArticles, preferredGroup)) {
-    return { warnings: [], next_actions: [] };
+  const warnings: McpWarning[] = [ARTICLE_SPLIT_ALWAYS_SHARE, ...leadMisconfigWarnings(postArticles)];
+  const next_actions: NextAction[] = [];
+
+  const needsStamp =
+    !postArticles.every((a) => a.toc_group === preferredGroup) ||
+    postArticles[0]?.show_toc !== true;
+
+  if (needsStamp) {
+    next_actions.push({
+      tool: "update_section_fields",
+      priority: "recommended",
+      reason:
+        "Stamp toc_group on all articles and set show_toc: true on the first (lead) article. " +
+        "Articles always continue one piece — there is no separate-TOC option. " +
+        "Later show_toc flags do not control TOC chrome.",
+      args_hint: {
+        slug: opts.slug,
+        locale: opts.locale,
+        fields: stampGroupFields(postArticles, preferredGroup),
+        confirm_live_edit: true,
+      },
+    });
   }
 
-  const fields: Record<string, unknown> = {};
-  postArticles.forEach((a) => {
-    fields[`sections.${a.index}.toc_group`] = preferredGroup;
-    fields[`sections.${a.index}.show_toc`] = true;
-    fields[`sections.${a.index}.toc_position`] = "side";
+  if (warnings.some((w) => w.code === "article_lead_toc_misconfigured") && !needsStamp) {
+    next_actions.push({
+      tool: "update_section_fields",
+      priority: "recommended",
+      reason: "Set show_toc: true on the first article so the shared TOC appears at the page start.",
+      args_hint: {
+        slug: opts.slug,
+        locale: opts.locale,
+        fields: {
+          [`sections.${postArticles[0]!.index}.show_toc`]: true,
+        },
+        confirm_live_edit: true,
+      },
+    });
+  }
+
+  next_actions.push({
+    tool: "get_component_variant",
+    priority: "optional",
+    reason: "Read article split-page docs and example article_split_toc_group.",
+    args_hint: {
+      componentType: "article",
+      variant: "default",
+    },
   });
 
-  return {
-    warnings: [ARTICLE_TOC_GROUP_SUGGESTED],
-    next_actions: [
-      {
-        tool: "update_section_fields",
-        priority: "recommended",
-        reason:
-          "Ask the user if these articles should share one TOC. If yes, apply the same toc_group " +
-          "to all articles with show_toc: true on each (every piece shows the merged TOC). " +
-          "If they should stay separate, ignore this.",
-        args_hint: {
-          slug: opts.slug,
-          locale: opts.locale,
-          fields,
-          confirm_live_edit: true,
-        },
-      },
-      {
-        tool: "get_component_variant",
-        priority: "optional",
-        reason: "Read article field docs (including toc_group) and a worked YAML example.",
-        args_hint: {
-          componentType: "article",
-          variant: "default",
-        },
-      },
-    ],
-  };
+  return { warnings, next_actions };
 }
 
 /**
- * After replace_page_sections: warn when 2+ articles do not all share one toc_group.
+ * After replace_page_sections: educate + warn on lead misconfig / missing stamps.
  */
 export function hintsAfterReplaceSections(opts: {
   sections: Array<Record<string, unknown>>;
@@ -137,32 +269,26 @@ export function hintsAfterReplaceSections(opts: {
     articles.find((a) => a.toc_group)?.toc_group ||
     `group_${Math.floor(Math.random() * 1_000_000_000)}`;
 
-  if (allShareGroup(articles, preferredGroup)) {
-    return { warnings: [], next_actions: [] };
+  const warnings: McpWarning[] = [ARTICLE_SPLIT_ALWAYS_SHARE, ...leadMisconfigWarnings(articles)];
+  const next_actions: NextAction[] = [];
+
+  const needsStamp =
+    !articles.every((a) => a.toc_group === preferredGroup) || articles[0]?.show_toc !== true;
+
+  if (needsStamp) {
+    next_actions.push({
+      tool: "update_section_fields",
+      priority: "recommended",
+      reason:
+        "Multiple articles always continue one piece. Apply toc_group on all and show_toc: true on the first article.",
+      args_hint: {
+        slug: opts.slug,
+        locale: opts.locale,
+        fields: stampGroupFields(articles, preferredGroup),
+        confirm_live_edit: true,
+      },
+    });
   }
 
-  const fields: Record<string, unknown> = {};
-  articles.forEach((a) => {
-    fields[`sections.${a.index}.toc_group`] = preferredGroup;
-    fields[`sections.${a.index}.show_toc`] = true;
-    fields[`sections.${a.index}.toc_position`] = "side";
-  });
-
-  return {
-    warnings: [ARTICLE_TOC_GROUP_SUGGESTED],
-    next_actions: [
-      {
-        tool: "update_section_fields",
-        priority: "recommended",
-        reason:
-          "Multiple articles on this page do not share one toc_group. Ask the user whether to unify their TOC, then apply these fields if yes (show_toc: true on every member).",
-        args_hint: {
-          slug: opts.slug,
-          locale: opts.locale,
-          fields,
-          confirm_live_edit: true,
-        },
-      },
-    ],
-  };
+  return { warnings, next_actions };
 }

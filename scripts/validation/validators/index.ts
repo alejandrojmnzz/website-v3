@@ -23,7 +23,6 @@ import { seoIntentValidator } from "./seo-intent";
 import { imageOptimizationValidator } from "./image-optimization";
 import { heroImageTagsValidator } from "./hero-image-tags";
 import { imageTagsValidator } from "./image-tags";
-import { lighthouseValidator } from "./lighthouse";
 import { fieldMappingsValidator } from "./field-mappings";
 import { orphanedFilesValidator } from "./orphaned-files";
 import { formsValidator } from "./forms";
@@ -33,10 +32,12 @@ import { brokenAnchorsValidator } from "./broken-anchors";
 import { sectionVariantsValidator } from "./section-variants";
 import { componentBehaviorsValidator } from "./component-behaviors";
 import { ctaTrackingValidator } from "./cta-tracking";
+import { requiredFieldsValidator } from "./required-fields";
 
 export const validators: Validator[] = [
   redirectValidator,
   metaValidator,
+  requiredFieldsValidator,
   schemaValidator,
   sitemapValidator,
   componentsValidator,
@@ -64,7 +65,8 @@ export const validators: Validator[] = [
   ctaTrackingValidator,
 ];
 
-export const slowValidators: Validator[] = [lighthouseValidator];
+/** @deprecated Lighthouse removed from platform diagnostics — use external tools. */
+export const slowValidators: Validator[] = [];
 
 export const allValidators = [...validators, ...slowValidators];
 
@@ -77,16 +79,13 @@ export function ensureValidatorRegistered(validator: Validator | undefined): voi
   if (!validator || validatorMap.has(validator.name)) return;
   validators.push(validator);
   validatorMap.set(validator.name, validator);
-  const slowIdx = slowValidators.findIndex((v) => v.name === validator.name);
-  if (slowIdx >= 0) {
-    allValidators.splice(0, allValidators.length, ...validators, ...slowValidators);
-  } else if (!allValidators.some((v) => v.name === validator.name)) {
+  if (!allValidators.some((v) => v.name === validator.name)) {
     allValidators.push(validator);
   }
 }
 
 export function getValidator(name: string): Validator | undefined {
-  return validatorMap.get(name) ?? slowValidators.find((v) => v.name === name);
+  return validatorMap.get(name);
 }
 
 export function listValidators(): ValidatorMetadata[] {
@@ -122,11 +121,11 @@ export {
   imageOptimizationValidator,
   heroImageTagsValidator,
   imageTagsValidator,
-  lighthouseValidator,
   fieldMappingsValidator,
   orphanedFilesValidator,
   formsValidator,
   consentLegacyKeysValidator,
   bindingIntegrityValidator,
   brokenAnchorsValidator,
+  requiredFieldsValidator,
 };

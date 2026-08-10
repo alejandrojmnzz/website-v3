@@ -1,13 +1,15 @@
 /**
  * Meta Validator
- * 
+ *
  * Validates meta properties in content files:
- * - Required fields (page_title, description)
+ * - Required fields (page_title, description) as errors on live files
  * - Priority values (0-1)
  * - Change frequency values
  */
 
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { validateRequiredMeta } from "../../../shared/validateRequiredMeta";
+import { resolveSingleVars } from "../../../server/single-resolver";
 
 const VALID_CHANGE_FREQUENCIES = [
   "always",
@@ -18,6 +20,14 @@ const VALID_CHANGE_FREQUENCIES = [
   "yearly",
   "never",
 ];
+
+const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
+
+function looksLikeDraftPath(filePath: string): boolean {
+  const base = filePath.split(/[/\\]/).pop() || "";
+  // draft.en.yml / v2.en.yml style — not plain en.yml
+  return /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) && !/^single\./i.test(base);
+}
 
 export const metaValidator: Validator = {
   name: "meta",
@@ -32,23 +42,42 @@ export const metaValidator: Validator = {
     const warnings: ValidationIssue[] = [];
 
     for (const file of context.contentFiles) {
-      if (!file.meta?.page_title) {
-        warnings.push({
-          type: "warning",
-          code: "MISSING_PAGE_TITLE",
-          message: "Missing page_title in meta",
-          file: file.filePath,
-          suggestion: "Add a descriptive page_title for better SEO",
-        });
-      }
+      if (looksLikeDraftPath(file.filePath)) continue;
 
-      if (!file.meta?.description) {
-        warnings.push({
-          type: "warning",
-          code: "MISSING_DESCRIPTION",
-          message: "Missing description in meta",
+      const rawMeta = file.meta || {};
+      // Resolve {{ single.* }} against file data when possible so template-only meta fails if empty
+      const bag: Record<string, unknown> = {
+        ...(file as unknown as Record<string, unknown>),
+        title: (file as { title?: string }).title,
+        description: (file as { description?: string }).description,
+        slug: (file as { slug?: string }).slug,
+      };
+      const resolvedMeta = resolveSingleVars({ meta: rawMeta }, bag) as {
+        meta?: Record<string, unknown>;
+      };
+      const meta = resolvedMeta.meta || rawMeta;
+
+      const required = validateRequiredMeta(meta);
+      if (!required.ok) {
+        for (const err of required.errors) {
+          errors.push({
+            type: "error",
+            code: err.field === "meta.page_title" ? "MISSING_PAGE_TITLE" : "MISSING_DESCRIPTION",
+            message: err.message,
+            file: file.filePath,
+            suggestion:
+              err.field === "meta.page_title"
+                ? "Add a descriptive page_title for better SEO"
+                : "Add a meta description (150-160 characters) for better SEO",
+          });
+        }
+      } else if (TEMPLATE_RE.test(String(meta.page_title || "")) || TEMPLATE_RE.test(String(meta.description || ""))) {
+        errors.push({
+          type: "error",
+          code: "UNRESOLVED_META_TEMPLATE",
+          message: "meta.page_title / meta.description still contain unresolved {{ }} templates",
           file: file.filePath,
-          suggestion: "Add a meta description (150-160 characters) for better SEO",
+          suggestion: "Ensure mapped single.* fields that feed meta are filled on the entry",
         });
       }
 
@@ -103,8 +132,8 @@ export const metaValidator: Validator = {
       duration,
       artifacts: {
         filesChecked: context.contentFiles.length,
-        missingTitles: warnings.filter((w) => w.code === "MISSING_PAGE_TITLE").length,
-        missingDescriptions: warnings.filter((w) => w.code === "MISSING_DESCRIPTION").length,
+        missingTitles: errors.filter((w) => w.code === "MISSING_PAGE_TITLE").length,
+        missingDescriptions: errors.filter((w) => w.code === "MISSING_DESCRIPTION").length,
       },
     };
   },

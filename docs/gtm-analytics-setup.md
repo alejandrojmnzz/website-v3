@@ -196,11 +196,11 @@ The frontend sends the following session headers with every API request:
 
 ## Ecommerce funnel events
 
-Purchasable-gated events via `trackEcommerce()` in `client/src/lib/tracking.ts`. Staff hub: `/private/store/ecommerce`.
+Purchasable-gated events via `trackEcommerce()` in `client/src/lib/tracking.ts`. Staff hub: `/private/store/ecommerce`. Product scope prefers section binds (`ecommerce_products`, `programs[].id`, inherit) — see `shared/resolveProductScope.ts` and `explain_site` topic `ecommerce`. CMS does not manage a billing plan catalog.
 
 | Event | When | Notes |
 |-------|------|-------|
-| `view_item` | Hero `course` when product resolves | Program page / CTA `?program=` |
+| `view_item` | Hero `course` when product resolves | Scope / program page / CTA `?program=` |
 | `add_to_cart` | CTA `tracking: add_to_cart` | Configurator handoff (`/payment-component`) or enrollment CTA |
 | `view_item_list` | enrollment_selector / pricing_plans visible | Once per mount; skip edit mode |
 | `select_item` | User changes enrollment program | Debounced; includes selection fields |
@@ -219,7 +219,7 @@ CTA intent is explicit `cta.tracking` (field-editor `cta-tracking`), not URL sni
   - `amount` / `period_label`: from the selected plan (plan mode); in date mode `amount` may be `summary.price_amount` (display string, not GA4 revenue `value`)
   - `cohort_date`: selected `date_iso` (date mode)
   - `addon_id`: `addon.id` when the addon toggle is on
-- **Hero**: `program_id` from CTA `?program=` or career-program path; CTA click awaits product-map load
+- **Hero**: `program_id` from product scope / CTA `?program=` / career-program path; CTA click awaits product-map load
 - **Pricing**: `item_list_name: "pricing_plans"` on `view_item_list`
 
 Non-effects: does not change lead `trackFormSubmission`; does not fire `begin_checkout` or `purchase` on-site (`click_begin_checkout` is the site CTA intent); `cta_banner` has no ecommerce wiring.

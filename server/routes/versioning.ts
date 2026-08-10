@@ -77,6 +77,7 @@ import {
   deleteContentEntry,
   renameContentSlug,
 } from "../content-editor";
+import { validateYamlIdentity } from "../validate-content-identity";
 import { bindingManager } from "../bindings";
 import {
   escapeTemplateVars,
@@ -133,6 +134,15 @@ import {
   buildMirroredLocaleSingle,
   listSiblingSinglePaths,
 } from "../shared-layout-sync";
+import {
+  hasAnyLiveLocale,
+  hasLiveLocaleFile,
+  listDraftLocales,
+  countVariantFiles,
+  findSourceDraftVariant,
+  usesDraftFirstCreate,
+} from "../draft-entry";
+import { ensurePublishedAtOnce } from "../published-at";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
 import {
@@ -314,6 +324,13 @@ export function registerVersioningRoutes(app: Express): void {
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const versioning = versioningManager.getVersioningForContent(contentType, resolvedSlug);
     const filePath = versioningManager.getVersioningFilePath(contentType, resolvedSlug);
+    const contentDir = versioningManager.getVersioningContentDir(contentType, resolvedSlug);
+    const templateMode = isTemplateVersioningSlug(resolvedSlug);
+    const liveByLocale: Record<string, boolean> = {};
+    for (const loc of availableLocales) {
+      liveByLocale[loc] = hasLiveLocaleFile(contentDir, loc, templateMode);
+    }
+    const hasLiveDefault = hasAnyLiveLocale(contentDir, templateMode, availableLocales);
 
     if (!versioning) {
       res.json({
@@ -324,6 +341,9 @@ export function registerVersioningRoutes(app: Express): void {
         detached,
         isSharedLayout: shared,
         versioningSlug: resolvedSlug,
+        hasLiveDefault,
+        liveByLocale,
+        isDraft: !hasLiveDefault && !shared,
       });
       return;
     }
@@ -336,6 +356,9 @@ export function registerVersioningRoutes(app: Express): void {
       detached,
       isSharedLayout: shared,
       versioningSlug: resolvedSlug,
+      hasLiveDefault,
+      liveByLocale,
+      isDraft: !hasLiveDefault && !shared,
     });
   });
 
@@ -375,8 +398,15 @@ export function registerVersioningRoutes(app: Express): void {
 
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
       try {
-        // Allocating traffic requires the locale variant file to exist
         const contentDir = versioningManager.getVersioningContentDir(contentType, resolved.slug);
+        if (!hasAnyLiveLocale(contentDir, resolved.templateMode)) {
+          res.status(400).json({
+            error: "Cannot allocate traffic until a live locale exists. Publish a draft first.",
+          });
+          return;
+        }
+
+        // Allocating traffic requires the locale variant file to exist
         for (const v of parseResult.data.variants) {
           if (v.allocation > 0) {
             const vp = versioningManager.getVariantFilePath(contentType, resolved.slug, v.slug, locale);
@@ -424,7 +454,11 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
-    const { variantSlug, locale } = req.body as { variantSlug?: string; locale?: string };
+    const { variantSlug, locale, sourceVariant } = req.body as {
+      variantSlug?: string;
+      locale?: string;
+      sourceVariant?: string;
+    };
 
     if (!variantSlug || !locale) {
       res.status(400).json({ error: "variantSlug and locale are required" });
@@ -456,16 +490,33 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
-    const sourceFilePath = resolved.templateMode
+    const liveSourcePath = resolved.templateMode
       ? path.join(contentDir, `single.${locale}.yml`)
       : path.join(contentDir, `${locale}.yml`);
+
+    let sourceFilePath = liveSourcePath;
     if (!fs.existsSync(sourceFilePath)) {
-      res.status(404).json({
-        error: resolved.templateMode
-          ? `Source file single.${locale}.yml not found`
-          : `Source file ${locale}.yml not found for this entry`,
-      });
-      return;
+      // Draft mode: copy from an existing draft/variant for this locale
+      const srcSlug = findSourceDraftVariant(
+        contentDir,
+        locale,
+        sourceVariant,
+        resolved.templateMode,
+      );
+      if (!srcSlug) {
+        res.status(404).json({
+          error: resolved.templateMode
+            ? `Source file single.${locale}.yml not found and no draft variants exist for ${locale}`
+            : `Source file ${locale}.yml not found and no draft variants exist for ${locale}`,
+        });
+        return;
+      }
+      sourceFilePath = versioningManager.getVariantFilePath(
+        contentType,
+        resolved.slug,
+        srcSlug,
+        locale,
+      );
     }
 
     try {
@@ -478,7 +529,7 @@ export function registerVersioningRoutes(app: Express): void {
 
       // Template mode: fan out sibling-locale variant files with _label pending translation
       const createdSiblings: string[] = [];
-      if (resolved.templateMode) {
+      if (resolved.templateMode && fs.existsSync(liveSourcePath)) {
         const sourceData = (getCI(res).safeYamlLoad(sourceContent) as Record<string, unknown>) || {};
         const requesterId = auth.author || undefined;
         for (const sibling of listSiblingSinglePaths(contentDir, locale)) {
@@ -517,6 +568,167 @@ export function registerVersioningRoutes(app: Express): void {
         templateMode: resolved.templateMode,
         siblingLocales: createdSiblings,
         filePath: `${getContentRootName(res)}/${relPrimary}`,
+        seededFromDraft: !fs.existsSync(liveSourcePath),
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Publish all draft locales (all-or-nothing): promote variantSlug for every unpublished locale that has it
+  app.post("/api/versioning/:contentType/:contentSlug/publish", async (req, res) => {
+    const { contentType, contentSlug } = req.params;
+
+    if (!isValidType(contentType)) {
+      res.status(400).json({ error: "Invalid content type", validTypes: getAllFolders() });
+      return;
+    }
+
+    const auth = await requireCapability(req, res, "content_promote_variant", contentType);
+    if (!auth.authorized) return;
+
+    const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+
+    const { variantSlug } = req.body as { variantSlug?: string };
+    if (!variantSlug || !/^[a-z0-9-]+$/.test(variantSlug)) {
+      res.status(400).json({ error: "variantSlug is required (lowercase letters, numbers, hyphens)" });
+      return;
+    }
+
+    const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+    const contentDir = path.resolve(versioningManager.getVersioningContentDir(contentType, resolved.slug));
+    const root = getContentRoot(res);
+    const folder = getFolder(contentType as ContentType);
+
+    if (!fs.existsSync(contentDir)) {
+      res.status(404).json({ error: "Content folder not found" });
+      return;
+    }
+
+    if (hasAnyLiveLocale(contentDir, resolved.templateMode)) {
+      res.status(400).json({
+        error:
+          "Entry already has a live locale. Use per-locale promote to replace the live default.",
+      });
+      return;
+    }
+
+    const draftLocales = listDraftLocales(contentDir, resolved.templateMode);
+    if (draftLocales.length === 0) {
+      res.status(400).json({ error: "No draft locales found to publish" });
+      return;
+    }
+
+    const missing: string[] = [];
+    for (const loc of draftLocales) {
+      const vp = versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, loc);
+      if (!fs.existsSync(vp)) missing.push(loc);
+    }
+    if (missing.length > 0) {
+      res.status(400).json({
+        error:
+          `Draft variant "${variantSlug}" is missing for locale(s): ${missing.join(", ")}. ` +
+          `Pick a variant present on all remaining draft locales, or delete incomplete locales first.`,
+        missingLocales: missing,
+      });
+      return;
+    }
+
+    const publishedLocales: string[] = [];
+    try {
+      for (const locale of draftLocales) {
+        const variantFilePath = path.resolve(
+          versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale),
+        );
+        const defaultFilePath = path.resolve(
+          contentDir,
+          resolved.templateMode ? `single.${locale}.yml` : `${locale}.yml`,
+        );
+        const variantContent = fs.readFileSync(variantFilePath, "utf-8");
+        const identityErr = validateYamlIdentity(variantContent, {
+          contentType,
+          contentSlug: resolved.slug,
+        });
+        if (identityErr) {
+          res.status(400).json({
+            error:
+              `Cannot publish: ${identityErr} (locale ${locale}). ` +
+              `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before publishing.`,
+            locale,
+          });
+          return;
+        }
+        const parsedVariant =
+          (getCI(res).safeYamlLoad(variantContent) as Record<string, unknown>) || {};
+        const commonForGate =
+          getCI(res).loadCommonData(contentType, resolved.slug) || {};
+        const { assertLiveEntrySeoAndRequiredFields } = await import(
+          "../live-entry-seo-gate"
+        );
+        const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+          contentType,
+          slug: resolved.slug,
+          locale,
+          pageData: deepMerge(commonForGate, parsedVariant) as Record<
+            string,
+            unknown
+          >,
+          contentRoot: root,
+          mode: "publish",
+          isDraftWrite: false,
+        });
+        if (seoGateErr) {
+          res.status(400).json({ error: `Cannot publish: ${seoGateErr}`, locale });
+          return;
+        }
+        fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
+
+        const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
+        const localeData = existing[locale];
+        if (localeData) {
+          const updatedVariants = (localeData.variants || []).filter((v) => v.slug !== variantSlug);
+          versioningManager.updateVersioning(contentType, resolved.slug, {
+            ...existing,
+            [locale]: { variants: updatedVariants },
+          });
+        }
+
+        fs.unlinkSync(variantFilePath);
+
+        if (resolved.templateMode) {
+          markFileAsModified(`${folder}/single.${locale}.yml`, auth.author || "api", undefined, root);
+          markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        } else {
+          markFileAsModified(`${folder}/${resolved.slug}/${locale}.yml`, auth.author || "api", undefined, root);
+          markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        }
+        publishedLocales.push(locale);
+      }
+
+      if (!resolved.templateMode) {
+        ensurePublishedAtOnce(contentType, resolved.slug, {
+          author: auth.author || "api",
+          contentRoot: root,
+        });
+      }
+
+      getCI(res).refresh();
+      getCI(res).invalidateCommonFields(contentType);
+      clearSsrSchemaCache();
+      invalidateContentCaches(contentType, getCI(res));
+      if (!resolved.templateMode) {
+        refreshSitemapEntriesForContentKey(contentType, resolved.slug, publishedLocales);
+      }
+
+      res.json({
+        success: true,
+        published: true,
+        variantSlug,
+        locales: publishedLocales,
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -581,8 +793,46 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const wasUnpublished =
+      !resolved.templateMode && !hasAnyLiveLocale(contentDir, resolved.templateMode);
+
     try {
       const variantContent = fs.readFileSync(variantFilePath, "utf-8");
+      const identityErr = validateYamlIdentity(variantContent, {
+        contentType,
+        contentSlug: resolved.slug,
+      });
+      if (identityErr) {
+        res.status(400).json({
+          error:
+            `Cannot promote: ${identityErr}. ` +
+            `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before promoting.`,
+        });
+        return;
+      }
+      const parsedVariant =
+        (getCI(res).safeYamlLoad(variantContent) as Record<string, unknown>) || {};
+      const commonForGate =
+        getCI(res).loadCommonData(contentType, resolved.slug) || {};
+      const { assertLiveEntrySeoAndRequiredFields } = await import(
+        "../live-entry-seo-gate"
+      );
+      const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+        contentType,
+        slug: resolved.slug,
+        locale,
+        pageData: deepMerge(commonForGate, parsedVariant) as Record<
+          string,
+          unknown
+        >,
+        contentRoot: root,
+        mode: "publish",
+        isDraftWrite: false,
+      });
+      if (seoGateErr) {
+        res.status(400).json({ error: `Cannot promote: ${seoGateErr}` });
+        return;
+      }
       fs.writeFileSync(defaultFilePath, variantContent, "utf-8");
 
       const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
@@ -597,6 +847,13 @@ export function registerVersioningRoutes(app: Express): void {
 
       fs.unlinkSync(variantFilePath);
 
+      if (wasUnpublished) {
+        ensurePublishedAtOnce(contentType, resolved.slug, {
+          author: auth.author || "api",
+          contentRoot: root,
+        });
+      }
+
       getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
       invalidateContentCaches(contentType, getCI(res));
@@ -607,6 +864,9 @@ export function registerVersioningRoutes(app: Express): void {
       } else {
         markFileAsModified(`${folder}/${resolved.slug}/${locale}.yml`, auth.author || "api", undefined, root);
         markFileAsModified(`${folder}/${resolved.slug}/${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
+        // If this was the first live locale, refresh index + sitemap
+        getCI(res).refresh();
+        refreshSitemapEntriesForContentKey(contentType, resolved.slug, [locale]);
       }
 
       res.json({ success: true });
@@ -670,6 +930,11 @@ export function registerVersioningRoutes(app: Express): void {
     }
 
     try {
+      const wasDraftEntry =
+        !resolved.templateMode &&
+        usesDraftFirstCreate(contentType, root) &&
+        !hasAnyLiveLocale(contentDir, false);
+
       fs.unlinkSync(variantFilePath);
       if (resolved.templateMode) {
         markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
@@ -685,6 +950,26 @@ export function registerVersioningRoutes(app: Express): void {
           ...existing,
           [locale]: { variants: updatedVariants },
         });
+      }
+
+      // Deleting the last draft on an unpublished entry removes the whole entry
+      if (wasDraftEntry && countVariantFiles(contentDir, false) === 0) {
+        const del = await deleteContentEntry({
+          type: contentType,
+          slug: resolved.slug,
+          author: auth.author || "api",
+          contentRootName: getContentRootName(res),
+        });
+        if (!del.success) {
+          res.status(del.statusCode).json({ error: del.error });
+          return;
+        }
+        res.json({
+          success: true,
+          entryDeleted: true,
+          message: "Last draft deleted; unpublished entry removed.",
+        });
+        return;
       }
 
       getCI(res).invalidateCommonFields(contentType);

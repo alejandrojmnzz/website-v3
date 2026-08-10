@@ -241,7 +241,13 @@ export function registerSettingsRoutes(app: Express): void {
       }
       const content = fs.readFileSync(versionPath, "utf-8");
       const data = JSON.parse(content);
-      res.json({ version: data.version || "1.0.0" });
+      const payload: { version: string; deployedAt?: string } = {
+        version: data.version || "1.0.0",
+      };
+      if (typeof data.deployedAt === "string" && data.deployedAt) {
+        payload.deployedAt = data.deployedAt;
+      }
+      res.json(payload);
     } catch {
       res.json({ version: "1.0.0" });
     }

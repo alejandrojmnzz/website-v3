@@ -73,6 +73,7 @@ describe("updateContentTypeConfig database unlink", () => {
       title: "title",
       _locale: expect.any(String),
       _image: expect.any(String),
+      published_at: "published_at",
     });
     expect(after?.field_mapping).not.toHaveProperty("slug");
     expect(after?.url_pattern.en).toBe("/en/blog/:slug");

@@ -17,7 +17,6 @@ const CloudSyncPage = lazy(() => import("@/pages/CloudSyncPage"));
 const PrivateDatabases = lazy(() => import("@/pages/PrivateDatabases"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const SeoGeoPage = lazy(() => import("@/pages/SeoGeoPage"));
-const LighthousePage = lazy(() => import("@/pages/LighthousePage"));
 const AIKnowledge = lazy(() => import("@/pages/AIKnowledge"));
 const AIConversations = lazy(() => import("@/pages/AIConversations"));
 const AIKnowledgeBlocks = lazy(() => import("@/pages/AIKnowledgeBlocks"));
@@ -27,7 +26,6 @@ const TrackingPage = lazy(() => import("@/pages/TrackingPage"));
 const SecurityPage = lazy(() => import("@/pages/SecurityPage"));
 const ComponentInsightsPage = lazy(() => import("@/pages/ComponentInsightsPage"));
 const StoreProductsPage = lazy(() => import("@/pages/StoreProductsPage"));
-const StorePlansPage = lazy(() => import("@/pages/StorePlansPage"));
 const StoreEcommercePage = lazy(() => import("@/pages/StoreEcommercePage"));
 const StoreProductDetailPage = lazy(() => import("@/pages/StoreProductDetailPage"));
 const ConversionsPage = lazy(() => import("@/pages/ConversionsPage"));
@@ -82,7 +80,6 @@ export default function PrivateRouter() {
         <Route path="/private/databases" component={PrivateDatabases} />
         <Route path="/private/databases/:name" component={PrivateDatabases} />
         <Route path="/private/diagnostics/seo-geo" component={SeoGeoPage} />
-        <Route path="/private/diagnostics/lighthouse" component={LighthousePage} />
         <Route path="/private/diagnostics" component={DiagnosticsPage} />
         <Route path="/private/redirects" component={PrivateRedirects} />
         <Route path="/private/media-gallery" component={MediaGallery} />
@@ -102,7 +99,6 @@ export default function PrivateRouter() {
         <Route path="/private/theme-editor" component={ThemeEditor} />
         <Route path="/private/component-insights" component={ComponentInsightsPage} />
         <Route path="/private/store/products" component={StoreProductsPage} />
-        <Route path="/private/store/plans" component={StorePlansPage} />
         <Route path="/private/store/ecommerce" component={StoreEcommercePage} />
         <Route path="/private/store/product/:slug" component={StoreProductDetailPage} />
         <Route path="/private/store/conversions" component={ConversionsPage} />

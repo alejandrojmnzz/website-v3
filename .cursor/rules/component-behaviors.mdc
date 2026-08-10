@@ -5,6 +5,7 @@ globs:
   - "**/component-registry/**/field-editors.ts"
   - "**/validateCta*.ts"
   - "**/component-behaviors*"
+  - "**/resolveProductScope*"
 alwaysApply: false
 ---
 
@@ -17,10 +18,42 @@ Declare platform patterns on each component `schema.yml` under `behaviors:` — 
 | `conversion` | field-editors include `form-settings` |
 | `listing` | `dynamic_entries` / listing cards |
 | `schema_org` | SSR JSON-LD contributor |
-| `ecommerce` | funnel/catalog events or `cta-tracking` field-editors |
+| `ecommerce` | funnel/catalog events or `cta-tracking` / `ecommerce-products` field-editors |
+
+## CTA tracking
 
 CTA ecommerce intent is **not** on behaviors. Bind paths with field-editor type `cta-tracking`. Required `cta.tracking`: `none` | `add_to_cart` | `click_begin_checkout`.
 
-Save/MCP validate bound paths only (`validateCtaTracking` + `validateCtaPurchasable`). Non-`none` needs a purchasable product (`_ecommerce.yml`).
+Save/MCP validate bound paths (`validateCtaTracking` + `validateCtaPurchasable`). Non-`none` needs a purchasable product (`_ecommerce.yml`).
 
-Catalog: `docs/component-behaviors.md`. MCP: `explain` topic `component-behaviors`. Schema-sync **preserves** `behaviors`.
+## Product scope (exact property paths)
+
+Ecommerce product scope is field-editor / domain **bound paths** — not URL sniffing as the primary API.
+
+| Component | Property path |
+|-----------|---------------|
+| `hero` course on program entry | inherit entry slug; optional `ecommerce_products` |
+| `hero` course elsewhere | `ecommerce_products` (`string[]` \| `"all"`) |
+| `enrollment_selector` | `programs[].id` (default); optional `ecommerce_products: all` for shared hubs |
+| `pricing_plans` | inherit on program pages, or `ecommerce_products` |
+| CTA intent | bound CTA path + `.tracking` (e.g. `signup_card.cta_button.tracking`) |
+
+`explain_site` topics `component-behaviors` and `ecommerce` **must list these exact property paths** — never vague “set product scope” alone. Do not document a second parallel field that is not the bind.
+
+Funnel order is **not** a section property — use `get_product_funnel` / `update_product_funnel` / `_ecommerce.yml` `funnel.steps` and `funnel.traffic_sources` (top-of-funnel types; not URL steps).
+
+CMS does **not** manage a billing plan catalog.
+
+## Wipe on duplicate (derived)
+
+Page/section duplicate clears conversion/ecommerce identity fields (no `reset_on_duplicate` schema key):
+
+- Any `conversion_name` under the section (including `routes[].conversion_name`)
+- Whole `ecommerce_products`
+- CTA `tracking` on bound `cta-tracking` paths (delete → save fails until re-set)
+
+Not wiped (v1): `programs[].id`, automations/webhook/tags, ordinary props.
+
+When adding a component: binding `form-settings`, `cta-tracking`, or `ecommerce-products` **implies** those values wipe on duplicate. Default for new props: do **not** wipe. Duplicate never fails; save/publish/**promote** validators require an explicit decision: missing keys fail; `conversion_name` / `ecommerce_products` use YAML `null` for off; CTA uses `tracking: none`. Empty string ≠ off.
+
+Catalog: `docs/component-behaviors.md`. MCP: `explain_site` topics `component-behaviors` + `ecommerce`. Schema-sync **preserves** `behaviors`.

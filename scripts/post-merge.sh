@@ -73,6 +73,7 @@ resolve_conflicts
 # ── Version bump ──────────────────────────────────────────────────────────────
 python3 - << 'PYEOF'
 import json, os, re
+from datetime import datetime, timezone
 
 version_path = os.path.join(os.getcwd(), "version.json")
 try:
@@ -84,10 +85,11 @@ try:
         parts[2] = str(int(parts[2]) + 1)
         new_version = ".".join(parts)
         data["version"] = new_version
+        data["deployedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with open(version_path, "w") as f:
             json.dump(data, f)
             f.write("\n")
-        print(f"[post-merge] Version bumped: {version} → {new_version}", flush=True)
+        print(f"[post-merge] Version bumped: {version} → {new_version} (deployedAt={data['deployedAt']})", flush=True)
     else:
         print(f"[post-merge] WARNING: Unexpected version format '{version}', skipping bump.", flush=True)
 except Exception as e:

@@ -20,6 +20,9 @@ import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
+import LocaleUnavailable, {
+  type LocaleUnavailableInfo,
+} from "@/components/LocaleUnavailable";
 
 interface DatabaseSinglePageProps {
   contentType: string;
@@ -45,7 +48,13 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
     : true;
   const staticApiPath = getApiPath(contentType);
 
-  const { data: page, isLoading, error, refetch } = useQuery<TemplatePage>({
+  const {
+    data: page,
+    isLoading,
+    error,
+    refetch,
+    failureReason,
+  } = useQuery<TemplatePage>({
     queryKey: isDbBacked
       ? ["/api/database-single", contentType, slug, locale]
       : [staticApiPath, slug, locale],
@@ -55,12 +64,27 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
         : `${staticApiPath}/${slug}?locale=${locale}`;
       const response = await apiFetch(url);
       if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        if (body?.error === "locale_unavailable" || body?.code === "EMPTY_LOCALE") {
+          const err = new Error("locale_unavailable") as Error & {
+            localeUnavailable?: LocaleUnavailableInfo;
+          };
+          err.localeUnavailable = body;
+          throw err;
+        }
         throw new Error("Page not found");
       }
       return response.json();
     },
     enabled: !!slug && contentTypesData !== undefined,
   });
+
+  const localeUnavailable =
+    (failureReason as (Error & { localeUnavailable?: LocaleUnavailableInfo }) | null)
+      ?.localeUnavailable ||
+    ((page as { locale_unavailable?: boolean } | undefined)?.locale_unavailable
+      ? (page as unknown as LocaleUnavailableInfo)
+      : null);
 
   const pageDetached = !!(page as { detached?: boolean } | undefined)?.detached;
   const isSharedTemplate = isSharedLayout && !pageDetached;
@@ -114,6 +138,10 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
+  }
+
+  if (localeUnavailable) {
+    return <LocaleUnavailable info={localeUnavailable} pageLocale={locale} />;
   }
 
   if (error || !page) {

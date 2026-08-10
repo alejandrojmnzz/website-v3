@@ -89,25 +89,9 @@ async function loadEntriesForPreview(
     Object.values(preview.props).some((src) => src.trim() === "content");
   if (!needsContent) return items as Array<Record<string, unknown>>;
 
-  const localeKey = getLocaleKey(type, ctRoot(res)) || "lang";
-  const ci = getCI(res);
-  return (items as Array<Record<string, unknown>>).map((item) => {
-    if (typeof item.content === "string" && item.content.trim()) return item;
-    const slug = String(item.slug || "");
-    if (!slug) return item;
-    const locale = normalizeLocale(
-      String(item[localeKey] || item.lang || item.locale || item.language || "en"),
-    );
-    try {
-      const merged = ci.loadMergedContent(type, slug, locale);
-      const body = (merged?.data as Record<string, unknown> | undefined)?.content;
-      if (typeof body === "string" && body.trim()) {
-        return { ...item, content: body };
-      }
-    } catch {
-      /* keep listing row as-is */
-    }
-    return item;
+  return hydrateStaticListingContent(items as Array<Record<string, unknown>>, type, {
+    ci: getCI(res),
+    contentRoot: ctRoot(res),
   });
 }
 
@@ -199,6 +183,13 @@ import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
+import {
+  usesDraftFirstCreate,
+  getEntryContentDir,
+  listDraftLocales,
+  listVariantSlugsForLocale,
+  DEFAULT_DRAFT_VARIANT,
+} from "../draft-entry";
 import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
 import {
@@ -291,7 +282,11 @@ import {
   clearMarkdownCacheByUrl,
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
-import { queryEntries, type QueryFilter } from "../query-entries";
+import {
+  hydrateStaticListingContent,
+  queryEntries,
+  type QueryFilter,
+} from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
 import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections } from "../database-single-loader";
 import {
@@ -306,7 +301,10 @@ import {
   validatePreviewPropMappings,
 } from "../entry-preview-config";
 import { applyPreviewPropMappings, collectMappablePropsFromSchema, isBlockedPreviewSource, materializeOgPreviewReadingTime, formatMissingPreviewPropsMessage } from "@shared/entry-preview-props";
-import { estimateReadingMinutes } from "@shared/reading-time";
+import {
+  estimateReadingMinutes,
+  estimateReadingMinutesFromSections,
+} from "@shared/reading-time";
 import { RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD } from "../content-types";
 import { buildPreviewPropResolveContext } from "../entry-preview-resolve";
 import {
@@ -315,6 +313,10 @@ import {
   versioningContentSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
+import {
+  buildLocaleUnavailablePayload,
+  isEmptyDetachedLocaleEntry,
+} from "../empty-locale";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -826,6 +828,28 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
+    const emptyRoot = getContentRoot(res);
+    if (
+      isEmptyDetachedLocaleEntry({
+        contentType,
+        slug,
+        locale,
+        contentRoot: emptyRoot,
+        ci: getCI(res),
+      })
+    ) {
+      const availableUrls = getCI(res).getAlternateUrls(slug, contentType);
+      res.status(404).json(
+        buildLocaleUnavailablePayload({
+          contentType,
+          slug,
+          locale,
+          availableUrls,
+        }),
+      );
+      return;
+    }
+
     if (hasDatabaseSingle(contentType, getContentRoot(res))) {
       const root = getContentRoot(res);
       const detached = isEntryDetached(contentType, slug, root);
@@ -1189,24 +1213,48 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { slug } = req.params;
       const locale = req.query.locale as string | undefined;
+      const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
+      const blogRoot = getContentRoot(res);
+
+      if (
+        normalizedLocale &&
+        isEmptyDetachedLocaleEntry({
+          contentType: "blog",
+          slug,
+          locale: normalizedLocale,
+          contentRoot: blogRoot,
+          ci: getCI(res),
+        })
+      ) {
+        const availableUrls = getCI(res).getAlternateUrls(slug, "blog");
+        res.status(404).json(
+          buildLocaleUnavailablePayload({
+            contentType: "blog",
+            slug,
+            locale: normalizedLocale,
+            availableUrls,
+          }),
+        );
+        return;
+      }
+
       const { items: posts } = await queryEntries(
         {
           from: { contentType: "blog" },
-          locale: locale ? normalizeLocale(locale) : undefined,
+          locale: normalizedLocale,
         },
         {
           db: getDB(res),
           contentIndex: getCI(res),
-          contentRoot: getContentRoot(res),
+          contentRoot: blogRoot,
         },
       );
       const localeKey = getLocaleKey("blog", ctRoot(res)) || "lang";
-      const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
       const post = normalizedLocale
         ? posts.find(
             (p) =>
               p.slug === slug && (p as any)[localeKey] === normalizedLocale,
-          ) || posts.find((p) => p.slug === slug)
+          )
         : posts.find((p) => p.slug === slug);
 
       if (!post) {
@@ -2304,17 +2352,27 @@ export function registerContentRoutes(app: Express): void {
         req.query.include_content === "1" ||
         req.query.include_content === "true";
 
-      const stripped = items.map((item) => {
+      // Static listing projections omit `content`. When the caller asks for bodies
+      // (OG entry-preview live samples), restore them so reading_time can be derived.
+      const workingItems =
+        includeContent && meta.source === "content_type"
+          ? hydrateStaticListingContent(items as Array<Record<string, unknown>>, type, {
+              ci: getCI(res),
+              contentRoot: getContentRoot(res),
+            })
+          : (items as Array<Record<string, unknown>>);
+
+      const stripped = workingItems.map((item) => {
         const body = item.content;
         const reading_minutes =
           typeof body === "string" && body.trim()
             ? estimateReadingMinutes(body)
-            : undefined;
+            : estimateReadingMinutesFromSections(item.sections);
         if (includeContent) {
           return reading_minutes != null ? { ...item, reading_minutes } : item;
         }
         // List projections omit heavy bodies; keep reading_minutes for OG live preview.
-        const { content, readme, ...rest } = item as Record<string, unknown>;
+        const { content, readme, ...rest } = item;
         return reading_minutes != null ? { ...rest, reading_minutes } : rest;
       });
 
@@ -2371,15 +2429,17 @@ export function registerContentRoutes(app: Express): void {
       const { type } = req.params;
       const entries = getCI(res).findByType(type);
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+      const root = ctRoot(res);
+      const indexedSlugs = new Set(entries.map((e) => e.slug));
 
       // Per-slug mapping gaps: invert validateFieldMapping's per-field missing
       // lists into slug → missing mapped-field names (e.g. ["image"]).
       // Only meaningful for YAML-backed types; DB-backed entries are validated
       // against the database, not per-entry YAML.
       const missingBySlug = new Map<string, string[]>();
-      const config = getContentTypeConfig(type, ctRoot(res));
+      const config = getContentTypeConfig(type, root);
       if (config && !config.database?.slug) {
-        const mapping = getFieldMapping(type, ctRoot(res));
+        const mapping = getFieldMapping(type, root);
         if (mapping) {
           const { results: mappingResults } = validateFieldMapping(type, mapping);
           for (const [field, result] of Object.entries(mappingResults)) {
@@ -2393,10 +2453,21 @@ export function registerContentRoutes(app: Express): void {
       }
 
       const results = entries.map((entry) => {
-        const urls = getCI(res).getLocaleUrls(entry.slug, type);
+        const urls = getCI(res).getLocaleUrls(entry.slug, type, {
+          includeEmptyLocales: true,
+        });
         const versionCounts = versioningManager.getVersionCounts(type, entry.slug);
         const locales = entry.locales.filter(
           (l) => !l.startsWith("_") && !l.includes("."),
+        );
+        const emptyLocales = locales.filter((loc) =>
+          isEmptyDetachedLocaleEntry({
+            contentType: type,
+            slug: entry.slug,
+            locale: loc,
+            contentRoot: root,
+            ci: getCI(res),
+          }),
         );
         return {
           slug: entry.slug,
@@ -2405,9 +2476,54 @@ export function registerContentRoutes(app: Express): void {
           urls,
           versionCounts,
           mappingErrors: missingBySlug.get(entry.slug) ?? [],
-          updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, ctRoot(res)),
+          emptyLocales,
+          updated_at: resolveStaticEntryUpdatedAt(type, entry.slug, locales, root),
+          status: "published" as const,
         };
       });
+
+      // Include draft-only folders (no live locales) for non-shared-layout types
+      if (usesDraftFirstCreate(type, root)) {
+        const allSlugs = getCI(res).listContentSlugs(type as ContentType);
+        for (const slug of allSlugs) {
+          if (indexedSlugs.has(slug)) continue;
+          const dir = getEntryContentDir(type, slug, root);
+          const draftLocales = listDraftLocales(dir, false);
+          if (draftLocales.length === 0 && !fs.existsSync(path.join(dir, "_common.yml"))) continue;
+
+          let title = slug;
+          const commonPath = path.join(dir, "_common.yml");
+          if (fs.existsSync(commonPath)) {
+            try {
+              const common = getCI(res).safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null;
+              if (typeof common?.title === "string" && common.title.trim()) title = common.title.trim();
+            } catch { /* ignore */ }
+          }
+
+          const draftVariants = new Set<string>();
+          for (const loc of draftLocales) {
+            for (const v of listVariantSlugsForLocale(dir, loc, false)) draftVariants.add(v);
+          }
+          const primaryVariant = draftVariants.has(DEFAULT_DRAFT_VARIANT)
+            ? DEFAULT_DRAFT_VARIANT
+            : [...draftVariants][0] ?? DEFAULT_DRAFT_VARIANT;
+          const primaryLocale = draftLocales.includes("en") ? "en" : (draftLocales[0] ?? "en");
+
+          results.push({
+            slug,
+            title,
+            locales: draftLocales,
+            urls: {},
+            versionCounts: versioningManager.getVersionCounts(type, slug),
+            mappingErrors: missingBySlug.get(slug) ?? [],
+            updated_at: resolveStaticEntryUpdatedAt(type, slug, draftLocales, root),
+            status: "draft" as const,
+            draftVariant: primaryVariant,
+            previewPath: `/private/preview/${type}/${slug}?variant=${encodeURIComponent(primaryVariant)}&locale=${primaryLocale}`,
+          } as any);
+        }
+      }
+
       res.json({ count: results.length, results });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -3251,6 +3367,15 @@ export function registerContentRoutes(app: Express): void {
               .map(([k, v]) => [k, v as string]),
           )
         : null;
+      if (Object.prototype.hasOwnProperty.call(fields, "published_at")) {
+        const pubVal = fields.published_at;
+        if (pubVal === null || pubVal === undefined || (typeof pubVal === "string" && pubVal.trim() === "")) {
+          res.status(400).json({
+            error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
+          });
+          return;
+        }
+      }
       const patched = getDB(res).patchDbEntry(
         dbName,
         lookupKey,
@@ -3279,6 +3404,12 @@ export function registerContentRoutes(app: Express): void {
       const author = typeof req.body?.author === "string" ? req.body.author : undefined;
       if (!field) {
         res.status(400).json({ error: "field is required" });
+        return;
+      }
+      if (field === "published_at") {
+        res.status(400).json({
+          error: "published_at cannot be reset or cleared; set a non-empty datetime to backdate.",
+        });
         return;
       }
       const config = getContentTypeConfig(type, ctRoot(res));
@@ -3389,7 +3520,8 @@ export function registerContentRoutes(app: Express): void {
         msg.includes("not a shared-layout") ||
         msg.includes("Invalid entry") ||
         msg.includes("Unknown content type") ||
-        msg.includes("No live single")
+        msg.includes("No live single") ||
+        msg.includes("no live locale files")
           ? 400
           : 500;
       res.status(status).json({ error: msg });

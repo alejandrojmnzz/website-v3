@@ -6,24 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-interface EcommercePlan {
-  plan_id: string;
-  name: string;
-  price: number;
-  currency: string;
-  billing_period: "monthly" | "annual" | "one_time";
-  highlighted: boolean;
-  badge?: string;
-  trial_days?: number;
-  features: string[];
-}
-
 interface EcommerceProduct {
   product_id: string;
   name: string;
   content_type: string;
   content_slug: string;
-  plans: EcommercePlan[];
   active: boolean;
   description?: string;
 }
@@ -119,18 +106,26 @@ export default function StoreProductsPage() {
           <div className="space-y-3" data-testid="product-list">
             {products.map((product) => (
               <Link key={product.product_id} href={`/private/store/product/${product.content_slug}`}>
-              <Card key={product.product_id} className="hover-elevate cursor-pointer" data-testid={`card-product-${product.product_id}`}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div>
-                      <CardTitle className="text-base" data-testid={`text-product-name-${product.product_id}`}>
-                        {product.name}
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5 font-mono" data-testid={`text-product-id-${product.product_id}`}>
-                        {product.product_id}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
+                <Card
+                  className="hover-elevate cursor-pointer"
+                  data-testid={`card-product-${product.product_id}`}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div>
+                        <CardTitle
+                          className="text-base"
+                          data-testid={`text-product-name-${product.product_id}`}
+                        >
+                          {product.name}
+                        </CardTitle>
+                        <p
+                          className="text-xs text-muted-foreground mt-0.5 font-mono"
+                          data-testid={`text-product-id-${product.product_id}`}
+                        >
+                          {product.product_id}
+                        </p>
+                      </div>
                       <Badge
                         variant={product.active ? "default" : "secondary"}
                         data-testid={`badge-product-active-${product.product_id}`}
@@ -148,43 +143,28 @@ export default function StoreProductsPage() {
                         )}
                       </Badge>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2 pt-0">
-                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                    <span data-testid={`text-product-type-${product.product_id}`}>
-                      <span className="font-medium text-foreground">Type:</span>{" "}
-                      {product.content_type}
-                    </span>
-                    <span data-testid={`text-product-slug-${product.product_id}`}>
-                      <span className="font-medium text-foreground">Slug:</span>{" "}
-                      {product.content_slug}
-                    </span>
-                    <span data-testid={`text-product-plans-${product.product_id}`}>
-                      <span className="font-medium text-foreground">Plans:</span>{" "}
-                      {product.plans.length}
-                    </span>
-                  </div>
-                  {product.description && (
-                    <p className="text-xs text-muted-foreground" data-testid={`text-product-desc-${product.product_id}`}>
-                      {product.description}
-                    </p>
-                  )}
-                  {product.plans.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {product.plans.map((plan) => (
-                        <Badge
-                          key={plan.plan_id}
-                          variant="outline"
-                          data-testid={`badge-plan-${plan.plan_id}`}
-                        >
-                          {plan.name}
-                        </Badge>
-                      ))}
+                  </CardHeader>
+                  <CardContent className="space-y-2 pt-0">
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                      <span data-testid={`text-product-type-${product.product_id}`}>
+                        <span className="font-medium text-foreground">Type:</span>{" "}
+                        {product.content_type}
+                      </span>
+                      <span data-testid={`text-product-slug-${product.product_id}`}>
+                        <span className="font-medium text-foreground">Slug:</span>{" "}
+                        {product.content_slug}
+                      </span>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                    {product.description && (
+                      <p
+                        className="text-xs text-muted-foreground"
+                        data-testid={`text-product-desc-${product.product_id}`}
+                      >
+                        {product.description}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
               </Link>
             ))}
           </div>

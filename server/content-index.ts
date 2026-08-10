@@ -13,12 +13,18 @@ import { applyPerEntryLayer } from "./section-merge";
 import { applySectionLayoutDefaults } from "./section-layout-defaults";
 import { invalidateStaticListingCache } from "./static-listing-cache";
 import { isEntryDetached } from "./shared-layout-entry";
+import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import {
   findBestSingleMirrorSource,
   buildMirroredLocaleSingle,
   listAllSinglePaths,
 } from "./shared-layout-sync";
 import { child } from "./logger";
+import {
+  wipeDocumentSectionsOnDuplicate,
+  type ClearedField,
+} from "../shared/wipeOnDuplicate";
+import { loadAllFieldEditors } from "./component-registry";
 const log = child({ module: "content-index" });
 
 
@@ -517,7 +523,13 @@ export class ContentIndex {
   }
 
   private contentTypeHasRedirects(contentType: string): boolean {
-    return contentType === "program" || contentType === "landing" || contentType === "page" || contentType === "location";
+    return (
+      contentType === "program" ||
+      contentType === "landing" ||
+      contentType === "page" ||
+      contentType === "location" ||
+      contentType === "blog"
+    );
   }
 
   private addImageRef(ref: string, filePath: string): void {
@@ -691,28 +703,69 @@ export class ContentIndex {
    * Locale → URL path for a content entry (YAML folder or DB `_hreflangs` cluster).
    * Alias kept for callers; prefer getAlternateUrls for new code.
    */
-  getLocaleUrls(slug: string, contentType: string): Record<string, string> {
-    return this.getAlternateUrls(slug, contentType);
+  getLocaleUrls(
+    slug: string,
+    contentType: string,
+    options?: { includeEmptyLocales?: boolean },
+  ): Record<string, string> {
+    return this.getAlternateUrls(slug, contentType, options);
   }
 
   /**
    * Unified alternate URL resolver.
    * - YAML: folder locales + optional per-file slug override
    * - DB: `_hreflangs` locale→slug map on the mapped item (lookup by current URL slug)
+   * By default skips empty detached locales (public). Pass includeEmptyLocales for admin.
    */
-  getAlternateUrls(slug: string, contentType: string): Record<string, string> {
+  getAlternateUrls(
+    slug: string,
+    contentType: string,
+    options?: { includeEmptyLocales?: boolean },
+  ): Record<string, string> {
     this.ensureInitialized();
     const normalized = this.normalizeType(contentType);
     const config = this.contentTypeConfigs[normalized];
+    const includeEmpty = options?.includeEmptyLocales === true;
 
     if (config?.database?.slug && getHreflangsSource(normalized, this.contentRoot)) {
       const dbUrls = this.getAlternateUrlsFromDatabase(slug, normalized);
-      if (dbUrls !== null) return dbUrls;
+      if (dbUrls !== null) {
+        return includeEmpty
+          ? dbUrls
+          : this.filterEmptyDetachedAlternateUrls(slug, normalized, dbUrls);
+      }
     }
 
     // YAML: map per-locale URL slug → folder slug when needed
     const baseSlug = this.resolveBaseSlug(slug, normalized);
-    return this.getAlternateUrlsFromYaml(baseSlug, normalized);
+    const urls = this.getAlternateUrlsFromYaml(baseSlug, normalized);
+    return includeEmpty
+      ? urls
+      : this.filterEmptyDetachedAlternateUrls(baseSlug, normalized, urls);
+  }
+
+  private filterEmptyDetachedAlternateUrls(
+    slug: string,
+    contentType: string,
+    urls: Record<string, string>,
+  ): Record<string, string> {
+    if (!isEntryDetached(contentType, slug, this.contentRoot)) return urls;
+    const out: Record<string, string> = {};
+    for (const [locale, url] of Object.entries(urls)) {
+      if (
+        isEmptyDetachedLocaleEntry({
+          contentType,
+          slug,
+          locale,
+          contentRoot: this.contentRoot,
+          ci: this,
+        })
+      ) {
+        continue;
+      }
+      out[locale] = url;
+    }
+    return out;
   }
 
   /** Returns null if the slug is not a DB item (caller may fall through to YAML). */
@@ -1846,7 +1899,12 @@ export class ContentIndex {
     title: string;
     skipLocales: string[];
     localeTitles?: Record<string, string>;
-  }): { copiedFiles: string[]; strippedFields: string[]; replacedVars: number } {
+  }): {
+    copiedFiles: string[];
+    strippedFields: string[];
+    replacedVars: number;
+    clearedFields: ClearedField[];
+  } {
     this.ensureInitialized();
 
     const { sourceDir, sourceType, targetType, targetDir, newSlugs, title, skipLocales, localeTitles } = opts;
@@ -1877,11 +1935,12 @@ export class ContentIndex {
 
     const copiedFiles: string[] = [];
     const strippedFields: string[] = [...keysToStrip];
+    const clearedFields: ClearedField[] = [];
     let replacedVars = 0;
 
     const absSourceDir = path.isAbsolute(sourceDir) ? sourceDir : path.join(process.cwd(), sourceDir);
     if (!fs.existsSync(absSourceDir)) {
-      return { copiedFiles, strippedFields, replacedVars };
+      return { copiedFiles, strippedFields, replacedVars, clearedFields };
     }
 
     const sourceFiles = fs.readdirSync(absSourceDir).filter(f => f.endsWith(".yml") || f.endsWith(".yaml"));
@@ -1938,6 +1997,13 @@ export class ContentIndex {
       }
     }
 
+    const fieldEditorsByType = loadAllFieldEditors();
+    for (const { file, parsed } of parsedFiles) {
+      clearedFields.push(
+        ...wipeDocumentSectionsOnDuplicate(parsed, fieldEditorsByType, { file }),
+      );
+    }
+
     const allParsed = parsedFiles.map(f => f.parsed);
     const { objs: regenerated } = regenerateSectionIds(allParsed);
 
@@ -1955,7 +2021,7 @@ export class ContentIndex {
       copiedFiles.push(file);
     }
 
-    return { copiedFiles, strippedFields, replacedVars };
+    return { copiedFiles, strippedFields, replacedVars, clearedFields };
   }
 
   private replaceTemplateVars(

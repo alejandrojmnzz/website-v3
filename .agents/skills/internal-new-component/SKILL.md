@@ -115,6 +115,16 @@ props:
 - Bind ecommerce CTAs with `"path.to.cta": "cta-tracking"` (required `tracking`: `none` | `add_to_cart` | `click_begin_checkout`).
 - See `docs/component-behaviors.md` and `.cursor/rules/component-behaviors.mdc`. Schema-sync preserves `behaviors`.
 
+### Wipe on duplicate (think hard — keep the list tiny)
+
+Page/section duplicate **automatically** clears conversion/ecommerce identity fields derived from field-editors (no `reset_on_duplicate` key on schema):
+
+- Any `conversion_name` under the section (incl. routes)
+- `ecommerce_products`
+- CTA `tracking` on `cta-tracking` binds
+
+When you add `form-settings`, `cta-tracking`, or `ecommerce-products`, assume staff must re-set those values after every duplicate. Do **not** wipe ordinary copy/layout props. Do not invent parallel schema metadata for this.
+
 **schema.ts template:**
 
 ```ts

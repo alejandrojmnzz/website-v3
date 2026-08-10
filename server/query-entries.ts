@@ -22,7 +22,12 @@ import {
   invalidateStaticListingCache,
   setStaticListingCache,
 } from "./static-listing-cache";
+import { normalizeLocale } from "./settings";
+import { isEmptyDetachedLocaleEntry } from "./empty-locale";
+import { isEntryDetached } from "./shared-layout-entry";
+import { isHiddenViaSentinel } from "./shared-layout-sync";
 import { child } from "./logger";
+import { combinedArticleContentFromSections } from "@shared/reading-time";
 
 const log = child({ module: "query-entries" });
 
@@ -195,6 +200,34 @@ function normalizeCategory(item: Record<string, unknown>, hasCategoryMapping: bo
   }
 }
 
+/**
+ * Detached locales whose sections are all publicly hidden (mirrored siblings)
+ * and that have no body content should not appear in public listings.
+ */
+export function isDetachedLocaleOnlyPubliclyHidden(opts: {
+  contentType: string;
+  slug: string;
+  contentRoot: string;
+  localeData: Record<string, unknown>;
+  common?: Record<string, unknown>;
+}): boolean {
+  if (!isEntryDetached(opts.contentType, opts.slug, opts.contentRoot)) return false;
+
+  const content = opts.localeData.content ?? opts.common?.content;
+  if (typeof content === "string" && content.trim().length > 0) return false;
+
+  const sections = opts.localeData.sections;
+  if (!Array.isArray(sections) || sections.length === 0) return false;
+
+  return sections.every(
+    (section) =>
+      !!section &&
+      typeof section === "object" &&
+      !Array.isArray(section) &&
+      isHiddenViaSentinel(section as Record<string, unknown>),
+  );
+}
+
 function pickListingFields(
   common: Record<string, unknown>,
   localeData: Record<string, unknown>,
@@ -265,7 +298,29 @@ function loadStaticContentTypeItems(
     const locales = ci.getAvailableLocalesOrVariants(contentType as ContentType, slug);
 
     for (const locale of locales) {
+      if (
+        isEmptyDetachedLocaleEntry({
+          contentType,
+          slug,
+          locale,
+          contentRoot,
+          ci,
+        })
+      ) {
+        continue;
+      }
       const localeData = loadStaticYamlFile(path.join(slugDir, `${locale}.yml`)) || {};
+      if (
+        isDetachedLocaleOnlyPubliclyHidden({
+          contentType,
+          slug,
+          contentRoot,
+          localeData,
+          common,
+        })
+      ) {
+        continue;
+      }
       const item = pickListingFields(common, localeData, mapping);
       item[localeKey] = locale;
       if (item.slug == null) item.slug = slug;
@@ -292,6 +347,50 @@ function loadStaticContentTypeItems(
     "[QueryEntries] Built static listing projection",
   );
   return items.map((item) => ({ ...item }));
+}
+
+/**
+ * Restore `content` on static listing rows (projections omit bodies for size).
+ * Used by OG live preview (`include_content=1`) and entry-preview capture.
+ * When the page has multiple article sections, `content` is the concatenation of
+ * all article bodies so reading time matches the on-page split-article label.
+ */
+export function hydrateStaticListingContent(
+  items: Array<Record<string, unknown>>,
+  contentType: string,
+  options: {
+    ci: ContentIndex;
+    contentRoot?: string;
+    localeKey?: string;
+  },
+): Array<Record<string, unknown>> {
+  const { ci } = options;
+  const contentRoot = options.contentRoot ?? ci.contentRoot;
+  const localeKey = options.localeKey || getLocaleKey(contentType, contentRoot) || "lang";
+
+  return items.map((item) => {
+    if (typeof item.content === "string" && item.content.trim()) return item;
+    const slug = String(item.slug || "");
+    if (!slug) return item;
+    const locale = normalizeLocale(
+      String(item[localeKey] || item.lang || item.locale || item.language || "en"),
+    );
+    try {
+      const merged = ci.loadMergedContent(contentType, slug, locale);
+      const data = merged?.data as Record<string, unknown> | undefined;
+      const fromArticles = combinedArticleContentFromSections(data?.sections);
+      if (fromArticles) {
+        return { ...item, content: fromArticles };
+      }
+      const body = data?.content;
+      if (typeof body === "string" && body.trim()) {
+        return { ...item, content: body };
+      }
+    } catch {
+      /* keep listing row as-is */
+    }
+    return item;
+  });
 }
 
 async function loadFromDatabase(

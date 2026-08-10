@@ -3,17 +3,16 @@ import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
-import { validateFormSection } from "@shared/validateFormSection";
-import {
-  validateCtaTracking,
-  validateCtaPurchasable,
-  resolveBoundCtaPaths,
-} from "@shared/validateCtaTracking";
 import { getConsentKeyError } from "@shared/consentLegacyKeys";
-import { getTrackingSettings } from "./settings";
+import {
+  wipeSectionOnDuplicate,
+  wipeDocumentSectionsOnDuplicate,
+  type ClearedField,
+} from "@shared/wipeOnDuplicate";
 import { generateSectionId } from "./utils/generateSectionId";
 import { loadAllFieldEditors } from "./component-registry";
-import { ecommerceManager } from "./ecommerce/ecommerce-manager";
+import { validateDocIdentity } from "./validate-content-identity";
+import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 
 function getDefaultContentRootName(): string {
   try {
@@ -46,8 +45,62 @@ import {
 } from "./shared-layout-sync";
 import {
   isEntryDetached,
+  isSharedLayoutType,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
+import {
+  DEFAULT_DRAFT_VARIANT,
+  usesDraftFirstCreate,
+  buildDraftVersioning,
+  writeVersioningFile,
+  rejectLiveWriteIfDraft,
+} from "./draft-entry";
+
+/** Shared-layout create/duplicate: exactly one live locale (no empty sibling stubs). */
+export const SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR =
+  "Shared-layout types go live immediately and must be created with exactly one locale. " +
+  "Seeding a second locale at create writes a public locale file before content exists " +
+  "(empty/broken URLs in listings and language switchers). " +
+  "Create the first locale now; add translations later as drafts (detach if needed, then translate_page / draft locale, then promote).";
+import {
+  RESERVED_PUBLISHED_AT_FIELD,
+  clearPublishedAtFromCommon,
+  ensurePublishedAtOnce,
+  isPublishedAtEmpty,
+} from "./published-at";
+import { FIELD_OVERRIDES_KEY } from "./field-overrides";
+
+/** After duplicate copy: never keep source published_at; stamp if the copy is immediately live. */
+function applyPublishedAtAfterDuplicate(
+  type: string,
+  slug: string,
+  draftFirst: boolean,
+  author: string | undefined,
+  contentRoot: string,
+): void {
+  clearPublishedAtFromCommon(type, slug, author, contentRoot);
+  for (const loc of getSupportedLocales()) {
+    const localePath = path.join(contentRoot, getFolder(type, contentRoot), slug, `${loc}.yml`);
+    if (!fs.existsSync(localePath)) continue;
+    try {
+      const data = (yaml.load(fs.readFileSync(localePath, "utf-8")) as Record<string, unknown>) || {};
+      const ovr = data[FIELD_OVERRIDES_KEY];
+      if (ovr && typeof ovr === "object" && !Array.isArray(ovr) && RESERVED_PUBLISHED_AT_FIELD in (ovr as object)) {
+        const nextOvr = { ...(ovr as Record<string, unknown>) };
+        delete nextOvr[RESERVED_PUBLISHED_AT_FIELD];
+        if (Object.keys(nextOvr).length === 0) delete data[FIELD_OVERRIDES_KEY];
+        else data[FIELD_OVERRIDES_KEY] = nextOvr;
+        fs.writeFileSync(localePath, yaml.dump(data, { lineWidth: 120, noRefs: true, sortKeys: false }), "utf-8");
+        markFileAsModified(localePath, author, undefined, contentRoot);
+      }
+    } catch {
+      /* ignore locale cleanup errors */
+    }
+  }
+  if (!draftFirst) {
+    ensurePublishedAtOnce(type, slug, { author, contentRoot });
+  }
+}
 import { getOrCreateStaffUserId, getUser } from "./user-store";
 import {
   refreshSitemapEntry,
@@ -92,7 +145,8 @@ function getValueAtPath(obj: Record<string, unknown>, pathStr: string): unknown 
   return current;
 }
 
-function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: unknown): void {
+/** Persist path updates; identity fields keep YAML `null` (opt-out) instead of deleting the key. */
+export function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: unknown): void {
   const parts = pathStr.replace(/\[(\d+)\]/g, ".$1").split(".");
   let current: Record<string, unknown> = obj;
   
@@ -107,15 +161,74 @@ function setValueAtPath(obj: Record<string, unknown>, pathStr: string, value: un
   }
   
   const lastPart = parts[parts.length - 1];
-  // null/undefined deletes the key so callers can clear fields like `_label`
-  if (value === null || value === undefined) {
+  // undefined deletes the key (e.g. `_label`). null is persisted for identity
+  // opt-out: conversion_name / ecommerce_products / *.conversion_name / *.ecommerce_products
+  const persistNull =
+    value === null &&
+    (lastPart === "conversion_name" ||
+      lastPart === "ecommerce_products" ||
+      pathStr.endsWith(".conversion_name") ||
+      pathStr.endsWith(".ecommerce_products") ||
+      pathStr === "conversion_name" ||
+      pathStr === "ecommerce_products");
+  if (value === undefined || (value === null && !persistNull)) {
     delete current[lastPart];
   } else {
     current[lastPart] = value;
   }
 }
 
-function applyOperation(content: Record<string, unknown>, operation: EditOperation): void {
+/** True if any string leaf in the object still contains `{{ ... }}`. */
+function templateObjectHasExpressions(value: unknown): boolean {
+  if (typeof value === "string") return TEMPLATE_EXPR_RE.test(value);
+  if (Array.isArray(value)) return value.some(templateObjectHasExpressions);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(templateObjectHasExpressions);
+  }
+  return false;
+}
+
+/**
+ * Listing `item_template` uses `{{ single.* }}` for each row. Delivery used to
+ * bake page-level values into it; if a client still sends a wiped template,
+ * keep the authored expressions from the existing section.
+ */
+function preserveListingItemTemplate(
+  sectionToSave: Record<string, unknown>,
+  existingSection: Record<string, unknown> | undefined,
+): void {
+  if (!existingSection) return;
+
+  const existingRoot = existingSection.item_template;
+  const incomingRoot = sectionToSave.item_template;
+  if (
+    templateObjectHasExpressions(existingRoot) &&
+    incomingRoot !== undefined &&
+    !templateObjectHasExpressions(incomingRoot)
+  ) {
+    sectionToSave.item_template = existingRoot;
+  }
+
+  const existingDyn = existingSection.dynamic_entries as Record<string, unknown> | undefined;
+  const incomingDyn = sectionToSave.dynamic_entries as Record<string, unknown> | undefined;
+  if (!existingDyn || !incomingDyn) return;
+
+  const existingTpl = existingDyn.item_template;
+  const incomingTpl = incomingDyn.item_template;
+  if (
+    templateObjectHasExpressions(existingTpl) &&
+    incomingTpl !== undefined &&
+    !templateObjectHasExpressions(incomingTpl)
+  ) {
+    incomingDyn.item_template = existingTpl;
+  }
+}
+
+function applyOperation(
+  content: Record<string, unknown>,
+  operation: EditOperation,
+): { clearedFields?: ClearedField[]; insertedSectionIndex?: number } {
+  const result: { clearedFields?: ClearedField[]; insertedSectionIndex?: number } = {};
   switch (operation.action) {
     case "update_field": {
       setValueAtPath(content, operation.path, operation.value);
@@ -145,22 +258,41 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
       }
       
       let insertedIndex: number;
+      let itemToInsert = operation.item;
+      if (operation.path === "sections" && itemToInsert && typeof itemToInsert === "object") {
+        const raw = itemToInsert as Record<string, unknown>;
+        const sectionType = String(raw.type ?? "");
+        const editors = loadAllFieldEditors()[sectionType] ?? {};
+        const { section: wiped, cleared } = wipeSectionOnDuplicate(raw, editors);
+        wiped.section_id = generateSectionId((wiped.type as string) || "section");
+        if (!wiped.paddingY) {
+          wiped.paddingY = { desktop: "sm" };
+        }
+        itemToInsert = wiped;
+        if (cleared.length > 0) {
+          result.clearedFields = cleared.map((path) => ({
+            sectionType,
+            path,
+            sectionIndex: operation.index !== undefined && operation.index >= 0
+              ? operation.index
+              : arr.length,
+          }));
+        }
+      }
       if (operation.index !== undefined && operation.index >= 0 && operation.index <= arr.length) {
-        arr.splice(operation.index, 0, operation.item);
+        arr.splice(operation.index, 0, itemToInsert);
         insertedIndex = operation.index;
       } else {
-        arr.push(operation.item);
+        arr.push(itemToInsert);
         insertedIndex = arr.length - 1;
       }
       if (operation.path === "sections") {
-        const inserted = arr[insertedIndex] as Record<string, unknown>;
-        if (inserted && typeof inserted === "object") {
-          if (!inserted.section_id) {
-            inserted.section_id = generateSectionId((inserted.type as string) || "section");
-          }
-          if (!inserted.paddingY) {
-            inserted.paddingY = { desktop: "sm" };
-          }
+        result.insertedSectionIndex = insertedIndex;
+        if (result.clearedFields) {
+          result.clearedFields = result.clearedFields.map((c) => ({
+            ...c,
+            sectionIndex: insertedIndex,
+          }));
         }
       }
       break;
@@ -189,6 +321,9 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
         delete sectionToSave._imageSizes;
       }
       const existingSection = sections[operation.index] as Record<string, unknown>;
+      if (sectionToSave && typeof sectionToSave === "object") {
+        preserveListingItemTemplate(sectionToSave, existingSection);
+      }
       const existingId = existingSection?.section_id;
       // Preserve _insertAfterSectionId: this controls where per-entry sections appear
       // in the merged view. If the client doesn't echo it back, losing it causes the
@@ -220,9 +355,16 @@ function applyOperation(content: Record<string, unknown>, operation: EditOperati
       break;
     }
   }
+  return result;
 }
 
-export async function editContent(request: ContentEditRequest): Promise<{ success: boolean; error?: string; warning?: string; updatedSections?: unknown[] }> {
+export async function editContent(request: ContentEditRequest): Promise<{
+  success: boolean;
+  error?: string;
+  warning?: string;
+  updatedSections?: unknown[];
+  clearedFields?: ClearedField[];
+}> {
   const { contentType, slug, locale: rawLocale, operations, variant, version, contentRoot } = request;
   // Use per-site ContentIndex when provided (avoids resolving files against default site)
   const ci = request.ci ?? contentIndex;
@@ -235,6 +377,17 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
   const hasValidVersion = version !== undefined && version !== null && Number.isFinite(version);
   if (hasValidVersion && !hasVariant) {
     return { success: false, error: "version cannot be provided without variant" };
+  }
+
+  const draftWriteGate = rejectLiveWriteIfDraft({
+    contentType,
+    slug,
+    locale,
+    variant: hasVariant ? variant : undefined,
+    contentRoot,
+  });
+  if (!draftWriteGate.ok) {
+    return { success: false, error: draftWriteGate.error };
   }
   
   try {
@@ -399,8 +552,12 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     // (isSharedTemplate=false), the client sends indices relative to the fully
     // merged view (template + per-entry). This applies to DB-backed types AND
     // static types with single_template: true — both use mergeSingleTemplate.
-    // Translate update_section indices from the merged view to the per-entry
-    // local indices before applying, so we write to the correct section.
+    // Translate update_section / sections.N.* update_field indices from the merged
+    // view to the per-entry local indices before applying, so we write to the
+    // correct section. Template-owned sections (including layout keys like
+    // maxWidth / paddingX from the X Spacing popover) must be forwarded to
+    // single.{locale}.yml — otherwise Apply writes ignored stubs into the entry
+    // file (attached merges use dataOnly and drop entry sections).
     // Detached entries own full structure (entry-only indices); never remap or
     // forward ops to single.{locale}.yml.
     const usesSharedTemplate =
@@ -408,7 +565,17 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       (ci.isDatabaseBacked(contentType) ||
         !!getContentTypeConfig(contentType, contentRoot)?.single_template);
     let resolvedOperations = operations;
-    if (usesSharedTemplate && operations.some(op => op.action === "update_section")) {
+    let forwardedTemplateOps = false;
+    const needsSharedSectionRemap =
+      usesSharedTemplate &&
+      operations.some(
+        (op) =>
+          op.action === "update_section" ||
+          (op.action === "update_field" &&
+            typeof (op as { path?: string }).path === "string" &&
+            /^sections\.\d+\./.test((op as { path: string }).path)),
+      );
+    if (needsSharedSectionRemap) {
       const mergedTemplate = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
       const mergedSections = Array.isArray(mergedTemplate?.sections)
         ? (mergedTemplate!.sections as Record<string, unknown>[])
@@ -422,30 +589,62 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
         const translated: EditOperation[] = [];
         const templateOps: EditOperation[] = [];
         for (const op of operations) {
-          if (op.action !== "update_section") {
-            translated.push(op);
+          if (op.action === "update_section") {
+            // Resolve the section identity from the merged view.
+            const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
+            const sectionCandidates = sectionIdCandidates(mergedSection);
+
+            // Try to find it by identity in the per-entry local file (either field).
+            const localIdx = sectionCandidates.length > 0
+              ? localSections.findIndex(
+                  s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
+                )
+              : -1;
+
+            if (localIdx === -1) {
+              // Section lives in the shared template — collect it for a separate
+              // write to single.{locale}.yml via handleSharedTemplateEdit.
+              templateOps.push(op);
+              continue;
+            }
+
+            translated.push({ ...op, index: localIdx });
             continue;
           }
 
-          // Resolve the section identity from the merged view.
-          const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
-          const sectionCandidates = sectionIdCandidates(mergedSection);
+          if (op.action === "update_field") {
+            const fieldPathFull = (op as { path?: string }).path || "";
+            const m = fieldPathFull.match(/^sections\.(\d+)\.(.+)$/);
+            if (!m) {
+              translated.push(op);
+              continue;
+            }
+            const mergedIdx = parseInt(m[1], 10);
+            const fieldPath = m[2];
+            const mergedSection = mergedSections[mergedIdx] as Record<string, unknown> | undefined;
+            const sectionCandidates = sectionIdCandidates(mergedSection);
+            const localIdx = sectionCandidates.length > 0
+              ? localSections.findIndex(
+                  s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
+                )
+              : -1;
 
-          // Try to find it by identity in the per-entry local file (either field).
-          const localIdx = sectionCandidates.length > 0
-            ? localSections.findIndex(
-                s => sectionCandidates.some(c => sectionMatchesId(s as Record<string, unknown>, c))
-              )
-            : -1;
+            // Per-entry-only sections stay on the entry file. Everything else in the
+            // attached merged view is template-owned — including layout keys from the
+            // X Spacing popover — and must hit single.{locale}.yml.
+            if (mergedSection?._perEntrySource) {
+              translated.push({
+                ...op,
+                path: `sections.${localIdx >= 0 ? localIdx : mergedIdx}.${fieldPath}`,
+              } as EditOperation);
+              continue;
+            }
 
-          if (localIdx === -1) {
-            // Section lives in the shared template — collect it for a separate
-            // write to single.{locale}.yml via handleSharedTemplateEdit.
             templateOps.push(op);
             continue;
           }
 
-          translated.push({ ...op, index: localIdx });
+          translated.push(op);
         }
         resolvedOperations = translated;
 
@@ -459,12 +658,50 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
           );
           if (fs.existsSync(templateFilePath)) {
             const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
-            const templateLocaleData = ci.safeYamlLoad(rawTemplate) as Record<string, unknown>;
+            const templateLocaleData = (ci.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+            const templateSections = Array.isArray(templateLocaleData.sections)
+              ? (templateLocaleData.sections as Record<string, unknown>[])
+              : [];
+
+            // Remap merged-view indices to on-disk template indices by section id.
+            const remappedTemplateOps: EditOperation[] = templateOps.map((op) => {
+              if (op.action === "update_section") {
+                const mergedSection = mergedSections[op.index] as Record<string, unknown> | undefined;
+                const candidates = sectionIdCandidates(mergedSection);
+                const tplIdx = candidates.length > 0
+                  ? templateSections.findIndex((s) =>
+                      candidates.some((c) => sectionMatchesId(s, c)),
+                    )
+                  : -1;
+                return tplIdx >= 0 ? ({ ...op, index: tplIdx } as EditOperation) : op;
+              }
+              if (op.action === "update_field") {
+                const fieldPathFull = (op as { path?: string }).path || "";
+                const m = fieldPathFull.match(/^sections\.(\d+)\.(.+)$/);
+                if (!m) return op;
+                const mergedSection = mergedSections[parseInt(m[1], 10)] as
+                  | Record<string, unknown>
+                  | undefined;
+                const candidates = sectionIdCandidates(mergedSection);
+                const tplIdx = candidates.length > 0
+                  ? templateSections.findIndex((s) =>
+                      candidates.some((c) => sectionMatchesId(s, c)),
+                    )
+                  : -1;
+                if (tplIdx < 0) return op;
+                return {
+                  ...op,
+                  path: `sections.${tplIdx}.${m[2]}`,
+                } as EditOperation;
+              }
+              return op;
+            });
+
             const templateResult = handleSharedTemplateEdit({
               contentType,
               slug,
               locale,
-              operations: templateOps,
+              operations: remappedTemplateOps,
               localeData: templateLocaleData,
               filePath: templateFilePath,
               author: request.author,
@@ -476,9 +713,44 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
             if (!templateResult.success) {
               return { success: false, error: templateResult.error };
             }
+            forwardedTemplateOps = true;
+
+            // Drop layout-only stubs previously written into the entry file by the
+            // buggy update_field path (no type / section identity — ignored at load).
+            if (Array.isArray(localeData.sections)) {
+              localeData.sections = (localeData.sections as Record<string, unknown>[]).filter(
+                (s) =>
+                  !!s &&
+                  typeof s === "object" &&
+                  !!(s.type || s.section_id || s.id || s._remove || s._perEntrySource),
+              );
+            }
           }
         }
       }
+    }
+
+    // Layout-only Apply (e.g. X Spacing maxWidth) on attached entries: all ops were
+    // written to single.{locale}.yml. Persist stub scrub on the entry without
+    // re-running the live SEO gate (that gate blocked successful template saves).
+    if (forwardedTemplateOps && resolvedOperations.length === 0) {
+      if (Array.isArray(localeData.sections)) {
+        const scrubbedYaml = safeYamlDump(localeData, {
+          lineWidth: -1,
+          noRefs: true,
+          quotingType: '"',
+          forceQuotes: false,
+        });
+        fs.writeFileSync(filePath, scrubbedYaml, "utf-8");
+        markFileAsModified(filePath, request.author, undefined, contentRoot);
+      }
+      const mergedAfter = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
+      return {
+        success: true,
+        updatedSections: Array.isArray(mergedAfter?.sections)
+          ? (mergedAfter!.sections as unknown[])
+          : [],
+      };
     }
 
     // Handle reorder_sections for shared-template per-entry pages (DB-backed or
@@ -657,8 +929,18 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     }
 
     // Apply all operations to the locale data (this is what gets saved)
+    const clearedFields: ClearedField[] = [];
+    const skipIdentityValidationIndexes = new Set<number>();
     for (const operation of resolvedOperations) {
-      applyOperation(localeData, operation);
+      const opResult = applyOperation(localeData, operation);
+      if (opResult.clearedFields?.length) {
+        clearedFields.push(...opResult.clearedFields);
+      }
+      if (typeof opResult.insertedSectionIndex === "number") {
+        // Newly duplicated sections may be invalid until staff re-sets conversion/ecommerce.
+        // Allow the duplicate write itself; later saves validate all sections.
+        skipIdentityValidationIndexes.add(opResult.insertedSectionIndex);
+      }
     }
 
     // Strip null/non-object entries from sections before writing — a null section
@@ -669,46 +951,15 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       );
     }
 
-    // Validate form sections after all operations are applied, before writing to disk.
-    // This covers every edit path (update_section, update_field, add_item, replace_all_sections)
-    // because we inspect the fully-mutated in-memory state.
+    // Validate conversion / CTA / product-scope identity before writing to disk.
     if (Array.isArray(localeData.sections)) {
-      const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
-      const allFieldEditors = loadAllFieldEditors();
-      const resolveProduct = (programId: string) => {
-        const byCms = ecommerceManager.findProductByCmsEntry("program", programId);
-        if (byCms) {
-          return { product_id: byCms.product_id, active: byCms.active };
-        }
-        const byId = ecommerceManager.getProduct(programId);
-        if (byId) return { product_id: byId.product_id, active: byId.active };
-        return undefined;
-      };
-      for (let i = 0; i < (localeData.sections as Record<string, unknown>[]).length; i++) {
-        const section = (localeData.sections as Record<string, unknown>[])[i];
-        const formErr = validateFormSection(section, conversionNames);
-        if (formErr) {
-          return { success: false, error: `sections[${i}]: ${formErr}` };
-        }
-
-        const sectionType = String(section.type ?? "");
-        const editors = allFieldEditors[sectionType] ?? {};
-        const variant = typeof section.variant === "string" ? section.variant : undefined;
-        const ctaPaths = resolveBoundCtaPaths(editors, variant);
-
-        const trackingErr = validateCtaTracking(section, ctaPaths);
-        if (trackingErr) {
-          return { success: false, error: `sections[${i}]: ${trackingErr}` };
-        }
-
-        const purchasableErr = validateCtaPurchasable(section, ctaPaths, {
-          contentSlug: slug,
-          contentType,
-          resolveProduct,
-        });
-        if (purchasableErr) {
-          return { success: false, error: `sections[${i}]: ${purchasableErr}` };
-        }
+      const identityErr = validateDocIdentity(localeData, {
+        contentType,
+        contentSlug: slug,
+        skipIdentityIndexes: skipIdentityValidationIndexes,
+      });
+      if (identityErr) {
+        return { success: false, error: identityErr };
       }
     }
 
@@ -716,6 +967,31 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
     const consentErr = getConsentKeyError(localeData);
     if (consentErr) {
       return { success: false, error: consentErr };
+    }
+
+    // Live locale writes: require resolved meta + editor.required fields.
+    // Draft variant files and shared single.*.yml template edits skip this gate.
+    const writingLiveLocale =
+      !hasVariant &&
+      !path.basename(filePath).startsWith("single.");
+    if (writingLiveLocale) {
+      const commonForGate = ci.loadCommonData(contentType, slug) || {};
+      const mergedForGate = deepMerge(commonForGate, localeData) as Record<
+        string,
+        unknown
+      >;
+      const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+        contentType,
+        slug,
+        locale,
+        pageData: mergedForGate,
+        contentRoot,
+        mode: "live_update",
+        isDraftWrite: false,
+      });
+      if (seoGateErr) {
+        return { success: false, error: seoGateErr };
+      }
     }
 
     // Write locale data back to file (without _common.yml content)
@@ -741,7 +1017,11 @@ export async function editContent(request: ContentEditRequest): Promise<{ succes
       ? deepMerge(commonData, localeData)
       : localeData;
     const updatedSections = (mergedContent.sections as unknown[]) || [];
-    return { success: true, updatedSections };
+    return {
+      success: true,
+      updatedSections,
+      ...(clearedFields.length > 0 ? { clearedFields } : {}),
+    };
   } catch (error) {
     log.error({ err: error }, "Content edit error:");
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
@@ -792,12 +1072,19 @@ function writeStructuralChangesToTemplate(opts: {
   author?: string;
   contentRoot?: string;
   contentType?: string;
+  contentSlug?: string;
   locale?: string;
   requesterId?: string;
   ci?: ContentIndex;
   skipSharedLayoutFanOut?: boolean;
-}): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
-  const { operations, filePath, localeData, author, contentRoot, contentType, requesterId } = opts;
+}): {
+  success: boolean;
+  error?: string;
+  warning?: string;
+  updatedSections?: unknown[];
+  clearedFields?: ClearedField[];
+} {
+  const { operations, filePath, localeData, author, contentRoot, contentType, contentSlug, requesterId } = opts;
   const ci = opts.ci ?? contentIndex;
 
   try {
@@ -806,6 +1093,7 @@ function writeStructuralChangesToTemplate(opts: {
     const sectionsBefore = Array.isArray(templateData.sections)
       ? [...(templateData.sections as Record<string, unknown>[])]
       : [];
+    const clearedFields: ClearedField[] = [];
 
     // Annotate remove ops with sectionId for sibling fan-out
     const annotatedOps: EditOperation[] = operations.map((op) => {
@@ -817,7 +1105,10 @@ function writeStructuralChangesToTemplate(opts: {
     });
 
     for (const op of annotatedOps) {
-      if (op.action === "update_section" && (op as { structural?: boolean }).structural) {
+      // Always restore {{ single.* }} / {{ global.* }} from the on-disk template when
+      // writing update_section — not only structural swaps. Code/Props saves omit
+      // structural:true and previously could bake resolved HTML into single.*.yml.
+      if (op.action === "update_section") {
         const templateSections = Array.isArray(templateData.sections)
           ? (templateData.sections as Record<string, unknown>[])
           : [];
@@ -826,9 +1117,11 @@ function writeStructuralChangesToTemplate(opts: {
         if (originalTemplateSection) {
           newSectionData = restoreTemplatePlaceholders(newSectionData, originalTemplateSection);
         }
-        applyOperation(templateData, { ...op, section: newSectionData } as EditOperation);
+        const opResult = applyOperation(templateData, { ...op, section: newSectionData } as EditOperation);
+        if (opResult.clearedFields?.length) clearedFields.push(...opResult.clearedFields);
       } else {
-        applyOperation(templateData, op);
+        const opResult = applyOperation(templateData, op);
+        if (opResult.clearedFields?.length) clearedFields.push(...opResult.clearedFields);
       }
     }
 
@@ -843,6 +1136,29 @@ function writeStructuralChangesToTemplate(opts: {
     const consentErrStructural = getConsentKeyError(templateData);
     if (consentErrStructural) {
       return { success: false, error: consentErrStructural };
+    }
+
+    const skipIdentityIndexes = new Set<number>();
+    for (const op of annotatedOps) {
+      if (op.action === "add_item" && op.path === "sections") {
+        const idx =
+          typeof op.index === "number" && op.index >= 0
+            ? op.index
+            : Array.isArray(templateData.sections)
+              ? (templateData.sections as unknown[]).length - 1
+              : -1;
+        if (idx >= 0) skipIdentityIndexes.add(idx);
+      }
+    }
+    if (contentType && Array.isArray(templateData.sections)) {
+      const identityErr = validateDocIdentity(templateData, {
+        contentType,
+        contentSlug: contentSlug || contentType,
+        skipIdentityIndexes,
+      });
+      if (identityErr) {
+        return { success: false, error: identityErr };
+      }
     }
 
     const updatedYaml = safeYamlDump(templateData, {
@@ -914,7 +1230,12 @@ function writeStructuralChangesToTemplate(opts: {
     }
 
     const updatedSections = (localeData.sections as unknown[]) || [];
-    return { success: true, updatedSections, warning };
+    return {
+      success: true,
+      updatedSections,
+      warning,
+      ...(clearedFields.length > 0 ? { clearedFields } : {}),
+    };
   } catch (err) {
     log.error({ err: err }, "[editContent] Structural template write error:");
     return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
@@ -964,6 +1285,22 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     const consentErrEntry = getConsentKeyError(entryData);
     if (consentErrEntry) {
       return { success: false, error: consentErrEntry };
+    }
+
+    const ciGate = contentIndex;
+    const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
+    const mergedForGate = deepMerge(commonForGate, entryData) as Record<string, unknown>;
+    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale,
+      pageData: mergedForGate,
+      contentRoot: opts.contentRoot,
+      mode: "live_update",
+      isDraftWrite: false,
+    });
+    if (seoGateErr) {
+      return { success: false, error: seoGateErr };
     }
 
     const dumped = safeYamlDump(entryData, { lineWidth: -1, noRefs: true });
@@ -1051,7 +1388,13 @@ function handleSharedTemplateEdit(opts: {
   ci?: ContentIndex;
   requesterId?: string;
   skipSharedLayoutFanOut?: boolean;
-}): { success: boolean; error?: string; warning?: string; updatedSections?: unknown[] } {
+}): {
+  success: boolean;
+  error?: string;
+  warning?: string;
+  updatedSections?: unknown[];
+  clearedFields?: ClearedField[];
+} {
   const { contentType, slug, locale, operations, localeData, filePath, author, contentRoot } = opts;
   const ci = opts.ci ?? contentIndex;
   const db = opts.database ?? databaseManager;
@@ -1085,6 +1428,7 @@ function handleSharedTemplateEdit(opts: {
       author,
       contentRoot,
       contentType,
+      contentSlug: slug,
       locale,
       requesterId,
       ci,
@@ -1315,11 +1659,39 @@ export function editCommonContent(request: CommonEditRequest): { success: boolea
       if (op.action !== "update_field") {
         return { success: false, error: `Unsupported operation: ${op.action}` };
       }
+      if (op.path === RESERVED_PUBLISHED_AT_FIELD || op.path.startsWith(`${RESERVED_PUBLISHED_AT_FIELD}.`)) {
+        if (op.value === undefined || isPublishedAtEmpty(op.value)) {
+          return {
+            success: false,
+            error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
+          };
+        }
+      }
       if (op.value === undefined) {
         delete commonData[op.path];
       } else {
         setValueAtPath(commonData, op.path, op.value);
       }
+    }
+
+    const defaultLocale = getDefaultLocale();
+    const localeLoaded = ci.loadLocaleData(contentType, slug, defaultLocale);
+    const localeDataForGate =
+      (localeLoaded.data as Record<string, unknown> | null) || {};
+    const mergedForGate = deepMerge(commonData, localeDataForGate) as Record<
+      string,
+      unknown
+    >;
+    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale: defaultLocale,
+      pageData: mergedForGate,
+      contentRoot: contentRootName,
+      mode: "live_update",
+    });
+    if (seoGateErr) {
+      return { success: false, error: seoGateErr };
     }
 
     const updatedYaml = safeYamlDump(commonData, {
@@ -1676,6 +2048,9 @@ export interface CreateContentEntryInput {
   slugEs?: string | null;
   title: string;
   sourceUrl?: string;
+  /** Prefer when duplicating a draft (not in ContentIndex / no public URL). */
+  sourceSlug?: string;
+  sourceType?: string;
   changeContentType?: boolean;
   skipLocales?: string[];
   uniqueFieldValues?: Record<string, string | boolean>;
@@ -1690,24 +2065,41 @@ export async function createContentEntry(
   input: CreateContentEntryInput,
 ): Promise<ContentLifecycleResult<Record<string, unknown>>> {
   const {
-    type, title, sourceUrl, changeContentType = false,
+    type, title, sourceUrl, sourceSlug, sourceType,
+    changeContentType = false,
     skipLocales = [], uniqueFieldValues = {}, urlParamValues = {}, localeTitles = {}, author,
   } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
+  const contentRootAbs = path.join(process.cwd(), rootName);
+  const isFreshCreate = !sourceUrl && !sourceSlug;
 
   if (!type || !title) {
     return { success: false, statusCode: 400, error: "Missing required fields: type, title" };
   }
-  if (!isValidType(type)) {
-    return { success: false, statusCode: 400, error: `Invalid type. Must be one of: ${getAllTypes().join(", ")}` };
+  if (!isValidType(type, contentRootAbs)) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: `Invalid type. Must be one of: ${getAllTypes(contentRootAbs).join(", ")}`,
+    };
   }
 
-  const typeConfigForParams = getContentTypeConfig(type);
+  const typeConfigForParams = getContentTypeConfig(type, contentRootAbs);
   const urlParams = listExtraUrlPatternParams(typeConfigForParams?.url_pattern);
-  const urlParamShapes = inferUrlParamShapes(type, urlParams);
-  const isFreshCreate = !sourceUrl;
+  const urlParamShapes = inferUrlParamShapes(type, urlParams, rootName);
+
+  const draftFirst = usesDraftFirstCreate(type, contentRootAbs);
+  const sharedLayout = isSharedLayoutType(type, contentRootAbs);
 
   const activeUrlLocales = getSupportedLocales().filter(l => !skipLocales.includes(l));
+  if (sharedLayout && activeUrlLocales.length !== 1) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: SHARED_LAYOUT_SINGLE_LOCALE_CREATE_ERROR,
+    };
+  }
+
   const urlParamValueForLocale = (param: string, loc: string): string | null =>
     normalizeUrlParamInput(urlParamValues[loc]?.[param]) ??
     normalizeUrlParamInput(uniqueFieldValues[param]);
@@ -1769,20 +2161,60 @@ export async function createContentEntry(
   }
 
   fs.mkdirSync(folderPath, { recursive: true });
+  const draftVariant = DEFAULT_DRAFT_VARIANT;
+  const relFolder = `${rootName}/${getFolder(type)}/${folderSlug}`;
 
-  if (sourceUrl) {
+  const writeDraftVersioning = (locales: string[]) => {
+    const data = buildDraftVersioning(locales, draftVariant);
+    writeVersioningFile(
+      folderPath,
+      data,
+      `${relFolder}/versioning.yml`,
+      author,
+      contentRootAbs,
+    );
+  };
+
+  const draftSuccessData = (extra: Record<string, unknown> = {}) => ({
+    success: true,
+    slugEn: enSlug,
+    slugEs: esSlug,
+    type,
+    directory: relFolder,
+    status: "draft" as const,
+    draftVariant,
+    previewPath: `/private/preview/${type}/${folderSlug}?variant=${draftVariant}&locale=${enSlug ? "en" : "es"}`,
+    ...extra,
+  });
+
+  if (sourceUrl || sourceSlug) {
     try {
-      const sourceUrlObj = new URL(sourceUrl);
-      const sourcePath = sourceUrlObj.pathname;
-      const resolved = contentIndex.resolveUrl(sourcePath);
-      const foundSourceFolder = resolved ? path.join(process.cwd(), resolved.entry.directory) : "";
+      let foundSourceFolder = "";
+      let resolved: ReturnType<typeof contentIndex.resolveUrl> = null;
+      let resolvedSourceType = sourceType || type;
+
+      if (sourceSlug) {
+        const srcType = sourceType || type;
+        const srcFolder = getFolder(srcType);
+        const candidate = path.join(process.cwd(), rootName, srcFolder, sourceSlug);
+        if (fs.existsSync(candidate)) {
+          foundSourceFolder = candidate;
+          resolvedSourceType = srcType;
+        }
+      } else if (sourceUrl) {
+        const sourceUrlObj = new URL(sourceUrl);
+        const sourcePath = sourceUrlObj.pathname;
+        resolved = contentIndex.resolveUrl(sourcePath);
+        foundSourceFolder = resolved ? path.join(process.cwd(), resolved.entry.directory) : "";
+        if (resolved) resolvedSourceType = resolved.contentType;
+      }
 
       if (foundSourceFolder) {
         // Cross-type duplication
-        if (changeContentType && resolved && resolved.contentType !== type) {
+        if (changeContentType && resolvedSourceType !== type) {
           const result = contentIndex.duplicateWithTypeChange({
             sourceDir: foundSourceFolder,
-            sourceType: resolved.contentType,
+            sourceType: resolvedSourceType,
             targetType: type,
             targetDir: folderPath,
             newSlugs: { en: enSlug || undefined, es: esSlug || undefined },
@@ -1793,6 +2225,59 @@ export async function createContentEntry(
           for (const file of result.copiedFiles) {
             markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
           }
+
+          if (draftFirst) {
+            // Convert live locale files → draft.{locale}.yml
+            const draftLocales: string[] = [];
+            for (const loc of getSupportedLocales().filter((l) => !skipLocales.includes(l))) {
+              const livePath = path.join(folderPath, `${loc}.yml`);
+              if (!fs.existsSync(livePath)) continue;
+              const draftPath = path.join(folderPath, `${draftVariant}.${loc}.yml`);
+              fs.renameSync(livePath, draftPath);
+              markFileAsModified(`${relFolder}/${draftVariant}.${loc}.yml`, author);
+              draftLocales.push(loc);
+            }
+            // Also rename any existing draft.* copied from a draft source
+            for (const f of fs.readdirSync(folderPath)) {
+              if (f === "versioning.yml") {
+                fs.unlinkSync(path.join(folderPath, f));
+                continue;
+              }
+              const stem = f.replace(/\.ya?ml$/, "");
+              if (/^[a-z0-9-]+\.[a-z]{2}(?:-[a-z]{2})?$/.test(stem) && !stem.startsWith(`${draftVariant}.`)) {
+                // Keep as additional drafts if from draft source with other variants — for cross-type, drop extras
+                fs.unlinkSync(path.join(folderPath, f));
+              }
+            }
+            // If source was already draft-only, files may already be draft.*
+            if (draftLocales.length === 0) {
+              for (const loc of getSupportedLocales().filter((l) => !skipLocales.includes(l))) {
+                const dp = path.join(folderPath, `${draftVariant}.${loc}.yml`);
+                if (fs.existsSync(dp)) draftLocales.push(loc);
+              }
+            }
+            writeDraftVersioning(draftLocales);
+            applyPublishedAtAfterDuplicate(type, folderSlug, true, author, contentRootAbs);
+            contentIndex.refresh();
+            invalidateContentCaches(type);
+            return {
+              success: true,
+              data: draftSuccessData({
+                duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
+                typeChanged: true,
+                conversion: {
+                  from: resolvedSourceType,
+                  to: type,
+                  copiedFiles: result.copiedFiles,
+                  strippedFields: result.strippedFields,
+                  replacedVars: result.replacedVars,
+                },
+                ...(result.clearedFields.length > 0 ? { clearedFields: result.clearedFields } : {}),
+              }),
+            };
+          }
+
+          applyPublishedAtAfterDuplicate(type, folderSlug, false, author, contentRootAbs);
           refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
           contentIndex.refresh();
           invalidateContentCaches(type);
@@ -1813,8 +2298,9 @@ export async function createContentEntry(
             data: {
               success: true, slugEn: enSlug, slugEs: esSlug, type,
               directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
-              duplicatedFrom: sourceUrl, typeChanged: true,
-              conversion: { from: resolved.contentType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
+              duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`, typeChanged: true,
+              conversion: { from: resolvedSourceType, to: type, copiedFiles: result.copiedFiles, strippedFields: result.strippedFields, replacedVars: result.replacedVars },
+              ...(result.clearedFields.length > 0 ? { clearedFields: result.clearedFields } : {}),
             },
           };
         }
@@ -1825,11 +2311,44 @@ export async function createContentEntry(
         const sourceLocaleFiles = new Set(
           sourceFiles.filter(f => f.endsWith(".yml") || f.endsWith(".yaml")).map(f => f.replace(/\.ya?ml$/, ""))
         );
+        // Prefer live locale stems; fall back to draft.<locale> for draft sources
+        const liveLocaleStems = new Set(
+          [...sourceLocaleFiles].filter((s) => /^[a-z]{2}(-[a-z]{2})?$/.test(s)),
+        );
+        const draftLocaleFromFiles = new Map<string, string>(); // locale -> filename stem like draft.en
+        for (const stem of sourceLocaleFiles) {
+          const m = stem.match(/^([a-z0-9-]+)\.([a-z]{2}(?:-[a-z]{2})?)$/);
+          if (m) draftLocaleFromFiles.set(m[2], stem);
+        }
 
         for (const file of sourceFiles) {
           const fileLocale = file.replace(/\.yml$/, "");
           if (fileLocale !== "_common" && skipLocales.includes(fileLocale)) continue;
           if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
+
+          // Draft-first: only copy _common + live locale files OR primary draft files
+          if (draftFirst) {
+            if (file === "versioning.yml" || file === "versioning.yaml") continue;
+            const stem = file.replace(/\.ya?ml$/, "");
+            const isLiveLocale = /^[a-z]{2}(-[a-z]{2})?$/.test(stem);
+            const isCommon = file === "_common.yml" || file === "_common.yaml";
+            const isPrimaryDraft = stem.startsWith(`${draftVariant}.`) ||
+              (liveLocaleStems.size === 0 && /^[a-z0-9-]+\.[a-z]{2}(?:-[a-z]{2})?$/.test(stem));
+            // When source is published: copy live only. When source is draft: copy draft.* files (one set).
+            if (!isCommon && !isLiveLocale && !(liveLocaleStems.size === 0 && isPrimaryDraft && stem.startsWith(`${draftVariant}.`))) {
+              // If no "draft." but other variants exist on draft source, copy first variant only via synthesis below
+              if (!(liveLocaleStems.size === 0 && draftLocaleFromFiles.size > 0 && [...draftLocaleFromFiles.values()].includes(stem) && stem.split(".")[0] === (draftLocaleFromFiles.get(stem.split(".")[1] || "") || "").split(".")[0])) {
+                // Simpler: if no live locales, copy only files matching DEFAULT draft variant or the first variant slug consistently
+                if (liveLocaleStems.size === 0) {
+                  const firstVariant = [...draftLocaleFromFiles.values()][0]?.split(".")[0];
+                  if (!stem.startsWith(`${firstVariant}.`)) continue;
+                } else {
+                  continue;
+                }
+              }
+            }
+            if (!isCommon && !isLiveLocale && liveLocaleStems.size > 0) continue;
+          }
 
           const rawContent = fs.readFileSync(path.join(foundSourceFolder, file), "utf8");
 
@@ -1839,6 +2358,7 @@ export async function createContentEntry(
             /^.+\.[a-z]{2,5}\.ya?ml$/.test(file);
 
           if (!isContentFile) {
+            if (draftFirst) continue;
             fs.writeFileSync(path.join(folderPath, file), rawContent);
             markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
             continue;
@@ -1856,7 +2376,19 @@ export async function createContentEntry(
             delete (parsed.meta as Record<string, unknown>).redirects;
           }
 
-          parsed.slug = file === "es.yml" ? (esSlug || folderSlug) : (enSlug || folderSlug);
+          const stem = file.replace(/\.ya?ml$/, "");
+          const localeFromDraft = stem.match(/^[a-z0-9-]+\.([a-z]{2}(?:-[a-z]{2})?)$/)?.[1];
+          const effectiveLocale = localeFromDraft || (file === "es.yml" ? "es" : file === "en.yml" ? "en" : fileLocale);
+
+          const outFile = draftFirst && (file === "en.yml" || file === "es.yml" || /^[a-z]{2}(-[a-z]{2})?\.ya?ml$/.test(file) || localeFromDraft)
+            ? `${draftVariant}.${effectiveLocale}.yml`
+            : file;
+
+          if (effectiveLocale === "es") {
+            parsed.slug = esSlug || folderSlug;
+          } else {
+            parsed.slug = enSlug || folderSlug;
+          }
 
           if (file === "_common.yml") {
             parsed.title = title;
@@ -1870,15 +2402,23 @@ export async function createContentEntry(
                 ? coerceToOriginalType(value, existing)
                 : formatUrlParamFieldValue(value, urlParamShapes[param] ?? "string");
             }
-          } else if (file === "en.yml" || file === "es.yml") {
-            const locTitle = localeTitles[fileLocale] || title;
+            // Duplicates never keep source go-live date
+            delete parsed[RESERVED_PUBLISHED_AT_FIELD];
+            if (!draftFirst) {
+              parsed[RESERVED_PUBLISHED_AT_FIELD] = new Date().toISOString();
+            }
+          } else if (
+            file === "en.yml" || file === "es.yml" ||
+            (draftFirst && (/^[a-z]{2}(-[a-z]{2})?\.ya?ml$/.test(file) || localeFromDraft))
+          ) {
+            const locTitle = localeTitles[effectiveLocale] || title;
             parsed.title = locTitle;
             if (locTitle) {
               if (!parsed.meta || typeof parsed.meta !== "object") parsed.meta = {};
               (parsed.meta as Record<string, unknown>).page_title = locTitle;
             }
             for (const param of perLocaleUrlParams) {
-              const v = urlParamValueForLocale(param, fileLocale);
+              const v = urlParamValueForLocale(param, effectiveLocale);
               if (v) {
                 const existing = parsed[param];
                 parsed[param] = existing !== undefined
@@ -1886,50 +2426,102 @@ export async function createContentEntry(
                   : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
               }
             }
+            // Drop locale override of reserved go-live date (canonical is _common.yml)
+            const ovr = parsed[FIELD_OVERRIDES_KEY];
+            if (ovr && typeof ovr === "object" && !Array.isArray(ovr)) {
+              const nextOvr = { ...(ovr as Record<string, unknown>) };
+              delete nextOvr[RESERVED_PUBLISHED_AT_FIELD];
+              if (Object.keys(nextOvr).length === 0) delete parsed[FIELD_OVERRIDES_KEY];
+              else parsed[FIELD_OVERRIDES_KEY] = nextOvr;
+            }
           }
-          parsedDupFiles.push({ file, parsed });
+          parsedDupFiles.push({ file: outFile, parsed });
         }
 
-        // Synthesize missing locale files from the source
-        const supportedLocs = getSupportedLocales();
-        const existingSourceLocale = supportedLocs.find(l => sourceLocaleFiles.has(l));
-        if (existingSourceLocale) {
-          for (const loc of supportedLocs) {
-            if (skipLocales.includes(loc) || sourceLocaleFiles.has(loc)) continue;
-            const srcRaw = fs.readFileSync(path.join(foundSourceFolder, `${existingSourceLocale}.yml`), "utf8");
-            const cloned = contentIndex.safeYamlLoad(srcRaw) as Record<string, unknown> | null;
-            if (!cloned) continue;
-            delete cloned.redirects;
-            if (cloned.meta && typeof cloned.meta === "object") {
-              delete (cloned.meta as Record<string, unknown>).redirects;
-            }
-            cloned.slug = loc === "es" ? (esSlug || folderSlug) : (enSlug || folderSlug);
-            cloned.locale = loc;
-            const clonedTitle = localeTitles[loc] || title;
-            cloned.title = clonedTitle;
-            if (clonedTitle) {
-              if (!cloned.meta || typeof cloned.meta !== "object") cloned.meta = {};
-              (cloned.meta as Record<string, unknown>).page_title = clonedTitle;
-            }
-            for (const param of perLocaleUrlParams) {
-              const v = urlParamValueForLocale(param, loc);
-              if (v) {
-                const existing = cloned[param];
-                cloned[param] = existing !== undefined
-                  ? coerceToOriginalType(v, existing)
-                  : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+        // Synthesize missing locale files from the source (never for shared-layout —
+        // those must stay single-locale at create/duplicate).
+        if (!sharedLayout) {
+          const supportedLocs = getSupportedLocales();
+          const existingSourceLocale =
+            supportedLocs.find(l => liveLocaleStems.has(l)) ||
+            supportedLocs.find(l => draftLocaleFromFiles.has(l));
+          if (existingSourceLocale) {
+            for (const loc of supportedLocs) {
+              if (skipLocales.includes(loc) || liveLocaleStems.has(loc) || (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0)) {
+                if (skipLocales.includes(loc)) continue;
+                if (liveLocaleStems.has(loc)) continue;
+                if (draftFirst && draftLocaleFromFiles.has(loc) && liveLocaleStems.size === 0) continue;
               }
+              if (skipLocales.includes(loc)) continue;
+              if (liveLocaleStems.has(loc)) continue;
+              // Already have draft for this locale from copy
+              if (parsedDupFiles.some((f) => f.file === `${draftVariant}.${loc}.yml` || f.file === `${loc}.yml`)) continue;
+
+              const srcFile = liveLocaleStems.has(existingSourceLocale)
+                ? `${existingSourceLocale}.yml`
+                : `${draftLocaleFromFiles.get(existingSourceLocale)}.yml`;
+              const srcRaw = fs.readFileSync(path.join(foundSourceFolder, srcFile), "utf8");
+              const cloned = contentIndex.safeYamlLoad(srcRaw) as Record<string, unknown> | null;
+              if (!cloned) continue;
+              delete cloned.redirects;
+              if (cloned.meta && typeof cloned.meta === "object") {
+                delete (cloned.meta as Record<string, unknown>).redirects;
+              }
+              cloned.slug = loc === "es" ? (esSlug || folderSlug) : (enSlug || folderSlug);
+              cloned.locale = loc;
+              const clonedTitle = localeTitles[loc] || title;
+              cloned.title = clonedTitle;
+              if (clonedTitle) {
+                if (!cloned.meta || typeof cloned.meta !== "object") cloned.meta = {};
+                (cloned.meta as Record<string, unknown>).page_title = clonedTitle;
+              }
+              for (const param of perLocaleUrlParams) {
+                const v = urlParamValueForLocale(param, loc);
+                if (v) {
+                  const existing = cloned[param];
+                  cloned[param] = existing !== undefined
+                    ? coerceToOriginalType(v, existing)
+                    : formatUrlParamFieldValue(v, urlParamShapes[param] ?? "string");
+                }
+              }
+              const synthFile = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
+              parsedDupFiles.push({ file: synthFile, parsed: cloned });
             }
-            parsedDupFiles.push({ file: `${loc}.yml`, parsed: cloned });
           }
+        }
+
+        const fieldEditorsByType = loadAllFieldEditors();
+        const clearedFields: ClearedField[] = [];
+        for (const { file, parsed } of parsedDupFiles) {
+          clearedFields.push(
+            ...wipeDocumentSectionsOnDuplicate(parsed, fieldEditorsByType, { file }),
+          );
         }
 
         const { objs: regeneratedDup } = regenerateSectionIds(parsedDupFiles.map(f => f.parsed));
+        const draftLocalesWritten: string[] = [];
         for (let i = 0; i < parsedDupFiles.length; i++) {
           const { file } = parsedDupFiles[i];
           const content = safeYamlDump(regeneratedDup[i], { lineWidth: 120, noRefs: true, sortKeys: false });
           fs.writeFileSync(path.join(folderPath, file), content);
           markFileAsModified(`${rootName}/${getFolder(type)}/${folderSlug}/${file}`, author);
+          const dm = file.match(new RegExp(`^${draftVariant}\\.([a-z]{2}(?:-[a-z]{2})?)\\.ya?ml$`));
+          if (dm) draftLocalesWritten.push(dm[1]);
+        }
+
+        if (draftFirst) {
+          writeDraftVersioning(draftLocalesWritten.length > 0
+            ? draftLocalesWritten
+            : getSupportedLocales().filter((l) => !skipLocales.includes(l)));
+          contentIndex.refresh();
+          invalidateContentCaches(type);
+          return {
+            success: true,
+            data: draftSuccessData({
+              duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
+              ...(clearedFields.length > 0 ? { clearedFields } : {}),
+            }),
+          };
         }
 
         refreshSitemapEntriesForContentKey(type, folderSlug, getSupportedLocales().filter(l => !skipLocales.includes(l)));
@@ -1953,7 +2545,8 @@ export async function createContentEntry(
           data: {
             success: true, slugEn: enSlug, slugEs: esSlug, type,
             directory: `${rootName}/${getFolder(type)}/${folderSlug}`,
-            duplicatedFrom: sourceUrl,
+            duplicatedFrom: sourceUrl || `${resolvedSourceType}/${sourceSlug}`,
+            ...(clearedFields.length > 0 ? { clearedFields } : {}),
           },
         };
       }
@@ -1974,7 +2567,10 @@ export async function createContentEntry(
     if (key === "slug") commonObj.slug = folderSlug;
     else if (key === "title") commonObj.title = title;
     else if (key === "locale") commonObj.locale = activeLocale;
-    else if (urlParams.includes(key)) {
+    else if (key === RESERVED_PUBLISHED_AT_FIELD) {
+      // Draft-first: omit until publish/promote. Live create: stamp now.
+      if (!draftFirst) commonObj[key] = new Date().toISOString();
+    } else if (urlParams.includes(key)) {
       const uniform = uniformUrlParams[key];
       commonObj[key] = uniform
         ? formatUrlParamFieldValue(uniform, urlParamShapes[key] ?? "string")
@@ -2010,12 +2606,37 @@ export async function createContentEntry(
   const esYml = yaml.dump(makeLocaleObj(esSlug || folderSlug, "es"), { lineWidth: 120, noRefs: true, sortKeys: false });
 
   const createdFiles: string[] = [];
-  const relFolder = `${rootName}/${getFolder(type)}/${folderSlug}`;
   if (!fs.existsSync(path.join(folderPath, "_common.yml"))) {
     fs.writeFileSync(path.join(folderPath, "_common.yml"), commonYml);
     createdFiles.push("_common.yml");
     markFileAsModified(`${relFolder}/_common.yml`, author);
   }
+
+  const freshDraftLocales: string[] = [];
+  if (draftFirst) {
+    if (!skipEn) {
+      const f = `${draftVariant}.en.yml`;
+      fs.writeFileSync(path.join(folderPath, f), enYml);
+      createdFiles.push(f);
+      markFileAsModified(`${relFolder}/${f}`, author);
+      freshDraftLocales.push("en");
+    }
+    if (!skipEs) {
+      const f = `${draftVariant}.es.yml`;
+      fs.writeFileSync(path.join(folderPath, f), esYml);
+      createdFiles.push(f);
+      markFileAsModified(`${relFolder}/${f}`, author);
+      freshDraftLocales.push("es");
+    }
+    writeDraftVersioning(freshDraftLocales);
+    contentIndex.refresh();
+    invalidateContentCaches(type);
+    return {
+      success: true,
+      data: draftSuccessData({ files: createdFiles, skippedLocales: skipLocales.length > 0 ? skipLocales : undefined }),
+    };
+  }
+
   if (!skipEn && !fs.existsSync(path.join(folderPath, "en.yml"))) {
     fs.writeFileSync(path.join(folderPath, "en.yml"), enYml);
     createdFiles.push("en.yml");

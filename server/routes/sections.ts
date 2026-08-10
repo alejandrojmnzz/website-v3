@@ -1168,6 +1168,7 @@ export function registerSectionsRoutes(app: Express): void {
           updatedSections?: unknown;
           warning?: string;
           boundUpdates?: string[];
+          clearedFields?: unknown;
         } = {
           success: true,
           updatedSections: result.updatedSections,
@@ -1177,6 +1178,9 @@ export function registerSectionsRoutes(app: Express): void {
         }
         if (result.warning) {
           response.warning = result.warning;
+        }
+        if (result.clearedFields?.length) {
+          response.clearedFields = result.clearedFields;
         }
         if (bindingWarnings.length > 0) {
           response.warning =
@@ -1424,7 +1428,7 @@ export function registerSectionsRoutes(app: Express): void {
     try {
       const auth = await requireCapability(req, res, "content_create_entry", req.body.type || undefined);
       if (!auth.authorized) return;
-      const { type, slugEn, slugEs, title, sourceUrl, changeContentType, author: rawAuthor, skipLocales: rawSkipLocales, uniqueFieldValues: rawUniqueFieldValues, localeTitles: rawLocaleTitles } = req.body;
+      const { type, slugEn, slugEs, title, sourceUrl, sourceSlug, sourceType, changeContentType, author: rawAuthor, skipLocales: rawSkipLocales, uniqueFieldValues: rawUniqueFieldValues, localeTitles: rawLocaleTitles } = req.body;
       const author = auth.author || (rawAuthor && typeof rawAuthor === "string" ? rawAuthor : undefined);
       const skipLocales: string[] = Array.isArray(rawSkipLocales) ? rawSkipLocales.filter((l: unknown) => typeof l === "string") : [];
       const uniqueFieldValues: Record<string, string | boolean> = rawUniqueFieldValues && typeof rawUniqueFieldValues === "object"
@@ -1446,7 +1450,10 @@ export function registerSectionsRoutes(app: Express): void {
       const localeTitles: Record<string, string> = rawLocaleTitles && typeof rawLocaleTitles === "object"
         ? Object.fromEntries(Object.entries(rawLocaleTitles).filter(([, v]) => typeof v === "string")) : {};
       const result = await createContentEntry({
-        type, title, sourceUrl, changeContentType: !!changeContentType,
+        type, title, sourceUrl,
+        sourceSlug: typeof sourceSlug === "string" ? sourceSlug : undefined,
+        sourceType: typeof sourceType === "string" ? sourceType : undefined,
+        changeContentType: !!changeContentType,
         slugEn: slugEn || req.body.slug, slugEs: slugEs || req.body.slug,
         skipLocales, uniqueFieldValues, urlParamValues, localeTitles, author,
         contentRootName: getContentRootName(res),

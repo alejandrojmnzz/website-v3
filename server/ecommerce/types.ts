@@ -2,18 +2,20 @@
  * E-commerce domain types.
  * These are the canonical contracts used by ecommerce-index, ecommerce-manager,
  * ecommerce-resolver, and the REST routes.
+ *
+ * Billing plans / SKUs are not part of the CMS ecommerce model.
  */
 
-export interface EcommercePlan {
-  plan_id: string;
-  name: string;
-  price: number;
-  currency: string;
-  billing_period: "monthly" | "annual" | "one_time";
-  highlighted: boolean;
-  badge?: string;
-  trial_days?: number;
-  features: string[];
+export interface FunnelStep {
+  content_type: string;
+  slug: string;
+  role?: string;
+}
+
+/** Documented inbound demand by content type (not a URL step). One row per content_type. */
+export interface FunnelTrafficSource {
+  content_type: string;
+  role: string;
 }
 
 export interface EcommerceProduct {
@@ -21,9 +23,13 @@ export interface EcommerceProduct {
   name: string;
   content_type: string;
   content_slug: string;
-  plans: string[];
   active: boolean;
   description?: string;
+  /**
+   * Authored conversion path after the locked product entry (not including auto `all` pages),
+   * plus optional type-level traffic_sources for top-of-funnel documentation.
+   */
+  funnel: { steps: FunnelStep[]; traffic_sources: FunnelTrafficSource[] };
 }
 
 export interface EcommerceSettings {
@@ -32,10 +38,8 @@ export interface EcommerceSettings {
   tax_inclusive: boolean;
 }
 
-/** A product with its plan IDs resolved to full plan objects. */
-export interface ResolvedProduct extends Omit<EcommerceProduct, "plans"> {
-  plans: EcommercePlan[];
-}
+/** A product as returned from resolve APIs (no plan catalog). */
+export type ResolvedProduct = EcommerceProduct;
 
 /** Shape injected into the CMS render context under the `ecommerce` key. */
 export interface EcommerceRenderContext {

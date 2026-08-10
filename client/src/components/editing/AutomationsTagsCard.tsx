@@ -159,7 +159,7 @@ export function AutomationsTagsCard({
                 none (overriding inherited)
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-xs text-destructive" data-testid="error-no-automation">
+              <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400" data-testid="error-no-automation">
                 <IconAlertCircle className="h-3 w-3 shrink-0" />
                 No inherited or specific value found
               </span>
@@ -187,7 +187,7 @@ export function AutomationsTagsCard({
                 none (overriding inherited)
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-xs text-destructive" data-testid="error-no-tags">
+              <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400" data-testid="error-no-tags">
                 <IconAlertCircle className="h-3 w-3 shrink-0" />
                 No inherited or specific value found
               </span>
