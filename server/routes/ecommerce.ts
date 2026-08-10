@@ -83,7 +83,7 @@ const ECOMMERCE_EVENT_CATALOG = [
       item_list_name: "enrollment_selector",
       selected_plan_option: "basic",
       amount: "129",
-      period: "/month",
+      period_label: "/month",
       component_type: "enrollment_selector",
     },
   },

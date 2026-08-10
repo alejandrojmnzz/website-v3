@@ -110,7 +110,7 @@ function buildEcommerceSelectionPayload(opts: {
     const plan = program.plans[selectedPlanIdx] ?? program.plans[0];
     if (plan?.id) base.selected_plan_option = plan.id;
     if (plan?.amount?.trim()) base.amount = plan.amount;
-    if (plan?.period?.trim()) base.period = plan.period;
+    if (plan?.period?.trim()) base.period_label = plan.period;
   }
 
   if (isDateMode) {

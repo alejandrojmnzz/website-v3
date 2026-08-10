@@ -216,7 +216,7 @@ CTA intent is explicit `cta.tracking` (field-editor `cta-tracking`), not URL sni
 - **Enrollment call site** may also send (omit when N/A):
   - `item_list_name`: `"enrollment_selector"`
   - `selected_plan_option`: `programs[].plans[].id` (e.g. `basic` / `pro`) — **not** learn.4geeks billing `plan`
-  - `amount` / `period`: from the selected plan (plan mode); in date mode `amount` may be `summary.price_amount` (display string, not GA4 revenue `value`)
+  - `amount` / `period_label`: from the selected plan (plan mode); in date mode `amount` may be `summary.price_amount` (display string, not GA4 revenue `value`)
   - `cohort_date`: selected `date_iso` (date mode)
   - `addon_id`: `addon.id` when the addon toggle is on
 - **Hero**: `program_id` from product scope / CTA `?program=` / career-program path; CTA click awaits product-map load
