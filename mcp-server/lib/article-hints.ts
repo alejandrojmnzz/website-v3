@@ -253,7 +253,7 @@ export function hintsAfterAddArticle(opts: {
 }
 
 /**
- * After replace_page_sections: educate + warn on lead misconfig / missing stamps.
+ * After replace_entry_sections: educate + warn on lead misconfig / missing stamps.
  */
 export function hintsAfterReplaceSections(opts: {
   sections: Array<Record<string, unknown>>;

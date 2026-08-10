@@ -14,13 +14,13 @@ const MUTATING_TOOLS = [
   "update_meta_fields",
   "create_variant",
   "promote_variant",
-  "create_page",
+  "create_entry",
   "add_section",
   "remove_section",
   "reorder_sections",
-  "replace_page_sections",
+  "replace_entry_sections",
   "batch_update_fields",
-  "translate_page",
+  "translate_entry",
 ] as const;
 
 function extractToolHandlerSource(src: string, toolName: string): string | null {

@@ -77,9 +77,9 @@ Long-form pages often insert a CTA between two halves of an article. Use **two (
 - See `get_component_variant` → article example `article_split_toc_group`.
 - `add_section` / replace may return `article_split_always_share`, `article_lead_toc_misconfigured`, or `article_lead_order_suspicious` with `next_actions`.
 
-## Database-backed content types
+## Shared-layout content types
 
-For DB-backed types (e.g. `blog`), sections are defined in shared template files (`single.en.yml`, `single.es.yml`) rather than per-entry files. Changes to these templates affect **all** entries of that content type. Never edit per-entry YAML for DB-backed types — it does not exist.
+Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `single.{locale}.yml` (plus optional per-entry overlays when detached). Changes to the shared single affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`.
 
 ## Images in sections
 

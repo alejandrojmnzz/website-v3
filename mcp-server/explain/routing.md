@@ -40,9 +40,9 @@ The frontend router reads all content types at startup and generates routes for 
 
 Routes are also used to generate the sitemap automatically. Every page with a valid `url_pattern` and at least one **live** locale file (`en.yml` / `es.yml`) is included. Unpublished drafts (only `{variant}.{locale}.yml`) are not indexed and are not in the sitemap.
 
-## DB-backed content types
+## DB-backed vs static slugs
 
-For database-backed types (e.g. `blog`), the slug comes from the database record via `field_mapping._slug` rather than the file system. Static types also declare `_slug` (default identity `slug`). The URL pattern still applies; `:slug` is resolved from that mapping or the folder name.
+For **database-backed** types (`database.slug` set), the slug comes from the database record via `field_mapping._slug`. For **static** types (including `single_template` types such as `blog`), the slug is the entry folder name / YAML identity (`_slug` → `slug`). The URL pattern still applies; `:slug` and other params (e.g. `:category`) resolve from mapped fields or folder data.
 
 ## Canonical URLs and Open Graph
 

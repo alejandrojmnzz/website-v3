@@ -1,6 +1,12 @@
-# Content & Pages MCP Server
+# Content Entries MCP Server
 
-An MCP (Model Context Protocol) server that gives Claude read and write access to the platform's YAML-driven content pages. Works with both **Claude Desktop** (via a local URL) and **claude.com** (as a deployed custom connector).
+An MCP (Model Context Protocol) server that gives Claude read and write access to the platform's YAML-driven **content entries** (any content type — not only `page`). Works with **Claude Desktop** and **claude.com** custom connectors.
+
+**Vocabulary:** an *entry* is one slug under a content type (`blog`, `program`, `page`, …). The content type key `page` is unrelated to tool names.
+
+**Multi-site:** call `list_sites` first when more than one domain exists, then pass `site` (e.g. `4geeks.com`) on every tool.
+
+**Shared-layout / `single_template`:** shell lives in `single.{locale}.yml`; create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
 
 ## Mutating response envelope
 
@@ -12,7 +18,7 @@ Every **mutating** tool success payload is JSON inside `content[0].text` and alw
 | `side_effects` | Optional blast radius beyond the obvious write (`bound_updates`, shared-template impact). |
 | `next_actions` | Exact registered tool names the agent should call next (`required` / `recommended` / `optional`), with optional `args_hint`. Always an array. |
 
-Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). Gates such as `confirm_live_edit` and `confirm_layout_target` use `actionRequired` (not errors).
+Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). Gates such as `confirm_live_edit`, `confirm_layout_target`, multi-site `site`, and `confirm_new_values` use `actionRequired` (not bare errors).
 
 **Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live single-section field edits **do** propagate section bindings on the server (`bound_updates`); `batch_update_fields` does not.
 
@@ -20,67 +26,75 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 
 | Tool | Description |
 |---|---|
-| `list_pages` | List all YAML-driven pages with slug, content type, locales, and title |
-| `get_page_content` | Get the merged content of a page (sections, title, all top-level keys) without the meta/SEO block |
-| `get_page_seo` | Get only the SEO/meta block of a page plus the identifying envelope |
-| `update_section_field` | Patch a single section field (or safe top-level field) using dot-notation path |
-| `update_section_fields` | Patch multiple section fields in one write |
-| `update_meta_field` | Patch a single SEO/meta field, auto-routed to the correct file |
-| `update_meta_fields` | Patch multiple SEO/meta fields in one call, auto-routed per field |
-| `add_section` | Insert a new section at a given index (or append) |
-| `remove_section` | Remove a section by index |
-| `reorder_sections` | Reorder sections by supplying a new index order |
-| `batch_update_fields` | Bulk patch many paths on one page (does **not** propagate bindings) |
-| `get_section_bindings` | Read binding-group membership for a section |
-| `list_components` | List all available section component types with versions and variants |
-| `get_component_schema` | Get the top-level schema info for a component: name, description, when_to_use, and variant list |
-| `get_component_variant` | Get the field definitions and worked YAML example for a specific component variant |
+| `list_sites` | Configured domains + content folders (`sites.yml`) |
+| `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
+| `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, observed URL-param values, create_via |
+| `get_entry_content` | Merged entry content without meta/SEO |
+| `get_entry_seo` | SEO/meta block + envelope for one entry |
+| `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
+| `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
+| `update_section_field` | Patch a section or safe top-level field (`editor.type`-gated) |
+| `update_section_fields` | Bulk section / safe top-level fields |
+| `update_meta_field` | Patch one SEO/meta field |
+| `update_meta_fields` | Patch multiple SEO/meta fields |
+| `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
+| `batch_update_fields` | Bulk paths including `content` / `description` when allowed by editor |
+| `translate_entry` | Draft/live translation workflow |
+| `run_entry_diagnostics` | Async diagnostics job |
+| `get_section_bindings` | Binding-group membership |
+| `list_components` / `get_component_schema` / `get_component_variant` | Component registry |
 
 ---
 
 ## Tool Reference
 
-### `list_pages`
+### `list_sites`
 
-Lists all YAML-driven content pages.
+Returns `{ count, sites: [{ domain, contentFolder }], hint }`.
 
-**Returns:** slug, contentType, locales, title, and `urls` (a per-locale map of resolved paths, e.g. `{ en: '/en/career-programs/ai-engineering' }`) for each page.
+### `list_entries`
 
-**Parameters:** none
+Lists YAML-driven content entries (includes static `single_template` types such as blog; excludes `database.slug` types).
 
----
+**Parameters:** optional `contentType`, `locale`, `slugs`, `search`, `site`.
 
-### `get_page_content`
+### `get_content_type_info`
 
-Gets the merged content of a page (sections, title, and all other top-level YAML keys) without the `meta`/SEO block. Merges `_common.yml` with the locale file. Use `get_page_seo` when you only need SEO/meta fields.
+**Parameters:** `contentType` (required), `site` (multi-site).
 
-**Parameters:**
+### `get_entry_content`
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `slug` | string | yes | Page slug (folder name), e.g. `home` or `full-stack-developer` |
-| `locale` | string | no | Locale code (default: `en`), e.g. `en` or `es` |
-| `contentType` | string | no | Content type hint (e.g. `page`, `program`). Omit to auto-detect from slug. |
-
----
-
-### `get_page_seo`
-
-Gets only the SEO/meta block of a page plus the identifying envelope (`contentType`, `slug`, `locale`, `locales`, `urls`). Use this instead of `get_page_content` when you only need meta tags, Open Graph data, or other SEO fields.
+Gets the merged content of an entry (sections, title, and all other top-level YAML keys) without the `meta`/SEO block. Merges `_common.yml` with the locale file. Use `get_entry_seo` when you only need SEO/meta fields.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `slug` | string | yes | Page slug (folder name), e.g. `home` or `full-stack-developer` |
+| `slug` | string | yes | Entry slug (folder name), e.g. `home` or `full-stack-developer` |
 | `locale` | string | no | Locale code (default: `en`), e.g. `en` or `es` |
-| `contentType` | string | no | Content type hint (e.g. `page`, `program`). Omit to auto-detect from slug. |
+| `contentType` | string | no | Content type hint (e.g. `page`, `program`, `blog`). Omit to auto-detect from slug. |
+| `site` | string | multi-site | Domain from `list_sites` |
+
+---
+
+### `get_entry_seo`
+
+Gets only the SEO/meta block of an entry plus the identifying envelope (`contentType`, `slug`, `locale`, `locales`, `urls`). Use this instead of `get_entry_content` when you only need meta tags, Open Graph data, or other SEO fields.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `slug` | string | yes | Entry slug (folder name), e.g. `home` or `full-stack-developer` |
+| `locale` | string | no | Locale code (default: `en`), e.g. `en` or `es` |
+| `contentType` | string | no | Content type hint (e.g. `page`, `program`, `blog`). Omit to auto-detect from slug. |
+| `site` | string | multi-site | Domain from `list_sites` |
 
 ---
 
 ### `update_section_field`
 
-Updates a **single** section field (or safe top-level page field) in a page's locale YAML file.
+Updates a **single** section field (or safe top-level entry field) in a locale YAML file.
 
 Use this for all **content and section edits**. Do **not** use it for SEO/meta fields — use `update_meta_field` instead.
 
@@ -88,11 +102,12 @@ Use this for all **content and section edits**. Do **not** use it for SEO/meta f
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `slug` | string | yes | Page slug |
+| `slug` | string | yes | Entry slug |
 | `locale` | string | no | Locale code (default: `en`) |
-| `field_path` | string | yes | Dot-notation path. Must start with `sections.` (e.g. `sections.0.title`) or be a safe top-level field: `title` or `slug`. Paths starting with `meta.` are rejected. |
+| `field_path` | string | yes | Dot-notation path. Must start with `sections.` or be a safe top-level field for the type (`title`, `slug`, `content`, … via `editor.type`). Paths starting with `meta.` are rejected. |
 | `value` | any | yes | New value for the field |
 | `contentType` | string | no | Content type hint. Omit to auto-detect from slug. |
+| `site` | string | multi-site | Domain from `list_sites` |
 
 **Example:**
 
@@ -463,9 +478,9 @@ A typical editing session looks like this:
 
 2. **Find the right page**
    ```
-   Call list_pages to find all available pages.
-   Call get_page_content with slug="home", locale="en" to read its sections and content.
-   Call get_page_seo with slug="home", locale="en" to read only the meta/SEO fields.
+   Call list_entries to find all available pages.
+   Call get_entry_content with slug="home", locale="en" to read its sections and content.
+   Call get_entry_seo with slug="home", locale="en" to read only the meta/SEO fields.
    ```
 
 3. **Make edits**
@@ -515,21 +530,21 @@ curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"list_pages","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"list_entries","arguments":{}}}'
 
 # Get page content (sections, no meta) by slug only (contentType auto-detected)
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":3,"params":{"name":"get_page_content","arguments":{"slug":"home","locale":"en"}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":3,"params":{"name":"get_entry_content","arguments":{"slug":"home","locale":"en"}}}'
 
 # Get page SEO/meta only by slug
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":3,"params":{"name":"get_page_seo","arguments":{"slug":"home","locale":"en"}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":3,"params":{"name":"get_entry_seo","arguments":{"slug":"home","locale":"en"}}}'
 
 # Update a section field (write tool)
 curl -X POST http://localhost:3001/mcp \

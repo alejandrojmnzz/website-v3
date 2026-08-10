@@ -80,10 +80,14 @@ function parseSitesYml(): SiteConfigMcp[] {
   return configs;
 }
 
-function getMcpSiteConfigs(): SiteConfigMcp[] {
+export function getMcpSiteConfigs(): SiteConfigMcp[] {
   if (_mcpSiteConfigsCache) return _mcpSiteConfigsCache;
   _mcpSiteConfigsCache = parseSitesYml();
   return _mcpSiteConfigsCache;
+}
+
+export function listMcpSites(): Array<{ domain: string; contentFolder: string }> {
+  return getMcpSiteConfigs().map((c) => ({ domain: c.domain, contentFolder: c.contentFolder }));
 }
 
 /** True when more than one site is configured (UI / MCP param requirements). */
@@ -220,6 +224,14 @@ export interface ContentTypeConfig {
   field_mapping?: Record<string, unknown>;
   layout?: unknown;
   single_template?: boolean;
+  editor?: Record<string, {
+    required?: boolean;
+    type?: string;
+    allow_custom_values?: boolean;
+    populate_options?: boolean;
+    description?: string;
+  }>;
+  indexes?: string[];
 }
 
 export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {

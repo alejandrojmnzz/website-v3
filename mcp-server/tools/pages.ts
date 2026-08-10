@@ -16,6 +16,7 @@ import {
   safeDump,
   setValueAtPath,
   resolveSiteContext,
+  listMcpSites,
 } from "../lib/content.js";
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { checkCap, denyResponse } from "../lib/auth.js";
@@ -41,20 +42,31 @@ import {
   REMOVE_SECTION_NO_BINDING_FANOUT,
   REPLACE_NO_BINDING_FANOUT,
   REORDER_NO_BINDING_FANOUT,
-  CREATE_PAGE_SHARED_LAYOUT_WARNING,
+  CREATE_ENTRY_SHARED_LAYOUT_WARNING,
 } from "../lib/shared-layout.js";
 import {
   hintsAfterAddArticle,
   hintsAfterReplaceSections,
   prepareArticleAddStamp,
 } from "../lib/article-hints.js";
+import {
+  SITE_PARAM_DESC,
+  MULTI_SITE_TOOL_BLURB,
+  siteFailResult,
+  safeTopLevelFieldsForConfig,
+  listExtraUrlPatternParams,
+  observeParamValues,
+  collectProposedUrlParamValues,
+  missingRequiredFields,
+  getEditorConfig,
+  bodyModelForConfig,
+  createViaForConfig,
+} from "../lib/entry-helpers.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
 // Must match the value used in server/routes/_helpers.ts trusted-internal bypass.
 export const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
-
-const SITE_PARAM_DESC = 'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists)';
 
 /**
  * Build the Authorization + author headers for loopback calls to the main
@@ -383,29 +395,54 @@ function getCachedValidationIssues(
 }
 
 export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?: string): void {
-  // list_pages
+  // list_sites
   mcp.tool(
-    "list_pages",
-    "List YAML-driven content pages. Returns slug, contentType, locales, title, and urls (a per-locale map of resolved paths, e.g. { en: '/en/career-programs/ai-engineering' }) for each page. " +
-    "IMPORTANT: Database-backed content types (those configured with a database in content-types.yml) are NOT included in these results — they are stored in the database, not as YAML files. " +
-    "If you search for a known slug (e.g. 'python-http-requests') and get an empty result, it likely means that entry belongs to a db-backed content type rather than not existing at all. " +
-    "There is currently no MCP tool to query db-backed entries directly. " +
-    "Optional filters (all combinable, AND logic): " +
-    "contentType — restrict to one type (e.g. 'program', 'landing', 'page'); " +
-    "locale — only pages that have this locale available (e.g. 'en'); " +
-    "slugs — restrict to a specific list of slugs; " +
-    "search — case-insensitive substring match against slug and title. " +
-    "With no filters the full list is returned.",
+    "list_sites",
+    "List configured site domains and content folders from sites.yml. " +
+    "Call this first in multi-site setups, then pass site (domain) on every other tool. " +
+    MULTI_SITE_TOOL_BLURB,
+    {},
+    async () => {
+      try {
+        const sites = listMcpSites();
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              count: sites.length,
+              sites,
+              hint: sites.length > 1
+                ? "Pass site with one of these domains on subsequent tool calls."
+                : "Only one site configured; site parameter is optional.",
+            }, null, 2),
+          }],
+        };
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    }
+  );
+
+  // list_entries
+  mcp.tool(
+    "list_entries",
+    "List YAML-driven content entries (any content type that is not database-backed). " +
+    "Returns slug, contentType, locales, title, and urls. " +
+    "IMPORTANT: Types with database.slug in content-types.yml are NOT listed here. " +
+    "Static single_template types (e.g. blog) ARE listed — they are YAML, not DB. " +
+    "Use get_content_type_info to see db_backed vs single_template. " +
+    MULTI_SITE_TOOL_BLURB + " " +
+    "Optional filters (AND): contentType, locale, slugs, search.",
     {
-      contentType: z.string().optional().describe("Restrict to one content type, e.g. 'program' or 'landing'"),
-      locale: z.string().optional().describe("Only return pages that have this locale available, e.g. 'en' or 'es'"),
+      contentType: z.string().optional().describe("Restrict to one content type, e.g. 'program', 'blog', or 'landing'"),
+      locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
       slugs: z.array(z.string()).optional().describe("Restrict to a specific list of slugs"),
       search: z.string().optional().describe("Case-insensitive substring match against slug and title"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, locale, slugs, search, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return siteFailResult(siteResult.error, "list_entries", { contentType, locale, slugs, search });
       const { contentPath } = siteResult;
       let pages = scanPages(contentPath);
       if (contentType) {
@@ -429,7 +466,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // ── Shared resolution helper used by get_page_content and get_page_seo ──────
+  // ── Shared resolution helper used by get_entry_content and get_entry_seo ──────
 
   type PagePayload = {
     contentType: string;
@@ -484,15 +521,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     return { contentType: resolved.contentType, slug, locale, locales, ...(urls ? { urls } : {}), data: result.data as Record<string, unknown> };
   }
 
-  // get_page_content
+  // get_entry_content
   mcp.tool(
-    "get_page_content",
+    "get_entry_content",
     "Get the merged content of a page (sections, title, and all other top-level YAML keys) without the meta/SEO block. " +
     "Also returns locales (all available locale codes for this page), urls (per-locale resolved paths), and " +
     "validation_issues (all cached validation issues for this page across all categories — each with code, message, severity, and category). " +
     "validation_issues is always present (empty array if no issues are cached). " +
     "Merges _common.yml with the locale file. contentType is optional — omit it and the server will auto-detect it from the slug. " +
-    "Use get_page_seo to fetch only the SEO/meta fields. " +
+    "Use get_entry_seo to fetch only the SEO/meta fields. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -503,7 +540,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, locale, contentType, variant, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -541,13 +578,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // get_page_seo
+  // get_entry_seo
   mcp.tool(
-    "get_page_seo",
+    "get_entry_seo",
     "Get only the SEO/meta block of a page plus the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Also returns validation_issues containing only cached SEO-category issues (from the meta, seo-depth, and seo-intent validators). " +
     "validation_issues is always present (empty array if no SEO issues are cached). " +
-    "Use this instead of get_page_content when you only need meta tags, Open Graph data, or other SEO fields. " +
+    "Use this instead of get_entry_content when you only need meta tags, Open Graph data, or other SEO fields. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -558,7 +595,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, locale, contentType, variant, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -602,9 +639,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // run_page_diagnostics (async — returns cached or queues a background job)
+  // run_entry_diagnostics (async — returns cached or queues a background job)
   mcp.tool(
-    "run_page_diagnostics",
+    "run_entry_diagnostics",
     "Start or read page diagnostics. Does NOT wait for validators to finish. " +
     "Returns status 'cached' (issues from validation-cache when fresh) or 'queued'/'running' with job_id. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
@@ -620,7 +657,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slugs, categories, freshness, max_age_seconds, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
@@ -731,17 +768,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
   mcp.tool(
     "get_diagnostics_job",
-    "Poll an async diagnostics job started by run_page_diagnostics. " +
+    "Poll an async diagnostics job started by run_entry_diagnostics. " +
     "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
-    "Do not call run_page_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated), failed, or not_found " +
-    "(diagnostics_job_lost — start a new run_page_diagnostics).",
+    "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated), failed, or not_found " +
+    "(diagnostics_job_lost — start a new run_entry_diagnostics).",
     {
-      job_id: z.string().describe("Job id from run_page_diagnostics"),
+      job_id: z.string().describe("Job id from run_entry_diagnostics"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ job_id, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
@@ -762,10 +799,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             {
               warnings: [{
                 code: "diagnostics_job_lost",
-                message: "Job expired, evicted, or lost on restart. Call run_page_diagnostics again — do not keep polling this job_id.",
+                message: "Job expired, evicted, or lost on restart. Call run_entry_diagnostics again — do not keep polling this job_id.",
               }],
               next_actions: [{
-                tool: "run_page_diagnostics",
+                tool: "run_entry_diagnostics",
                 reason: "Start a new diagnostics job",
                 args_hint: { freshness: "hard", ...(site ? { site } : {}) },
                 priority: "recommended",
@@ -816,7 +853,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             {
               warnings: [{ code: "diagnostics_failed", message: String(data.error ?? "Job failed") }],
               next_actions: [{
-                tool: "run_page_diagnostics",
+                tool: "run_entry_diagnostics",
                 reason: "Start a new diagnostics job after failure",
                 args_hint: { freshness: "hard", ...(site ? { site } : {}) },
                 priority: "optional",
@@ -844,7 +881,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
   // ── Shared helpers for the new split tools ──────────────────────────────────
 
-  const SAFE_TOP_LEVEL_FIELDS = new Set(["title", "slug"]);
+  // Safe top-level paths are resolved per content-type via safeTopLevelFieldsForConfig (editor.type).
 
   const META_COMMON_FIELDS = new Set(["robots", "priority", "change_frequency"]);
   const META_LOCALE_FIELDS = new Set([
@@ -875,12 +912,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "update_section_field",
     "Update a single section field (or safe top-level page field) in a page's locale YAML file. " +
-    "Use this for all content/section edits — field_path must start with 'sections.' or be one of the safe " +
-    "top-level fields ('title', 'slug'). " +
+    "Use this for all content/section edits — field_path must start with 'sections.' or be a safe " +
+    "top-level field allowed by the content type editor (title, slug, settings, and editor.type-safe mapping keys such as description/content). " +
     "Do NOT use this for SEO/meta fields — use update_meta_field instead. " +
     "contentType is optional — omit it and the server will auto-detect from slug.\n\n" +
+    MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the user before calling this tool: " +
+    "you MUST ask the principal before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
     "To edit the live version directly pass confirm_live_edit: true. " +
     "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
@@ -889,7 +927,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       field_path: z.string().describe(
         "Dot-notation path targeting section content. Must start with 'sections.' (e.g. 'sections.0.title') " +
-        "or be a safe top-level field: 'title' or 'slug'. " +
+        "or be a safe top-level field for this content type (title, slug, description, content, …). " +
         "Paths starting with 'meta.' are rejected — use update_meta_field instead."
       ),
       value: z.unknown().describe("New value for the field"),
@@ -902,7 +940,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, locale, field_path: fieldPath, value, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -916,13 +954,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (fieldPath.startsWith("meta.")) {
         return fail(`field_path '${fieldPath}' targets a meta field. Use update_meta_field instead.`);
       }
-      if (!fieldPath.startsWith("sections.") && !SAFE_TOP_LEVEL_FIELDS.has(fieldPath)) {
-        return fail(`field_path '${fieldPath}' is not allowed. Must start with 'sections.' or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.`);
-      }
 
       const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
+      }
+
+      const safeTop = safeTopLevelFieldsForConfig(resolved.config);
+      if (!fieldPath.startsWith("sections.") && !safeTop.has(fieldPath)) {
+        return fail(`field_path '${fieldPath}' is not allowed. Must start with 'sections.' or be one of: ${[...safeTop].join(", ")}.`);
       }
 
       if (mcpToken) {
@@ -1039,7 +1079,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, locale, fields, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1054,14 +1094,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (metaPaths.length > 0) {
         return fail(`field_path(s) target meta fields: ${metaPaths.join(", ")}. Use update_meta_fields instead.`);
       }
-      const badPaths = Object.keys(fields).filter(fp => !fp.startsWith("sections.") && !SAFE_TOP_LEVEL_FIELDS.has(fp));
-      if (badPaths.length > 0) {
-        return fail(`Disallowed field_path(s): ${badPaths.join(", ")}. Must start with 'sections.' or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.`);
-      }
 
       const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
+      }
+
+      const safeTop = safeTopLevelFieldsForConfig(resolved.config);
+      const badPaths = Object.keys(fields).filter(fp => !fp.startsWith("sections.") && !safeTop.has(fp));
+      if (badPaths.length > 0) {
+        return fail(`Disallowed field_path(s): ${badPaths.join(", ")}. Must start with 'sections.' or be one of: ${[...safeTop].join(", ")}.`);
       }
 
       if (mcpToken) {
@@ -1188,7 +1230,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, field, value, locale, custom_fields, target, variant, confirm_live_edit, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1329,7 +1371,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, fields, locale, custom_fields, target, variant, confirm_live_edit, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1484,7 +1526,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, field, value, level, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -1610,7 +1652,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
       if (!resolved) {
@@ -1650,7 +1692,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, field, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
       if (!resolved) return fail(`Page not found for slug '${slug}'`);
@@ -1710,7 +1752,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain, contentPath } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -1759,7 +1801,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, variantSlug, locale, sourceVariant, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain, contentPath } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -1845,7 +1887,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, variantSlug, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -1880,7 +1922,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             variantSlug,
             next_actions: isEmpty
               ? [{
-                  tool: "get_page_content",
+                  tool: "get_entry_content",
                   reason: "Edit the draft until it has sections or content, then retry publish_draft",
                   args_hint: { slug, contentType, variant: variantSlug },
                   priority: "required",
@@ -1939,7 +1981,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, variantSlug, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -1979,7 +2021,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             variantSlug,
             next_actions: isEmpty
               ? [{
-                  tool: "get_page_content",
+                  tool: "get_entry_content",
                   reason: "Edit the draft until it has sections or content, then retry promote_variant",
                   args_hint: { slug, contentType, locale, variant: variantSlug },
                   priority: "required",
@@ -1989,7 +2031,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
         const next_actions: NextAction[] = sharedLayout
           ? [{
-              tool: "get_page_content",
+              tool: "get_entry_content",
               priority: "recommended",
               reason: "Shared-layout promote does not sync sibling singles — re-read live content and reconcile structure if needed.",
               args_hint: { contentType, slug, locale },
@@ -2005,38 +2047,38 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // create_page
+  // create_entry
   mcp.tool(
-    "create_page",
-    "Create a brand-new YAML-driven page. For normal (non-shared-layout) types this creates an unpublished DRAFT: " +
-    "writes _common.yml + draft.{locale}.yml + versioning.yml (0% allocation). The page is NOT public and NOT in the sitemap until published. " +
-    "Edit with variant: 'draft', then call publish_draft (all remaining locales at once). Confirm with the user before publishing.\n" +
-    "Shared-layout types write exactly ONE live locale immediately (multi-locale create is rejected). " +
-    "Add translations later with translate_page (draft until promote) after the first locale exists — " +
-    "do not seed empty sibling locales at create.\n\n" +
-    "What the caller must supply:\n" +
-    "  • contentType — a non-DB-backed content type from content-types.yml\n" +
-    "  • slug — URL-safe identifier that must not already exist\n" +
-    "  • common — object written verbatim to _common.yml\n" +
-    "  • locales — map of locale code → { meta?, sections }. Shared-layout: exactly one key. Draft-first: one or more.\n\n" +
-    "NOTE — copying sections from another page: staff/API page duplicate wipes conversion_name, ecommerce_products, " +
-    "and CTA tracking (see explain_site topic component-behaviors). create_page does NOT auto-wipe; if you paste " +
-    "sections from elsewhere, deliberately set fresh conversion/ecommerce identity fields.\n\n" +
-    "Possible errors: unknown/DB-backed contentType, slug already exists, path traversal detected, " +
-    "invalid locale code, shared-layout multi-locale create, permission denied.",
+    "create_entry",
+    "Create a brand-new YAML-driven content entry (any non-DB content type, including single_template types such as blog). " +
+    "For normal (non-shared-layout) types this creates an unpublished DRAFT: " +
+    "writes _common.yml + draft.{locale}.yml + versioning.yml (0% allocation). " +
+    "Edit with variant: 'draft', then call publish_draft. Confirm with the principal before publishing.\n" +
+    "Shared-layout / single_template types write exactly ONE live locale immediately (multi-locale create is rejected). " +
+    "Put body/fields on the locale (title, description, content, … per field_mapping); sections must be [] — shell comes from single.{locale}.yml. " +
+    "Call explain_site topic shared-layout and/or get_content_type_info before creating shared-layout entries. " +
+    MULTI_SITE_TOOL_BLURB + "\n\n" +
+    "locales map: locale → { meta?, sections?, …field_mapping keys }. Shared-layout: exactly one locale key.\n" +
+    "New URL-param/select values not seen on peers require confirm_new_values: true after principal (human or orchestrator) approval.\n\n" +
+    "Possible errors: unknown/DB-backed contentType, slug exists, shared-layout multi-locale, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.",
     {
-      contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing', 'location'. Must match a non-DB-backed entry in content-types.yml."),
-      slug: z.string().describe("URL-safe slug for the new page, e.g. 'machine-learning-bootcamp'. Must not already exist for this content type."),
-      common: z.record(z.unknown()).describe("Fields written verbatim to _common.yml (locale-independent data). Typically includes: title, layout, and any content-type-specific fields like bc_slug or job_role. E.g. { title: 'ML Bootcamp', layout: 'LandingLayout' }"),
-      locales: z.record(z.object({
-        meta: z.record(z.unknown()).optional().describe("Meta/SEO fields for this locale, e.g. { page_title: '...', description: '...', robots: 'index, follow' }"),
-        sections: z.array(z.record(z.unknown())).describe("Sections array for this locale. May be empty ([]) for a blank page."),
-      })).describe("Map of locale code → { meta?, sections }. Shared-layout: exactly one locale. Draft-first: at least one. E.g. { en: { meta: { page_title: 'ML Bootcamp | 4Geeks', description: '...', robots: 'index, follow' }, sections: [] } }"),
+      contentType: z.string().describe("Content type from content-types.yml without database.slug, e.g. 'blog', 'program', 'page', 'landing'."),
+      slug: z.string().describe("URL-safe slug for the new entry. Must not already exist for this content type."),
+      common: z.record(z.unknown()).describe("Fields written to _common.yml (locale-independent). Include URL params like category when required by url_pattern."),
+      locales: z.record(z.record(z.unknown())).describe(
+        "Map of locale → locale YAML fields. Include meta, optional sections, and field_mapping keys (title, description, content, …). " +
+        "Shared-layout: exactly one locale; sections must be [] or omitted.",
+      ),
+      confirm_new_values: z.boolean().optional().describe(
+        "Set true only after the principal (human or orchestrator/reviewer) approved inventing a new URL-param/select value not in observed peers.",
+      ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slug, common, locales, site }) => {
+    async ({ contentType, slug, common, locales, confirm_new_values, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "create_entry", { contentType, slug, common, locales, confirm_new_values });
+      }
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2062,7 +2104,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail(`Unknown contentType '${contentType}'. Known non-DB types: ${known}`);
       }
       if (isDbBacked(config)) {
-        return fail(`Content type '${contentType}' is database-backed and cannot be created via this tool.`);
+        return fail(
+          `Content type '${contentType}' is database-backed (database.slug set) and cannot be created via create_entry. ` +
+          `Use get_content_type_info for create_via. Static single_template types without database.slug are allowed.`,
+        );
       }
 
       if (mcpToken) {
@@ -2080,21 +2125,160 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             code: "shared_layout_single_locale_create",
             message:
               "Shared-layout types go live immediately and must be created with exactly one locale. " +
-              "Seeding a second locale at create writes a public locale file before content exists " +
-              "(empty/broken URLs). Create the first locale now; add translations later via translate_page (draft → promote).",
+              "Create the first locale now; add translations later via translate_entry (draft → promote).",
             contentType,
             slug,
             locales_provided: localeKeys,
           },
           [
             {
-              tool: "create_page",
+              tool: "create_entry",
               reason: "Retry with exactly one key in locales (e.g. only en or only es)",
-              args_hint: { contentType, slug, locales: { [localeKeys[0]]: locales[localeKeys[0]] } },
+              args_hint: { contentType, slug, common, locales: { [localeKeys[0]]: locales[localeKeys[0]] }, site },
               priority: "required",
             },
           ],
         );
+      }
+
+      // Normalize locale payloads: sections default [], strip known keys for field merge
+      const normalizedLocales: Record<string, {
+        meta?: Record<string, unknown>;
+        sections: Record<string, unknown>[];
+        fields: Record<string, unknown>;
+      }> = {};
+      for (const [loc, raw] of Object.entries(locales)) {
+        const { meta, sections, slug: _s, ...rest } = raw as Record<string, unknown>;
+        const sectionArr = Array.isArray(sections) ? sections as Record<string, unknown>[] : [];
+        if (sharedLayoutCreate && sectionArr.length > 0) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "shared_layout_sections_must_be_empty",
+              code: "shared_layout_sections_must_be_empty",
+              message:
+                "Shared-layout create must use sections: [] (or omit sections). " +
+                "The shell comes from single.{locale}.yml. Put body in locale fields (e.g. content). " +
+                "Overlays after create use section tools with layout_target.",
+              contentType,
+              slug,
+              locale: loc,
+            },
+            [
+              {
+                tool: "create_entry",
+                reason: "Retry with sections: [] and field_mapping keys on the locale object",
+                args_hint: {
+                  contentType,
+                  slug,
+                  common,
+                  site,
+                  locales: {
+                    [loc]: { ...rest, ...(meta ? { meta } : {}), sections: [] },
+                  },
+                },
+                priority: "required",
+              },
+              {
+                tool: "get_content_type_info",
+                reason: "Inspect field_mapping / body_model for this content type",
+                args_hint: { contentType, site },
+                priority: "recommended",
+              },
+            ],
+          );
+        }
+        const missing = missingRequiredFields(config, common as Record<string, unknown>, rest);
+        if (sharedLayoutCreate && missing.length > 0) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "missing_required_fields",
+              code: "missing_required_fields",
+              message:
+                `Missing editor.required fields for live shared-layout create: ${missing.join(", ")}. ` +
+                "Supply them on the locale object (or common when appropriate).",
+              missing,
+              contentType,
+              slug,
+            },
+            [
+              {
+                tool: "get_content_type_info",
+                reason: "See editor.required and field_mapping",
+                args_hint: { contentType, site },
+                priority: "required",
+              },
+              {
+                tool: "create_entry",
+                reason: "Retry with required fields populated",
+                args_hint: { contentType, slug, common, site, locales },
+                priority: "required",
+              },
+            ],
+          );
+        }
+        normalizedLocales[loc] = {
+          meta: meta && typeof meta === "object" ? meta as Record<string, unknown> : undefined,
+          sections: sharedLayoutCreate ? [] : sectionArr,
+          fields: rest,
+        };
+      }
+
+      // URL param / select observed gate
+      const urlParams = listExtraUrlPatternParams(config.url_pattern);
+      const proposed = collectProposedUrlParamValues(
+        common as Record<string, unknown>,
+        Object.fromEntries(
+          Object.entries(normalizedLocales).map(([k, v]) => [k, { ...v.fields, ...(v.meta || {}) }]),
+        ),
+        urlParams,
+      );
+      if (!confirm_new_values) {
+        for (const [param, value] of Object.entries(proposed)) {
+          const observed = observeParamValues(contentPath, contentType, config, param);
+          if (observed.length > 0 && !observed.includes(value)) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "confirm_new_url_param_value",
+                code: "confirm_new_url_param_value",
+                message:
+                  `New value '${value}' for '${param}' is not used by any peer entry. ` +
+                  `Observed: [${observed.slice(0, 40).join(", ")}${observed.length > 40 ? ", …" : ""}]. ` +
+                  "Do not invent values silently. Get explicit approval from the principal " +
+                  "(human in the chat or a reviewer/orchestrator agent), then re-call with confirm_new_values: true " +
+                  "or pick an observed value.",
+                param,
+                proposed_value: value,
+                observed_values: observed,
+                contentType,
+                slug,
+              },
+              [
+                {
+                  tool: "create_entry",
+                  reason: "After principal approval, retry with confirm_new_values: true (or change the value to an observed one)",
+                  args_hint: {
+                    contentType,
+                    slug,
+                    common,
+                    locales,
+                    site,
+                    confirm_new_values: true,
+                  },
+                  priority: "required",
+                },
+                {
+                  tool: "get_content_type_info",
+                  reason: "Inspect observed URL-param / select values",
+                  args_hint: { contentType, site },
+                  priority: "recommended",
+                },
+              ],
+            );
+          }
+        }
       }
 
       const ctDir = getDirectory(contentType, config);
@@ -2103,7 +2287,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail((e as Error).message);
       }
       if (fs.existsSync(pageDir)) {
-        return fail(`Page '${slug}' already exists for contentType '${contentType}'.`);
+        return fail(`Entry '${slug}' already exists for contentType '${contentType}'.`);
       }
 
       const draftFirst = !sharedLayoutCreate;
@@ -2116,9 +2300,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const createdLocales: string[] = [];
       const createdFiles: string[] = ["_common.yml"];
-      for (const [loc, localeContent] of Object.entries(locales)) {
+      for (const [loc, localeContent] of Object.entries(normalizedLocales)) {
         const localeData: Record<string, unknown> = {
           slug,
+          ...localeContent.fields,
           sections: localeContent.sections,
           ...(localeContent.meta && Object.keys(localeContent.meta).length > 0 ? { meta: localeContent.meta } : {}),
         };
@@ -2139,8 +2324,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const relPaths = createdFiles.map((f) => `${contentFolder}/${ctDir}/${slug}/${f}`);
       const commitMsg = draftFirst
-        ? `Create draft page ${contentType}/${slug}`
-        : `Create page ${contentType}/${slug}`;
+        ? `Create draft entry ${contentType}/${slug}`
+        : `Create entry ${contentType}/${slug}`;
       const [commitResults] = await Promise.all([
         Promise.all(relPaths.map(p => callCommitFileApi(p, commitMsg, mcpToken, domain))),
         callRefreshCacheApi(contentType, domain),
@@ -2153,11 +2338,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const side_effects: McpSideEffect[] = [];
       const next_actions: NextAction[] = [];
       const primaryLocale = createdLocales[0] ?? "en";
+      const siteHint = site ? { site } : {};
 
       if (draftFirst) {
         warnings.push({
           code: "draft_unpublished",
-          message: "Page is an unpublished draft (no live locale files). Not in sitemap; public URL 404s until publish_draft.",
+          message: "Entry is an unpublished draft (no live locale files). Not in sitemap; public URL 404s until publish_draft.",
         });
         warnings.push({
           code: "published_at_omitted",
@@ -2170,36 +2356,42 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           paths: relPaths,
         });
         next_actions.push({
-          tool: "update_section_field",
+          tool: "batch_update_fields",
           priority: "recommended",
-          reason: "Edit the draft with variant set before publishing.",
-          args_hint: { contentType, slug, locale: primaryLocale, variant: draftVariant },
+          reason: "Edit draft fields with variant set before publishing.",
+          args_hint: { contentType, slug, locale: primaryLocale, variant: draftVariant, ...siteHint },
         });
         next_actions.push({
           tool: "publish_draft",
           priority: "optional",
-          reason: "When ready, publish all remaining draft locales at once (confirm with the user first).",
-          args_hint: { contentType, slug, variantSlug: draftVariant },
+          reason: "When ready, publish all remaining draft locales at once (confirm with the principal first).",
+          args_hint: { contentType, slug, variantSlug: draftVariant, ...siteHint },
         });
       } else if (sharedLayoutCreate) {
-        warnings.push(CREATE_PAGE_SHARED_LAYOUT_WARNING);
+        warnings.push(CREATE_ENTRY_SHARED_LAYOUT_WARNING);
         warnings.push({
           code: "shared_layout_single_locale_create",
           message:
             `Created live ${primaryLocale}.yml only. Did not seed sibling locales. ` +
-            "Add translations later with translate_page (draft until promote) after content is ready; detach first if still attached.",
+            "Add translations later with translate_entry (draft until promote) after content is ready; detach first if still attached.",
         });
         warnings.push({
           code: "published_at_stamped",
           message:
-            "Live create stamps published_at=now on _common.yml (shared-layout/blog). Distinct from _updated_at; not tied to YAML status.",
+            "Live create stamps published_at=now on _common.yml (shared-layout). Distinct from _updated_at; not tied to YAML status.",
         });
         side_effects.push(sharedTemplateBlastSideEffect(contentType, primaryLocale));
         next_actions.push({
-          tool: "get_page_content",
+          tool: "get_entry_content",
           priority: "recommended",
-          reason: "Shared-layout entry inherits structure from single.{locale}.yml — re-read merged content before editing sections.",
-          args_hint: { contentType, slug, locale: primaryLocale },
+          reason: "Re-read merged content (fields + single.{locale}.yml shell). Prefer batch_update_fields for locale fields — not section shell edits.",
+          args_hint: { contentType, slug, locale: primaryLocale, ...siteHint },
+        });
+        next_actions.push({
+          tool: "run_entry_diagnostics",
+          priority: "optional",
+          reason: "Validate the new live entry",
+          args_hint: { slugs: [slug], ...siteHint },
         });
       } else {
         warnings.push({
@@ -2209,6 +2401,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
       }
 
+      const title =
+        (normalizedLocales[primaryLocale]?.fields?.title as string | undefined) ||
+        (typeof common.title === "string" ? common.title : undefined);
+
       return ok(
         {
           slug,
@@ -2217,7 +2413,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           locales: createdLocales,
           status: draftFirst ? "draft" : "published",
           ...(draftFirst ? { draftVariant, previewPath: `/private/preview/${contentType}/${slug}?variant=${draftVariant}&locale=${primaryLocale}` } : {}),
-          ...(common.title ? { title: common.title } : {}),
+          ...(title ? { title } : {}),
           ...(commitShas.length > 0 ? { commitShas } : {}),
         },
         { warnings, next_actions, ...(side_effects.length > 0 ? { side_effects } : {}) },
@@ -2253,7 +2449,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, locale, section, index, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, domain } = siteResult;
       if (!MCP_SERVER_SECRET) {
         return fail("add_section is unavailable: MCP_SERVER_SECRET is not configured. Set MCP_SERVER_SECRET in your environment before using section-editing tools.");
@@ -2443,7 +2639,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, locale, index, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2597,7 +2793,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, locale, order, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2729,9 +2925,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // replace_page_sections
+  // replace_entry_sections
   mcp.tool(
-    "replace_page_sections",
+    "replace_entry_sections",
     "Atomically replace ALL sections in a page's locale file in one call — the high-throughput " +
     "alternative to calling update_section_field N times. " +
     "Optionally also replaces the meta block in the same call. " +
@@ -2762,7 +2958,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, locale, sections, meta, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2785,7 +2981,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       const liveGate = confirmLiveEditGate({
-        tool: "replace_page_sections",
+        tool: "replace_entry_sections",
         slug,
         contentType: resolved.contentType,
         locale,
@@ -2797,7 +2993,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (liveGate) return liveGate;
 
       const layoutGate = resolveLayoutTargetGate({
-        tool: "replace_page_sections",
+        tool: "replace_entry_sections",
         contentType: resolved.contentType,
         config: resolved.config,
         slug,
@@ -2842,7 +3038,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           relativePath,
           remoteContent: conflictCheck.remoteContent,
           intendedContent,
-          intendedChange: { action: "replace_page_sections", sectionsCount: sections.length, ...(meta ? { meta } : {}) },
+          intendedChange: { action: "replace_entry_sections", sectionsCount: sections.length, ...(meta ? { meta } : {}) },
         });
       }
 
@@ -2865,7 +3061,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
         const env = sharedStructuralEnvelope({
-          tool: "replace_page_sections",
+          tool: "replace_entry_sections",
           contentType: resolved.contentType,
           config: resolved.config,
           contentPath,
@@ -2922,15 +3118,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "  • 'meta.page_title', 'meta.description', 'meta.og_image', 'meta.og_type', " +
     "    'meta.og_url', 'meta.og_locale', 'meta.canonical_url' → locale file\n" +
     "  • Any other 'meta.*' key → locale file\n" +
-    "  • Safe top-level fields: 'title', 'slug' → locale file\n\n" +
+    "  • Safe top-level fields allowed by content-type editor.type (title, slug, settings, description, content, …) → locale file\n\n" +
     "Live gate: live writes need resolved meta.page_title + meta.description; " +
-    "editor.required fields (blog: title, description) cannot be cleared on live. Drafts exempt.\n\n" +
+    "editor.required fields cannot be cleared on live. Drafts exempt.\n\n" +
+    MULTI_SITE_TOOL_BLURB + "\n\n" +
     "What the caller must supply: a non-empty updates array with valid field_path strings and values. " +
     "What the server handles: routing, conflict detection per file, atomic write(s), cache refresh, Git mark-modified.\n\n" +
     "Possible errors: invalid/disallowed field_path, page/locale not found, remote conflict " +
     "(returns remoteContent + intendedContent), permission denied.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the user before calling this tool: " +
+    "you MUST ask the principal before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
     "To edit the live version directly pass confirm_live_edit: true. " +
     "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
@@ -2938,10 +3135,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
-        field_path: z.string().describe("Dot-notation path, e.g. 'sections.0.title', 'meta.description', 'title'"),
+        field_path: z.string().describe("Dot-notation path, e.g. 'sections.0.title', 'meta.description', 'title', 'content'"),
         value: z.unknown().describe("New value for the field"),
       })).min(1).describe("Array of { field_path, value } updates. Minimum 1. Applied atomically to the target file(s)."),
-      contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
+      contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program', 'blog'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file. Does not affect _common.yml routing."),
       confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
       layout_target: layoutTargetSchema,
@@ -2950,7 +3147,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, locale, updates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -2961,18 +3158,19 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail((e as Error).message);
       }
 
-      const badPaths = updates.filter(u =>
-        !u.field_path.startsWith("sections.") &&
-        !u.field_path.startsWith("meta.") &&
-        !SAFE_TOP_LEVEL_FIELDS.has(u.field_path)
-      );
-      if (badPaths.length > 0) {
-        return fail(`Disallowed field_path(s): ${badPaths.map(u => u.field_path).join(", ")}. Must start with 'sections.', 'meta.', or be one of: ${[...SAFE_TOP_LEVEL_FIELDS].join(", ")}.`);
-      }
-
       const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
+      }
+
+      const safeTop = safeTopLevelFieldsForConfig(resolved.config);
+      const badPaths = updates.filter(u =>
+        !u.field_path.startsWith("sections.") &&
+        !u.field_path.startsWith("meta.") &&
+        !safeTop.has(u.field_path)
+      );
+      if (badPaths.length > 0) {
+        return fail(`Disallowed field_path(s): ${badPaths.map(u => u.field_path).join(", ")}. Must start with 'sections.', 'meta.', or be one of: ${[...safeTop].join(", ")}.`);
       }
 
       if (mcpToken) {
@@ -3109,9 +3307,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // translate_page
+  // translate_entry
   mcp.tool(
-    "translate_page",
+    "translate_entry",
     "Write translated content for a target locale. Does NOT perform AI translation — supply the translated payload.\n\n" +
     "Shared-layout types (e.g. blog): entry must be detached first; otherwise fails with require_detach.\n" +
     "New target locale (no live file): writes draft.{locale}.yml at 0% traffic (not public). " +
@@ -3131,7 +3329,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ slug, contentType, source_locale, target_locale, content, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
       try {
         assertSafeSegment(slug, "slug");
@@ -3177,14 +3375,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             code: "require_detach",
             message:
               `Shared-layout entry "${slug}" is still attached. Detach via POST /api/content/${resolved.contentType}/${slug}/detach ` +
-              "(or DebugBubble → Detach) before translate_page. Detach only bakes existing live locale files; it does not invent siblings.",
+              "(or DebugBubble → Detach) before translate_entry. Detach only bakes existing live locale files; it does not invent siblings.",
             contentType: resolved.contentType,
             slug,
           },
           [
             {
-              tool: "get_page_content",
-              reason: "Confirm attached shared-layout state, then detach in admin/API, then retry translate_page",
+              tool: "get_entry_content",
+              reason: "Confirm attached shared-layout state, then detach in admin/API, then retry translate_entry",
               args_hint: { slug, contentType: resolved.contentType, locale: source_locale },
               priority: "required",
             },
@@ -3235,7 +3433,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           locale: target_locale,
           contentRoot: contentPath,
           ci: contentIndex,
-          author: "mcp-translate_page",
+          author: "mcp-translate_entry",
         });
         writeAsDraft = true;
         reason = "empty_live_converted_to_draft";
@@ -3274,7 +3472,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             relativePath: targetRelPath,
             remoteContent: conflictCheck.remoteContent,
             intendedContent,
-            intendedChange: { action: "translate_page", source_locale, target_locale },
+            intendedChange: { action: "translate_entry", source_locale, target_locale },
           });
         }
       }
@@ -3288,7 +3486,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           slug,
           locale: target_locale,
           contentRoot: contentPath,
-          author: "mcp-translate_page",
+          author: "mcp-translate_entry",
           variantSlug: "draft",
         });
       }
@@ -3325,13 +3523,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const next_actions: NextAction[] = writeAsDraft
         ? [
             {
-              tool: "get_page_content",
+              tool: "get_entry_content",
               reason: "Inspect the draft translation",
               args_hint: { slug, contentType: resolved.contentType, locale: target_locale, variant: "draft" },
               priority: "recommended",
             },
             {
-              tool: "run_page_diagnostics",
+              tool: "run_entry_diagnostics",
               reason: "Validate before going live (async — then poll get_diagnostics_job)",
               args_hint: { slugs: [slug], freshness: "hard" },
               priority: "recommended",
@@ -3398,7 +3596,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     },
     async ({ contentType, slug, sectionIndex, locale, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return fail(siteResult.error);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
@@ -3432,30 +3630,108 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // list_seo
+  // get_content_type_info
   mcp.tool(
-    "list_seo",
-    "Return SEO-relevant fields (meta, title, schema, url) for all pages — both YAML-driven (pages, programs, landings, etc.) and DB-backed (blog, etc.). " +
-    "For DB-backed types, template variables like {{ single.title }} are fully resolved against each entry's data via the main server. " +
-    "Sections and full content are never returned. " +
-    "Optional filters: contentType (e.g. 'blog'), locale (e.g. 'en'), slugs (specific list).",
+    "get_content_type_info",
+    "Describe a content type from content-types.yml: db_backed vs single_template, field_mapping, editor, " +
+    "url_pattern, extra URL params, observed peer values for those params, create_via, and body_model. " +
+    "Call this before create_entry when unsure how a type works. " +
+    MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().describe("Content type key, e.g. 'blog', 'program', 'page', 'lesson'"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error, "get_content_type_info", { contentType });
+      const { contentPath } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+      const configs = loadContentTypes(contentPath);
+      const config = configs[contentType];
+      if (!config) {
+        return fail(`Unknown contentType '${contentType}'. Known: ${Object.keys(configs).join(", ")}`);
+      }
+      const urlParams = listExtraUrlPatternParams(config.url_pattern);
+      const observed: Record<string, string[]> = {};
+      for (const param of urlParams) {
+        observed[param] = observeParamValues(contentPath, contentType, config, param);
+      }
+      const editor = getEditorConfig(config);
+      const createVia = createViaForConfig(config);
+      const next_actions: NextAction[] = [];
+      if (createVia === "create_entry") {
+        next_actions.push({
+          tool: "create_entry",
+          reason: "Create a new entry of this type (pass site in multi-site)",
+          args_hint: { contentType, site },
+          priority: "optional",
+        });
+      }
+      if (isSharedLayoutConfig(config)) {
+        next_actions.push({
+          tool: "explain_site",
+          reason: "Read shared-layout playbook",
+          args_hint: { topic: "shared-layout" },
+          priority: "recommended",
+        });
+      }
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            contentType,
+            directory: getDirectory(contentType, config),
+            db_backed: isDbBacked(config),
+            single_template: !!config.single_template,
+            shared_layout: isSharedLayoutConfig(config),
+            url_pattern: config.url_pattern ?? null,
+            url_params: urlParams,
+            field_mapping: config.field_mapping ?? null,
+            editor,
+            indexes: config.indexes ?? [],
+            observed_values: observed,
+            create_via: createVia,
+            create_via_note: createVia
+              ? "Use create_entry (YAML). Shared-layout: one locale, sections []."
+              : "Database-backed — create_entry cannot create rows; use DB/admin path.",
+            body_model: bodyModelForConfig(config),
+            next_actions,
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
+  // list_entry_seo
+  mcp.tool(
+    "list_entry_seo",
+    "Return SEO-relevant fields (meta, title, schema, url) for content entries. " +
+    "Works for YAML and DB-backed types via the main server seo-entries API. " +
+    "Sections/body content are never returned. " +
+    "IMPORTANT: Omitting slugs does NOT dump the full type — returns a minimal sample (default 5; limit 1–20). " +
+    "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. " +
+    MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().optional().describe("Restrict to one content type, e.g. 'blog' or 'program'"),
       locale: z.string().optional().describe("Restrict to one locale, e.g. 'en' or 'es'"),
-      slugs: z.array(z.string()).optional().describe("Restrict to specific slugs"),
+      slugs: z.array(z.string()).optional().describe("Specific slugs — required for full meta payloads"),
+      limit: z.number().int().min(1).max(20).optional().describe("Sample size when slugs omitted (default 5, max 20). Does not unlock full meta."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, locale, slugs, site }) => {
+    async ({ contentType, locale, slugs, limit, site }) => {
       const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return { content: [{ type: "text", text: siteResult.error }], isError: true };
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "list_entry_seo", { contentType, locale, slugs, limit });
+      }
       const { contentPath, domain } = siteResult;
       try {
         const configs = loadContentTypes(contentPath);
-        const results: unknown[] = [];
+        const results: Array<Record<string, unknown>> = [];
 
-        // Route all content types through the main server's seo-entries endpoint,
-        // which handles both YAML (global variable resolution) and DB-backed
-        // (single.* template resolution + overrides) in one place.
         const typesToQuery = contentType
           ? (configs[contentType] ? [contentType] : [])
           : Object.keys(configs);
@@ -3497,8 +3773,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           }
         }));
 
-        // Sort: contentType → slug → locale
-        (results as Array<Record<string, unknown>>).sort((a, b) => {
+        results.sort((a, b) => {
           const ct = String(a.contentType ?? "").localeCompare(String(b.contentType ?? ""));
           if (ct !== 0) return ct;
           const sl = String(a.slug ?? "").localeCompare(String(b.slug ?? ""));
@@ -3506,7 +3781,65 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return String(a.locale ?? "").localeCompare(String(b.locale ?? ""));
         });
 
-        return { content: [{ type: "text", text: JSON.stringify({ count: results.length, entries: results }, null, 2) }] };
+        const wantsFull = Array.isArray(slugs) && slugs.length > 0;
+        if (wantsFull) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({ truncated: false, count: results.length, entries: results }, null, 2),
+            }],
+          };
+        }
+
+        const sampleSize = limit ?? 5;
+        const approx = results.length;
+        const sample = results.slice(0, sampleSize).map((e) => ({
+          slug: e.slug,
+          contentType: e.contentType,
+          locale: e.locale,
+          title: e.title ?? null,
+          url: e.url ?? null,
+        }));
+        const siteHint = site ? { site } : {};
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              truncated: true,
+              approx_count: approx,
+              returned: sample.length,
+              fields: "minimal",
+              message:
+                "Unfiltered list_entry_seo returns a minimal sample only. Pass slugs for full meta; " +
+                "use get_entry_seo for one entry; get_content_type_info for the type contract.",
+              entries: sample,
+              warnings: [{
+                code: "list_seo_unfiltered_sample",
+                message: `Full meta omitted. Did not return all ${approx} matching entries.`,
+              }],
+              next_actions: [
+                {
+                  tool: "get_content_type_info",
+                  priority: "recommended",
+                  reason: "Inspect field_mapping / shared-layout flags instead of dumping SEO",
+                  args_hint: { contentType: contentType || "blog", ...siteHint },
+                },
+                {
+                  tool: "list_entries",
+                  priority: "recommended",
+                  reason: "Find peers with search, then list_entry_seo with those slugs",
+                  args_hint: { contentType, locale, search: "", ...siteHint },
+                },
+                {
+                  tool: "get_entry_seo",
+                  priority: "optional",
+                  reason: "Full SEO for one known slug",
+                  args_hint: { slug: sample[0]?.slug, locale: locale || "en", ...siteHint },
+                },
+              ],
+            }, null, 2),
+          }],
+        };
       } catch (err) {
         return { content: [{ type: "text", text: String(err) }], isError: true };
       }
