@@ -280,6 +280,10 @@ mediaGallery.applyChanges(scanResult)             // writes new/updated entries 
 // Upload workflow
 mediaGallery.uploadAndRegister(filename, data, contentType, opts?)
   // → deduplicates by hash, derives ID, uploads via media.upload(), registers entry
+mediaGallery.replaceAndRegister(id, filename, data, contentType)
+  // → in-place overwrite: same ID; images → WebP; same doctype only; 409-style
+  //   duplicate conflict if hash matches another ID; preserves metadata; clears
+  //   srcsets then optimizeInBackground; does not cascade crop children
 
 // Delete
 mediaGallery.unregister(id): Promise<{ success, error?, usedIn?, cleanupErrors? }>

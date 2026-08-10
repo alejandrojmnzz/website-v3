@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Check, CheckCheck, ChevronDown, Cloud, Copy, Eye, FileText, Film, Folder, Image, Layers, Link as LinkIcon, ListChecks, Loader2, MoreHorizontal, Replace, Search, Settings, Square, SquareCheck, Stethoscope, Tags, Terminal, Trash2, Wand2, Wrench, X} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -45,11 +45,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Link } from "wouter";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { ImageRegistry } from "@shared/schema";
 import {
   type MediaDoctype,
+  acceptAttrForDoctype,
   inferDoctypeFromSrc,
 } from "@shared/media-doctype";
 import { apiRequest } from "@/lib/queryClient";
@@ -393,6 +394,13 @@ export default function MediaGallery() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null);
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [replaceDuplicateId, setReplaceDuplicateId] = useState<string | null>(null);
+  const [replacedAt, setReplacedAt] = useState<Record<string, number>>({});
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsProviderView, setSettingsProviderView] = useState<string | null>(null);
   const [deduplicating, setDeduplicating] = useState(false);
@@ -577,6 +585,99 @@ export default function MediaGallery() {
     } catch {
       toast({ title: "Delete failed", description: "Could not delete image from registry", variant: "destructive" });
       return false;
+    }
+  };
+
+  const getChildIdsFor = (parentId: string): string[] => {
+    if (!registry?.images) return [];
+    return Object.entries(registry.images)
+      .filter(([, img]) => (img as { parentId?: string }).parentId === parentId)
+      .map(([childId]) => childId);
+  };
+
+  const openReplacePicker = (id: string) => {
+    setReplaceTargetId(id);
+    setReplaceFile(null);
+    setReplaceDuplicateId(null);
+    requestAnimationFrame(() => {
+      replaceFileInputRef.current?.click();
+    });
+  };
+
+  const handleReplaceFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!file || !replaceTargetId) {
+      setReplaceTargetId(null);
+      return;
+    }
+    setReplaceFile(file);
+    setReplaceConfirmOpen(true);
+  };
+
+  const cancelReplaceFlow = () => {
+    if (replacing) return;
+    setReplaceConfirmOpen(false);
+    setReplaceFile(null);
+    setReplaceTargetId(null);
+  };
+
+  const confirmReplace = async () => {
+    if (!replaceTargetId || !replaceFile) return;
+    setReplacing(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", replaceFile);
+      const res = await fetch(
+        `/api/image-registry/${encodeURIComponent(replaceTargetId)}/replace`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: getSessionHeaders(),
+          body: formData,
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.existingId) {
+        setReplaceConfirmOpen(false);
+        setReplaceFile(null);
+        setReplaceDuplicateId(data.existingId as string);
+        return;
+      }
+      if (!res.ok) {
+        toast({
+          title: "Replace failed",
+          description: data.error || "Could not replace image",
+          variant: "destructive",
+        });
+        return;
+      }
+      const id = replaceTargetId;
+      setReplacedAt((prev) => ({ ...prev, [id]: Date.now() }));
+      setFailedImages((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      toast({
+        title: data.noop ? "Already up to date" : "Replaced",
+        description: data.noop
+          ? `"${id}" already has this file`
+          : `"${id}" updated${data.srcChanged ? " (storage path changed)" : ""}. Srcsets regenerating in the background.`,
+      });
+      setReplaceConfirmOpen(false);
+      setReplaceFile(null);
+      setReplaceTargetId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/image-registry"] });
+    } catch {
+      toast({
+        title: "Replace failed",
+        description: "Could not replace image",
+        variant: "destructive",
+      });
+    } finally {
+      setReplacing(false);
     }
   };
 
@@ -1379,7 +1480,8 @@ export default function MediaGallery() {
                   <Button
                     type="button"
                     size="sm"
-                    variant={showDerived ? "secondary" : "outline"}
+                    variant={showDerived ? "default" : "outline"}
+                    aria-pressed={showDerived}
                     className="h-8 shrink-0 gap-1.5"
                     onClick={() => setShowDerived((v) => !v)}
                     data-testid="badge-show-derived"
@@ -2089,7 +2191,7 @@ export default function MediaGallery() {
                         </div>
                       ) : (
                         <img
-                          src={img.src}
+                          src={replacedAt[id] ? `${img.src}${img.src.includes("?") ? "&" : "?"}v=${replacedAt[id]}` : img.src}
                           alt={img.alt}
                           className="w-full h-auto"
                           loading="lazy"
@@ -2150,6 +2252,13 @@ export default function MediaGallery() {
                             >
                               <LinkIcon className="h-4 w-4 mr-2" />
                               Copy URL
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openReplacePicker(id)}
+                              data-testid={`button-replace-${id}`}
+                            >
+                              <Replace className="h-4 w-4 mr-2" />
+                              Replace
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
@@ -2992,7 +3101,7 @@ export default function MediaGallery() {
                     </div>
                   ) : (
                     <img
-                      src={img.src}
+                      src={replacedAt[detailImageId] ? `${img.src}${img.src.includes("?") ? "&" : "?"}v=${replacedAt[detailImageId]}` : img.src}
                       alt={img.alt}
                       className="w-full h-auto"
                       onError={() => handleImageError(detailImageId)}
@@ -3250,6 +3359,140 @@ export default function MediaGallery() {
               data-testid="button-delete-image-confirm"
             >
               {deleting ? "Deleting…" : "Delete image"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <input
+        ref={replaceFileInputRef}
+        type="file"
+        className="hidden"
+        accept={
+          replaceTargetId && registry?.images[replaceTargetId]
+            ? acceptAttrForDoctype(
+                inferDoctypeFromSrc(registry.images[replaceTargetId].src) ?? "image",
+              )
+            : "image/*"
+        }
+        onChange={handleReplaceFileSelected}
+        data-testid="input-replace-file"
+      />
+
+      <AlertDialog
+        open={replaceConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) cancelReplaceFlow();
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-confirm-replace-image">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace this asset?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Overwrite{" "}
+                  <span className="font-mono font-semibold text-foreground">{replaceTargetId}</span>{" "}
+                  with{" "}
+                  <span className="font-semibold text-foreground">{replaceFile?.name}</span>.
+                  The gallery ID stays the same, so pages that reference it will show the new file.
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Images are converted to WebP before storage</li>
+                  <li>Alt text, tags, and other metadata are kept</li>
+                  <li>Srcset variants are regenerated in the background</li>
+                  <li>Public pages may need a hard refresh if the URL was cached</li>
+                </ul>
+                {replaceTargetId && getChildIdsFor(replaceTargetId).length > 0 && (
+                  <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+                    <p className="font-medium text-foreground">
+                      Crop / resize variants still use the old image
+                    </p>
+                    <p>
+                      These child IDs will keep showing the previous file until you replace or
+                      re-crop them manually:
+                    </p>
+                    <ul className="list-disc pl-5 font-mono text-xs text-foreground space-y-0.5">
+                      {getChildIdsFor(replaceTargetId).map((childId) => (
+                        <li key={childId}>{childId}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={replacing} data-testid="button-replace-image-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={replacing || !replaceFile}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmReplace();
+              }}
+              data-testid="button-replace-image-confirm"
+            >
+              {replacing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Replacing…
+                </>
+              ) : (
+                "Replace"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={replaceDuplicateId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReplaceDuplicateId(null);
+            setReplaceTargetId(null);
+          }
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-replace-duplicate">
+          <AlertDialogHeader>
+            <AlertDialogTitle>File already in gallery</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This file is already registered as{" "}
+                  <span className="font-mono font-semibold text-foreground">{replaceDuplicateId}</span>.
+                  Replace was cancelled so the gallery stays deduplicated.
+                </p>
+                <p>Use the existing ID in content instead of overwriting another entry.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-replace-duplicate-dismiss">
+              Dismiss
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (replaceDuplicateId) {
+                  navigator.clipboard.writeText(replaceDuplicateId);
+                  setCopiedId(replaceDuplicateId);
+                  setTimeout(() => setCopiedId(null), 2000);
+                  toast({
+                    title: "Copied",
+                    description: `Existing ID "${replaceDuplicateId}" copied to clipboard`,
+                  });
+                }
+                setReplaceDuplicateId(null);
+                setReplaceTargetId(null);
+              }}
+              data-testid="button-replace-duplicate-copy"
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Copy existing ID
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

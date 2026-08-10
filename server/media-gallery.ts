@@ -2,14 +2,18 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as yaml from "js-yaml";
+import sharp from "sharp";
 import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
 import type { ImageRegistry, ImageEntry } from "@shared/schema";
 import {
   MEDIA_EXTENSIONS,
   defaultAltForDoctype,
+  extensionFromPath,
   inferDoctypeFromFilename,
+  inferDoctypeFromSrc,
 } from "@shared/media-doctype";
 import { media, GCSProvider, createSiteGCSProvider } from "./media";
+import type { StorageProvider } from "./media/types";
 import { markFileAsModified } from "./sync-state";
 import { processImageBuffer } from "./image-optimizer";
 import type { Preset } from "./image-optimizer";
@@ -1441,6 +1445,209 @@ export class MediaGallery {
     }
 
     return { id: uniqueId, src, alt };
+  }
+
+  /**
+   * In-place replace: keep registry ID and metadata; overwrite stored bytes.
+   * Images are always converted to WebP. Same doctype only. Hash match on another
+   * ID returns a duplicate conflict (no mutation).
+   */
+  async replaceAndRegister(
+    id: string,
+    filename: string,
+    data: Buffer,
+    _contentType: string,
+  ): Promise<
+    | {
+        ok: true;
+        id: string;
+        src: string;
+        alt: string;
+        srcChanged: boolean;
+        childIds: string[];
+        noop?: boolean;
+      }
+    | {
+        ok: false;
+        conflict: "duplicate";
+        existingId: string;
+        existingSrc: string;
+      }
+  > {
+    const registry = this.getRegistry();
+    if (!registry) throw new Error("Failed to load registry");
+
+    const imageEntry = registry.images[id];
+    if (!imageEntry) {
+      throw new Error(`Image "${id}" not found in registry`);
+    }
+
+    const uploadExt = extensionFromPath(filename);
+    if (!MEDIA_EXTENSIONS.has(uploadExt)) {
+      throw new Error(`Unsupported file type: ${uploadExt || "(none)"}`);
+    }
+
+    const currentDoctype = inferDoctypeFromSrc(imageEntry.src);
+    const uploadDoctype = inferDoctypeFromFilename(filename);
+    if (!currentDoctype || !uploadDoctype) {
+      throw new Error("Could not determine media type for replace");
+    }
+    if (currentDoctype !== uploadDoctype) {
+      throw new Error(
+        `Cannot change media type from ${currentDoctype} to ${uploadDoctype}`,
+      );
+    }
+
+    const childIds = Object.entries(registry.images)
+      .filter(([, entry]) => entry.parentId === id)
+      .map(([childId]) => childId);
+
+    let storeBuffer = data;
+    let storeExt = uploadExt;
+    let storeContentType = _contentType || "application/octet-stream";
+    let registryFormat: ImageEntry["format"] | undefined = imageEntry.format;
+
+    if (currentDoctype === "image") {
+      try {
+        storeBuffer = await sharp(data).webp({ quality: 85 }).toBuffer();
+      } catch (err) {
+        throw new Error(
+          `Failed to convert image to WebP: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      storeExt = ".webp";
+      storeContentType = "image/webp";
+      registryFormat = "webp";
+    }
+
+    const hash = this.computeBufferHash(storeBuffer);
+    if (imageEntry.hash && imageEntry.hash === hash) {
+      return {
+        ok: true,
+        id,
+        src: imageEntry.src,
+        alt: imageEntry.alt,
+        srcChanged: false,
+        childIds,
+        noop: true,
+      };
+    }
+
+    const existing = this.findByHash(hash);
+    if (existing && existing.id !== id) {
+      return {
+        ok: false,
+        conflict: "duplicate",
+        existingId: existing.id,
+        existingSrc: existing.entry.src,
+      };
+    }
+
+    await this.deleteSrcsetVariants(imageEntry);
+
+    const provider = this.resolveProviderForSrc(imageEntry.src);
+    const oldSrc = imageEntry.src;
+    const oldExt = extensionFromPath(oldSrc);
+    let src = oldSrc;
+    let srcChanged = false;
+
+    if (storeExt === oldExt) {
+      const oldKey = provider.extractKey(oldSrc);
+      if (!oldKey) {
+        throw new Error(`Could not resolve storage key for "${oldSrc}"`);
+      }
+      const uploaded = await provider.upload(oldKey, storeBuffer, storeContentType);
+      src = uploaded || oldSrc;
+      // Keep canonical registry src when overwrite returns an equivalent URL
+      if (src !== oldSrc && this.normalizeSrcCompare(src) === this.normalizeSrcCompare(oldSrc)) {
+        src = oldSrc;
+      } else if (src !== oldSrc) {
+        // Provider returned a different public URL for the same key — treat as changed
+        srcChanged = true;
+        this.replacePathsInYamlFiles(oldSrc, src);
+      }
+    } else {
+      const filenameForStore = `${id}${storeExt}`;
+      src = await this.uploadPrimaryFile(provider, filenameForStore, storeBuffer, storeContentType);
+      srcChanged = src !== oldSrc;
+      if (srcChanged) {
+        this.replacePathsInYamlFiles(oldSrc, src);
+        try {
+          await this.deleteBySrc(oldSrc);
+        } catch (err) {
+          log.warn(
+            `[MediaGallery] Failed to delete old primary after replace "${id}":`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    }
+
+    this.register(id, {
+      src,
+      alt: imageEntry.alt,
+      tags: imageEntry.tags || [],
+      focal_point: imageEntry.focal_point,
+      ...(imageEntry.protected ? { protected: true } : {}),
+      parentId: imageEntry.parentId,
+      ...(imageEntry.quality_override != null
+        ? { quality_override: imageEntry.quality_override }
+        : {}),
+      hash,
+      ...(registryFormat ? { format: registryFormat } : {}),
+      usage_count: imageEntry.usage_count || 0,
+    });
+
+    this.existenceCache.clear();
+
+    if (OPTIMIZABLE_EXTENSIONS.has(storeExt)) {
+      this.optimizeInBackground(id, storeBuffer, src, imageEntry.tags || []);
+    }
+
+    return {
+      ok: true,
+      id,
+      src,
+      alt: imageEntry.alt,
+      srcChanged,
+      childIds,
+    };
+  }
+
+  private normalizeSrcCompare(src: string): string {
+    return src.replace(/\?.*$/, "").replace(/\/$/, "");
+  }
+
+  private resolveProviderForSrc(src: string): StorageProvider {
+    const siteGCS = this.getSiteGCSProvider();
+    if (siteGCS && siteGCS.owns(src)) return siteGCS;
+    return media.resolveProvider(src);
+  }
+
+  private async uploadPrimaryFile(
+    provider: StorageProvider,
+    filename: string,
+    data: Buffer,
+    contentType: string,
+  ): Promise<string> {
+    if (provider.name === "local") {
+      return provider.upload(`${this.imagesUrlPrefix}${filename}`, data, contentType);
+    }
+    return provider.upload(filename, data, contentType);
+  }
+
+  private async deleteSrcsetVariants(imageEntry: ImageEntry): Promise<void> {
+    if (!imageEntry.srcset) return;
+    for (const entry of imageEntry.srcset) {
+      try {
+        await this.deleteBySrc(entry.url);
+      } catch (err) {
+        log.warn(
+          `[MediaGallery] Failed to delete srcset variant ${entry.url}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
   }
 
   private classifyInBackground(imageId: string): void {

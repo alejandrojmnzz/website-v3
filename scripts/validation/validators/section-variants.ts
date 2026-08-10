@@ -3,7 +3,9 @@
  *
  * Ensures section-level `variant` values in page/shared-template/overlay YAML
  * match keys declared in the component registry schema. Missing variant is OK
- * (treated as default at insights time). Nested CTA variants are ignored.
+ * (treated as default at runtime). When schema.yml has no `variants` map, only
+ * the implicit layout name `"default"` is allowed (matches SectionRenderer /
+ * Zod). Nested CTA variants are ignored.
  */
 
 import * as fs from "fs";
@@ -49,6 +51,18 @@ function loadVariantKeys(componentType: string, registryPath: string): string[] 
   }
 }
 
+/**
+ * Whether a section-level variant is allowed given keys from schema.yml `variants`.
+ * Empty keys = single-file schema with no variants map → only implicit "default".
+ */
+export function isDeclaredOrImplicitDefaultVariant(
+  variant: string,
+  keys: string[],
+): boolean {
+  if (keys.length === 0) return variant === "default";
+  return keys.includes(variant);
+}
+
 function checkSectionsInData(
   data: unknown,
   file: string,
@@ -70,18 +84,19 @@ function checkSectionsInData(
     const type = rec.type;
     const keys = loadVariantKeys(type, registryPath);
     if (keys === null) return; // unknown component type — other validators handle
+    if (isDeclaredOrImplicitDefaultVariant(variant, keys)) return;
+
     if (keys.length === 0) {
       errors.push({
         type: "error",
         code: "UNKNOWN_SECTION_VARIANT",
-        message: `Section [${idx}] type "${type}" sets variant "${variant}" but schema declares no variants`,
+        message: `Section [${idx}] type "${type}" sets variant "${variant}" but schema declares no variants (only implicit "default" is allowed)`,
         file,
-        suggestion: `Remove variant or add "${variant}" to the component schema. Cache built at ${cacheBuiltAt} — refresh diagnostics if this may be stale.`,
+        suggestion: `Use variant "default", remove variant, or add "${variant}" under variants: in the component schema. Cache built at ${cacheBuiltAt} — refresh diagnostics if this may be stale.`,
         validationCacheBuiltAt: cacheBuiltAt,
       });
       return;
     }
-    if (keys.includes(variant)) return;
 
     errors.push({
       type: "error",

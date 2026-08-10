@@ -767,6 +767,48 @@ export function registerMediaRoutes(app: Express): void {
     },
   );
 
+  app.post(
+    "/api/image-registry/:id/replace",
+    mediaUpload.single("file"),
+    async (req, res) => {
+      try {
+        const file = (req as any).file;
+        if (!file) {
+          res.status(400).json({ error: "No file provided" });
+          return;
+        }
+        const id = req.params.id;
+        if (!id) {
+          res.status(400).json({ error: "Missing image id" });
+          return;
+        }
+        const result = await getMediaGallery(res).replaceAndRegister(
+          id,
+          file.originalname,
+          file.buffer,
+          file.mimetype,
+        );
+        if (!result.ok) {
+          res.status(409).json({
+            conflict: result.conflict,
+            existingId: result.existingId,
+            existingSrc: result.existingSrc,
+            error: `This file is already registered as "${result.existingId}"`,
+          });
+          return;
+        }
+        res.json(result);
+      } catch (error: any) {
+        const message = error.message || "Replace failed";
+        const isClientError =
+          /not found|Unsupported file type|Cannot change media type|Could not determine|Failed to convert|Could not resolve storage key/i.test(
+            message,
+          );
+        res.status(isClientError ? 400 : 500).json({ error: message });
+      }
+    },
+  );
+
   // ============================================
   // Crop/Resize Endpoint
   // ============================================

@@ -61,3 +61,13 @@ Images are tagged for semantic categorization. Tags include: `hero`, `logo`, `av
 1. Copy the file to `4geeks-com/images/` (new images) or `attached_assets/` (legacy only)
 2. Add an entry to `image-registry.json` with a unique ID, `src`, `alt`, and appropriate tags
 3. Reference the ID via `image_id` in YAML content files
+
+## In-place replace
+
+Staff can replace an existing gallery asset via Media Gallery → card menu → **Replace**, which calls `POST /api/image-registry/:id/replace`.
+
+- Keeps the same registry **ID** (YAML `image_id` references do not change)
+- Converts **images** to WebP before storage; rejects doctype switches (image/video/pdf)
+- Returns **409** when the file bytes already belong to another ID — use that existing ID instead
+- Regenerates srcsets in the background; does **not** cascade crop/resize children (`parentId`) — those must be re-cropped or replaced manually
+- May rewrite YAML `src` paths only when the stored file path changes (e.g. `.png` → `.webp`)
