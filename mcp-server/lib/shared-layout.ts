@@ -5,7 +5,7 @@
 import fs from "fs";
 import path from "path";
 import type { ContentTypeConfig } from "./content.js";
-import { getDirectory, loadContentTypes, isDbBacked } from "./content.js";
+import { getDirectory, loadContentTypes, isSharedLayoutConfig } from "./content.js";
 import type { NextAction, McpSideEffect, McpWarning } from "./respond.js";
 
 export type LayoutTarget = "auto" | "entry" | "type_single";
@@ -17,8 +17,8 @@ export function versioningApiSlug(
   contentPath?: string,
 ): string {
   const config = getContentTypeConfig(contentType, contentPath);
-  if (!isSharedLayoutType(config)) return entrySlug;
-  const typeDir = getDirectory(contentType, config!);
+  if (!config || !isSharedLayoutConfig(config)) return entrySlug;
+  const typeDir = getDirectory(contentType, config);
   const commonPath = path.join(contentPath || "", typeDir, entrySlug, "_common.yml");
   if (fs.existsSync(commonPath)) {
     try {
@@ -221,5 +221,5 @@ export const CREATE_PAGE_SHARED_LAYOUT_WARNING = CREATE_ENTRY_SHARED_LAYOUT_WARN
 
 /** Extend ContentTypeConfig typing for single_template without changing loaders. */
 export function configIsSharedLayout(config: ContentTypeConfig): boolean {
-  return isSharedLayoutType(config) || isDbBacked(config);
+  return isSharedLayoutConfig(config);
 }
