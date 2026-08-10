@@ -809,6 +809,7 @@ export const communitySupportGroupSchema = z.object({
 export const communitySupportSectionSchema = z.object({
   type: z.literal("community_support"),
   version: z.string().optional(),
+  eyebrow: z.string().optional(),
   heading: z.string(),
   description: z.string(),
   bullet_groups: z.array(communitySupportGroupSchema),

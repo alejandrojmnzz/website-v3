@@ -26,6 +26,7 @@ interface CommunityGroup {
 interface CommunitySupportData {
   type: "community_support";
   version?: string;
+  eyebrow?: string;
   heading: string;
   description: string;
   bullet_groups: CommunityGroup[];
@@ -59,6 +60,7 @@ const renderIcon = (iconName: string, className?: string, size?: number, color?:
 export function CommunitySupport({ data }: CommunitySupportProps) {
   const backgroundClass = data.background || "bg-background";
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const eyebrow = data.eyebrow ?? "Our Community";
 
   return (
     <section 
@@ -69,9 +71,14 @@ export function CommunitySupport({ data }: CommunitySupportProps) {
         {/* Header with image on right of title/description */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-center mb-8">
           <div className="col-span-1 md:col-span-12 text-center md:text-start order-2 md:order-1">
-            <span className="text-xs font-semibold uppercase tracking-widest text-primary mb-3 block">
-              Our Community
-            </span>
+            {eyebrow ? (
+              <span
+                className="text-xs font-semibold uppercase tracking-widest text-primary mb-3 block"
+                data-testid="text-community-eyebrow"
+              >
+                {eyebrow}
+              </span>
+            ) : null}
             <h2 
               className="text-3xl md:text-4xl font-bold text-foreground mb-4"
               data-testid="text-community-heading"
