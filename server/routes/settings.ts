@@ -145,6 +145,7 @@ import {
   updateAuthSettings,
   isSignupConfigured,
 } from "../settings";
+import { clearIpnRecentCalls, getIpnRecentCalls, IPN_RECENT_CALLS_LIMIT } from "../ipn-proxy";
 import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, normalizeUrl } from "../../scripts/validation/shared/canonicalUrls";
@@ -1259,12 +1260,24 @@ export function registerSettingsRoutes(app: Express): void {
 
   app.put("/api/settings/optimization", async (req, res) => {
     try {
-      const { tagmanager } = req.body;
-      if (!tagmanager || typeof tagmanager !== "object") {
-        return res.status(400).json({ error: "Request body must contain a tagmanager object" });
+      const { tagmanager, ip_normalization } = req.body || {};
+      const hasTm = tagmanager && typeof tagmanager === "object";
+      const hasIpn = ip_normalization && typeof ip_normalization === "object";
+      if (!hasTm && !hasIpn) {
+        return res.status(400).json({
+          error: "Request body must contain a tagmanager and/or ip_normalization object",
+        });
       }
-      updateOptimizationSettings({ tagmanager }, getContentRoot(res));
-      res.json({ success: true, ...getOptimizationSettings(getContentRoot(res)) });
+      const contentRoot = getContentRoot(res);
+      updateOptimizationSettings(
+        {
+          ...(hasTm ? { tagmanager } : {}),
+          ...(hasIpn ? { ip_normalization } : {}),
+        },
+        contentRoot,
+      );
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      res.json({ success: true, ...getOptimizationSettings(contentRoot) });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
     }
@@ -1317,6 +1330,18 @@ export function registerSettingsRoutes(app: Express): void {
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
     }
+  });
+
+  app.get("/api/settings/optimization/ipn/recent", (_req, res) => {
+    res.json({
+      limit: IPN_RECENT_CALLS_LIMIT,
+      calls: getIpnRecentCalls(),
+    });
+  });
+
+  app.delete("/api/settings/optimization/ipn/recent", (_req, res) => {
+    clearIpnRecentCalls();
+    res.json({ success: true, calls: [] });
   });
 
   app.post("/api/settings/optimization/test", async (req, res) => {

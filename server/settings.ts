@@ -39,8 +39,21 @@ export interface TagManagerSettings {
   sgtm_proxy_path: string;
 }
 
+export interface IpnDestination {
+  id: string;
+  base_url: string;
+}
+
+export interface IpNormalizationSettings {
+  enabled: boolean;
+  /** Shared secret; sGTM must send as X-IPN-Token. Empty while enabled fails closed. */
+  secret: string;
+  destinations: IpnDestination[];
+}
+
 export interface OptimizationSettings {
   tagmanager: TagManagerSettings;
+  ip_normalization: IpNormalizationSettings;
 }
 
 export interface WebhookConfig {
@@ -362,6 +375,11 @@ function loadSettings(contentRoot?: string): SiteSettings {
         sgtm_server_url: "",
         sgtm_proxy_path: "/sgtm/",
       },
+      ip_normalization: {
+        enabled: false,
+        secret: "",
+        destinations: [],
+      },
     },
     tracking: {
       conversion_events: [],
@@ -402,7 +420,9 @@ function loadSettings(contentRoot?: string): SiteSettings {
 
     const optRaw = parsed.optimization as Record<string, unknown> | undefined;
     const tmRaw = optRaw?.tagmanager as Record<string, unknown> | undefined;
+    const ipnRaw = optRaw?.ip_normalization as Record<string, unknown> | undefined;
     const defTm = defaults.optimization.tagmanager;
+    const defIpn = defaults.optimization.ip_normalization;
     const optimization: OptimizationSettings = {
       tagmanager: {
         web_container_id:
@@ -413,6 +433,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
         sgtm_server_url: (tmRaw?.sgtm_server_url as string) || defTm.sgtm_server_url,
         sgtm_proxy_path: (tmRaw?.sgtm_proxy_path as string) || defTm.sgtm_proxy_path,
       },
+      ip_normalization: parseIpNormalizationSettings(ipnRaw, defIpn),
     };
 
     const trackingRaw = parsed.tracking as Record<string, unknown> | undefined;
@@ -644,6 +665,98 @@ export function resetSettings(contentRoot?: string): void {
   } else {
     settingsCache.clear();
   }
+}
+
+const IPN_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/** Reject loopback / private / link-local hosts for egress destinations (SSRF guard). */
+export function isBlockedIpnHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
+    return true;
+  }
+  if (host === "::1" || host === "0.0.0.0") return true;
+
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map(Number);
+    if (octets.some((n) => n > 255)) return true;
+    const [a, b] = octets;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+
+  // IPv6 unique-local / link-local (coarse)
+  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Normalize a destination base_url: https only, no query/hash, optional path prefix, no trailing slash.
+ */
+export function normalizeIpnBaseUrl(raw: string): string {
+  const trimmed = raw.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid destination base_url: "${raw}"`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("Destination base_url must use https://");
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error("Destination base_url must not include query or hash");
+  }
+  if (isBlockedIpnHostname(parsed.hostname)) {
+    throw new Error(`Destination host "${parsed.hostname}" is not allowed`);
+  }
+  const path = parsed.pathname.replace(/\/+$/, "");
+  return `${parsed.origin}${path === "/" ? "" : path}`;
+}
+
+export function validateIpnDestination(dest: { id: string; base_url: string }): IpnDestination {
+  const id = typeof dest.id === "string" ? dest.id.trim() : "";
+  if (!IPN_ID_RE.test(id)) {
+    throw new Error(
+      `Invalid destination id "${dest.id}" — use lowercase letters, digits, _ or - (max 64)`,
+    );
+  }
+  const base_url = normalizeIpnBaseUrl(dest.base_url);
+  return { id, base_url };
+}
+
+function parseIpNormalizationSettings(
+  raw: Record<string, unknown> | undefined,
+  defaults: IpNormalizationSettings,
+): IpNormalizationSettings {
+  const destinationsRaw = Array.isArray(raw?.destinations) ? raw!.destinations : defaults.destinations;
+  const destinations: IpnDestination[] = [];
+  const seen = new Set<string>();
+  for (const entry of destinationsRaw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.id !== "string" || typeof e.base_url !== "string") continue;
+    try {
+      const dest = validateIpnDestination({ id: e.id, base_url: e.base_url });
+      if (seen.has(dest.id)) continue;
+      seen.add(dest.id);
+      destinations.push(dest);
+    } catch {
+      // Skip invalid entries on load; save path validates strictly
+    }
+  }
+  return {
+    enabled: typeof raw?.enabled === "boolean" ? raw.enabled : defaults.enabled,
+    secret: typeof raw?.secret === "string" ? raw.secret : defaults.secret,
+    destinations,
+  };
 }
 
 export function getOptimizationSettings(contentRoot?: string): OptimizationSettings {
@@ -1012,7 +1125,13 @@ export function updateTrackingSettings(input: {
   }
 }
 
-export function updateOptimizationSettings(input: { tagmanager: Partial<TagManagerSettings> }, contentRoot?: string): void {
+export function updateOptimizationSettings(
+  input: {
+    tagmanager?: Partial<TagManagerSettings>;
+    ip_normalization?: Partial<IpNormalizationSettings>;
+  },
+  contentRoot?: string,
+): void {
   const settingsPath = getSettingsPath(contentRoot);
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(settingsPath)) {
@@ -1022,7 +1141,8 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
     } catch {}
   }
 
-  const current = loadSettings(contentRoot).optimization.tagmanager;
+  const currentOpt = loadSettings(contentRoot).optimization;
+  const current = currentOpt.tagmanager;
   const tm = input.tagmanager ?? {};
   const updated: TagManagerSettings = {
     web_container_id:
@@ -1051,6 +1171,31 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
     throw new Error("Proxy path must not contain ?, #, or whitespace");
   }
 
+  const currentIpn = currentOpt.ip_normalization;
+  const ipnIn = input.ip_normalization;
+  let updatedIpn: IpNormalizationSettings = { ...currentIpn, destinations: [...currentIpn.destinations] };
+  if (ipnIn) {
+    if (typeof ipnIn.enabled === "boolean") {
+      updatedIpn.enabled = ipnIn.enabled;
+    }
+    if (typeof ipnIn.secret === "string") {
+      updatedIpn.secret = ipnIn.secret;
+    }
+    if (Array.isArray(ipnIn.destinations)) {
+      const seen = new Set<string>();
+      const destinations: IpnDestination[] = [];
+      for (const d of ipnIn.destinations) {
+        const dest = validateIpnDestination(d);
+        if (seen.has(dest.id)) {
+          throw new Error(`Duplicate destination id "${dest.id}"`);
+        }
+        seen.add(dest.id);
+        destinations.push(dest);
+      }
+      updatedIpn.destinations = destinations;
+    }
+  }
+
   existing.optimization = {
     tagmanager: {
       web_container_id: updated.web_container_id,
@@ -1058,12 +1203,17 @@ export function updateOptimizationSettings(input: { tagmanager: Partial<TagManag
       sgtm_server_url: updated.sgtm_server_url,
       sgtm_proxy_path: updated.sgtm_proxy_path,
     },
+    ip_normalization: {
+      enabled: updatedIpn.enabled,
+      secret: updatedIpn.secret,
+      destinations: updatedIpn.destinations,
+    },
   };
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
   log.info(
-    `[Settings] Updated optimization.tagmanager: web="${updated.web_container_id}", enabled=${updated.sgtm_enabled}, url="${updated.sgtm_server_url}", path="${updated.sgtm_proxy_path}"`,
+    `[Settings] Updated optimization: web="${updated.web_container_id}", sgtm=${updated.sgtm_enabled}, ipn=${updatedIpn.enabled}, destinations=${updatedIpn.destinations.length}`,
   );
 }

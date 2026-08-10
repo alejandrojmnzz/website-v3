@@ -7,8 +7,12 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
 ```
 4geeks-com/
   content-types.yml       # single source of truth for all content types
-  settings.yml            # site-wide settings (locales, optimization.tagmanager web_container_id + sGTM proxy, etc.)
+  settings.yml            # site-wide settings (locales, optimization.tagmanager web_container_id + sGTM proxy,
+                          # optimization.ip_normalization egress proxy at fixed /ipn/{id}/*, etc.)
                           # Web GTM ID is injected into the HTML shell from web_container_id (see server/gtm-web-inject.ts)
+                          # IP Normalization: allowlisted destinations + X-IPN-Token; configure Constant + Request Headers
+                          # in the GTM *server* container (not Stape admin). Empty secret while enabled → fail closed.
+                          # Non-effect: does not call any CRM by name; side_effect of admin PUT: writes settings.yml.
   image-registry.json     # centralized image metadata
   theme.json              # color theme tokens
   component-registry/     # versioned component schemas and examples

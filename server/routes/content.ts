@@ -2857,6 +2857,65 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
+  /**
+   * Resolved SEO meta + brand for live Entry Preview admin (draft prop mappings).
+   * Same meta/brand path as capture — listing projections omit raw `meta`.
+   */
+  app.get(
+    "/api/content-types/:type/entries/:slug/preview-resolve-context",
+    async (req, res) => {
+      try {
+        const { type, slug } = req.params;
+        const locale = normalizeLocale((req.query.locale as string) || "en");
+        const config = getContentTypeConfig(type, ctRoot(res));
+        if (!config) {
+          res.status(404).json({ error: `Content type "${type}" not found` });
+          return;
+        }
+        const themeQuery = typeof req.query.theme === "string" ? req.query.theme : "";
+        const theme: "dark" | "light" =
+          themeQuery === "light" || themeQuery === "dark" ? themeQuery : "dark";
+
+        const entries = await loadEntriesForPreview(res, type, locale, {
+          hydrateMappedContent: false,
+        });
+        const localeKey = getLocaleKey(type, ctRoot(res));
+        const entry =
+          entries.find((item) => {
+            const itemLocale = localeKey
+              ? String(item[localeKey] || "en")
+              : String(item.lang ?? item.locale ?? item.language ?? "en");
+            return String(item.slug ?? "") === slug && itemLocale === locale;
+          }) || entries.find((item) => String(item.slug ?? "") === slug);
+        if (!entry) {
+          res.status(404).json({ error: `Entry not found: ${type}/${slug}` });
+          return;
+        }
+
+        const ctx = await buildPreviewPropResolveContext({
+          contentType: type,
+          slug,
+          locale,
+          entry,
+          contentRoot: getContentRoot(res),
+          db: getDB(res),
+          mediaGallery: getMediaGallery(res),
+          theme,
+        });
+        res.json({
+          contentType: type,
+          slug,
+          locale,
+          theme,
+          meta: ctx.meta || {},
+          brand: ctx.brand || {},
+        });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    },
+  );
+
   app.get("/api/content-types/:type/entries/:slug/preview-frame", async (req, res) => {
     try {
       const { type, slug } = req.params;

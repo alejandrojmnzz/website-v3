@@ -23,6 +23,7 @@ import { getVersioningManager } from "./versioning/VersioningManager";
 import { clearSitemapCache } from "./sitemap";
 import http from "http";
 import { registerSgtmProxy } from "./sgtm-proxy";
+import { IPN_MOUNT_PATH, registerIpnProxy } from "./ipn-proxy";
 import { getOptimizationSettings } from "./settings";
 import { BOOT_ID, BOOT_TIME, getLastSoftReload, registerShutdownHandler } from "./server-control";
 import logger from "./logger";
@@ -62,10 +63,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     !p.startsWith('/oauth') &&
     !p.startsWith('/.well-known')
   ) {
-    // Exempt the sGTM proxy path from trailing-slash redirect so the proxy
+    // Exempt sGTM / IPN proxy paths from trailing-slash redirect so the proxy
     // middleware receives the request with the trailing slash intact.
-    const { sgtm_proxy_path } = getOptimizationSettings();
-    if (sgtm_proxy_path && p.startsWith(sgtm_proxy_path)) {
+    const { tagmanager } = getOptimizationSettings();
+    const sgtmPath = tagmanager.sgtm_proxy_path;
+    if (sgtmPath && p.startsWith(sgtmPath.endsWith("/") ? sgtmPath : sgtmPath + "/")) {
+      return next();
+    }
+    if (p.startsWith(IPN_MOUNT_PATH)) {
       return next();
     }
     const url = req.originalUrl;
@@ -310,8 +315,9 @@ app.use((req, res, next) => {
   app.all("/.well-known/oauth-authorization-server", pipeToMcp as any);
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // sGTM proxy — registered early so it fires before static file handlers
+  // sGTM + IPN proxies — registered early so they fire before static file handlers
   registerSgtmProxy(app);
+  registerIpnProxy(app);
 
   // Load site registry from GCS (production) before building site contexts
   await loadSitesYmlFromBucket();

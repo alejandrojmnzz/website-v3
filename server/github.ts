@@ -17,6 +17,7 @@ import * as tar from 'tar';
 import { getAllDirectories } from './content-types';
 import {
   detectPendingChanges,
+  getAllContentFiles,
   getLastSyncedCommit,
   updateSyncStateAfterCommit,
   markFileAsModified,
@@ -2175,6 +2176,9 @@ export interface BootstrapState {
   pulledFiles: string[];
   /** Paths skipped because local hash matched remote */
   skippedFiles: string[];
+  /** Local tracked paths removed because they were missing on GitHub (force pull only) */
+  deleted: number;
+  deletedFiles: string[];
   startedAt: number | null;
   doneAt: number | null;
   success: boolean | null;
@@ -2201,6 +2205,8 @@ function emptyBootstrapState(): BootstrapState {
     errors: [],
     pulledFiles: [],
     skippedFiles: [],
+    deleted: 0,
+    deletedFiles: [],
     startedAt: null,
     doneAt: null,
     success: null,
@@ -2246,6 +2252,7 @@ export function getBootstrapState(contentRoot?: string): Readonly<BootstrapState
     errors: [...state.errors],
     pulledFiles: [...state.pulledFiles],
     skippedFiles: [...state.skippedFiles],
+    deletedFiles: [...state.deletedFiles],
   };
 }
 
@@ -2363,6 +2370,8 @@ function resetBootstrapProgressFields(state: BootstrapState, mode: BootstrapPull
   state.replaced = 0;
   state.lastReplacedFile = null;
   state.replaceTotal = null;
+  state.deleted = 0;
+  state.deletedFiles = [];
 }
 
 function sweepForcePullTempArtifacts(siteKey: string): void {
@@ -2718,6 +2727,58 @@ async function forcePullContentFromTarball(
   }
 }
 
+/**
+ * Delete tracked local content files that are not present on the remote path set.
+ * Used by force pull so local disk matches GitHub (soft pull does not prune).
+ */
+function pruneLocalFilesMissingFromRemote(
+  remotePaths: Iterable<string>,
+  contentRoot?: string,
+): { deleted: number; deletedFiles: string[] } {
+  const remoteSet = new Set(
+    Array.from(remotePaths).map((p) => p.replace(/\\/g, "/")),
+  );
+  const contentFolder = (
+    contentRoot
+      ? path.isAbsolute(contentRoot)
+        ? path.relative(process.cwd(), contentRoot)
+        : contentRoot
+      : getDefaultContentFolder()
+  )
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+  const contentRootAbs = path.join(process.cwd(), contentFolder);
+  const deletedFiles: string[] = [];
+
+  for (const filePath of getAllContentFiles(contentRoot)) {
+    const normalized = filePath.replace(/\\/g, "/");
+    if (remoteSet.has(normalized)) continue;
+
+    const fullPath = path.join(process.cwd(), normalized);
+    try {
+      if (!fs.existsSync(fullPath)) continue;
+      fs.unlinkSync(fullPath);
+      deletedFiles.push(normalized);
+
+      let dir = path.dirname(fullPath);
+      while (dir.startsWith(contentRootAbs + path.sep)) {
+        try {
+          const remaining = fs.readdirSync(dir);
+          if (remaining.length > 0) break;
+          fs.rmdirSync(dir);
+          dir = path.dirname(dir);
+        } catch {
+          break;
+        }
+      }
+    } catch (err) {
+      log.warn({ err, filePath: normalized }, "Force-pull: failed to prune local-only file");
+    }
+  }
+
+  return { deleted: deletedFiles.length, deletedFiles };
+}
+
 async function refreshContentAfterBootstrapPull(
   contentFolder: string,
   pulledCount: number,
@@ -2915,17 +2976,31 @@ export async function bootstrapContentFromRemote(opts?: {
     }
 
     state.phase = "finalizing";
+    const syncedRemotePaths =
+      pulledFiles.length > 0 ? pulledFiles : remoteEntries.map((e) => e.path);
+    const pruneResult = pruneLocalFilesMissingFromRemote(syncedRemotePaths, opts?.contentRoot);
+    state.deleted = pruneResult.deleted;
+    state.deletedFiles = [...pruneResult.deletedFiles];
+    if (pruneResult.deleted > 0) {
+      logSync(
+        "AUTO-PULL",
+        `Bootstrap: pruned ${pruneResult.deleted} local-only file(s) missing on GitHub`,
+      );
+    }
+
     const { rebuildSyncStateFromLocal } = await import('./sync-state');
     rebuildSyncStateFromLocal(headSha, opts?.contentRoot, {
-      syncedRemotePaths: pulledFiles.length > 0 ? pulledFiles : remoteEntries.map((e) => e.path),
+      syncedRemotePaths,
     });
     writeBootstrapCompleteFlag(opts?.contentRoot);
-    await refreshContentAfterBootstrapPull(contentFolder, pulled);
+    await refreshContentAfterBootstrapPull(contentFolder, pulled + pruneResult.deleted);
     logSync(
       'AUTO-PULL',
-      `Bootstrap: tarball pulled=${pulled} — sync state updated to ${headSha.slice(0, 7)}`,
+      `Bootstrap: tarball pulled=${pulled} deleted=${pruneResult.deleted} — sync state updated to ${headSha.slice(0, 7)}`,
     );
-    log.info(`Bootstrap complete (tarball): pulled=${pulled}, sha=${headSha}`);
+    log.info(
+      `Bootstrap complete (tarball): pulled=${pulled}, deleted=${pruneResult.deleted}, sha=${headSha}`,
+    );
 
     state.running = false;
     state.pulled = pulled;

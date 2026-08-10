@@ -12,7 +12,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,6 +30,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { openSyncModal } from "@/components/SyncConflictBanner";
 import { useToast } from "@/hooks/use-toast";
@@ -291,8 +301,9 @@ export default function SyncLogPage() {
   });
 
   const [forcePullOpen, setForcePullOpen] = useState(false);
+  const [forcePullConfirmOpen, setForcePullConfirmOpen] = useState(false);
   const [pullStarted, setPullStarted] = useState(false);
-  const [pullResultTab, setPullResultTab] = useState<"downloaded" | "skipped" | "errors">("downloaded");
+  const [pullResultTab, setPullResultTab] = useState<"downloaded" | "skipped" | "removed" | "errors">("downloaded");
   const [pullResultSearch, setPullResultSearch] = useState("");
   const pullToastShown = useRef(false);
   const pullStartAt = useRef<number | null>(null);
@@ -354,6 +365,8 @@ export default function SyncLogPage() {
     errors: string[];
     pulledFiles?: string[];
     skippedFiles?: string[];
+    deleted?: number;
+    deletedFiles?: string[];
     startedAt: number | null;
     doneAt: number | null;
     success: boolean | null;
@@ -412,12 +425,15 @@ export default function SyncLogPage() {
       });
     } else {
       const skipped = pullStatus.skipped ?? 0;
+      const deleted = pullStatus.deleted ?? 0;
+      const parts: string[] = [
+        `Downloaded ${pullStatus.pulled} file${pullStatus.pulled === 1 ? "" : "s"} from GitHub`,
+      ];
+      if (skipped > 0) parts.push(`skipped ${skipped} unchanged`);
+      if (deleted > 0) parts.push(`removed ${deleted} local-only`);
       toast({
         title: "Pull complete",
-        description:
-          skipped > 0
-            ? `Downloaded ${pullStatus.pulled}, skipped ${skipped} unchanged.`
-            : `Downloaded ${pullStatus.pulled} file${pullStatus.pulled === 1 ? "" : "s"} from GitHub.`,
+        description: `${parts.join("; ")}.`,
       });
     }
     qc.invalidateQueries({ queryKey: ["/api/github/sync-log"] });
@@ -833,6 +849,7 @@ export default function SyncLogPage() {
     <Dialog open={forcePullOpen} onOpenChange={(open) => {
       if (!open && !pullStatus?.running) {
         setForcePullOpen(false);
+        setForcePullConfirmOpen(false);
         setPullResultSearch("");
       }
     }}>
@@ -875,10 +892,16 @@ export default function SyncLogPage() {
               <div className="space-y-2 text-sm">
                 <p>Overwrite local content with what is on GitHub. Choose how much to download:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li><span className="font-medium text-foreground">Pull only changed</span> — only missing files and files whose hash differs from remote.</li>
-                  <li><span className="font-medium text-foreground">Pull all files</span> — download one repository archive, extract this site’s content folder, and replace those files (fewer API calls; use for recovery).</li>
-                  <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed will be lost for downloaded files.</li>
+                  <li><span className="font-medium text-foreground">Pull only changed</span> — only missing files and files whose hash differs from remote. Does not delete local leftovers.</li>
+                  <li><span className="font-medium text-foreground">Pull all and replace</span> — download one repository archive, overwrite this site’s content folder files, and delete tracked local files that no longer exist on GitHub (fewer API calls; use for recovery).</li>
+                  <li><span className="font-medium text-foreground">GitHub always wins</span> — local edits not yet committed will be lost for downloaded files; force replace also removes local-only tracked files under this site folder.</li>
                 </ul>
+                <details className="text-xs text-muted-foreground pt-1">
+                  <summary className="cursor-pointer font-medium text-foreground/80 hover:text-foreground">Read more (advanced)</summary>
+                  <p className="mt-1.5 leading-relaxed">
+                    Prune runs only on the force path in <code className="text-[10px]">server/github.ts</code> (<code className="text-[10px]">bootstrapContentFromRemote</code> with <code className="text-[10px]">force: true</code>) after the tarball replace, scoped by <code className="text-[10px]">shouldTrackFile</code> / the site content folder. Sync state is rebuilt afterward so leftovers do not appear as added in the Commit Queue. Soft pull and server restart do not prune.
+                  </p>
+                </details>
               </div>
             </DialogDescription>
           )}
@@ -979,10 +1002,12 @@ export default function SyncLogPage() {
         {pullStatus?.doneAt != null && (() => {
           const downloaded = pullStatus.pulledFiles ?? [];
           const skipped = pullStatus.skippedFiles ?? [];
+          const removed = pullStatus.deletedFiles ?? [];
           const errors = pullStatus.errors ?? [];
           const folder = siteInfo?.contentFolder;
           const downloadedList = downloaded.map((p) => shortenPullPath(p, folder));
           const skippedList = skipped.map((p) => shortenPullPath(p, folder));
+          const removedList = removed.map((p) => shortenPullPath(p, folder));
           const errorsList = errors.map((e) => {
             const colon = e.indexOf(": ");
             if (colon > 0) {
@@ -997,6 +1022,7 @@ export default function SyncLogPage() {
             !searchQ || line.toLowerCase().includes(searchQ);
           const downloadedFiltered = downloadedList.filter(matchesSearch);
           const skippedFiltered = skippedList.filter(matchesSearch);
+          const removedFiltered = removedList.filter(matchesSearch);
           const errorsFiltered = errorsList.filter(matchesSearch);
           const tabs = [
             {
@@ -1018,6 +1044,15 @@ export default function SyncLogPage() {
               countClass: "",
             },
             {
+              id: "removed" as const,
+              label: "Removed",
+              count: searchQ ? removedFiltered.length : (pullStatus.deleted ?? removedList.length),
+              total: pullStatus.deleted ?? removedList.length,
+              icon: Trash2,
+              activeClass: "border-destructive/40 bg-destructive/10 text-destructive",
+              countClass: (pullStatus.deleted ?? 0) > 0 ? "text-destructive" : "",
+            },
+            {
               id: "errors" as const,
               label: "Errors",
               count: searchQ ? errorsFiltered.length : errorsList.length,
@@ -1032,25 +1067,34 @@ export default function SyncLogPage() {
               ? downloadedFiltered
               : pullResultTab === "skipped"
                 ? skippedFiltered
-                : errorsFiltered;
+                : pullResultTab === "removed"
+                  ? removedFiltered
+                  : errorsFiltered;
           const activeTotal =
             pullResultTab === "downloaded"
               ? downloadedList.length
               : pullResultTab === "skipped"
                 ? skippedList.length
-                : errorsList.length;
+                : pullResultTab === "removed"
+                  ? removedList.length
+                  : errorsList.length;
           const emptyLabel =
             pullResultTab === "downloaded"
               ? "No files downloaded"
               : pullResultTab === "skipped"
                 ? "No files skipped"
-                : "No errors";
+                : pullResultTab === "removed"
+                  ? "No local-only files removed"
+                  : "No errors";
           const hasAnyResults =
-            downloadedList.length > 0 || skippedList.length > 0 || errorsList.length > 0;
+            downloadedList.length > 0 ||
+            skippedList.length > 0 ||
+            removedList.length > 0 ||
+            errorsList.length > 0;
 
           return (
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Pull result categories">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="tablist" aria-label="Pull result categories">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   const selected = pullResultTab === tab.id;
@@ -1088,7 +1132,7 @@ export default function SyncLogPage() {
                   <Input
                     value={pullResultSearch}
                     onChange={(e) => setPullResultSearch(e.target.value)}
-                    placeholder="Search downloaded, skipped, or errors…"
+                    placeholder="Search downloaded, skipped, removed, or errors…"
                     className="h-7 pl-7 text-xs"
                     data-testid="input-pull-result-search"
                   />
@@ -1107,7 +1151,9 @@ export default function SyncLogPage() {
                         key={`${pullResultTab}-${i}`}
                         className={cn(
                           "text-xs font-mono break-all leading-snug",
-                          pullResultTab === "errors" ? "text-destructive" : "text-foreground",
+                          pullResultTab === "errors" || pullResultTab === "removed"
+                            ? "text-destructive"
+                            : "text-foreground",
                         )}
                       >
                         {line}
@@ -1154,19 +1200,48 @@ export default function SyncLogPage() {
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => startPullMutation.mutate(true)}
+                onClick={() => setForcePullConfirmOpen(true)}
                 disabled={startPullMutation.isPending || pullStatus?.running}
                 data-testid="button-start-force-pull"
               >
                 {startPullMutation.isPending
                   ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</>
-                  : <><IconCloudDownload className="h-4 w-4 mr-2" />Pull all files</>}
+                  : <><IconCloudDownload className="h-4 w-4 mr-2" />Pull all and replace</>}
               </Button>
             </>
           )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={forcePullConfirmOpen} onOpenChange={setForcePullConfirmOpen}>
+      <AlertDialogContent data-testid="dialog-confirm-force-pull">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Pull all and replace?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                This will overwrite local content for{siteLabel ? ` ${siteLabel}` : " this site"} with GitHub and permanently delete tracked local files that no longer exist on the remote.
+              </p>
+              <p>Uncommitted local edits will be lost. This cannot be undone from the app.</p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-confirm-force-pull">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={cn(buttonVariants({ variant: "destructive" }))}
+            data-testid="button-confirm-force-pull"
+            onClick={() => {
+              setForcePullConfirmOpen(false);
+              startPullMutation.mutate(true);
+            }}
+          >
+            Pull all and replace
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <Dialog open={webhookRetryOpen} onOpenChange={(open) => { if (!open) { setWebhookRetryOpen(false); setWebhookRetryResult(null); setCleanupResult(null); } }}>
       <DialogContent className="sm:max-w-md">

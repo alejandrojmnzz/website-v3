@@ -129,6 +129,20 @@ function coercePreviewScalar(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Locale on listing rows (matches preview-frame fallback when no localeKey). */
+function sampleEntryLocale(entry: Record<string, unknown>): string {
+  for (const key of ["lang", "locale", "language"] as const) {
+    const v = entry[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "en";
+}
+
+interface PreviewResolveContextPayload {
+  meta?: Record<string, unknown>;
+  brand?: Record<string, unknown>;
+}
+
 export type EntryPreviewFieldMapping = Record<
   string,
   string | { source: string; default: string }
@@ -294,6 +308,35 @@ export function EntryPreviewConfigDialog({
     return sampleEntries[Math.min(sampleIndex, sampleCount - 1)] || {};
   }, [sampleEntries, sampleIndex, sampleCount]);
 
+  const sampleSlug = String(sampleEntry.slug || "").trim();
+  const sampleLocale = sampleEntryLocale(sampleEntry);
+
+  /** Real SEO meta + theme-aware brand (same as OG capture). Listings omit `meta`. */
+  const { data: resolveCtx } = useQuery<PreviewResolveContextPayload>({
+    queryKey: [
+      "/api/content-types",
+      contentType,
+      "entries",
+      sampleSlug,
+      "preview-resolve-context",
+      sampleLocale,
+      theme,
+    ],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ locale: sampleLocale, theme });
+      const res = await fetch(
+        `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(sampleSlug)}/preview-resolve-context?${qs}`,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || `Failed to load preview context (${res.status})`);
+      }
+      return res.json();
+    },
+    enabled: open && !!component && !!sampleSlug,
+    staleTime: 60_000,
+  });
+
   const sampleLabel = useMemo(() => {
     const title =
       coercePreviewScalar(sampleEntry.title) ||
@@ -312,34 +355,31 @@ export function EntryPreviewConfigDialog({
     setSampleIndex((i) => (i + 1) % sampleCount);
   };
 
+  const fallbackBrand = useMemo(
+    () => ({
+      "brand.title": brandData?.title || "Brand",
+      // brand.logo is theme-aware with light fallback; brand.logo_dark is dark-only
+      // (never substitute the light wordmark — dark OG canvases map logo_dark explicitly).
+      "brand.logo":
+        theme === "dark"
+          ? brandData?.logo_dark_src || brandData?.logo_src || ""
+          : brandData?.logo_src || "",
+      "brand.logo_dark": brandData?.logo_dark_src || "",
+    }),
+    [brandData, theme],
+  );
+
   const liveSection = useMemo((): Section | null => {
     if (!component.trim()) return null;
-    const titleFallback =
-      coercePreviewScalar(sampleEntry.title) ||
-      coercePreviewScalar(sampleEntry.name) ||
-      String(sampleEntry.slug || "Sample entry");
     const data: Record<string, unknown> = {};
     applyPreviewPropMappings(data, propsMap, {
       entry: sampleEntry,
-      meta: {
-        page_title: titleFallback,
-        description:
-          coercePreviewScalar(sampleEntry.description) || "Sample description for live preview.",
-        og_type: "article",
-        robots: "index,follow",
-        canonical_url: "",
-        twitter_card: "summary_large_image",
-      },
-      brand: {
-        "brand.title": brandData?.title || "Brand",
-        // brand.logo is theme-aware with light fallback; brand.logo_dark is dark-only
-        // (never substitute the light wordmark — dark OG canvases map logo_dark explicitly).
-        "brand.logo":
-          theme === "dark"
-            ? brandData?.logo_dark_src || brandData?.logo_src || ""
-            : brandData?.logo_src || "",
-        "brand.logo_dark": brandData?.logo_dark_src || "",
-      },
+      // Prefer resolved SEO meta from the entry YAML — never invent page_title from entry.title.
+      meta: resolveCtx?.meta && typeof resolveCtx.meta === "object" ? resolveCtx.meta : {},
+      brand:
+        resolveCtx?.brand && typeof resolveCtx.brand === "object" && Object.keys(resolveCtx.brand).length > 0
+          ? resolveCtx.brand
+          : fallbackBrand,
     });
     for (const key of ["title", "category", "author", "logo"] as const) {
       if (!(key in data)) continue;
@@ -357,7 +397,7 @@ export function EntryPreviewConfigDialog({
       ...data,
       section_id: "entry-preview-config-live",
     } as Section;
-  }, [component, variant, version, propsMap, sampleEntry, brandData, theme]);
+  }, [component, variant, version, propsMap, sampleEntry, resolveCtx, fallbackBrand]);
 
   const requiredUnmapped = useMemo(() => {
     return mappableProps.filter((p) => p.required && !propsMap[p.key]?.trim());
@@ -753,7 +793,10 @@ export function EntryPreviewConfigDialog({
                       Resolver:{" "}
                       <code className="font-mono">shared/entry-preview-props.ts</code>
                       {" · "}
-                      SEO meta from entry <code className="font-mono">meta:</code>
+                      Live SEO meta via{" "}
+                      <code className="font-mono">preview-resolve-context</code> (same as capture;{" "}
+                      <code className="font-mono">meta.page_title</code> is not invented from{" "}
+                      <code className="font-mono">title</code>)
                       {" · "}
                       brand from <code className="font-mono">variables.yml</code>.
                     </p>

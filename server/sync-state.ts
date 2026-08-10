@@ -401,7 +401,8 @@ export function markFileAsModified(filePath: string, author?: string, allowedExc
   }
 }
 
-function getAllContentFiles(contentRoot?: string): string[] {
+/** List tracked content files under a site content root (same filters as the Commit Queue). */
+export function getAllContentFiles(contentRoot?: string): string[] {
   const files: string[] = [];
   const scanDir = contentRoot
     ? (path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot))
