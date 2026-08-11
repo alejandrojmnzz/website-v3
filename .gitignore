@@ -30,6 +30,7 @@ vite.config.ts.*
 marketing-content/.*-state.json
 marketing-content/.*-state.txt
 **/.sync-log-state.txt
+**/.ipn-calls-state.txt
 
 # Environment variables
 .env

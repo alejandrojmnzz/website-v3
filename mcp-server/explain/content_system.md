@@ -19,6 +19,7 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
                           # host env IPN_SECRET only (staff: Tracking → IP Normalization — display + Generate & copy).
                           # Empty IPN_SECRET while enabled → fail closed. Configure Constant + Request Headers
                           # in the GTM *server* container (not Stape admin).
+                          # Recent /ipn calls: local .ipn-calls-state.txt (max 500), not content-repo / GitHub.
                           # Non-effect: does not call any CRM by name; side_effect of admin PUT: writes settings.yml.
   schema-org.yml          # Organization / Website (+ legacy catalogs) JSON-LD templates.
                           # Staff structured edit: Settings → SEO/GEO → Schema org; Brand tab still owns
