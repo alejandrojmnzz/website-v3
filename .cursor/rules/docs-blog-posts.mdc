@@ -1,0 +1,20 @@
+---
+description: Standards for long-form engineering essays under docs/blog/
+globs: docs/blog/**
+alwaysApply: false
+---
+# docs/blog engineering essays
+
+When creating or editing files under `docs/blog/`:
+
+1. **Purpose:** Long-form engineering essays (case studies / design narratives). Not ops runbooks (`docs/*.md`) and not live site YAML blog entries (`site_*/blog/`).
+2. **Title:** Attention-first. State a sharp claim or tension. Avoid keyword-stack titles. The filename and frontmatter `slug` must be a kebab-case reflection of the title — not a separate SEO phrase dump.
+3. **Frontmatter (required):** `title`, `description`, `date` (ISO), `slug` (matches filename without `.md`), `tags` (array). Optional: `status: draft|published`.
+4. **Length:** Aim 2.5–4k words unless the piece is an intentional short follow-up.
+5. **Structure (default H2 spine):** Hook → problem / industry gap → mental model → numbered principles/standards → worked story (proof) → deliberate refusals → reader checklist → close.
+6. **Tone:** Engineering essay. Concrete names and fields are fine. Persuade with narrative — do not dump a README or tool catalog.
+7. **Evidence:** Prefer real repo patterns (`warnings` / `side_effects` / `next_actions`, gates, playbooks). At most **one** illustrative JSON envelope; then paraphrase. No full tool-parameter tables.
+8. **Sources (this MCP):** Ground claims in `mcp-server/lib/respond.ts`, `mcp-server/explain/`, `mcp-server/README.md`, `.cursor/rules/mcp-server-responses.mdc`, `.cursor/rules/education-layer-planning.mdc`. Do not invent tools or side effects.
+9. **Transcripts:** Scrub/anonymize agent chats; paraphrase into a clean worked story. Do not paste raw multi-party chat logs.
+10. **Anti-patterns:** Keyword-dump titles/slugs that do not match; duplicate live tool catalogs; paste OAuth/setup; bury the thesis; invent metrics; treat the file as staff CMS copy or an `explain_site` topic.
+11. **Filename:** kebab-case slug matching frontmatter `slug` and reflecting `title`.

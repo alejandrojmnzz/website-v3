@@ -45,6 +45,20 @@ describe("safeTopLevelFieldsForConfig", () => {
     expect(allowed.has("content")).toBe(true);
     expect(allowed.has("settings")).toBe(true);
   });
+
+  it("includes json editor fields with schema", () => {
+    const config: ContentTypeConfig = {
+      field_mapping: { faq_entries: "faq_entries" },
+      editor: {
+        faq_entries: {
+          type: "json",
+          schema: { type: "array" },
+        },
+      },
+    };
+    const allowed = safeTopLevelFieldsForConfig(config);
+    expect(allowed.has("faq_entries")).toBe(true);
+  });
 });
 
 describe("missingRequiredFields", () => {

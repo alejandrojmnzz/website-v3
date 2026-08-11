@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, forwardRef, useImperativeHandle, useRef, useEffect } from "react";
 import {
   IconCheck,
   IconChevronDown,
@@ -54,9 +54,19 @@ type EditState = {
   onlyFields?: string[];
 } | null;
 
+export type FaqSearchMeta = {
+  semantic: boolean;
+  fetching?: boolean;
+  fallback_reason?: string;
+  fallback_message?: string;
+};
+
 interface FaqItemsPickerProps {
   /** All permanent_filters from dynamic_entries — applied in the preview to mirror server logic. */
   permanentFilters: Array<{ item_property_slug: string; value: string | string[] }>;
+  /** Mirrors dynamic_entries.search — semantic/keyword ranking via /api/databases/:name/search. */
+  searchPhrase?: string;
+  onSearchMeta?: (meta: FaqSearchMeta | null) => void;
   locale: string;
   hardcodedItems: Array<{ question: string; answer: string }>;
   ignoredEntries: string[];
@@ -73,7 +83,16 @@ interface FaqItemsPickerProps {
   sortField?: string;
   /** Mirrors dynamic_entries.limit — caps DB items after hardcoded slots are counted. */
   limit?: number;
+  /**
+   * standalone: collapse header + Add (legacy).
+   * embedded: always-visible scrollable list; parent owns chrome / Add via ref.openAdd().
+   */
+  variant?: "standalone" | "embedded";
 }
+
+export type FaqItemsPickerHandle = {
+  openAdd: () => void;
+};
 
 function ItemLocationPicker({
   itemKey,
@@ -137,14 +156,12 @@ function ItemLocationPicker({
         <div className="flex items-start gap-1.5 flex-1 min-w-0">
           <p className="text-xs text-foreground leading-tight line-clamp-2 flex-1">
             {question}
-            {source === "hardcoded" && (
-              <Badge
-                variant="outline"
-                className="text-[9px] px-1 py-0 ml-1.5 text-muted-foreground align-middle no-default-hover-elevate no-default-active-elevate"
-              >
-                only in this section
-              </Badge>
-            )}
+            <Badge
+              variant="outline"
+              className="text-[9px] px-1 py-0 ml-1.5 text-muted-foreground align-middle no-default-hover-elevate no-default-active-elevate"
+            >
+              {source === "hardcoded" ? "manually added" : "DB"}
+            </Badge>
           </p>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -152,20 +169,23 @@ function ItemLocationPicker({
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
                 className={hasOverrides ? "border-amber-400 dark:border-amber-600" : ""}
                 data-testid={`button-faq-item-locations-${itemKey}`}
+                title={
+                  hasOverrides
+                    ? `Hidden on ${hideOnLocations.length} location${hideOnLocations.length !== 1 ? "s" : ""}`
+                    : "Choose locations to hide from"
+                }
               >
-                <IconMapPin className="h-3.5 w-3.5 mr-1" />
-                {hasOverrides ? (
-                  <span className="text-xs">{hideOnLocations.length} hidden</span>
-                ) : (
-                  <span className="text-xs">All visible</span>
-                )}
+                <IconMapPin className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0 z-[10000]" align="end">
-              <div className="p-2 border-b">
+              <div className="p-2 border-b space-y-2">
+                <p className="text-xs font-medium text-foreground px-0.5">
+                  Choose location to hide from
+                </p>
                 <div className="relative">
                   <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <input
@@ -282,8 +302,10 @@ function ItemLocationPicker({
   );
 }
 
-export function FaqItemsPicker({
+export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerProps>(function FaqItemsPicker({
   permanentFilters,
+  searchPhrase,
+  onSearchMeta,
   locale,
   hardcodedItems,
   ignoredEntries,
@@ -294,9 +316,11 @@ export function FaqItemsPicker({
   onLocalizeDbEntry,
   sortField,
   limit,
-}: FaqItemsPickerProps) {
+  variant = "standalone",
+}, ref) {
   const { toast } = useToast();
-  const [expanded, setExpanded] = useState(false);
+  const isEmbedded = variant === "embedded";
+  const [expanded, setExpanded] = useState(isEmbedded);
 
   const [scopeState, setScopeState] = useState<ScopeState>(null);
   const [editState, setEditState] = useState<EditState>(null);
@@ -305,7 +329,9 @@ export function FaqItemsPicker({
   const [globalDeleteConfirm, setGlobalDeleteConfirm] = useState<DisplayItem | null>(null);
   const [globalDeleting, setGlobalDeleting] = useState(false);
 
-  const hasCentralized = permanentFilters.length > 0;
+  const activeSearch = (searchPhrase ?? "").trim();
+  const useSearch = activeSearch.length >= 3;
+  const hasCentralized = permanentFilters.length > 0 || useSearch;
   const isEditable = !!(onHardcodedEntriesChange || onIgnoredEntriesChange || onLocalizeDbEntry);
 
   const { data: faqsData, isLoading } = useQuery<{ items: FaqItem[] }>({
@@ -314,100 +340,190 @@ export function FaqItemsPicker({
     staleTime: 5 * 60 * 1000,
   });
 
+  const searchQueryKey = useMemo(
+    () =>
+      `/api/databases/${FAQ_DB_NAME}/search?q=${encodeURIComponent(activeSearch)}&limit=100&locale=${encodeURIComponent(locale)}`,
+    [activeSearch, locale],
+  );
+
+  const {
+    data: searchData,
+    isFetching: searchFetching,
+    isLoading: searchLoading,
+  } = useQuery<{
+    items: FaqItem[];
+    semantic: boolean;
+    fallback_reason?: string;
+    fallback_message?: string;
+  }>({
+    queryKey: [searchQueryKey],
+    enabled: useSearch,
+    staleTime: 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (!onSearchMeta) return;
+    if (!useSearch) {
+      onSearchMeta(null);
+      return;
+    }
+    if (searchFetching || searchLoading) {
+      onSearchMeta({ semantic: true, fetching: true });
+      return;
+    }
+    if (!searchData) {
+      onSearchMeta(null);
+      return;
+    }
+    onSearchMeta({
+      semantic: searchData.semantic,
+      fetching: false,
+      fallback_reason: searchData.fallback_reason,
+      fallback_message: searchData.fallback_message,
+    });
+  }, [onSearchMeta, useSearch, searchFetching, searchLoading, searchData]);
+
   const displayedItems = useMemo<DisplayItem[]>(() => {
     const allDbItems = faqsData?.items ?? [];
     const localeItems = allDbItems.filter((f) => f.locale === locale);
 
-    // Start with all locale items if centralized, otherwise empty (mirrors server logic)
-    let dbItems: FaqItem[] = hasCentralized ? localeItems : [];
-
-    // Apply ALL permanent_filters — exact mirror of server dynamic-entries.ts logic
-    for (const pf of permanentFilters) {
-      const filterValues = (Array.isArray(pf.value) ? pf.value : [pf.value]).map(String);
-      dbItems = dbItems.filter((item) => {
-        const itemVal = (item as Record<string, unknown>)[pf.item_property_slug];
-        return filterValues.some((v) => {
-          if (Array.isArray(itemVal)) return itemVal.map(String).includes(v);
-          return String(itemVal ?? "") === v;
+    const applyPermanentFilters = (source: FaqItem[]): FaqItem[] => {
+      let dbItems = [...source];
+      for (const pf of permanentFilters) {
+        const filterValues = (Array.isArray(pf.value) ? pf.value : [pf.value]).map(String);
+        dbItems = dbItems.filter((item) => {
+          const itemVal = (item as Record<string, unknown>)[pf.item_property_slug];
+          return filterValues.some((v) => {
+            if (Array.isArray(itemVal)) return itemVal.map(String).includes(v);
+            return String(itemVal ?? "") === v;
+          });
         });
-      });
-    }
+      }
+      return dbItems;
+    };
+
+    const sortFilterOnly = (source: FaqItem[]): FaqItem[] => {
+      let uniqueDbItems = [...source];
+      const multiValueFilter = permanentFilters.find(
+        (pf) => Array.isArray(pf.value) && (pf.value as string[]).length > 1,
+      );
+
+      if (multiValueFilter) {
+        const filterValues = (multiValueFilter.value as string[]).map(String);
+        const slug = multiValueFilter.item_property_slug;
+        const explicitSortDesc = sortField?.startsWith("-") ?? false;
+        const explicitSortField = sortField
+          ? (explicitSortDesc ? sortField.slice(1) : sortField)
+          : null;
+
+        uniqueDbItems = [...uniqueDbItems].sort((a, b) => {
+          const aVal = (a as Record<string, unknown>)[slug];
+          const bVal = (b as Record<string, unknown>)[slug];
+          const aArr = Array.isArray(aVal) ? aVal.map(String) : [String(aVal ?? "")];
+          const bArr = Array.isArray(bVal) ? bVal.map(String) : [String(bVal ?? "")];
+          const aCount = filterValues.filter((v) => aArr.includes(v)).length;
+          const bCount = filterValues.filter((v) => bArr.includes(v)).length;
+          if (bCount !== aCount) return bCount - aCount;
+
+          const tieField = explicitSortField ?? "priority";
+          const aT = (a as Record<string, unknown>)[tieField];
+          const bT = (b as Record<string, unknown>)[tieField];
+          if (aT == null && bT == null) return 0;
+          if (aT == null) return 1;
+          if (bT == null) return -1;
+          let cmp = 0;
+          if (typeof aT === "number" && typeof bT === "number") {
+            cmp = aT - bT;
+          } else {
+            cmp = String(aT).localeCompare(String(bT));
+          }
+          return explicitSortField && explicitSortDesc ? -cmp : cmp;
+        });
+      } else if (sortField) {
+        const desc = sortField.startsWith("-");
+        const field = desc ? sortField.slice(1) : sortField;
+        uniqueDbItems = [...uniqueDbItems].sort((a, b) => {
+          const aVal = (a as Record<string, unknown>)[field];
+          const bVal = (b as Record<string, unknown>)[field];
+          if (aVal == null && bVal == null) return 0;
+          if (aVal == null) return 1;
+          if (bVal == null) return -1;
+          let cmp = 0;
+          if (typeof aVal === "number" && typeof bVal === "number") {
+            cmp = aVal - bVal;
+          } else {
+            cmp = String(aVal).localeCompare(String(bVal));
+          }
+          return desc ? -cmp : cmp;
+        });
+      }
+      return uniqueDbItems;
+    };
 
     const hardcodedKeys = new Set(hardcodedItems.map((i) => faqItemKey(i.question)));
     const ignoredSet = new Set(ignoredEntries);
 
-    let uniqueDbItems = dbItems
-      .filter((i) => !hardcodedKeys.has(faqItemKey(i.question)))
-      .filter((i) => !ignoredSet.has(faqItemKey(i.question)));
+    const stripLocal = (list: FaqItem[]) =>
+      list
+        .filter((i) => !hardcodedKeys.has(faqItemKey(i.question)))
+        .filter((i) => !ignoredSet.has(faqItemKey(i.question)));
 
-    // Match-count sort: find the first multi-value filter (mirrors server dynamic-entries logic).
-    // Items matching more of the filter values float to the top; sortField is the tiebreaker.
-    const multiValueFilter = permanentFilters.find(
-      (pf) => Array.isArray(pf.value) && (pf.value as string[]).length > 1,
-    );
+    let uniqueDbItems: FaqItem[] = [];
 
-    if (multiValueFilter) {
-      const filterValues = (multiValueFilter.value as string[]).map(String);
-      const slug = multiValueFilter.item_property_slug;
-      const explicitSortDesc = sortField?.startsWith("-") ?? false;
-      const explicitSortField = sortField
-        ? (explicitSortDesc ? sortField.slice(1) : sortField)
-        : null;
+    if (useSearch) {
+      const searchHits = applyPermanentFilters(
+        stripLocal(
+          (searchData?.items ?? []).filter((f) => !f.locale || f.locale === locale),
+        ),
+      );
+      const filterOnly = sortFilterOnly(
+        stripLocal(applyPermanentFilters(hasCentralized ? localeItems : [])),
+      );
+      const remainingSlots =
+        limit && limit > 0 ? Math.max(0, limit - hardcodedItems.length) : 100;
+      const seen = new Set<string>();
+      const selected: FaqItem[] = [];
+      for (const item of searchHits) {
+        if (selected.length >= remainingSlots) break;
+        const key = faqItemKey(item.question);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        selected.push(item);
+      }
+      for (const item of filterOnly) {
+        if (selected.length >= remainingSlots) break;
+        const key = faqItemKey(item.question);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        selected.push(item);
+      }
+      uniqueDbItems = selected;
+    } else {
+      let dbItems: FaqItem[] = hasCentralized ? applyPermanentFilters(localeItems) : [];
+      uniqueDbItems = sortFilterOnly(stripLocal(dbItems));
 
-      uniqueDbItems = [...uniqueDbItems].sort((a, b) => {
-        const aVal = (a as Record<string, unknown>)[slug];
-        const bVal = (b as Record<string, unknown>)[slug];
-        const aArr = Array.isArray(aVal) ? aVal.map(String) : [String(aVal ?? "")];
-        const bArr = Array.isArray(bVal) ? bVal.map(String) : [String(bVal ?? "")];
-        const aCount = filterValues.filter((v) => aArr.includes(v)).length;
-        const bCount = filterValues.filter((v) => bArr.includes(v)).length;
-        if (bCount !== aCount) return bCount - aCount;
-
-        // Tiebreaker: explicit sort field, or priority as default
-        const tieField = explicitSortField ?? "priority";
-        const aT = (a as Record<string, unknown>)[tieField];
-        const bT = (b as Record<string, unknown>)[tieField];
-        if (aT == null && bT == null) return 0;
-        if (aT == null) return 1;
-        if (bT == null) return -1;
-        let cmp = 0;
-        if (typeof aT === "number" && typeof bT === "number") {
-          cmp = aT - bT;
-        } else {
-          cmp = String(aT).localeCompare(String(bT));
-        }
-        return explicitSortField && explicitSortDesc ? -cmp : cmp;
-      });
-    } else if (sortField) {
-      const desc = sortField.startsWith("-");
-      const field = desc ? sortField.slice(1) : sortField;
-      uniqueDbItems = [...uniqueDbItems].sort((a, b) => {
-        const aVal = (a as Record<string, unknown>)[field];
-        const bVal = (b as Record<string, unknown>)[field];
-        if (aVal == null && bVal == null) return 0;
-        if (aVal == null) return 1;
-        if (bVal == null) return -1;
-        let cmp = 0;
-        if (typeof aVal === "number" && typeof bVal === "number") {
-          cmp = aVal - bVal;
-        } else {
-          cmp = String(aVal).localeCompare(String(bVal));
-        }
-        return desc ? -cmp : cmp;
-      });
-    }
-
-    // Mirror server limit logic: limit caps total (hardcoded + DB), so DB gets remaining slots
-    if (limit && limit > 0) {
-      const remainingSlots = Math.max(0, limit - hardcodedItems.length);
-      uniqueDbItems = uniqueDbItems.slice(0, remainingSlots);
+      if (limit && limit > 0) {
+        const remainingSlots = Math.max(0, limit - hardcodedItems.length);
+        uniqueDbItems = uniqueDbItems.slice(0, remainingSlots);
+      }
     }
 
     return [
       ...hardcodedItems.map((i) => ({ ...i, _source: "hardcoded" as const })),
       ...uniqueDbItems.map((i) => ({ ...i, _source: "db" as const })),
     ];
-  }, [faqsData, permanentFilters, hasCentralized, hardcodedItems, ignoredEntries, locale, sortField, limit]);
+  }, [
+    faqsData,
+    searchData,
+    permanentFilters,
+    hasCentralized,
+    hardcodedItems,
+    ignoredEntries,
+    locale,
+    sortField,
+    limit,
+    useSearch,
+  ]);
 
   // Resolve original question text for ignored entries from DB data
   const ignoredItemsResolved = useMemo(() => {
@@ -434,6 +550,9 @@ export function FaqItemsPicker({
   const overrideCount = Object.keys(itemOverrides).filter(
     (k) => (itemOverrides[k]?.hideOnLocations?.length ?? 0) > 0,
   ).length;
+
+  const hardcodedCount = hardcodedItems.length;
+  const dbCount = displayedItems.filter((i) => i._source === "db").length;
 
   // --- Edit state factories ---
   const openLocalAdd = () => {
@@ -565,6 +684,12 @@ export function FaqItemsPicker({
     }
   };
 
+  const handleAddRef = useRef(handleAdd);
+  handleAddRef.current = handleAdd;
+  useImperativeHandle(ref, () => ({
+    openAdd: () => handleAddRef.current(),
+  }), []);
+
   const handleEdit = (faqItem: DisplayItem) => {
     if (faqItem._source === "hardcoded") {
       openLocalEditHardcoded(faqItem);
@@ -666,6 +791,74 @@ export function FaqItemsPicker({
 
   const hasItems = hardcodedItems.length > 0 || hasCentralized;
   if (!hasItems && !isEditable) return null;
+
+  const listBody = (
+    <div className={isEmbedded ? "space-y-2 max-h-72 overflow-y-auto pr-0.5" : "space-y-2 mt-2"}>
+      {(isLoading || (useSearch && searchLoading)) && (
+        <div className="animate-pulse space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-12 bg-muted rounded" />
+          ))}
+        </div>
+      )}
+      {!(isLoading || (useSearch && searchLoading)) && displayedItems.length === 0 && (
+        <p className="text-xs text-muted-foreground py-2">
+          No FAQ items found for the selected topics.
+        </p>
+      )}
+      {!(isLoading || (useSearch && searchLoading)) &&
+        displayedItems.map((faqItem) => {
+          const key = faqItemKey(faqItem.question);
+          const override = itemOverrides[key];
+          return (
+            <ItemLocationPicker
+              key={key}
+              itemKey={key}
+              question={faqItem.question}
+              hideOnLocations={override?.hideOnLocations || []}
+              source={faqItem._source}
+              onLocationsChange={handleItemLocationsChange}
+              onEdit={isEditable ? () => handleEdit(faqItem) : undefined}
+              onDelete={isEditable ? () => handleDelete(faqItem) : undefined}
+            />
+          );
+        })}
+
+      {/* Hidden DB items section */}
+      {ignoredItemsResolved.length > 0 && (
+        <div className="mt-3 space-y-1">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-0.5">
+            Hidden DB items ({ignoredItemsResolved.length})
+          </p>
+          {ignoredItemsResolved.map(({ key, question }) => (
+            <div
+              key={key}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed bg-muted/20"
+            >
+              <p className="text-xs text-muted-foreground line-clamp-1 flex-1 italic">
+                {question}
+              </p>
+              {onIgnoredEntriesChange && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[10px] px-2 flex-shrink-0"
+                  onClick={() =>
+                    onIgnoredEntriesChange(ignoredEntries.filter((k) => k !== key))
+                  }
+                  data-testid={`button-restore-ignored-${key}`}
+                  title="Restore this FAQ"
+                >
+                  <IconArrowBackUp className="h-3 w-3 mr-1" />
+                  Restore
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-2">
@@ -775,117 +968,84 @@ export function FaqItemsPicker({
         </Dialog>
       )}
 
-      {/* Header row */}
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 flex-1 group min-w-0"
-          data-testid="button-toggle-faq-items-visibility"
-        >
-          <Label className="text-sm font-medium flex items-center gap-1.5 cursor-pointer flex-wrap">
-            <IconEyeOff className="h-3.5 w-3.5 flex-shrink-0" />
-            FAQ preview
+      {isEmbedded ? (
+        <>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="secondary" className="text-xs font-normal">
+              {displayedItems.length} FAQ{displayedItems.length !== 1 ? "s" : ""}
+            </Badge>
+            {hardcodedCount > 0 && (
+              <Badge variant="secondary" className="text-xs font-normal">
+                {hardcodedCount} manually added
+              </Badge>
+            )}
+            {dbCount > 0 && (
+              <Badge variant="secondary" className="text-xs font-normal">
+                {dbCount} from DB
+              </Badge>
+            )}
+            {ignoredEntries.length > 0 && (
+              <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
+                {ignoredEntries.length} hidden
+              </Badge>
+            )}
             {overrideCount > 0 && (
-              <Badge variant="secondary" className="text-[10px]">
+              <Badge variant="secondary" className="text-xs font-normal">
                 {overrideCount} with overrides
               </Badge>
             )}
-          </Label>
-          {expanded ? (
-            <IconChevronUp className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-auto" />
-          ) : (
-            <IconChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-auto" />
-          )}
-        </button>
-        {/* "hidden" count badge — outside the collapse button so it has no hover effect */}
-        {ignoredEntries.length > 0 && (
-          <Badge
-            variant="outline"
-            className="text-[10px] text-muted-foreground no-default-hover-elevate no-default-active-elevate pointer-events-none"
-          >
-            {ignoredEntries.length} hidden
-          </Badge>
-        )}
-        {isEditable && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleAdd}
-            data-testid="button-faq-add-item"
-          >
-            <IconPlus className="h-3.5 w-3.5 mr-1" />
-            Add
-          </Button>
-        )}
-      </div>
+          </div>
+          {listBody}
+        </>
+      ) : (
+        <>
+          {/* Header row */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center gap-1.5 flex-1 group min-w-0"
+              data-testid="button-toggle-faq-items-visibility"
+            >
+              <Label className="text-sm font-medium flex items-center gap-1.5 cursor-pointer flex-wrap">
+                <IconEyeOff className="h-3.5 w-3.5 flex-shrink-0" />
+                FAQ preview
+                {overrideCount > 0 && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    {overrideCount} with overrides
+                  </Badge>
+                )}
+              </Label>
+              {expanded ? (
+                <IconChevronUp className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-auto" />
+              ) : (
+                <IconChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-auto" />
+              )}
+            </button>
+            {/* "hidden" count badge — outside the collapse button so it has no hover effect */}
+            {ignoredEntries.length > 0 && (
+              <Badge
+                variant="outline"
+                className="text-[10px] text-muted-foreground no-default-hover-elevate no-default-active-elevate pointer-events-none"
+              >
+                {ignoredEntries.length} hidden
+              </Badge>
+            )}
+            {isEditable && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAdd}
+                data-testid="button-faq-add-item"
+              >
+                <IconPlus className="h-3.5 w-3.5 mr-1" />
+                Add
+              </Button>
+            )}
+          </div>
 
-      {expanded && (
-        <div className="space-y-2 mt-2">
-          {isLoading && (
-            <div className="animate-pulse space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-12 bg-muted rounded" />
-              ))}
-            </div>
-          )}
-          {!isLoading && displayedItems.length === 0 && (
-            <p className="text-xs text-muted-foreground py-2">
-              No FAQ items found for the selected topics.
-            </p>
-          )}
-          {!isLoading &&
-            displayedItems.map((faqItem) => {
-              const key = faqItemKey(faqItem.question);
-              const override = itemOverrides[key];
-              return (
-                <ItemLocationPicker
-                  key={key}
-                  itemKey={key}
-                  question={faqItem.question}
-                  hideOnLocations={override?.hideOnLocations || []}
-                  source={faqItem._source}
-                  onLocationsChange={handleItemLocationsChange}
-                  onEdit={isEditable ? () => handleEdit(faqItem) : undefined}
-                  onDelete={isEditable ? () => handleDelete(faqItem) : undefined}
-                />
-              );
-            })}
-
-          {/* Hidden DB items section */}
-          {ignoredItemsResolved.length > 0 && (
-            <div className="mt-3 space-y-1">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-0.5">
-                Hidden DB items ({ignoredItemsResolved.length})
-              </p>
-              {ignoredItemsResolved.map(({ key, question }) => (
-                <div
-                  key={key}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed bg-muted/20"
-                >
-                  <p className="text-xs text-muted-foreground line-clamp-1 flex-1 italic">
-                    {question}
-                  </p>
-                  {onIgnoredEntriesChange && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-[10px] px-2 flex-shrink-0"
-                      onClick={() =>
-                        onIgnoredEntriesChange(ignoredEntries.filter((k) => k !== key))
-                      }
-                      data-testid={`button-restore-ignored-${key}`}
-                      title="Restore this FAQ"
-                    >
-                      <IconArrowBackUp className="h-3 w-3 mr-1" />
-                      Restore
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          {expanded && listBody}
+        </>
       )}
     </div>
   );
-}
+});

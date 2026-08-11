@@ -38,6 +38,8 @@ interface SearchableMultiSelectProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   portalContainer?: HTMLElement | null;
+  /** Render only the search + options panel (for nesting inside an external popover). */
+  panelOnly?: boolean;
 }
 
 export function SearchableMultiSelect({
@@ -53,6 +55,7 @@ export function SearchableMultiSelect({
   open: openProp,
   onOpenChange: onOpenChangeProp,
   portalContainer,
+  panelOnly = false,
 }: SearchableMultiSelectProps) {
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -101,6 +104,97 @@ export function SearchableMultiSelect({
     }
   };
 
+  const optionsPanel = (
+    <>
+      <div className="p-2 border-b">
+        <div className="relative">
+          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+            data-testid={`input-${testIdPrefix}-filter-search`}
+            autoFocus
+          />
+        </div>
+      </div>
+      <ScrollArea className="h-[240px]">
+        <div className="p-1">
+          {isLoading && (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              Loading…
+            </div>
+          )}
+          {!isLoading && filteredOptions.length === 0 && (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              {emptyMessage}
+            </div>
+          )}
+          {!isLoading &&
+            Object.entries(grouped).map(([groupKey, opts]) => (
+              <div key={groupKey || "__ungrouped"} className={groupKey ? "mb-1" : undefined}>
+                {groupKey && (
+                  <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                    {groupLabels?.[groupKey] ?? groupKey}
+                  </div>
+                )}
+                {opts.map((opt) => {
+                  const isSelected = value.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggle(opt.value)}
+                      className={`flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md transition-colors ${
+                        isSelected
+                          ? "bg-primary/10 text-foreground"
+                          : "text-muted-foreground hover:bg-muted"
+                      }`}
+                      data-testid={`button-${testIdPrefix}-toggle-${opt.value}`}
+                    >
+                      {opt.prefix && (
+                        <span className="flex-shrink-0 leading-none">
+                          {opt.prefix}
+                        </span>
+                      )}
+                      <span className="flex-1 text-left truncate">
+                        {opt.label}
+                      </span>
+                      {isSelected && (
+                        <IconCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+        </div>
+      </ScrollArea>
+      {hasValues && (
+        <div className="p-2 border-t">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-destructive"
+            onClick={() => {
+              onChange([]);
+              setOpen(false);
+            }}
+            data-testid={`button-clear-${testIdPrefix}-all`}
+          >
+            Clear all filters
+          </Button>
+        </div>
+      )}
+    </>
+  );
+
+  if (panelOnly) {
+    return <div className="w-full">{optionsPanel}</div>;
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -147,88 +241,7 @@ export function SearchableMultiSelect({
               align="end"
               container={portalContainer}
             >
-              <div className="p-2 border-b">
-                <div className="relative">
-                  <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder={searchPlaceholder}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                    data-testid={`input-${testIdPrefix}-filter-search`}
-                    autoFocus
-                  />
-                </div>
-              </div>
-              <ScrollArea className="h-[240px]">
-                <div className="p-1">
-                  {isLoading && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      Loading…
-                    </div>
-                  )}
-                  {!isLoading && filteredOptions.length === 0 && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      {emptyMessage}
-                    </div>
-                  )}
-                  {!isLoading &&
-                    Object.entries(grouped).map(([groupKey, opts]) => (
-                      <div key={groupKey || "__ungrouped"} className={groupKey ? "mb-1" : undefined}>
-                        {groupKey && (
-                          <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
-                            {groupLabels?.[groupKey] ?? groupKey}
-                          </div>
-                        )}
-                        {opts.map((opt) => {
-                          const isSelected = value.includes(opt.value);
-                          return (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => toggle(opt.value)}
-                              className={`flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md transition-colors ${
-                                isSelected
-                                  ? "bg-primary/10 text-foreground"
-                                  : "text-muted-foreground hover:bg-muted"
-                              }`}
-                              data-testid={`button-${testIdPrefix}-toggle-${opt.value}`}
-                            >
-                              {opt.prefix && (
-                                <span className="flex-shrink-0 leading-none">
-                                  {opt.prefix}
-                                </span>
-                              )}
-                              <span className="flex-1 text-left truncate">
-                                {opt.label}
-                              </span>
-                              {isSelected && (
-                                <IconCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                </div>
-              </ScrollArea>
-              {hasValues && (
-                <div className="p-2 border-t">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full text-destructive"
-                    onClick={() => {
-                      onChange([]);
-                      setOpen(false);
-                    }}
-                    data-testid={`button-clear-${testIdPrefix}-all`}
-                  >
-                    Clear all filters
-                  </Button>
-                </div>
-              )}
+              {optionsPanel}
             </PopoverContent>
           </Popover>
         </div>

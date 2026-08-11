@@ -1,8 +1,9 @@
 import { databaseManager, type DatabaseManager } from "./database";
 import { contentIndex, type ContentIndex } from "./content-index";
 import { resolveContentTypeUrl } from "./content-types";
-import { queryEntries, type QueryFilter } from "./query-entries";
+import { queryEntries, type QueryFilter, applyFilters, applyMatchCountSort } from "./query-entries";
 import { child } from "./logger";
+import { parsePipeFallback } from "@shared/json-field";
 
 const log = child({ module: "dynamic-entries" });
 
@@ -18,8 +19,8 @@ export interface ResolveDynamicEntriesOptions {
   singleEntry?: Record<string, unknown>;
 }
 
-const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}/g;
-const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
+const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
+const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -37,10 +38,11 @@ function resolveTemplateValue(template: unknown, item: Record<string, unknown>):
     const exactMatch = template.match(EXACT_SINGLE_VAR_PATTERN);
     if (exactMatch) {
       const fieldPath = exactMatch[1];
+      const hasFallback = exactMatch[2] !== undefined;
       const fallback = exactMatch[2]?.trim();
       const value = getNestedValue(item, fieldPath);
       if (value !== undefined && value !== null) return value;
-      if (fallback !== undefined) return fallback;
+      if (hasFallback) return parsePipeFallback(fallback ?? "");
       return "";
     }
 
@@ -90,10 +92,13 @@ interface DynamicEntriesConfig {
   database?: string;
   limit?: number;
   sort?: string;
+  search?: string;
   permanent_filters?: PermanentFilter[];
   user_filters?: UserFilter[];
   ignored_entries?: string[];
 }
+
+const MIN_SEARCH_CHARS = 3;
 
 export function faqItemKey(question: string): string {
   return question
@@ -101,6 +106,15 @@ export function faqItemKey(question: string): string {
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, "-")
     .slice(0, 80);
+}
+
+function applyIgnoredEntries(
+  items: Record<string, unknown>[],
+  ignored: string[] | undefined,
+): Record<string, unknown>[] {
+  if (!ignored?.length) return items;
+  const ignoredSet = new Set(ignored.map((k: string) => k.toLowerCase().trim()));
+  return items.filter((item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))));
 }
 
 export async function resolveDynamicEntries(
@@ -158,40 +172,92 @@ export async function resolveDynamicEntries(
             : pf.value,
       }));
 
-      // When ignored_entries exist, fetch without limit so FAQ ignores apply before slicing.
-      const queryLimit =
-        !hasIgnored && dynamicEntries.limit && dynamicEntries.limit > 0
-          ? Math.max(0, dynamicEntries.limit - hardcodedCount)
-          : undefined;
+      const searchPhrase =
+        typeof dynamicEntries.search === "string" ? dynamicEntries.search.trim() : "";
+      const useSearch =
+        Boolean(dynamicEntries.database) &&
+        searchPhrase.length >= MIN_SEARCH_CHARS;
 
-      const from = contentType
-        ? ({ contentType } as const)
-        : ({ database: dynamicEntries.database! } as const);
+      let items: Record<string, unknown>[];
 
-      const result = await queryEntries(
-        {
-          from,
+      if (useSearch) {
+        const {
+          searchDatabaseItems,
+          SEARCH_CACHE_CEILING,
+          intersectSearchWithFiltersAndBackfill,
+        } = await import("./database-search");
+
+        const remainingSlots =
+          dynamicEntries.limit && dynamicEntries.limit > 0
+            ? Math.max(0, dynamicEntries.limit - hardcodedCount)
+            : SEARCH_CACHE_CEILING;
+
+        const searchResult = await searchDatabaseItems(dynamicEntries.database!, searchPhrase, {
+          limit: SEARCH_CACHE_CEILING,
           locale,
-          filters,
-          sort: dynamicEntries.sort,
-          limit: queryLimit,
-        },
-        { db, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
-      );
-
-      let items = result.items;
-
-      if (hasIgnored) {
-        const ignoredSet = new Set(
-          dynamicEntries.ignored_entries!.map((k: string) => k.toLowerCase().trim()),
-        );
-        items = items.filter((item) => {
-          const q = String(item.question ?? "");
-          return !ignoredSet.has(faqItemKey(q));
+          db,
         });
-        if (dynamicEntries.limit && dynamicEntries.limit > 0) {
-          const remainingSlots = Math.max(0, dynamicEntries.limit - hardcodedCount);
-          items = items.slice(0, remainingSlots);
+
+        let searchHits = applyFilters(searchResult.items, filters);
+        searchHits = applyIgnoredEntries(searchHits, dynamicEntries.ignored_entries);
+
+        // Filter-only pool for 1B backfill (and when search ∩ filters is short)
+        const filterOnlyResult = await queryEntries(
+          {
+            from: { database: dynamicEntries.database! },
+            locale,
+            filters,
+            sort: dynamicEntries.sort,
+            limit: undefined,
+          },
+          { db, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
+        );
+        const filterOnly = applyMatchCountSort(
+          applyIgnoredEntries(filterOnlyResult.items, dynamicEntries.ignored_entries),
+          filters,
+          dynamicEntries.sort,
+        );
+
+        items = intersectSearchWithFiltersAndBackfill(
+          searchHits,
+          filterOnly,
+          remainingSlots,
+          (item) => {
+            const slug = item.slug ?? item.id;
+            if (slug !== undefined && slug !== null && String(slug)) return `slug:${String(slug)}`;
+            return `q:${faqItemKey(String(item.question ?? ""))}`;
+          },
+        );
+      } else {
+        // When ignored_entries exist, fetch without limit so FAQ ignores apply before slicing.
+        const queryLimit =
+          !hasIgnored && dynamicEntries.limit && dynamicEntries.limit > 0
+            ? Math.max(0, dynamicEntries.limit - hardcodedCount)
+            : undefined;
+
+        const from = contentType
+          ? ({ contentType } as const)
+          : ({ database: dynamicEntries.database! } as const);
+
+        const result = await queryEntries(
+          {
+            from,
+            locale,
+            filters,
+            sort: dynamicEntries.sort,
+            limit: queryLimit,
+          },
+          { db, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
+        );
+
+        items = result.items;
+
+        if (hasIgnored) {
+          items = applyIgnoredEntries(items, dynamicEntries.ignored_entries);
+          if (dynamicEntries.limit && dynamicEntries.limit > 0) {
+            const remainingSlots = Math.max(0, dynamicEntries.limit - hardcodedCount);
+            items = items.slice(0, remainingSlots);
+          }
         }
       }
 

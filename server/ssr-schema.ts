@@ -11,6 +11,11 @@ import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generate
 import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
 import { applyFilters, applyMatchCountSort, type QueryFilter } from "./query-entries";
 import { faqItemKey } from "./dynamic-entries";
+import {
+  peekDatabaseSearchCacheL1,
+  normalizeSearchQuery,
+  intersectSearchWithFiltersAndBackfill,
+} from "./database-search";
 import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
@@ -66,6 +71,7 @@ interface FaqDynamicEntries {
   content_type?: string;
   limit?: number;
   sort?: string;
+  search?: string;
   permanent_filters?: Array<{ item_property_slug: string; value: unknown }>;
   ignored_entries?: string[];
   hardcoded_entries?: FaqItem[];
@@ -338,19 +344,86 @@ export function resolveFaqItems(section: FaqSection, locale: string, locationSlu
       field: pf.item_property_slug,
       value: pf.value,
     }));
-    items = applyFilters(items, filters);
-    items = applyMatchCountSort(items, filters, dyn.sort);
 
     const hardcodedEntries = dyn.hardcoded_entries || section.hardcoded_entries || [];
     const hardcodedCount = hardcodedEntries.length;
+    const remainingSlots =
+      dyn.limit && dyn.limit > 0 ? Math.max(0, dyn.limit - hardcodedCount) : items.length;
 
-    if (dyn.ignored_entries && dyn.ignored_entries.length > 0) {
-      const ignoredSet = new Set(dyn.ignored_entries.map((k) => k.toLowerCase().trim()));
-      items = items.filter((item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))));
-    }
+    const searchPhrase = typeof dyn.search === "string" ? dyn.search.trim() : "";
+    const useSearch = searchPhrase.length >= 3;
 
-    if (dyn.limit && dyn.limit > 0) {
-      items = items.slice(0, Math.max(0, dyn.limit - hardcodedCount));
+    if (useSearch) {
+      // Prefer L1 semantic cache (warmed by async page resolve); cold → keyword.
+      const refs = peekDatabaseSearchCacheL1(dyn.database, searchPhrase, locale);
+      let searchHits: Record<string, unknown>[] = [];
+
+      if (refs && refs.length > 0) {
+        for (const ref of refs) {
+          let item: Record<string, unknown> | undefined;
+          if (ref._idx !== undefined && ref._idx >= 0 && ref._idx < items.length) {
+            const candidate = items[ref._idx];
+            if (!ref.slug || String(candidate.slug ?? candidate.id ?? "") === ref.slug) {
+              item = candidate;
+            }
+          }
+          if (!item) {
+            item = items.find((i) => String(i.slug ?? i.id ?? "") === ref.slug);
+          }
+          if (item) searchHits.push(item);
+        }
+      } else {
+        const qLower = normalizeSearchQuery(searchPhrase);
+        searchHits = items.filter((item) => {
+          for (const f of ["question", "answer", "title", "description"]) {
+            const val = item[f];
+            if (val == null) continue;
+            if (typeof val === "object") {
+              if (JSON.stringify(val).toLowerCase().includes(qLower)) return true;
+            } else if (String(val).toLowerCase().includes(qLower)) {
+              return true;
+            }
+          }
+          return false;
+        });
+      }
+
+      searchHits = applyFilters(searchHits, filters);
+      let filterOnly = applyFilters(items, filters);
+      filterOnly = applyMatchCountSort(filterOnly, filters, dyn.sort);
+
+      if (dyn.ignored_entries && dyn.ignored_entries.length > 0) {
+        const ignoredSet = new Set(dyn.ignored_entries.map((k) => k.toLowerCase().trim()));
+        searchHits = searchHits.filter(
+          (item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))),
+        );
+        filterOnly = filterOnly.filter(
+          (item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))),
+        );
+      }
+
+      items = intersectSearchWithFiltersAndBackfill(
+        searchHits,
+        filterOnly,
+        remainingSlots,
+        (item) => {
+          const slug = item.slug ?? item.id;
+          if (slug !== undefined && slug !== null && String(slug)) return `slug:${String(slug)}`;
+          return `q:${faqItemKey(String(item.question ?? ""))}`;
+        },
+      );
+    } else {
+      items = applyFilters(items, filters);
+      items = applyMatchCountSort(items, filters, dyn.sort);
+
+      if (dyn.ignored_entries && dyn.ignored_entries.length > 0) {
+        const ignoredSet = new Set(dyn.ignored_entries.map((k) => k.toLowerCase().trim()));
+        items = items.filter((item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))));
+      }
+
+      if (dyn.limit && dyn.limit > 0) {
+        items = items.slice(0, remainingSlots);
+      }
     }
 
     return [...hardcodedEntries, ...(items as unknown as FaqItem[])]

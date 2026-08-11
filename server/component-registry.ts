@@ -657,14 +657,16 @@ export function loadAllFieldEditors(): AllFieldEditors {
             const entries: Record<string, EditorType> = {};
             
             // Match patterns like: "features[].icon": "icon-picker",
-            const entryRegex = /"([^"]+)":\s*"([^"]+)"/g;
+            // Also allow unquoted identifier keys: item_overrides: "faq-section-editor",
+            const entryRegex = /(?:"([^"]+)"|([A-Za-z_][\w.[\]]*)):\s*"([^"]+)"/g;
             let entryMatch;
             
             while ((entryMatch = entryRegex.exec(objStr)) !== null) {
-              const [, fieldPath, editorType] = entryMatch;
+              const fieldPath = entryMatch[1] || entryMatch[2];
+              const editorType = entryMatch[3];
               // Parse base type (e.g., "color-picker:background" -> "color-picker")
               const baseType = editorType.split(":")[0];
-              if (["icon-picker", "color-picker", "image-picker", "image-with-style-picker", "link-picker", "rich-text-editor", "markdown", "boolean-toggle", "variant-picker", "video-picker", "cta-picker", "cta-tracking", "string-picker", "font-size-picker", "related-features-picker", "faq-visibility-editor", "db-field-values-picker", "form-settings"].includes(baseType)) {
+              if (["icon-picker", "color-picker", "image-picker", "image-with-style-picker", "link-picker", "rich-text-editor", "markdown", "boolean-toggle", "variant-picker", "video-picker", "cta-picker", "cta-tracking", "string-picker", "font-size-picker", "related-features-picker", "faq-visibility-editor", "faq-section-editor", "db-field-values-picker", "form-settings"].includes(baseType)) {
                 entries[fieldPath] = editorType as EditorType;
               }
             }

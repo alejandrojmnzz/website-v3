@@ -1128,6 +1128,7 @@ export const listCardsSectionSchema = z.object({
     database: z.string().optional(),
     limit: z.number().optional(),
     sort: z.string().optional(),
+    search: z.string().optional(),
     item_template: z.record(z.string(), z.unknown()).optional(),
     hardcoded_entries: z.array(z.unknown()).optional(),
     permanent_filters: z.array(permanentFilterSchema).optional(),
@@ -1354,6 +1355,8 @@ export const editOperationSchema = z.discriminatedUnion("action", [
     index: z.number(),
     section: z.record(z.unknown()),
     structural: z.boolean().optional(),
+    /** Bound `{{ single.* }}` paths staff confirmed clearing from the shared template. */
+    clearedTemplatePaths: z.array(z.string()).optional(),
   }),
   z.object({
     action: z.literal("replace_all_sections"),

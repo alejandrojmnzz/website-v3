@@ -8,6 +8,8 @@ interface DbFieldValuesPickerProps {
   value: string[];
   onChange: (value: string[]) => void;
   label?: string;
+  /** Render only the options panel (for nesting inside an external popover). */
+  panelOnly?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ export function DbFieldValuesPicker({
   value,
   onChange,
   label,
+  panelOnly = false,
 }: DbFieldValuesPickerProps) {
   const displayLabel = label ?? field.replace(/_/g, " ");
 
@@ -60,6 +63,7 @@ export function DbFieldValuesPicker({
       isLoading={isLoading}
       testIdPrefix={field}
       emptyMessage="No values found"
+      panelOnly={panelOnly}
     />
   );
 }

@@ -2126,7 +2126,7 @@ function FieldMappingEditor({
   const [sampleData, setSampleData] = useState<{ items: Record<string, unknown>[]; count: number } | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
 
-  type EditorHint = { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string };
+  type EditorHint = { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string; schema?: Record<string, unknown> };
 
   const normalizeEditorHints = (editor: Record<string, EditorHint> | undefined): Record<string, EditorHint> => {
     if (!editor) return {};
@@ -3730,6 +3730,7 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
   jobStatus?: {
     fetch: { status: string };
     index: { status: string; fetched?: number; total?: number | null; finishedAt?: string; error?: string };
+    search_cache?: { memoryEntries?: number; lastWrittenAt?: string | null };
   } | null;
   onForceRefresh?: () => void;
   onReindex?: () => void;
@@ -3739,6 +3740,22 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
   const isError = index?.status === "error";
   const isDone = index?.status === "done";
   const neverRun = !isRunning && !isError && !isDone;
+  const memoryEntries = jobStatus?.search_cache?.memoryEntries ?? 0;
+  const [gcsEntries, setGcsEntries] = useState<number | null>(null);
+  const [gcsLoading, setGcsLoading] = useState(false);
+
+  const checkGcsCache = async () => {
+    setGcsLoading(true);
+    try {
+      const res = await fetch(`/api/databases/${dbName}/search-cache-stats?includeGcs=1`);
+      const data = await res.json();
+      setGcsEntries(typeof data.gcsEntries === "number" ? data.gcsEntries : 0);
+    } catch {
+      setGcsEntries(null);
+    } finally {
+      setGcsLoading(false);
+    }
+  };
 
   return (
     <Card>
@@ -3751,6 +3768,33 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
           {index?.fetched !== undefined ? index.fetched : "\u2014"}
           {index?.total !== undefined && index.total !== null ? ` / ${index.total}` : ""}
         </p>
+        <p className="text-xs text-muted-foreground" data-testid="text-search-cache-memory">
+          Search cache: {memoryEntries} in memory
+          {jobStatus?.search_cache?.lastWrittenAt
+            ? ` · last ${new Date(jobStatus.search_cache.lastWrittenAt).toLocaleString()}`
+            : ""}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-[10px] px-1.5 text-muted-foreground"
+            onClick={checkGcsCache}
+            disabled={gcsLoading}
+            data-testid="button-check-gcs-search-cache"
+          >
+            {gcsLoading ? (
+              <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Checking GCS…</>
+            ) : (
+              "Check GCS cache"
+            )}
+          </Button>
+          {gcsEntries !== null && (
+            <span className="text-[10px] text-muted-foreground" data-testid="text-search-cache-gcs">
+              {gcsEntries} object{gcsEntries === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
         {isRunning ? (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
@@ -3978,6 +4022,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     items: Record<string, unknown>[];
     count: number;
     semantic: boolean;
+    scores?: Record<string, number>;
     fallback_reason?: "vector_store_unavailable" | "semantic_index_empty";
     fallback_message?: string;
   }>({
@@ -3991,21 +4036,37 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
   const activeItems = dataView === "raw" ? rawItemsData : itemsData;
 
+  const showScoreColumn =
+    dataView !== "raw" &&
+    !editMode &&
+    debouncedSearch.trim().length > 0 &&
+    !!semanticResults?.semantic &&
+    !!semanticResults.scores &&
+    Object.keys(semanticResults.scores).length > 0;
+
   const columns = (() => {
+    let cols: string[] = [];
     if (dataView === "mapped" && fieldMapping && Object.keys(fieldMapping).length > 0) {
-      return Object.keys(fieldMapping);
+      cols = Object.keys(fieldMapping);
+    } else if (activeItems?.items?.[0]) {
+      cols = Object.keys(activeItems.items[0]);
     }
-    if (activeItems?.items?.[0]) {
-      return Object.keys(activeItems.items[0]);
+    if (showScoreColumn) {
+      cols = ["score", ...cols.filter((c) => c !== "score")];
     }
-    return [];
+    return cols;
   })();
 
   const filteredItems = (() => {
     let items: Record<string, unknown>[];
 
     if (debouncedSearch.trim() && semanticResults?.items && dataView !== "raw") {
-      items = semanticResults.items;
+      items = semanticResults.items.map((item, i) => {
+        const scores = semanticResults.scores ?? {};
+        const key = String(item.slug ?? item.id ?? i);
+        const score = scores[key] ?? scores[String(i)];
+        return typeof score === "number" ? { ...item, score } : { ...item };
+      });
       // AND tag filters on top of semantic results (server search doesn't apply them)
       if (Object.keys(tagFilters).length > 0) {
         items = items.filter((item) =>
@@ -4032,6 +4093,11 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
     if (sortKey) {
       items = [...items].sort((a, b) => {
+        if (sortKey === "score") {
+          const av = typeof a.score === "number" ? a.score : Number.NEGATIVE_INFINITY;
+          const bv = typeof b.score === "number" ? b.score : Number.NEGATIVE_INFINITY;
+          return sortDir === "asc" ? av - bv : bv - av;
+        }
         const av = a[sortKey] ?? "";
         const bv = b[sortKey] ?? "";
         const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
@@ -5083,9 +5149,21 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                             className="px-3 py-2 text-left font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap"
                             onClick={() => !editMode && handleSort(col)}
                             data-testid={`th-sort-${col}`}
+                            title={
+                              col === "score"
+                                ? "Qdrant cosine similarity (higher = closer meaning)"
+                                : undefined
+                            }
                           >
                             <span className="inline-flex items-center gap-1">
-                              {col}
+                              {col === "score" ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Sparkles className="h-3 w-3 text-orange-500" />
+                                  score
+                                </span>
+                              ) : (
+                                col
+                              )}
                               {!editMode && sortKey === col ? (
                                 sortDir === "asc" ? (
                                   <ChevronUp className="h-3 w-3" />
@@ -5147,15 +5225,31 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                               </div>
                             </td>
                           )}
-                          {columns.map((col) => (
+                          {columns.map((col) => {
+                            const raw = item[col];
+                            const display =
+                              col === "score" && typeof raw === "number"
+                                ? raw.toFixed(4)
+                                : formatCellValue(raw);
+                            return (
                             <td
                               key={col}
-                              className={`px-3 py-2 max-w-[200px] truncate whitespace-nowrap ${cellClassName(item[col])}`}
-                              title={formatCellValue(item[col])}
+                              className={`px-3 py-2 max-w-[200px] truncate whitespace-nowrap ${
+                                col === "score"
+                                  ? "font-mono tabular-nums text-muted-foreground"
+                                  : cellClassName(raw)
+                              }`}
+                              title={
+                                col === "score" && typeof raw === "number"
+                                  ? `Cosine similarity: ${raw}`
+                                  : formatCellValue(raw)
+                              }
+                              data-testid={col === "score" ? `cell-score-${i}` : undefined}
                             >
-                              {formatCellValue(item[col])}
+                              {display}
                             </td>
-                          ))}
+                            );
+                          })}
                         </tr>
                         );
                       })}

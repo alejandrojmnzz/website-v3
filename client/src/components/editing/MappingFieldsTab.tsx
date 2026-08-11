@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
@@ -38,11 +38,15 @@ type FieldProvenance = {
   db_value?: unknown;
   ct_value?: unknown;
   calculated?: boolean;
+  layer_has_key?: boolean;
 };
 
 type ProvenanceResponse = {
   hasDatabase: boolean;
   fields: FieldProvenance[];
+  layerFileName?: string;
+  isVariantLayer?: boolean;
+  resolvedVariant?: string | null;
 };
 
 type ContentTypeConfig = {
@@ -64,17 +68,21 @@ function FieldsEducationBlock({
   databaseSlug,
   slug,
   locale,
+  layerFileName,
+  isVariantLayer,
 }: {
   hasDatabase: boolean;
   directory: string;
   databaseSlug?: string;
   slug: string;
   locale: string;
+  layerFileName?: string;
+  isVariantLayer?: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dbPath = `db/${databaseSlug || "<database>"}/overrides.json`;
-  const ctPath = `${directory}/${slug}/${locale}.yml`;
+  const ctPath = `${directory}/${slug}/${layerFileName || `${locale}.yml`}`;
 
   return (
     <div
@@ -115,8 +123,9 @@ function FieldsEducationBlock({
                   database value (listings and this page). Shared across locales.
                 </p>
                 <p>
-                  <span className="font-medium text-foreground">Content type override</span> — Writes to this
-                  page&apos;s YAML only for <strong className="text-foreground">this locale ({locale})</strong>.
+                  <span className="font-medium text-foreground">Content type override</span> — Writes under{" "}
+                  <code className="text-xs bg-muted px-1 rounded font-mono">field_overrides</code> on this
+                  page&apos;s YAML for <strong className="text-foreground">this locale ({locale})</strong>.
                 </p>
                 <p>
                   <span className="font-medium text-foreground">Precedence:</span> Content type override →
@@ -125,9 +134,19 @@ function FieldsEducationBlock({
               </div>
             ) : (
               <p>
-                <span className="font-medium text-foreground">Content type override</span> — Stores the value
-                under <code className="text-xs bg-muted px-1 rounded font-mono">field_overrides</code> for{" "}
-                <strong className="text-foreground">this locale ({locale})</strong> only.
+                <span className="font-medium text-foreground">Static fields</span> — Writes{" "}
+                <strong className="text-foreground">top-level keys</strong> on{" "}
+                <code className="text-xs bg-muted px-1 rounded font-mono">{ctPath}</code> (same idea as{" "}
+                <code className="text-xs font-mono">title</code> / <code className="text-xs font-mono">content</code>
+                ). The API path is still named <code className="text-xs font-mono">field-overrides</code>, but
+                static types do not store a <code className="text-xs font-mono">field_overrides</code> bag.
+              </p>
+            )}
+            {isVariantLayer && layerFileName && (
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-amber-900 dark:text-amber-100">
+                Editing <code className="font-mono text-xs">{layerFileName}</code> — not the published{" "}
+                <code className="font-mono text-xs">{locale}.yml</code>. Changes stay on this variant until
+                promote/publish.
               </p>
             )}
             <p>
@@ -166,9 +185,21 @@ function FieldsEducationBlock({
                     </li>
                   )}
                   <li>
-                    Content type override:{" "}
-                    <code className="text-[11px] font-mono">{ctPath}</code> under{" "}
-                    <code className="text-[11px] font-mono">field_overrides</code>
+                    {hasDatabase ? (
+                      <>
+                        Content type override:{" "}
+                        <code className="text-[11px] font-mono">{ctPath}</code> under{" "}
+                        <code className="text-[11px] font-mono">field_overrides</code>
+                      </>
+                    ) : (
+                      <>
+                        Static mapped fields: top-level keys on{" "}
+                        <code className="text-[11px] font-mono">{ctPath}</code> via{" "}
+                        <code className="text-[11px] font-mono">PUT .../field-overrides/:slug</code> →{" "}
+                        <code className="text-[11px] font-mono">server/field-overrides.ts</code> (
+                        <code className="text-[11px] font-mono">writeMappedFields</code>)
+                      </>
+                    )}
                   </li>
                   <li>
                     <code className="text-[11px] font-mono">published_at</code> (static):{" "}
@@ -176,6 +207,11 @@ function FieldsEducationBlock({
                     <code className="text-[11px] font-mono">server/published-at.ts</code> — not locale
                     overrides. Create stamps in <code className="text-[11px] font-mono">createContentEntry</code>;
                     draft go-live via versioning publish/promote.
+                  </li>
+                  <li>
+                    Live SEO/required gate:{" "}
+                    <code className="text-[11px] font-mono">server/live-entry-seo-gate.ts</code> (skipped for
+                    variant/draft layer writes).
                   </li>
                 </ul>
               </div>
@@ -197,15 +233,22 @@ function FieldsEducationBlock({
                   )}
                 </ul>
               </div>
-              {hasDatabase && (
-                <div>
-                  <p className="font-medium text-foreground mb-1">Reset</p>
+              <div>
+                <p className="font-medium text-foreground mb-1">Reset</p>
+                {hasDatabase ? (
                   <p>
                     Reset clears content-type and database overrides for a custom field, restoring the
                     original database value.
                   </p>
-                </div>
-              )}
+                ) : (
+                  <p>
+                    Reset removes the key from this layer file only (
+                    <code className="text-[11px] font-mono">{layerFileName || `${locale}.yml`}</code>
+                    ). If the value only exists on <code className="text-[11px] font-mono">_common.yml</code>,
+                    reset is a no-op.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -253,11 +296,14 @@ export function MappingFieldsTab({
   slug,
   locale,
   typeLabel,
+  variant,
 }: {
   contentType: string;
   slug: string;
   locale: string;
   typeLabel: string;
+  /** Preview/Debug variant slug (e.g. draft, lumi-version). Omit for live locale file. */
+  variant?: string | null;
 }) {
   const { toast } = useToast();
   const [levelChooserField, setLevelChooserField] = useState<FieldProvenance | null>(null);
@@ -268,18 +314,37 @@ export function MappingFieldsTab({
   } | null>(null);
   const [resetTarget, setResetTarget] = useState<FieldProvenance | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [variantConfirmOpen, setVariantConfirmOpen] = useState(false);
+  const variantConfirmRef = useRef<{
+    resolve: (ok: boolean) => void;
+  } | null>(null);
 
-  const provenanceKey = ["/api/content-types", contentType, "field-provenance", slug, locale] as const;
+  const variantParam =
+    typeof variant === "string" && variant.trim() && variant.trim() !== "default"
+      ? variant.trim()
+      : undefined;
+
+  const provenanceKey = [
+    "/api/content-types",
+    contentType,
+    "field-provenance",
+    slug,
+    locale,
+    variantParam || "",
+  ] as const;
 
   const { data: provenance, isLoading } = useQuery<ProvenanceResponse>({
     queryKey: provenanceKey,
-    queryFn: () =>
-      fetch(
-        `/api/content-types/${encodeURIComponent(contentType)}/field-provenance/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`,
+    queryFn: () => {
+      const q = new URLSearchParams({ locale });
+      if (variantParam) q.set("variant", variantParam);
+      return fetch(
+        `/api/content-types/${encodeURIComponent(contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`,
       ).then((r) => {
         if (!r.ok) throw new Error("Failed to load fields");
         return r.json();
-      }),
+      });
+    },
   });
 
   const { data: ctConfig } = useQuery<ContentTypeConfig>({
@@ -309,6 +374,8 @@ export function MappingFieldsTab({
   const hasMappings = fields.length > 0;
   const directory = ctConfig?.directory || contentType;
   const databaseSlug = ctConfig?.database?.slug;
+  const layerFileName = provenance?.layerFileName;
+  const isVariantLayer = !!provenance?.isVariantLayer || !!variantParam;
 
   const education = (
     <FieldsEducationBlock
@@ -317,6 +384,8 @@ export function MappingFieldsTab({
       databaseSlug={databaseSlug}
       slug={slug}
       locale={locale}
+      layerFileName={layerFileName}
+      isVariantLayer={isVariantLayer}
     />
   );
 
@@ -331,6 +400,14 @@ export function MappingFieldsTab({
     void queryClient.invalidateQueries({ queryKey: [...provenanceKey] });
   };
 
+  const confirmVariantSaveIfNeeded = async (): Promise<boolean> => {
+    if (!isVariantLayer) return true;
+    return new Promise((resolve) => {
+      variantConfirmRef.current = { resolve };
+      setVariantConfirmOpen(true);
+    });
+  };
+
   const openPencil = (row: FieldProvenance) => {
     if (row.calculated || isSystemSpecialField(row.field)) return;
     if (row.source === "ct_override" || (!hasDatabase && row.source === "entry_default")) {
@@ -341,11 +418,25 @@ export function MappingFieldsTab({
       setEditing({ field: row.field, level: "database", value: row.effective });
       return;
     }
+    if (!hasDatabase) {
+      setEditing({ field: row.field, level: "content_type", value: row.effective });
+      return;
+    }
     setLevelChooserField(row);
   };
 
   const handleReset = async () => {
-    if (!resetTarget || !hasDatabase || isSystemSpecialField(resetTarget.field)) return;
+    if (!resetTarget || isSystemSpecialField(resetTarget.field)) return;
+    if (hasDatabase) {
+      // DB path
+    } else if (!resetTarget.layer_has_key) {
+      toast({
+        title: "Nothing to reset",
+        description: `"${resetTarget.field}" is not set on this layer file (may come from _common.yml).`,
+      });
+      setResetTarget(null);
+      return;
+    }
     setResetting(true);
     try {
       const headers = await authHeaders();
@@ -355,14 +446,35 @@ export function MappingFieldsTab({
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ field: resetTarget.field, locale, author: author || undefined }),
+          body: JSON.stringify({
+            field: resetTarget.field,
+            locale,
+            variant: variantParam,
+            author: author || undefined,
+          }),
         },
       );
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        noop?: boolean;
+        message?: string;
+      };
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error || "Reset failed");
+        throw new Error(body.error || "Reset failed");
       }
-      toast({ title: "Field reset", description: `"${resetTarget.field}" restored to the original database value.` });
+      if (body.noop) {
+        toast({
+          title: "Nothing to reset",
+          description: body.message || body.error || "Field is not set on this layer.",
+        });
+      } else {
+        toast({
+          title: "Field reset",
+          description: hasDatabase
+            ? `"${resetTarget.field}" restored to the original database value.`
+            : `"${resetTarget.field}" removed from ${layerFileName || `${locale}.yml`}.`,
+        });
+      }
       setResetTarget(null);
       invalidate();
     } catch (err) {
@@ -425,6 +537,10 @@ export function MappingFieldsTab({
               const localeEmptyNote =
                 row.field === "_locale" && !hasDatabase && (row.effective === undefined || row.effective === "");
               const hreflangsStaticNote = row.field === "_hreflangs" && !hasDatabase;
+              const canReset =
+                !row.calculated &&
+                !special &&
+                (hasDatabase ? row.source !== "original" : !!row.layer_has_key);
               return (
                 <tr key={row.field} className="border-b last:border-b-0" data-testid={`row-field-${row.field}`}>
                   <td className="px-3 py-2 font-mono text-xs align-top">
@@ -482,13 +598,12 @@ export function MappingFieldsTab({
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
-                      {hasDatabase && !row.calculated && !special && (
+                      {canReset && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
                           title="Reset"
-                          disabled={row.source === "original"}
                           onClick={() => setResetTarget(row)}
                           data-testid={`button-reset-field-${row.field}`}
                         >
@@ -506,7 +621,9 @@ export function MappingFieldsTab({
 
       <Dialog
         open={!!levelChooserField}
-        onOpenChange={(v) => { if (!v) setLevelChooserField(null); }}
+        onOpenChange={(v) => {
+          if (!v) setLevelChooserField(null);
+        }}
       >
         <DialogContent className="sm:max-w-md" data-testid="dialog-override-level">
           <DialogHeader>
@@ -566,17 +683,68 @@ export function MappingFieldsTab({
           <AlertDialogHeader>
             <AlertDialogTitle>Reset field?</AlertDialogTitle>
             <AlertDialogDescription>
-              <code className="font-mono text-xs">{resetTarget?.field}</code> will go back to{" "}
-              <span className="font-medium text-foreground">
-                {formatDisplayValue(resetTarget?.baseline)}
-              </span>
-              . All database and content type overrides for this field will be removed.
+              {hasDatabase ? (
+                <>
+                  <code className="font-mono text-xs">{resetTarget?.field}</code> will go back to{" "}
+                  <span className="font-medium text-foreground">
+                    {formatDisplayValue(resetTarget?.baseline)}
+                  </span>
+                  . All database and content type overrides for this field will be removed.
+                </>
+              ) : (
+                <>
+                  Remove <code className="font-mono text-xs">{resetTarget?.field}</code> from{" "}
+                  <code className="font-mono text-xs">{layerFileName || `${locale}.yml`}</code>. Values that
+                  only exist on <code className="font-mono text-xs">_common.yml</code> are left unchanged.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={resetting}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => void handleReset()} disabled={resetting}>
               {resetting ? "Resetting…" : "Reset"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={variantConfirmOpen}
+        onOpenChange={(v) => {
+          if (!v) {
+            variantConfirmRef.current?.resolve(false);
+            variantConfirmRef.current = null;
+            setVariantConfirmOpen(false);
+          }
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-variant-save-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save to variant file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are editing{" "}
+              <code className="font-mono text-xs">{layerFileName || variantParam}</code>, not the published{" "}
+              <code className="font-mono text-xs">{locale}.yml</code>. Continue saving to the variant layer?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                variantConfirmRef.current?.resolve(false);
+                variantConfirmRef.current = null;
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                variantConfirmRef.current?.resolve(true);
+                variantConfirmRef.current = null;
+                setVariantConfirmOpen(false);
+              }}
+            >
+              Save to variant
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -592,6 +760,12 @@ export function MappingFieldsTab({
           title={`Edit ${editing.field}`}
           onClose={() => setEditing(null)}
           onSave={async (built) => {
+            if (editing.level === "content_type") {
+              const ok = await confirmVariantSaveIfNeeded();
+              if (!ok) {
+                throw new Error("Save cancelled — no changes written.");
+              }
+            }
             const headers = await authHeaders();
             const author = await resolveAuthorName();
             if (editing.level === "database") {
@@ -615,6 +789,7 @@ export function MappingFieldsTab({
                   headers,
                   body: JSON.stringify({
                     locale,
+                    variant: variantParam,
                     fields: built,
                     author: author || undefined,
                   }),
@@ -622,7 +797,7 @@ export function MappingFieldsTab({
               );
               if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                throw new Error((err as { error?: string }).error || "Failed to save content type override");
+                throw new Error((err as { error?: string }).error || "Failed to save field");
               }
             }
             invalidate();

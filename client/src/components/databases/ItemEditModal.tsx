@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   IconDeviceFloppy,
   IconLoader2,
@@ -7,6 +7,9 @@ import {
   IconCheck,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import CodeMirror from "@uiw/react-codemirror";
+import { json as jsonLang } from "@codemirror/lang-json";
+import { oneDark } from "@codemirror/theme-one-dark";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +41,11 @@ import {
   toDateInputValue,
   toDatetimeLocalValue,
 } from "@shared/parseDateTime";
+import {
+  coerceJsonFieldInput,
+  formatJsonFieldDraft,
+  type JsonSchema,
+} from "@shared/json-field";
 import {
   collectEditorFieldTokens,
   expandEditorFieldTokens,
@@ -371,6 +379,8 @@ export interface EditorConfig {
   split_comma_values?: boolean;
   cache_images?: boolean;
   description?: string;
+  /** Required when type is `json`. */
+  schema?: Record<string, unknown>;
 }
 
 interface DBConfig {
@@ -393,7 +403,8 @@ export function resolveEditorType(editorConfig?: EditorConfig): string {
   return editorConfig?.type || "text";
 }
 
-function buildItemFromForm(
+/** Exported for unit tests — coerces form state (json drafts as strings) to save payload. */
+export function buildItemFromForm(
   fields: string[],
   formData: Record<string, unknown>,
   editor: Record<string, EditorConfig> | undefined,
@@ -405,6 +416,19 @@ function buildItemFromForm(
     const editorType = editor?.[key]?.type;
     if (editorType === "boolean") {
       out[key] = Boolean(value);
+    } else if (editorType === "json") {
+      const schema = editor?.[key]?.schema as JsonSchema | undefined;
+      const draft =
+        typeof value === "string" ? value : formatJsonFieldDraft(value);
+      const coerced = coerceJsonFieldInput(draft, schema ?? null);
+      if (!coerced.ok) {
+        throw new Error(`${key}: ${coerced.error}`);
+      }
+      if (coerced.value === null) {
+        if (!omitEmpty) out[key] = null;
+      } else {
+        out[key] = coerced.value;
+      }
     } else if (editorType === "tags") {
       const arr = Array.isArray(value) ? value : [];
       if (arr.length > 0) {
@@ -442,6 +466,20 @@ function buildItemFromForm(
     }
   }
   return out;
+}
+
+function jsonFieldStatus(
+  draft: string,
+  schema: JsonSchema | undefined,
+): { valid: boolean; message?: string } {
+  if (!schema) {
+    return { valid: false, message: "json fields require a compilable editor.schema" };
+  }
+  const coerced = coerceJsonFieldInput(draft, schema);
+  if (!coerced.ok) {
+    return { valid: false, message: coerced.error };
+  }
+  return { valid: true };
 }
 
 export interface ItemEditModalProps {
@@ -520,10 +558,47 @@ export function ItemEditModal({
   const editor = editorOverrides ?? config?.editor;
   const allItems = externalAllItems ?? allItemsData?.items ?? [];
 
-  const [formData, setFormData] = useState<Record<string, unknown>>(
-    item ? { ...item } : {},
+  const normalizeFormData = (src: Record<string, unknown>): Record<string, unknown> => {
+    const next = { ...src };
+    if (!editor) return next;
+    for (const [key, hint] of Object.entries(editor)) {
+      if (hint?.type !== "json") continue;
+      if (!(key in next)) continue;
+      const v = next[key];
+      if (typeof v === "string") continue;
+      next[key] = formatJsonFieldDraft(v);
+    }
+    return next;
+  };
+
+  const [formData, setFormData] = useState<Record<string, unknown>>(() =>
+    item ? normalizeFormData({ ...item }) : {},
   );
   const [initialized, setInitialized] = useState(!isNew);
+  const lastItemRef = useRef(item);
+
+  useEffect(() => {
+    if (!item || isNew) return;
+    if (lastItemRef.current === item) {
+      // Editor hints may arrive after open — reformat json drafts once without wiping edits mid-type
+      setFormData((prev) => {
+        if (!editor) return prev;
+        let changed = false;
+        const next = { ...prev };
+        for (const [key, hint] of Object.entries(editor)) {
+          if (hint?.type !== "json") continue;
+          if (!(key in next)) continue;
+          if (typeof next[key] === "string") continue;
+          next[key] = formatJsonFieldDraft(next[key]);
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+      return;
+    }
+    lastItemRef.current = item;
+    setFormData(normalizeFormData({ ...item }));
+  }, [item, editor, isNew]);
 
   useEffect(() => {
     if (!isNew || initialized) return;
@@ -538,7 +613,8 @@ export function ItemEditModal({
     for (const key of keys) {
       if (hiddenFields.includes(key)) continue;
       const editorType = editor?.[key]?.type;
-      defaults[key] = editorType === "tags" ? [] : editorType === "boolean" ? false : "";
+      defaults[key] =
+        editorType === "tags" ? [] : editorType === "boolean" ? false : "";
     }
     setFormData(defaults);
     setInitialized(true);
@@ -554,10 +630,32 @@ export function ItemEditModal({
     return [];
   })();
 
+  const jsonFieldsInvalid = useMemo(() => {
+    if (!editor) return false;
+    for (const key of fields) {
+      if (editor[key]?.type !== "json") continue;
+      const draft =
+        typeof formData[key] === "string"
+          ? (formData[key] as string)
+          : formatJsonFieldDraft(formData[key]);
+      const status = jsonFieldStatus(draft, editor[key]?.schema as JsonSchema | undefined);
+      if (!status.valid) return true;
+    }
+    return false;
+  }, [editor, fields, formData]);
+
   const setValue = (key: string, v: unknown) =>
     setFormData((prev) => ({ ...prev, [key]: v }));
 
   const handleSave = async () => {
+    if (jsonFieldsInvalid) {
+      toast({
+        title: "Save failed",
+        description: "Fix invalid JSON fields before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const payload = buildItemFromForm(fields, formData, editor, isNew);
@@ -951,6 +1049,45 @@ export function ItemEditModal({
           </div>
         );
       }
+      case "json": {
+        const draft =
+          typeof value === "string" ? value : formatJsonFieldDraft(value);
+        const schema = editorConfig?.schema as JsonSchema | undefined;
+        const status = jsonFieldStatus(draft, schema);
+        return (
+          <div className="space-y-2" data-testid={`json-editor-${key}`}>
+            <p className="text-[11px] text-muted-foreground">
+              Saved as structured data, not a string. Exact{" "}
+              <code className="text-foreground">{"{{ single." + key + " }}"}</code> binds
+              return the value as-is.
+            </p>
+            <div className="rounded-md border overflow-hidden min-h-[10rem]">
+              <CodeMirror
+                value={draft}
+                height="160px"
+                extensions={[jsonLang()]}
+                theme={oneDark}
+                onChange={(v) => setValue(key, v)}
+                basicSetup={{
+                  lineNumbers: true,
+                  foldGutter: true,
+                  highlightActiveLine: true,
+                }}
+                className="text-xs [&_.cm-editor]:text-xs"
+                data-testid={`input-edit-${key}`}
+              />
+            </div>
+            {!status.valid && (
+              <p
+                className="text-[11px] text-destructive"
+                data-testid={`text-json-error-${key}`}
+              >
+                {status.message}
+              </p>
+            )}
+          </div>
+        );
+      }
       default:
         return (
           <Input
@@ -1040,7 +1177,7 @@ export function ItemEditModal({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={saving || showLoading || fields.length === 0}
+            disabled={saving || showLoading || fields.length === 0 || jsonFieldsInvalid}
             data-testid="button-save-edit-item"
           >
             {saving ? (

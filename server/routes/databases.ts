@@ -37,6 +37,11 @@ import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
 import { databaseManager, type DatabaseManager } from "../database";
 import {
+  jsonFieldFailureHttpBody,
+  validateAndCoerceJsonFields,
+  validateEditorHintsHaveJsonSchemas,
+} from "../json-field-validate";
+import {
   redirectMiddleware,
   getRedirects,
   clearRedirectCache,
@@ -676,103 +681,24 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
-      const dbm = getDB(res);
-      const config = dbm.get(dbName);
-      const vsConfig = (config as any).vector_search as { enabled?: boolean; fields?: string[] } | undefined;
-      const vectorEnabled = vsConfig?.enabled === true && Array.isArray(vsConfig.fields) && vsConfig.fields.length > 0;
-
-      const cacheResult = await dbm.fetchItems(dbName);
-      const allItems = cacheResult.items;
-
-      let fallbackReason: "vector_store_unavailable" | "semantic_index_empty" | undefined;
-      let fallbackMessage: string | undefined;
-
-      if (vectorEnabled) {
-        const { search: vectorSearch, isAvailable } = await import("../vector-search");
-        const available = await isAvailable();
-
-        if (!available) {
-          fallbackReason = "vector_store_unavailable";
-          fallbackMessage =
-            "Vector store (Qdrant) is unreachable. Search fell back to exact keyword matching — related words like \"certificate\" / \"certification\" will not match unless the exact substring appears.";
-        } else {
-          const searchResults = await vectorSearch(dbName, q, limit, locale);
-
-          if (searchResults.length > 0) {
-            let orderedItems = searchResults
-              .map((r) => {
-                if (r._idx !== undefined && r._idx >= 0 && r._idx < allItems.length) {
-                  return allItems[r._idx];
-                }
-                return allItems.find((item) => String(item.slug ?? item.id ?? "") === r.slug);
-              })
-              .filter((item): item is Record<string, unknown> => item !== undefined);
-
-            if (locale) {
-              orderedItems = orderedItems.filter((item) => {
-                const itemLocale = String(item.locale ?? item.language ?? item.lang ?? "");
-                return itemLocale.toLowerCase() === locale.toLowerCase();
-              });
-            }
-
-            const scoreByIdx = new Map(searchResults.map((r) => [r._idx, r.score]));
-            const scoreBySlug = new Map(searchResults.map((r) => [r.slug, r.score]));
-
-            res.json({
-              items: orderedItems,
-              count: orderedItems.length,
-              semantic: true,
-              scores: Object.fromEntries(
-                orderedItems.map((item, i) => {
-                  const result = searchResults[i];
-                  const score = result?._idx !== undefined
-                    ? (scoreByIdx.get(result._idx) ?? 0)
-                    : (scoreBySlug.get(String(item.slug ?? item.id ?? "")) ?? 0);
-                  return [String(item.slug ?? item.id ?? i), score];
-                })
-              ),
-            });
-            return;
-          }
-
-          fallbackReason = "semantic_index_empty";
-          fallbackMessage =
-            "Semantic index returned no results (collection may be empty or not built yet). Run Force Refresh / Re-index, then retry. Until then, search uses exact keyword matching only.";
-        }
-      }
-
-      const qLower = q.toLowerCase();
-      const searchFieldsConfig = (config as any).search_fields as string[] | undefined;
-      const keywordFields = searchFieldsConfig?.length
-        ? searchFieldsConfig
-        : vsConfig?.fields?.length
-          ? vsConfig.fields
-          : null;
-      let fallback = allItems.filter((item) => {
-        const fieldsToCheck = keywordFields ?? Object.keys(item);
-        return fieldsToCheck.some((f) => {
-          const val = item[f];
-          if (val === null || val === undefined) return false;
-          if (typeof val === "object") return JSON.stringify(val).toLowerCase().includes(qLower);
-          return String(val).toLowerCase().includes(qLower);
-        });
+      const { searchDatabaseItems } = await import("../database-search");
+      const result = await searchDatabaseItems(dbName, q, {
+        limit,
+        locale,
+        db: getDB(res),
+        contentFolder: getContentRootName(res),
       });
 
-      if (locale) {
-        fallback = fallback.filter((item) => {
-          const itemLocale = String(item.locale ?? item.language ?? item.lang ?? "");
-          return itemLocale.toLowerCase() === locale.toLowerCase();
-        });
-      }
-
       res.json({
-        items: fallback.slice(0, limit),
-        count: fallback.length,
-        semantic: false,
-        ...(fallbackReason && {
-          fallback_reason: fallbackReason,
-          fallback_message: fallbackMessage,
+        items: result.items,
+        count: result.count,
+        semantic: result.semantic,
+        ...(result.scores && { scores: result.scores }),
+        ...(result.fallback_reason && {
+          fallback_reason: result.fallback_reason,
+          fallback_message: result.fallback_message,
         }),
+        ...(result.cache && result.cache !== "miss" && { cache: result.cache }),
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -933,10 +859,20 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       const dbm = getDB(res);
       const config = dbm.get(dbName);
+      const editor = (config as { editor?: Record<string, { type?: string; schema?: unknown }> }).editor;
+      const coercedItems: Record<string, unknown>[] = [];
+      for (let i = 0; i < newItems.length; i++) {
+        const coerced = validateAndCoerceJsonFields(newItems[i], editor);
+        if (!coerced.ok) {
+          res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
+          return;
+        }
+        coercedItems.push(coerced.fields);
+      }
       const localConfig = config.source.local!;
       const { items: existing, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
-      writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...newItems], localConfig.filename, getContentRoot(res));
-      res.json({ success: true, count: existing.length + newItems.length });
+      writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...coercedItems], localConfig.filename, getContentRoot(res));
+      res.json({ success: true, count: existing.length + coercedItems.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(msg.includes("not found") ? 404 : 500).json({ error: msg });
@@ -959,13 +895,19 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       const dbm = getDB(res);
       const config = dbm.get(dbName);
+      const editor = (config as { editor?: Record<string, { type?: string; schema?: unknown }> }).editor;
+      const coerced = validateAndCoerceJsonFields(newData, editor);
+      if (!coerced.ok) {
+        res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
+        return;
+      }
       const localConfig = config.source.local!;
       const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
-      items[idx] = { ...items[idx], ...newData };
+      items[idx] = { ...items[idx], ...coerced.fields };
       writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
       res.json({ success: true, item: items[idx] });
     } catch (err: unknown) {
@@ -1043,7 +985,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     }
   });
 
-  app.get("/api/databases/:name/job-status", (req, res) => {
+  app.get("/api/databases/:name/job-status", async (req, res) => {
     try {
       const allStates = getAllJobStates(getContentRoot(res));
       const defaultState: DbJobState = {
@@ -1051,7 +993,42 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         index: { status: "idle" },
       };
       const state = allStates[req.params.name] ?? defaultState;
-      res.json(state);
+      const { getDatabaseSearchCacheStats } = await import("../database-search");
+      const searchCache = getDatabaseSearchCacheStats(req.params.name);
+      res.json({
+        ...state,
+        search_cache: {
+          memoryEntries: searchCache.memoryEntries,
+          lastWrittenAt: searchCache.lastWrittenAt,
+        },
+      });
+    } catch (err: unknown) {
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** On-demand GCS search-cache count — do not poll from the KPI card. */
+  app.get("/api/databases/:name/search-cache-stats", async (req, res) => {
+    try {
+      const {
+        getDatabaseSearchCacheStats,
+        countDatabaseSearchCacheGcs,
+      } = await import("../database-search");
+      const memory = getDatabaseSearchCacheStats(req.params.name);
+      const includeGcs = req.query.includeGcs === "1" || req.query.includeGcs === "true";
+      const payload: Record<string, unknown> = {
+        memoryEntries: memory.memoryEntries,
+        lastWrittenAt: memory.lastWrittenAt,
+      };
+      if (includeGcs) {
+        payload.gcsEntries = await countDatabaseSearchCacheGcs(
+          req.params.name,
+          getContentRootName(res),
+        );
+      }
+      res.json(payload);
     } catch (err: unknown) {
       res
         .status(500)
@@ -1108,6 +1085,13 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
           .status(400)
           .json({ error: "Invalid config: name and source are required" });
         return;
+      }
+      if (config.editor !== undefined && config.editor !== null) {
+        const editorCheck = validateEditorHintsHaveJsonSchemas(config.editor);
+        if (!editorCheck.ok) {
+          res.status(400).json({ error: editorCheck.error, field: editorCheck.field });
+          return;
+        }
       }
       getDB(res).update(req.params.name, config);
       res.json({ success: true });

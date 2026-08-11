@@ -34,6 +34,8 @@ interface RelatedFeaturesPickerProps {
   locale?: string;
   context?: "faq" | "testimonials";
   permanentFilters?: PermanentFilter[];
+  /** Hide the top label row (e.g. when embedded in a popover with its own title). */
+  hideLabel?: boolean;
 }
 
 function filterTestimonialsByFeatures(
@@ -52,7 +54,7 @@ function isValidTestimonial(t: BankTestimonial): boolean {
   return hasRating || hasText;
 }
 
-export function RelatedFeaturesPicker({ value, onChange, locale = "en", context = "faq", permanentFilters }: RelatedFeaturesPickerProps) {
+export function RelatedFeaturesPicker({ value, onChange, locale = "en", context = "faq", permanentFilters, hideLabel = false }: RelatedFeaturesPickerProps) {
   const selectedFeatures = value || [];
   const isTestimonials = context === "testimonials";
   const maxSelection = context === "faq" ? MAX_FAQ_SECTION_TOPICS : MAX_RELATED_FEATURES;
@@ -133,15 +135,26 @@ export function RelatedFeaturesPicker({ value, onChange, locale = "en", context 
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium">{label}</Label>
-        <span className="text-xs text-muted-foreground">
-          {selectedFeatures.length}/{maxSelection} selected
-          {totalForSelection > 0 && (
-            <span className="ml-1 text-primary">({totalForSelection} {itemLabel})</span>
-          )}
-        </span>
-      </div>
+      {!hideLabel ? (
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">{label}</Label>
+          <span className="text-xs text-muted-foreground">
+            {selectedFeatures.length}/{maxSelection} selected
+            {totalForSelection > 0 && (
+              <span className="ml-1 text-primary">({totalForSelection} {itemLabel})</span>
+            )}
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end">
+          <span className="text-xs text-muted-foreground">
+            {selectedFeatures.length}/{maxSelection} selected
+            {totalForSelection > 0 && (
+              <span className="ml-1 text-primary">({totalForSelection} {itemLabel})</span>
+            )}
+          </span>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
         {AVAILABLE_RELATED_FEATURES.map((feature) => {
           const isSelected = selectedFeatures.includes(feature);

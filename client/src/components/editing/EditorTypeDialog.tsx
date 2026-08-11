@@ -24,6 +24,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { collectEditorFieldTokens } from "@shared/editor-field-values";
+import { compileJsonSchema } from "@shared/json-field";
 
 export type EditorHint = {
   type?: string;
@@ -36,6 +37,11 @@ export type EditorHint = {
   description?: string;
   /** Required for publish / cannot clear when live. */
   required?: boolean;
+  /**
+   * Required when type is `json`. JSON Schema document validated on Apply
+   * and used to lint/persist structured field values.
+   */
+  schema?: Record<string, unknown>;
 };
 
 export type EditorTypeDialogProps = {
@@ -106,6 +112,8 @@ export function EditorTypeDialog({
   const [allowCustom, setAllowCustom] = useState(false);
   const [splitComma, setSplitComma] = useState(false);
   const [description, setDescription] = useState("");
+  const [schemaText, setSchemaText] = useState("");
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
@@ -124,6 +132,12 @@ export function EditorTypeDialog({
     setAllowCustom(hint.allow_custom_values ?? false);
     setSplitComma(hint.split_comma_values ?? false);
     setDescription(hint.description || "");
+    setSchemaText(
+      hint.schema && typeof hint.schema === "object"
+        ? JSON.stringify(hint.schema, null, 2)
+        : "",
+    );
+    setSchemaError(null);
     setShowAdvanced(false);
   }, [open, fieldName, initialHint, lockImageType]);
 
@@ -152,6 +166,27 @@ export function EditorTypeDialog({
       if (populateOptions) hint.populate_options = true;
       if (allowCustom) hint.allow_custom_values = true;
       if (splitComma) hint.split_comma_values = true;
+    }
+    if (resolvedType === "json") {
+      const trimmed = schemaText.trim();
+      if (!trimmed) {
+        setSchemaError("JSON fields require a schema");
+        return;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (err) {
+        setSchemaError(err instanceof Error ? err.message : "Invalid JSON Schema document");
+        return;
+      }
+      const compiled = compileJsonSchema(parsed);
+      if (!compiled.ok) {
+        setSchemaError(compiled.error);
+        return;
+      }
+      hint.schema = compiled.schema;
+      setSchemaError(null);
     }
     if (initialHint?.cache_images) hint.cache_images = true;
     onApply(hint);
@@ -211,6 +246,7 @@ export function EditorTypeDialog({
                 <SelectItem value="pdf">pdf — document URL with gallery picker</SelectItem>
                 <SelectItem value="select">select — dropdown</SelectItem>
                 <SelectItem value="tags">multi select — multi-value</SelectItem>
+                <SelectItem value="json">json — structured JSON (schema required)</SelectItem>
               </SelectContent>
             </Select>
             {lockImageType && (
@@ -221,6 +257,14 @@ export function EditorTypeDialog({
             {type === "pdf" && !lockImageType && (
               <p className="text-[11px] text-muted-foreground" data-testid="text-hint-pdf-howto">
                 Item editor shows a gallery picker limited to PDFs. Paste a URL or choose from the media gallery.
+              </p>
+            )}
+            {type === "json" && !lockImageType && (
+              <p className="text-[11px] text-muted-foreground" data-testid="text-hint-json-howto">
+                Stores structured data (object/array), not a string. Use exact{" "}
+                <code className="text-foreground">{"{{ single.field }}"}</code> or{" "}
+                <code className="text-foreground">{"{{ single.field | [] }}"}</code> in templates.
+                A JSON Schema is required.
               </p>
             )}
           </div>
@@ -235,6 +279,57 @@ export function EditorTypeDialog({
               data-testid="input-hint-description"
             />
           </div>
+          {type === "json" && !lockImageType && (
+            <div className="space-y-2" data-testid="json-schema-editor">
+              <Label className="text-xs">JSON Schema (required)</Label>
+              <Textarea
+                value={schemaText}
+                onChange={(e) => {
+                  setSchemaText(e.target.value);
+                  setSchemaError(null);
+                }}
+                placeholder={`{\n  "type": "array",\n  "items": {\n    "type": "object",\n    "required": ["question", "answer"],\n    "properties": {\n      "question": { "type": "string" },\n      "answer": { "type": "string" }\n    }\n  }\n}`}
+                className="text-xs font-mono min-h-[10rem] resize-y"
+                data-testid="textarea-hint-json-schema"
+              />
+              {schemaError && (
+                <p className="text-[11px] text-destructive" data-testid="text-hint-schema-error">
+                  {schemaError}
+                </p>
+              )}
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => setShowAdvanced((v) => !v)}
+                data-testid="button-hint-json-advanced"
+              >
+                {showAdvanced ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+              </button>
+              {showAdvanced && (
+                <div
+                  className="rounded-md border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground space-y-1.5"
+                  data-testid="hint-json-advanced-details"
+                >
+                  <p>
+                    Validation: <code className="text-foreground">shared/json-field.ts</code>
+                  </p>
+                  <p>
+                    Item editor:{" "}
+                    <code className="text-foreground">client/src/components/databases/ItemEditModal.tsx</code>
+                  </p>
+                  <p>
+                    Agents: call <code className="text-foreground">get_content_type_info</code> and read{" "}
+                    <code className="text-foreground">editor.&lt;field&gt;.schema</code> before writing.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           {(type === "select" || type === "tags") && !lockImageType && (
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">

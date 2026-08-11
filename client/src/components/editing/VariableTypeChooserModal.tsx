@@ -32,13 +32,14 @@ export function VariableTypeChooserModal({
   const { data: typeConfig } = useQuery<{
     name: string;
     label: string;
-    field_mapping?: Record<string, string>;
+    field_mapping?: Record<string, string | { source: string; default?: string | null }>;
   }>({
     queryKey: [`/api/content-types/${contentType}/config`],
     enabled: open && !!contentType,
   });
 
   const fieldMapping = typeConfig?.field_mapping || {};
+  // Prefer readable schema keys (not {source,default} objects) for the sample badges.
   const fieldNames = Object.keys(fieldMapping).filter((k) => !k.startsWith("_"));
   const sampleFields = fieldNames.slice(0, 4);
 

@@ -25,6 +25,16 @@ interface AvailableProperties {
   partial: { key: string; count: number; total: number }[];
 }
 
+type FieldMappingValue = string | { source: string; default?: string | null };
+
+/** Normalize field_mapping entries that may be `{ source, default }` objects. */
+function mappingSourceString(value: FieldMappingValue | undefined): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && typeof value.source === "string") return value.source;
+  return "";
+}
+
 interface SingleVariablePickerModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,7 +64,7 @@ export function SingleVariablePickerModal({
   const { data: typeConfig, refetch: refetchConfig } = useQuery<{
     name: string;
     label: string;
-    field_mapping?: Record<string, string>;
+    field_mapping?: Record<string, FieldMappingValue>;
     unique_fields?: string[];
     database?: { slug?: string };
   }>({
@@ -72,7 +82,7 @@ export function SingleVariablePickerModal({
   const fieldMapping = typeConfig?.field_mapping || {};
   const fields = Object.entries(fieldMapping)
     .filter(([key]) => !key.startsWith("_"))
-    .map(([key, source]) => ({ key, source: source as string }));
+    .map(([key, value]) => ({ key, source: mappingSourceString(value) }));
 
   const filteredFields = (() => {
     if (!search.trim()) return fields;
@@ -405,7 +415,7 @@ export function SingleVariablePickerModal({
           {validationWarning && selectedField && (
             <div className="text-[11px] text-destructive space-y-1" data-testid="text-single-validation-warning">
               <p>
-                Source property "<span className="font-mono font-medium">{fieldMapping[selectedField]}</span>" was not found in {validationWarning.found === 0 ? "any" : "some"} content {validationWarning.total === 1 ? "entry" : "entries"}.
+                Source property "<span className="font-mono font-medium">{mappingSourceString(fieldMapping[selectedField])}</span>" was not found in {validationWarning.found === 0 ? "any" : "some"} content {validationWarning.total === 1 ? "entry" : "entries"}.
                 {" "}{validationWarning.found === 0 ? "None" : `Only ${validationWarning.found}`} of {validationWarning.total} {validationWarning.total === 1 ? "entry has" : "entries have"} this property.
               </p>
               {validationWarning.missing.length > 0 && (

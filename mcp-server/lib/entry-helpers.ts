@@ -33,6 +33,7 @@ export const SAFE_EDITOR_TYPES = new Set([
   "pdf",
   "boolean",
   "number",
+  "json",
 ]);
 
 export function listExtraUrlPatternParams(
@@ -57,6 +58,8 @@ export type EditorFieldHint = {
   allow_custom_values?: boolean;
   populate_options?: boolean;
   description?: string;
+  /** Required when type is `json` — JSON Schema contract for agents and saves. */
+  schema?: Record<string, unknown>;
 };
 
 export function getEditorConfig(config: ContentTypeConfig): Record<string, EditorFieldHint> {

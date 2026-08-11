@@ -1,21 +1,63 @@
 /**
- * Content-type field_overrides — page-level YAML overlays on live locale files.
- * Precedence at render: field_overrides > DB overrides.json > original DB.
- * Always stored on `{slug}/{locale}.yml` (never _common.yml or variant files).
+ * Content-type mapped field writes.
+ *
+ * - DB-backed CT level → YAML `field_overrides` bag on the layer file
+ * - Static (no database) → top-level keys on the layer file (live or variant)
+ * Precedence at render: field_overrides > DB overrides.json > original DB / entry YAML.
  */
 
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { getFolder, getContentTypeConfig, getFieldMapping, getFullFieldMapping, getLookupKey, RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD, RESERVED_SLUG_FIELD, SLUG_ALIAS_FIELD, KNOWN_SPECIAL_FIELDS, RESERVED_PUBLISHED_AT_FIELD } from "./content-types";
+import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import {
+  getFolder,
+  getContentTypeConfig,
+  getFieldMapping,
+  getFullFieldMapping,
+  getLookupKey,
+  RESERVED_IMAGE_FIELD,
+  IMAGE_ALIAS_FIELD,
+  RESERVED_SLUG_FIELD,
+  SLUG_ALIAS_FIELD,
+  KNOWN_SPECIAL_FIELDS,
+  RESERVED_PUBLISHED_AT_FIELD,
+} from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { contentIndex } from "./content-index";
 import { markFileAsModified } from "./sync-state";
 import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
 import { isPublishedAtEmpty, setPublishedAt } from "./published-at";
+import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
+import {
+  DEFAULT_DRAFT_VARIANT,
+  getEntryContentDir,
+  hasLiveLocaleFile,
+} from "./draft-entry";
 
 export const FIELD_OVERRIDES_KEY = "field_overrides";
+
+export type MappedFieldStorage = "root_key" | "field_overrides";
+
+export type WriteMappedFieldsResult = {
+  success: boolean;
+  error?: string;
+  statusCode?: number;
+  storage?: MappedFieldStorage;
+  /** Repo-relative path written (when successful). */
+  relativePath?: string;
+  /** Absolute path written (when successful). */
+  filePath?: string;
+  /** True when writing a non-live variant/draft layer. */
+  isVariantLayer?: boolean;
+  noop?: boolean;
+};
+
+function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
+  const { escaped, map } = escapeObjectVars(obj);
+  return unescapeYamlDump(yaml.dump(escaped, opts), map);
+}
 
 export type FieldOverrideSource =
   | "original"
@@ -31,11 +73,20 @@ export type FieldProvenance = {
   db_value?: unknown;
   ct_value?: unknown;
   calculated?: boolean;
+  /** True when the field key exists as a root key (or leftover FO) on the layer file. */
+  layer_has_key?: boolean;
 };
 
 function contentRootPath(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
   return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+}
+
+function toRelativePath(absPath: string, contentRoot?: string): string {
+  const root = contentRootPath(contentRoot);
+  const rel = path.relative(process.cwd(), absPath);
+  if (!rel.startsWith("..")) return rel.split(path.sep).join("/");
+  return path.relative(root, absPath).split(path.sep).join("/");
 }
 
 export function liveLocaleOverlayPath(
@@ -49,23 +100,200 @@ export function liveLocaleOverlayPath(
   return path.join(root, folder, slug, `${locale}.yml`);
 }
 
+/**
+ * Resolve which YAML file Fields should read/write.
+ * - variant set → `{variant}.{locale}.yml` (must exist when writing with explicit variant)
+ * - no variant + live file → `{locale}.yml`
+ * - no variant + no live (all-draft) → existing draft/variant file for locale
+ */
+export function resolveMappedFieldsLayerPath(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  variant?: string | null;
+  contentRoot?: string;
+  /** When true, missing explicit variant file is an error (write path). */
+  requireExists?: boolean;
+}): {
+  filePath: string;
+  fileName: string;
+  isVariantLayer: boolean;
+  resolvedVariant: string | null;
+  error?: string;
+  statusCode?: number;
+} {
+  const { contentType, slug, locale, contentRoot } = opts;
+  const variant =
+    typeof opts.variant === "string" && opts.variant.trim() && opts.variant.trim() !== "default"
+      ? opts.variant.trim()
+      : null;
+
+  if (slug.includes("/") || contentType.includes("/") || /[^a-z0-9_-]/i.test(locale)) {
+    return {
+      filePath: "",
+      fileName: "",
+      isVariantLayer: false,
+      resolvedVariant: null,
+      error: "Invalid path segment",
+      statusCode: 400,
+    };
+  }
+  if (variant && /[^a-z0-9_-]/i.test(variant)) {
+    return {
+      filePath: "",
+      fileName: "",
+      isVariantLayer: true,
+      resolvedVariant: variant,
+      error: "Invalid variant segment",
+      statusCode: 400,
+    };
+  }
+
+  const entryDir = getEntryContentDir(contentType, slug, contentRoot);
+
+  if (variant) {
+    const fileName = `${variant}.${locale}.yml`;
+    const filePath = path.join(entryDir, fileName);
+    if (opts.requireExists !== false && !fs.existsSync(filePath)) {
+      return {
+        filePath,
+        fileName,
+        isVariantLayer: true,
+        resolvedVariant: variant,
+        error: `Variant file not found: ${fileName}`,
+        statusCode: 404,
+      };
+    }
+    return { filePath, fileName, isVariantLayer: true, resolvedVariant: variant };
+  }
+
+  const liveName = `${locale}.yml`;
+  const livePath = path.join(entryDir, liveName);
+  if (fs.existsSync(livePath) || hasLiveLocaleFile(entryDir, locale)) {
+    return {
+      filePath: livePath,
+      fileName: liveName,
+      isVariantLayer: false,
+      resolvedVariant: null,
+    };
+  }
+
+  // All-draft auto-resolve: prefer draft.{locale}.yml, else any {variant}.{locale}.yml
+  const draftName = `${DEFAULT_DRAFT_VARIANT}.${locale}.yml`;
+  const draftPath = path.join(entryDir, draftName);
+  if (fs.existsSync(draftPath)) {
+    return {
+      filePath: draftPath,
+      fileName: draftName,
+      isVariantLayer: true,
+      resolvedVariant: DEFAULT_DRAFT_VARIANT,
+    };
+  }
+
+  if (fs.existsSync(entryDir)) {
+    try {
+      const match = fs
+        .readdirSync(entryDir)
+        .find((f) => {
+          const m = f.match(new RegExp(`^([a-z0-9-]+)\\.${locale}\\.ya?ml$`, "i"));
+          return m && m[1].toLowerCase() !== "single";
+        });
+      if (match) {
+        const m = match.match(new RegExp(`^([a-z0-9-]+)\\.${locale}\\.ya?ml$`, "i"));
+        const v = m?.[1] || DEFAULT_DRAFT_VARIANT;
+        return {
+          filePath: path.join(entryDir, match),
+          fileName: match,
+          isVariantLayer: true,
+          resolvedVariant: v,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (opts.requireExists !== false) {
+    return {
+      filePath: livePath,
+      fileName: liveName,
+      isVariantLayer: false,
+      resolvedVariant: null,
+      error: `Locale file not found: ${liveName}`,
+      statusCode: 404,
+    };
+  }
+
+  return {
+    filePath: livePath,
+    fileName: liveName,
+    isVariantLayer: false,
+    resolvedVariant: null,
+  };
+}
+
+function readFoBagFromData(entryData: Record<string, unknown>): Record<string, unknown> {
+  const fo = entryData[FIELD_OVERRIDES_KEY];
+  if (!fo || typeof fo !== "object" || Array.isArray(fo)) return {};
+  return { ...(fo as Record<string, unknown>) };
+}
+
 export function readFieldOverrides(
   contentType: string,
   slug: string,
   locale: string,
   contentRoot?: string,
+  variant?: string | null,
 ): Record<string, unknown> {
-  const filePath = liveLocaleOverlayPath(contentType, slug, locale, contentRoot);
-  if (!fs.existsSync(filePath)) return {};
+  const resolved = resolveMappedFieldsLayerPath({
+    contentType,
+    slug,
+    locale,
+    variant,
+    contentRoot,
+    requireExists: false,
+  });
+  if (!resolved.filePath || !fs.existsSync(resolved.filePath)) return {};
   try {
-    const parsed = contentIndex.safeYamlLoad(fs.readFileSync(filePath, "utf-8"));
+    const parsed = contentIndex.safeYamlLoad(fs.readFileSync(resolved.filePath, "utf-8"));
     if (!parsed || typeof parsed !== "object") return {};
-    const fo = (parsed as Record<string, unknown>)[FIELD_OVERRIDES_KEY];
-    if (!fo || typeof fo !== "object" || Array.isArray(fo)) return {};
-    return { ...(fo as Record<string, unknown>) };
+    return readFoBagFromData(parsed as Record<string, unknown>);
   } catch {
     return {};
   }
+}
+
+/** Root keys present on the layer file (excluding structural keys). */
+export function readLayerRootKeys(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot?: string,
+  variant?: string | null,
+): Set<string> {
+  const resolved = resolveMappedFieldsLayerPath({
+    contentType,
+    slug,
+    locale,
+    variant,
+    contentRoot,
+    requireExists: false,
+  });
+  const keys = new Set<string>();
+  if (!resolved.filePath || !fs.existsSync(resolved.filePath)) return keys;
+  try {
+    const parsed = contentIndex.safeYamlLoad(fs.readFileSync(resolved.filePath, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return keys;
+    for (const k of Object.keys(parsed as Record<string, unknown>)) {
+      if (k === FIELD_OVERRIDES_KEY || k === "sections" || k === "meta" || k === "settings") continue;
+      keys.add(k);
+    }
+    const fo = readFoBagFromData(parsed as Record<string, unknown>);
+    for (const k of Object.keys(fo)) keys.add(k);
+  } catch {
+    /* ignore */
+  }
+  return keys;
 }
 
 export function applyFieldOverridesToItem(
@@ -76,9 +304,224 @@ export function applyFieldOverridesToItem(
   return { ...item, ...overrides };
 }
 
+function writeDbFieldOverridesBag(
+  filePath: string,
+  entryData: Record<string, unknown>,
+  pendingUpdates: Record<string, unknown | null>,
+  author?: string,
+  contentRoot?: string,
+): WriteMappedFieldsResult {
+  const existing = readFoBagFromData(entryData);
+
+  for (const [key, value] of Object.entries(pendingUpdates)) {
+    if (value === null || value === undefined) {
+      delete existing[key];
+    } else {
+      existing[key] = value;
+    }
+  }
+
+  if (Object.keys(existing).length === 0) {
+    delete entryData[FIELD_OVERRIDES_KEY];
+  } else {
+    entryData[FIELD_OVERRIDES_KEY] = existing;
+  }
+
+  fs.writeFileSync(filePath, safeYamlDump(entryData, { lineWidth: -1, noRefs: true }), "utf-8");
+  markFileAsModified(filePath, author, undefined, contentRoot);
+  return {
+    success: true,
+    storage: "field_overrides",
+    relativePath: toRelativePath(filePath, contentRoot),
+    filePath,
+  };
+}
+
+function writeStaticRootKeysBag(
+  filePath: string,
+  entryData: Record<string, unknown>,
+  pendingUpdates: Record<string, unknown | null>,
+  author?: string,
+  contentRoot?: string,
+): WriteMappedFieldsResult {
+  const fo = readFoBagFromData(entryData);
+
+  for (const [key, value] of Object.entries(pendingUpdates)) {
+    if (value === null || value === undefined) {
+      delete entryData[key];
+    } else {
+      entryData[key] = value;
+    }
+    // Clear matching leftover FO so it cannot shadow root
+    delete fo[key];
+  }
+
+  if (Object.keys(fo).length === 0) {
+    delete entryData[FIELD_OVERRIDES_KEY];
+  } else {
+    entryData[FIELD_OVERRIDES_KEY] = fo;
+  }
+
+  fs.writeFileSync(filePath, safeYamlDump(entryData, { lineWidth: -1, noRefs: true }), "utf-8");
+  markFileAsModified(filePath, author, undefined, contentRoot);
+  return {
+    success: true,
+    storage: "root_key",
+    relativePath: toRelativePath(filePath, contentRoot),
+    filePath,
+  };
+}
+
 /**
- * Write or merge field_overrides keys on the live locale file.
- * Pass `null` for a key value to delete that override.
+ * Unified CT-level field writer (static root keys vs DB field_overrides bag).
+ */
+export function writeMappedFields(
+  contentType: string,
+  slug: string,
+  locale: string,
+  updates: Record<string, unknown | null>,
+  opts?: {
+    author?: string;
+    contentRoot?: string;
+    variant?: string | null;
+  },
+): WriteMappedFieldsResult {
+  const author = opts?.author;
+  const contentRoot = opts?.contentRoot;
+  const config = getContentTypeConfig(contentType, contentRoot);
+  if (!config) {
+    return { success: false, error: `Content type "${contentType}" not found`, statusCode: 404 };
+  }
+  const isStatic = !config.database?.slug;
+
+  const layer = resolveMappedFieldsLayerPath({
+    contentType,
+    slug,
+    locale,
+    variant: opts?.variant,
+    contentRoot,
+    requireExists: true,
+  });
+  if (layer.error) {
+    return {
+      success: false,
+      error: layer.error,
+      statusCode: layer.statusCode || 404,
+      isVariantLayer: layer.isVariantLayer,
+    };
+  }
+
+  const filePath = layer.filePath;
+  const pendingUpdates: Record<string, unknown | null> = { ...updates };
+
+  if (Object.prototype.hasOwnProperty.call(pendingUpdates, RESERVED_PUBLISHED_AT_FIELD)) {
+    const pubVal = pendingUpdates[RESERVED_PUBLISHED_AT_FIELD];
+    if (pubVal === null || pubVal === undefined || isPublishedAtEmpty(pubVal)) {
+      return {
+        success: false,
+        error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
+        statusCode: 400,
+      };
+    }
+    if (isStatic) {
+      const written = setPublishedAt(contentType, slug, String(pubVal), author, contentRoot);
+      if (!written.success) {
+        return {
+          success: false,
+          error: written.error || "Failed to write published_at",
+          statusCode: 400,
+        };
+      }
+      pendingUpdates[RESERVED_PUBLISHED_AT_FIELD] = null;
+    }
+  }
+
+  try {
+    const entryDir = path.dirname(filePath);
+    if (!fs.existsSync(entryDir)) {
+      return {
+        success: false,
+        error: `Entry directory not found`,
+        statusCode: 404,
+        isVariantLayer: layer.isVariantLayer,
+      };
+    }
+
+    let entryData: Record<string, unknown> = {};
+    if (fs.existsSync(filePath)) {
+      entryData = (contentIndex.safeYamlLoad(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>) || {};
+    }
+
+    const foForGate = isStatic
+      ? (() => {
+          const next = { ...entryData };
+          for (const [k, v] of Object.entries(pendingUpdates)) {
+            if (v === null || v === undefined) delete next[k];
+            else next[k] = v;
+          }
+          const leftover = readFoBagFromData(entryData);
+          for (const k of Object.keys(pendingUpdates)) delete leftover[k];
+          return applyFieldOverridesToItem(next, leftover);
+        })()
+      : (() => {
+          const existing = readFoBagFromData(entryData);
+          for (const [k, v] of Object.entries(pendingUpdates)) {
+            if (v === null || v === undefined) delete existing[k];
+            else existing[k] = v;
+          }
+          return applyFieldOverridesToItem(
+            { ...(contentIndex.loadCommonData(contentType, slug) || {}), ...entryData },
+            existing,
+          );
+        })();
+
+    const commonPath = path.join(path.dirname(filePath), "_common.yml");
+    let commonForGate: Record<string, unknown> = {};
+    if (fs.existsSync(commonPath)) {
+      try {
+        commonForGate =
+          (contentIndex.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) ||
+          {};
+      } catch {
+        commonForGate = {};
+      }
+    } else {
+      commonForGate = contentIndex.loadCommonData(contentType, slug) || {};
+    }
+    const pageForGate = isStatic
+      ? { ...commonForGate, ...foForGate }
+      : foForGate;
+
+    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale,
+      pageData: pageForGate,
+      contentRoot,
+      mode: "live_update",
+      isDraftWrite: layer.isVariantLayer,
+    });
+    if (seoGateErr) {
+      return { success: false, error: seoGateErr, statusCode: 400, isVariantLayer: layer.isVariantLayer };
+    }
+
+    const written = isStatic
+      ? writeStaticRootKeysBag(filePath, entryData, pendingUpdates, author, contentRoot)
+      : writeDbFieldOverridesBag(filePath, entryData, pendingUpdates, author, contentRoot);
+
+    return { ...written, isVariantLayer: layer.isVariantLayer };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      statusCode: 500,
+      isVariantLayer: layer.isVariantLayer,
+    };
+  }
+}
+
+/**
+ * @deprecated Prefer writeMappedFields — kept for callers that always mean the FO bag / live path.
  */
 export function writeFieldOverrides(
   contentType: string,
@@ -88,104 +531,8 @@ export function writeFieldOverrides(
   author?: string,
   contentRoot?: string,
 ): { success: boolean; error?: string } {
-  if (slug.includes("/") || contentType.includes("/") || /[^a-z0-9_-]/i.test(locale)) {
-    return { success: false, error: "Invalid path segment" };
-  }
-
-  const root = contentRootPath(contentRoot);
-  const folder = getFolder(contentType, contentRoot);
-  const entryDir = path.join(root, folder, slug);
-  const filePath = path.join(entryDir, `${locale}.yml`);
-  const config = getContentTypeConfig(contentType, contentRoot);
-  const isStatic = !config?.database?.slug;
-
-  // Reserved editorial published_at: static types write _common.yml (listings sort from there).
-  const pendingUpdates: Record<string, unknown | null> = { ...updates };
-  if (Object.prototype.hasOwnProperty.call(pendingUpdates, RESERVED_PUBLISHED_AT_FIELD)) {
-    const pubVal = pendingUpdates[RESERVED_PUBLISHED_AT_FIELD];
-    if (pubVal === null || pubVal === undefined || isPublishedAtEmpty(pubVal)) {
-      return {
-        success: false,
-        error: "published_at cannot be cleared; set a non-empty datetime to backdate.",
-      };
-    }
-    if (isStatic) {
-      const written = setPublishedAt(
-        contentType,
-        slug,
-        String(pubVal),
-        author,
-        contentRoot,
-      );
-      if (!written.success) {
-        return { success: false, error: written.error || "Failed to write published_at" };
-      }
-      // Clear any locale override so provenance matches _common
-      pendingUpdates[RESERVED_PUBLISHED_AT_FIELD] = null;
-    }
-  }
-
-  try {
-    if (!fs.existsSync(entryDir)) {
-      fs.mkdirSync(entryDir, { recursive: true });
-    }
-
-    let entryData: Record<string, unknown> = {};
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      entryData = (yaml.load(raw) as Record<string, unknown>) || {};
-    }
-
-    const existing =
-      entryData[FIELD_OVERRIDES_KEY] &&
-      typeof entryData[FIELD_OVERRIDES_KEY] === "object" &&
-      !Array.isArray(entryData[FIELD_OVERRIDES_KEY])
-        ? { ...(entryData[FIELD_OVERRIDES_KEY] as Record<string, unknown>) }
-        : {};
-
-    for (const [key, value] of Object.entries(pendingUpdates)) {
-      if (value === null || value === undefined) {
-        delete existing[key];
-      } else {
-        existing[key] = value;
-      }
-    }
-
-    if (Object.keys(existing).length === 0) {
-      delete entryData[FIELD_OVERRIDES_KEY];
-    } else {
-      entryData[FIELD_OVERRIDES_KEY] = existing;
-    }
-
-    const commonForGate = contentIndex.loadCommonData(contentType, slug) || {};
-    const withOverrides = applyFieldOverridesToItem(
-      { ...commonForGate, ...entryData } as Record<string, unknown>,
-      existing,
-    );
-    const { assertLiveEntrySeoAndRequiredFields } = require("./live-entry-seo-gate") as typeof import("./live-entry-seo-gate");
-    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
-      contentType,
-      slug,
-      locale,
-      pageData: withOverrides,
-      contentRoot,
-      mode: "live_update",
-      isDraftWrite: false,
-    });
-    if (seoGateErr) {
-      return { success: false, error: seoGateErr };
-    }
-
-    fs.writeFileSync(
-      filePath,
-      yaml.dump(entryData, { lineWidth: -1, noRefs: true }),
-      "utf-8",
-    );
-    markFileAsModified(filePath, author, undefined, contentRoot);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  const r = writeMappedFields(contentType, slug, locale, updates, { author, contentRoot });
+  return { success: r.success, error: r.error };
 }
 
 export function clearFieldOverride(
@@ -195,15 +542,130 @@ export function clearFieldOverride(
   field: string,
   author?: string,
   contentRoot?: string,
-): { success: boolean; error?: string } {
-  return writeFieldOverrides(contentType, slug, locale, { [field]: null }, author, contentRoot);
+  variant?: string | null,
+): WriteMappedFieldsResult {
+  return writeMappedFields(contentType, slug, locale, { [field]: null }, { author, contentRoot, variant });
+}
+
+/**
+ * Static reset: delete root key on layer file only if present; no-op if only on _common.
+ */
+export function resetStaticMappedField(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  field: string;
+  author?: string;
+  contentRoot?: string;
+  variant?: string | null;
+}): WriteMappedFieldsResult {
+  const { contentType, slug, locale, field, author, contentRoot, variant } = opts;
+  if (field === RESERVED_PUBLISHED_AT_FIELD) {
+    return {
+      success: false,
+      error: "published_at cannot be reset or cleared; set a non-empty datetime to backdate.",
+      statusCode: 400,
+    };
+  }
+
+  const layer = resolveMappedFieldsLayerPath({
+    contentType,
+    slug,
+    locale,
+    variant,
+    contentRoot,
+    requireExists: true,
+  });
+  if (layer.error) {
+    return { success: false, error: layer.error, statusCode: layer.statusCode || 404 };
+  }
+
+  if (!fs.existsSync(layer.filePath)) {
+    return {
+      success: false,
+      error: `Locale file not found: ${layer.fileName}`,
+      statusCode: 404,
+    };
+  }
+
+  const entryData =
+    (contentIndex.safeYamlLoad(fs.readFileSync(layer.filePath, "utf-8")) as Record<string, unknown>) ||
+    {};
+  const fo = readFoBagFromData(entryData);
+  const hasRoot = Object.prototype.hasOwnProperty.call(entryData, field);
+  const hasFo = Object.prototype.hasOwnProperty.call(fo, field);
+
+  if (!hasRoot && !hasFo) {
+    return {
+      success: true,
+      noop: true,
+      storage: "root_key",
+      relativePath: toRelativePath(layer.filePath, contentRoot),
+      filePath: layer.filePath,
+      isVariantLayer: layer.isVariantLayer,
+      error: `Nothing to reset on ${layer.fileName} — "${field}" is not set on this layer (may come from _common.yml).`,
+    };
+  }
+
+  return writeMappedFields(contentType, slug, locale, { [field]: null }, { author, contentRoot, variant });
+}
+
+/** Normalize category FO values to `{ slug }` when promoting to root. */
+export function normalizeCategoryForRoot(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    const slug = value.trim();
+    return slug ? { slug } : value;
+  }
+  if (typeof value === "object" && !Array.isArray(value) && value !== null) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.slug === "string") return { slug: obj.slug };
+  }
+  return value;
+}
+
+/**
+ * Flatten field_overrides bag into root keys on a locale/variant YAML file.
+ */
+export function flattenFieldOverridesInFile(
+  absPath: string,
+  author?: string,
+  contentRoot?: string,
+): { success: boolean; error?: string; changed: boolean } {
+  if (!fs.existsSync(absPath)) {
+    return { success: false, error: "File not found", changed: false };
+  }
+  try {
+    const entryData =
+      (contentIndex.safeYamlLoad(fs.readFileSync(absPath, "utf-8")) as Record<string, unknown>) || {};
+    const fo = readFoBagFromData(entryData);
+    if (Object.keys(fo).length === 0) {
+      return { success: true, changed: false };
+    }
+    for (const [key, value] of Object.entries(fo)) {
+      const next = key === "category" ? normalizeCategoryForRoot(value) : value;
+      entryData[key] = next;
+    }
+    delete entryData[FIELD_OVERRIDES_KEY];
+    fs.writeFileSync(absPath, safeYamlDump(entryData, { lineWidth: -1, noRefs: true }), "utf-8");
+    markFileAsModified(absPath, author, undefined, contentRoot);
+    return { success: true, changed: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      changed: false,
+    };
+  }
 }
 
 function isFunctionMapping(source: unknown): boolean {
   return typeof source === "string" && source.startsWith("function:");
 }
 
-function mappingSourceString(source: string | { source: string; default: string } | undefined): string | undefined {
+function mappingSourceString(
+  source: string | { source: string; default: string } | undefined,
+): string | undefined {
   if (!source) return undefined;
   if (typeof source === "string") return source;
   return source.source;
@@ -218,15 +680,28 @@ export async function buildFieldProvenance(opts: {
   locale: string;
   contentRoot?: string;
   db: DatabaseManager;
+  variant?: string | null;
 }): Promise<{
   hasDatabase: boolean;
   fields: FieldProvenance[];
+  layerFileName?: string;
+  isVariantLayer?: boolean;
+  resolvedVariant?: string | null;
 }> {
-  const { contentType, slug, locale, contentRoot, db } = opts;
+  const { contentType, slug, locale, contentRoot, db, variant } = opts;
   const config = getContentTypeConfig(contentType, contentRoot);
   if (!config) {
     throw new Error(`Content type "${contentType}" not found`);
   }
+
+  const layer = resolveMappedFieldsLayerPath({
+    contentType,
+    slug,
+    locale,
+    variant,
+    contentRoot,
+    requireExists: false,
+  });
 
   const fmRegular = getFieldMapping(contentType, contentRoot) || {};
   const fmFull = getFullFieldMapping(contentType, contentRoot) || {};
@@ -239,14 +714,14 @@ export async function buildFieldProvenance(opts: {
   const specialKeys = KNOWN_SPECIAL_FIELDS.filter((k) => k in fmFull || true);
   const fieldKeys = Array.from(new Set([...specialKeys, ...mappingKeys, ...editorKeys]));
 
-  const ctOverrides = readFieldOverrides(contentType, slug, locale, contentRoot);
+  const ctOverrides = readFieldOverrides(contentType, slug, locale, contentRoot, variant);
+  const layerKeys = readLayerRootKeys(contentType, slug, locale, contentRoot, variant);
   const hasDatabase = !!config.database?.slug;
   const dbName = config.database?.slug;
 
   let dbOverrides: Record<string, unknown> = {};
   let originalItem: Record<string, unknown> | null = null;
   let mappedItem: Record<string, unknown> | null = null;
-  /** Merged entry YAML for static types — used as entry_default baseline. */
   let staticPageData: Record<string, unknown> | null = null;
 
   if (hasDatabase && dbName && db.exists(dbName)) {
@@ -270,7 +745,12 @@ export async function buildFieldProvenance(opts: {
     const items = cached.items as Record<string, unknown>[];
     mappedItem = items.find((i) => String(i[lookupKey] ?? "") === slug) ?? null;
   } else if (!hasDatabase) {
-    const { data } = contentIndex.loadMergedContent(contentType, slug, locale);
+    const { data } = contentIndex.loadMergedContent(
+      contentType,
+      slug,
+      locale,
+      layer.resolvedVariant || undefined,
+    );
     if (data && typeof data === "object" && !Array.isArray(data)) {
       staticPageData = data as Record<string, unknown>;
     }
@@ -340,6 +820,7 @@ export async function buildFieldProvenance(opts: {
       effective,
       source,
       calculated: calculated || undefined,
+      layer_has_key: layerKeys.has(field) || undefined,
     };
     if (hasDatabase || baseline !== undefined) row.baseline = baseline;
     if (hasDb) row.db_value = dbValue;
@@ -347,5 +828,11 @@ export async function buildFieldProvenance(opts: {
     fields.push(row);
   }
 
-  return { hasDatabase, fields };
+  return {
+    hasDatabase,
+    fields,
+    layerFileName: layer.fileName || undefined,
+    isVariantLayer: layer.isVariantLayer,
+    resolvedVariant: layer.resolvedVariant,
+  };
 }

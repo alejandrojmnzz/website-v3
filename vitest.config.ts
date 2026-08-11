@@ -4,7 +4,14 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "scripts/**/*.test.ts", "mcp-server/**/*.test.ts"],
+    include: [
+      "server/**/*.test.ts",
+      "scripts/**/*.test.ts",
+      "mcp-server/**/*.test.ts",
+      "shared/**/*.test.ts",
+      "client/src/**/*.test.tsx",
+      "client/src/**/*.test.ts",
+    ],
   },
   resolve: {
     alias: {

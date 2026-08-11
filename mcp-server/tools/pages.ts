@@ -1803,12 +1803,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
-  // update_entry_field — DB override OR CT field_overrides (one level per call)
+  // update_entry_field — DB override OR CT mapped fields (one level per call)
   mcp.tool(
     "update_entry_field",
-    "Set one mapping field at exactly one override level. " +
-    "Precedence: ct_override > db_override > original. " +
-    "level=content_type → live {directory}/{slug}/{locale}.yml field_overrides (page only; this locale; shared across layout variants). " +
+    "Set one mapping field at exactly one level. " +
+    "Precedence: ct_override > db_override > original (DB types). " +
+    "level=content_type → PUT .../field-overrides (URL name is historical): " +
+    "static types write a top-level root key on the layer YAML file; DB-backed types write the field_overrides bag. " +
+    "Optional variant targets {variant}.{locale}.yml (must exist; missing file fails — no live fallback). " +
+    "All-draft entries without variant auto-resolve to draft.{locale}.yml when no live file exists. " +
     "level=database → db/{dbSlug}/overrides.json (listings + pages; all locales). " +
     "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_meta_field).",
     {
@@ -1817,12 +1820,18 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       field: z.string().describe("Mapping field name, e.g. 'title' or 'author_name'"),
       value: z.unknown().describe("New value for the field"),
       level: z.enum(["database", "content_type"]).describe(
-        "database = overrides.json (listings + pages, all locales). content_type = live locale field_overrides (page only, this locale)."
+        "database = overrides.json. content_type = mapped field on locale/variant YAML (static: root key; DB: field_overrides bag)."
       ),
-      locale: z.string().default("en").describe("Live locale for content_type level (ignored for database level)"),
+      locale: z.string().default("en").describe("Locale for content_type level (ignored for database level)"),
+      variant: z
+        .string()
+        .optional()
+        .describe(
+          "Optional variant slug (e.g. draft, lumi-version). Writes {variant}.{locale}.yml when set; file must exist.",
+        ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, contentType, field, value, level, locale, site }) => {
+    async ({ slug, contentType, field, value, level, locale, variant, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -1831,6 +1840,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         assertSafeLocale(locale);
         if (contentType) assertSafeSegment(contentType, "contentType");
         assertSafeSegment(field, "field");
+        if (variant) assertSafeSegment(variant, "variant");
       } catch (e) {
         return fail((e as Error).message);
       }
@@ -1846,11 +1856,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const ct = resolved.contentType;
       const ctDir = getDirectory(ct, resolved.config);
       const dbSlug = resolved.config.database?.slug as string | undefined;
+      const isStatic = !dbSlug;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       const getHint = {
         tool: "get_entry_fields",
         reason: "Re-check provenance after write",
-        args_hint: { slug, contentType: ct, locale },
+        args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
         priority: "recommended" as const,
       };
 
@@ -1883,21 +1894,37 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           );
         }
 
-        const relPath = `${ctDir}/${slug}/${locale}.yml`;
+        const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
+        const relPathFallback = `${ctDir}/${slug}/${layerFile}`;
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}${q}`;
         const res = await fetch(url, {
           method: "PUT",
           headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ locale, fields: { [field]: value } }),
+          body: JSON.stringify({
+            locale,
+            variant: variant || undefined,
+            fields: { [field]: value },
+          }),
         });
-        const data = await res.json() as { error?: string };
+        const data = await res.json() as {
+          error?: string;
+          storage?: "root_key" | "field_overrides";
+          path?: string;
+          isVariantLayer?: boolean;
+        };
         if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+        const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
+        const writtenPath = data.path || relPathFallback;
         const isPublishedAt = field === "published_at";
         return ok(
           {
             message: isPublishedAt
               ? `published_at set for ${ct}/${slug} on _common.yml (static) or DB override`
-              : `Content-type field_overrides set for ${ct}/${slug}.${field} → ${relPath}`,
+              : storage === "root_key"
+                ? `Static root key set for ${ct}/${slug}.${field} → ${writtenPath}`
+                : `Content-type field_overrides set for ${ct}/${slug}.${field} → ${writtenPath}`,
+            storage,
+            path: writtenPath,
           },
           {
             warnings: isPublishedAt
@@ -1905,17 +1932,22 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                   {
                     code: "published_at_common",
                     message:
-                      "Static published_at writes _common.yml (listings sort from there). Locale field_overrides.published_at cleared. Cannot clear to empty. Paths: server/published-at.ts, field-overrides write path.",
+                      "Static published_at writes _common.yml (listings sort from there). Locale published_at cleared. Cannot clear to empty. Paths: server/published-at.ts, writeMappedFields.",
                   },
                 ]
               : [
                   {
-                    code: "ct_override_page_only",
-                    message: `Wrote field_overrides on ${relPath}. Page/YAML only; does not change database listings.`,
+                    code: storage === "root_key" ? "static_root_key" : "ct_override_page_only",
+                    message:
+                      storage === "root_key"
+                        ? `Wrote root key on ${writtenPath} (API still named field-overrides; no field_overrides bag on static).`
+                        : `Wrote field_overrides on ${writtenPath}. Page/YAML only; does not change database listings.`,
                   },
                   {
                     code: "ct_override_locale_only",
-                    message: `Locale ${locale} only; sibling locales and variant files unchanged. Live file only (not _common.yml).`,
+                    message: data.isVariantLayer
+                      ? `Variant layer only (${writtenPath}); published ${locale}.yml unchanged until promote.`
+                      : `Locale ${locale} only; sibling locales unchanged. Live file only (not _common.yml) except published_at.`,
                   },
                 ],
             side_effects: [
@@ -1923,7 +1955,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                 kind: "wrote_file",
                 summary: isPublishedAt
                   ? `${ctDir}/${slug}/_common.yml#published_at`
-                  : `${relPath}#field_overrides.${field}`,
+                  : `${writtenPath}#${storage === "root_key" ? field : `field_overrides.${field}`}`,
+              },
+              {
+                kind: "other",
+                summary: `storage=${storage}`,
               },
             ],
             next_actions: [getHint],
@@ -1939,25 +1975,35 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "get_entry_fields",
     "List mapping fields with effective value and provenance " +
     "(original | db_override | ct_override | entry_default). " +
-    "Precedence: ct_override > db_override > original. " +
-    "CT overrides: live {locale}.yml field_overrides (this locale; shared across layout variants). " +
-    "DB overrides: overrides.json (all locales). Use before update_entry_field / reset_entry_field.",
+    "Static types: values come from root keys on the layer file (entry_default); leftover field_overrides bags are still applied until migrated. " +
+    "DB types: ct_override = field_overrides bag; db_override = overrides.json. " +
+    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
       locale: z.string().default("en"),
+      variant: z
+        .string()
+        .optional()
+        .describe("Optional variant slug to inspect that layer file instead of live {locale}.yml"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, contentType, locale, site }) => {
+    async ({ slug, contentType, locale, variant, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
+      try {
+        if (variant) assertSafeSegment(variant, "variant");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
       const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'`);
       }
       const q = new URLSearchParams({ locale });
       if (domain) q.set("__site", domain);
+      if (variant) q.set("variant", variant);
       try {
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
@@ -1965,7 +2011,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);
         return ok(
           {
-            message: `Fields for ${resolved.contentType}/${slug} (${locale})`,
+            message: `Fields for ${resolved.contentType}/${slug} (${locale}${variant ? `, variant=${variant}` : ""})`,
             ...(data as Record<string, unknown>),
           },
           { warnings: [], next_actions: [] },
@@ -1978,56 +2024,108 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
   mcp.tool(
     "reset_entry_field",
-    "Reset a mapping field to the original database baseline by clearing both content-type field_overrides " +
-    "and database overrides for that field. Only valid for database-backed content types. " +
-    "Touches db/{dbSlug}/overrides.json and live {directory}/{slug}/{locale}.yml field_overrides.",
+    "Reset a mapping field. " +
+    "DB-backed: clears overrides.json and CT field_overrides for that field. " +
+    "Static: deletes the root key only if present on this layer file (no-op when value comes only from _common.yml). " +
+    "Optional variant targets that layer. API path remains field-reset.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
       field: z.string(),
       locale: z.string().default("en"),
+      variant: z.string().optional().describe("Optional variant layer to reset"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, contentType, field, locale, site }) => {
+    async ({ slug, contentType, field, locale, variant, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
+      try {
+        if (variant) assertSafeSegment(variant, "variant");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
       const resolved = resolveContentType(slug, contentType, siteResult.contentPath, { allowSharedLayout: true });
       if (!resolved) return fail(`Page not found for slug '${slug}'`);
       if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) return denyResponse("seo_edit");
       const ct = resolved.contentType;
       const ctDir = getDirectory(ct, resolved.config);
       const dbSlug = resolved.config.database?.slug as string | undefined;
+      const isStatic = !dbSlug;
+      const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
       const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
-      const ctPath = `${ctDir}/${slug}/${locale}.yml`;
+      const ctPath = `${ctDir}/${slug}/${layerFile}`;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken),
-          body: JSON.stringify({ field, locale }),
+          body: JSON.stringify({ field, locale, variant: variant || undefined }),
         });
-        const data = await res.json() as { error?: string };
+        const data = await res.json() as {
+          error?: string;
+          storage?: string;
+          path?: string;
+          noop?: boolean;
+          message?: string;
+        };
         if (!res.ok) return fail(data.error || `Server error: ${res.status}`);
+        const writtenPath = data.path || ctPath;
+        const storage = data.storage || (isStatic ? "root_key" : "field_overrides");
+        if (isStatic) {
+          return ok(
+            {
+              message: data.noop
+                ? `No-op reset for ${ct}/${slug}.${field} (key not on layer; may live only on _common.yml)`
+                : `Reset static ${ct}/${slug}.${field} on ${writtenPath}`,
+              storage,
+              path: writtenPath,
+              noop: !!data.noop,
+            },
+            {
+              warnings: [
+                {
+                  code: data.noop ? "static_reset_noop" : "static_reset_layer_only",
+                  message: data.noop
+                    ? `Key absent on ${writtenPath}; reset does not rewrite _common.yml.`
+                    : `Deleted root key on ${writtenPath} only. Does not touch _common.yml.`,
+                },
+              ],
+              side_effects: data.noop
+                ? [{ kind: "other", summary: `storage=${storage}; noop` }]
+                : [
+                    { kind: "wrote_file", summary: `${writtenPath}#${field}` },
+                    { kind: "other", summary: `storage=${storage}` },
+                  ],
+              next_actions: [{
+                tool: "get_entry_fields",
+                reason: "Confirm provenance after reset",
+                args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
+                priority: "recommended",
+              }],
+            },
+          );
+        }
         return ok(
-          { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${ctPath}#field_overrides` },
+          { message: `Reset ${ct}/${slug}.${field} → cleared ${dbPath} + ${writtenPath}#field_overrides` },
           {
             warnings: [
               {
                 code: "reset_clears_both_layers",
-                message: `Cleared DB override (${dbPath}) and CT field_overrides on ${ctPath} for this field. Baseline restored.`,
+                message: `Cleared DB override (${dbPath}) and CT field_overrides on ${writtenPath} for this field. Baseline restored.`,
               },
             ],
             side_effects: [
               { kind: "wrote_file", summary: dbPath },
-              { kind: "wrote_file", summary: `${ctPath}#field_overrides` },
+              { kind: "wrote_file", summary: `${writtenPath}#field_overrides` },
               { kind: "cache", summary: "Database item cache / listings may refresh for this slug" },
+              { kind: "other", summary: `storage=${storage}` },
             ],
             next_actions: [{
               tool: "get_entry_fields",
               reason: "Confirm provenance is original after reset",
-              args_hint: { slug, contentType: ct, locale },
+              args_hint: { slug, contentType: ct, locale, ...(variant ? { variant } : {}) },
               priority: "recommended",
             }],
           },
@@ -3953,6 +4051,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Describe a content type from content-types.yml: db_backed vs single_template, field_mapping, editor, " +
     "url_pattern, extra URL params, observed peer values for those params, create_via, body_model, " +
     "and schema_org_requirements with coverage { present, missing_slugs } when declared. " +
+    "For editor.type json fields, read editor.<field>.schema (JSON Schema) before writing values via " +
+    "batch_update_fields / update_section_field — schema is required and returned again on validation failure. " +
     "Call this before create_entry when unsure how a type works. " +
     "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
     MULTI_SITE_TOOL_BLURB,

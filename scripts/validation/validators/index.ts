@@ -34,6 +34,7 @@ import { componentBehaviorsValidator } from "./component-behaviors";
 import { ctaTrackingValidator } from "./cta-tracking";
 import { requiredFieldsValidator } from "./required-fields";
 import { schemaOrgCompanionsValidator } from "./schema-org-companions";
+import { staticFieldOverridesValidator } from "./static-field-overrides";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -58,6 +59,7 @@ export const validators: Validator[] = [
   heroImageTagsValidator,
   imageTagsValidator,
   fieldMappingsValidator,
+  staticFieldOverridesValidator,
   orphanedFilesValidator,
   formsValidator,
   consentLegacyKeysValidator,
@@ -124,6 +126,7 @@ export {
   heroImageTagsValidator,
   imageTagsValidator,
   fieldMappingsValidator,
+  staticFieldOverridesValidator,
   orphanedFilesValidator,
   formsValidator,
   consentLegacyKeysValidator,

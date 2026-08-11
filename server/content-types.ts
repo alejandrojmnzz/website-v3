@@ -57,6 +57,11 @@ export type ContentTypeEditorHint = {
    * live saves cannot clear the field. Distinct from field_mapping `?` (key may be missing).
    */
   required?: boolean;
+  /**
+   * Required when type is `json`. JSON Schema for structured values; exact
+   * `{{ single.field }}` binds can return arrays/objects at delivery.
+   */
+  schema?: Record<string, unknown>;
 };
 
 export interface ContentTypeEntry {
@@ -183,13 +188,16 @@ const CONFIG_HEADER = `# Content Types Configuration
 # editor (optional):
 #   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
 #   Keys match field_mapping target names. Types: text, textarea, markdown, number, boolean,
-#   date, datetime, image, select, tags. Optional: options, populate_options, allow_custom_values,
-#   split_comma_values, description, required.
+#   date, datetime, image, pdf, select, tags, json. Optional: options, populate_options,
+#   allow_custom_values, split_comma_values, description, required, schema.
 #   required: when true, drafts may be empty; publish/live saves require a non-empty value
 #     (cannot clear on a live entry). Distinct from field_mapping ? prefix (key may be missing).
 #   split_comma_values: when true, string cells like "a, b" become tokens a and b (arrays always
 #     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
 #     also be split. Saving a tags field may normalize CSV strings into string arrays.
+#   json: structured object/array field (CodeMirror + schema lint). schema (JSON Schema object)
+#     is REQUIRED. Empty editor → null. Exact {{ single.field }} returns the value as-is;
+#     pipe fallbacks may be JSON literals (e.g. {{ single.field | [] }}).
 #
 # schema_org_requirements (optional):
 #   List of companion schema_org sections required on every entry, e.g.

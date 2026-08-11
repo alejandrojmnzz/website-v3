@@ -1,10 +1,12 @@
+import { parsePipeFallback } from "@shared/json-field";
+
 const TEMPLATE_REGEX = /\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
 const SINGLE_PREFIX = "single.";
 const META_PREFIX = "meta.";
 const PARAM_PREFIX = "param.";
-const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
-const EXACT_META_VAR_PATTERN = /^\{\{\s*meta\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
-const EXACT_PARAM_VAR_PATTERN = /^\{\{\s*param\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
+const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
+const EXACT_META_VAR_PATTERN = /^\{\{\s*meta\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
+const EXACT_PARAM_VAR_PATTERN = /^\{\{\s*param\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 
 export interface VariableCondition {
   query: Record<string, string>;
@@ -284,9 +286,15 @@ export function resolveDeep(
           const exactMatch = value.match(EXACT_SINGLE_VAR_PATTERN);
           if (exactMatch) {
             const fieldPath = exactMatch[1];
+            const hasFallback = exactMatch[2] !== undefined;
             const fallback = exactMatch[2]?.trim();
             const resolved = getNestedValue(singleEntry, fieldPath);
-            const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
+            const resolvedValue =
+              resolved !== undefined && resolved !== null
+                ? resolved
+                : hasFallback
+                  ? parsePipeFallback(fallback ?? "")
+                  : value;
             const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
 
             allVariables.push({
@@ -305,9 +313,15 @@ export function resolveDeep(
           const exactMeta = value.match(EXACT_META_VAR_PATTERN);
           if (exactMeta) {
             const fieldPath = exactMeta[1];
+            const hasFallback = exactMeta[2] !== undefined;
             const fallback = exactMeta[2]?.trim();
             const resolved = getNestedValue(meta, fieldPath);
-            const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
+            const resolvedValue =
+              resolved !== undefined && resolved !== null
+                ? resolved
+                : hasFallback
+                  ? parsePipeFallback(fallback ?? "")
+                  : value;
             const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
 
             allVariables.push({
@@ -326,9 +340,15 @@ export function resolveDeep(
           const exactParam = value.match(EXACT_PARAM_VAR_PATTERN);
           if (exactParam) {
             const fieldPath = exactParam[1];
+            const hasFallback = exactParam[2] !== undefined;
             const fallback = exactParam[2]?.trim();
             const resolved = getNestedValue(param, fieldPath);
-            const resolvedValue = resolved !== undefined && resolved !== null ? resolved : (fallback !== undefined ? fallback : value);
+            const resolvedValue =
+              resolved !== undefined && resolved !== null
+                ? resolved
+                : hasFallback
+                  ? parsePipeFallback(fallback ?? "")
+                  : value;
             const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
 
             allVariables.push({

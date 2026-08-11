@@ -1078,16 +1078,6 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                       : <Moon className="h-3 w-3" />}
                     <span className="capitalize">{props.theme}</span>
                   </button>
-                  {props.hasToken && (
-                    <button
-                      onClick={() => props.setSessionModalOpen(true)}
-                      className="p-1 rounded hover-elevate"
-                      data-testid="button-session-settings"
-                      title="View session data"
-                    >
-                      <Cookie className="h-3.5 w-3.5 text-muted-foreground" />
-                    </button>
-                  )}
                 </div>
               </div>
           </div>

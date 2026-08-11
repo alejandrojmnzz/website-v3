@@ -1,4 +1,5 @@
-import { MessageCircle } from "lucide-react";
+import React from "react";
+import { AlertTriangle, MessageCircle } from "lucide-react";
 import {
   Accordion,
   AccordionContent,
@@ -11,6 +12,7 @@ import { useLocation as useWouterLocation } from "wouter";
 import { useInternalNav } from "@/hooks/useInternalNav";
 import { faqItemKey } from "@/lib/faqConstants";
 import { useSession } from "@/contexts/SessionContext";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 interface FAQSectionProps {
   data: FAQSectionType;
@@ -20,6 +22,8 @@ export function FAQSection({ data }: FAQSectionProps) {
   const handleLinkClick = useInternalNav();
   const [pathname] = useWouterLocation();
   const { session } = useSession();
+  const editMode = useEditModeOptional();
+  const isEditMode = editMode?.isEditMode ?? false;
   const sessionLocationSlug = session.location?.slug;
 
   const locationSlugMatch = pathname.match(
@@ -55,7 +59,25 @@ export function FAQSection({ data }: FAQSectionProps) {
   })();
 
   if (faqItems.length === 0) {
-    return null;
+    if (!isEditMode) return null;
+    return (
+      <section data-testid="section-faq-empty-edit" className="max-w-6xl mx-auto px-4">
+        <div
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-foreground flex gap-3 items-start"
+          data-testid="alert-faq-hidden-no-results"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+          <div className="space-y-1">
+            <p className="font-medium">
+              {data.title ? `${data.title} — hidden on the live page` : "FAQ section — hidden on the live page"}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              This FAQ section is hidden on the live page because there are no results.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   return (

@@ -287,6 +287,12 @@ export async function indexItems(
       finishedAt: new Date().toISOString(),
     });
     log.info(`[vector-search] Indexed ${items.length} items for "${dbName}"`);
+    try {
+      const { invalidateDatabaseSearchCache } = await import("./database-search");
+      await invalidateDatabaseSearchCache(dbName);
+    } catch (invErr) {
+      log.warn({ err: invErr, dbName }, "[vector-search] Search cache invalidate failed");
+    }
   } catch (err) {
     setJobState(dbName, "index", {
       status: "error",

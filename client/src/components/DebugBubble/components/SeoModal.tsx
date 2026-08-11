@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
@@ -142,6 +142,11 @@ export function SeoModal({
     (contentInfo.type
       ? contentInfo.type.charAt(0).toUpperCase() + contentInfo.type.slice(1)
       : "Content type");
+  const fieldsVariant = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const q = new URLSearchParams(window.location.search);
+    return q.get("variant") || q.get("force_variant");
+  }, [open, contentInfo.type, contentInfo.slug]);
 
   const snippetUrl = seoMeta.canonical_url || (typeof window !== "undefined" ? `${window.location.origin}/${contentInfo.slug || ""}` : "");
   const snippetBreadcrumb = (() => {
@@ -538,6 +543,7 @@ export function SeoModal({
                   slug={contentInfo.slug}
                   locale={fieldsLocale}
                   typeLabel={fieldsTypeLabel}
+                  variant={fieldsVariant}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground pt-4">

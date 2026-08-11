@@ -20,6 +20,7 @@ import {
   getFullFieldMapping,
   extractUrlPatternParams,
 } from "./content-types";
+import { parsePipeFallback } from "@shared/json-field";
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -42,21 +43,22 @@ export function resolveBagVars(
 ): unknown {
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
-    `\\{\\{\\s*${escaped}\\.([a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:\\|\\s*([^}]*?))?\\s*\\}\\}`,
+    `\\{\\{\\s*${escaped}\\.([a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:\\|\\s*([\\s\\S]*?))?\\s*\\}\\}`,
     "g",
   );
   const exactPattern = new RegExp(
-    `^\\{\\{\\s*${escaped}\\.([a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:\\|\\s*([^}]*?))?\\s*\\}\\}$`,
+    `^\\{\\{\\s*${escaped}\\.([a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:\\|\\s*([\\s\\S]*?))?\\s*\\}\\}$`,
   );
 
   function resolveString(str: string): unknown {
     const exactMatch = str.match(exactPattern);
     if (exactMatch) {
       const fieldPath = exactMatch[1];
+      const hasFallback = exactMatch[2] !== undefined;
       const fallback = exactMatch[2]?.trim();
       const value = getNestedValue(bag, fieldPath);
       if (value !== undefined && value !== null) return value;
-      if (fallback !== undefined) return fallback;
+      if (hasFallback) return parsePipeFallback(fallback ?? "");
       return str;
     }
 

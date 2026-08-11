@@ -1137,19 +1137,43 @@ function isStructuralOp(op: EditOperation): boolean {
 }
 
 /**
+ * Keep only clearedTemplatePaths that are real on-disk bindings and actually
+ * absent on the incoming section (ignore stale / invalid client entries).
+ */
+export function sanitizeClearedTemplatePaths(
+  requested: string[] | undefined,
+  newSection: Record<string, unknown>,
+  originalTemplateSection: Record<string, unknown>,
+): string[] {
+  if (!requested?.length) return [];
+  const varFields = extractVariableFields(originalTemplateSection);
+  const allowed: string[] = [];
+  for (const path of requested) {
+    if (!path || !(path in varFields)) continue;
+    if (getValueAtPath(newSection, path) !== undefined) continue;
+    allowed.push(path);
+  }
+  return allowed;
+}
+
+/**
  * Restores `{{ single.* }}` and `{{ global.* }}` placeholder expressions from
  * the original template section back into the new section data, preventing any
  * resolved values (e.g. from the AI adapt flow) from leaking into the template.
+ * Paths in skipPaths (staff-approved clears) are left absent.
  */
-function restoreTemplatePlaceholders(
+export function restoreTemplatePlaceholders(
   newSection: Record<string, unknown>,
-  originalTemplateSection: Record<string, unknown>
+  originalTemplateSection: Record<string, unknown>,
+  skipPaths?: Iterable<string>,
 ): Record<string, unknown> {
   const varFields = extractVariableFields(originalTemplateSection);
   if (Object.keys(varFields).length === 0) return newSection;
 
+  const skip = skipPaths ? new Set(skipPaths) : null;
   const result = JSON.parse(JSON.stringify(newSection)) as Record<string, unknown>;
   for (const [dotPath, templateExpr] of Object.entries(varFields)) {
+    if (skip?.has(dotPath)) continue;
     setValueAtPath(result, dotPath, templateExpr);
   }
   return result;
@@ -1211,7 +1235,16 @@ function writeStructuralChangesToTemplate(opts: {
         const originalTemplateSection = templateSections[op.index] as Record<string, unknown> | undefined;
         let newSectionData = op.section as Record<string, unknown>;
         if (originalTemplateSection) {
-          newSectionData = restoreTemplatePlaceholders(newSectionData, originalTemplateSection);
+          const skipPaths = sanitizeClearedTemplatePaths(
+            op.clearedTemplatePaths,
+            newSectionData,
+            originalTemplateSection,
+          );
+          newSectionData = restoreTemplatePlaceholders(
+            newSectionData,
+            originalTemplateSection,
+            skipPaths,
+          );
         }
         const opResult = applyOperation(templateData, { ...op, section: newSectionData } as EditOperation, {
           contentRoot,
@@ -1619,7 +1652,16 @@ function handleSharedTemplateEdit(opts: {
         const originalTemplateSection = templateSections2[operation.index] as Record<string, unknown> | undefined;
         let newSectionData = (operation.section ?? {}) as Record<string, unknown>;
         if (originalTemplateSection) {
-          newSectionData = restoreTemplatePlaceholders(newSectionData, originalTemplateSection);
+          const skipPaths = sanitizeClearedTemplatePaths(
+            operation.clearedTemplatePaths,
+            newSectionData,
+            originalTemplateSection,
+          );
+          newSectionData = restoreTemplatePlaceholders(
+            newSectionData,
+            originalTemplateSection,
+            skipPaths,
+          );
         }
         applyOperation(templateData, { ...operation, section: newSectionData } as EditOperation);
         templateDirty = true;

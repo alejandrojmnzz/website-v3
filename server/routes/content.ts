@@ -246,9 +246,15 @@ import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
 import {
   buildFieldProvenance,
-  writeFieldOverrides,
+  writeMappedFields,
   clearFieldOverride,
+  resetStaticMappedField,
 } from "../field-overrides";
+import {
+  jsonFieldFailureHttpBody,
+  validateAndCoerceJsonFields,
+  validateEditorHintsHaveJsonSchemas,
+} from "../json-field-validate";
 import {
   normalizeLocale,
   getSupportedLocales,
@@ -1834,6 +1840,13 @@ export function registerContentRoutes(app: Express): void {
         if (body.editor === null) {
           update.editor = null;
         } else if (typeof body.editor === "object") {
+          const editorCheck = validateEditorHintsHaveJsonSchemas(
+            body.editor as Record<string, import("../content-types").ContentTypeEditorHint>,
+          );
+          if (!editorCheck.ok) {
+            res.status(400).json({ error: editorCheck.error, field: editorCheck.field });
+            return;
+          }
           update.editor = body.editor as import("../content-types").ContentTypeEntry["editor"];
         } else {
           res.status(400).json({ error: "editor must be an object or null" });
@@ -3531,6 +3544,10 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type, slug } = req.params;
       const locale = String(req.query.locale || "en");
+      const variant =
+        typeof req.query.variant === "string" && req.query.variant.trim()
+          ? req.query.variant.trim()
+          : undefined;
       if (!getContentTypeConfig(type, ctRoot(res))) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
@@ -3541,6 +3558,7 @@ export function registerContentRoutes(app: Express): void {
         locale,
         contentRoot: ctRoot(res),
         db: getDB(res),
+        variant,
       });
       res.json(result);
     } catch (err) {
@@ -3552,22 +3570,56 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type, slug } = req.params;
       const locale = String(req.body?.locale || req.query.locale || "en");
+      const variantRaw = req.body?.variant ?? req.query.variant;
+      const variant =
+        typeof variantRaw === "string" && variantRaw.trim() ? variantRaw.trim() : undefined;
       const fields = req.body?.fields as Record<string, unknown> | undefined;
       const author = typeof req.body?.author === "string" ? req.body.author : undefined;
       if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
         res.status(400).json({ error: "body.fields must be an object of field → value" });
         return;
       }
-      if (!getContentTypeConfig(type, ctRoot(res))) {
+      const ctConfig = getContentTypeConfig(type, ctRoot(res));
+      if (!ctConfig) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
-      const result = writeFieldOverrides(type, slug, locale, fields, author, ctRoot(res));
-      if (!result.success) {
-        res.status(400).json({ error: result.error || "Failed to write field overrides" });
+      let editorHints = { ...(ctConfig.editor || {}) };
+      if (ctConfig.database?.slug && getDB(res).exists(ctConfig.database.slug)) {
+        try {
+          const dbConfig = getDB(res).get(ctConfig.database.slug) as {
+            editor?: Record<string, { type?: string; schema?: unknown }>;
+          };
+          editorHints = { ...(dbConfig.editor || {}), ...editorHints };
+        } catch {
+          // ignore missing DB editor
+        }
+      }
+      const coerced = validateAndCoerceJsonFields(fields, editorHints);
+      if (!coerced.ok) {
+        res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;
       }
-      res.json({ success: true });
+      const result = writeMappedFields(type, slug, locale, coerced.fields, {
+        author,
+        contentRoot: ctRoot(res),
+        variant,
+      });
+      if (!result.success) {
+        res.status(result.statusCode || 400).json({
+          error: result.error || "Failed to write mapped fields",
+          storage: result.storage,
+          path: result.relativePath,
+          isVariantLayer: result.isVariantLayer,
+        });
+        return;
+      }
+      res.json({
+        success: true,
+        storage: result.storage,
+        path: result.relativePath,
+        isVariantLayer: result.isVariantLayer,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -3577,6 +3629,10 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type, slug } = req.params;
       const locale = String(req.query.locale || "en");
+      const variant =
+        typeof req.query.variant === "string" && req.query.variant.trim()
+          ? req.query.variant.trim()
+          : undefined;
       const field = req.query.field as string | undefined;
       const author = typeof (req.body as { author?: string } | undefined)?.author === "string"
         ? (req.body as { author: string }).author
@@ -3589,12 +3645,21 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
-      const result = clearFieldOverride(type, slug, locale, field, author, ctRoot(res));
+      const result = clearFieldOverride(type, slug, locale, field, author, ctRoot(res), variant);
       if (!result.success) {
-        res.status(400).json({ error: result.error || "Failed to clear field override" });
+        res.status(result.statusCode || 400).json({
+          error: result.error || "Failed to clear field",
+          storage: result.storage,
+          path: result.relativePath,
+        });
         return;
       }
-      res.json({ success: true });
+      res.json({
+        success: true,
+        storage: result.storage,
+        path: result.relativePath,
+        isVariantLayer: result.isVariantLayer,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -3637,11 +3702,25 @@ export function registerContentRoutes(app: Express): void {
           return;
         }
       }
+      let editorHints = { ...(config.editor || {}) };
+      try {
+        const dbConfig = getDB(res).get(dbName) as {
+          editor?: Record<string, { type?: string; schema?: unknown }>;
+        };
+        editorHints = { ...(dbConfig.editor || {}), ...editorHints };
+      } catch {
+        // ignore
+      }
+      const coerced = validateAndCoerceJsonFields(fields, editorHints);
+      if (!coerced.ok) {
+        res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
+        return;
+      }
       const patched = getDB(res).patchDbEntry(
         dbName,
         lookupKey,
         slug,
-        fields,
+        coerced.fields,
         fieldMapping,
         author,
         getContentRoot(res),
@@ -3656,12 +3735,15 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  /** Reset one field: clear CT field_overrides and DB override (when DB-backed). */
+  /** Reset one field: static deletes layer root key; DB clears CT FO + DB override. */
   app.post("/api/content-types/:type/field-reset/:slug", async (req, res) => {
     try {
       const { type, slug } = req.params;
       const field = String(req.body?.field || req.query.field || "");
       const locale = String(req.body?.locale || req.query.locale || "en");
+      const variantRaw = req.body?.variant ?? req.query.variant;
+      const variant =
+        typeof variantRaw === "string" && variantRaw.trim() ? variantRaw.trim() : undefined;
       const author = typeof req.body?.author === "string" ? req.body.author : undefined;
       if (!field) {
         res.status(400).json({ error: "field is required" });
@@ -3678,12 +3760,38 @@ export function registerContentRoutes(app: Express): void {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
+
       if (!config.database?.slug) {
-        res.status(400).json({ error: "Reset is only available for database-backed content types" });
+        const result = resetStaticMappedField({
+          contentType: type,
+          slug,
+          locale,
+          field,
+          author,
+          contentRoot: ctRoot(res),
+          variant,
+        });
+        if (!result.success) {
+          res.status(result.statusCode || 400).json({
+            error: result.error || "Failed to reset field",
+            storage: result.storage,
+            path: result.relativePath,
+            noop: result.noop,
+          });
+          return;
+        }
+        res.json({
+          success: true,
+          storage: result.storage,
+          path: result.relativePath,
+          noop: result.noop,
+          message: result.noop ? result.error : undefined,
+          isVariantLayer: result.isVariantLayer,
+        });
         return;
       }
 
-      clearFieldOverride(type, slug, locale, field, author, ctRoot(res));
+      const cleared = clearFieldOverride(type, slug, locale, field, author, ctRoot(res), variant);
 
       const dbName = config.database.slug;
       if (getDB(res).exists(dbName)) {
@@ -3694,12 +3802,15 @@ export function registerContentRoutes(app: Express): void {
           fieldKey = mappedPath.startsWith("?") ? mappedPath.slice(1) : mappedPath;
         }
         getDB(res).clearDbOverride(dbName, slug, fieldKey, author, getContentRoot(res));
-        // Force remapped cache so listings drop the override
         getDB(res).clearCache(dbName);
         await getDB(res).fetchItems(dbName, true).catch(() => {});
       }
 
-      res.json({ success: true });
+      res.json({
+        success: true,
+        storage: "field_overrides",
+        path: cleared.relativePath,
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

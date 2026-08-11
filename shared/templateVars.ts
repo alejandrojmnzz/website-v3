@@ -1,4 +1,4 @@
-const VAR_PATTERN = /\{\{[\s]*([^}|]+?)(?:\s*\|\s*([^}]*?))?\s*\}\}/g;
+const VAR_PATTERN = /\{\{[\s]*([^}|]+?)(?:\s*\|\s*([\s\S]*?))?\s*\}\}/g;
 
 export interface EscapeResult {
   escaped: string;

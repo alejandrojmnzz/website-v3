@@ -114,6 +114,19 @@ export function validationCacheReadKeys(site: string): string[] {
   return [siteSyncGcsKey(site, SYNC_FILENAMES.validationCache)];
 }
 
+/** Prefix for per-database semantic search result cache objects. */
+export function siteDbSearchCachePrefix(site: string, dbName: string): string {
+  return `${site}/db-search-cache/${dbName}/`;
+}
+
+export function siteDbSearchCacheKey(
+  site: string,
+  dbName: string,
+  queryHash: string,
+): string {
+  return `${siteDbSearchCachePrefix(site, dbName)}${queryHash}.json`;
+}
+
 export function userStoreReadKeys(): string[] {
   return [
     platformUserStoreGcsKey(),

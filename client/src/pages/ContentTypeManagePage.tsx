@@ -126,6 +126,7 @@ interface ContentTypeConfig {
     split_comma_values?: boolean;
     cache_images?: boolean;
     description?: string;
+    schema?: Record<string, unknown>;
   }>;
   indexes?: string[];
   unique_fields?: string[];
@@ -3782,9 +3783,12 @@ function FieldMappingDialog({
                     for DB identity config.
                   </p>
                   <p>
-                    Per-entry overrides live under <code className="font-mono">field_overrides</code> in{" "}
-                    <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> (Fields tab —
-                    content-type fields, not SEO).
+                    Static types (no database): Fields writes <strong>top-level keys</strong> on{" "}
+                    <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> (or a variant
+                    file when previewing with <code className="font-mono">?variant=</code>). The API path is
+                    still <code className="font-mono">field-overrides</code>, but static entries do not use a{" "}
+                    <code className="font-mono">field_overrides</code> bag. DB-backed types still store CT
+                    overlays under <code className="font-mono">field_overrides</code>.
                   </p>
                   <p>
                     Asterisk (<code className="font-mono">editor.required</code>): Required for publish —

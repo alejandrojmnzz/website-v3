@@ -1,5 +1,7 @@
-const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}/g;
-const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([^}]*?))?\s*\}\}$/;
+import { parsePipeFallback } from "@shared/json-field";
+
+const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
+const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -21,7 +23,7 @@ function resolveString(str: string, singleItem: Record<string, unknown>): unknow
     const fallback = exactMatch[2]?.trim();
     const value = getNestedValue(singleItem, fieldPath);
     if (value !== undefined && value !== null) return value;
-    if (hasFallback) return fallback ?? "";
+    if (hasFallback) return parsePipeFallback(fallback ?? "");
     return null;
   }
 

@@ -51,6 +51,7 @@ import { RelatedFeaturesPicker } from "./RelatedFeaturesPicker";
 import { TestimonialItemsPreview } from "./TestimonialItemsPreview";
 import { TableContentEditor } from "./TableContentEditor";
 import { FaqItemsPicker } from "./FaqItemsPicker";
+import { FaqSectionEditorField } from "./FaqSectionEditorField";
 import { DbFieldValuesPicker } from "./DbFieldValuesPicker";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { RichTextArea } from "./RichTextArea";
@@ -137,6 +138,61 @@ function getValueAtFieldPath(obj: unknown, fieldPath: string): unknown {
     current = (current as Record<string, unknown>)[part];
   }
   return current;
+}
+
+/** Collect dot-paths whose string leaves contain `{{ ... }}` (mirrors server extractVariableFields). */
+function collectTemplateExprPaths(
+  obj: unknown,
+  prefix = "",
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (typeof obj !== "object" || obj === null) return result;
+  const entries: Array<[string, unknown]> = Array.isArray(obj)
+    ? obj.map((v, i) => [String(i), v] as [string, unknown])
+    : Object.entries(obj as Record<string, unknown>).filter(([k]) => !k.startsWith("_"));
+  for (const [key, value] of entries) {
+    const dotPath = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === "string" && TEMPLATE_VAR_RE.test(value)) {
+      result[dotPath] = value.trim();
+    } else if (typeof value === "object" && value !== null) {
+      Object.assign(result, collectTemplateExprPaths(value, dotPath));
+    }
+  }
+  return result;
+}
+
+/**
+ * Bound template paths present when the editor loaded but missing from current YAML
+ * (absent key only — empty string / literals are not "cleared").
+ */
+function detectClearedTemplatePaths(
+  originalYaml: string,
+  currentYaml: string,
+  variableFields?: Record<string, string>,
+): string[] {
+  let originalPaths: Record<string, string> = { ...(variableFields ?? {}) };
+  try {
+    const original = safeYamlLoad(originalYaml) as Record<string, unknown> | null;
+    if (original && typeof original === "object") {
+      originalPaths = { ...originalPaths, ...collectTemplateExprPaths(original) };
+    }
+  } catch {
+    /* keep variableFields-only */
+  }
+  if (Object.keys(originalPaths).length === 0) return [];
+
+  let current: Record<string, unknown>;
+  try {
+    const parsed = safeYamlLoad(currentYaml);
+    if (!parsed || typeof parsed !== "object") return [];
+    current = parsed as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+
+  return Object.keys(originalPaths).filter(
+    (path) => getValueAtFieldPath(current, path) === undefined,
+  );
 }
 
 function stripTransientDynamicKeys(section: unknown): unknown {
@@ -488,6 +544,8 @@ export function SectionEditorPanel({
   const [activeTab, setActiveTab] = useState("code");
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
   const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
+  /** Cleared `{{ single.* }}` paths approved via the shared-template confirm. */
+  const [pendingClearedTemplatePaths, setPendingClearedTemplatePaths] = useState<string[]>([]);
 
   const hasChangesRef = useRef(hasChanges);
   hasChangesRef.current = hasChanges;
@@ -2062,7 +2120,7 @@ export function SectionEditorPanel({
   };
 
   // Shared save logic - returns true on success
-  const saveToServer = async (): Promise<{
+  const saveToServer = async (clearedTemplatePaths?: string[]): Promise<{
     success: boolean;
     warning?: string;
   }> => {
@@ -2104,6 +2162,8 @@ export function SectionEditorPanel({
       const urlVariant = _urlParams.get("variant");
       const effectiveVariant = forceVariant ?? urlVariant ?? variant;
       const writeSharedTemplateVariant = !!(isSharedTemplate && effectiveVariant);
+      const pathsToClear =
+        clearedTemplatePaths ?? pendingClearedTemplatePaths;
       const result = await editContent({
         contentType,
         slug,
@@ -2116,6 +2176,9 @@ export function SectionEditorPanel({
             action: "update_section",
             index: sectionIndex,
             section: parsed as Record<string, unknown>,
+            ...(pathsToClear.length > 0
+              ? { clearedTemplatePaths: pathsToClear }
+              : {}),
           },
         ],
       });
@@ -2132,6 +2195,7 @@ export function SectionEditorPanel({
         }
         onUpdate(confirmedSection || parsed);
         setHasChanges(false);
+        setPendingClearedTemplatePaths([]);
 
         // Update initial state reference so next undo session starts from saved state
         initialYamlRef.current = yamlContent;
@@ -2155,6 +2219,32 @@ export function SectionEditorPanel({
       return { success: false };
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const computeClearedTemplatePaths = (): string[] => {
+    const vf = (section as Record<string, unknown>)._variableFields as
+      | Record<string, string>
+      | undefined;
+    return detectClearedTemplatePaths(
+      initialYamlRef.current ?? "",
+      yamlContent,
+      vf,
+    );
+  };
+
+  /** Prepare shared-template confirm: stash cleared bindings for the enriched dialog. */
+  const openSharedTemplateConfirm = () => {
+    setPendingClearedTemplatePaths(computeClearedTemplatePaths());
+    setTemplateSaveConfirmOpen(true);
+  };
+
+  const proceedAfterSharedTemplateConfirm = async () => {
+    setTemplateSaveConfirmOpen(false);
+    if (boundSiblings.length > 0) {
+      setBindingConfirmOpen(true);
+    } else {
+      await executeSave();
     }
   };
 
@@ -2235,7 +2325,7 @@ export function SectionEditorPanel({
     if (isSharedTemplate && singleEntry && !isPerEntrySection) {
       if (!allowEntryStructuralOverrides) {
         // Attached shared-layout: only template saves — confirm blast radius first
-        setTemplateSaveConfirmOpen(true);
+        openSharedTemplateConfirm();
         return;
       }
       // Skip the scope dialog when previewing a variant — destination is already the variant file.
@@ -2246,6 +2336,13 @@ export function SectionEditorPanel({
         // Binding confirmation (if needed) is handled inside the scope dialog's
         // "Update shared template" branch.
         setScopeDialogOpen(true);
+        return;
+      }
+      // Variant preview: still confirm when unbinding template fields.
+      const cleared = computeClearedTemplatePaths();
+      if (cleared.length > 0) {
+        setPendingClearedTemplatePaths(cleared);
+        setTemplateSaveConfirmOpen(true);
         return;
       }
       // Fall through to executeSave, which writes to the variant template.
@@ -4702,7 +4799,7 @@ export function SectionEditorPanel({
 
                 // For dotted simple fields like "cta_button.url", skip if the parent object doesn't exist in the YAML.
                 // Exception: self-initializing editors (e.g. related-features-picker) always show — they create the structure on save.
-                const selfInitializingEditors = new Set(["related-features-picker", "faq-visibility-editor"]);
+                const selfInitializingEditors = new Set(["related-features-picker", "faq-visibility-editor", "faq-section-editor"]);
                 const isSelfInitializing = selfInitializingEditors.has(editorType) || editorType.startsWith("db-field-values-picker");
                 if (isSimpleField && fieldPath.includes(".") && !isSelfInitializing && !fieldPath.includes(".*")) {
                   const parentParts = fieldPath.split(".");
@@ -5452,6 +5549,210 @@ export function SectionEditorPanel({
                         onChange={(value) => updateArrayProperty(fieldPath, value)}
                         locale={locale}
                         permanentFilters={pickerPermanentFilters}
+                      />
+                    </div>
+                  );
+                }
+
+                if (isSimpleField && editorType === "faq-section-editor") {
+                  const getPermanentFilters = (): Array<{ item_property_slug: string; value: string | string[] }> => {
+                    const dynEntries = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
+                    const permFilters = dynEntries?.permanent_filters;
+                    if (Array.isArray(permFilters)) {
+                      return permFilters as Array<{ item_property_slug: string; value: string | string[] }>;
+                    }
+                    const rfLegacy = ((permFilters as Record<string, unknown> | undefined)?.related_features as string[])
+                      ?? (parsedSection?.related_features as string[])
+                      ?? [];
+                    return rfLegacy.length > 0
+                      ? [{ item_property_slug: "related_features", value: rfLegacy }]
+                      : [];
+                  };
+                  const permanentFilters = getPermanentFilters();
+                  const topicsValue = (() => {
+                    const rfItem = permanentFilters.find((f) => f.item_property_slug === "related_features");
+                    if (rfItem) {
+                      const v = rfItem.value;
+                      return Array.isArray(v) ? (v as string[]) : [String(v)];
+                    }
+                    return (parsedSection?.related_features as string[]) ?? [];
+                  })();
+                  const locationsValue = (() => {
+                    const locItem = permanentFilters.find((f) => f.item_property_slug === "locations");
+                    if (!locItem) return [];
+                    const v = locItem.value;
+                    return Array.isArray(v) ? (v as string[]) : [String(v)];
+                  })();
+                  return (
+                    <div key={fieldPath}>
+                      <FaqSectionEditorField
+                        topics={topicsValue}
+                        onTopicsChange={(value) =>
+                          updateArrayProperty(
+                            "dynamic_entries.permanent_filters.related_features",
+                            value,
+                          )
+                        }
+                        locations={locationsValue}
+                        onLocationsChange={(value) =>
+                          updateArrayProperty(
+                            "dynamic_entries.permanent_filters.locations",
+                            value,
+                          )
+                        }
+                        searchPhrase={(() => {
+                          const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
+                          return typeof de?.search === "string" ? de.search : "";
+                        })()}
+                        onSearchChange={(value) => {
+                          try {
+                            const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+                            if (!parsed || typeof parsed !== "object") return;
+                            pushUndoState(yamlContent);
+                            if (Array.isArray(parsed.items) && (parsed.items as unknown[]).length > 0 && !parsed.dynamic_entries && !parsed.hardcoded_entries) {
+                              parsed.hardcoded_entries = parsed.items;
+                              delete parsed.items;
+                            }
+                            if (!parsed.dynamic_entries || typeof parsed.dynamic_entries !== "object") {
+                              parsed.dynamic_entries = {};
+                            }
+                            const de = parsed.dynamic_entries as Record<string, unknown>;
+                            if (!de.database) de.database = "frequently_asked_questions";
+                            if (de.limit == null) de.limit = 9;
+                            if (value == null || value.trim().length === 0) {
+                              delete de.search;
+                            } else {
+                              de.search = value.trim();
+                            }
+                            const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+                            setYamlContent(newYaml);
+                            setHasChanges(true);
+                            setParseError(null);
+                            if (onPreviewChange) onPreviewChange(parsed as Section);
+                          } catch (err) {
+                            console.error("Error updating dynamic_entries.search:", err);
+                          }
+                        }}
+                        permanentFilters={permanentFilters}
+                        locale={locale || "en"}
+                        hardcodedItems={(() => {
+                          const hardcoded = (parsedSection as Record<string, unknown>)?.hardcoded_entries as Array<{ question: string; answer: string }> | undefined;
+                          const rootItems = parsedSection?.items as Array<{ question: string; answer: string }> | undefined;
+                          return [...(hardcoded || []), ...(rootItems || [])];
+                        })()}
+                        ignoredEntries={(() => {
+                          const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
+                          return (de?.ignored_entries as string[]) || [];
+                        })()}
+                        itemOverrides={
+                          (parsedSection?.item_overrides as Record<string, { hideOnLocations?: string[] }>) || {}
+                        }
+                        onItemOverridesChange={(overrides) => {
+                          try {
+                            const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+                            if (!parsed || typeof parsed !== "object") return;
+                            pushUndoState(yamlContent);
+                            if (Array.isArray(parsed.items) && (parsed.items as unknown[]).length > 0 && !parsed.dynamic_entries && !parsed.hardcoded_entries) {
+                              parsed.hardcoded_entries = parsed.items;
+                              delete parsed.items;
+                            }
+                            if (Object.keys(overrides).length === 0) {
+                              delete parsed.item_overrides;
+                            } else {
+                              parsed.item_overrides = overrides;
+                            }
+                            const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+                            setYamlContent(newYaml);
+                            setHasChanges(true);
+                            setParseError(null);
+                            if (onPreviewChange) onPreviewChange(parsed as Section);
+                          } catch (err) {
+                            console.error("Error updating item_overrides:", err);
+                          }
+                        }}
+                        onHardcodedEntriesChange={(entries) => {
+                          try {
+                            const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+                            if (!parsed || typeof parsed !== "object") return;
+                            pushUndoState(yamlContent);
+                            if (Array.isArray(parsed.items) && (parsed.items as unknown[]).length > 0 && !parsed.dynamic_entries && !parsed.hardcoded_entries) {
+                              parsed.hardcoded_entries = parsed.items;
+                              delete parsed.items;
+                            }
+                            if (entries.length === 0) {
+                              delete parsed.hardcoded_entries;
+                            } else {
+                              parsed.hardcoded_entries = entries;
+                            }
+                            const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+                            setYamlContent(newYaml);
+                            setHasChanges(true);
+                            setParseError(null);
+                            if (onPreviewChange) onPreviewChange(parsed as Section);
+                          } catch (err) {
+                            console.error("Error updating hardcoded_entries:", err);
+                          }
+                        }}
+                        onIgnoredEntriesChange={(keys) => {
+                          try {
+                            const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+                            if (!parsed || typeof parsed !== "object") return;
+                            pushUndoState(yamlContent);
+                            if (!parsed.dynamic_entries || typeof parsed.dynamic_entries !== "object") {
+                              parsed.dynamic_entries = {};
+                            }
+                            const de = parsed.dynamic_entries as Record<string, unknown>;
+                            if (keys.length === 0) {
+                              delete de.ignored_entries;
+                            } else {
+                              de.ignored_entries = keys;
+                            }
+                            const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+                            setYamlContent(newYaml);
+                            setHasChanges(true);
+                            setParseError(null);
+                            if (onPreviewChange) onPreviewChange(parsed as Section);
+                          } catch (err) {
+                            console.error("Error updating ignored_entries:", err);
+                          }
+                        }}
+                        sortField={(() => {
+                          const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
+                          return typeof de?.sort === "string" ? de.sort : undefined;
+                        })()}
+                        limit={(() => {
+                          const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
+                          return typeof de?.limit === "number" && de.limit > 0 ? de.limit : undefined;
+                        })()}
+                        onLocalizeDbEntry={(entry, ignoredKey) => {
+                          try {
+                            const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+                            if (!parsed || typeof parsed !== "object") return;
+                            pushUndoState(yamlContent);
+                            if (Array.isArray(parsed.items) && (parsed.items as unknown[]).length > 0 && !parsed.dynamic_entries && !parsed.hardcoded_entries) {
+                              parsed.hardcoded_entries = parsed.items;
+                              delete parsed.items;
+                            }
+                            const existing = (parsed.hardcoded_entries as Array<{ question: string; answer: string }>) || [];
+                            parsed.hardcoded_entries = [...existing, entry];
+                            if (!parsed.dynamic_entries || typeof parsed.dynamic_entries !== "object") {
+                              parsed.dynamic_entries = {};
+                            }
+                            const de = parsed.dynamic_entries as Record<string, unknown>;
+                            const existingIgnored = (de.ignored_entries as string[]) || [];
+                            if (!existingIgnored.includes(ignoredKey)) {
+                              de.ignored_entries = [...existingIgnored, ignoredKey];
+                            }
+                            const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+                            setYamlContent(newYaml);
+                            setHasChanges(true);
+                            setParseError(null);
+                            if (onPreviewChange) onPreviewChange(parsed as Section);
+                          } catch (err) {
+                            console.error("Error localizing DB entry:", err);
+                          }
+                        }}
+                        data-testid="props-faq-section-editor"
                       />
                     </div>
                   );
@@ -9015,7 +9316,15 @@ export function SectionEditorPanel({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={templateSaveConfirmOpen} onOpenChange={(o) => { if (!o && !isSaving) setTemplateSaveConfirmOpen(false); }}>
+      <Dialog
+        open={templateSaveConfirmOpen}
+        onOpenChange={(o) => {
+          if (!o && !isSaving) {
+            setTemplateSaveConfirmOpen(false);
+            setPendingClearedTemplatePaths([]);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md" data-testid="dialog-template-save-confirm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -9039,27 +9348,52 @@ export function SectionEditorPanel({
                   If you only want this change on this item, detach it from the shared template first,
                   then edit again.
                 </p>
+                {pendingClearedTemplatePaths.length > 0 && (
+                  <div
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 space-y-2 text-foreground"
+                    data-testid="cleared-template-bindings-notice"
+                  >
+                    <p className="font-medium text-sm">
+                      Removing template bindings
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      These <code className="text-[11px]">{"{{ single.* }}"}</code> fields will be
+                      removed from this locale&apos;s{" "}
+                      <code className="text-[11px]">single.{locale ?? "en"}.yml</code> only
+                      (sibling locales are not updated). Other bindings stay protected.
+                    </p>
+                    <ul className="list-disc pl-4 text-xs font-mono space-y-0.5">
+                      {pendingClearedTemplatePaths.map((path) => (
+                        <li key={path}>{path}</li>
+                      ))}
+                    </ul>
+                    <p className="text-xs text-muted-foreground">
+                      Does not delete entry database images, OG images, or media registry assets.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Advanced: placeholder restore is{" "}
+                      <code className="text-[10px]">restoreTemplatePlaceholders</code> in{" "}
+                      <code className="text-[10px]">server/content-editor.ts</code>.
+                    </p>
+                  </div>
+                )}
               </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               variant="ghost"
-              onClick={() => setTemplateSaveConfirmOpen(false)}
+              onClick={() => {
+                setTemplateSaveConfirmOpen(false);
+                setPendingClearedTemplatePaths([]);
+              }}
               disabled={isSaving}
               data-testid="button-template-save-cancel"
             >
               Cancel
             </Button>
             <Button
-              onClick={async () => {
-                setTemplateSaveConfirmOpen(false);
-                if (boundSiblings.length > 0) {
-                  setBindingConfirmOpen(true);
-                } else {
-                  await executeSave();
-                }
-              }}
+              onClick={() => void proceedAfterSharedTemplateConfirm()}
               disabled={isSaving}
               data-testid="button-template-save-confirm"
             >
@@ -9100,6 +9434,13 @@ export function SectionEditorPanel({
               className="w-full justify-start gap-3 h-auto py-3 px-4"
               onClick={async () => {
                 setScopeDialogOpen(false);
+                const cleared = computeClearedTemplatePaths();
+                if (cleared.length > 0) {
+                  setPendingClearedTemplatePaths(cleared);
+                  setTemplateSaveConfirmOpen(true);
+                  return;
+                }
+                setPendingClearedTemplatePaths([]);
                 if (boundSiblings.length > 0) {
                   setBindingConfirmOpen(true);
                 } else {
