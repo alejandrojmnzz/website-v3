@@ -250,11 +250,18 @@ export {
   type FaqItem,
   type FaqSection,
   type FAQ,
-} from "../site_4geeks-com/component-registry/faq/v1.0/schema";
+} from "./component-registry/faq/v1.0/schema";
+
+export {
+  breadcrumbItemSchema,
+  breadcrumbSectionSchema,
+  type BreadcrumbItem,
+  type BreadcrumbSection,
+} from "./component-registry/breadcrumb/v1.0/schema";
 
 // Type alias for backward compatibility
-export type FAQItem = import("../site_4geeks-com/component-registry/faq/v1.0/schema").FaqItem;
-export type FAQSection = import("../site_4geeks-com/component-registry/faq/v1.0/schema").FaqSection;
+export type FAQItem = import("./component-registry/faq/v1.0/schema").FaqItem;
+export type FAQSection = import("./component-registry/faq/v1.0/schema").FaqSection;
 
 // ============================================
 // Re-export Testimonials Schemas from Component Registry
@@ -839,7 +846,10 @@ import { mentorshipSectionSchema } from "../site_4geeks-com/component-registry/m
 import { certificateSectionSchema } from "../site_4geeks-com/component-registry/certificate/v1.0/schema";
 import { whyLearnAISectionSchema } from "../site_4geeks-com/component-registry/why_learn_ai/v1.0/schema";
 import { pricingSectionSchema } from "../site_4geeks-com/component-registry/pricing/v1.0/schema";
-import { faqSectionSchema } from "../site_4geeks-com/component-registry/faq/v1.0/schema";
+import { faqSectionSchema } from "./component-registry/faq/v1.0/schema";
+import { breadcrumbSectionSchema } from "./component-registry/breadcrumb/v1.0/schema";
+import { schemaOrgSectionSchema } from "./component-registry/schema_org/v1.0/schema";
+export { schemaOrgSectionSchema, type SchemaOrgSection } from "./component-registry/schema_org/v1.0/schema";
 import { testimonialsSectionSchema } from "../site_4geeks-com/component-registry/testimonials/v1.0/schema";
 import { whosHiringSectionSchema } from "../site_4geeks-com/component-registry/whos_hiring/v1.0/schema";
 import { footerSectionSchema } from "../site_4geeks-com/component-registry/footer/v1.0/schema";
@@ -1176,6 +1186,8 @@ const baseSectionSchema = z.union([
   whyLearnAISectionSchema,
   pricingSectionSchema,
   faqSectionSchema,
+  breadcrumbSectionSchema,
+  schemaOrgSectionSchema,
   testimonialsSectionSchema,
   whosHiringSectionSchema,
   footerSectionSchema,

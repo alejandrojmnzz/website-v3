@@ -302,6 +302,8 @@ export default function SyncLogPage() {
 
   const [forcePullOpen, setForcePullOpen] = useState(false);
   const [forcePullConfirmOpen, setForcePullConfirmOpen] = useState(false);
+  const forcePullConfirmOpenRef = useRef(false);
+  forcePullConfirmOpenRef.current = forcePullConfirmOpen;
   const [pullStarted, setPullStarted] = useState(false);
   const [pullResultTab, setPullResultTab] = useState<"downloaded" | "skipped" | "removed" | "errors">("downloaded");
   const [pullResultSearch, setPullResultSearch] = useState("");
@@ -849,8 +851,11 @@ export default function SyncLogPage() {
     <Dialog open={forcePullOpen} onOpenChange={(open) => {
       if (!open && !pullStatus?.running) {
         setForcePullOpen(false);
-        setForcePullConfirmOpen(false);
-        setPullResultSearch("");
+        // Do not clear forcePullConfirmOpen here — we close this dialog
+        // intentionally before showing the replace confirmation.
+        if (!forcePullConfirmOpenRef.current) {
+          setPullResultSearch("");
+        }
       }
     }}>
       <DialogContent className="sm:max-w-lg">
@@ -1200,7 +1205,11 @@ export default function SyncLogPage() {
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => setForcePullConfirmOpen(true)}
+                onClick={() => {
+                  forcePullConfirmOpenRef.current = true;
+                  setForcePullOpen(false);
+                  setForcePullConfirmOpen(true);
+                }}
                 disabled={startPullMutation.isPending || pullStatus?.running}
                 data-testid="button-start-force-pull"
               >
@@ -1214,7 +1223,16 @@ export default function SyncLogPage() {
       </DialogContent>
     </Dialog>
 
-    <AlertDialog open={forcePullConfirmOpen} onOpenChange={setForcePullConfirmOpen}>
+    <AlertDialog
+      open={forcePullConfirmOpen}
+      onOpenChange={(open) => {
+        setForcePullConfirmOpen(open);
+        if (!open) {
+          // Cancel or confirm — return to the pull dialog (progress / options).
+          setForcePullOpen(true);
+        }
+      }}
+    >
       <AlertDialogContent data-testid="dialog-confirm-force-pull">
         <AlertDialogHeader>
           <AlertDialogTitle>Pull all and replace?</AlertDialogTitle>
@@ -1233,7 +1251,6 @@ export default function SyncLogPage() {
             className={cn(buttonVariants({ variant: "destructive" }))}
             data-testid="button-confirm-force-pull"
             onClick={() => {
-              setForcePullConfirmOpen(false);
               startPullMutation.mutate(true);
             }}
           >

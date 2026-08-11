@@ -6,5 +6,11 @@ export const contributeBreadcrumb: SchemaComponentContributor = (section, contex
   const bc = section as unknown as BreadcrumbSection;
   const items = (bc.items || []).filter((item) => item && item.label);
   if (items.length === 0) return [];
-  return [{ kind: "document", schema: buildBreadcrumbListSchema(items, context.baseUrl) }];
+  return [
+    {
+      kind: "document",
+      schema: buildBreadcrumbListSchema(items, context.baseUrl),
+      source: "breadcrumb",
+    },
+  ];
 };

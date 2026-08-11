@@ -2,7 +2,7 @@ import * as fs from "fs";
 import { getDefaultContentRoot } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { getMergedSchemas, getOrganizationTwitterHandle, getWebsiteDefaultSocialImage } from "./schema-org";
+import { getOrganizationTwitterHandle, getWebsiteDefaultSocialImage } from "./schema-org";
 import { contentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
@@ -14,6 +14,7 @@ import { faqItemKey } from "./dynamic-entries";
 import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
+import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
 
@@ -87,11 +88,6 @@ export interface BreadcrumbSectionItem {
 export interface BreadcrumbSection {
   type: "breadcrumb";
   items: BreadcrumbSectionItem[];
-}
-
-interface SchemaReference {
-  include?: string[];
-  overrides?: Record<string, Record<string, unknown>>;
 }
 
 interface ParsedRoute {
@@ -422,7 +418,6 @@ export function generateDatabaseSsrHtml(
   const description = ((record.description as string) || (record.preview as string) || "").replace(/"/g, "&quot;");
   const image = (record.preview as string) || (record.image as string) || "";
   const publishedAt = (record.published_at as string) || (record.created_at as string) || "";
-  const { normalizeFlexibleDate } = require("@shared/normalizeFlexibleDate") as typeof import("@shared/normalizeFlexibleDate");
   const updatedAt =
     normalizeFlexibleDate(record.updated_at) ||
     normalizeFlexibleDate(publishedAt) ||
@@ -436,40 +431,7 @@ export function generateDatabaseSsrHtml(
     authorName = record.author || "4Geeks Academy";
   }
 
-  const schemaType = contentType === "blog" ? "BlogPosting" : "WebPage";
-  const schema: Record<string, unknown> = {
-    "@context": "https://schema.org",
-    "@type": schemaType,
-    headline: record.title,
-    description: record.description || record.preview || "",
-    url: recordUrl,
-    datePublished: publishedAt,
-    dateModified: updatedAt,
-    author: { "@type": "Person", name: authorName },
-    publisher: { "@type": "Organization", name: "4Geeks Academy", url: baseUrl },
-  };
-  if (image) schema.image = image;
-  if (record.tags && Array.isArray(record.tags) && record.tags.length > 0) {
-    schema.keywords = record.tags.join(", ");
-  }
-  scripts.push(`<script type="application/ld+json" data-ssr="true">${JSON.stringify(schema)}</script>`);
-
-  if (contentType === "blog") {
-    const blogLabel = "Blog";
-    const homeLabel = locale === "es" ? "Inicio" : "Home";
-    const breadcrumbItems: BreadcrumbSectionItem[] = [
-      { label: homeLabel, url: "/" },
-      { label: blogLabel, url: locale === "es" ? "/es/blog" : "/en/blog" },
-      { label: (record.title as string) || "" },
-    ];
-    scripts.push(
-      `<script type="application/ld+json" data-ssr="true">${JSON.stringify(buildBreadcrumbListSchema(breadcrumbItems, baseUrl))}</script>`
-    );
-  }
-
-  // Section-driven schema contributions from the fully merged single template
-  // (shared template layers + per-entry overrides), with {{ single.* }} vars
-  // resolved against this record — same sections the page renders.
+  // Section-driven schema contributions only (no hardcoded BlogPosting / synthetic breadcrumb).
   try {
     const template = mergeSingleTemplate(contentType, locale, (record.slug as string) || undefined, undefined, contentRoot);
     const templateSections = template?.sections;
@@ -485,13 +447,16 @@ export function generateDatabaseSsrHtml(
         locale,
         contentRoot,
         baseUrl,
+        contentType,
+        pageUrl: recordUrl,
+        title: (record.title as string) || undefined,
+        description: ((record.description as string) || (record.preview as string) || undefined),
+        image: image || undefined,
+        publishedAt: publishedAt || undefined,
+        updatedAt: updatedAt || undefined,
+        authorName,
       };
       for (const sectionSchema of collectSectionSchemas(resolvedSections, context)) {
-        // Blog already emits a synthetic BreadcrumbList above; skip
-        // section-driven trails so we never publish two competing ones.
-        if (contentType === "blog" && (sectionSchema as Record<string, unknown>)["@type"] === "BreadcrumbList") {
-          continue;
-        }
         scripts.push(
           `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
         );
@@ -617,24 +582,24 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
 
     const scripts: string[] = [];
 
-    const schemaRef = pageData.schema as SchemaReference | undefined;
-    if (schemaRef?.include && schemaRef.include.length > 0) {
-      const schemas = getMergedSchemas(schemaRef, route.locale, contentRoot);
-      for (const schema of schemas) {
-        scripts.push(
-          `<script type="application/ld+json" data-ssr="true">${JSON.stringify(schema)}</script>`
-        );
-      }
-    }
-
+    // Production emitters: SSR section pipeline only (no schema.include).
     const sections = pageData.sections as Array<Record<string, unknown>> | undefined;
     if (Array.isArray(sections)) {
+      const metaForSchema = pageData.meta as Record<string, unknown> | undefined;
       const context: SchemaComponentContext = {
         locale: route.locale,
         contentRoot,
         baseUrl: getBaseUrl(),
         locationSlug: route.contentType === "location" ? route.slug : undefined,
         programSlug: route.contentType === "program" ? route.slug : undefined,
+        contentType: route.contentType,
+        pageUrl: `${getBaseUrl()}${url.split("?")[0]}`,
+        title:
+          (typeof metaForSchema?.page_title === "string" ? metaForSchema.page_title : undefined) ||
+          (typeof pageData.title === "string" ? pageData.title : undefined),
+        description:
+          typeof metaForSchema?.description === "string" ? metaForSchema.description : undefined,
+        image: typeof metaForSchema?.og_image === "string" ? metaForSchema.og_image : undefined,
       };
       for (const sectionSchema of collectSectionSchemas(sections, context)) {
         scripts.push(

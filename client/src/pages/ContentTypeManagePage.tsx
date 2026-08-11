@@ -9,12 +9,6 @@ import {
   type ContentTypePreviewConfig,
   type EntryPreviewFailure,
 } from "@/components/EntryPreviewAdmin";
-import {
-  captureEntryPreview,
-  entryPreviewJobKey,
-  type EntryPreviewCaptureJob,
-} from "@/lib/entryPreviewCapture";
-import { useSerializedCaptureQueue } from "@/hooks/useSerializedCaptureQueue";
 import { Link, useRoute, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -140,6 +134,23 @@ interface ContentTypeConfig {
   single_template?: boolean;
   static_entry_count?: number;
   preview?: ContentTypePreviewConfig | null;
+  schema_org_requirements?: Array<{ schema_type: string }>;
+}
+
+interface SchemaOrgCoverageRow {
+  contentType: string;
+  schema_type: string;
+  present: number;
+  total: number;
+  missing_slugs: string[];
+  present_slugs: string[];
+}
+
+interface SchemaOrgCoverageResponse {
+  contentType: string;
+  requirements: Array<{ schema_type: string }>;
+  coverage: SchemaOrgCoverageRow[];
+  message?: string;
 }
 
 interface DatabaseListItem {
@@ -4824,6 +4835,57 @@ export default function ContentTypeManagePage() {
     staleTime: 60000,
   });
 
+  const schemaOrgRequirements = typeConfig?.schema_org_requirements ?? [];
+  const hasSchemaOrgRequirements = schemaOrgRequirements.length > 0;
+
+  const {
+    data: schemaOrgCoverage,
+    isLoading: schemaOrgCoverageLoading,
+    refetch: refetchSchemaOrgCoverage,
+  } = useQuery<SchemaOrgCoverageResponse>({
+    queryKey: ["/api/content-types", contentType, "schema-org-coverage"],
+    queryFn: () =>
+      fetch(`/api/content-types/${encodeURIComponent(contentType)}/schema-org-coverage`).then((r) =>
+        r.json(),
+      ),
+    enabled: hasSchemaOrgRequirements,
+    staleTime: 30_000,
+  });
+
+  const [schemaOrgEnsuring, setSchemaOrgEnsuring] = useState(false);
+  const [schemaOrgMissingOpen, setSchemaOrgMissingOpen] = useState(false);
+
+  const handleSchemaOrgEnsure = async () => {
+    if (!contentType || !hasSchemaOrgRequirements) return;
+    setSchemaOrgEnsuring(true);
+    try {
+      const res = await apiRequest(
+        "POST",
+        `/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure`,
+        {},
+      );
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      toast({
+        title: "Schema.org sections attached",
+        description: `Added ${result.added ?? 0}, already present ${result.already_present ?? 0}${
+          result.errors ? `, errors ${result.errors}` : ""
+        }.`,
+      });
+      await refetchSchemaOrgCoverage();
+      queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] });
+    } catch (err: any) {
+      toast({
+        title: "Failed to attach Schema.org",
+        description: err?.message || String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSchemaOrgEnsuring(false);
+    }
+  };
+
   const { data: entryPreviewsData } = useQuery<{
     preview: ContentTypePreviewConfig | null;
     captureReady?: boolean;
@@ -4850,105 +4912,80 @@ export default function ContentTypeManagePage() {
     staleTime: 30_000,
   });
 
-  const runEntryPreviewCapture = useCallback(
-    (job: EntryPreviewCaptureJob) => captureEntryPreview(job),
-    [],
-  );
-  const {
-    enqueue: enqueueEntryPreview,
-    status: entryPreviewStatus,
-    urls: entryPreviewUrls,
-    paused: entryPreviewQueuePaused,
-  } = useSerializedCaptureQueue<EntryPreviewCaptureJob>({
-    jobKey: entryPreviewJobKey,
-    run: runEntryPreviewCapture,
-    delayBetweenJobsMs: 2_500,
-    pauseWhenHidden: true,
-    onSuccess: () => {
-      // Immediate bump: one less dirty/missing, one more generated (reconciled by poll/idle refetch).
-      // Do not refetch stats here — in-flight list/stats races were overwriting failed/gen bumps.
-      queryClient.setQueryData(
-        ["/api/content-types", contentType, "entry-previews", "stats"],
-        (old: {
-          fromSource?: number;
-          generated?: number;
-          missing?: number;
-          dirty?: number;
-          failed?: number;
-        } | undefined) => {
-          if (!old) return old;
-          const dirty = old.dirty ?? 0;
-          if (dirty > 0) {
-            return {
-              ...old,
-              dirty: dirty - 1,
-              generated: (old.generated ?? 0) + 1,
-            };
-          }
-          return {
-            ...old,
-            missing: Math.max(0, (old.missing ?? 0) - 1),
-            generated: (old.generated ?? 0) + 1,
-          };
-        },
+  const { data: entryPreviewQueueData } = useQuery<{
+    configError: string | null;
+    queue: { pending: number; active: number; completedSession: number; failedSession: number };
+  }>({
+    queryKey: ["/api/content-types", contentType, "entry-previews", "queue"],
+    queryFn: async () => {
+      const r = await apiRequest(
+        "GET",
+        `/api/content-types/${encodeURIComponent(contentType)}/entry-previews/queue`,
       );
-      void queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews"],
-        exact: true,
-      });
+      return r.json();
     },
-    onError: (_job, err) => {
-      // preview-failed marks meta.failedAt so needsCapture becomes false
-      queryClient.setQueryData(
-        ["/api/content-types", contentType, "entry-previews", "stats"],
-        (old: {
-          fromSource?: number;
-          generated?: number;
-          missing?: number;
-          dirty?: number;
-          failed?: number;
-        } | undefined) => {
-          if (!old) return old;
-          const dirty = old.dirty ?? 0;
-          return {
-            ...old,
-            failed: (old.failed ?? 0) + 1,
-            dirty: dirty > 0 ? dirty - 1 : dirty,
-            missing: dirty > 0 ? old.missing : Math.max(0, (old.missing ?? 0) - 1),
-          };
-        },
-      );
-      void queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews"],
-        exact: true,
-      });
-      toast({
-        title: "Couldn't generate OG preview",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "destructive",
-      });
+    enabled: !!typeConfig?.preview?.component,
+    refetchInterval: (query) => {
+      const q = query.state.data?.queue;
+      if (q && (q.pending > 0 || q.active > 0)) return 1_500;
+      return false;
     },
   });
 
-  const entryPreviewQueueBusyCount = useMemo(
-    () =>
-      Object.values(entryPreviewStatus).filter((s) => s === "queued" || s === "capturing").length,
-    [entryPreviewStatus],
-  );
+  const entryPreviewQueueBusyCount =
+    (entryPreviewQueueData?.queue.pending ?? 0) + (entryPreviewQueueData?.queue.active ?? 0);
 
-  // Reconcile KPI (including failed) from the server when the capture queue drains.
-  const prevBusyRef = useRef(0);
   useEffect(() => {
-    const prev = prevBusyRef.current;
-    prevBusyRef.current = entryPreviewQueueBusyCount;
-    if (prev > 0 && entryPreviewQueueBusyCount === 0) {
-      void queryClient.refetchQueries({
+    if (entryPreviewQueueBusyCount > 0) {
+      void queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews"],
+        exact: true,
+      });
+      void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
         exact: true,
-        type: "active",
       });
     }
-  }, [contentType, entryPreviewQueueBusyCount]);
+  }, [contentType, entryPreviewQueueBusyCount, entryPreviewQueueData?.queue.completedSession]);
+
+  const enqueueServerPreviews = useCallback(
+    async (opts: {
+      mode: "missing" | "all" | "failed";
+      locales: string[];
+      slugs?: string[];
+    }) => {
+      try {
+        const r = await apiRequest(
+          "POST",
+          `/api/content-types/${encodeURIComponent(contentType)}/entry-previews/enqueue`,
+          opts,
+        );
+        const data = await r.json();
+        if (!r.ok) {
+          throw new Error(data.error || data.code || `Enqueue failed (${r.status})`);
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ["/api/content-types", contentType, "entry-previews"],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["/api/content-types", contentType, "entry-previews", "queue"],
+        });
+        toast({
+          title: "OG preview jobs queued",
+          description: `${(data.enqueued as string[] | undefined)?.length ?? 0} job(s) on the server. You can close this tab.`,
+        });
+        return data;
+      } catch (err) {
+        toast({
+          title: "Couldn't queue OG previews",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "destructive",
+        });
+        throw err;
+      }
+    },
+    [contentType],
+  );
 
   const entryPreviewGenCounts = useMemo(() => {
     if (!entryPreviewsData?.index) return { missing: 0, all: 0 };
@@ -4964,114 +5001,35 @@ export default function ContentTypeManagePage() {
   const handleGenerateAllPreviews = useCallback(
     async (mode: "missing" | "all") => {
       if (!entryPreviewsData?.preview || entryPreviewsData.captureReady === false) return;
-      const preview = entryPreviewsData.preview;
       const rows = Object.values(entryPreviewsData.index).filter(
         (r) => !r.fromSource && !r.meta?.failedAt,
       );
       const targets = mode === "missing" ? rows.filter((r) => r.needsCapture) : rows;
       if (targets.length === 0) return;
-
-      if (mode === "all") {
-        for (const row of targets) {
-          if (!row.meta?.url && !row.cacheBustedUrl) continue;
-          void apiRequest(
-            "POST",
-            `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(row.slug)}/preview-dirty`,
-            { locale: row.locale },
-          );
-        }
-        queryClient.setQueryData(
-          ["/api/content-types", contentType, "entry-previews", "stats"],
-          (old: {
-            generated?: number;
-            dirty?: number;
-          } | undefined) => {
-            if (!old) return old;
-            const regenCount = targets.filter((r) => r.meta?.url || r.cacheBustedUrl).length;
-            return {
-              ...old,
-              dirty: (old.dirty ?? 0) + regenCount,
-              generated: Math.max(0, (old.generated ?? 0) - regenCount),
-            };
-          },
-        );
-      }
-
-      for (const row of targets) {
-        enqueueEntryPreview(
-          {
-            contentType,
-            slug: row.slug,
-            locale: row.locale,
-            width: entryPreviewsData.width || preview.widths?.[0] || 1200,
-            maxHeight: entryPreviewsData.maxHeight || preview.maxHeight || 630,
-            theme: preview.theme === "light" ? "light" : "dark",
-            propsHash: row.propsHash,
-          },
-          true,
-        );
-      }
-
-      void queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews"],
-        exact: true,
-      });
+      const locales = [...new Set(targets.map((r) => r.locale))];
+      const slugs = [...new Set(targets.map((r) => r.slug))];
+      await enqueueServerPreviews({ mode, locales, slugs });
     },
-    [contentType, entryPreviewsData, enqueueEntryPreview],
+    [entryPreviewsData, enqueueServerPreviews],
   );
 
   const markEntryPreviewDirty = async (slug: string, locale: string) => {
     try {
-      await apiRequest(
-        "POST",
-        `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(slug)}/preview-dirty`,
-        { locale },
-      );
-      // Optimistic: move one entry into dirty so the KPI reacts before the slow list refetch.
-      queryClient.setQueryData(
-        ["/api/content-types", contentType, "entry-previews", "stats"],
-        (old: {
-          fromSource?: number;
-          generated?: number;
-          missing?: number;
-          dirty?: number;
-          failed?: number;
-        } | undefined) => {
-          if (!old) return old;
-          const row = entryPreviewsData?.index?.[`${slug}:${locale}`];
-          const hadUrl = !!(row?.meta?.url || row?.cacheBustedUrl);
-          const alreadyDirty = !!row?.meta?.dirty;
-          if (alreadyDirty) return old;
-          return {
-            ...old,
-            dirty: (old.dirty ?? 0) + 1,
-            generated: hadUrl ? Math.max(0, (old.generated ?? 0) - 1) : old.generated,
-            missing: hadUrl ? old.missing : Math.max(0, (old.missing ?? 0) - 1),
-          };
-        },
-      );
-      void queryClient.invalidateQueries({
-        queryKey: ["/api/content-types", contentType, "entry-previews"],
-        exact: true,
-      });
-      const preview = typeConfig?.preview;
-      if (preview?.component && entryPreviewsData?.captureReady !== false) {
-        enqueueEntryPreview(
-          {
-            contentType,
-            slug,
-            locale,
-            width: preview.widths?.[0] || 1200,
-            maxHeight: preview.maxHeight || 630,
-            theme: preview.theme === "light" ? "light" : "dark",
-          },
-          true,
-        );
-      }
+      await enqueueServerPreviews({ mode: "all", locales: [locale], slugs: [slug] });
     } catch {
-      toast({ title: "Failed to mark preview dirty", variant: "destructive" });
+      /* toast already shown */
     }
   };
+
+  const handleRetryQueuedPreviews = useCallback(
+    async (failures: EntryPreviewFailure[]) => {
+      if (failures.length === 0) return;
+      const locales = [...new Set(failures.map((f) => f.locale))];
+      const slugs = [...new Set(failures.map((f) => f.slug))];
+      await enqueueServerPreviews({ mode: "failed", locales, slugs });
+    },
+    [enqueueServerPreviews],
+  );
 
   const urlPatterns = typeConfig?.url_pattern || {};
   // Static listings inject locale from the filename as `lang` when `_locale` is unset
@@ -5953,26 +5911,10 @@ export default function ContentTypeManagePage() {
             preview={typeConfig?.preview}
             fieldMapping={typeConfig?.field_mapping}
             queueBusyCount={entryPreviewQueueBusyCount}
-            queuePaused={entryPreviewQueuePaused}
             generateAllCounts={entryPreviewGenCounts}
             onGenerateAll={handleGenerateAllPreviews}
-            onRetryQueued={(failures: EntryPreviewFailure[]) => {
-              const preview = typeConfig?.preview;
-              if (!preview?.component) return;
-              for (const f of failures) {
-                enqueueEntryPreview(
-                  {
-                    contentType,
-                    slug: f.slug,
-                    locale: f.locale || "en",
-                    width: preview.widths?.[0] || 1200,
-                    maxHeight: preview.maxHeight || 630,
-                    theme: preview.theme === "light" ? "light" : "dark",
-                  },
-                  true,
-                );
-              }
-            }}
+            onRetryQueued={handleRetryQueuedPreviews}
+            configError={entryPreviewQueueData?.configError ?? null}
           />
           <Card data-testid="card-kpi-linked-database">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -6075,6 +6017,98 @@ export default function ContentTypeManagePage() {
               </div>
             </CardContent>
           </Card>
+          {hasSchemaOrgRequirements && (
+            <Card data-testid="card-kpi-schema-org">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Schema.org
+                </CardTitle>
+                <Code className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div
+                  className="rounded-md border border-border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground space-y-1"
+                  data-testid="banner-schema-org-ct-education"
+                >
+                  <p className="text-foreground font-medium flex items-center gap-1.5">
+                    <Info className="h-3.5 w-3.5 shrink-0" />
+                    Content-type requirements
+                  </p>
+                  <p>
+                    Every location needs LocalBusiness; hubs are seeded from Miami/Madrid templates.
+                    Attach binds a leading <code className="font-mono">schema_org</code> section on missing entries.
+                  </p>
+                </div>
+                {schemaOrgCoverageLoading ? (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Loading coverage…
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Required:{" "}
+                      <span className="font-mono text-foreground">
+                        {(schemaOrgCoverage?.requirements?.length
+                          ? schemaOrgCoverage.requirements
+                          : schemaOrgRequirements
+                        )
+                          .map((r) => r.schema_type)
+                          .join(", ")}
+                      </span>
+                    </p>
+                    {(schemaOrgCoverage?.coverage ?? []).map((row) => {
+                      const missing = row.missing_slugs ?? [];
+                      return (
+                        <div key={row.schema_type} className="space-y-1" data-testid={`schema-org-coverage-${row.schema_type}`}>
+                          <p className="text-sm font-medium" data-testid="text-schema-org-coverage">
+                            {row.schema_type}: {row.present}/{row.total}
+                          </p>
+                          {missing.length > 0 && (
+                            <div>
+                              <button
+                                type="button"
+                                className="text-xs text-primary hover:underline"
+                                onClick={() => setSchemaOrgMissingOpen((v) => !v)}
+                                data-testid="button-schema-org-missing-toggle"
+                              >
+                                {schemaOrgMissingOpen ? "Hide" : "Show"} {missing.length} missing slug
+                                {missing.length !== 1 ? "s" : ""}
+                              </button>
+                              {schemaOrgMissingOpen && (
+                                <ul
+                                  className="mt-1 max-h-28 overflow-y-auto text-xs font-mono text-muted-foreground space-y-0.5"
+                                  data-testid="list-schema-org-missing"
+                                >
+                                  {missing.map((slug) => (
+                                    <li key={slug}>{slug}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={schemaOrgEnsuring || schemaOrgCoverageLoading}
+                  onClick={handleSchemaOrgEnsure}
+                  data-testid="button-schema-org-ensure"
+                >
+                  {schemaOrgEnsuring ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <LinkIcon className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Attach / bind
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <Card>
@@ -6327,21 +6361,16 @@ export default function ContentTypeManagePage() {
                         const rowKey = `${slug}-${locale}`;
                         const previewKey = `${slug}:${locale}`;
                         const previewRow = entryPreviewsData?.index?.[previewKey];
-                        const captureKey = entryPreviewJobKey({
-                          contentType,
-                          slug,
-                          locale,
-                          width: entryPreviewsData?.width || 1200,
-                          maxHeight: entryPreviewsData?.maxHeight || 630,
-                          theme: "dark",
-                        });
-                        const captureSt = entryPreviewStatus[captureKey];
+                        const captureSt = previewRow?.meta?.failedAt
+                          ? "error"
+                          : previewRow?.needsCapture && entryPreviewQueueBusyCount > 0
+                            ? "capturing"
+                            : previewRow?.cacheBustedUrl
+                              ? "done"
+                              : undefined;
                         const isUsableOg = isUsableOgImageUrl(ogImage);
                         const thumbSrc =
-                          (isUsableOg ? ogImage : "") ||
-                          entryPreviewUrls[captureKey] ||
-                          previewRow?.cacheBustedUrl ||
-                          "";
+                          (isUsableOg ? ogImage : "") || previewRow?.cacheBustedUrl || "";
                         return (
                           <tr
                             key={rowKey}
@@ -6978,19 +7007,16 @@ export default function ContentTypeManagePage() {
                         const itemUrl = pattern ? buildItemUrl(pattern, item, itemLocale) : "";
                         const previewKey = `${item.slug}:${itemLocale}`;
                         const previewRow = entryPreviewsData?.index?.[previewKey];
-                        const captureKey = entryPreviewJobKey({
-                          contentType,
-                          slug: String(item.slug || ""),
-                          locale: itemLocale,
-                          width: entryPreviewsData?.width || 1200,
-                          maxHeight: entryPreviewsData?.maxHeight || 630,
-                          theme: "dark",
-                        });
-                        const captureSt = entryPreviewStatus[captureKey];
+                        const captureSt = previewRow?.meta?.failedAt
+                          ? "error"
+                          : previewRow?.needsCapture && entryPreviewQueueBusyCount > 0
+                            ? "capturing"
+                            : previewRow?.cacheBustedUrl
+                              ? "done"
+                              : undefined;
                         const thumbSrc =
                           (typeof item.image === "string" && item.image.trim()) ||
                           (typeof item.preview === "string" && item.preview.trim()) ||
-                          entryPreviewUrls[captureKey] ||
                           previewRow?.cacheBustedUrl ||
                           "";
                         return (
@@ -7482,19 +7508,7 @@ export default function ContentTypeManagePage() {
             const itemLocale = localeKey ? String(item[localeKey] || "en") : "en";
             const previewKey = `${item.slug}:${itemLocale}`;
             const previewRow = entryPreviewsData?.index?.[previewKey];
-            const captureKey = entryPreviewJobKey({
-              contentType,
-              slug: String(item.slug || ""),
-              locale: itemLocale,
-              width: entryPreviewsData?.width || 1200,
-              maxHeight: entryPreviewsData?.maxHeight || 630,
-              theme: "dark",
-            });
-            return (
-              entryPreviewUrls[captureKey] ||
-              previewRow?.cacheBustedUrl ||
-              null
-            );
+            return previewRow?.cacheBustedUrl || null;
           })()}
           onSave={async (builtItem) => {
             const res = await fetch(`/api/databases/${dbSlug}/items/${editingDbEntry.index}`, {

@@ -18,9 +18,15 @@ import {
   TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
 
 export type SeoModalTab = "general" | "fields" | "schema" | "visibility" | "redirects";
+
+type SchemaOrgPreviewDoc = {
+  schema: Record<string, unknown>;
+  source: string;
+};
 
 export interface SeoModalProps {
   open: boolean;
@@ -30,13 +36,6 @@ export interface SeoModalProps {
   seoData: any;
   seoMeta: SeoMeta;
   setSeoMeta: (v: SeoMeta) => void;
-  seoSchemaInclude: string[];
-  setSeoSchemaInclude: (v: string[] | ((prev: string[]) => string[])) => void;
-  seoSchemaOverrides: Record<string, string>;
-  setSeoSchemaOverrides: (v: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
-  seoSchemaOverridesErrors: Record<string, string>;
-  setSeoSchemaOverridesErrors: (v: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void;
-  availableSchemaKeys: string[];
   seoLocations: string[];
   setSeoLocations: (v: string[] | ((prev: string[]) => string[])) => void;
   seoAvailableLocations: SeoLocation[];
@@ -63,6 +62,37 @@ export interface SeoModalProps {
   initialTab?: SeoModalTab;
 }
 
+function resolveSchemaPreviewDocs(seoData: any): SchemaOrgPreviewDoc[] {
+  const docs = seoData?.schemaOrgDocuments;
+  if (Array.isArray(docs) && docs.length > 0) {
+    return docs.filter(
+      (d: unknown): d is SchemaOrgPreviewDoc =>
+        !!d &&
+        typeof d === "object" &&
+        typeof (d as SchemaOrgPreviewDoc).source === "string" &&
+        !!(d as SchemaOrgPreviewDoc).schema,
+    );
+  }
+  const out: SchemaOrgPreviewDoc[] = [];
+  if (seoData?.faqSchema) {
+    out.push({ schema: seoData.faqSchema, source: "faq" });
+  }
+  if (Array.isArray(seoData?.schemaOrg)) {
+    for (const schema of seoData.schemaOrg) {
+      if (!schema || typeof schema !== "object") continue;
+      const t = String((schema as Record<string, unknown>)["@type"] ?? "");
+      if (t === "FAQPage" && seoData?.faqSchema) continue;
+      let source = "schema_org";
+      if (t === "FAQPage") source = "faq";
+      else if (t === "Article" || t === "BlogPosting") source = "article";
+      else if (t === "BreadcrumbList") source = "breadcrumb";
+      else if (t === "Organization") source = "organization";
+      out.push({ schema, source });
+    }
+  }
+  return out;
+}
+
 export function SeoModal({
   open,
   onOpenChange,
@@ -71,13 +101,6 @@ export function SeoModal({
   seoData,
   seoMeta,
   setSeoMeta,
-  seoSchemaInclude,
-  setSeoSchemaInclude,
-  seoSchemaOverrides,
-  setSeoSchemaOverrides,
-  seoSchemaOverridesErrors,
-  setSeoSchemaOverridesErrors,
-  availableSchemaKeys,
   seoLocations,
   setSeoLocations,
   seoAvailableLocations,
@@ -102,12 +125,12 @@ export function SeoModal({
   initialTab = "general",
 }: SeoModalProps) {
   const [activeTab, setActiveTab] = useState<SeoModalTab>(initialTab);
+  const [schemaAdvancedOpen, setSchemaAdvancedOpen] = useState(false);
+  const [expandedSchemaDocs, setExpandedSchemaDocs] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     if (open) setActiveTab(initialTab);
   }, [open, initialTab]);
-  const [seoFaqExpanded, setSeoFaqExpanded] = useState(true);
-  const [seoSchemaExpanded, setSeoSchemaExpanded] = useState(false);
   const [ogImageError, setOgImageError] = useState(false);
   const [ogImageTooSmall, setOgImageTooSmall] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
@@ -523,178 +546,103 @@ export function SeoModal({
               )}
             </TabsContent>
 
-            {/* ── Schema tab ─────────────────────────────────────────── */}
+            {/* ── Schema tab (read-only preview) ─────────────────────── */}
             <TabsContent value="schema" className="space-y-6 pt-4">
-
-              {/* FAQ Schema */}
-              {seoData.faqSchema && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setSeoFaqExpanded(!seoFaqExpanded)}
-                    className="flex items-center gap-2 w-full text-left"
-                    data-testid="button-toggle-faq-schema"
-                  >
-                    {seoFaqExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <h4 className="text-sm font-semibold">FAQ Schema</h4>
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                      Auto-generated
-                    </span>
-                  </button>
-                  {seoFaqExpanded && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        This FAQ structured data is generated automatically from FAQ sections on this page. Google uses it to show rich results in search.
-                      </p>
-                      <pre className="bg-muted p-3 rounded-md text-xs font-mono max-h-[200px] overflow-y-auto whitespace-pre-wrap break-all" data-testid="text-faq-schema-preview">
-                        {JSON.stringify(seoData.faqSchema, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Schema Includes */}
-              <div className="space-y-3">
-                <div>
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    Schema Includes
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                      {seoSchemaInclude.length} selected
-                    </span>
-                  </h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Select which Schema.org schemas to include on this page. These are defined in schema-org.yml.
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 gap-1.5 max-h-[200px] overflow-y-auto" data-testid="list-schema-includes">
-                  {availableSchemaKeys.map((key) => (
-                    <label
-                      key={key}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover-elevate cursor-pointer text-sm"
-                      data-testid={`checkbox-schema-${key}`}
+              <div className="rounded-md border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-2" data-testid="banner-schema-education">
+                <p className="text-foreground font-medium flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5 shrink-0" />
+                  How Schema.org works on this page
+                </p>
+                <p>
+                  Schema.org comes from leading <code className="font-mono">schema_org</code> sections plus FAQ, Article, and Breadcrumb contributors.
+                  Site Organization/Website in <code className="font-mono">schema-org.yml</code> are templates.
+                  Page WebSite/Organization sections are page-local. Course hero needs a Course companion section.
+                </p>
+                <p>
+                  This tab is a read-only preview of resolved JSON-LD. Edit sections on the page (or SEO &amp; GEO → Schema.org for site templates) — do not use legacy <code className="font-mono">schema.include</code>.
+                </p>
+                <Collapsible open={schemaAdvancedOpen} onOpenChange={setSchemaAdvancedOpen}>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                      data-testid="button-schema-read-more"
                     >
-                      <input
-                        type="checkbox"
-                        checked={seoSchemaInclude.includes(key)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSeoSchemaInclude(prev => [...prev, key]);
-                          } else {
-                            setSeoSchemaInclude(prev => prev.filter(k => k !== key));
-                            setSeoSchemaOverrides(prev => {
-                              const next = { ...prev };
-                              delete next[key];
-                              return next;
-                            });
-                            setSeoSchemaOverridesErrors(prev => {
-                              const next = { ...prev };
-                              delete next[key];
-                              return next;
-                            });
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span className="font-mono text-xs">{key}</span>
-                    </label>
-                  ))}
-                </div>
+                      Read more (advanced)
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${schemaAdvancedOpen ? "rotate-180" : ""}`} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-2 space-y-0.5 font-mono text-[11px]">
+                    <p>shared/component-registry/schema_org/v1.0/</p>
+                    <p>server/schema-components/</p>
+                    <p>shared/schema-org-sections.ts</p>
+                    <p>server/schema-org-seed.ts</p>
+                    <p>schema-org.yml</p>
+                    <p>client/src/components/settings/SchemaOrgTab.tsx</p>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
 
-              {/* Schema Overrides */}
-              {seoSchemaInclude.length > 0 && (
-                <div className="space-y-3">
-                  <div>
-                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                      Schema Overrides
-                      {Object.keys(seoSchemaOverrides).length > 0 && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                          {Object.keys(seoSchemaOverrides).length} override{Object.keys(seoSchemaOverrides).length !== 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Add JSON overrides to customize properties of included schemas. Leave empty for no overrides.
-                    </p>
-                  </div>
-                  <div className="space-y-3">
-                    {seoSchemaInclude.map((key) => (
-                      <div key={key} className="space-y-1.5">
-                        <label className="text-xs font-medium font-mono text-foreground">
-                          {key}
-                        </label>
-                        <textarea
-                          value={seoSchemaOverrides[key] || ""}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setSeoSchemaOverrides(prev => ({ ...prev, [key]: val }));
-                            if (val.trim()) {
-                              try {
-                                JSON.parse(val);
-                                setSeoSchemaOverridesErrors(prev => {
-                                  const next = { ...prev };
-                                  delete next[key];
-                                  return next;
-                                });
-                              } catch {
-                                setSeoSchemaOverridesErrors(prev => ({ ...prev, [key]: "Invalid JSON" }));
-                              }
-                            } else {
-                              setSeoSchemaOverridesErrors(prev => {
-                                const next = { ...prev };
-                                delete next[key];
-                                return next;
-                              });
-                            }
-                          }}
-                          placeholder={`{\n  "name": "Custom Name",\n  "description": "Custom description"\n}`}
-                          rows={4}
-                          className={`w-full px-3 py-2 text-xs font-mono rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-y ${seoSchemaOverridesErrors[key] ? "border-destructive" : ""}`}
-                          data-testid={`input-schema-override-${key}`}
-                        />
-                        {seoSchemaOverridesErrors[key] && (
-                          <p className="text-xs text-destructive">{seoSchemaOverridesErrors[key]}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Schema.org Preview */}
-              {seoData.schemaOrg && seoData.schemaOrg.length > 0 && (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setSeoSchemaExpanded(!seoSchemaExpanded)}
-                    className="flex items-center gap-2 w-full text-left"
-                    data-testid="button-toggle-schema-org"
-                  >
-                    {seoSchemaExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <h4 className="text-sm font-semibold">Schema.org Preview</h4>
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                      Current output
-                    </span>
-                  </button>
-                  {seoSchemaExpanded && (
-                    <div className="space-y-2">
+              {(() => {
+                const previewDocs = resolveSchemaPreviewDocs(seoData);
+                if (previewDocs.length === 0) {
+                  return (
+                    <div className="rounded-md border border-dashed px-3 py-6 text-center space-y-1" data-testid="empty-schema-documents">
+                      <p className="text-sm text-foreground">No JSON-LD documents on this page yet</p>
                       <p className="text-xs text-muted-foreground">
-                        This is the current Schema.org output injected via SSR. Save changes above to update it.
+                        Add a leading <code className="font-mono">schema_org</code> section (or FAQ / Article / Breadcrumb) to emit structured data.
                       </p>
-                      <pre className="bg-muted p-3 rounded-md text-xs font-mono max-h-[200px] overflow-y-auto whitespace-pre-wrap break-all" data-testid="text-schema-org-preview">
-                        {JSON.stringify(seoData.schemaOrg, null, 2)}
-                      </pre>
                     </div>
-                  )}
-                </div>
-              )}
+                  );
+                }
+                return (
+                  <div className="space-y-3" data-testid="list-schema-documents">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">Resolved JSON-LD</h4>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                        {previewDocs.length} document{previewDocs.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    {previewDocs.map((doc, i) => {
+                      const typeLabel = String(doc.schema["@type"] ?? "Document");
+                      const expanded = expandedSchemaDocs[i] ?? i === 0;
+                      return (
+                        <div key={i} className="rounded-md border overflow-hidden" data-testid={`schema-document-${i}`}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedSchemaDocs((prev) => ({ ...prev, [i]: !expanded }))
+                            }
+                            className="flex items-center gap-2 w-full text-left px-3 py-2 hover-elevate"
+                            data-testid={`button-toggle-schema-doc-${i}`}
+                          >
+                            {expanded ? (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                            )}
+                            <span className="text-sm font-medium font-mono truncate">{typeLabel}</span>
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase tracking-wide"
+                              data-testid={`badge-schema-source-${doc.source}`}
+                            >
+                              {doc.source}
+                            </span>
+                          </button>
+                          {expanded && (
+                            <pre
+                              className="bg-muted/60 p-3 text-xs font-mono max-h-[240px] overflow-y-auto whitespace-pre-wrap break-all border-t"
+                              data-testid={`text-schema-doc-preview-${i}`}
+                            >
+                              {JSON.stringify(doc.schema, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </TabsContent>
 
             {/* ── Visibility tab ─────────────────────────────────────── */}

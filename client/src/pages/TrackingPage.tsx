@@ -11,8 +11,6 @@ import {
   IconCode,
   IconCopy,
   IconDeviceFloppy,
-  IconEye,
-  IconEyeOff,
   IconInfoCircle,
   IconLoader2,
   IconPlus,
@@ -21,6 +19,7 @@ import {
   IconServer,
   IconSettingsCog,
   IconShieldLock,
+  IconShoppingBag,
   IconTargetArrow,
   IconToggleLeft,
   IconToggleRight,
@@ -31,6 +30,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import JsonViewer from "@/components/editing/JsonViewer";
@@ -40,6 +40,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getGtmWebStatus, type GtmWebStatus } from "@/lib/gtm-web";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { TRACKING_EVENTS } from "@/lib/tracking";
+import { cn } from "@/lib/utils";
 
 interface TagManagerConfig {
   web_container_id: string;
@@ -55,8 +56,9 @@ interface IpnDestinationConfig {
 
 interface IpNormalizationConfig {
   enabled: boolean;
-  secret: string;
   destinations: IpnDestinationConfig[];
+  secret_configured: boolean;
+  secret_source: "env" | "none";
 }
 
 interface OptimizationConfig {
@@ -850,7 +852,6 @@ function IpNormalizationSection() {
   const { toast } = useToast();
   const [showStapeSteps, setShowStapeSteps] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showSecret, setShowSecret] = useState(false);
   const [showLog, setShowLog] = useState(false);
 
   const { data, isLoading } = useQuery<OptimizationConfig>({
@@ -858,12 +859,14 @@ function IpNormalizationSection() {
   });
 
   const [enabled, setEnabled] = useState(false);
-  const [secret, setSecret] = useState("");
   const [destinations, setDestinations] = useState<IpnDestinationConfig[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimerRef = useRef<number | null>(null);
   const skipHydrateRef = useRef(false);
+
+  const secretConfigured = data?.ip_normalization?.secret_configured === true;
+  const secretSource = data?.ip_normalization?.secret_source ?? "none";
 
   useEffect(() => {
     if (!data) return;
@@ -873,7 +876,6 @@ function IpNormalizationSection() {
     }
     if (data.ip_normalization) {
       setEnabled(data.ip_normalization.enabled);
-      setSecret(data.ip_normalization.secret || "");
       setDestinations(
         Array.isArray(data.ip_normalization.destinations)
           ? data.ip_normalization.destinations.map((d) => ({ id: d.id, base_url: d.base_url }))
@@ -881,7 +883,6 @@ function IpNormalizationSection() {
       );
     } else {
       setEnabled(false);
-      setSecret("");
       setDestinations([]);
     }
   }, [data]);
@@ -897,7 +898,6 @@ function IpNormalizationSection() {
 
   async function persist(next: {
     enabled: boolean;
-    secret: string;
     destinations: IpnDestinationConfig[];
   }) {
     setSaving(true);
@@ -905,7 +905,6 @@ function IpNormalizationSection() {
     try {
       const payload = {
         enabled: next.enabled,
-        secret: next.secret,
         destinations: destinationsForSave(next.destinations),
       };
       const res = await apiRequest("PUT", "/api/settings/optimization", {
@@ -916,10 +915,23 @@ function IpNormalizationSection() {
       skipHydrateRef.current = true;
       queryClient.setQueryData<OptimizationConfig>(["/api/settings/optimization"], (old) =>
         old
-          ? { ...old, ip_normalization: result.ip_normalization ?? payload }
+          ? {
+              ...old,
+              ip_normalization:
+                result.ip_normalization ?? {
+                  ...payload,
+                  secret_configured: secretConfigured,
+                  secret_source: secretSource,
+                },
+            }
           : {
               tagmanager: data!.tagmanager,
-              ip_normalization: result.ip_normalization ?? payload,
+              ip_normalization:
+                result.ip_normalization ?? {
+                  ...payload,
+                  secret_configured: secretConfigured,
+                  secret_source: secretSource,
+                },
             },
       );
       setSaveStatus("saved");
@@ -934,7 +946,6 @@ function IpNormalizationSection() {
 
   function schedulePersist(next: {
     enabled: boolean;
-    secret: string;
     destinations: IpnDestinationConfig[];
   }) {
     if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
@@ -946,7 +957,7 @@ function IpNormalizationSection() {
   function updateDestination(index: number, patch: Partial<IpnDestinationConfig>) {
     setDestinations((prev) => {
       const next = prev.map((d, i) => (i === index ? { ...d, ...patch } : d));
-      schedulePersist({ enabled, secret, destinations: next });
+      schedulePersist({ enabled, destinations: next });
       return next;
     });
   }
@@ -954,7 +965,7 @@ function IpNormalizationSection() {
   function removeDestination(index: number) {
     setDestinations((prev) => {
       const next = prev.filter((_, i) => i !== index);
-      void persist({ enabled, secret, destinations: next });
+      void persist({ enabled, destinations: next });
       return next;
     });
   }
@@ -966,16 +977,9 @@ function IpNormalizationSection() {
   function toggleEnabled() {
     setEnabled((v) => {
       const next = !v;
-      void persist({ enabled: next, secret, destinations });
+      void persist({ enabled: next, destinations });
       return next;
     });
-  }
-
-  function regenerateSecret() {
-    const nextSecret = generateIpnSecret();
-    setSecret(nextSecret);
-    setShowSecret(true);
-    void persist({ enabled, secret: nextSecret, destinations });
   }
 
   async function copyText(label: string, text: string) {
@@ -984,6 +988,24 @@ function IpNormalizationSection() {
       toast({ title: `${label} copied` });
     } catch {
       toast({ title: "Copy failed", variant: "destructive" });
+    }
+  }
+
+  async function generateAndCopySecret() {
+    const nextSecret = generateIpnSecret();
+    try {
+      await navigator.clipboard.writeText(nextSecret);
+      toast({
+        title: "Secret generated and copied",
+        description:
+          "Paste it as IPN_SECRET on the host (Secret Manager / .env / Replit Secrets), then restart. This UI never saves it.",
+      });
+    } catch {
+      toast({
+        title: "Generated but copy failed",
+        description: nextSecret,
+        variant: "destructive",
+      });
     }
   }
 
@@ -1060,7 +1082,7 @@ function IpNormalizationSection() {
                     <p className="text-sm font-medium">Enable IP Normalization</p>
                     <p className="text-xs text-muted-foreground">
                       When off, <code className="font-mono">{IPN_MOUNT_PATH}*</code> returns 404.
-                      When on with an empty secret, requests fail closed (401).
+                      When on without <code className="font-mono">IPN_SECRET</code>, requests fail closed (401).
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1090,61 +1112,43 @@ function IpNormalizationSection() {
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground" htmlFor="ipn-secret">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
                     Shared secret ({IPN_TOKEN_HEADER})
-                  </label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="ipn-secret"
-                      type={showSecret ? "text" : "password"}
-                      value={secret}
-                      onChange={(e) => {
-                        const nextSecret = e.target.value;
-                        setSecret(nextSecret);
-                        schedulePersist({ enabled, secret: nextSecret, destinations });
-                      }}
-                      className="font-mono text-sm"
-                      autoComplete="off"
-                      data-testid="input-ipn-secret"
-                    />
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {secretConfigured ? (
+                      <Badge
+                        variant="secondary"
+                        className="gap-1 border-transparent bg-green-600/15 text-green-700 dark:bg-green-500/20 dark:text-green-400"
+                        data-testid="badge-ipn-secret-ok"
+                      >
+                        <IconCircleCheck className="h-3.5 w-3.5" />
+                        IPN_SECRET configured
+                        {secretSource === "env" ? " (env)" : ""}
+                      </Badge>
+                    ) : (
+                      <Badge variant="destructive" className="gap-1" data-testid="badge-ipn-secret-missing">
+                        <IconCircleX className="h-3.5 w-3.5" />
+                        Set IPN_SECRET in environment
+                      </Badge>
+                    )}
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => setShowSecret((v) => !v)}
-                      data-testid="button-toggle-ipn-secret-visibility"
-                      className="shrink-0"
-                      aria-label={showSecret ? "Hide secret" : "Show secret"}
-                    >
-                      {showSecret ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => copyText("Secret", secret)}
-                      disabled={!secret}
-                      data-testid="button-copy-ipn-secret"
-                      className="shrink-0"
-                    >
-                      <IconCopy className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={regenerateSecret}
-                      data-testid="button-regenerate-ipn-secret"
-                      className="shrink-0"
+                      onClick={() => void generateAndCopySecret()}
+                      data-testid="button-generate-ipn-secret"
                     >
                       <IconRefresh className="h-4 w-4 mr-1.5" />
-                      Generate
+                      Generate & copy
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Create a Constant in the GTM <em>server</em> container and send it as{" "}
-                    <code className="font-mono">{IPN_TOKEN_HEADER}</code> on HTTP request tags.
+                    Host env only — never written to <code className="font-mono">settings.yml</code>. Generate a value,
+                    paste it as <code className="font-mono">IPN_SECRET</code> (Secret Manager / .env / Replit Secrets),
+                    restart the app, and set the same value as a Constant in the GTM <em>server</em> container for{" "}
+                    <code className="font-mono">{IPN_TOKEN_HEADER}</code>.
                   </p>
                 </div>
 
@@ -1240,35 +1244,11 @@ function IpNormalizationSection() {
                     </div>
                   )}
                 </div>
-
-                <div className="rounded-md border bg-muted px-3 py-2.5 space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Proxy base (fixed path)</p>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs font-mono break-all flex-1" data-testid="text-ipn-proxy-base">
-                      {proxyBase}
-                    </code>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="shrink-0 h-7 px-2"
-                      onClick={() => copyText("Proxy base", proxyBase)}
-                    >
-                      <IconCopy className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Path is hardcoded to <code className="font-mono">{IPN_MOUNT_PATH}</code> — not editable.
-                    Whitelist this host&apos;s outbound IP at the destination API.
-                  </p>
-                </div>
               </div>
             </>
           )}
         </CardContent>
       </Card>
-
-      <IpnRecentCallsDialog open={showLog} onOpenChange={setShowLog} />
 
       <Card>
         <CardHeader
@@ -1366,8 +1346,11 @@ function IpNormalizationSection() {
                 Middleware: <code className="font-mono text-xs">server/ipn-proxy.ts</code>
               </li>
               <li>
-                Settings: <code className="font-mono text-xs">optimization.ip_normalization</code> in site{" "}
+                Destinations / enable: <code className="font-mono text-xs">optimization.ip_normalization</code> in site{" "}
                 <code className="font-mono text-xs">settings.yml</code>
+              </li>
+              <li>
+                Shared secret: host env <code className="font-mono text-xs">IPN_SECRET</code> only (never settings.yml)
               </li>
               <li>
                 Fixed mount: <code className="font-mono text-xs">{IPN_MOUNT_PATH}</code>
@@ -1379,6 +1362,8 @@ function IpNormalizationSection() {
           </CardContent>
         )}
       </Card>
+
+      <IpnRecentCallsDialog open={showLog} onOpenChange={setShowLog} />
     </>
   );
 }
@@ -1442,6 +1427,94 @@ interface UsageEntry {
   consent?: Record<string, unknown>;
 }
 
+function CollapsibleEventGroup({
+  group,
+  onShowPayload,
+}: {
+  group: EventGroup;
+  onShowPayload: (ev: TrackingEvent) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const tableId = `table-events-${group.title.toLowerCase().replace(/\s+/g, "-")}`;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-card"
+            aria-expanded={open}
+            data-testid={`button-toggle-${tableId}`}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    {group.title}
+                    <Badge variant="secondary" className="font-normal text-xs">
+                      {group.events.length}
+                    </Badge>
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">{group.description}</p>
+                </div>
+                <IconChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 mt-0.5",
+                    open && "rotate-180",
+                  )}
+                />
+              </div>
+            </CardHeader>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid={tableId}>
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground w-2/5">Event / Push</th>
+                    <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground">Trigger</th>
+                    <th className="py-2 text-xs font-medium text-muted-foreground text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.events.map((ev) => (
+                    <tr key={ev.name} className="border-b last:border-0">
+                      <td className="py-2 pr-4 align-middle">
+                        <Badge variant="secondary" className="font-mono text-xs">
+                          {ev.name}
+                        </Badge>
+                      </td>
+                      <td className="py-2 pr-4 align-middle text-muted-foreground text-xs">{ev.trigger}</td>
+                      <td className="py-2 align-middle text-right">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => onShowPayload(ev)}
+                              data-testid={`button-show-payload-${ev.name}`}
+                            >
+                              <IconBraces className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Show payload</TooltipContent>
+                        </Tooltip>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
+
 function EventsSection() {
   const [selectedEvent, setSelectedEvent] = useState<TrackingEvent | null>(null);
 
@@ -1503,78 +1576,65 @@ function EventsSection() {
   return (
     <>
       <div className="space-y-4">
-        <Card data-testid="card-conversions-notice">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <CardTitle className="text-base">Conversion Events</CardTitle>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Conversion events are now managed in the Conversions dashboard — add, rename,
-                  delete, and reassign form entries all in one place.
-                </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card data-testid="card-conversions-notice" className="h-full">
+            <CardHeader className="pb-3 h-full">
+              <div className="flex flex-col gap-3 h-full">
+                <div className="flex-1">
+                  <CardTitle className="text-base">Conversion Events</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Form conversions are usually for nurturing leads in marketing automations —
+                    managed in the Conversions dashboard where you can add, rename, delete, and
+                    reassign form entries.
+                  </p>
+                </div>
+                <Link href="/private/store/conversions">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    data-testid="link-go-to-conversions"
+                  >
+                    <IconTargetArrow className="h-3.5 w-3.5" />
+                    Open Conversions dashboard
+                  </Button>
+                </Link>
               </div>
-              <Link href="/private/store/conversions">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  data-testid="link-go-to-conversions"
-                >
-                  <IconTargetArrow className="h-3.5 w-3.5" />
-                  Open Conversions dashboard
-                </Button>
-              </Link>
-            </div>
-          </CardHeader>
-        </Card>
+            </CardHeader>
+          </Card>
+
+          <Card data-testid="card-ecommerce-notice" className="h-full">
+            <CardHeader className="pb-3 h-full">
+              <div className="flex flex-col gap-3 h-full">
+                <div className="flex-1">
+                  <CardTitle className="text-base">Ecommerce Events</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Ideal for optimizing revenue funnels associated to products — product map,
+                    purchasable gating, and wired events like view_item and add_to_cart.
+                  </p>
+                </div>
+                <Link href="/private/store/ecommerce">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    data-testid="link-go-to-ecommerce"
+                  >
+                    <IconShoppingBag className="h-3.5 w-3.5" />
+                    Open Ecommerce dashboard
+                  </Button>
+                </Link>
+              </div>
+            </CardHeader>
+          </Card>
+        </div>
 
         {groups.map((group) => (
-          <Card key={group.title}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{group.title}</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">{group.description}</p>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" data-testid={`table-events-${group.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground w-2/5">Event / Push</th>
-                      <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground">Trigger</th>
-                      <th className="py-2 text-xs font-medium text-muted-foreground text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.events.map((ev) => (
-                      <tr key={ev.name} className="border-b last:border-0">
-                        <td className="py-2 pr-4 align-middle">
-                          <Badge variant="secondary" className="font-mono text-xs">
-                            {ev.name}
-                          </Badge>
-                        </td>
-                        <td className="py-2 pr-4 align-middle text-muted-foreground text-xs">{ev.trigger}</td>
-                        <td className="py-2 align-middle text-right">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setSelectedEvent(ev)}
-                                data-testid={`button-show-payload-${ev.name}`}
-                              >
-                                <IconBraces className="h-3.5 w-3.5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Show payload</TooltipContent>
-                          </Tooltip>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+          <CollapsibleEventGroup
+            key={group.title}
+            group={group}
+            onShowPayload={setSelectedEvent}
+          />
         ))}
       </div>
 

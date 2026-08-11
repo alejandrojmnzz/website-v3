@@ -40,6 +40,7 @@ import {
   resolveTocGroupId,
   buildSiblingTocGroupOps,
 } from "@/lib/articleTocShare";
+import { schemaOrgInsertIndex } from "@shared/schema-org-sections";
 import { DbTemplateWarningDialog } from "@/components/editing/DbTemplateWarningDialog";
 import { RelatedFeaturesPicker } from "./RelatedFeaturesPicker";
 import { TableBuilderWizard, type DynamicTableConfig } from "@/components/TableBuilderWizard";
@@ -279,6 +280,17 @@ export default function ComponentPickerModal({
   }, [sectionsProp, singleEntry]);
 
   const existingArticles = useMemo(() => listArticlesOnPage(pageSections), [pageSections]);
+
+  const resolveInsertIndex = (componentType: string | undefined) =>
+    componentType === "schema_org" ? schemaOrgInsertIndex(pageSections) : insertIndex;
+
+  const scrollAfterSchemaOrgAdd = (componentType: string | undefined) => {
+    if (componentType !== "schema_org") return;
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
+
   const singularLabel = (() => {
     if (!contentType) return "entry";
     const found = rawContentTypes?.find((t) => t.name === contentType);
@@ -689,6 +701,7 @@ export default function ComponentPickerModal({
         };
       }
 
+      const effectiveInsertIndex = resolveInsertIndex(selectedComponent.type);
       const operations: Array<Record<string, unknown>> = [];
       let sectionToAdd: Record<string, unknown> = {
         type: selectedComponent.type,
@@ -700,7 +713,7 @@ export default function ComponentPickerModal({
         const groupId = resolveTocGroupId(existingArticles);
         const { ops: siblingOps, newShowToc } = buildSiblingTocGroupOps(
           existingArticles,
-          insertIndex,
+          effectiveInsertIndex,
           groupId,
         );
         operations.push(...siblingOps);
@@ -716,7 +729,7 @@ export default function ComponentPickerModal({
         action: "add_item",
         path: "sections",
         item: sectionToAdd,
-        index: insertIndex,
+        index: effectiveInsertIndex,
       });
 
       const token = getDebugToken();
@@ -742,6 +755,7 @@ export default function ComponentPickerModal({
       if (response.ok) {
         onClose();
         emitContentUpdated({ contentType: contentType!, slug: slug!, locale: locale! });
+        scrollAfterSchemaOrgAdd(selectedComponent.type);
         toast({
           title: "Section added",
           description: opts?.shareToc
@@ -781,13 +795,15 @@ export default function ComponentPickerModal({
         ...finalContent,
       };
 
+      const effectiveInsertIndex = resolveInsertIndex(selectedComponent.type);
+
       // Per-entry path: stamp toc_group on the new article; sibling updates go through
       // edit-sections when possible so existing articles join the same group.
       if (opts?.shareToc && selectedComponent.type === "article") {
         const groupId = resolveTocGroupId(existingArticles);
         const { ops: siblingOps, newShowToc } = buildSiblingTocGroupOps(
           existingArticles,
-          insertIndex,
+          effectiveInsertIndex,
           groupId,
         );
         sectionData = {
@@ -822,11 +838,12 @@ export default function ComponentPickerModal({
       const resp = await fetch("/api/per-entry-section-add", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Token ${token}` } : {}) },
-        body: JSON.stringify({ contentType, slug, locale, sectionData, insertIndex }),
+        body: JSON.stringify({ contentType, slug, locale, sectionData, insertIndex: effectiveInsertIndex }),
       });
       if (resp.ok) {
         onClose();
         emitContentUpdated({ contentType, slug, locale });
+        scrollAfterSchemaOrgAdd(selectedComponent.type);
         toast({
           title: "Section added",
           description: opts?.shareToc

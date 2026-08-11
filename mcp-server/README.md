@@ -30,7 +30,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, observed URL-param values, create_via |
 | `get_entry_content` | Merged entry content without meta/SEO |
-| `get_entry_seo` | SEO/meta block + envelope for one entry |
+| `get_entry_seo` | SEO/meta + resolved schema.org preview + companion/CT gaps for one entry |
+| `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
 | `update_section_field` | Patch a section or safe top-level field (`editor.type`-gated) |
@@ -79,7 +80,7 @@ Gets the merged content of an entry (sections, title, and all other top-level YA
 
 ### `get_entry_seo`
 
-Gets only the SEO/meta block of an entry plus the identifying envelope (`contentType`, `slug`, `locale`, `locales`, `urls`). Use this instead of `get_entry_content` when you only need meta tags, Open Graph data, or other SEO fields.
+Gets the SEO/meta block plus a rich `schema_org` preview (resolved JSON-LD documents + sources from the same SSR section pipeline, including `@organization` dual-emit), companion/CT requirement gaps, and cached SEO `validation_issues`. Use this to inspect what Google gets. Edit Course/LocalBusiness YAML via `get_entry_content` / section tools — do not expect a derived JSON-LD dump on `get_entry_content`.
 
 **Parameters:**
 

@@ -7,7 +7,7 @@ Structured `behaviors` on each component `schema.yml` declare how a section part
 | Id | Meaning | Runtime | Non-effects |
 |----|---------|---------|-------------|
 | `ecommerce` | GA4-style ecommerce dataLayer funnel / catalog events | Client `trackEcommerce` in `client/src/lib/tracking.ts` | Does not charge; no on-site `purchase`; CMS does not manage billing plan catalogs |
-| `schema_org` | Contributes JSON-LD during SSR | `server/schema-components` | Does not push GTM events by itself; OG/meta is separate |
+| `schema_org` | Contributes JSON-LD during SSR; may declare `requires` companions (`companion_type` + `schema_type`, optional `when_variant`) | `server/schema-components` | Does not push GTM events by itself; OG/meta is separate. Site `schema-org.yml` holds Organization/Website templates only. |
 | `listing` | Mapping fields + queries → card lists | `dynamic_entries` pipeline | Not a product SKU; not a lead form |
 | `conversion` | Lead form conversion + webhook defaults | `form-settings` + `trackFormSubmission` | Not ecommerce funnel; CTA-only heroes are not conversions |
 

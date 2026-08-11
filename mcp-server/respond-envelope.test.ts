@@ -21,6 +21,8 @@ const MUTATING_TOOLS = [
   "replace_entry_sections",
   "batch_update_fields",
   "translate_entry",
+  "regenerate_entry_previews",
+  "ensure_content_type_schema_org",
 ] as const;
 
 function extractToolHandlerSource(src: string, toolName: string): string | null {

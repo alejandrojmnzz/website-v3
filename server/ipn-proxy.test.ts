@@ -66,6 +66,18 @@ describe("ipnTokensMatch", () => {
   });
 });
 
+describe("resolveIpnSecret", () => {
+  it("reads IPN_SECRET from env only", async () => {
+    const { resolveIpnSecret } = await import("./ipn-proxy");
+    const prev = process.env.IPN_SECRET;
+    process.env.IPN_SECRET = "env-ipn-secret";
+    expect(resolveIpnSecret()).toEqual({ value: "env-ipn-secret", source: "env" });
+    delete process.env.IPN_SECRET;
+    expect(resolveIpnSecret()).toEqual({ value: "", source: "none" });
+    process.env.IPN_SECRET = prev;
+  });
+});
+
 describe("ipn destination validation", () => {
   it("normalizes https base URLs and strips trailing slash", () => {
     expect(normalizeIpnBaseUrl("https://api.brevo.com/")).toBe("https://api.brevo.com");

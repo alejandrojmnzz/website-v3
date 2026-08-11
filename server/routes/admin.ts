@@ -66,6 +66,10 @@ import {
   updateOrganizationSameAsUrl,
   updateOrganizationLogo,
   updateOrganizationName,
+  getSchemaOrgEditorPayload,
+  updateSchemaOrgEditorPayload,
+  getSchemaOrgYaml,
+  putSchemaOrgYaml,
 } from "../schema-org";
 import { getVariableManager } from "../variable-manager";
 import {
@@ -1558,6 +1562,69 @@ export function registerAdminRoutes(app: Express): void {
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/schema-org", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const cr = getContentRoot(res);
+      res.json(getSchemaOrgEditorPayload(cr));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.put("/api/admin/schema-org", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const cr = getContentRoot(res);
+      const { organization, website } = req.body ?? {};
+      const updated = updateSchemaOrgEditorPayload({ organization, website }, cr);
+      markFileAsModified("schema-org.yml", undefined, undefined, cr);
+      clearSsrSchemaCache();
+      res.json({ success: true, ...updated });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/schema-org/yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const cr = getContentRoot(res);
+      const file = getSchemaOrgYaml(cr);
+      const relativePath = path.relative(process.cwd(), file.path) || file.path;
+      res.json({
+        exists: file.exists,
+        path: relativePath,
+        content: file.content,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.put("/api/admin/schema-org/yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const cr = getContentRoot(res);
+      const content = req.body?.content;
+      if (typeof content !== "string") {
+        res.status(400).json({ error: "content must be a string" });
+        return;
+      }
+      const saved = putSchemaOrgYaml(content, cr);
+      markFileAsModified("schema-org.yml", undefined, undefined, cr);
+      clearSsrSchemaCache();
+      const relativePath = path.relative(process.cwd(), saved.path) || saved.path;
+      res.json({ success: true, path: relativePath, content: saved.content });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
     }
   });
 

@@ -201,6 +201,13 @@ export function ipnTokensMatch(provided: string | undefined, expected: string): 
   }
 }
 
+/** Shared secret for X-IPN-Token — host env only (never settings.yml). */
+export function resolveIpnSecret(): { value: string; source: "env" | "none" } {
+  const fromEnv = process.env.IPN_SECRET?.trim() || "";
+  if (fromEnv) return { value: fromEnv, source: "env" };
+  return { value: "", source: "none" };
+}
+
 export function registerIpnProxy(app: Express): void {
   app.use((req: Request, res: Response, next) => {
     if (!pathMatchesIpn(req.path)) {
@@ -213,6 +220,7 @@ export function registerIpnProxy(app: Express): void {
     const bodyPreview = bodyPreviewForLog(req, rawBodyPreview, query);
     const headersPreview = extractRelevantHeaders(req);
     const ipn = getOptimizationSettings().ip_normalization;
+    const secret = resolveIpnSecret().value;
 
     if (!ipn.enabled) {
       recordIpnCall({
@@ -228,8 +236,8 @@ export function registerIpnProxy(app: Express): void {
       return res.status(404).json({ error: "Not found" });
     }
 
-    if (!ipn.secret) {
-      log.warn("[IPN Proxy] Enabled but secret is empty — fail closed");
+    if (!secret) {
+      log.warn("[IPN Proxy] Enabled but IPN_SECRET is empty — fail closed");
       recordIpnCall({
         method,
         destinationId: null,
@@ -245,7 +253,7 @@ export function registerIpnProxy(app: Express): void {
 
     const headerVal = req.headers[IPN_TOKEN_HEADER];
     const token = Array.isArray(headerVal) ? headerVal[0] : headerVal;
-    if (!ipnTokensMatch(token, ipn.secret)) {
+    if (!ipnTokensMatch(token, secret)) {
       recordIpnCall({
         method,
         destinationId: null,

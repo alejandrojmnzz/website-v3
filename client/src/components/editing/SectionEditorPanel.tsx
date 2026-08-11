@@ -2421,6 +2421,39 @@ export function SectionEditorPanel({
         </div>
       )}
 
+      {sectionType === "schema_org" && (() => {
+        let schemaType = "";
+        try {
+          const parsed = safeYamlLoad(yamlContent) as Record<string, unknown> | null;
+          const fromYaml =
+            (typeof parsed?.schema_type === "string" && parsed.schema_type) ||
+            (typeof (parsed as { schemaType?: unknown } | null)?.schemaType === "string"
+              ? String((parsed as { schemaType?: string }).schemaType)
+              : "");
+          const fromSection = (section as Record<string, unknown>).schema_type
+            ?? (section as Record<string, unknown>).schemaType;
+          schemaType = fromYaml || (typeof fromSection === "string" ? fromSection : "");
+        } catch {
+          const fromSection = (section as Record<string, unknown>).schema_type
+            ?? (section as Record<string, unknown>).schemaType;
+          schemaType = typeof fromSection === "string" ? fromSection : "";
+        }
+        if (schemaType !== "WebSite" && schemaType !== "Organization") return null;
+        return (
+          <div
+            className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2 text-xs flex items-start gap-2"
+            data-testid="banner-schema-org-prefill"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <span className="text-amber-800 dark:text-amber-200">
+              This {schemaType} section is <strong className="font-medium">page-local</strong>.
+              Values were prefilled from site <code className="font-mono">schema-org.yml</code> templates —
+              edits here do not update the global Organization/Website definitions under SEO &amp; GEO → Schema.org.
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Tabs */}
       <Tabs
         value={activeTab}

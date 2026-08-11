@@ -17,7 +17,7 @@ Declare platform patterns on each component `schema.yml` under `behaviors:` — 
 |----|-----------------|
 | `conversion` | field-editors include `form-settings` |
 | `listing` | `dynamic_entries` / listing cards |
-| `schema_org` | SSR JSON-LD contributor |
+| `schema_org` | SSR JSON-LD contributor; optional `requires` companions (e.g. hero `course` → `schema_org` + `Course` with `when_variant`) |
 | `ecommerce` | funnel/catalog events or `cta-tracking` / `ecommerce-products` field-editors |
 
 ## CTA tracking

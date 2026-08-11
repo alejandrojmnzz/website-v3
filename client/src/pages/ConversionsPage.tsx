@@ -614,7 +614,7 @@ export default function ConversionsPage() {
             <IconTargetArrow className="h-6 w-6 text-muted-foreground" />
             <div>
               <h1 className="text-xl font-semibold" data-testid="text-conversions-title">
-                Form Conversions
+                Conversion Events
               </h1>
               <p className="text-sm text-muted-foreground">Manage conversion event definitions</p>
             </div>
@@ -851,7 +851,7 @@ export default function ConversionsPage() {
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
-                <CardTitle className="text-base">Form Conversion Events</CardTitle>
+                <CardTitle className="text-base">Conversion Events</CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
                   Fired via <code className="font-mono text-xs">trackConversion</code> when a user
                   completes a key action. Configured in{" "}

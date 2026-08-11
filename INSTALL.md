@@ -114,6 +114,10 @@ Variables are listed by category. "Required" means the feature that depends on t
 | `IPAPI_PRO_KEY` | No | — | API key for ipapi.pro, used to geo-locate visitors and redirect them to a locale-appropriate page. | IP-based locale detection | Register at ipapi.pro |
 | `TURNSTILE_SITE_KEY` | No | — | Cloudflare Turnstile public site key, embedded in the lead-capture form. | Bot-protection on lead forms | Must also set `TURNSTILE_SECRET_KEY` |
 | `TURNSTILE_SECRET_KEY` | No | — | Cloudflare Turnstile secret key, validated server-side. | Bot-protection on lead forms | Must also set `TURNSTILE_SITE_KEY` |
+| `CLOUDFLARE_ACCOUNT_ID` | No* | — | Cloudflare account id for Browser Run `/screenshot` (entry-preview OG images). Env only — never stored in `settings.yml`. SEO/GEO → OG Image shows configured status. | Server-side OG / entry-preview capture | `CLOUDFLARE_API_TOKEN`, public `SITE_URL` |
+| `CLOUDFLARE_API_TOKEN` | No* | — | API token with **Browser Rendering - Edit**. Env only — never stored in `settings.yml`. | Server-side OG / entry-preview capture | `CLOUDFLARE_ACCOUNT_ID`, public `SITE_URL` |
+| `ENTRY_PREVIEW_CAPTURE_SECRET` | No | `SESSION_SECRET` | HMAC secret for signed capture frame URLs opened by Cloudflare. Env only (then `SESSION_SECRET`). Prefer a dedicated secret in production. | Entry-preview capture auth | Public `SITE_URL`; staff status UI at SEO/GEO → OG Image |
+| `IPN_SECRET` | No* | — | Shared secret for the IP Normalization proxy (`X-IPN-Token`). Env only — never stored in `settings.yml`. Tracking → IP Normalization shows configured status and can Generate & copy (does not save). | `/ipn/{id}/*` egress proxy | Enable + destinations in settings; same value as GTM server Constant |
 | `GOOGLE_PSI_API_KEY` | No | — | Deprecated for in-app diagnostics (Lighthouse/PSI UI removed). Use external Lighthouse/PageSpeed tools. | — | — |
 
 ### AI / LLM

@@ -80,6 +80,11 @@ export interface ContentTypeEntry {
    * the reserved `image` field is missing or 404.
    */
   preview?: ContentTypePreviewConfig;
+  /**
+   * Required companion schema_org sections (by schema_type) on every entry of this type.
+   * Validated by schema-org-companions + live SEO gate; attach via ensure API/MCP.
+   */
+  schema_org_requirements?: Array<{ schema_type: string }>;
 }
 
 interface ContentTypesRegistry {
@@ -185,6 +190,13 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   split_comma_values: when true, string cells like "a, b" become tokens a and b (arrays always
 #     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
 #     also be split. Saving a tags field may normalize CSV strings into string arrays.
+#
+# schema_org_requirements (optional):
+#   List of companion schema_org sections required on every entry, e.g.
+#     schema_org_requirements:
+#       - schema_type: LocalBusiness
+#   Validated by schema-org-companions + live SEO gate. Attach via ensure API / MCP
+#   ensure_content_type_schema_org.
 `;
 
 function writeConfigWithHeader(allTypes: Record<string, ContentTypeEntry>, contentRoot?: string): void {

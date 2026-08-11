@@ -27,6 +27,7 @@ import { getDefaultContentRoot } from "./site-config";
 import path from "path";
 import fs from "fs";
 import { contentIndex } from "./content-index";
+import { formatSchemaOrgCompanionGateError } from "./schema-org-requirements";
 
 export type LiveSeoGateOptions = {
   contentType: string;
@@ -126,6 +127,15 @@ export function assertLiveEntrySeoAndRequiredFields(
     contentRoot,
   });
   if (emptyLocaleErr) return emptyLocaleErr;
+
+  const companionErr = formatSchemaOrgCompanionGateError({
+    sections: resolvedPage.sections,
+    contentType,
+    slug,
+    locale,
+    contentRoot,
+  });
+  if (companionErr) return companionErr;
 
   return null;
 }

@@ -43,7 +43,6 @@ import {
 } from "../redirects";
 import {
   getSchema,
-  getMergedSchemas,
   getAvailableSchemaKeys,
   clearSchemaCache,
   getOrganizationTwitterHandle,
@@ -159,7 +158,12 @@ import {
   loadRawYaml,
   resolvePageRobots,
 } from "../ssr-schema";
-import { collectSectionSchemas } from "../schema-components";
+import { collectSectionSchemasDetailed } from "../schema-components";
+import {
+  getSchemaOrgType,
+  hasSchemaOrgContributors,
+  isSchemaOrgSection,
+} from "@shared/schema-org-sections";
 import {
   fetchMarkdownContent,
   clearMarkdownCache,
@@ -436,7 +440,6 @@ export function registerSeoRoutes(app: Express): void {
           const data = merged.data as Record<string, unknown>;
 
           const seo = data.seo as Record<string, unknown> | undefined;
-          const schema = data.schema as { include?: string[] } | undefined;
           const sections = data.sections as { type?: string }[] | undefined;
 
           const intent = (seo?.intent as string) || "unknown";
@@ -471,13 +474,6 @@ export function registerSeoRoutes(app: Express): void {
             }
           }
 
-          if (schema?.include && schema.include.length > 0) {
-            withSchema++;
-            for (const schemaType of schema.include) {
-              schemaCoverage[schemaType] = (schemaCoverage[schemaType] || 0) + 1;
-            }
-          }
-
           if (Array.isArray(sections)) {
             const faqSections = sections.filter((s) => s?.type === "faq");
             if (faqSections.length > 0) {
@@ -488,6 +484,25 @@ export function registerSeoRoutes(app: Express): void {
                 locale,
                 faqCount: faqSections.length,
               });
+            }
+
+            if (hasSchemaOrgContributors(sections)) {
+              withSchema++;
+              for (const sec of sections) {
+                if (!sec || typeof sec !== "object") continue;
+                const t = String((sec as { type?: string }).type ?? "");
+                if (isSchemaOrgSection(sec)) {
+                  const st = getSchemaOrgType(sec as Record<string, unknown>) || "schema_org";
+                  schemaCoverage[st] = (schemaCoverage[st] || 0) + 1;
+                } else if (t === "faq") {
+                  schemaCoverage["FAQPage"] = (schemaCoverage["FAQPage"] || 0) + 1;
+                } else if (t === "article") {
+                  schemaCoverage["Article"] = (schemaCoverage["Article"] || 0) + 1;
+                } else if (t === "breadcrumb") {
+                  schemaCoverage["BreadcrumbList"] =
+                    (schemaCoverage["BreadcrumbList"] || 0) + 1;
+                }
+              }
             }
           }
         }
@@ -553,19 +568,34 @@ export function registerSeoRoutes(app: Express): void {
           skipSiteVars: false,
         }) as typeof page;
 
-        let faqSchema: Record<string, unknown> | null = null;
+        const meta = (resolvedPage.meta as Record<string, unknown>) || {};
         const dbSections = resolvedPage.sections as Array<Record<string, unknown>> | undefined;
+        let faqSchema: Record<string, unknown> | null = null;
+        let schemaOrg: Record<string, unknown>[] = [];
+        let schemaOrgDocuments: Array<{
+          schema: Record<string, unknown>;
+          source: string;
+        }> = [];
+
         if (Array.isArray(dbSections)) {
-          const sectionSchemas = collectSectionSchemas(dbSections, {
+          const collected = collectSectionSchemasDetailed(dbSections, {
             locale,
             contentRoot: getContentRoot(res),
             baseUrl: getBaseUrl(),
+            contentType,
+            pageUrl: typeof meta.canonical_url === "string" ? meta.canonical_url : undefined,
+            title: typeof meta.page_title === "string" ? meta.page_title : undefined,
+            description: typeof meta.description === "string" ? meta.description : undefined,
+            image: typeof meta.og_image === "string" ? meta.og_image : undefined,
           });
+          schemaOrg = collected.documents;
+          schemaOrgDocuments = collected.preview;
           faqSchema =
-            sectionSchemas.find((s) => s["@type"] === "FAQPage") ?? null;
+            collected.preview.find((p) => p.source === "faq")?.schema ??
+            collected.documents.find((s) => s["@type"] === "FAQPage") ??
+            null;
         }
 
-        const meta = (resolvedPage.meta as Record<string, unknown>) || {};
         const schema = resolvedPage.schema as
           | {
               include?: string[];
@@ -573,21 +603,14 @@ export function registerSeoRoutes(app: Express): void {
             }
           | undefined;
 
-        let schemaOrg: Record<string, unknown>[] = [];
-        if (schema?.include && schema.include.length > 0) {
-          schemaOrg = getMergedSchemas(schema, locale, getContentRoot(res));
-        }
-
-        const schemaInclude = (schema?.include as string[]) || [];
-        const schemaOverrides =
-          (schema?.overrides as Record<string, Record<string, unknown>>) || {};
-
         res.json({
           meta,
           faqSchema,
           schemaOrg,
-          schemaInclude,
-          schemaOverrides,
+          schemaOrgDocuments,
+          schemaInclude: (schema?.include as string[]) || [],
+          schemaOverrides:
+            (schema?.overrides as Record<string, Record<string, unknown>>) || {},
           title: (resolvedPage.title as string) || "",
           slug: (resolvedPage.slug as string) || slug,
         });
@@ -608,7 +631,6 @@ export function registerSeoRoutes(app: Express): void {
           }
         | undefined;
 
-      let faqSchema: Record<string, unknown> | null = null;
       // Use fully merged sections (shared single_template + per-entry layers)
       // so the preview matches what SSR actually emits.
       const mergedContent = getCI(res).loadMergedContent(contentType, slug, locale);
@@ -624,20 +646,33 @@ export function registerSeoRoutes(app: Express): void {
       const sections = sectionsSource.sections as
         | Array<Record<string, unknown>>
         | undefined;
+
+      let faqSchema: Record<string, unknown> | null = null;
+      let schemaOrg: Record<string, unknown>[] = [];
+      let schemaOrgDocuments: Array<{
+        schema: Record<string, unknown>;
+        source: string;
+      }> = [];
+
       if (Array.isArray(sections)) {
-        const sectionSchemas = collectSectionSchemas(sections, {
+        const collected = collectSectionSchemasDetailed(sections, {
           locale,
           contentRoot: getContentRoot(res),
           baseUrl: getBaseUrl(),
+          contentType,
           locationSlug: getType(contentType) === "location" ? slug : undefined,
           programSlug: getType(contentType) === "program" ? slug : undefined,
+          pageUrl: typeof meta.canonical_url === "string" ? meta.canonical_url : undefined,
+          title: typeof meta.page_title === "string" ? meta.page_title : undefined,
+          description: typeof meta.description === "string" ? meta.description : undefined,
+          image: typeof meta.og_image === "string" ? meta.og_image : undefined,
         });
-        faqSchema = sectionSchemas.find((s) => s["@type"] === "FAQPage") ?? null;
-      }
-
-      let schemaOrg: Record<string, unknown>[] = [];
-      if (schema?.include && schema.include.length > 0) {
-        schemaOrg = getMergedSchemas(schema, locale, getContentRoot(res));
+        schemaOrg = collected.documents;
+        schemaOrgDocuments = collected.preview;
+        faqSchema =
+          collected.preview.find((p) => p.source === "faq")?.schema ??
+          collected.documents.find((s) => s["@type"] === "FAQPage") ??
+          null;
       }
 
       const schemaInclude = (schema?.include as string[]) || [];
@@ -648,6 +683,7 @@ export function registerSeoRoutes(app: Express): void {
         meta,
         faqSchema,
         schemaOrg,
+        schemaOrgDocuments,
         schemaInclude,
         schemaOverrides,
         title: pageData.title || "",

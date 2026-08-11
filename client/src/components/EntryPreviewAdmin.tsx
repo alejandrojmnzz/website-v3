@@ -980,6 +980,7 @@ export function EntryPreviewCard({
   generateAllCounts,
   queueBusyCount = 0,
   queuePaused = false,
+  configError = null,
 }: {
   contentType: string;
   preview: ContentTypePreviewConfig | null | undefined;
@@ -991,6 +992,8 @@ export function EntryPreviewCard({
   /** Queued + capturing jobs — poll stats while > 0 so the KPI line moves live. */
   queueBusyCount?: number;
   queuePaused?: boolean;
+  /** Server capture misconfiguration (missing CF credentials / public SITE_URL). */
+  configError?: string | null;
 }) {
   const { toast } = useToast();
   const [confirmRetryOpen, setConfirmRetryOpen] = useState(false);
@@ -1028,54 +1031,36 @@ export function EntryPreviewCard({
   });
 
   const retryMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(
-        "POST",
-        `/api/content-types/${encodeURIComponent(contentType)}/entry-previews/retry-failed`,
-        {},
-      ).then((r) => r.json()),
-    onSuccess: (result: { retried: number }) => {
+    mutationFn: async () => {
       const failures = data?.failures ? [...data.failures] : [];
-      const retried = result.retried ?? failures.length;
+      if (failures.length === 0) return { retried: 0, failures };
+      await onRetryQueued?.(failures);
+      return { retried: failures.length, failures };
+    },
+    onSuccess: (result: { retried: number }) => {
+      const retried = result.retried ?? 0;
       toast({
         title: "Retry queued",
         description:
           retried > 0
-            ? `${retried} preview(s) marked dirty — capturing now`
+            ? `${retried} preview(s) queued on the server`
             : "No failed previews to retry",
       });
       setConfirmRetryOpen(false);
-      // Move failures → dirty immediately so the Retry link drops without waiting on stats.
-      queryClient.setQueryData(
-        ["/api/content-types", contentType, "entry-previews", "stats"],
-        (old: EntryPreviewStats | undefined) => {
-          if (!old || retried <= 0) return old;
-          return {
-            ...old,
-            failed: Math.max(0, (old.failed ?? 0) - retried),
-            dirty: (old.dirty ?? 0) + retried,
-            failures: [],
-          };
-        },
-      );
-      void queryClient.refetchQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentType, "entry-previews"],
-        exact: true,
-        type: "active",
       });
-      void queryClient.refetchQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["/api/content-types", contentType, "entry-previews", "stats"],
-        exact: true,
-        type: "active",
       });
-      if (failures.length > 0) {
-        onRetryQueued?.(failures);
-      }
+      void queryClient.invalidateQueries({
+        queryKey: ["/api/content-types", contentType, "entry-previews", "queue"],
+      });
     },
-    onError: (err) => {
+    onError: (err: Error) => {
       toast({
         title: "Retry failed",
-        description: err instanceof Error ? err.message : "Could not clear failed previews",
+        description: err.message,
         variant: "destructive",
       });
     },
@@ -1113,9 +1098,25 @@ export function EntryPreviewCard({
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground leading-relaxed">
             {hasPreview
-              ? `${preview.component}${preview.variant ? ` / ${preview.variant}` : ""} — screenshots for admin thumbnails and og:image when the reserved image field is empty. Captures run one at a time in this tab (pauses when hidden).`
+              ? `${preview.component}${preview.variant ? ` / ${preview.variant}` : ""} — server captures via Cloudflare Browser Run for admin thumbs and og:image. On success, locale YAML meta.og_image is set (unless a gallery/editorial image is already set). You can close this tab after Generate.`
               : "Configure a component to generate OG / list thumbnails when image is empty."}
           </p>
+          {configError ? (
+            <p className="text-xs text-destructive leading-relaxed" data-testid="text-entry-preview-config-error">
+              {configError}
+            </p>
+          ) : null}
+          {hasPreview ? (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer text-primary hover:underline">Read more (advanced)</summary>
+              <p className="mt-1 leading-relaxed">
+                Queue: server/entry-preview-capture-queue.ts · CF client: server/cloudflare-browser.ts ·
+                Storage: server/entry-preview-manager.ts · Frame: client/src/pages/EntryPreviewFrame.tsx.
+                Component gallery thumbs still use client modern-screenshot. Auto-commit batches YAML when
+                GitHub sync flags are on; WebPs under images/entry-previews/ are not in content git.
+              </p>
+            </details>
+          ) : null}
 
           {hasPreview && (
             <div className="space-y-1">
@@ -1136,7 +1137,6 @@ export function EntryPreviewCard({
                     {(data?.dirty ?? 0) > 0 ? `${data!.dirty} dirty · ` : ""}
                     {data?.missing ?? 0} missing
                     {queueBusyCount > 0 ? ` · generating ${queueBusyCount}` : ""}
-                    {queuePaused ? " · paused (tab hidden)" : ""}
                   </p>
                   {(data?.failed ?? 0) > 0 && (
                     <button

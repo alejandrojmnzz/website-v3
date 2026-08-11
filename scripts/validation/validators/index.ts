@@ -33,6 +33,7 @@ import { sectionVariantsValidator } from "./section-variants";
 import { componentBehaviorsValidator } from "./component-behaviors";
 import { ctaTrackingValidator } from "./cta-tracking";
 import { requiredFieldsValidator } from "./required-fields";
+import { schemaOrgCompanionsValidator } from "./schema-org-companions";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -46,6 +47,7 @@ export const validators: Validator[] = [
   faqsValidator,
   seoDepthValidator,
   schemaCompletenessValidator,
+  schemaOrgCompanionsValidator,
   imagesValidator,
   contentQualityValidator,
   databaseSinglesValidator,
@@ -128,4 +130,5 @@ export {
   bindingIntegrityValidator,
   brokenAnchorsValidator,
   requiredFieldsValidator,
+  schemaOrgCompanionsValidator,
 };
