@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -938,7 +938,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               />
               <MenuItem
                 icon={IconTargetArrow}
-                label="Form Conversions"
+                label="Conversion Events"
                 href="/private/store/conversions"
                 indicator="arrow"
                 testId="link-store-conversions"
@@ -968,6 +968,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 href="/private/settings"
                 indicator="arrow"
                 testId="link-settings-general"
+              />
+              <MenuItem
+                icon={Search}
+                label="SEO/GEO"
+                href="/private/settings/seo/og"
+                indicator="arrow"
+                testId="link-settings-seo"
               />
               <MenuItem
                 icon={Palette}

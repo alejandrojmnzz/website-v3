@@ -145,7 +145,7 @@ import {
   updateAuthSettings,
   isSignupConfigured,
 } from "../settings";
-import { clearIpnRecentCalls, getIpnRecentCalls, IPN_RECENT_CALLS_LIMIT } from "../ipn-proxy";
+import { clearIpnRecentCalls, getIpnRecentCalls, IPN_RECENT_CALLS_LIMIT, resolveIpnSecret } from "../ipn-proxy";
 import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, normalizeUrl } from "../../scripts/validation/shared/canonicalUrls";
@@ -1255,7 +1255,18 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.get("/api/settings/optimization", (_req, res) => {
-    res.json(getOptimizationSettings(getContentRoot(res)));
+    const contentRoot = getContentRoot(res);
+    const opt = getOptimizationSettings(contentRoot);
+    const secret = resolveIpnSecret();
+    res.json({
+      tagmanager: opt.tagmanager,
+      ip_normalization: {
+        enabled: opt.ip_normalization.enabled,
+        destinations: opt.ip_normalization.destinations,
+        secret_configured: secret.source !== "none",
+        secret_source: secret.source,
+      },
+    });
   });
 
   app.put("/api/settings/optimization", async (req, res) => {
@@ -1269,17 +1280,173 @@ export function registerSettingsRoutes(app: Express): void {
         });
       }
       const contentRoot = getContentRoot(res);
+      // Never accept secret from the client — IPN_SECRET is env-only.
+      const ipnPatch =
+        hasIpn
+          ? {
+              enabled: (ip_normalization as { enabled?: boolean }).enabled,
+              destinations: (ip_normalization as { destinations?: unknown }).destinations as
+                | { id: string; base_url: string }[]
+                | undefined,
+            }
+          : undefined;
       updateOptimizationSettings(
         {
           ...(hasTm ? { tagmanager } : {}),
-          ...(hasIpn ? { ip_normalization } : {}),
+          ...(ipnPatch ? { ip_normalization: ipnPatch } : {}),
         },
         contentRoot,
       );
       markFileAsModified("settings.yml", undefined, undefined, contentRoot);
-      res.json({ success: true, ...getOptimizationSettings(contentRoot) });
+      const opt = getOptimizationSettings(contentRoot);
+      const secret = resolveIpnSecret();
+      res.json({
+        success: true,
+        tagmanager: opt.tagmanager,
+        ip_normalization: {
+          enabled: opt.ip_normalization.enabled,
+          destinations: opt.ip_normalization.destinations,
+          secret_configured: secret.source !== "none",
+          secret_source: secret.source,
+        },
+      });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/settings/entry-preview", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const {
+        resolveCloudflareAccountId,
+        resolveCloudflareApiToken,
+        resolveEntryPreviewCaptureSecret,
+        cloudflareBrowserConfigError,
+        getPublicSiteUrl,
+        isSiteUrlPubliclyReachable,
+      } = await import("../cloudflare-browser");
+
+      const account = resolveCloudflareAccountId();
+      const token = resolveCloudflareApiToken();
+      const capture = resolveEntryPreviewCaptureSecret();
+      const siteUrl = getPublicSiteUrl();
+
+      res.json({
+        account_id: account.value,
+        account_id_configured: account.source !== "none",
+        account_id_source: account.source,
+        api_token_configured: token.source !== "none",
+        api_token_source: token.source,
+        capture_secret_configured: capture.source !== "none",
+        capture_secret_source: capture.source,
+        site_url: siteUrl,
+        site_url_ok: !!siteUrl,
+        site_url_publicly_reachable: isSiteUrlPubliclyReachable(),
+        config_error: cloudflareBrowserConfigError(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load entry-preview settings" });
+    }
+  });
+
+  /**
+   * Throwaway Browser Run probe: screenshot the public home page and return WebP bytes.
+   * Does not write to disk, YAML, or the entry-preview queue.
+   *
+   * Query: ?target=home (default) | example
+   * - home: SITE_URL home page (validates Browser Run can reach your public URL)
+   * - example: https://example.com (validates API token / Browser Rendering only)
+   */
+  app.post("/api/settings/entry-preview/test-screenshot", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const contentRoot = getContentRoot(res);
+      const {
+        captureScreenshotToWebp,
+        cloudflareBrowserConfigError,
+        getPublicSiteUrl,
+      } = await import("../cloudflare-browser");
+
+      const configError = cloudflareBrowserConfigError();
+      if (configError) {
+        return res.status(400).json({ error: configError });
+      }
+
+      const target = String(req.query.target || "home").toLowerCase();
+      const timeoutMs = 25_000;
+      let captureUrl: string;
+
+      if (target === "example") {
+        captureUrl = "https://example.com";
+      } else {
+        const siteUrl = getPublicSiteUrl()!;
+        const locale = getDefaultLocale(contentRoot);
+        const home = getHomePage(contentRoot);
+        const patternUrl = resolveContentTypeUrl(
+          home.type,
+          { slug: home.slug },
+          locale,
+          contentRoot,
+        );
+        const capturePath = (patternUrl || `/${locale}/${home.slug}`).replace(/\/+/g, "/");
+        captureUrl = `${siteUrl}${capturePath.startsWith("/") ? capturePath : `/${capturePath}`}`;
+
+        // Fail fast if SITE_URL is down from this server (tunnel stopped, bad URL, etc.).
+        try {
+          const probe = await fetch(captureUrl, {
+            method: "GET",
+            redirect: "follow",
+            signal: AbortSignal.timeout(12_000),
+          });
+          if (!probe.ok) {
+            return res.status(502).json({
+              error: `SITE_URL home probe returned HTTP ${probe.status} for ${captureUrl}. Is the tunnel/app running?`,
+            });
+          }
+        } catch (probeErr: any) {
+          return res.status(502).json({
+            error: `SITE_URL home is not reachable from this server (${probeErr?.message || probeErr}). Check cloudflared / SITE_URL.`,
+          });
+        }
+      }
+
+      try {
+        const { webp, browserMsUsed, pngBytes } = await captureScreenshotToWebp({
+          url: captureUrl,
+          waitForSelector: "body",
+          waitUntil: "domcontentloaded",
+          waitForTimeoutMs: target === "example" ? 500 : 1500,
+          timeoutMs,
+          width: 1200,
+          height: 630,
+        });
+
+        res.setHeader("Content-Type", "image/webp");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("X-Screenshot-Url", captureUrl);
+        if (browserMsUsed != null) {
+          res.setHeader("X-Browser-Ms-Used", String(browserMsUsed));
+        }
+        res.setHeader("X-Screenshot-Png-Bytes", String(pngBytes));
+        res.send(webp);
+      } catch (shotErr: any) {
+        const raw = String(shotErr?.message || shotErr);
+        const isTimeout = /timeout/i.test(raw);
+        const isTryCloudflare = /\.trycloudflare\.com/i.test(captureUrl);
+        if (isTimeout) {
+          return res.status(504).json({
+            error: isTryCloudflare
+              ? `Cloudflare Browser Run could not load ${captureUrl} within ${timeoutMs / 1000}s. Quick tunnels (*.trycloudflare.com) often cannot be reached from Browser Rendering even when they work in your browser. Use a named Cloudflare Tunnel on your own hostname, or point SITE_URL at staging/production.`
+              : `Cloudflare Browser Run timed out loading ${captureUrl} (${timeoutMs / 1000}s). Confirm SITE_URL is publicly reachable from the internet (not only your LAN).`,
+          });
+        }
+        throw shotErr;
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Test screenshot failed" });
     }
   });
 

@@ -300,10 +300,6 @@ export function DebugBubble() {
     redirects: string[];
   }>({ page_title: "", description: "", og_image: "", canonical_url: "", robots: "", priority: "", change_frequency: "", redirects: [] });
   const [seoSaving, setSeoSaving] = useState(false);
-  const [seoSchemaInclude, setSeoSchemaInclude] = useState<string[]>([]);
-  const [seoSchemaOverrides, setSeoSchemaOverrides] = useState<Record<string, string>>({});
-  const [seoSchemaOverridesErrors, setSeoSchemaOverridesErrors] = useState<Record<string, string>>({});
-  const [availableSchemaKeys, setAvailableSchemaKeys] = useState<string[]>([]);
   const [seoLocations, setSeoLocations] = useState<string[]>([]);
   const [seoAvailableLocations, setSeoAvailableLocations] = useState<Array<{ slug: string; name: string; city: string; country: string }>>([]);
   const [seoLocationSearch, setSeoLocationSearch] = useState("");
@@ -1026,10 +1022,7 @@ export function DebugBubble() {
       const apiContentType = contentTypesMap ? getFolderFromType(contentTypesMap, contentInfo.type) : contentInfo.type;
       const res = await fetch(`/api/seo-preview/${apiContentType}/${contentInfo.slug}?locale=${locale}`);
       if (!res.ok) throw new Error("Failed to fetch SEO data");
-      const [data, schemaKeysRes] = await Promise.all([
-        res.json(),
-        fetch("/api/schema").then(r => r.ok ? r.json() : { available: [] }),
-      ]);
+      const data = await res.json();
       setSeoData(data);
       setSeoMeta({
         page_title: (data.meta?.page_title as string) || "",
@@ -1043,16 +1036,6 @@ export function DebugBubble() {
           .map((r) => (typeof r === "string" ? r : r?.path))
           .filter((r): r is string => Boolean(r)),
       });
-      setAvailableSchemaKeys(schemaKeysRes.available || []);
-      setSeoSchemaInclude(data.schemaInclude || []);
-      const overridesObj: Record<string, string> = {};
-      if (data.schemaOverrides) {
-        for (const [key, val] of Object.entries(data.schemaOverrides)) {
-          overridesObj[key] = JSON.stringify(val, null, 2);
-        }
-      }
-      setSeoSchemaOverrides(overridesObj);
-      setSeoSchemaOverridesErrors({});
       setSeoLocations((data.locations as string[]) || []);
       setSeoAvailableLocations((data.availableLocations as Array<{ slug: string; name: string; city: string; country: string }>) || []);
       setSeoLocationSearch("");
@@ -1180,36 +1163,6 @@ export function DebugBubble() {
       } else {
         delete existingMeta.redirects;
       }
-      
-      const hasOverrideErrors = Object.keys(seoSchemaOverridesErrors).length > 0;
-      if (hasOverrideErrors) {
-        toast({
-          title: "Invalid JSON in schema overrides",
-          description: "Please fix the JSON errors before saving.",
-          variant: "destructive",
-        });
-        setSeoSaving(false);
-        return;
-      }
-
-      const parsedOverrides: Record<string, Record<string, unknown>> = {};
-      for (const [key, val] of Object.entries(seoSchemaOverrides)) {
-        if (val.trim() && seoSchemaInclude.includes(key)) {
-          try {
-            parsedOverrides[key] = JSON.parse(val);
-          } catch {
-            // skip invalid
-          }
-        }
-      }
-
-      const schemaValue: Record<string, unknown> = {};
-      if (seoSchemaInclude.length > 0) {
-        schemaValue.include = seoSchemaInclude;
-      }
-      if (Object.keys(parsedOverrides).length > 0) {
-        schemaValue.overrides = parsedOverrides;
-      }
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       const token = getDebugToken();
@@ -1234,24 +1187,6 @@ export function DebugBubble() {
       if (!metaRes.ok) {
         const errData = await metaRes.json().catch(() => ({}));
         throw new Error(errData.error || "Failed to save meta");
-      }
-
-      // schema (schema.org include/overrides) is locale-agnostic → _common.yml
-      const schemaRes = await fetch("/api/content/edit-common", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          contentType: apiContentType,
-          slug: contentInfo.slug,
-          author: author || undefined,
-          operations: [
-            { action: "update_field", path: "schema", value: Object.keys(schemaValue).length > 0 ? schemaValue : null },
-          ],
-        }),
-      });
-      if (!schemaRes.ok) {
-        const errData = await schemaRes.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to save schema");
       }
 
       if (contentInfo.type === "landing" && seoAvailableLocations.length > 0) {
@@ -2467,13 +2402,6 @@ export function DebugBubble() {
         seoData={seoData}
         seoMeta={seoMeta}
         setSeoMeta={setSeoMeta}
-        seoSchemaInclude={seoSchemaInclude}
-        setSeoSchemaInclude={setSeoSchemaInclude}
-        seoSchemaOverrides={seoSchemaOverrides}
-        setSeoSchemaOverrides={setSeoSchemaOverrides}
-        seoSchemaOverridesErrors={seoSchemaOverridesErrors}
-        setSeoSchemaOverridesErrors={setSeoSchemaOverridesErrors}
-        availableSchemaKeys={availableSchemaKeys}
         seoLocations={seoLocations}
         setSeoLocations={setSeoLocations}
         seoAvailableLocations={seoAvailableLocations}

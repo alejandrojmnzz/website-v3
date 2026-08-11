@@ -68,6 +68,67 @@ const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Must match the value used in server/routes/_helpers.ts trusted-internal bypass.
 export const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
+/** Page-level WebSite/Organization schema_org overrides — site schema-org.yml is unchanged. */
+function schemaOrgPageOverrideWarnings(section: Record<string, unknown> | null | undefined): McpWarning[] {
+  if (!section || String(section.type ?? "") !== "schema_org") return [];
+  const t = String(section.schema_type ?? "");
+  if (t === "WebSite") {
+    return [
+      {
+        code: "schema_org_website_page_override",
+        message:
+          "Page-level schema_org WebSite section: properties were/are prefilled from site schema-org.yml but edits apply only to this page's JSON-LD. schema-org.yml is not modified.",
+      },
+    ];
+  }
+  if (t === "Organization") {
+    return [
+      {
+        code: "schema_org_organization_page_override",
+        message:
+          "Page-level schema_org Organization section: properties were/are prefilled from site schema-org.yml but edits apply only to this page's JSON-LD. schema-org.yml is not modified.",
+      },
+    ];
+  }
+  return [];
+}
+
+function schemaOrgOverrideWarningsFromFieldUpdates(
+  fields: Record<string, unknown>,
+  existingSections?: Array<Record<string, unknown>>,
+): McpWarning[] {
+  const warnings: McpWarning[] = [];
+  const seen = new Set<string>();
+  for (const [pathKey, value] of Object.entries(fields)) {
+    const m = /^sections\.(\d+)\.(schema_type|type)$/.exec(pathKey);
+    if (m && pathKey.endsWith("schema_type")) {
+      const t = String(value ?? "");
+      if (t === "WebSite" || t === "Organization") {
+        const code =
+          t === "WebSite"
+            ? "schema_org_website_page_override"
+            : "schema_org_organization_page_override";
+        if (!seen.has(code)) {
+          seen.add(code);
+          warnings.push(...schemaOrgPageOverrideWarnings({ type: "schema_org", schema_type: t }));
+        }
+      }
+    }
+    const secMatch = /^sections\.(\d+)(?:\.|$)/.exec(pathKey);
+    if (secMatch && existingSections) {
+      const idx = Number(secMatch[1]);
+      const sec = existingSections[idx];
+      for (const w of schemaOrgPageOverrideWarnings(sec)) {
+        if (!seen.has(w.code)) {
+          seen.add(w.code);
+          warnings.push(w);
+        }
+      }
+    }
+  }
+  return warnings;
+}
+
 /**
  * Build the Authorization + author headers for loopback calls to the main
  * server's capability-gated endpoints (e.g. /api/content/edit-sections).
@@ -581,10 +642,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // get_entry_seo
   mcp.tool(
     "get_entry_seo",
-    "Get only the SEO/meta block of a page plus the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Also returns validation_issues containing only cached SEO-category issues (from the meta, seo-depth, and seo-intent validators). " +
-    "validation_issues is always present (empty array if no SEO issues are cached). " +
-    "Use this instead of get_entry_content when you only need meta tags, Open Graph data, or other SEO fields. " +
+    "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
+    "Returns meta, validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent), and a rich schema_org block: " +
+    "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
+    "content-type requirements / hero companion gaps. " +
+    "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
+    "Do not expect a derived JSON-LD dump on get_entry_content. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -606,6 +669,55 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return { content: [{ type: "text", text: (e as Error).message }], isError: true };
       }
 
+      async function buildSchemaOrgBlock(
+        ct: string,
+        pageSlug: string,
+        pageLocale: string,
+        data: Record<string, unknown>,
+      ): Promise<Record<string, unknown>> {
+        const { collectSectionSchemasDetailed } = await import("../../server/schema-components/index.js");
+        const {
+          getSchemaOrgRequirementGaps,
+          validateHeroCourseCompanions,
+          getContentTypeSchemaOrgRequirements,
+        } = await import("../../server/schema-org-requirements.js");
+        const { getBaseUrl } = await import("../../server/hreflang.js");
+        const sections = Array.isArray(data.sections)
+          ? (data.sections as Array<Record<string, unknown>>)
+          : [];
+        const meta = (data.meta && typeof data.meta === "object" ? data.meta : {}) as Record<string, unknown>;
+        const detailed = collectSectionSchemasDetailed(sections, {
+          locale: pageLocale,
+          contentRoot: contentPath,
+          baseUrl: getBaseUrl(),
+          contentType: ct,
+          pageUrl: undefined,
+          title: typeof data.title === "string" ? data.title : typeof data.name === "string" ? data.name : undefined,
+          description:
+            typeof meta.description === "string"
+              ? meta.description
+              : typeof data.description === "string"
+                ? data.description
+                : undefined,
+        });
+        const ctGaps = getSchemaOrgRequirementGaps(sections, ct, contentPath, { slug: pageSlug });
+        const heroGaps = validateHeroCourseCompanions(sections, {
+          contentType: ct,
+          slug: pageSlug,
+          locale: pageLocale,
+        });
+        const requirements = getContentTypeSchemaOrgRequirements(ct, contentPath);
+        return {
+          documents: detailed.documents,
+          preview: detailed.preview,
+          sources: detailed.preview.map((p) => p.source),
+          requirements,
+          companion_gaps: [...ctGaps, ...heroGaps],
+          requirements_ok: ctGaps.length === 0,
+          hero_course_companion_ok: heroGaps.length === 0,
+        };
+      }
+
       if (variant) {
         const resolved = resolveContentType(slug, contentType, contentPath);
         if (!resolved) {
@@ -615,7 +727,32 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!result) {
           return { content: [{ type: "text", text: `Variant '${variant}' not found for page '${slug}' locale '${locale}' (file: ${variant}.${locale}.yml)` }], isError: true };
         }
-        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, meta: result.data.meta, validation_issues: [] }, null, 2) }] };
+        const schema_org = await buildSchemaOrgBlock(
+          resolved.contentType,
+          slug,
+          locale,
+          result.data as Record<string, unknown>,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  contentType: resolved.contentType,
+                  slug,
+                  locale,
+                  variant,
+                  meta: result.data.meta,
+                  schema_org,
+                  validation_issues: [],
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
       }
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
@@ -625,6 +762,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const pageUrl = payload.urls?.[locale];
       const validation_issues = pageUrl ? getCachedValidationIssues(pageUrl, ["seo"], contentPath) : [];
 
+      const schema_org = await buildSchemaOrgBlock(
+        payload.contentType,
+        payload.slug,
+        payload.locale,
+        payload.data,
+      );
+
       const seoPayload = {
         contentType: payload.contentType,
         slug: payload.slug,
@@ -632,11 +776,151 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         locales: payload.locales,
         ...(payload.urls ? { urls: payload.urls } : {}),
         meta: payload.data.meta,
+        schema_org,
         validation_issues,
       };
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
     }
+  );
+
+  // regenerate_entry_previews
+  mcp.tool(
+    "regenerate_entry_previews",
+    "Queue Cloudflare Browser Run captures for entry-preview / OG images. " +
+    "Requires locales (non-empty). Optional slugs scopes to those entries. " +
+    "mode: missing (needs capture), all (force dirty+regen), failed (retry failures). " +
+    "On success writes WebP under images/entry-previews/ and updates live locale YAML meta.og_image " +
+    "(with ?t= cache-bust) unless a distinct gallery/editorial image is set. Variants are never captured. " +
+    "Does not commit/push content GitHub by itself (AutoCommitQueue when enabled). " +
+    "Cloudflare creds: host env only (CLOUDFLARE_* / ENTRY_PREVIEW_CAPTURE_SECRET; staff SEO/GEO → OG Image is display/test only). " +
+    "Does not edit Brand or schema-org.yml. " +
+    "Requires content_edit_media.",
+    {
+      content_type: z.string().describe("Content type with preview: config, e.g. 'blog'"),
+      locales: z.array(z.string()).min(1).describe("Required live locales to capture (e.g. ['en','es']). No implicit all/primary."),
+      mode: z.enum(["missing", "all", "failed"]).default("missing"),
+      slugs: z.array(z.string()).optional().describe("Optional entry slugs to regenerate; omit for all in those locales"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ content_type, locales, mode, slugs, site }) => {
+      if (mcpToken && !(await checkCap(mcpToken, "content_edit_media"))) {
+        return denyResponse("content_edit_media");
+      }
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const { domain } = siteResult;
+      try {
+        assertSafeSegment(content_type, "content_type");
+        for (const loc of locales) assertSafeLocale(loc);
+        if (slugs) for (const s of slugs) assertSafeSegment(s, "slug");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      try {
+        const res = await fetch(
+          `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue${q}`,
+          {
+            method: "POST",
+            headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+            body: JSON.stringify({
+              locales,
+              mode: mode ?? "missing",
+              slugs: slugs && slugs.length > 0 ? slugs : undefined,
+            }),
+          },
+        );
+        const data = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail(String(data.error ?? data.message ?? `enqueue failed (${res.status})`), {
+            code: data.code,
+            ...data,
+          });
+        }
+
+        const omitted = Array.isArray(data.omittedLocales)
+          ? (data.omittedLocales as string[])
+          : [];
+        const warnings: McpWarning[] = [];
+        if (omitted.length > 0) {
+          warnings.push({
+            code: "locales_not_regenerated",
+            message: `These entry locales exist but were not in locales[] and will not be regenerated: ${omitted.join(", ")}`,
+          });
+        }
+        warnings.push({
+          code: "editorial_og_not_overwritten",
+          message:
+            "Entries with a distinct gallery/editorial meta.og_image or _image keep that URL; YAML is not overwritten.",
+        });
+        warnings.push({
+          code: "no_content_github_push",
+          message:
+            "YAML meta.og_image is markFileAsModified + AutoCommitQueue when GITHUB_SYNC_ENABLED and GITHUB_AUTO_COMMIT_ENABLED; WebPs are gitignored under images/entry-previews/.",
+        });
+        warnings.push({
+          code: "variants_skipped",
+          message: "Draft/variant YAML files are never captured or written.",
+        });
+        warnings.push({
+          code: "creds_env_only",
+          message:
+            "Capture uses host env CLOUDFLARE_* / ENTRY_PREVIEW_CAPTURE_SECRET (else SESSION_SECRET). This tool does not write those credentials, settings.yml, Brand, or schema-org.yml.",
+        });
+
+        const enqueued = Array.isArray(data.enqueued) ? (data.enqueued as string[]) : [];
+        return ok(
+          {
+            content_type,
+            mode: mode ?? "missing",
+            locales,
+            slugs: slugs ?? null,
+            enqueued_count: enqueued.length,
+            enqueued,
+            skipped: data.skipped ?? [],
+            omitted_locales: omitted,
+            queue: data.queue ?? null,
+            message: `Queued ${enqueued.length} entry-preview capture job(s).`,
+          },
+          {
+            warnings,
+            side_effects: [
+              {
+                kind: "queue_entry_preview_capture",
+                summary: `Cloudflare Browser Run jobs for ${content_type} (${enqueued.length} keys)`,
+              },
+              {
+                kind: "write_entry_preview_webp",
+                summary:
+                  "On success: images/entry-previews/{type}/{slug}/{locale}/{width}.webp (+ .meta.json)",
+              },
+              {
+                kind: "write_locale_meta_og_image",
+                summary:
+                  "On success (non-editorial): live {locale}.yml meta.og_image with ?t= cache-bust",
+              },
+            ],
+            next_actions: [
+              {
+                tool: "run_entry_diagnostics",
+                reason: "After jobs finish, hard-refresh SEO diagnostics to confirm MISSING_OG_IMAGE cleared",
+                args_hint: {
+                  freshness: "hard",
+                  ...(slugs && slugs.length ? { slugs } : {}),
+                  categories: ["seo"],
+                  ...(site ? { site } : {}),
+                },
+                priority: "recommended",
+              },
+            ],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to enqueue entry previews: ${(e as Error).message}`);
+      }
+    },
   );
 
   // run_entry_diagnostics (async — returns cached or queues a background job)
@@ -1029,6 +1313,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       );
       if ("error" in apiResult) return apiResult.error;
       const boundUpdates = apiResult.data.boundUpdates;
+      const schemaWarnings =
+        fieldPath.includes("schema_type") || fieldPath.startsWith("sections.")
+          ? schemaOrgOverrideWarningsFromFieldUpdates({ [fieldPath]: value })
+          : [];
       return ok(
         {
           message: `Updated '${fieldPath}' in ${pathInfo.relativeHint}`,
@@ -1042,7 +1330,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
         },
         {
-          warnings: variantWarningsIfNeeded(variant),
+          warnings: [...variantWarningsIfNeeded(variant), ...schemaWarnings],
           next_actions: [],
           side_effects: bindingPropagateSideEffects(boundUpdates),
         },
@@ -1158,6 +1446,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const fieldEntries = Object.entries(fields);
       const conflictErr = await getConflictError(pathInfo.filePath, relativePath, fieldEntries, { fields }, domain);
       if (conflictErr) return conflictErr;
+      let existingSections: Array<Record<string, unknown>> = [];
+      try {
+        const before = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
+        if (Array.isArray(before.sections)) {
+          existingSections = before.sections as Array<Record<string, unknown>>;
+        }
+      } catch {
+        /* ignore */
+      }
+      const schemaWarnings = schemaOrgOverrideWarningsFromFieldUpdates(fields, existingSections);
       const operations = fieldEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
       const apiResult = await callEditSectionsApi(
         { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations },
@@ -1180,7 +1478,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
         },
         {
-          warnings: variantWarningsIfNeeded(variant),
+          warnings: [...variantWarningsIfNeeded(variant), ...schemaWarnings],
           next_actions: [],
           side_effects: bindingPropagateSideEffects(boundUpdates),
         },
@@ -2552,7 +2850,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       );
       if ("error" in apiResult) return apiResult.error;
 
-      const warnings: McpWarning[] = [ADD_SECTION_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      const warnings: McpWarning[] = [
+        ADD_SECTION_NO_BINDING_FANOUT,
+        ...variantWarningsIfNeeded(variant),
+        ...schemaOrgPageOverrideWarnings(sectionToAdd),
+      ];
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -2568,6 +2870,21 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         side_effects = env.side_effects;
         next_actions = env.next_actions;
+      }
+
+      // Non-effect: page WebSite/Organization does not write schema-org.yml
+      const overrideType = String(sectionToAdd.schema_type ?? "");
+      if (
+        String(sectionToAdd.type ?? "") === "schema_org" &&
+        (overrideType === "WebSite" || overrideType === "Organization")
+      ) {
+        side_effects = [
+          ...(side_effects ?? []),
+          {
+            kind: "schema_org_page_section",
+            summary: `Wrote page-local schema_org ${overrideType} to ${pathInfo.relativeHint}; site schema-org.yml unchanged.`,
+          },
+        ];
       }
 
       if (stamp) {
@@ -3634,8 +3951,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "get_content_type_info",
     "Describe a content type from content-types.yml: db_backed vs single_template, field_mapping, editor, " +
-    "url_pattern, extra URL params, observed peer values for those params, create_via, and body_model. " +
+    "url_pattern, extra URL params, observed peer values for those params, create_via, body_model, " +
+    "and schema_org_requirements with coverage { present, missing_slugs } when declared. " +
     "Call this before create_entry when unsure how a type works. " +
+    "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. 'blog', 'program', 'page', 'lesson'"),
@@ -3644,7 +3963,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     async ({ contentType, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "get_content_type_info", { contentType });
-      const { contentPath } = siteResult;
+      const { contentPath, domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
       } catch (e) {
@@ -3679,6 +3998,54 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           priority: "recommended",
         });
       }
+
+      const schema_org_requirements = Array.isArray(
+        (config as { schema_org_requirements?: Array<{ schema_type: string }> }).schema_org_requirements,
+      )
+        ? (config as { schema_org_requirements: Array<{ schema_type: string }> }).schema_org_requirements
+        : [];
+
+      let schema_org_coverage: Array<Record<string, unknown>> = [];
+      if (schema_org_requirements.length > 0) {
+        try {
+          const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+          const res = await fetch(
+            `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-coverage${q}`,
+          );
+          if (res.ok) {
+            const data = (await res.json()) as { coverage?: Array<Record<string, unknown>> };
+            schema_org_coverage = Array.isArray(data.coverage) ? data.coverage : [];
+          }
+        } catch {
+          // Fall back to local helper when main server is down
+          try {
+            const { getSchemaOrgRequirementCoverage } = await import(
+              "../../server/schema-org-requirements.js"
+            );
+            schema_org_coverage = schema_org_requirements.map((r) =>
+              getSchemaOrgRequirementCoverage(contentType, r.schema_type, contentPath),
+            );
+          } catch {
+            schema_org_coverage = [];
+          }
+        }
+        const missing = schema_org_coverage.flatMap((c) =>
+          Array.isArray(c.missing_slugs) ? (c.missing_slugs as string[]) : [],
+        );
+        if (missing.length > 0) {
+          next_actions.push({
+            tool: "ensure_content_type_schema_org",
+            reason: "Attach seeded schema_org companions on missing entries",
+            args_hint: {
+              contentType,
+              schema_type: schema_org_requirements[0]?.schema_type,
+              site,
+            },
+            priority: "recommended",
+          });
+        }
+      }
+
       return {
         content: [{
           type: "text",
@@ -3699,10 +4066,135 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               ? "Use create_entry (YAML). Shared-layout: one locale, sections []."
               : "Database-backed — create_entry cannot create rows; use DB/admin path.",
             body_model: bodyModelForConfig(config),
+            schema_org_requirements,
+            coverage: schema_org_coverage[0]
+              ? {
+                  schema_type: schema_org_coverage[0].schema_type,
+                  present: schema_org_coverage[0].present,
+                  total: schema_org_coverage[0].total,
+                  missing_slugs: schema_org_coverage[0].missing_slugs,
+                }
+              : schema_org_requirements.length === 0
+                ? null
+                : { present: 0, missing_slugs: [], total: 0 },
+            coverage_by_schema_type: schema_org_coverage.map((c) => ({
+              schema_type: c.schema_type,
+              present: c.present,
+              total: c.total,
+              missing_slugs: c.missing_slugs,
+            })),
             next_actions,
           }, null, 2),
         }],
       };
+    }
+  );
+
+  // ensure_content_type_schema_org
+  mcp.tool(
+    "ensure_content_type_schema_org",
+    "Ensure every entry of a content type has a leading schema_org section for the given schema_type " +
+    "(e.g. location → LocalBusiness). Seeds missing entries from legacy catalog or miami-usa/madrid-spain templates. " +
+    "Call get_content_type_info first to see coverage. Requires content_edit_structure. " +
+    MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().describe("Content type key, e.g. 'location'"),
+      schema_type: z.string().describe("Required schema.org type, e.g. 'LocalBusiness'"),
+      dry_run: z.boolean().optional().describe("When true, report what would be added without writing"),
+      slugs: z.array(z.string()).optional().describe("Optional subset of entry slugs; omit for all missing"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, schema_type, dry_run, slugs, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error, "ensure_content_type_schema_org", {
+        contentType,
+        schema_type,
+      });
+      const { domain } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+        if (slugs) for (const s of slugs) assertSafeSegment(s, "slug");
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+      if (mcpToken && !(await checkCap(mcpToken, "content_edit_structure", contentType))) {
+        return denyResponse("content_edit_structure", contentType);
+      }
+
+      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      try {
+        const res = await fetch(
+          `http://localhost:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure${q}`,
+          {
+            method: "POST",
+            headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+            body: JSON.stringify({
+              schema_type,
+              dry_run: !!dry_run,
+              slugs: slugs && slugs.length > 0 ? slugs : undefined,
+            }),
+          },
+        );
+        const data = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail(String(data.error ?? data.message ?? `ensure failed (${res.status})`), data);
+        }
+
+        const results = Array.isArray(data.results) ? (data.results as Array<Record<string, unknown>>) : [];
+        const writtenPaths = results.flatMap((r) =>
+          Array.isArray(r.files) ? (r.files as string[]) : [],
+        );
+        const warnings: McpWarning[] = [
+          {
+            code: "no_binding_topology_fanout",
+            message:
+              "Ensured schema_org sections are written only to the listed entry locale YAML paths. No section-binding topology fan-out.",
+          },
+          {
+            code: "no_schema_org_yml_write",
+            message: "Site schema-org.yml is not modified by this tool.",
+          },
+        ];
+        if (dry_run) {
+          warnings.push({
+            code: "dry_run",
+            message: "dry_run was true — no files were written.",
+          });
+        }
+
+        return ok(
+          {
+            message: `Ensured schema_org ${schema_type} on content type '${contentType}' (added=${data.added ?? 0}, already_present=${data.already_present ?? 0}, errors=${data.errors ?? 0})`,
+            contentType,
+            schema_type,
+            added: data.added ?? 0,
+            already_present: data.already_present ?? 0,
+            errors: data.errors ?? 0,
+            results,
+          },
+          {
+            warnings,
+            side_effects: writtenPaths.length
+              ? [
+                  {
+                    kind: "schema_org_ensure",
+                    summary: `Wrote leading schema_org ${schema_type} on ${writtenPaths.length} file(s): ${writtenPaths.slice(0, 8).join(", ")}${writtenPaths.length > 8 ? "…" : ""}`,
+                  },
+                ]
+              : [],
+            next_actions: [
+              {
+                tool: "get_content_type_info",
+                reason: "Re-check schema_org_requirements coverage after ensure",
+                args_hint: { contentType, site },
+                priority: "recommended",
+              },
+            ],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to ensure schema_org: ${(e as Error).message}`);
+      }
     }
   );
 

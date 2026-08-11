@@ -31,6 +31,8 @@ export default function EntryPreviewFrame() {
   const searchParams = new URLSearchParams(searchString);
   const locale = searchParams.get("locale") || "en";
   const isCapture = searchParams.get("capture") === "1";
+  const captureToken = searchParams.get("capture_token") || "";
+  const captureExp = searchParams.get("exp") || "";
   const themeFromQuery = searchParams.get("theme");
   const initialTheme: "dark" | "light" =
     themeFromQuery === "light" || themeFromQuery === "dark" ? themeFromQuery : "dark";
@@ -39,6 +41,7 @@ export default function EntryPreviewFrame() {
   const [section, setSection] = useState<Section | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [captureReady, setCaptureReady] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const contentReady = !loading && !!section && !error;
 
@@ -74,9 +77,14 @@ export default function EntryPreviewFrame() {
     }
     setLoading(true);
     setError(null);
+    setCaptureReady(false);
     const frameQs = new URLSearchParams({ locale });
     if (themeFromQuery === "light" || themeFromQuery === "dark") {
       frameQs.set("theme", themeFromQuery);
+    }
+    if (captureToken) {
+      frameQs.set("capture_token", captureToken);
+      if (captureExp) frameQs.set("exp", captureExp);
     }
     fetch(
       `/api/content-types/${encodeURIComponent(contentType)}/entries/${encodeURIComponent(slug)}/preview-frame?${frameQs}`,
@@ -112,7 +120,44 @@ export default function EntryPreviewFrame() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
-  }, [contentType, slug, locale, themeFromQuery]);
+  }, [contentType, slug, locale, themeFromQuery, captureToken, captureExp]);
+
+  // Mark capture-ready after images settle (Cloudflare waitForSelector).
+  useEffect(() => {
+    if (!contentReady || !rootRef.current) {
+      setCaptureReady(false);
+      return;
+    }
+    let cancelled = false;
+    const root = rootRef.current;
+    const images = Array.from(root.querySelectorAll("img"));
+    const wait = Promise.all(
+      images.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            if (img.complete) {
+              resolve();
+              return;
+            }
+            const done = () => resolve();
+            img.addEventListener("load", done, { once: true });
+            img.addEventListener("error", done, { once: true });
+            setTimeout(done, 8000);
+          }),
+      ),
+    );
+    void wait.then(() => {
+      if (!cancelled) {
+        // Small paint buffer for fonts/layout
+        setTimeout(() => {
+          if (!cancelled) setCaptureReady(true);
+        }, 150);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [contentReady, section]);
 
   useEffect(() => {
     if (loading) return;
@@ -144,6 +189,7 @@ export default function EntryPreviewFrame() {
     <div
       ref={rootRef}
       data-screenshot-root
+      data-capture-ready={captureReady ? "1" : "0"}
       className={isCapture ? "bg-background" : "min-h-screen bg-background"}
       data-testid="entry-preview-frame"
     >
@@ -151,3 +197,4 @@ export default function EntryPreviewFrame() {
     </div>
   );
 }
+

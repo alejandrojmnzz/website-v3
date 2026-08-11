@@ -79,7 +79,8 @@ export const seoDepthValidator: Validator = {
           code: "MISSING_OG_IMAGE",
           message: "Missing og_image in meta",
           file: file.filePath,
-          suggestion: "Add an og_image for better social media sharing appearance",
+          suggestion:
+            "Add meta.og_image, or call regenerate_entry_previews with this slug and locales when the content type has preview: / og_image_preview configured",
         });
       }
 

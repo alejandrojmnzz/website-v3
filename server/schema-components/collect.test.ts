@@ -131,4 +131,49 @@ describe("collectSectionSchemas", () => {
     expect(schemas).toHaveLength(1);
     expect(schemas[0]["@type"]).toBe("BreadcrumbList");
   });
+
+  it("emits Course from schema_org without dual Organization when no @organization ref", () => {
+    const schemas = collectSectionSchemas(
+      [
+        {
+          type: "schema_org",
+          schema_type: "Course",
+          properties: { name: "Test Course", description: "Desc" },
+        },
+      ],
+      context,
+    );
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0]["@type"]).toBe("Course");
+    expect(schemas[0].name).toBe("Test Course");
+  });
+
+  it("emits Article from article bodies (non-blog)", () => {
+    const schemas = collectSectionSchemas(
+      [
+        { type: "article", content: "# Hello\n\nBody text." },
+        { type: "article", content: "More markdown." },
+      ],
+      { ...context, contentType: "page", title: "Hello", pageUrl: "https://example.com/p" },
+    );
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0]["@type"]).toBe("Article");
+    expect(schemas[0].headline).toBe("Hello");
+  });
+
+  it("emits BlogPosting from article bodies when contentType is blog", () => {
+    const schemas = collectSectionSchemas(
+      [{ type: "article", content: "Post body with enough text." }],
+      {
+        ...context,
+        contentType: "blog",
+        title: "My Post",
+        authorName: "Ada",
+        publishedAt: "2024-01-01",
+      },
+    );
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0]["@type"]).toBe("BlogPosting");
+    expect(schemas[0].author).toEqual({ "@type": "Person", name: "Ada" });
+  });
 });

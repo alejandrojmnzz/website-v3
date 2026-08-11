@@ -9,11 +9,22 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
   content-types.yml       # single source of truth for all content types
   settings.yml            # site-wide settings (locales, optimization.tagmanager web_container_id + sGTM proxy,
                           # optimization.ip_normalization egress proxy at fixed /ipn/{id}/*, etc.)
+                          # Cloudflare / entry-preview capture credentials are NOT stored here —
+                          # env only: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN,
+                          # ENTRY_PREVIEW_CAPTURE_SECRET (else SESSION_SECRET). Staff status UI:
+                          # Debug Bubble → Settings → SEO/GEO → OG Image (display/test only; no writes).
+                          # Legacy entry_preview keys in YAML are ignored; delete before content push.
                           # Web GTM ID is injected into the HTML shell from web_container_id (see server/gtm-web-inject.ts)
-                          # IP Normalization: allowlisted destinations + X-IPN-Token; configure Constant + Request Headers
-                          # in the GTM *server* container (not Stape admin). Empty secret while enabled → fail closed.
+                          # IP Normalization: allowlisted destinations in settings.yml; shared secret is
+                          # host env IPN_SECRET only (staff: Tracking → IP Normalization — display + Generate & copy).
+                          # Empty IPN_SECRET while enabled → fail closed. Configure Constant + Request Headers
+                          # in the GTM *server* container (not Stape admin).
                           # Recent /ipn calls: local .ipn-calls-state.txt (max 500), not content-repo / GitHub.
                           # Non-effect: does not call any CRM by name; side_effect of admin PUT: writes settings.yml.
+  schema-org.yml          # Organization / Website (+ legacy catalogs) JSON-LD templates.
+                          # Staff structured edit: Settings → SEO/GEO → Schema org; Brand tab still owns
+                          # same_as / default_social_image / logos (dual write path — Brand fields not moved).
+                          # Non-effect of OG capture env: does not edit schema-org.yml or Brand.
   image-registry.json     # centralized image metadata
   theme.json              # color theme tokens
   component-registry/     # versioned component schemas and examples
@@ -53,6 +64,7 @@ Types are declared in `content-types.yml`. Each entry specifies:
 - `field_mapping` — content-type **schema** keys. Non-underscore keys are available as `{{ single.* }}` and in the Fields tab (content-type fields, not SEO). Values are auto-fill sources: identity (same YAML/DB name); `{ source, default }` with required default (may be `null`); DB remap (column → schema key); `function:` computed. Mapping remaps are for **DB-attached types** and calculated fields — static YAML uses identity (schema key = YAML parent key). System identity is auto-exposed as `single.slug` / `single.locale` / `single.image` / `single.updated_at` and underscore aliases (`_slug`, `_locale`, `_image`, `_updated_at`). `_hreflangs` is routing-only (not a template var). `_updated_at` is DB-mappable; on static types it is inject-only from content-hash-gated sync-state (`getFileLastmod` / SHA change). **`published_at`** is reserved **editorial** go-live (authored in `_common.yml`, always ensured in mapping): stamped once on go-live (shared-layout/blog create; draft-first on `publish_draft` / first promote); omit on draft create (missing OK, never `""`); duplicates strip source date then re-stamp if live; static Fields edits write `_common.yml` (not locale `field_overrides`); cannot clear to empty; not tied to YAML `status`; distinct from `_updated_at`. Do not declare regular keys `slug` or `image`. Other values also come from `field_overrides` / Fields tab.
 - `database.slug` — if present, the type is DB-backed; MCP `create_entry` cannot create those rows (use the DB/admin path). Do **not** confuse with `single_template: true` (e.g. static `blog`), which is YAML + shared `single.{locale}.yml` and **is** creatable via `create_entry`.
 - `layout.menu` — which navbar/footer menus to render
+- `schema_org_requirements` (optional) — list of `{ schema_type }` companions every entry must have as a leading `schema_org` section (e.g. location → `LocalBusiness`). Validated by `schema-org-companions` + live SEO gate. Coverage via `get_content_type_info`; attach missing with `ensure_content_type_schema_org` (seeds LocalBusiness from catalog / miami-usa|madrid-spain). Inspect resolved JSON-LD with `get_entry_seo` (not `get_entry_content`). Hero `course` variant separately requires a Course companion (`behaviors.schema_org.requires`).
 
 ## Active content types
 
@@ -91,6 +103,7 @@ Resolve order at page delivery: **single → meta → param**. Site vars (`brand
 
 - **Live locale writes / publish / promote** require resolved non-empty `meta.page_title` and `meta.description` (no leftover `{{ }}`). Draft-only writes are exempt. Gate: `server/live-entry-seo-gate.ts` + `shared/validateRequiredMeta.ts`.
 - **`editor.<field>.required: true`** (Fields UI asterisk / YAML): drafts may omit the value; `publish_draft` / `promote_variant` and live saves fail if empty or cleared. Distinct from field_mapping `?` (key may be absent). Blog sets `title` + `description` required. Validator: `scripts/validation/validators/required-fields.ts`.
+- **schema_org companions:** CT `schema_org_requirements` (e.g. location → LocalBusiness) and hero `course` → Course must be present on merged sections or live save fails. Validator: `schema-org-companions`. Attach: `ensure_content_type_schema_org` / `POST .../schema-org-ensure`. Preview: `get_entry_seo.schema_org`.
 - **Empty detached locale (`EMPTY_LOCALE`):** A live locale is empty only when the entry is **detached** (`detached: true` in `_common.yml`) **and** merged data has no sections (`missing` / `length === 0`) **and** no non-empty string `content`. Classic blogs with body in `content` are not empty. Attached shared-layout `sections: []` on the entry is normal (structure from `single.{locale}.yml`) and is **never** empty via this rule. Empty detached locales are hidden from listings / sitemap / hreflang; direct URL returns **HTTP 404** with a custom “not available in this language” body + links to public alternates (`noindex`). Helper: `shared/isEmptyLocaleContent.ts` + `server/empty-locale.ts`. Publish/promote/live writes are blocked. Manage UI surfaces all via `emptyLocales` + Errors. MCP `run_entry_diagnostics` / content-quality still scan live empty files so agents see `EMPTY_LOCALE`.
 - **Non-effects:** clearing required fields on a draft is OK; listing `pickListingFields` does not invent fallbacks for missing title/description; emptiness is not a language classifier (no fuzzy “English shell” detection); mirrored sections stay **per-section** hide/`_label` only — an entire locale is not taken offline because some section was mirrored.
 
@@ -114,4 +127,6 @@ OG / list thumbnail captures map component props to source keys using the **same
 
 Blocked (circular): `_image`, `image`, `og_image`, `meta.og_image`. Prefixes `brand.*` / `meta.*` are reserved (not dotted paths into the entry).
 
-**Non-effect:** changing brand does **not** dirty / auto-recapture — brand is omitted from `propsHash`. Missing or unusable mapped sources fail **that** entry’s capture only; the queue continues.
+**Capture runtime:** Cloudflare Browser Run on the server (`regenerate_entry_previews` MCP / admin enqueue). Requires `locales[]` (mandatory). Variants/drafts are skipped. On success: WebP under `images/entry-previews/` (gitignored) and live `{locale}.yml` `meta.og_image` with `?t=` cache-bust — **unless** a distinct gallery/editorial `meta.og_image` / `_image` is already set. Credentials: host env only (`CLOUDFLARE_*`, optional `ENTRY_PREVIEW_CAPTURE_SECRET`, else `SESSION_SECRET` for signing). Staff SEO/GEO → OG Image is display/test only. Non-effects: no MCP tool writes those secrets; does not touch `settings.yml` for Cloudflare.
+
+**Non-effects:** changing brand does **not** dirty / auto-recapture — brand is omitted from `propsHash`. Missing or unusable mapped sources fail **that** entry’s capture only; the queue continues. Capture does not `commitAndPush` by itself (AutoCommitQueue when enabled). Component gallery thumbs stay on client `modern-screenshot`.

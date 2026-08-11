@@ -46,8 +46,6 @@ export interface IpnDestination {
 
 export interface IpNormalizationSettings {
   enabled: boolean;
-  /** Shared secret; sGTM must send as X-IPN-Token. Empty while enabled fails closed. */
-  secret: string;
   destinations: IpnDestination[];
 }
 
@@ -377,7 +375,6 @@ function loadSettings(contentRoot?: string): SiteSettings {
       },
       ip_normalization: {
         enabled: false,
-        secret: "",
         destinations: [],
       },
     },
@@ -547,7 +544,19 @@ function loadSettings(contentRoot?: string): SiteSettings {
     const authRaw = parsed.auth as Record<string, unknown> | undefined;
     const auth = normalizeAuthSettings(authRaw);
 
-    const result: SiteSettings = { ...defaults, i18n, home_page, optimization, tracking, robots, auth };
+    // Legacy `entry_preview` secrets in settings.yml are ignored (env-only).
+    // Orphan keys remain on disk until staff deletes them; writers dump from disk
+    // and do not re-inject secrets from memory.
+
+    const result: SiteSettings = {
+      ...defaults,
+      i18n,
+      home_page,
+      optimization,
+      tracking,
+      robots,
+      auth,
+    };
     settingsCache.set(key, result);
     log.info(
       `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}, block_indexing=${robots.block_indexing}`
@@ -752,9 +761,9 @@ function parseIpNormalizationSettings(
       // Skip invalid entries on load; save path validates strictly
     }
   }
+  // Legacy `secret` in settings.yml is ignored (env-only: IPN_SECRET).
   return {
     enabled: typeof raw?.enabled === "boolean" ? raw.enabled : defaults.enabled,
-    secret: typeof raw?.secret === "string" ? raw.secret : defaults.secret,
     destinations,
   };
 }
@@ -1178,9 +1187,6 @@ export function updateOptimizationSettings(
     if (typeof ipnIn.enabled === "boolean") {
       updatedIpn.enabled = ipnIn.enabled;
     }
-    if (typeof ipnIn.secret === "string") {
-      updatedIpn.secret = ipnIn.secret;
-    }
     if (Array.isArray(ipnIn.destinations)) {
       const seen = new Set<string>();
       const destinations: IpnDestination[] = [];
@@ -1196,6 +1202,7 @@ export function updateOptimizationSettings(
     }
   }
 
+  // Omit secret so legacy settings.yml secrets are scrubbed on next optimization write.
   existing.optimization = {
     tagmanager: {
       web_container_id: updated.web_container_id,
@@ -1205,7 +1212,6 @@ export function updateOptimizationSettings(
     },
     ip_normalization: {
       enabled: updatedIpn.enabled,
-      secret: updatedIpn.secret,
       destinations: updatedIpn.destinations,
     },
   };
@@ -1217,3 +1223,4 @@ export function updateOptimizationSettings(
     `[Settings] Updated optimization: web="${updated.web_container_id}", sgtm=${updated.sgtm_enabled}, ipn=${updatedIpn.enabled}, destinations=${updatedIpn.destinations.length}`,
   );
 }
+

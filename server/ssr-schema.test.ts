@@ -369,6 +369,12 @@ describe("generateDatabaseSsrHtml section schema dispatch (database/blog pages)"
       - label: Home
         url: /
       - label: "{{ single.title }}"
+  - type: article
+    section_id: article-1
+    content: |
+      # {{ single.title }}
+
+      Body for {{ single.title }}.
   - type: faq
     section_id: faq-1
     title: Frequently Asked Questions
@@ -381,6 +387,12 @@ describe("generateDatabaseSsrHtml section schema dispatch (database/blog pages)"
 
     const entryDir = path.join(blogDir, "my-post");
     fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(entryDir, "_common.yml"),
+      `detached: true
+`,
+      "utf-8",
+    );
     fs.writeFileSync(
       path.join(entryDir, "en.yml"),
       `title: My Post
@@ -414,12 +426,13 @@ sections:
     expect(html).not.toContain("Template question?");
   });
 
-  it("keeps a single BreadcrumbList on blog posts (synthetic trail only)", () => {
+  it("emits section BreadcrumbList only (no synthetic blog trail)", () => {
     writeBlogTemplateFixture();
     const html = generateDatabaseSsrHtml("blog", record, "en", contentIndex, contentRoot);
 
     expect(countOccurrences(html, '"@type":"BreadcrumbList"')).toBe(1);
-    expect(html).toContain('"name":"Blog"');
+    expect(html).not.toContain('"name":"Blog"');
+    expect(html).toContain('"name":"My Post"');
   });
 
   it("falls back to the shared template FAQ when the entry has no override", () => {

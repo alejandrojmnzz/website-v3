@@ -232,6 +232,7 @@ export interface ContentTypeConfig {
     description?: string;
   }>;
   indexes?: string[];
+  schema_org_requirements?: Array<{ schema_type: string }>;
 }
 
 export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {

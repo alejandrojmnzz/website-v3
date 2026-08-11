@@ -88,11 +88,22 @@ function camelToJsonLd(key: string): string {
     time_required: "timeRequired",
     item_list_order: "itemListOrder",
     item_list_element: "itemListElement",
+    parent_organization: "parentOrganization",
+    street_address: "streetAddress",
+    address_locality: "addressLocality",
+    address_region: "addressRegion",
+    postal_code: "postalCode",
+    additional_type: "additionalType",
+    price_range: "priceRange",
+    payment_accepted: "paymentAccepted",
+    opening_hours_specification: "openingHoursSpecification",
+    day_of_week: "dayOfWeek",
   };
   return mappings[key] || key;
 }
 
-function transformToJsonLd(obj: Record<string, unknown>, locale: string = "en"): Record<string, unknown> {
+/** Transform snake_case schema.yml / section properties into JSON-LD keys. */
+export function transformToJsonLd(obj: Record<string, unknown>, locale: string = "en"): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   
   for (const [key, value] of Object.entries(obj)) {
@@ -135,7 +146,12 @@ function transformToJsonLd(obj: Record<string, unknown>, locale: string = "en"):
         // ItemList items with refs - will be resolved separately
         result["itemListElement"] = value;
       } else {
-        result[jsonLdKey] = value;
+        result[jsonLdKey] = value.map((item: unknown) => {
+          if (item && typeof item === "object" && !Array.isArray(item)) {
+            return transformToJsonLd(item as Record<string, unknown>, locale);
+          }
+          return item;
+        });
       }
     } else {
       result[jsonLdKey] = value;
@@ -399,8 +415,8 @@ export function getOrganizationName(contentRoot?: string): string | null {
   return typeof name === "string" && name.trim() !== "" ? name.trim() : null;
 }
 
-function loadWritableSchemaConfig(): { schemaPath: string; existing: Record<string, unknown> } {
-  const schemaPath = path.join(process.cwd(), getDefaultContentFolder(), "schema-org.yml");
+function loadWritableSchemaConfig(contentRoot?: string): { schemaPath: string; existing: Record<string, unknown> } {
+  const schemaPath = resolveSchemaPath(contentRoot);
   let existing: Record<string, unknown> = {};
   if (fs.existsSync(schemaPath)) {
     try {
@@ -478,27 +494,366 @@ export function updateWebsiteDefaultSocialImage(imageUrl: string): void {
 export function getAvailableSchemaKeys(contentRoot?: string): string[] {
   const config = loadSchemaConfig(contentRoot);
   const keys: string[] = [];
-  
+
+  // Site file is organization + website templates only (courses/local_business migrated to sections).
   if (config.organization) keys.push("organization");
   if (config.website) keys.push("website");
-  
+
+  // Legacy catalogs may still exist until content sync; expose keys for migration tooling only.
   if (config.courses) {
     for (const slug of Object.keys(config.courses)) {
       keys.push(`courses:${slug}`);
     }
   }
-  
   if (config.item_lists) {
     for (const slug of Object.keys(config.item_lists)) {
       keys.push(`item_lists:${slug}`);
     }
   }
-  
   if (config.local_business) {
     for (const slug of Object.keys(config.local_business)) {
       keys.push(`local_business:${slug}`);
     }
   }
-  
+
   return keys;
+}
+
+/** Stable @id for the site Organization (dual-emit / nested refs). */
+export function getOrganizationId(contentRoot?: string): string {
+  const config = loadSchemaConfig(contentRoot);
+  const url = typeof config.organization?.url === "string" ? config.organization.url.replace(/\/$/, "") : "";
+  return url ? `${url}/#organization` : "https://schema.org/#organization";
+}
+
+/** Site Organization as JSON-LD (with @context and stable @id). */
+export function getOrganizationDocument(locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
+  const config = loadSchemaConfig(contentRoot);
+  if (!config.organization) return null;
+  return {
+    "@context": "https://schema.org",
+    "@id": getOrganizationId(contentRoot),
+    ...transformToJsonLd(config.organization, locale),
+  };
+}
+
+/** Site Website template properties (no @context) for prefilling page schema_org sections. */
+export function getWebsiteTemplateProperties(locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
+  const config = loadSchemaConfig(contentRoot);
+  if (!config.website) return null;
+  const { default_social_image: _d, ...rest } = config.website as Record<string, unknown>;
+  return { ...rest };
+}
+
+/** Site Organization template properties (no @context) for prefilling page schema_org sections. */
+export function getOrganizationTemplateProperties(locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
+  const config = loadSchemaConfig(contentRoot);
+  if (!config.organization) return null;
+  return { ...config.organization };
+}
+
+/**
+ * Expand `@organization` string refs inside a document to nested Organization
+ * objects sharing the stable @id. Returns whether any ref was expanded.
+ */
+export function expandOrganizationRefs(
+  doc: Record<string, unknown>,
+  locale: string,
+  contentRoot?: string,
+): boolean {
+  const orgDoc = getOrganizationDocument(locale, contentRoot);
+  if (!orgDoc) return false;
+  const nested = { ...orgDoc };
+  delete nested["@context"];
+
+  let expanded = false;
+  const walk = (node: unknown): unknown => {
+    if (node === "@organization") {
+      expanded = true;
+      return nested;
+    }
+    if (Array.isArray(node)) return node.map(walk);
+    if (node && typeof node === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        out[k] = walk(v);
+      }
+      return out;
+    }
+    return node;
+  };
+
+  const walked = walk(doc) as Record<string, unknown>;
+  Object.keys(doc).forEach((k) => delete doc[k]);
+  Object.assign(doc, walked);
+  return expanded;
+}
+
+/** Raw course catalog entry (legacy) for migration / ensure seeding. */
+export function getLegacyCourseCatalog(contentRoot?: string): Record<string, BaseSchema> {
+  return loadSchemaConfig(contentRoot).courses ?? {};
+}
+
+/** Raw local_business catalog entry (legacy) for migration / ensure seeding. */
+export function getLegacyLocalBusinessCatalog(contentRoot?: string): Record<string, BaseSchema> {
+  return loadSchemaConfig(contentRoot).local_business ?? {};
+}
+
+export type SchemaOrgEditorOrganization = {
+  type: string;
+  name: string;
+  url: string;
+  description: string;
+  description_es: string;
+  founding_date: string;
+  founders: Array<{ name: string }>;
+  contact_point: {
+    contact_type: string;
+    email: string;
+  };
+  address: {
+    address_country: string;
+  };
+  aggregate_rating: {
+    rating_value: string;
+    review_count: string;
+    best_rating: string;
+    worst_rating: string;
+  };
+  logo: string;
+};
+
+export type SchemaOrgEditorWebsite = {
+  type: string;
+  name: string;
+  url: string;
+  description: string;
+  description_es: string;
+  default_social_image: string;
+};
+
+export type SchemaOrgEditorPayload = {
+  organization: SchemaOrgEditorOrganization;
+  website: SchemaOrgEditorWebsite;
+  other_keys: string[];
+  path: string;
+};
+
+function asString(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+export function getSchemaOrgEditorPayload(contentRoot?: string): SchemaOrgEditorPayload {
+  const config = loadSchemaConfig(contentRoot);
+  const org = (config.organization ?? {}) as Record<string, unknown>;
+  const website = (config.website ?? {}) as Record<string, unknown>;
+  const orgLocales = (org.locales as Record<string, Record<string, unknown>> | undefined) ?? {};
+  const webLocales = (website.locales as Record<string, Record<string, unknown>> | undefined) ?? {};
+  const contact = (org.contact_point as Record<string, unknown> | undefined) ?? {};
+  const address = (org.address as Record<string, unknown> | undefined) ?? {};
+  const rating = (org.aggregate_rating as Record<string, unknown> | undefined) ?? {};
+  const foundersRaw = Array.isArray(org.founders) ? org.founders : [];
+
+  const other_keys = getAvailableSchemaKeys(contentRoot).filter(
+    (k) => k !== "organization" && k !== "website",
+  );
+
+  return {
+    path: resolveSchemaPath(contentRoot),
+    other_keys,
+    organization: {
+      type: asString(org.type) || "Organization",
+      name: asString(org.name),
+      url: asString(org.url),
+      description: asString(org.description),
+      description_es: asString(orgLocales.es?.description),
+      founding_date: asString(org.founding_date),
+      founders: foundersRaw
+        .filter((f): f is { name: string } => !!f && typeof f === "object" && typeof (f as { name?: unknown }).name === "string")
+        .map((f) => ({ name: f.name })),
+      contact_point: {
+        contact_type: asString(contact.contact_type),
+        email: asString(contact.email),
+      },
+      address: {
+        address_country: asString(address.address_country),
+      },
+      aggregate_rating: {
+        rating_value: rating.rating_value != null ? String(rating.rating_value) : "",
+        review_count: rating.review_count != null ? String(rating.review_count) : "",
+        best_rating: rating.best_rating != null ? String(rating.best_rating) : "",
+        worst_rating: rating.worst_rating != null ? String(rating.worst_rating) : "",
+      },
+      logo: asString(org.logo),
+    },
+    website: {
+      type: asString(website.type) || "WebSite",
+      name: asString(website.name),
+      url: asString(website.url),
+      description: asString(website.description),
+      description_es: asString(webLocales.es?.description),
+      default_social_image: asString(website.default_social_image),
+    },
+  };
+}
+
+export function updateSchemaOrgEditorPayload(
+  input: {
+    organization?: Partial<SchemaOrgEditorOrganization>;
+    website?: Partial<SchemaOrgEditorWebsite>;
+  },
+  contentRoot?: string,
+): SchemaOrgEditorPayload {
+  const { schemaPath, existing } = loadWritableSchemaConfig(contentRoot);
+  const current = getSchemaOrgEditorPayload(contentRoot);
+
+  if (input.organization) {
+    const o = { ...current.organization, ...input.organization };
+    if (input.organization.contact_point) {
+      o.contact_point = { ...current.organization.contact_point, ...input.organization.contact_point };
+    }
+    if (input.organization.address) {
+      o.address = { ...current.organization.address, ...input.organization.address };
+    }
+    if (input.organization.aggregate_rating) {
+      o.aggregate_rating = {
+        ...current.organization.aggregate_rating,
+        ...input.organization.aggregate_rating,
+      };
+    }
+    if (input.organization.founders) {
+      o.founders = input.organization.founders;
+    }
+
+    const prevOrg = (existing.organization as Record<string, unknown> | undefined) ?? {};
+    const locales = {
+      ...((prevOrg.locales as Record<string, unknown>) || {}),
+    } as Record<string, Record<string, unknown>>;
+    if (o.description_es.trim()) {
+      locales.es = { ...(locales.es || {}), description: o.description_es.trim() };
+    } else if (locales.es) {
+      const { description: _d, ...rest } = locales.es;
+      if (Object.keys(rest).length === 0) delete locales.es;
+      else locales.es = rest;
+    }
+
+    const orgOut: Record<string, unknown> = {
+      ...prevOrg,
+      type: o.type.trim() || "Organization",
+      name: o.name.trim(),
+      url: o.url.trim(),
+      description: o.description.trim(),
+      founding_date: o.founding_date.trim(),
+      logo: o.logo.trim() || prevOrg.logo,
+      founders: o.founders
+        .map((f) => ({ name: (f.name || "").trim() }))
+        .filter((f) => f.name),
+      contact_point: {
+        type: "ContactPoint",
+        contact_type: o.contact_point.contact_type.trim(),
+        email: o.contact_point.email.trim(),
+      },
+      address: {
+        type: "PostalAddress",
+        address_country: o.address.address_country.trim(),
+      },
+    };
+
+    const rv = o.aggregate_rating.rating_value.trim();
+    const rc = o.aggregate_rating.review_count.trim();
+    if (rv || rc) {
+      orgOut.aggregate_rating = {
+        rating_value: rv ? Number(rv) || rv : undefined,
+        review_count: rc ? Number(rc) || rc : undefined,
+        best_rating: o.aggregate_rating.best_rating.trim()
+          ? Number(o.aggregate_rating.best_rating) || o.aggregate_rating.best_rating.trim()
+          : 5,
+        worst_rating: o.aggregate_rating.worst_rating.trim()
+          ? Number(o.aggregate_rating.worst_rating) || o.aggregate_rating.worst_rating.trim()
+          : 1,
+      };
+    }
+
+    if (Object.keys(locales).length > 0) orgOut.locales = locales;
+    else delete orgOut.locales;
+
+    existing.organization = orgOut;
+  }
+
+  if (input.website) {
+    const w = { ...current.website, ...input.website };
+    const prevWeb = (existing.website as Record<string, unknown> | undefined) ?? {};
+    const locales = {
+      ...((prevWeb.locales as Record<string, unknown>) || {}),
+    } as Record<string, Record<string, unknown>>;
+    if (w.description_es.trim()) {
+      locales.es = { ...(locales.es || {}), description: w.description_es.trim() };
+    } else if (locales.es) {
+      const { description: _d, ...rest } = locales.es;
+      if (Object.keys(rest).length === 0) delete locales.es;
+      else locales.es = rest;
+    }
+
+    const webOut: Record<string, unknown> = {
+      ...prevWeb,
+      type: w.type.trim() || "WebSite",
+      name: w.name.trim(),
+      url: w.url.trim(),
+      description: w.description.trim(),
+      // Preserve default_social_image from Brand — do not overwrite from this editor
+      default_social_image: prevWeb.default_social_image,
+    };
+    if (Object.keys(locales).length > 0) webOut.locales = locales;
+    else delete webOut.locales;
+
+    existing.website = webOut;
+  }
+
+  writeSchemaConfig(schemaPath, existing);
+  clearSchemaCache(contentRoot);
+  return getSchemaOrgEditorPayload(contentRoot);
+}
+
+export function getSchemaOrgYaml(contentRoot?: string): {
+  exists: boolean;
+  path: string;
+  content: string;
+} {
+  const schemaPath = resolveSchemaPath(contentRoot);
+  if (!fs.existsSync(schemaPath)) {
+    return { exists: false, path: schemaPath, content: "" };
+  }
+  return {
+    exists: true,
+    path: schemaPath,
+    content: fs.readFileSync(schemaPath, "utf-8"),
+  };
+}
+
+export function putSchemaOrgYaml(content: string, contentRoot?: string): {
+  path: string;
+  content: string;
+} {
+  if (typeof content !== "string") {
+    throw new Error("content must be a string");
+  }
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err: any) {
+    throw new Error(`Invalid YAML: ${err?.message || String(err)}`);
+  }
+  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("schema-org.yml must be a YAML object at the root");
+  }
+  const schemaPath = resolveSchemaPath(contentRoot);
+  const dir = path.dirname(schemaPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  // Normalize via dump so formatting is consistent
+  const output = yaml.dump(parsed, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(schemaPath, output, "utf-8");
+  clearSchemaCache(contentRoot);
+  return { path: schemaPath, content: output };
 }

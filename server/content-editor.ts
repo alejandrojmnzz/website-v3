@@ -1,5 +1,5 @@
 import fs from "fs";
-import { getDefaultContentFolder } from "./site-config";
+import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
@@ -13,6 +13,16 @@ import { generateSectionId } from "./utils/generateSectionId";
 import { loadAllFieldEditors } from "./component-registry";
 import { validateDocIdentity } from "./validate-content-identity";
 import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
+import {
+  clampSchemaOrgSectionsLeading,
+  isSchemaOrgSection,
+  schemaOrgInsertIndex,
+  getSchemaOrgType,
+} from "@shared/schema-org-sections";
+import {
+  getWebsiteTemplateProperties,
+  getOrganizationTemplateProperties,
+} from "./schema-org";
 
 function getDefaultContentRootName(): string {
   try {
@@ -227,6 +237,7 @@ function preserveListingItemTemplate(
 function applyOperation(
   content: Record<string, unknown>,
   operation: EditOperation,
+  opts?: { contentRoot?: string; locale?: string },
 ): { clearedFields?: ClearedField[]; insertedSectionIndex?: number } {
   const result: { clearedFields?: ClearedField[]; insertedSectionIndex?: number } = {};
   switch (operation.action) {
@@ -243,6 +254,7 @@ function applyOperation(
       
       const [moved] = sections.splice(operation.from, 1);
       sections.splice(operation.to, 0, moved);
+      content.sections = clampSchemaOrgSectionsLeading(sections);
       break;
     }
     
@@ -268,6 +280,27 @@ function applyOperation(
         if (!wiped.paddingY) {
           wiped.paddingY = { desktop: "sm" };
         }
+        // Prefill WebSite / Organization properties from site schema-org.yml when missing.
+        if (isSchemaOrgSection(wiped)) {
+          const schemaType = getSchemaOrgType(wiped);
+          const props = wiped.properties;
+          const missingProps =
+            props == null ||
+            (typeof props === "object" &&
+              !Array.isArray(props) &&
+              Object.keys(props as Record<string, unknown>).length === 0);
+          if (missingProps && (schemaType === "WebSite" || schemaType === "Organization")) {
+            const locale = opts?.locale || "en";
+            const contentRoot = opts?.contentRoot || getDefaultContentRoot();
+            const template =
+              schemaType === "WebSite"
+                ? getWebsiteTemplateProperties(locale, contentRoot)
+                : getOrganizationTemplateProperties(locale, contentRoot);
+            if (template) {
+              wiped.properties = { ...template };
+            }
+          }
+        }
         itemToInsert = wiped;
         if (cleared.length > 0) {
           result.clearedFields = cleared.map((path) => ({
@@ -279,19 +312,29 @@ function applyOperation(
           }));
         }
       }
-      if (operation.index !== undefined && operation.index >= 0 && operation.index <= arr.length) {
+      if (operation.path === "sections" && isSchemaOrgSection(itemToInsert)) {
+        const insertAt = schemaOrgInsertIndex(arr);
+        arr.splice(insertAt, 0, itemToInsert);
+        insertedIndex = insertAt;
+        content.sections = clampSchemaOrgSectionsLeading(arr);
+      } else if (operation.index !== undefined && operation.index >= 0 && operation.index <= arr.length) {
         arr.splice(operation.index, 0, itemToInsert);
         insertedIndex = operation.index;
       } else {
         arr.push(itemToInsert);
         insertedIndex = arr.length - 1;
       }
+      if (operation.path === "sections" && !isSchemaOrgSection(itemToInsert)) {
+        content.sections = clampSchemaOrgSectionsLeading(arr as unknown[]);
+        insertedIndex = (content.sections as unknown[]).indexOf(itemToInsert);
+        if (insertedIndex < 0) insertedIndex = arr.length - 1;
+      }
       if (operation.path === "sections") {
-        result.insertedSectionIndex = insertedIndex;
+        result.insertedSectionIndex = insertedIndex!;
         if (result.clearedFields) {
           result.clearedFields = result.clearedFields.map((c) => ({
             ...c,
-            sectionIndex: insertedIndex,
+            sectionIndex: insertedIndex!,
           }));
         }
       }
@@ -932,7 +975,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     const clearedFields: ClearedField[] = [];
     const skipIdentityValidationIndexes = new Set<number>();
     for (const operation of resolvedOperations) {
-      const opResult = applyOperation(localeData, operation);
+      const opResult = applyOperation(localeData, operation, { contentRoot, locale });
       if (opResult.clearedFields?.length) {
         clearedFields.push(...opResult.clearedFields);
       }
@@ -1017,6 +1060,18 @@ export async function editContent(request: ContentEditRequest): Promise<{
       ? deepMerge(commonData, localeData)
       : localeData;
     const updatedSections = (mergedContent.sections as unknown[]) || [];
+
+    // Live locale only: enqueue entry-preview capture when needed (Cloudflare queue).
+    if (!hasVariant) {
+      void scheduleEntryPreviewCaptureAfterSave({
+        contentType,
+        slug,
+        locale,
+        contentRoot,
+        entry: mergedContent as Record<string, unknown>,
+      });
+    }
+
     return {
       success: true,
       updatedSections,
@@ -1025,6 +1080,47 @@ export async function editContent(request: ContentEditRequest): Promise<{
   } catch (error) {
     log.error({ err: error }, "Content edit error:");
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+async function scheduleEntryPreviewCaptureAfterSave(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  contentRoot?: string;
+  entry: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const { getSiteContextMap } = await import("./site-manager");
+    const { maybeEnqueueAfterEntrySave } = await import("./entry-preview-capture-queue");
+    const root = opts.contentRoot
+      ? path.isAbsolute(opts.contentRoot)
+        ? opts.contentRoot
+        : path.join(process.cwd(), opts.contentRoot)
+      : null;
+    let site = null as import("./site-manager").SiteContext | null;
+    for (const ctx of getSiteContextMap().values()) {
+      if (root && path.resolve(ctx.contentRoot) === path.resolve(root)) {
+        site = ctx;
+        break;
+      }
+      if (!root) {
+        site = ctx;
+        break;
+      }
+    }
+    if (!site) return;
+    await maybeEnqueueAfterEntrySave(site, {
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale: opts.locale,
+      entry: opts.entry,
+    });
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err), ...opts },
+      "[editContent] entry-preview enqueue after save failed",
+    );
   }
 }
 
@@ -1117,10 +1213,13 @@ function writeStructuralChangesToTemplate(opts: {
         if (originalTemplateSection) {
           newSectionData = restoreTemplatePlaceholders(newSectionData, originalTemplateSection);
         }
-        const opResult = applyOperation(templateData, { ...op, section: newSectionData } as EditOperation);
+        const opResult = applyOperation(templateData, { ...op, section: newSectionData } as EditOperation, {
+          contentRoot,
+          locale: opts.locale,
+        });
         if (opResult.clearedFields?.length) clearedFields.push(...opResult.clearedFields);
       } else {
-        const opResult = applyOperation(templateData, op);
+        const opResult = applyOperation(templateData, op, { contentRoot, locale: opts.locale });
         if (opResult.clearedFields?.length) clearedFields.push(...opResult.clearedFields);
       }
     }
@@ -1342,7 +1441,7 @@ function writeEntryOverlayOps(opts: {
       entryData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
     }
     for (const op of operations) {
-      applyOperation(entryData, op);
+      applyOperation(entryData, op, { contentRoot: opts.contentRoot, locale });
     }
     if (Array.isArray(entryData.sections)) {
       entryData.sections = (entryData.sections as unknown[]).filter(

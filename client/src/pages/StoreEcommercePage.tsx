@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { IconShoppingBag, IconInfoCircle, IconExternalLink } from "@tabler/icons-react";
+import { IconShoppingBag, IconInfoCircle, IconExternalLink, IconBraces } from "@tabler/icons-react";
 import { Link } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import JsonViewer from "@/components/editing/JsonViewer";
 
 interface EcommerceEventRow {
@@ -156,48 +157,88 @@ export default function StoreEcommercePage() {
         </Card>
 
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Event catalog
-          </h2>
-          {isError && (
-            <p className="text-sm text-muted-foreground">Failed to load events.</p>
-          )}
-          {isLoading && (
-            <div className="space-y-2">
-              <Skeleton className="h-16 w-full" />
-              <Skeleton className="h-16 w-full" />
-            </div>
-          )}
-          {data?.events.map((ev) => (
-            <Card key={ev.name} data-testid={`card-event-${ev.name}`}>
-              <CardContent className="py-4 flex flex-col sm:flex-row sm:items-start gap-3 justify-between">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <code className="text-sm font-semibold">{ev.name}</code>
-                    <Badge variant={ev.wired ? "default" : "outline"}>
-                      {ev.wired ? "wired" : "off-site"}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{ev.description}</p>
+          <Card data-testid="card-event-catalog">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                Event catalog
+                {data?.events && (
+                  <Badge variant="secondary" className="font-normal text-xs">
+                    {data.events.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Ecommerce funnel events fired via{" "}
+                <code className="font-mono text-xs">trackEcommerce</code>. Wired events run on
+                this site; off-site events (begin_checkout / purchase) fire elsewhere.
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {isError && (
+                <p className="text-sm text-muted-foreground">Failed to load events.</p>
+              )}
+              {isLoading && (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
                 </div>
-                <div className="flex flex-col gap-2 shrink-0 max-w-xs w-full sm:w-auto">
-                  <pre className="text-[10px] bg-muted/50 rounded p-2 whitespace-pre-wrap break-all">
-                    {JSON.stringify(ev.sample, null, 2)}
-                  </pre>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="self-start"
-                    data-testid={`button-full-sample-${ev.name}`}
-                    onClick={() => setFullSampleEvent(ev)}
-                  >
-                    Show full sample payload
-                  </Button>
+              )}
+              {data?.events && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="table-events-ecommerce">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground w-2/5">
+                          Event / Push
+                        </th>
+                        <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground">
+                          Trigger
+                        </th>
+                        <th className="py-2 text-xs font-medium text-muted-foreground text-right">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.events.map((ev) => (
+                        <tr key={ev.name} className="border-b last:border-0" data-testid={`row-event-${ev.name}`}>
+                          <td className="py-2 pr-4 align-middle">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="secondary" className="font-mono text-xs">
+                                {ev.name}
+                              </Badge>
+                              <Badge variant={ev.wired ? "default" : "outline"} className="text-xs font-normal">
+                                {ev.wired ? "wired" : "off-site"}
+                              </Badge>
+                            </div>
+                          </td>
+                          <td className="py-2 pr-4 align-middle text-muted-foreground text-xs">
+                            {ev.description}
+                          </td>
+                          <td className="py-2 align-middle text-right">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setFullSampleEvent(ev)}
+                                  data-testid={`button-full-sample-${ev.name}`}
+                                >
+                                  <IconBraces className="h-3.5 w-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Show payload</TooltipContent>
+                            </Tooltip>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+              )}
+            </CardContent>
+          </Card>
         </section>
 
         <section className="space-y-3">

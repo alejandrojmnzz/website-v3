@@ -28,6 +28,14 @@ import type { ProgressEvent } from "../../scripts/validation/fixers/types";
 import { contentIndex } from "../content-index";
 import { getAvailableSchemaKeys } from "../schema-org";
 import { generateSsrSchemaHtml } from "../ssr-schema";
+import {
+  getSchemaOrgRequirementGaps,
+  validateHeroCourseCompanions,
+} from "../schema-org-requirements";
+import {
+  hasSchemaOrgContributors,
+  isSchemaOrgSection,
+} from "@shared/schema-org-sections";
 import { mediaGallery, MediaGallery } from "../media-gallery";
 import { getMergedImageRegistry } from "../image-registry-resolver";
 import type { SiteContext } from "../site-manager";
@@ -65,6 +73,27 @@ function getMediaGallery(res: Response): MediaGallery {
 
 function getValidationCache(res: Response) {
   return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
+}
+
+/** Locale YAML sections win over _common when both define sections. */
+function loadSectionsNearContentFile(filePath: string): unknown[] {
+  try {
+    let sections: unknown[] = [];
+    const commonPath = path.join(path.dirname(filePath), "_common.yml");
+    if (fs.existsSync(commonPath)) {
+      const commonData =
+        (safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) || {};
+      if (Array.isArray(commonData.sections)) sections = commonData.sections as unknown[];
+    }
+    if (fs.existsSync(filePath)) {
+      const localeData =
+        (safeYamlLoad(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>) || {};
+      if (Array.isArray(localeData.sections)) sections = localeData.sections as unknown[];
+    }
+    return sections;
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -624,7 +653,7 @@ export function registerValidationRoutes(app: Express): void {
           slug: file.slug,
           filePath: file.filePath,
           hasMeta: !!(file.meta?.page_title && file.meta?.description),
-          hasSchema: !!(file.schema?.include && file.schema.include.length > 0),
+          hasSchema: hasSchemaOrgContributors(loadSectionsNearContentFile(file.filePath)),
         };
       });
 
@@ -951,8 +980,12 @@ export function registerValidationRoutes(app: Express): void {
       let schemaScore = 0;
       let schemaMax = 0;
 
+      const hasSchemaOrgSection = sections.some((s: any) => isSchemaOrgSection(s));
+      const hasSectionDrivenEmission =
+        hasSchemaOrgSection || parsedSchemas.length > 0;
+
       schemaMax += 30;
-      if (file.schema?.include && file.schema.include.length > 0) {
+      if (hasSectionDrivenEmission) {
         schemaScore += 30;
       }
 
@@ -986,6 +1019,28 @@ export function registerValidationRoutes(app: Express): void {
         }
       } else {
         schemaScore += 10;
+      }
+
+      // CT schema_org_requirements + hero Course companion (award when N/A or satisfied)
+      schemaMax += 10;
+      const ctGaps = getSchemaOrgRequirementGaps(sections, file.type, getContentRoot(res), {
+        slug: file.slug,
+      });
+      const heroGaps = validateHeroCourseCompanions(sections, {
+        contentType: file.type,
+        slug: file.slug,
+        locale: file.locale,
+      });
+      if (ctGaps.length === 0 && heroGaps.length === 0) {
+        schemaScore += 10;
+      } else {
+        for (const g of [...ctGaps, ...heroGaps]) {
+          issues.push({
+            type: "warning",
+            code: "SCHEMA_ORG_COMPANION",
+            message: g.message,
+          });
+        }
       }
 
       let contentScore = 0;
@@ -1076,10 +1131,25 @@ export function registerValidationRoutes(app: Express): void {
         },
 
         schema: {
-          configured: !!(
-            file.schema?.include && file.schema.include.length > 0
+          configured: hasSchemaOrgContributors(sections) || parsedSchemas.length > 0,
+          includes: sections
+            .filter((s: any) => isSchemaOrgSection(s))
+            .map((s: any) => {
+              const st =
+                typeof s.schema_type === "string"
+                  ? s.schema_type
+                  : typeof s.schemaType === "string"
+                    ? s.schemaType
+                    : "schema_org";
+              return st;
+            }),
+          sources: Array.from(
+            new Set(
+              sections
+                .filter((s: any) => s?.type && hasSchemaOrgContributors([s]))
+                .map((s: any) => String(s.type)),
+            ),
           ),
-          includes: file.schema?.include || [],
           renderedJsonLd: parsedSchemas,
           htmlPreview: schemaHtml,
         },

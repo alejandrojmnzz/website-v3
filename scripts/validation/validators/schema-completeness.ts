@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { hasSchemaOrgContributors } from "@shared/schema-org-sections";
 let _generateSsrSchemaHtml: ((url: string) => string) | null = null;
 async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string> {
   if (!_generateSsrSchemaHtml) {
@@ -31,6 +32,32 @@ function checkForPlaceholders(obj: unknown): string[] {
     }
   }
   return found;
+}
+
+function loadSectionsFromContentFile(filePath: string): Array<Record<string, unknown>> {
+  try {
+    let sections: Array<Record<string, unknown>> = [];
+    const commonPath = filePath.replace(/[^/\\]+$/, "_common.yml");
+    if (fs.existsSync(commonPath)) {
+      const commonData = yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>;
+      if (Array.isArray(commonData?.sections)) {
+        sections = (commonData.sections as Array<Record<string, unknown>>).filter(
+          (s) => s && typeof s === "object",
+        );
+      }
+    }
+    if (fs.existsSync(filePath)) {
+      const parsed = yaml.load(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+      if (Array.isArray(parsed?.sections)) {
+        sections = (parsed.sections as Array<Record<string, unknown>>).filter(
+          (s) => s && typeof s === "object",
+        );
+      }
+    }
+    return sections;
+  } catch {
+    return [];
+  }
 }
 
 export const schemaCompletenessValidator: Validator = {
@@ -68,10 +95,11 @@ export const schemaCompletenessValidator: Validator = {
         continue;
       }
 
-      const schemaInclude: unknown[] = Array.isArray(file.schema?.include) ? file.schema.include : [];
-      const hasSchemaConfig = schemaInclude.length > 0;
+      const sections = loadSectionsFromContentFile(file.filePath);
+      const hasContributors = hasSchemaOrgContributors(sections);
 
-      if (hasSchemaConfig) {
+      const schemaInclude: unknown[] = Array.isArray(file.schema?.include) ? file.schema.include : [];
+      if (schemaInclude.length > 0) {
         const invalidEntries = schemaInclude.filter(
           (v) => typeof v !== "string" || v.trim().length === 0
         );
@@ -81,19 +109,20 @@ export const schemaCompletenessValidator: Validator = {
             code: "SCHEMA_INVALID_INCLUDE",
             message: `schema.include contains empty or non-string entries for ${url}`,
             file: file.filePath,
-            suggestion: "Each schema.include entry must be a non-empty string like 'organization' or 'website'",
+            suggestion: "Remove legacy schema.include; use leading schema_org / FAQ / Article / Breadcrumb sections instead",
           });
         }
       }
 
-      if (!hasSchemaConfig) {
+      if (!hasContributors) {
         pagesWithoutSchema++;
         warnings.push({
           type: "warning",
           code: "PAGE_NO_SCHEMA",
-          message: `No schema configured for ${url}`,
+          message: `No schema.org section contributors for ${url}`,
           file: file.filePath,
-          suggestion: "Add a schema.include array to improve structured data coverage",
+          suggestion:
+            "Add a leading schema_org section (and/or FAQ, Article, or Breadcrumb) so structured data is emitted from sections",
         });
         continue;
       }
@@ -147,31 +176,20 @@ export const schemaCompletenessValidator: Validator = {
         }
       }
 
-      try {
-        if (fs.existsSync(file.filePath)) {
-          const rawContent = fs.readFileSync(file.filePath, "utf-8");
-          const parsed = yaml.load(rawContent) as Record<string, unknown>;
-          const sections = parsed?.sections as Array<Record<string, unknown>> | undefined;
-
-          if (sections && Array.isArray(sections)) {
-            const hasFaqSection = sections.some((s) => s.type === "faq");
-            if (hasFaqSection) {
-              const hasFaqSchema = parsedSchemas.some(
-                (s) => s["@type"] === "FAQPage"
-              );
-              if (!hasFaqSchema) {
-                warnings.push({
-                  type: "warning",
-                  code: "FAQ_SECTION_NO_SCHEMA",
-                  message: `Page has FAQ section but no FAQPage schema rendered for ${url}`,
-                  file: file.filePath,
-                  suggestion: "Ensure FAQ sections generate FAQPage structured data",
-                });
-              }
-            }
-          }
+      const hasFaqSection = sections.some((s) => s.type === "faq");
+      if (hasFaqSection) {
+        const hasFaqSchema = parsedSchemas.some(
+          (s) => s["@type"] === "FAQPage"
+        );
+        if (!hasFaqSchema) {
+          warnings.push({
+            type: "warning",
+            code: "FAQ_SECTION_NO_SCHEMA",
+            message: `Page has FAQ section but no FAQPage schema rendered for ${url}`,
+            file: file.filePath,
+            suggestion: "Ensure FAQ sections generate FAQPage structured data",
+          });
         }
-      } catch {
       }
     }
 

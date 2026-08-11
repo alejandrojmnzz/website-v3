@@ -85,7 +85,6 @@ export function useSchemaOrg(schemaRef?: SchemaReference): void {
 }
 
 export function useDefaultSchemas(): void {
-  useSchemaOrg({
-    include: ["organization", "website"],
-  });
+  // Retained as a no-op for any leftover imports. Production JSON-LD is SSR-only
+  // from section contributors (schema_org / faq / article / breadcrumb + org dual-emit).
 }

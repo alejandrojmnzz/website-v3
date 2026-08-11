@@ -15,15 +15,41 @@ export interface SchemaComponentContext {
   locationSlug?: string;
   /** Set when rendering a program detail page (prioritizes program-tagged FAQs). */
   programSlug?: string;
+  /** Content type of the page (blog → BlogPosting, else Article for article bodies). */
+  contentType?: string;
+  /** Canonical page URL for Article/BlogPosting. */
+  pageUrl?: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  publishedAt?: string;
+  updatedAt?: string;
+  authorName?: string;
 }
 
 export type SchemaContribution =
   /** Accumulated across all FAQ sections on the page, deduped, and emitted as one FAQPage. */
   | { kind: "faq-items"; items: Array<{ question: string; answer: string }> }
+  /** Accumulated article bodies → one Article or BlogPosting. */
+  | { kind: "article-bodies"; bodies: string[] }
   /** A standalone JSON-LD document, deduped by `dedupeKey` (defaults to its JSON serialization). */
-  | { kind: "document"; schema: Record<string, unknown>; dedupeKey?: string };
+  | {
+      kind: "document";
+      schema: Record<string, unknown>;
+      dedupeKey?: string;
+      source?: "faq" | "article" | "breadcrumb" | "schema_org" | "organization";
+      needsStandaloneOrganization?: boolean;
+    }
+  /** Request dual-emit of site Organization (deduped by @id). */
+  | { kind: "standalone-organization"; organizationId: string };
 
 export type SchemaComponentContributor = (
   section: Record<string, unknown>,
   context: SchemaComponentContext,
 ) => SchemaContribution[];
+
+/** Preview document with source badge for get_entry_seo / Schema tab. */
+export interface SchemaOrgPreviewDocument {
+  schema: Record<string, unknown>;
+  source: "faq" | "article" | "breadcrumb" | "schema_org" | "organization";
+}

@@ -40,15 +40,12 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
     meta: Record<string, unknown>;
     faqSchema: Record<string, unknown> | null;
     schemaOrg: Record<string, unknown>[];
+    schemaOrgDocuments?: Array<{ schema: Record<string, unknown>; source: string }>;
     title: string;
     slug?: string;
   } | null>(null);
   const [seoMeta, setSeoMeta] = useState<SeoMeta>(EMPTY_SEO_META);
   const [seoSaving, setSeoSaving] = useState(false);
-  const [seoSchemaInclude, setSeoSchemaInclude] = useState<string[]>([]);
-  const [seoSchemaOverrides, setSeoSchemaOverrides] = useState<Record<string, string>>({});
-  const [seoSchemaOverridesErrors, setSeoSchemaOverridesErrors] = useState<Record<string, string>>({});
-  const [availableSchemaKeys, setAvailableSchemaKeys] = useState<string[]>([]);
   const [seoLocations, setSeoLocations] = useState<string[]>([]);
   const [seoAvailableLocations, setSeoAvailableLocations] = useState<SeoLocation[]>([]);
   const [seoLocationSearch, setSeoLocationSearch] = useState("");
@@ -79,10 +76,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         `/api/seo-preview/${encodeURIComponent(target.contentType)}/${encodeURIComponent(target.slug)}?locale=${encodeURIComponent(locale)}`,
       );
       if (!res.ok) throw new Error("Failed to fetch SEO data");
-      const [data, schemaKeysRes] = await Promise.all([
-        res.json(),
-        fetch("/api/schema").then((r) => (r.ok ? r.json() : { available: [] })),
-      ]);
+      const data = await res.json();
       setSeoData(data);
       setSeoMeta({
         page_title: (data.meta?.page_title as string) || "",
@@ -96,16 +90,6 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
           .map((r) => (typeof r === "string" ? r : r?.path))
           .filter((r): r is string => Boolean(r)),
       });
-      setAvailableSchemaKeys(schemaKeysRes.available || []);
-      setSeoSchemaInclude(data.schemaInclude || []);
-      const overridesObj: Record<string, string> = {};
-      if (data.schemaOverrides) {
-        for (const [key, val] of Object.entries(data.schemaOverrides)) {
-          overridesObj[key] = JSON.stringify(val, null, 2);
-        }
-      }
-      setSeoSchemaOverrides(overridesObj);
-      setSeoSchemaOverridesErrors({});
       setSeoLocations((data.locations as string[]) || []);
       setSeoAvailableLocations(
         (data.availableLocations as SeoLocation[]) || [],
@@ -225,35 +209,6 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         delete existingMeta.redirects;
       }
 
-      if (Object.keys(seoSchemaOverridesErrors).length > 0) {
-        toast({
-          title: "Invalid JSON in schema overrides",
-          description: "Please fix the JSON errors before saving.",
-          variant: "destructive",
-        });
-        setSeoSaving(false);
-        return;
-      }
-
-      const parsedOverrides: Record<string, Record<string, unknown>> = {};
-      for (const [key, val] of Object.entries(seoSchemaOverrides)) {
-        if (val.trim() && seoSchemaInclude.includes(key)) {
-          try {
-            parsedOverrides[key] = JSON.parse(val);
-          } catch {
-            // skip invalid
-          }
-        }
-      }
-
-      const schemaValue: Record<string, unknown> = {};
-      if (seoSchemaInclude.length > 0) {
-        schemaValue.include = seoSchemaInclude;
-      }
-      if (Object.keys(parsedOverrides).length > 0) {
-        schemaValue.overrides = parsedOverrides;
-      }
-
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       const token = getDebugToken();
       if (token) headers["X-Debug-Token"] = token;
@@ -279,27 +234,6 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       if (!metaRes.ok) {
         const errData = await metaRes.json().catch(() => ({}));
         throw new Error(errData.error || "Failed to save meta");
-      }
-
-      const schemaRes = await fetch("/api/content/edit-common", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          contentType: target.contentType,
-          slug: target.slug,
-          author: author || undefined,
-          operations: [
-            {
-              action: "update_field",
-              path: "schema",
-              value: Object.keys(schemaValue).length > 0 ? schemaValue : null,
-            },
-          ],
-        }),
-      });
-      if (!schemaRes.ok) {
-        const errData = await schemaRes.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to save schema");
       }
 
       if (target.contentType === "landing" && seoAvailableLocations.length > 0) {
@@ -346,13 +280,6 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       seoData={seoData}
       seoMeta={seoMeta}
       setSeoMeta={setSeoMeta}
-      seoSchemaInclude={seoSchemaInclude}
-      setSeoSchemaInclude={setSeoSchemaInclude}
-      seoSchemaOverrides={seoSchemaOverrides}
-      setSeoSchemaOverrides={setSeoSchemaOverrides}
-      seoSchemaOverridesErrors={seoSchemaOverridesErrors}
-      setSeoSchemaOverridesErrors={setSeoSchemaOverridesErrors}
-      availableSchemaKeys={availableSchemaKeys}
       seoLocations={seoLocations}
       setSeoLocations={setSeoLocations}
       seoAvailableLocations={seoAvailableLocations}

@@ -95,6 +95,7 @@ interface PageDiagnostics {
   schema: {
     configured: boolean;
     includes: string[];
+    sources?: string[];
     renderedJsonLd: object[];
     htmlPreview: string;
   };
@@ -1337,7 +1338,7 @@ function PageAnalysisTab() {
             <InfoPopover testId="info-scores">
               <p><strong className="text-foreground">Total</strong> is the simple average of the three sub-scores.</p>
               <p><strong className="text-foreground">SEO</strong> (max 80 pts): page_title present (+20), title 30–60 chars (+10), description present (+20), description 70–160 chars (+10), og_image set (+10), canonical_url set (+10).</p>
-              <p><strong className="text-foreground">Schema</strong> (max 100 pts): schema.include configured (+30), valid parsed schemas (+20), schema has name (+15) and description (+15), no "todo" placeholders (+10), FAQPage schema present when FAQ sections exist (+10).</p>
+              <p><strong className="text-foreground">Schema</strong> (max 110 pts): section-driven schema emission — schema_org section or rendered JSON-LD (+30), valid parsed schemas (+20), schema has name (+15) and description (+15), no "todo" placeholders (+10), FAQPage schema present when FAQ sections exist (+10), content-type / hero Course companion requirements satisfied or N/A (+10).</p>
               <p><strong className="text-foreground">Content</strong> (max 85 pts): has sections (+25), all sections typed (+20), counterpart locale exists (+20), all images resolve (+20).</p>
             </InfoPopover>
           </div>
@@ -1459,8 +1460,8 @@ function PageAnalysisTab() {
               <CardTitle className="text-sm">Schema / JSON-LD</CardTitle>
               <InfoPopover testId="info-schema">
                 <p>Schema.org structured data helps search engines and AI assistants understand page content beyond plain text.</p>
-                <p><strong className="text-foreground">schema.include</strong> lists the schema type IDs to embed (e.g. <code className="bg-muted px-1 rounded text-foreground">organization</code>, <code className="bg-muted px-1 rounded text-foreground">courses:full-stack</code>). These are resolved into full JSON-LD objects and injected into the page's <code className="bg-muted px-1 rounded text-foreground">&lt;head&gt;</code>.</p>
-                <p>If the page has FAQ sections, a <code className="bg-muted px-1 rounded text-foreground">FAQPage</code> schema should also be included to unlock rich results. Any <code className="bg-muted px-1 rounded text-foreground">todo</code> placeholder in a schema field is flagged and penalises the Schema score.</p>
+                <p>Emission is <strong className="text-foreground">section-driven</strong>: leading <code className="bg-muted px-1 rounded text-foreground">schema_org</code> sections plus FAQ, Article, and Breadcrumb contributors. Site Organization/Website templates live in <code className="bg-muted px-1 rounded text-foreground">schema-org.yml</code>; page WebSite/Organization sections are page-local.</p>
+                <p>If the page has FAQ sections, a <code className="bg-muted px-1 rounded text-foreground">FAQPage</code> schema should also be present to unlock rich results. Any <code className="bg-muted px-1 rounded text-foreground">todo</code> placeholder in a schema field is flagged and penalises the Schema score.</p>
                 <p>The JSON-LD preview shows the fully resolved objects that will be rendered.</p>
               </InfoPopover>
             </CardHeader>
@@ -1477,9 +1478,19 @@ function PageAnalysisTab() {
                   </Badge>
                 )}
               </div>
+              {(pageDiag.schema.sources?.length ?? 0) > 0 && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Section sources:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {pageDiag.schema.sources!.map((src) => (
+                      <Badge key={src} variant="secondary" className="text-xs">{src}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               {pageDiag.schema.includes.length > 0 && (
                 <div>
-                  <span className="text-xs text-muted-foreground">Includes:</span>
+                  <span className="text-xs text-muted-foreground">schema_org types:</span>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {pageDiag.schema.includes.map((inc) => (
                       <Badge key={inc} variant="outline" className="text-xs">{inc}</Badge>

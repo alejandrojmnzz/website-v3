@@ -3,6 +3,12 @@ version: "1.0"
 component: Article
 file: client/src/components/article/variants/ArticleDefault.tsx
 description: Renders formatted markdown content with an optional auto-generated table of contents (top or sticky side)
+behaviors:
+  schema_org:
+    handler: article
+    notes: >-
+      Contributes Article or BlogPosting JSON-LD during SSR from article body sections
+      (unified across multiple article sections on the page).
 when_to_use: |
   Use for long-form content pages such as blog posts, documentation, terms of service,
   privacy policies, or any rich text content that benefits from structured headings

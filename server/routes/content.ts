@@ -140,6 +140,11 @@ import {
   updateOrganizationSameAsUrl,
 } from "../schema-org";
 import {
+  getContentTypeSchemaOrgRequirements,
+  getSchemaOrgRequirementCoverage,
+  ensureContentTypeSchemaOrg,
+} from "../schema-org-requirements";
+import {
   getRegistryOverview,
   getComponentInfo,
   listVersions,
@@ -1574,8 +1579,99 @@ export function registerContentRoutes(app: Express): void {
         url_pattern: config.url_pattern,
         single_template: !!config.single_template,
         preview: config.preview || null,
+        schema_org_requirements: config.schema_org_requirements || [],
         static_entry_count: getCI(res).findByType(type).length,
       });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  /** Coverage of content-type schema_org_requirements (present / missing slugs). */
+  app.get("/api/content-types/:type/schema-org-coverage", (req, res) => {
+    try {
+      const { type } = req.params;
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+      const requirements = getContentTypeSchemaOrgRequirements(type, getContentRoot(res));
+      const schemaTypeParam =
+        typeof req.query.schema_type === "string" ? req.query.schema_type : undefined;
+      const typesToReport =
+        schemaTypeParam
+          ? [{ schema_type: schemaTypeParam }]
+          : requirements.length > 0
+            ? requirements
+            : [];
+      if (typesToReport.length === 0) {
+        res.json({
+          contentType: type,
+          requirements: [],
+          coverage: [],
+          message: "No schema_org_requirements on this content type",
+        });
+        return;
+      }
+      const coverage = typesToReport.map((r) =>
+        getSchemaOrgRequirementCoverage(type, r.schema_type, getContentRoot(res), getCI(res)),
+      );
+      res.json({
+        contentType: type,
+        requirements,
+        coverage,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  /** Ensure missing entries get a leading seeded schema_org section (e.g. LocalBusiness). */
+  app.post("/api/content-types/:type/schema-org-ensure", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_structure", type);
+      if (!auth.authorized) return;
+
+      const config = getContentTypeConfig(type, ctRoot(res));
+      if (!config) {
+        res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+
+      const body = (req.body || {}) as {
+        schema_type?: string;
+        dry_run?: boolean;
+        slugs?: string[];
+      };
+
+      const requirements = getContentTypeSchemaOrgRequirements(type, getContentRoot(res));
+      const schemaType =
+        (typeof body.schema_type === "string" && body.schema_type.trim()) ||
+        requirements[0]?.schema_type;
+      if (!schemaType) {
+        res.status(400).json({
+          error:
+            "schema_type is required when the content type has no schema_org_requirements",
+        });
+        return;
+      }
+
+      const result = ensureContentTypeSchemaOrg({
+        contentType: type,
+        schemaType,
+        contentRoot: getContentRoot(res),
+        author: auth.author || "api",
+        dryRun: !!body.dry_run,
+        slugs: Array.isArray(body.slugs) ? body.slugs.filter((s) => typeof s === "string") : undefined,
+        ci: getCI(res),
+      });
+
+      getCI(res).refresh();
+      invalidateContentCaches(type, getCI(res));
+
+      res.json({ success: true, ...result });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -2920,6 +3016,24 @@ export function registerContentRoutes(app: Express): void {
     try {
       const { type, slug } = req.params;
       const locale = normalizeLocale((req.query.locale as string) || "en");
+      const captureToken =
+        typeof req.query.capture_token === "string" ? req.query.capture_token : "";
+      const expRaw = typeof req.query.exp === "string" ? req.query.exp : "";
+      if (captureToken || expRaw) {
+        const { verifyEntryPreviewCaptureToken } = await import("../entry-preview-capture-auth");
+        const exp = Number(expRaw);
+        const verified = verifyEntryPreviewCaptureToken({
+          contentType: type,
+          slug,
+          locale,
+          exp,
+          token: captureToken,
+        });
+        if (!verified.ok) {
+          res.status(401).json({ error: verified.error });
+          return;
+        }
+      }
       const preview = getPreviewConfig(type, ctRoot(res));
       if (!preview) {
         res.status(404).json({ error: `No preview config for content type "${type}"` });
@@ -3159,6 +3273,94 @@ export function registerContentRoutes(app: Express): void {
         }
       }
       res.json({ success: true, retried });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.post("/api/content-types/:type/entry-previews/enqueue", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_media", type);
+      if (!auth.authorized) return;
+      const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+      if (!site) {
+        res.status(500).json({ error: "Site context missing", code: "site_missing" });
+        return;
+      }
+
+      const localesRaw = req.body?.locales;
+      if (!Array.isArray(localesRaw) || localesRaw.length === 0) {
+        res.status(400).json({
+          error: "locales is required and must be a non-empty array",
+          code: "locales_required",
+        });
+        return;
+      }
+      const locales = localesRaw.map((l: unknown) => String(l));
+      const modeRaw = req.body?.mode;
+      const mode =
+        modeRaw === "all" || modeRaw === "failed" || modeRaw === "missing" ? modeRaw : "missing";
+      const slugs = Array.isArray(req.body?.slugs)
+        ? req.body.slugs.map((s: unknown) => String(s)).filter(Boolean)
+        : undefined;
+
+      const {
+        enqueueEntryPreviewsForType,
+      } = await import("../entry-preview-capture-queue");
+
+      try {
+        const result = await enqueueEntryPreviewsForType(site, {
+          contentType: type,
+          locales,
+          slugs,
+          mode,
+        });
+        res.json({
+          success: true,
+          mode,
+          locales,
+          ...result,
+          queue: (
+            await import("../entry-preview-capture-queue")
+          ).getEntryPreviewQueueStats(site.contentRootName),
+        });
+      } catch (err) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? String((err as { code?: string }).code)
+            : undefined;
+        const message = err instanceof Error ? err.message : String(err);
+        const status =
+          code === "preview_not_configured" ||
+          code === "locales_required" ||
+          code === "capture_misconfigured"
+            ? 400
+            : 500;
+        res.status(status).json({ error: message, code: code || "enqueue_failed" });
+      }
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/content-types/:type/entry-previews/queue", async (req, res) => {
+    try {
+      const { type } = req.params;
+      const auth = await requireCapability(req, res, "content_edit_media", type);
+      if (!auth.authorized) return;
+      const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+      if (!site) {
+        res.status(500).json({ error: "Site context missing" });
+        return;
+      }
+      const { getEntryPreviewQueueStats } = await import("../entry-preview-capture-queue");
+      const { cloudflareBrowserConfigError } = await import("../cloudflare-browser");
+      res.json({
+        contentType: type,
+        configError: cloudflareBrowserConfigError(site.contentRoot),
+        queue: getEntryPreviewQueueStats(site.contentRootName),
+      });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

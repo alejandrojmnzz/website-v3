@@ -20,8 +20,21 @@ export interface EcommerceBehavior {
   notes?: string;
 }
 
+/** Companion section required when this component is present (e.g. hero course → Course). */
+export interface SchemaOrgCompanionRequirement {
+  /** Section type that must exist (typically `schema_org`). */
+  companion_type: string;
+  /** Required `schema_type` on that companion (e.g. `Course`). */
+  schema_type: string;
+  /** When set, requirement applies only if the declaring section's variant matches. */
+  when_variant?: string;
+}
+
 export interface SchemaOrgBehavior {
-  handler: string;
+  /** Contributor handler id (advisory; executable map is server/schema-components). */
+  handler?: string;
+  /** When set, validators require matching companion sections on the merged page. */
+  requires?: SchemaOrgCompanionRequirement[];
   notes?: string;
 }
 
@@ -56,7 +69,12 @@ export function resolveComponentBehaviors(
       out.ecommerce = b.ecommerce as EcommerceBehavior;
     }
     if (b.schema_org && typeof b.schema_org === "object") {
-      out.schema_org = b.schema_org as SchemaOrgBehavior;
+      const so = b.schema_org as SchemaOrgBehavior;
+      out.schema_org = {
+        ...(typeof so.handler === "string" ? { handler: so.handler } : {}),
+        ...(Array.isArray(so.requires) ? { requires: so.requires } : {}),
+        ...(typeof so.notes === "string" ? { notes: so.notes } : {}),
+      };
     }
     if (b.listing && typeof b.listing === "object") {
       out.listing = b.listing as ListingBehavior;
