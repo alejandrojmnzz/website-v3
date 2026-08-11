@@ -134,6 +134,7 @@ expertMode = true
 [userenv.shared]
 MEDIA_DEFAULT_PROVIDER = "gcs"
 EDIT_TOKEN = "61bb7963aa6a49d10b953c5e14fce3161688a6de"
+IPN_SECRET = "e21d7559f914b0331c5f00cbe25e9bc36819752daf98bd086e324726ca621267"
 
 [userenv.development]
 
