@@ -505,6 +505,9 @@ A typical editing session looks like this:
 | Page `title` or `slug` top-level field | `update_section_field` |
 | A single SEO/meta field | `update_meta_field` |
 | Multiple SEO/meta fields at once | `update_meta_fields` |
+| Meta + body fields together (e.g. empty `meta.description` **and** `description`) | `batch_update_fields` |
+
+**Circular live-required trap:** Live saves validate SEO meta and `editor.required` fields together. If both `meta.description` and body `description` are empty, single-field / meta-only / section-only tools stay blocked. Use `batch_update_fields` with both paths in one `updates[]`. Failures return `action_required: fix_live_required_fields` with `missing_fields` and a `batch_update_fields` next action.
 
 ## Transport
 

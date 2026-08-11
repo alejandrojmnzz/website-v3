@@ -17,6 +17,11 @@ import {
   formatRequiredFieldErrors,
   type ValidateRequiredFieldsMode,
 } from "@shared/validateRequiredFields";
+import {
+  LIVE_REQUIRED_FIELDS_CODE,
+  circularRequiredFieldsHint,
+  type LiveRequiredFieldsCode,
+} from "@shared/liveSeoGate";
 import { isDraftEntry } from "./draft-entry";
 import { isEntryDetached, isSharedLayoutType } from "./shared-layout-entry";
 import { mergeSingleTemplate } from "./database-single-loader";
@@ -44,13 +49,23 @@ export type LiveSeoGateOptions = {
   isDraftWrite?: boolean;
 };
 
+export type LiveSeoGateFailure = {
+  message: string;
+  code:
+    | LiveRequiredFieldsCode
+    | "empty_detached_locale"
+    | "schema_org_companion";
+  /** Field paths that must be set together (meta.* and/or editor.required keys). */
+  missing_fields?: string[];
+};
+
 /**
- * Validate live SEO meta + required editor fields on merged page data.
- * Returns an error string suitable for API 400, or null if OK / skipped.
+ * Structured live SEO + required-field evaluation.
+ * Prefer this when callers need missing_fields for agent guidance.
  */
-export function assertLiveEntrySeoAndRequiredFields(
+export function evaluateLiveEntrySeoAndRequiredFields(
   opts: LiveSeoGateOptions,
-): string | null {
+): LiveSeoGateFailure | null {
   const {
     contentType,
     slug,
@@ -105,9 +120,6 @@ export function assertLiveEntrySeoAndRequiredFields(
   const meta = resolvedPage.meta;
 
   const metaResult = validateRequiredMeta(meta);
-  const metaErr = formatMetaValidationErrors(metaResult);
-  if (metaErr) return metaErr;
-
   const editor = config?.editor as
     | Record<string, { required?: boolean }>
     | undefined;
@@ -116,8 +128,29 @@ export function assertLiveEntrySeoAndRequiredFields(
     { ...singleEntry, ...resolvedPage },
     mode,
   );
-  const fieldErr = formatRequiredFieldErrors(fieldResult);
-  if (fieldErr) return fieldErr;
+
+  const missing_fields: string[] = [];
+  if (!metaResult.ok) {
+    for (const e of metaResult.errors) missing_fields.push(e.field);
+  }
+  if (!fieldResult.ok) {
+    for (const e of fieldResult.errors) missing_fields.push(e.field);
+  }
+
+  if (missing_fields.length > 0) {
+    const parts: string[] = [];
+    const metaErr = formatMetaValidationErrors(metaResult);
+    if (metaErr) parts.push(metaErr);
+    const fieldErr = formatRequiredFieldErrors(fieldResult);
+    if (fieldErr) parts.push(fieldErr);
+    const hint = circularRequiredFieldsHint(missing_fields);
+    if (hint) parts.push(hint);
+    return {
+      message: parts.join(" "),
+      code: LIVE_REQUIRED_FIELDS_CODE,
+      missing_fields,
+    };
+  }
 
   const emptyLocaleErr = assertNotEmptyDetachedLocale({
     contentType,
@@ -126,7 +159,9 @@ export function assertLiveEntrySeoAndRequiredFields(
     pageData: resolvedPage,
     contentRoot,
   });
-  if (emptyLocaleErr) return emptyLocaleErr;
+  if (emptyLocaleErr) {
+    return { message: emptyLocaleErr, code: "empty_detached_locale" };
+  }
 
   const companionErr = formatSchemaOrgCompanionGateError({
     sections: resolvedPage.sections,
@@ -135,9 +170,21 @@ export function assertLiveEntrySeoAndRequiredFields(
     locale,
     contentRoot,
   });
-  if (companionErr) return companionErr;
+  if (companionErr) {
+    return { message: companionErr, code: "schema_org_companion" };
+  }
 
   return null;
+}
+
+/**
+ * Validate live SEO meta + required editor fields on merged page data.
+ * Returns an error string suitable for API 400, or null if OK / skipped.
+ */
+export function assertLiveEntrySeoAndRequiredFields(
+  opts: LiveSeoGateOptions,
+): string | null {
+  return evaluateLiveEntrySeoAndRequiredFields(opts)?.message ?? null;
 }
 
 /**
