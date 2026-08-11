@@ -3,8 +3,8 @@ version: "1.0"
 component: SchemaOrg
 file: client/src/components/schema_org/variants/SchemaOrgDefault.tsx
 description: >-
-  Edit-mode-only section that emits one schema.org JSON-LD document during SSR
-  (Course, LocalBusiness, WebSite, Organization, etc.). Invisible on the public site.
+  Edit-mode-only section that emits one schema.org JSON-LD document during SSR (Course, LocalBusiness, WebSite,
+  Organization, etc.). Invisible on the public site.
 when_to_use: |
   Use when a page needs structured data that is not produced by FAQ, Article, or
   Breadcrumb sections. Place Course companions next to course heroes; LocalBusiness
@@ -15,24 +15,24 @@ behaviors:
   schema_org:
     handler: schema_org
     notes: >-
-      Emits one JSON-LD document from schema_type + properties. Resolves
-      @organization refs with dual-emit (nested + standalone Organization).
+      Emits one JSON-LD document from schema_type + properties. Resolves @organization refs with dual-emit (nested +
+      standalone Organization).
 props:
   schema_type:
     type: string
     required: true
-    description: >-
-      schema.org @type for this document (Course, LocalBusiness, WebSite,
-      Organization, etc.)
+    description: schema.org @type for this document (Course, LocalBusiness, WebSite, Organization, etc.)
     example: Course
   properties:
-    type: object
+    type: string
     required: true
     description: >-
-      YAML object of schema.org properties (snake_case keys). Use
-      provider/parent_organization: "@organization" to reference the site
-      Organization template. Nested locales: { es: { name: ... } } apply per locale.
+      YAML object of schema.org properties (snake_case keys). Use provider/parent_organization: "@organization" to
+      reference the site Organization template. Nested locales: { es: { name: ... } } apply per locale.
   section_id:
     type: string
     required: false
     description: Stable section id
+  paddingY:
+    type: object
+    required: false

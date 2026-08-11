@@ -3,12 +3,6 @@ version: "1.0"
 component: Article
 file: client/src/components/article/variants/ArticleDefault.tsx
 description: Renders formatted markdown content with an optional auto-generated table of contents (top or sticky side)
-behaviors:
-  schema_org:
-    handler: article
-    notes: >-
-      Contributes Article or BlogPosting JSON-LD during SSR from article body sections
-      (unified across multiple article sections on the page).
 when_to_use: |
   Use for long-form content pages such as blog posts, documentation, terms of service,
   privacy policies, or any rich text content that benefits from structured headings
@@ -22,6 +16,12 @@ when_to_use: |
   bodies); mobile/top TOC only on the first; desktop side TOC may still appear on later
   parts. `toc_group` is optional/legacy, not a decision knob. See example
   `article_split_toc_group`.
+behaviors:
+  schema_org:
+    handler: article
+    notes: >-
+      Contributes Article or BlogPosting JSON-LD during SSR from article body sections (unified across multiple article
+      sections on the page).
 props:
   variant:
     type: string
@@ -40,9 +40,8 @@ props:
     type: boolean
     required: false
     description: >
-      Whether to show the auto-generated table of contents (based on h1, h2, h3 headings).
-      On pages with 2+ articles, only the first article's show_toc controls the shared TOC;
-      later values are non-effects.
+      Whether to show the auto-generated table of contents (based on h1, h2, h3 headings). On pages with 2+ articles,
+      only the first article's show_toc controls the shared TOC; later values are non-effects.
   toc_position:
     type: string
     required: false
@@ -51,12 +50,12 @@ props:
       - side
     description: >
       Position of the table of contents. "top" renders the TOC above the article content. "side" renders the TOC as a
-      sticky sidebar that follows the user's scroll position and highlights the active heading.
-      On split pages, mobile/top TOC renders only on the first article; desktop side TOC may still appear on later parts.
+      sticky sidebar that follows the user's scroll position and highlights the active heading. On split pages,
+      mobile/top TOC renders only on the first article; desktop side TOC may still appear on later parts.
   toc_group:
     type: string
     required: false
-    description: >
+    description: |
       Legacy/internal id for heading stability. Not a share decision — 2+ articles on a page always continue one piece.
   show_reading_time:
     type: boolean
@@ -67,6 +66,10 @@ props:
   tags:
     type: array
     required: false
+    items:
+      type:
+        type: string
+        required: true
     description: Optional tag chips in the article meta row
   category:
     type: string
