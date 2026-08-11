@@ -179,9 +179,9 @@ export function localeSiblingSyncSideEffect(summary: string): McpSideEffect {
 }
 
 export const BATCH_BINDING_WARNING: McpWarning = {
-  code: "batch_update_no_binding_propagate",
+  code: "multi_section_no_binding_propagate",
   message:
-    "batch_update_fields does not propagate section bindings. Only this page was patched. For bound sections, re-apply the same field changes with update_section_field / update_section_fields (single-section live edits) so server binding propagate runs, or manually update each bound sibling.",
+    "Writes that touch multiple section indexes do not auto-propagate bindings. Use update_fields with a single sections.N.* index so live binding propagate runs.",
 };
 
 export const ADD_SECTION_NO_BINDING_FANOUT: McpWarning = {

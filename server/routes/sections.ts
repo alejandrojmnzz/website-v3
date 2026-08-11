@@ -78,6 +78,12 @@ import {
   deleteContentEntry,
   renameContentSlug,
 } from "../content-editor";
+import { flushAfterContentWrites } from "../content-write-flush";
+import {
+  bulkUpdateMeta,
+  validateBulkMetaUpdates,
+  BULK_META_MAX_SLUGS,
+} from "../bulk-update-meta";
 import { bindingManager } from "../bindings";
 import {
   escapeTemplateVars,
@@ -1092,10 +1098,12 @@ export function registerSectionsRoutes(app: Express): void {
       });
 
       if (result.success) {
-        refreshSitemapEntry(contentType, slug, locale);
-        clearRedirectCache();
-        getCI(res).refresh();
-        invalidateContentCaches(contentType);
+        flushAfterContentWrites({
+          ci: getCI(res),
+          contentTypes: [contentType],
+          sitemapEntries: [{ contentType, slug, locale }],
+          commonMetaTouched: false,
+        });
 
         // Propagate to bound sections on live single-section updates (update_section
         // or update_field targeting sections.N.*). Skip variants and multi-section batches.
@@ -1234,6 +1242,108 @@ export function registerSectionsRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/content/bulk-update-meta", async (req, res) => {
+    try {
+      req.body = decodeHtmlValues(req.body);
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const {
+        slugs,
+        locale,
+        updates,
+        contentType,
+        variant,
+        confirm_live_edit,
+        author: requestAuthor,
+      } = req.body;
+
+      if (!Array.isArray(slugs) || slugs.length === 0) {
+        res.status(400).json({ error: "slugs must be a non-empty array" });
+        return;
+      }
+      if (slugs.length > BULK_META_MAX_SLUGS) {
+        res.status(400).json({
+          error: `Too many slugs (${slugs.length}). Maximum is ${BULK_META_MAX_SLUGS}.`,
+        });
+        return;
+      }
+      const slugSet = new Set<string>();
+      for (const s of slugs) {
+        if (typeof s !== "string" || !s.trim()) {
+          res.status(400).json({ error: "Each slug must be a non-empty string" });
+          return;
+        }
+        if (slugSet.has(s)) {
+          res.status(400).json({ error: `Duplicate slug in slugs[]: ${s}` });
+          return;
+        }
+        slugSet.add(s);
+      }
+      if (!Array.isArray(updates) || updates.length === 0) {
+        res.status(400).json({ error: "updates must be a non-empty array" });
+        return;
+      }
+      const updatesErr = validateBulkMetaUpdates(updates);
+      if (updatesErr) {
+        res.status(400).json({ error: updatesErr });
+        return;
+      }
+
+      const authorName =
+        auth.author || (requestAuthor && typeof requestAuthor === "string" ? requestAuthor : undefined);
+
+      const result = await bulkUpdateMeta({
+        slugs,
+        locale,
+        updates,
+        contentType: typeof contentType === "string" ? contentType : undefined,
+        variant: typeof variant === "string" ? variant : undefined,
+        confirm_live_edit: !!confirm_live_edit,
+        author: authorName,
+        contentRoot: getContentRoot(res),
+        contentRootName: getContentRootName(res),
+        ci: getCI(res),
+        database: getDB(res),
+      });
+
+      try {
+        const { getSyncLogForResponse } = await import("../sync-log");
+        const okCount = result.results.filter((r) => r.ok).length;
+        if (okCount > 0) {
+          getSyncLogForResponse(res).log(
+            "EDIT",
+            `BULK_META: ${okCount}/${result.results.length} slug(s) updated (${locale || "en"})`,
+            authorName,
+            {
+              slugs: result.results.filter((r) => r.ok).map((r) => r.slug),
+              flushed: result.flushed,
+              common_meta_touched: result.common_meta_touched,
+            },
+          );
+        }
+      } catch { /* non-fatal */ }
+
+      const status = result.success ? 200 : result.results.some((r) => r.ok) ? 207 : 400;
+      res.status(status).json({
+        success: result.success,
+        results: result.results,
+        flushed: result.flushed,
+        common_meta_touched: result.common_meta_touched,
+        warnings: result.warnings,
+        side_effects: {
+          preview_capture: "skipped_for_meta_bulk",
+          flush: result.flushed
+            ? "coalesced_after_batch"
+            : "skipped_no_successful_writes",
+        },
+      });
+    } catch (error) {
+      log.error({ err: error }, "Bulk meta update error:");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/content/edit-common", async (req, res) => {
     try {
       req.body = decodeHtmlValues(req.body);
@@ -1270,10 +1380,12 @@ export function registerSectionsRoutes(app: Express): void {
       });
 
       if (result.success) {
-        refreshSitemapEntriesForContentKey(contentType, slug, getSupportedLocales());
-        clearRedirectCache();
-        getCI(res).refresh();
-        invalidateContentCaches(contentType);
+        flushAfterContentWrites({
+          ci: getCI(res),
+          contentTypes: [contentType],
+          sitemapEntries: [{ contentType, slug, locale: getDefaultLocale() }],
+          commonMetaTouched: true,
+        });
         res.json({ success: true });
       } else {
         res.status(400).json({

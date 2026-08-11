@@ -19,7 +19,7 @@ Purchase completes off-site. This site never fires `purchase`.
 - `get_product_funnel` / `update_product_funnel`
 - Authored steps property path: **`funnel.steps`** in `programs/{slug}/_ecommerce.yml`
 - Traffic sources property path: **`funnel.traffic_sources`** (`[{ content_type, role }]`, one row per content type)
-- Do **not** use `update_section_field` looking for `funnel` on a hero
+- Do **not** use `update_fields` looking for `funnel` on a hero
 - Steps with `source: auto` come from pages with `ecommerce_products: all` — not writable via PUT
 - `traffic_sources` are **not** auto-detected and do **not** affect locked/auto resolution or runtime tracking
 

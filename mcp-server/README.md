@@ -20,7 +20,7 @@ Every **mutating** tool success payload is JSON inside `content[0].text` and alw
 
 Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). Gates such as `confirm_live_edit`, `confirm_layout_target`, multi-site `site`, and `confirm_new_values` use `actionRequired` (not bare errors).
 
-**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live single-section field edits **do** propagate section bindings on the server (`bound_updates`); `batch_update_fields` does not.
+**Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
 
 ## Tools
 
@@ -34,16 +34,19 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `ensure_content_type_schema_org` | Attach seeded schema_org companions for CT `schema_org_requirements` |
 | `list_entry_seo` | SEO listing; **unfiltered = minimal sample**; pass `slugs` for full meta |
 | `create_entry` | Create YAML entry (draft-first or live shared-layout); not for DB-backed types |
-| `update_section_field` | Patch a section or safe top-level field (`editor.type`-gated) |
-| `update_section_fields` | Bulk section / safe top-level fields |
-| `update_meta_field` | Patch one SEO/meta field |
-| `update_meta_fields` | Patch multiple SEO/meta fields |
+| `update_fields` | Single-entry field writes (meta + body + one section); `updates[]` length ≥ 1 |
+| `update_meta_fields` | Multi-entry meta-only bulk (same `updates[]` across `slugs[]`, max 50) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
-| `batch_update_fields` | Bulk paths including `content` / `description` when allowed by editor |
 | `translate_entry` | Draft/live translation workflow |
 | `run_entry_diagnostics` | Async diagnostics job |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` | Component registry |
+| `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |
+| `add_database_item` / `update_database_item` / `delete_database_item` | Local YAML item CRUD (FAQ bank etc.) |
+| `reindex_database` | Vector reindex after item writes (`databases_manage`) |
+| `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
+
+See `explain_site` topic `local_databases` before FAQ bank mutations.
 
 ---
 
@@ -93,146 +96,29 @@ Gets the SEO/meta block plus a rich `schema_org` preview (resolved JSON-LD docum
 
 ---
 
-### `update_section_field`
+### `update_fields`
 
-Updates a **single** section field (or safe top-level entry field) in a locale YAML file.
+Single-entry field writes. `updates` length 1 = one field; longer arrays patch many fields in one call.
+May mix `meta.*`, safe top-level body fields (`description`, `title`, …), and fields under **one** `sections.N.*` index.
+Rejects two or more distinct section indexes (`action_required: split_section_updates`).
 
-Use this for all **content and section edits**. Do **not** use it for SEO/meta fields — use `update_meta_field` instead.
+**Routing:** `sections.*` / safe top-level → locale; `meta.robots|priority|change_frequency` → `_common.yml`; other known `meta.*` → locale; unknown `meta.*` needs `meta_target`.
 
-**Parameters:**
+**Circular trap:** set `meta.description` and body `description` together in one `updates[]` when both are empty on live.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `slug` | string | yes | Entry slug |
-| `locale` | string | no | Locale code (default: `en`) |
-| `field_path` | string | yes | Dot-notation path. Must start with `sections.` or be a safe top-level field for the type (`title`, `slug`, `content`, … via `editor.type`). Paths starting with `meta.` are rejected. |
-| `value` | any | yes | New value for the field |
-| `contentType` | string | no | Content type hint. Omit to auto-detect from slug. |
-| `site` | string | multi-site | Domain from `list_sites` |
-
-**Example:**
+**Parameters:** `slug`, `updates[{ field_path, value, meta_target? }]`, `locale`, optional `contentType`, `variant`, `confirm_live_edit`, `layout_target`, `site`.
 
 ```json
 {
-  "name": "update_section_field",
+  "name": "update_fields",
   "arguments": {
     "slug": "home",
     "locale": "en",
-    "field_path": "sections.0.title",
-    "value": "Learn AI From Day One"
-  }
-}
-```
-
----
-
-### `update_section_fields`
-
-Updates **multiple** section fields (or safe top-level page fields) in a single write to a page's locale YAML file.
-
-Use this for all **content and section edits** when changing more than one field at once. Do **not** use it for SEO/meta fields — use `update_meta_fields` instead.
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `slug` | string | yes | Page slug |
-| `locale` | string | no | Locale code (default: `en`) |
-| `fields` | object | yes | Map of dot-notation field paths to new values. Every key must start with `sections.` or be `title`/`slug`. |
-| `contentType` | string | no | Content type hint. Omit to auto-detect from slug. |
-
-**Example:**
-
-```json
-{
-  "name": "update_section_fields",
-  "arguments": {
-    "slug": "home",
-    "locale": "en",
-    "fields": {
-      "sections.0.title": "Learn AI From Day One",
-      "sections.0.subtitle": "Join thousands of students worldwide",
-      "title": "Home"
-    }
-  }
-}
-```
-
----
-
-### `update_meta_field`
-
-Updates a **single** SEO/meta field on a page. Known fields are **auto-routed** to the correct YAML file — see the routing table below.
-
-For non-standard meta fields not in the known list, use `custom_fields` + `target`.
-
-Do **not** use this for section/content edits — use `update_section_field` instead.
-
-#### Meta field auto-routing
-
-| Field | Written to |
-|---|---|
-| `page_title` | `{locale}.yml` |
-| `description` | `{locale}.yml` |
-| `og_image` | `{locale}.yml` |
-| `og_type` | `{locale}.yml` |
-| `og_url` | `{locale}.yml` |
-| `og_locale` | `{locale}.yml` |
-| `canonical_url` | `{locale}.yml` |
-| `robots` | `_common.yml` |
-| `priority` | `_common.yml` |
-| `change_frequency` | `_common.yml` |
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `slug` | string | yes | Page slug |
-| `locale` | string | no | Locale code (default: `en`) used when writing to a locale file |
-| `field` | enum | no* | Known meta field name (see routing table above). Auto-routed to the correct file. Required when not using `custom_fields`. |
-| `value` | any | no* | New value for the known `field`. Required when `field` is provided. |
-| `custom_fields` | object | no* | Map of non-standard meta field names to values. Cannot contain known field names. Requires `target`. |
-| `target` | `"locale"` \| `"common"` | no* | Required when `custom_fields` is provided. `locale` → `{locale}.yml`, `common` → `_common.yml`. |
-| `contentType` | string | no | Content type hint. Omit to auto-detect from slug. |
-
-\* Either `field` + `value`, or `custom_fields` + `target`, must be provided.
-
-**Examples:**
-
-Update a known locale field:
-```json
-{
-  "name": "update_meta_field",
-  "arguments": {
-    "slug": "home",
-    "locale": "en",
-    "field": "page_title",
-    "value": "Learn AI | 4Geeks Academy"
-  }
-}
-```
-
-Update a known common field:
-```json
-{
-  "name": "update_meta_field",
-  "arguments": {
-    "slug": "home",
-    "field": "robots",
-    "value": "index, follow"
-  }
-}
-```
-
-Update a non-standard meta field:
-```json
-{
-  "name": "update_meta_field",
-  "arguments": {
-    "slug": "home",
-    "locale": "en",
-    "custom_fields": { "twitter_card": "summary_large_image" },
-    "target": "locale"
+    "confirm_live_edit": true,
+    "updates": [
+      { "field_path": "sections.0.data.title", "value": "Hello" },
+      { "field_path": "meta.page_title", "value": "Hello | 4Geeks" }
+    ]
   }
 }
 ```
@@ -241,75 +127,30 @@ Update a non-standard meta field:
 
 ### `update_meta_fields`
 
-Updates **multiple** SEO/meta fields on a page in a single call. Auto-routes each known field to the correct file. May write to both `_common.yml` and a locale file in one call if the fields span both.
+Multi-entry **meta-only** bulk: apply the **same** `updates[]` to every slug in `slugs[]` (max 50, unique).
+For one entry or meta+body/section mixes, use `update_fields`.
 
-For non-standard meta fields not in the known list, use `custom_fields` + `target`.
+Server coalesces cache/sitemap/CI/redirect flush once after the batch; skips entry-preview capture.
+Per-slug live-gate failures continue; fix circular traps with `update_fields`.
 
-Do **not** use this for section/content edits — use `update_section_fields` instead.
+**Parameters:** `slugs`, `updates` (meta paths), `locale`, optional `contentType`, `variant`, `confirm_live_edit`, `site`.
 
-#### Meta field auto-routing
-
-| Field | Written to |
-|---|---|
-| `page_title` | `{locale}.yml` |
-| `description` | `{locale}.yml` |
-| `og_image` | `{locale}.yml` |
-| `og_type` | `{locale}.yml` |
-| `og_url` | `{locale}.yml` |
-| `og_locale` | `{locale}.yml` |
-| `canonical_url` | `{locale}.yml` |
-| `robots` | `_common.yml` |
-| `priority` | `_common.yml` |
-| `change_frequency` | `_common.yml` |
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `slug` | string | yes | Page slug |
-| `locale` | string | no | Locale code (default: `en`) used when writing to a locale file |
-| `fields` | object | no* | Map of **known** meta field names to values. Auto-routed per field. May write to both files in one call. |
-| `custom_fields` | object | no* | Map of non-standard meta field names to values. Cannot contain known field names. Requires `target`. |
-| `target` | `"locale"` \| `"common"` | no* | Required when `custom_fields` is provided. `locale` → `{locale}.yml`, `common` → `_common.yml`. |
-| `contentType` | string | no | Content type hint. Omit to auto-detect from slug. |
-
-\* At least one of `fields` or `custom_fields` must be provided.
-
-**Examples:**
-
-Update multiple known fields (may write to both files automatically):
 ```json
 {
   "name": "update_meta_fields",
   "arguments": {
-    "slug": "home",
+    "slugs": ["home", "about", "pricing"],
     "locale": "en",
-    "fields": {
-      "page_title": "Learn AI | 4Geeks Academy",
-      "description": "Join our AI bootcamp and start your tech career.",
-      "robots": "index, follow",
-      "priority": 0.9
-    }
+    "confirm_live_edit": true,
+    "updates": [
+      { "field_path": "meta.robots", "value": "index, follow" },
+      { "field_path": "meta.priority", "value": 0.8 }
+    ]
   }
 }
 ```
 
-Known fields + custom fields in one call:
-```json
-{
-  "name": "update_meta_fields",
-  "arguments": {
-    "slug": "home",
-    "locale": "en",
-    "fields": {
-      "page_title": "Learn AI | 4Geeks Academy",
-      "description": "Join our AI bootcamp."
-    },
-    "custom_fields": { "twitter_card": "summary_large_image" },
-    "target": "locale"
-  }
-}
-```
+---
 
 ### `list_components`
 
@@ -487,12 +328,13 @@ A typical editing session looks like this:
 3. **Make edits**
    ```
    Call add_section to insert a new FAQ section.
-   Call update_section_field to change a section heading:
-     { slug: "home", locale: "en", field_path: "sections.2.title", value: "FAQ" }
-   Call update_meta_field to update the SEO title:
-     { slug: "home", locale: "en", field: "page_title", value: "Home | 4Geeks Academy" }
-   Call update_meta_fields to set multiple SEO fields at once:
-     { slug: "home", locale: "en", fields: { description: "...", robots: "index, follow" } }
+   Call update_fields to change a section heading + SEO together:
+     { slug: "home", locale: "en", updates: [
+       { field_path: "sections.2.title", value: "FAQ" },
+       { field_path: "meta.page_title", value: "Home | 4Geeks Academy" }
+     ]}
+   Call update_meta_fields to set the same meta on many slugs:
+     { slugs: ["home","about"], locale: "en", updates: [{ field_path: "meta.robots", value: "index, follow" }] }
    Call reorder_sections to move the new section earlier.
    ```
 
@@ -500,14 +342,11 @@ A typical editing session looks like this:
 
 | What you want to edit | Tool to use |
 |---|---|
-| A section field (e.g. `sections.0.title`) | `update_section_field` |
-| Multiple section fields at once | `update_section_fields` |
-| Page `title` or `slug` top-level field | `update_section_field` |
-| A single SEO/meta field | `update_meta_field` |
-| Multiple SEO/meta fields at once | `update_meta_fields` |
-| Meta + body fields together (e.g. empty `meta.description` **and** `description`) | `batch_update_fields` |
+| One entry — any fields (meta, body, one section) | `update_fields` |
+| Same meta on many entries | `update_meta_fields` |
+| Section topology | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` |
 
-**Circular live-required trap:** Live saves validate SEO meta and `editor.required` fields together. If both `meta.description` and body `description` are empty, single-field / meta-only / section-only tools stay blocked. Use `batch_update_fields` with both paths in one `updates[]`. Failures return `action_required: fix_live_required_fields` with `missing_fields` and a `batch_update_fields` next action.
+**Circular live-required trap:** Live saves validate SEO meta and `editor.required` fields together. If both `meta.description` and body `description` are empty, set both in one `update_fields` `updates[]`. Multi-entry `update_meta_fields` cannot set body `description`. Failures return `action_required: fix_live_required_fields` with `missing_fields`.
 
 ## Transport
 
@@ -555,21 +394,21 @@ curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":4,"params":{"name":"update_section_field","arguments":{"slug":"home","locale":"en","field_path":"sections.0.title","value":"Learn AI From Day One"}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":4,"params":{"name":"update_fields","arguments":{"slug":"home","locale":"en","updates":[{"field_path":"sections.0.title","value":"Learn AI From Day One"}]}}}' 
 
 # Update a meta field (write tool)
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"update_meta_field","arguments":{"slug":"home","locale":"en","field":"page_title","value":"Home | 4Geeks Academy"}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"update_fields","arguments":{"slug":"home","locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | 4Geeks Academy"}]}}}'
 
 # Update multiple meta fields at once
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-Api-Key: $TOKEN" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slug":"home","locale":"en","fields":{"page_title":"Home | 4Geeks Academy","description":"Join our AI bootcamp.","robots":"index, follow"}}}}'
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":6,"params":{"name":"update_meta_fields","arguments":{"slugs":["home"],"locale":"en","updates":[{"field_path":"meta.page_title","value":"Home | 4Geeks Academy"},{"field_path":"meta.description","value":"Join our AI bootcamp."},{"field_path":"meta.robots","value":"index, follow"}]}}}'
 
 ```
 

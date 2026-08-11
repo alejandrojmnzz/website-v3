@@ -16,7 +16,7 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 2. `get_content_type_info` with `contentType` + `site` — read `field_mapping`, `editor.required`, URL params, observed values, `create_via`.
 3. `create_entry` with **exactly one** locale for shared-layout; put required fields on the locale object; `sections: []` (or omit); put URL params / category on `common` as the type expects.
 4. If a URL-param/select value is **not** in observed peers → stop; get approval from the **principal** (human or orchestrator/reviewer), then re-call with `confirm_new_values: true`.
-5. Fill SEO via `update_meta_field(s)` if needed; verify with `get_entry_content` / `get_entry_seo`.
+5. Fill SEO via `update_fields` or multi-entry `update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`.
 6. `run_entry_diagnostics` when ready.
 
 ## Anti-patterns
@@ -28,5 +28,5 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 
 ## Related tools
 
-- `get_content_type_info`, `create_entry`, `list_entry_seo`, `get_entry_seo`, `get_entry_content`, `batch_update_fields`, `list_sites`
+- `get_content_type_info`, `create_entry`, `list_entry_seo`, `get_entry_seo`, `get_entry_content`, `update_fields`, `list_sites`
 - Topic `content_system` for merge / drafts / detach translate loop

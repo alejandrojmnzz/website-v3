@@ -8,9 +8,7 @@ import { describe, expect, it } from "vitest";
 import { ok, fail, actionRequired } from "../mcp-server/lib/respond";
 
 const MUTATING_TOOLS = [
-  "update_section_field",
-  "update_section_fields",
-  "update_meta_field",
+  "update_fields",
   "update_meta_fields",
   "create_variant",
   "promote_variant",
@@ -19,7 +17,6 @@ const MUTATING_TOOLS = [
   "remove_section",
   "reorder_sections",
   "replace_entry_sections",
-  "batch_update_fields",
   "translate_entry",
   "regenerate_entry_previews",
   "ensure_content_type_schema_org",

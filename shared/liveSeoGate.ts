@@ -8,7 +8,7 @@ export const LIVE_REQUIRED_FIELDS_CODE = "live_required_fields" as const;
 export type LiveRequiredFieldsCode = typeof LIVE_REQUIRED_FIELDS_CODE;
 
 /**
- * Paths agents can set via batch_update_fields / edit-sections update_field.
+ * Paths agents can set via update_fields / edit-sections update_field.
  * Meta keys use meta.* ; editor.required keys are top-level (e.g. description).
  */
 export function parseLiveRequiredMissingFields(errorMessage: string): string[] {
@@ -50,7 +50,7 @@ export function circularRequiredFieldsHint(missingFields: string[]): string | nu
   return (
     `CIRCULAR_REQUIRED_FIELDS: live saves validate SEO meta and editor.required fields together. ` +
     `Set all of [${missingFields.join(", ")}] in one multi-field write ` +
-    `(MCP: batch_update_fields; API: edit-sections with multiple update_field ops). ` +
-    `Single-field tools (update_meta_field / update_section_field / update_meta_fields alone) stay blocked while the other side is empty.`
+    `(MCP: update_fields; API: edit-sections with multiple update_field ops). ` +
+    `Meta-only bulk (update_meta_fields) cannot set body description and stays blocked while the other side is empty.`
   );
 }

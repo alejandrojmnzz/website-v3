@@ -127,7 +127,7 @@ We deliberately do **not** auto-fan-out sibling `single.*.yml` files from MCP wr
 
 Why refuse fan-out? Surprise multi-file writes are worse than an extra round trip. Agents (and humans reviewing transcripts) need to see each locale intentionally updated. Silent sync also fights the mental model that MCP loopback skips the main app’s shared-layout fan-out path — the agent is the orchestrator.
 
-Same tool set for shared layout and entry overlays. We use `layout_target` (`auto` | `entry` | `type_single`) and `confirm_layout_target` when ambiguous. We never invent parallel `*_shared` tools. One vocabulary scales; two vocabularies double the hallucination surface. “Should I call `update_section_field` or `update_section_field_shared`?” is a question that should not exist.
+Same tool set for shared layout and entry overlays. We use `layout_target` (`auto` | `entry` | `type_single`) and `confirm_layout_target` when ambiguous. We never invent parallel `*_shared` tools. One vocabulary scales; two vocabularies double the hallucination surface. “Should I call `update_fields` or `update_fields_shared`?” is a question that should not exist.
 
 ### 4. Gates over opaque errors when judgment is required
 
@@ -146,7 +146,7 @@ The official playbook for shared-layout creates is not “call `create_entry` an
 3. `explain_site` on the recommended topic (for blog: `shared-layout`) when the contract says the write goes live immediately.
 4. Sample peers with `list_entries` so category slugs and markdown shape match reality.
 5. `create_entry` with exactly one locale for shared-layout, required fields on the locale object, `sections: []` (or omit), URL params / category on `common` as the type expects.
-6. SEO via `update_meta_field(s)` if needed; verify with `get_entry_content` / `get_entry_seo`; `run_entry_diagnostics` when ready.
+6. SEO via `update_fields / update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`; `run_entry_diagnostics` when ready.
 
 If a URL-param or select value is not in observed peers, stop. Get approval from the principal. Re-call with `confirm_new_values: true`. Inventing taxonomy is a product decision, not an agent flourish.
 
@@ -159,7 +159,7 @@ Agents waste cycles “fixing” things that never happen. So we say so in `warn
 - Variant edits do not propagate section bindings (`variant_no_binding_propagate`).
 - Variant structural edits do not sync sibling locale singles (`variant_no_shared_layout_sync`).
 - Promote is locale/entry only and does not replay bindings (`promote_locale_only`, `promote_no_binding_replay`).
-- `batch_update_fields` warns that it does not get the same binding propagate behavior as a live single-section edit.
+- `update_fields` propagates bindings when exactly one section index is touched; multi-section updates are rejected.
 - Shared-layout promote does not reconcile sibling locale singles for you (`promote_shared_layout_drift`).
 
 Live single-section field edits **do** propagate section bindings on the server; that belongs in `side_effects` when it happens, not as a vague “also synced stuff.” Clarity about what *did* happen is the twin of clarity about what did not.

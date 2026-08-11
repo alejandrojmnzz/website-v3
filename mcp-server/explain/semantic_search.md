@@ -60,6 +60,7 @@ Staff enable fields under Private Databases → Settings → Field Mappings. Re-
 | Status API | `GET /api/admin/qdrant/status` (admin auth) — host, port, error, collections, per-DB index jobs |
 | Dashboard | `http://localhost:6333/dashboard` (local default) |
 | FAQ Props | Sparkles popover → `dynamic_entries.search` |
+| Item CRUD (MCP) | `explain_site` topic `local_databases` — reindex after bank writes |
 
 Local Docker example:
 
@@ -69,4 +70,4 @@ docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.13.4
 
 ## When to call this topic
 
-Call `explain_site` with `semantic_search` before changing vector indexing, database search fallbacks/cache, FAQ section search, Qdrant wiring, or the AI Settings Qdrant page.
+Call `explain_site` with `semantic_search` before changing vector indexing, database search fallbacks/cache, FAQ section search, Qdrant wiring, or the AI Settings Qdrant page. After local DB item CRUD, see `local_databases` and call `reindex_database` when needed.

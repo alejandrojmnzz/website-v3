@@ -142,6 +142,11 @@ interface ContentEditRequest {
   skipSharedLayoutFanOut?: boolean;
   /** Force write layer for shared-layout types: type_single → single.{locale}.yml; entry → per-entry overlay. */
   layoutTarget?: "entry" | "type_single";
+  /**
+   * When true, skip entry-preview capture enqueue after save.
+   * Only set by the bulk-meta endpoint (default false elsewhere).
+   */
+  skipPreviewCapture?: boolean;
 }
 
 function getValueAtPath(obj: Record<string, unknown>, pathStr: string): unknown {
@@ -1072,7 +1077,8 @@ export async function editContent(request: ContentEditRequest): Promise<{
     const updatedSections = (mergedContent.sections as unknown[]) || [];
 
     // Live locale only: enqueue entry-preview capture when needed (Cloudflare queue).
-    if (!hasVariant) {
+    // Bulk-meta sets skipPreviewCapture to avoid N preview jobs for SEO-only writes.
+    if (!hasVariant && !request.skipPreviewCapture) {
       void scheduleEntryPreviewCaptureAfterSave({
         contentType,
         slug,

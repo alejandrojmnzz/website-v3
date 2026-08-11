@@ -37,7 +37,6 @@ import {
   pathForLayoutTarget,
   versioningApiSlug,
   sharedTemplateBlastSideEffect,
-  BATCH_BINDING_WARNING,
   ADD_SECTION_NO_BINDING_FANOUT,
   REMOVE_SECTION_NO_BINDING_FANOUT,
   REPLACE_NO_BINDING_FANOUT,
@@ -240,7 +239,7 @@ async function callEditSectionsApi(
                 priority: "recommended",
               },
               {
-                tool: "update_section_field",
+                tool: "update_fields",
                 reason: "Set the cited property_path (e.g. sections[N].data.ecommerce_products or programs[].id)",
                 priority: "required",
               },
@@ -1204,39 +1203,37 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }];
   }
 
-  // update_section_field
+  // update_fields — single entry; meta + body + at most one section index
   mcp.tool(
-    "update_section_field",
-    "Update a single section field (or safe top-level page field) in a page's locale YAML file. " +
-    "Use this for all content/section edits — field_path must start with 'sections.' or be a safe " +
-    "top-level field allowed by the content type editor (title, slug, settings, and editor.type-safe mapping keys such as description/content). " +
-    "Do NOT use this for SEO/meta fields — use update_meta_field instead. " +
-    "contentType is optional — omit it and the server will auto-detect from slug.\n\n" +
-    "CIRCULAR TRAP: if meta.description is also empty on a live page, setting body description alone still fails — " +
-    "use batch_update_fields to set meta.description + description together.\n\n" +
+    "update_fields",
+    "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
+    "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
+    "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
+    "field_path routing: sections.* and safe top-level → locale; meta.robots/priority/change_frequency → _common.yml; " +
+    "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
+    "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
+    "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
+    "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
-    "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the principal before calling this tool: " +
-    "'Do you want to edit the live version directly, or create a new draft variant first?' " +
-    "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
+    "IMPORTANT — versioning: ask before live edit when versioning.yml exists; pass confirm_live_edit: true or variant.",
     {
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
-      field_path: z.string().describe(
-        "Dot-notation path targeting section content. Must start with 'sections.' (e.g. 'sections.0.title') " +
-        "or be a safe top-level field for this content type (title, slug, description, content, …). " +
-        "Paths starting with 'meta.' are rejected — use update_meta_field instead."
-      ),
-      value: z.unknown().describe("New value for the field"),
-      contentType: z.string().optional().describe("Content type hint. Omit to auto-detect from slug."),
-      variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
-      confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      updates: z.array(z.object({
+        field_path: z.string().describe("Dot path: sections.0.title, meta.description, description, title, …"),
+        value: z.unknown().describe("New value"),
+        meta_target: z.enum(["locale", "common"]).optional().describe(
+          "Required for unknown meta.* keys. Known meta auto-routes.",
+        ),
+      })).min(1).describe("Field updates (min 1). At most one distinct sections.N index."),
+      contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
+      variant: z.string().optional().describe("Variant slug to write locale fields to."),
+      confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite when versioning.yml exists and variant is omitted."),
       layout_target: layoutTargetSchema,
       confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, field_path: fieldPath, value, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ slug, locale, updates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -1249,8 +1246,47 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail((e as Error).message);
       }
 
-      if (fieldPath.startsWith("meta.")) {
-        return fail(`field_path '${fieldPath}' targets a meta field. Use update_meta_field instead.`);
+      const pathCounts = new Map<string, number>();
+      for (const u of updates) {
+        pathCounts.set(u.field_path, (pathCounts.get(u.field_path) || 0) + 1);
+      }
+      const dupPaths = [...pathCounts.entries()].filter(([, n]) => n > 1).map(([p]) => p);
+      if (dupPaths.length > 0) {
+        return fail(`Duplicate field_path(s) in updates[]: ${dupPaths.join(", ")}`);
+      }
+
+      const sectionIndexes = new Set<number>();
+      for (const u of updates) {
+        const m = u.field_path.match(/^sections\.(\d+)(?:\.|$)/);
+        if (m) sectionIndexes.add(parseInt(m[1], 10));
+      }
+      if (sectionIndexes.size > 1) {
+        const indexes = [...sectionIndexes].sort((a, b) => a - b);
+        return actionRequired(
+          {
+            success: false,
+            action_required: "split_section_updates",
+            message:
+              `updates[] touches multiple section indexes [${indexes.join(", ")}]. ` +
+              `Call update_fields once per section so live binding propagate can run.`,
+            section_indexes: indexes,
+          },
+          indexes.map((idx) => ({
+            tool: "update_fields",
+            priority: "required" as const,
+            reason: `Apply fields for sections.${idx} only (plus any meta/body in that same call).`,
+            args_hint: {
+              slug,
+              locale,
+              contentType,
+              confirm_live_edit: true,
+              updates: updates.filter((u) => {
+                const m = u.field_path.match(/^sections\.(\d+)(?:\.|$)/);
+                return !m || parseInt(m[1], 10) === idx;
+              }),
+            },
+          })),
+        );
       }
 
       const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
@@ -1259,178 +1295,47 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       const safeTop = safeTopLevelFieldsForConfig(resolved.config);
-      if (!fieldPath.startsWith("sections.") && !safeTop.has(fieldPath)) {
-        return fail(`field_path '${fieldPath}' is not allowed. Must start with 'sections.' or be one of: ${[...safeTop].join(", ")}.`);
+      for (const u of updates) {
+        const p = u.field_path;
+        if (p.startsWith("sections.") || p.startsWith("meta.") || safeTop.has(p)) continue;
+        return fail(
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', or be one of: ${[...safeTop].join(", ")}.`,
+        );
+      }
+      for (const u of updates) {
+        if (!u.field_path.startsWith("meta.")) continue;
+        const key = u.field_path.slice(5).split(".")[0];
+        if (!ALL_KNOWN_META_FIELDS.has(key) && !u.meta_target) {
+          return fail(`Unknown meta field '${key}' requires meta_target: "locale" | "common"`);
+        }
       }
 
+      const needsSeo = updates.some((u) => u.field_path.startsWith("meta."));
+      const needsContent = updates.some((u) => !u.field_path.startsWith("meta."));
       if (mcpToken) {
-        if (!await checkCap(mcpToken, "content_edit_text", resolved.contentType)) {
+        if (needsSeo && !(await checkCap(mcpToken, "seo_edit"))) {
+          return denyResponse("seo_edit");
+        }
+        if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
           return denyResponse("content_edit_text", resolved.contentType);
         }
       }
 
       const liveGate = confirmLiveEditGate({
-        tool: "update_section_field",
+        tool: "update_fields",
         slug,
         contentType: resolved.contentType,
         locale,
         contentPath,
         variant,
         confirm_live_edit,
-        extraArgsHint: { field_path: fieldPath, value, layout_target, confirm_layout_target },
+        extraArgsHint: { updates, layout_target, confirm_layout_target },
       });
       if (liveGate) return liveGate;
 
+      const touchesSections = updates.some((u) => u.field_path.startsWith("sections."));
       const layoutGate = resolveLayoutTargetGate({
-        tool: "update_section_field",
-        contentType: resolved.contentType,
-        config: resolved.config,
-        slug,
-        locale,
-        layout_target: layout_target as LayoutTarget | undefined,
-        confirm_layout_target,
-        requireConfirmWhenAuto: fieldPath.startsWith("sections."),
-      });
-      if ("gate" in layoutGate) return layoutGate.gate;
-      const layoutTarget = layoutGate.target;
-
-      const pathInfo = pathForLayoutTarget({
-        contentPath,
-        contentType: resolved.contentType,
-        config: resolved.config,
-        slug,
-        locale,
-        layoutTarget,
-        variant,
-      });
-      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
-        return fail((e as Error).message);
-      }
-      if (!fs.existsSync(pathInfo.filePath)) {
-        return fail(`File not found: ${pathInfo.relativeHint}`);
-      }
-
-      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
-      const conflictErr = await getConflictError(pathInfo.filePath, relativePath, [[fieldPath, value]], { fieldPath, value }, domain);
-      if (conflictErr) return conflictErr;
-      const apiResult = await callEditSectionsApi(
-        {
-          contentType: resolved.contentType,
-          slug,
-          locale,
-          variant,
-          layoutTarget,
-          operations: [{ action: "update_field", path: fieldPath, value }],
-        },
-        mcpToken,
-        domain,
-      );
-      if ("error" in apiResult) return apiResult.error;
-      const boundUpdates = apiResult.data.boundUpdates;
-      const schemaWarnings =
-        fieldPath.includes("schema_type") || fieldPath.startsWith("sections.")
-          ? schemaOrgOverrideWarningsFromFieldUpdates({ [fieldPath]: value })
-          : [];
-      return ok(
-        {
-          message: `Updated '${fieldPath}' in ${pathInfo.relativeHint}`,
-          ...wrotePayload({
-            layer: pathInfo.layer,
-            contentType: resolved.contentType,
-            path: pathInfo.relativeHint,
-            locale,
-            slug,
-          }),
-          ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
-        },
-        {
-          warnings: [...variantWarningsIfNeeded(variant), ...schemaWarnings],
-          next_actions: [],
-          side_effects: bindingPropagateSideEffects(boundUpdates),
-        },
-      );
-    }
-  );
-
-  // update_section_fields (bulk)
-  mcp.tool(
-    "update_section_fields",
-    "Update multiple section fields (or safe top-level page fields) in a single write to a page's locale YAML file. " +
-    "Use this for all content/section edits — every key in 'fields' must start with 'sections.' or be one of " +
-    "the safe top-level fields ('title', 'slug'). " +
-    "Do NOT use this for SEO/meta fields — use update_meta_fields instead. " +
-    "contentType is optional — omit it and the server will auto-detect from slug.\n\n" +
-    "CIRCULAR TRAP: this tool cannot set meta.description — if meta.description is also empty, " +
-    "use batch_update_fields to set meta.description + description together.\n\n" +
-    "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the user before calling this tool: " +
-    "'Do you want to edit the live version directly, or create a new draft variant first?' " +
-    "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
-    {
-      slug: z.string().describe("Page slug"),
-      locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
-      fields: z.record(z.unknown()).describe(
-        "Map of dot-notation field paths to new values. Keys must start with 'sections.' or be 'title'/'slug'. " +
-        "E.g. { 'sections.0.title': 'New Title', 'sections.0.subtitle': 'Sub' }"
-      ),
-      contentType: z.string().optional().describe("Content type hint. Omit to auto-detect from slug."),
-      variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file."),
-      confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
-      layout_target: layoutTargetSchema,
-      confirm_layout_target: confirmLayoutTargetSchema,
-      site: z.string().optional().describe(SITE_PARAM_DESC),
-    },
-    async ({ slug, locale, fields, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
-      const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath, contentFolder, domain } = siteResult;
-      try {
-        assertSafeSegment(slug, "slug");
-        assertSafeLocale(locale);
-        if (contentType) assertSafeSegment(contentType, "contentType");
-        if (variant) assertSafeSegment(variant, "variant");
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-
-      const metaPaths = Object.keys(fields).filter(fp => fp.startsWith("meta."));
-      if (metaPaths.length > 0) {
-        return fail(`field_path(s) target meta fields: ${metaPaths.join(", ")}. Use update_meta_fields instead.`);
-      }
-
-      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
-      if (!resolved) {
-        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
-      }
-
-      const safeTop = safeTopLevelFieldsForConfig(resolved.config);
-      const badPaths = Object.keys(fields).filter(fp => !fp.startsWith("sections.") && !safeTop.has(fp));
-      if (badPaths.length > 0) {
-        return fail(`Disallowed field_path(s): ${badPaths.join(", ")}. Must start with 'sections.' or be one of: ${[...safeTop].join(", ")}.`);
-      }
-
-      if (mcpToken) {
-        if (!await checkCap(mcpToken, "content_edit_text", resolved.contentType)) {
-          return denyResponse("content_edit_text", resolved.contentType);
-        }
-      }
-
-      const liveGate = confirmLiveEditGate({
-        tool: "update_section_fields",
-        slug,
-        contentType: resolved.contentType,
-        locale,
-        contentPath,
-        variant,
-        confirm_live_edit,
-        extraArgsHint: { fields, layout_target, confirm_layout_target },
-      });
-      if (liveGate) return liveGate;
-
-      const touchesSections = Object.keys(fields).some(k => k.startsWith("sections."));
-      const layoutGate = resolveLayoutTargetGate({
-        tool: "update_section_fields",
+        tool: "update_fields",
         contentType: resolved.contentType,
         config: resolved.config,
         slug,
@@ -1454,36 +1359,119 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
         return fail((e as Error).message);
       }
-      if (!fs.existsSync(pathInfo.filePath)) {
+      const commonFilePath = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug, "_common.yml");
+
+      const localeEntries: Array<[string, unknown]> = [];
+      const commonEntries: Array<[string, unknown]> = [];
+      for (const { field_path, value, meta_target } of updates) {
+        if (field_path.startsWith("meta.")) {
+          const metaKey = field_path.slice(5).split(".")[0];
+          const toCommon = META_COMMON_FIELDS.has(metaKey) ||
+            (!ALL_KNOWN_META_FIELDS.has(metaKey) && meta_target === "common");
+          if (toCommon) commonEntries.push([field_path, value]);
+          else localeEntries.push([field_path, value]);
+        } else {
+          localeEntries.push([field_path, value]);
+        }
+      }
+
+      const localeRelPath = `${contentFolder}/${pathInfo.relativeHint}`;
+      const ctDir = getDirectory(resolved.contentType, resolved.config);
+      const commonRelPath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
+
+      if (localeEntries.length > 0 && !fs.existsSync(pathInfo.filePath)) {
         return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 
-      const relativePath = `${contentFolder}/${pathInfo.relativeHint}`;
-      const fieldEntries = Object.entries(fields);
-      const conflictErr = await getConflictError(pathInfo.filePath, relativePath, fieldEntries, { fields }, domain);
-      if (conflictErr) return conflictErr;
-      let existingSections: Array<Record<string, unknown>> = [];
-      try {
-        const before = safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {};
-        if (Array.isArray(before.sections)) {
-          existingSections = before.sections as Array<Record<string, unknown>>;
-        }
-      } catch {
-        /* ignore */
+      if (localeEntries.length > 0) {
+        const conflictErr = await getConflictError(
+          pathInfo.filePath,
+          localeRelPath,
+          localeEntries,
+          { updates: localeEntries.map(([p, v]) => ({ field_path: p, value: v })) },
+          domain,
+        );
+        if (conflictErr) return conflictErr;
       }
-      const schemaWarnings = schemaOrgOverrideWarningsFromFieldUpdates(fields, existingSections);
-      const operations = fieldEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-      const apiResult = await callEditSectionsApi(
-        { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations },
-        mcpToken,
-        domain,
-      );
-      if ("error" in apiResult) return apiResult.error;
-      const boundUpdates = apiResult.data.boundUpdates;
-      const count = Object.keys(fields).length;
+      if (commonEntries.length > 0) {
+        const conflictErr = await getConflictError(
+          commonFilePath,
+          commonRelPath,
+          commonEntries,
+          { updates: commonEntries.map(([p, v]) => ({ field_path: p, value: v })) },
+          domain,
+        );
+        if (conflictErr) return conflictErr;
+      }
+
+      const results: string[] = [];
+      let boundUpdates: unknown;
+      const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
+      if (variant && commonEntries.length > 0) {
+        warnings.push({
+          code: "common_meta_ignores_variant",
+          message:
+            "Common meta (robots/priority/change_frequency or meta_target=common) writes _common.yml and ignores variant.",
+        });
+      }
+
+      if (localeEntries.length > 0) {
+        const ops = localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
+        const apiResult = await callEditSectionsApi(
+          { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: ops },
+          mcpToken,
+          domain,
+        );
+        if ("error" in apiResult) return apiResult.error;
+        boundUpdates = apiResult.data.boundUpdates;
+        results.push(`${localeEntries.length} field(s) → ${pathInfo.relativeHint}`);
+      }
+
+      if (commonEntries.length > 0) {
+        const ops = commonEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
+        const apiErr = await callEditCommonApi(
+          { contentType: resolved.contentType, slug, operations: ops },
+          mcpToken,
+          domain,
+        );
+        if (apiErr) {
+          if (localeEntries.length > 0) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "retry_common_meta",
+                message:
+                  "Locale fields were written but _common.yml update failed. " +
+                  "Re-call update_fields with only the common meta paths.",
+                wrote: results,
+                common_error: apiErr,
+              },
+              [{
+                tool: "update_fields",
+                priority: "required",
+                reason: "Retry common-meta paths only.",
+                args_hint: {
+                  slug,
+                  locale,
+                  contentType: resolved.contentType,
+                  confirm_live_edit: true,
+                  updates: commonEntries.map(([field_path, value]) => ({ field_path, value })),
+                },
+              }],
+            );
+          }
+          return apiErr;
+        }
+        results.push(`${commonEntries.length} field(s) → _common.yml`);
+      }
+
+      const side_effects = bindingPropagateSideEffects(boundUpdates);
+      const next_actions: NextAction[] = [];
+
       return ok(
         {
-          message: `Updated ${count} field${count !== 1 ? "s" : ""} in ${pathInfo.relativeHint}`,
+          message: `Applied ${updates.length} update(s) to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
+          ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
           ...wrotePayload({
             layer: pathInfo.layer,
             contentType: resolved.contentType,
@@ -1491,335 +1479,165 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             locale,
             slug,
           }),
-          ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
         },
-        {
-          warnings: [...variantWarningsIfNeeded(variant), ...schemaWarnings],
-          next_actions: [],
-          side_effects: bindingPropagateSideEffects(boundUpdates),
-        },
+        { warnings, next_actions, side_effects },
       );
     }
   );
 
-  // update_meta_field
-  mcp.tool(
-    "update_meta_field",
-    "Update a single SEO/meta field on a page. Always writes nested under meta.<field> in the correct file. " +
-    "Known fields are auto-routed: robots/priority/change_frequency → _common.yml; " +
-    "page_title/description/og_image/og_type/og_url/og_locale/canonical_url → {locale}.yml. " +
-    "Use 'custom_fields' + 'target' for non-standard meta fields not in the known list — target must be explicit ('locale' or 'common'). " +
-    "Do NOT use this for section/content edits — use update_section_field instead.\n\n" +
-    "Live gate: live locale saves require resolved non-empty meta.page_title + meta.description " +
-    "(draft-only writes exempt). Clearing either on a live page fails. " +
-    "editor.required fields (e.g. blog title/description) are separate — drafts may be empty; publish/live cannot clear.\n" +
-    "CIRCULAR TRAP: if body description is also empty, setting meta.description alone still fails — " +
-    "use batch_update_fields to set meta.description + description together.\n\n" +
-    "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the user before calling this tool: " +
-    "'Do you want to edit the live version directly, or create a new draft variant first?' " +
-    "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant's locale file, pass 'variant' (e.g. 'draft-v2') — locale-routed fields write to {variantSlug}.{locale}.yml.",
-    {
-      slug: z.string().describe("Page slug"),
-      contentType: z.string().optional().describe("Content type hint. Omit to auto-detect from slug."),
-      field: z.enum([
-        "page_title", "description", "og_image", "og_type", "og_url", "og_locale", "canonical_url",
-        "robots", "priority", "change_frequency",
-      ]).optional().describe(
-        "Known meta field to update. Auto-routed to the correct file. " +
-        "Locale fields (page_title, description, og_image, og_type, og_url, og_locale, canonical_url) → {locale}.yml (or {variant}.{locale}.yml when variant is set). " +
-        "Common fields (robots, priority, change_frequency) → _common.yml (variant has no effect on common fields)."
-      ),
-      value: z.unknown().optional().describe("New value for the known 'field'. Required when 'field' is provided."),
-      locale: z.string().default("en").describe("Locale code used when writing to a locale file, e.g. 'en' or 'es'"),
-      custom_fields: z.record(z.unknown()).optional().describe(
-        "Map of non-standard meta field names to values. Cannot contain known field names (use 'field' for those). " +
-        "Requires 'target' to be explicitly set."
-      ),
-      target: z.enum(["locale", "common"]).optional().describe(
-        "Required when 'custom_fields' is provided. 'locale' writes to {locale}.yml (or {variant}.{locale}.yml), 'common' writes to _common.yml."
-      ),
-      variant: z.string().optional().describe("Variant slug (e.g. 'draft-v2'). When set, locale-routed fields write to {variantSlug}.{locale}.yml instead of {locale}.yml."),
-      confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
-      site: z.string().optional().describe(SITE_PARAM_DESC),
-    },
-    async ({ slug, contentType, field, value, locale, custom_fields, target, variant, confirm_live_edit, site }) => {
-      const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath, contentFolder, domain } = siteResult;
-      try {
-        assertSafeSegment(slug, "slug");
-        assertSafeLocale(locale);
-        if (contentType) assertSafeSegment(contentType, "contentType");
-        if (variant) assertSafeSegment(variant, "variant");
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-
-      if (!field && !custom_fields) {
-        return fail("Provide either 'field' + 'value' for a known meta field, or 'custom_fields' + 'target' for non-standard fields.");
-      }
-      if (custom_fields && !target) {
-        return fail("'target' is required when providing 'custom_fields'. Set target to 'locale' or 'common'.");
-      }
-      if (custom_fields) {
-        const knownInCustom = Object.keys(custom_fields).filter(k => ALL_KNOWN_META_FIELDS.has(k));
-        if (knownInCustom.length > 0) {
-          return fail(`'custom_fields' contains known meta field(s): ${knownInCustom.join(", ")}. Use 'field' parameter instead for auto-routing.`);
-        }
-      }
-
-      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
-      if (!resolved) {
-        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
-      }
-
-      if (mcpToken) {
-        if (!await checkCap(mcpToken, "seo_edit")) {
-          return denyResponse("seo_edit");
-        }
-      }
-
-      const liveGate = confirmLiveEditGate({
-        tool: "update_meta_field",
-        slug,
-        contentType: resolved.contentType,
-        locale,
-        contentPath,
-        variant,
-        confirm_live_edit,
-        extraArgsHint: { field, value, custom_fields, target },
-      });
-      if (liveGate) return liveGate;
-
-      const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
-      const ctDir = getDirectory(resolved.contentType, resolved.config);
-      const results: string[] = [];
-
-      if (field) {
-        if (value === undefined) {
-          return fail("'value' is required when 'field' is provided.");
-        }
-        const isCommon = META_COMMON_FIELDS.has(field);
-        // Metafields always use live locale (variants share meta; never write variant files for meta).
-        const fileName = isCommon ? "_common.yml" : `${locale}.yml`;
-        const filePath = path.join(dir, fileName);
-        try { assertWithinBase(filePath, contentPath); } catch (e) {
-          return fail((e as Error).message);
-        }
-        const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
-        const conflictErrF = await getConflictError(filePath, relativePath, [[`meta.${field}`, value]], { field, value }, domain);
-        if (conflictErrF) return conflictErrF;
-        const metaOp = { action: "update_field", path: `meta.${field}`, value };
-        if (isCommon) {
-          const apiErrF = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: [metaOp] }, mcpToken, domain);
-          if (apiErrF) return apiErrF;
-        } else {
-          // No variant — live locale only; API creates overlay if missing
-          const apiResultF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, operations: [metaOp] }, mcpToken, domain);
-          if ("error" in apiResultF) return apiResultF.error;
-        }
-        results.push(`meta.${field} → ${fileName}`);
-      }
-
-      if (custom_fields && target) {
-        const fileName = target === "common" ? "_common.yml" : `${locale}.yml`;
-        const filePath = path.join(dir, fileName);
-        try { assertWithinBase(filePath, contentPath); } catch (e) {
-          return fail((e as Error).message);
-        }
-        const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
-        const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
-        const conflictErrC = await getConflictError(filePath, relativePath, entries, { custom_fields, target }, domain);
-        if (conflictErrC) return conflictErrC;
-        const ops = entries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-        if (target === "common") {
-          const apiErrC = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: ops }, mcpToken, domain);
-          if (apiErrC) return apiErrC;
-        } else {
-          const apiResultC = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, operations: ops }, mcpToken, domain);
-          if ("error" in apiResultC) return apiResultC.error;
-        }
-        results.push(`${Object.keys(custom_fields).map(k => `meta.${k}`).join(", ")} → ${fileName}`);
-      }
-
-      return ok(
-        { message: `Updated ${results.join("; ")} in ${resolved.contentType}/${slug}` },
-        { warnings: variantWarningsIfNeeded(variant), next_actions: [] },
-      );
-    }
-  );
-
-  // update_meta_fields (bulk)
+  // update_meta_fields — multi-entry meta-only bulk (same updates across slugs)
   mcp.tool(
     "update_meta_fields",
-    "Update multiple SEO/meta fields on a page in a single call. Auto-routes each known field to the correct file " +
-    "(may write to both _common.yml and a locale file in one call if the fields span both). " +
-    "Known fields: robots/priority/change_frequency → _common.yml; " +
-    "page_title/description/og_image/og_type/og_url/og_locale/canonical_url → {locale}.yml. " +
-    "Use 'custom_fields' + 'target' for non-standard meta fields. " +
-    "Do NOT use this for section/content edits — use update_section_fields instead.\n\n" +
-    "Live gate: live saves need resolved meta.page_title + meta.description; drafts exempt. " +
-    "Clearing required live meta or editor.required fields fails.\n" +
-    "CIRCULAR TRAP: this tool cannot set body description — if editor.required description is also empty, " +
-    "use batch_update_fields to set meta.description + description together.\n\n" +
-    "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the user before calling this tool: " +
-    "'Do you want to edit the live version directly, or create a new draft variant first?' " +
-    "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant's locale file, pass 'variant' (e.g. 'draft-v2') — locale-routed fields write to {variantSlug}.{locale}.yml.",
+    "Apply the SAME meta field updates to many entry slugs in one call (token saver). Meta paths only — no sections or body fields. " +
+    "For one entry (or meta+body/section together) use update_fields instead.\n\n" +
+    "Server coalesces cache/sitemap/CI/redirect flush once after the batch; skips entry-preview capture. " +
+    "Per-slug live-gate failures continue the batch; fix circular traps with update_fields.\n\n" +
+    "Max 50 unique slugs. Duplicate slugs rejected.\n\n" +
+    MULTI_SITE_TOOL_BLURB + "\n\n" +
+    "IMPORTANT — versioning: pass confirm_live_edit: true when any slug has versioning.yml and you intend live edits.",
     {
-      slug: z.string().describe("Page slug"),
-      contentType: z.string().optional().describe("Content type hint. Omit to auto-detect from slug."),
-      fields: z.record(z.unknown()).optional().describe(
-        "Map of known meta field names to values. Auto-routed per field. " +
-        "E.g. { page_title: 'New Title', robots: 'index, follow' }"
-      ),
-      locale: z.string().default("en").describe("Locale code used when writing to a locale file, e.g. 'en' or 'es'"),
-      custom_fields: z.record(z.unknown()).optional().describe(
-        "Map of non-standard meta field names to values. Cannot contain known field names. Requires 'target'."
-      ),
-      target: z.enum(["locale", "common"]).optional().describe(
-        "Required when 'custom_fields' is provided. 'locale' writes to {locale}.yml (or {variant}.{locale}.yml), 'common' writes to _common.yml."
-      ),
-      variant: z.string().optional().describe("Variant slug (e.g. 'draft-v2'). When set, locale-routed fields write to {variantSlug}.{locale}.yml instead of {locale}.yml."),
-      confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
+      slugs: z.array(z.string()).min(1).max(50).describe("Entry slugs to update (unique, max 50)"),
+      locale: z.string().default("en").describe("Shared locale for all slugs"),
+      updates: z.array(z.object({
+        field_path: z.string().describe("Meta path, e.g. meta.robots or meta.page_title"),
+        value: z.unknown().describe("New value"),
+        meta_target: z.enum(["locale", "common"]).optional().describe("Required for unknown meta keys"),
+      })).min(1).describe("Meta updates applied identically to every slug"),
+      contentType: z.string().optional().describe("Optional type hint when auto-detect is ambiguous"),
+      variant: z.string().optional().describe("Optional variant for locale-routed meta (common meta ignores variant)"),
+      confirm_live_edit: z.boolean().optional().describe("Confirm live overwrite for versioned slugs"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, contentType, fields, locale, custom_fields, target, variant, confirm_live_edit, site }) => {
+    async ({ slugs, locale, updates, contentType, variant, confirm_live_edit, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath, contentFolder, domain } = siteResult;
+      const { domain } = siteResult;
       try {
-        assertSafeSegment(slug, "slug");
         assertSafeLocale(locale);
         if (contentType) assertSafeSegment(contentType, "contentType");
         if (variant) assertSafeSegment(variant, "variant");
+        for (const s of slugs) assertSafeSegment(s, "slug");
       } catch (e) {
         return fail((e as Error).message);
       }
 
-      if (!fields && !custom_fields) {
-        return fail("Provide 'fields' for known meta fields, or 'custom_fields' + 'target' for non-standard fields, or both.");
+      const seen = new Set<string>();
+      for (const s of slugs) {
+        if (seen.has(s)) return fail(`Duplicate slug in slugs[]: ${s}`);
+        seen.add(s);
       }
-      if (custom_fields && !target) {
-        return fail("'target' is required when providing 'custom_fields'. Set target to 'locale' or 'common'.");
-      }
-      if (fields) {
-        const unknownFields = Object.keys(fields).filter(k => !ALL_KNOWN_META_FIELDS.has(k));
-        if (unknownFields.length > 0) {
-          return fail(`Unknown meta field(s) in 'fields': ${unknownFields.join(", ")}. Use 'custom_fields' + 'target' for non-standard fields.`);
-        }
-      }
-      if (custom_fields) {
-        const knownInCustom = Object.keys(custom_fields).filter(k => ALL_KNOWN_META_FIELDS.has(k));
-        if (knownInCustom.length > 0) {
-          return fail(`'custom_fields' contains known meta field(s): ${knownInCustom.join(", ")}. Use 'fields' instead for auto-routing.`);
+
+      for (const u of updates) {
+        const p = u.field_path.startsWith("meta.") ? u.field_path : `meta.${u.field_path}`;
+        if (!p.startsWith("meta.")) {
+          return fail(`Non-meta path '${u.field_path}'. Use update_fields for body/section paths.`);
         }
       }
 
-      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
-      if (!resolved) {
-        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
+      if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
+        return denyResponse("seo_edit");
       }
 
-      if (mcpToken) {
-        if (!await checkCap(mcpToken, "seo_edit")) {
-          return denyResponse("seo_edit");
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/bulk-update-meta${
+          domain ? `?__site=${encodeURIComponent(domain)}` : ""
+        }`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify({
+            slugs,
+            locale,
+            updates: updates.map((u) => ({
+              field_path: u.field_path.startsWith("meta.") ? u.field_path : `meta.${u.field_path}`,
+              value: u.value,
+              ...(u.meta_target ? { meta_target: u.meta_target } : {}),
+            })),
+            ...(contentType ? { contentType } : {}),
+            ...(variant ? { variant } : {}),
+            ...(confirm_live_edit ? { confirm_live_edit: true } : {}),
+          }),
+        });
+        const data = await res.json() as Record<string, unknown>;
+        if (!res.ok && res.status !== 207) {
+          return fail((data.error as string) || `Server error: ${res.status}`);
         }
-      }
 
-      const liveGate = confirmLiveEditGate({
-        tool: "update_meta_fields",
-        slug,
-        contentType: resolved.contentType,
-        locale,
-        contentPath,
-        variant,
-        confirm_live_edit,
-        extraArgsHint: { fields, custom_fields, target },
-      });
-      if (liveGate) return liveGate;
-
-      const dir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
-      const ctDir = getDirectory(resolved.contentType, resolved.config);
-      const results: string[] = [];
-
-      if (fields && Object.keys(fields).length > 0) {
-        const commonEntries: Array<[string, unknown]> = [];
-        const localeEntries: Array<[string, unknown]> = [];
-
-        for (const [k, v] of Object.entries(fields)) {
-          if (META_COMMON_FIELDS.has(k)) {
-            commonEntries.push([`meta.${k}`, v]);
-          } else {
-            localeEntries.push([`meta.${k}`, v]);
+        const results = (data.results as Array<Record<string, unknown>>) || [];
+        const warnings: McpWarning[] = [
+          {
+            code: "bulk_meta_coalesced_flush",
+            message:
+              data.flushed
+                ? "Cache, sitemap, CI refresh, and redirect cache were flushed once after the batch (not per slug)."
+                : "No successful writes — post-write flush was skipped.",
+          },
+          {
+            code: "bulk_meta_no_preview_capture",
+            message: "Entry preview capture was skipped for this meta-only bulk update.",
+          },
+        ];
+        for (const w of (data.warnings as string[]) || []) {
+          if (w.includes("common_meta_ignores_variant")) {
+            warnings.push({ code: "common_meta_ignores_variant", message: w });
           }
         }
 
-        if (commonEntries.length > 0) {
-          const filePath = path.join(dir, "_common.yml");
-          try { assertWithinBase(filePath, contentPath); } catch (e) {
-            return fail((e as Error).message);
+        const next_actions: NextAction[] = [];
+        for (const r of results) {
+          if (r.ok) continue;
+          if (r.action_required === "fix_live_required_fields" || r.code === "live_required_fields") {
+            next_actions.push({
+              tool: "update_fields",
+              priority: "required",
+              reason: `Slug '${r.slug}' hit live-required/circular trap — set meta + body fields together.`,
+              args_hint: {
+                slug: r.slug,
+                locale,
+                contentType: r.contentType,
+                confirm_live_edit: true,
+                updates: ((r.missing_fields as string[]) || ["meta.description", "description"]).map(
+                  (field_path) => ({ field_path, value: `<non-empty value for ${field_path}>` }),
+                ),
+              },
+            });
+          } else if (r.action_required === "confirm_live_edit" || r.code === "confirm_live_edit") {
+            next_actions.push({
+              tool: "update_meta_fields",
+              priority: "required",
+              reason: `Re-call with confirm_live_edit: true for versioned slug '${r.slug}' (or pass variant).`,
+              args_hint: { slugs: [r.slug], locale, updates, confirm_live_edit: true, contentType },
+            });
           }
-          const relativePath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
-          const conflictErrCE = await getConflictError(filePath, relativePath, commonEntries, { fields: Object.fromEntries(commonEntries) }, domain);
-          if (conflictErrCE) return conflictErrCE;
-          const apiErrCE = await callEditCommonApi(
-            { contentType: resolved.contentType, slug, operations: commonEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v })) },
-            mcpToken,
-            domain
+        }
+
+        const okCount = results.filter((r) => r.ok).length;
+        if (okCount === results.length) {
+          return ok(
+            {
+              message: `Updated meta on ${okCount} slug(s)`,
+              results,
+              flushed: data.flushed,
+              side_effects_detail: data.side_effects,
+            },
+            { warnings, next_actions: [] },
           );
-          if (apiErrCE) return apiErrCE;
-          results.push(`${commonEntries.map(([k]) => k).join(", ")} → _common.yml`);
         }
-
-        if (localeEntries.length > 0) {
-          // Live locale only — variants share metafields
-          const fileName = `${locale}.yml`;
-          const filePath = path.join(dir, fileName);
-          try { assertWithinBase(filePath, contentPath); } catch (e) {
-            return fail((e as Error).message);
-          }
-          const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
-          const conflictErrLE = await getConflictError(filePath, relativePath, localeEntries, { fields: Object.fromEntries(localeEntries) }, domain);
-          if (conflictErrLE) return conflictErrLE;
-          const apiResultLE = await callEditSectionsApi(
-            { contentType: resolved.contentType, slug, locale, operations: localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v })) },
-            mcpToken,
-            domain
-          );
-          if ("error" in apiResultLE) return apiResultLE.error;
-          results.push(`${localeEntries.map(([k]) => k).join(", ")} → ${fileName}`);
-        }
+        return actionRequired(
+          {
+            success: false,
+            action_required: "review_bulk_meta_results",
+            message: `Bulk meta partial success: ${okCount}/${results.length} slug(s) updated`,
+            results,
+            flushed: data.flushed,
+            side_effects_detail: data.side_effects,
+            warnings,
+          },
+          next_actions,
+        );
+      } catch (e) {
+        return fail(`Failed to call bulk-update-meta API: ${(e as Error).message}`);
       }
-
-      if (custom_fields && target) {
-        const fileName = target === "common" ? "_common.yml" : `${locale}.yml`;
-        const filePath = path.join(dir, fileName);
-        try { assertWithinBase(filePath, contentPath); } catch (e) {
-          return fail((e as Error).message);
-        }
-        const entries: Array<[string, unknown]> = Object.entries(custom_fields).map(([k, v]) => [`meta.${k}`, v]);
-        const relativePath = `${contentFolder}/${ctDir}/${slug}/${fileName}`;
-        const conflictErrMF = await getConflictError(filePath, relativePath, entries, { custom_fields, target }, domain);
-        if (conflictErrMF) return conflictErrMF;
-        const opsMF = entries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-        if (target === "common") {
-          const apiErrMF = await callEditCommonApi({ contentType: resolved.contentType, slug, operations: opsMF }, mcpToken, domain);
-          if (apiErrMF) return apiErrMF;
-        } else {
-          const apiResultMF = await callEditSectionsApi({ contentType: resolved.contentType, slug, locale, operations: opsMF }, mcpToken, domain);
-          if ("error" in apiResultMF) return apiResultMF.error;
-        }
-        results.push(`${Object.keys(custom_fields).map(k => `meta.${k}`).join(", ")} → ${fileName}`);
-      }
-
-      return ok(
-        { message: `Updated ${results.join("; ")} in ${resolved.contentType}/${slug}` },
-        { warnings: variantWarningsIfNeeded(variant), next_actions: [] },
-      );
     }
   );
 
@@ -1833,7 +1651,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Optional variant targets {variant}.{locale}.yml (must exist; missing file fails — no live fallback). " +
     "All-draft entries without variant auto-resolve to draft.{locale}.yml when no live file exists. " +
     "level=database → db/{dbSlug}/overrides.json (listings + pages; all locales). " +
-    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_meta_field).",
+    "Never both levels in one call. Inspect with get_entry_fields first. Not for SEO meta.* (use update_fields or update_meta_fields).",
     {
       slug: z.string().describe("Entry slug"),
       contentType: z.string().optional().describe("Content type hint. Omit to auto-detect."),
@@ -2267,7 +2085,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                   : "Created draft only; live locale YAML unchanged",
             }],
             next_actions: [{
-              tool: "update_section_field",
+              tool: "update_fields",
               priority: "recommended",
               reason: "Edit the draft with variant set; live bindings/shared-layout will not run until publish/promote + live edits.",
               args_hint: {
@@ -2772,7 +2590,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           paths: relPaths,
         });
         next_actions.push({
-          tool: "batch_update_fields",
+          tool: "update_fields",
           priority: "recommended",
           reason: "Edit draft fields with variant set before publishing.",
           args_hint: { contentType, slug, locale: primaryLocale, variant: draftVariant, ...siteHint },
@@ -2800,7 +2618,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         next_actions.push({
           tool: "get_entry_content",
           priority: "recommended",
-          reason: "Re-read merged content (fields + single.{locale}.yml shell). Prefer batch_update_fields for locale fields — not section shell edits.",
+          reason: "Re-read merged content (fields + single.{locale}.yml shell). Prefer update_fields for locale fields — not section shell edits.",
           args_hint: { contentType, slug, locale: primaryLocale, ...siteHint },
         });
         next_actions.push({
@@ -3030,10 +2848,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         locale,
       });
       warnings.push(...articleHints.warnings);
-      // Stamp already applied — drop redundant update_section_fields next_actions.
+      // Stamp already applied — drop redundant update_fields next_actions.
       next_actions = [
         ...next_actions,
-        ...articleHints.next_actions.filter((a) => a.tool !== "update_section_fields"),
+        ...articleHints.next_actions.filter((a) => a.tool !== "update_fields"),
       ];
 
       return ok(
@@ -3364,10 +3182,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "replace_entry_sections",
     "Atomically replace ALL sections in a page's locale file in one call — the high-throughput " +
-    "alternative to calling update_section_field N times. " +
+    "alternative to calling update_fields N times. " +
     "Optionally also replaces the meta block in the same call. " +
     "The caller supplies the complete new sections array; the server replaces the existing array atomically. " +
-    "Accepts the same variant and confirm_live_edit versioning guards as update_section_field. " +
+    "Accepts the same variant and confirm_live_edit versioning guards as update_fields. " +
     "contentType is optional — omit it and the server will auto-detect from slug.\n\n" +
     "What the caller must supply: a complete sections array (every section, in order). " +
     "What the server handles: path-sanitisation, conflict detection, atomic write via edit-sections API, " +
@@ -3538,208 +3356,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           }),
         },
         { warnings, next_actions, side_effects },
-      );
-    }
-  );
-
-  // batch_update_fields
-  mcp.tool(
-    "batch_update_fields",
-    "Apply multiple field updates to a single page/locale atomically in one call, reducing N round-trips to 1. " +
-    "Accepts an array of { field_path, value } objects targeting any combination of sections and meta paths. " +
-    "field_path routing rules:\n" +
-    "  • 'sections.*' (e.g. 'sections.0.title') → locale file\n" +
-    "  • 'meta.robots', 'meta.priority', 'meta.change_frequency' → _common.yml\n" +
-    "  • 'meta.page_title', 'meta.description', 'meta.og_image', 'meta.og_type', " +
-    "    'meta.og_url', 'meta.og_locale', 'meta.canonical_url' → locale file\n" +
-    "  • Any other 'meta.*' key → locale file\n" +
-    "  • Safe top-level fields allowed by content-type editor.type (title, slug, settings, description, content, …) → locale file\n\n" +
-    "Live gate: live writes need resolved meta.page_title + meta.description; " +
-    "editor.required fields cannot be cleared on live. Drafts exempt.\n" +
-    "CIRCULAR TRAP: when both meta.description and body description are empty on a live blog, " +
-    "pass both paths in updates[] in this one call (do not use update_meta_field / update_section_field separately).\n\n" +
-    MULTI_SITE_TOOL_BLURB + "\n\n" +
-    "What the caller must supply: a non-empty updates array with valid field_path strings and values. " +
-    "What the server handles: routing, conflict detection per file, atomic write(s), cache refresh, Git mark-modified.\n\n" +
-    "Possible errors: invalid/disallowed field_path, page/locale not found, remote conflict " +
-    "(returns remoteContent + intendedContent), permission denied.\n\n" +
-    "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
-    "you MUST ask the principal before calling this tool: " +
-    "'Do you want to edit the live version directly, or create a new draft variant first?' " +
-    "To edit the live version directly pass confirm_live_edit: true. " +
-    "To edit a variant, call create_variant first and pass the returned slug as the 'variant' parameter here.",
-    {
-      slug: z.string().describe("Page slug"),
-      locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
-      updates: z.array(z.object({
-        field_path: z.string().describe("Dot-notation path, e.g. 'sections.0.title', 'meta.description', 'title', 'content'"),
-        value: z.unknown().describe("New value for the field"),
-      })).min(1).describe("Array of { field_path, value } updates. Minimum 1. Applied atomically to the target file(s)."),
-      contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program', 'blog'). Omit to auto-detect from slug."),
-      variant: z.string().optional().describe("Variant slug to write to (e.g. 'draft-v2'). Writes to {variantSlug}.{locale}.yml instead of the live locale file. Does not affect _common.yml routing."),
-      confirm_live_edit: z.boolean().optional().describe("Set to true to confirm you want to overwrite the live locale file directly when a versioning.yml exists. Required when no 'variant' is supplied and the page has active variants."),
-      layout_target: layoutTargetSchema,
-      confirm_layout_target: confirmLayoutTargetSchema,
-      site: z.string().optional().describe(SITE_PARAM_DESC),
-    },
-    async ({ slug, locale, updates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
-      const siteResult = resolveSiteContext(site);
-      if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath, contentFolder, domain } = siteResult;
-      try {
-        assertSafeSegment(slug, "slug");
-        assertSafeLocale(locale);
-        if (contentType) assertSafeSegment(contentType, "contentType");
-        if (variant) assertSafeSegment(variant, "variant");
-      } catch (e) {
-        return fail((e as Error).message);
-      }
-
-      const resolved = resolveContentType(slug, contentType, contentPath, { allowSharedLayout: true });
-      if (!resolved) {
-        return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
-      }
-
-      const safeTop = safeTopLevelFieldsForConfig(resolved.config);
-      const badPaths = updates.filter(u =>
-        !u.field_path.startsWith("sections.") &&
-        !u.field_path.startsWith("meta.") &&
-        !safeTop.has(u.field_path)
-      );
-      if (badPaths.length > 0) {
-        return fail(`Disallowed field_path(s): ${badPaths.map(u => u.field_path).join(", ")}. Must start with 'sections.', 'meta.', or be one of: ${[...safeTop].join(", ")}.`);
-      }
-
-      if (mcpToken) {
-        if (!await checkCap(mcpToken, "content_edit_text", resolved.contentType)) {
-          return denyResponse("content_edit_text", resolved.contentType);
-        }
-      }
-
-      const liveGate = confirmLiveEditGate({
-        tool: "batch_update_fields",
-        slug,
-        contentType: resolved.contentType,
-        locale,
-        contentPath,
-        variant,
-        confirm_live_edit,
-        extraArgsHint: { updates, layout_target, confirm_layout_target },
-      });
-      if (liveGate) return liveGate;
-
-      const touchesSections = updates.some(u => u.field_path.startsWith("sections."));
-      const layoutGate = resolveLayoutTargetGate({
-        tool: "batch_update_fields",
-        contentType: resolved.contentType,
-        config: resolved.config,
-        slug,
-        locale,
-        layout_target: layout_target as LayoutTarget | undefined,
-        confirm_layout_target,
-        requireConfirmWhenAuto: touchesSections,
-      });
-      if ("gate" in layoutGate) return layoutGate.gate;
-      const layoutTarget = layoutGate.target;
-
-      const pathInfo = pathForLayoutTarget({
-        contentPath,
-        contentType: resolved.contentType,
-        config: resolved.config,
-        slug,
-        locale,
-        layoutTarget,
-        variant,
-      });
-      const localeFilePath = pathInfo.filePath;
-      try { assertWithinBase(localeFilePath, contentPath); } catch (e) {
-        return fail((e as Error).message);
-      }
-      const commonFilePath = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug, "_common.yml");
-
-      const localeEntries: Array<[string, unknown]> = [];
-      const commonEntries: Array<[string, unknown]> = [];
-      for (const { field_path, value } of updates) {
-        const metaKey = field_path.startsWith("meta.") ? field_path.slice(5).split(".")[0] : null;
-        if (metaKey && META_COMMON_FIELDS.has(metaKey)) {
-          commonEntries.push([field_path, value]);
-        } else {
-          localeEntries.push([field_path, value]);
-        }
-      }
-
-      const localeRelPath = `${contentFolder}/${pathInfo.relativeHint}`;
-      const ctDir = getDirectory(resolved.contentType, resolved.config);
-      const commonRelPath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
-
-      if (localeEntries.length > 0 && !fs.existsSync(localeFilePath)) {
-        return fail(`File not found: ${pathInfo.relativeHint}`);
-      }
-
-      if (localeEntries.length > 0) {
-        const conflictErr = await getConflictError(localeFilePath, localeRelPath, localeEntries, { updates: localeEntries.map(([p, v]) => ({ field_path: p, value: v })) }, domain);
-        if (conflictErr) return conflictErr;
-      }
-      if (commonEntries.length > 0) {
-        const conflictErr = await getConflictError(commonFilePath, commonRelPath, commonEntries, { updates: commonEntries.map(([p, v]) => ({ field_path: p, value: v })) }, domain);
-        if (conflictErr) return conflictErr;
-      }
-
-      const results: string[] = [];
-
-      if (localeEntries.length > 0) {
-        const ops = localeEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-        const apiResult = await callEditSectionsApi(
-          { contentType: resolved.contentType, slug, locale, variant, layoutTarget, operations: ops },
-          mcpToken,
-          domain,
-        );
-        if ("error" in apiResult) return apiResult.error;
-        results.push(`${localeEntries.length} field${localeEntries.length !== 1 ? "s" : ""} → ${pathInfo.relativeHint}`);
-      }
-
-      if (commonEntries.length > 0) {
-        const ops = commonEntries.map(([p, v]) => ({ action: "update_field", path: p, value: v }));
-        const apiErr = await callEditCommonApi(
-          { contentType: resolved.contentType, slug, operations: ops },
-          mcpToken,
-          domain
-        );
-        if (apiErr) return apiErr;
-        results.push(`${commonEntries.length} field${commonEntries.length !== 1 ? "s" : ""} → _common.yml`);
-      }
-
-      const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
-      const next_actions: NextAction[] = [];
-      if (touchesSections) {
-        warnings.push(BATCH_BINDING_WARNING);
-        next_actions.push({
-          tool: "get_section_bindings",
-          priority: "recommended",
-          reason: "batch_update_fields does not propagate bindings — inspect membership, then re-apply via update_section_field if needed.",
-          args_hint: { contentType: resolved.contentType, slug, sectionIndex: 0, locale },
-        });
-        next_actions.push({
-          tool: "update_section_field",
-          priority: "recommended",
-          reason: "For bound sections, re-apply field changes with update_section_field so server binding propagate runs.",
-          args_hint: { contentType: resolved.contentType, slug, locale, confirm_live_edit: true },
-        });
-      }
-
-      const total = updates.length;
-      return ok(
-        {
-          message: `Applied ${total} update${total !== 1 ? "s" : ""} to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
-          ...wrotePayload({
-            layer: pathInfo.layer,
-            contentType: resolved.contentType,
-            path: pathInfo.relativeHint,
-            locale,
-            slug,
-          }),
-        },
-        { warnings, next_actions },
       );
     }
   );
@@ -4022,8 +3638,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "get_section_bindings",
     "Read-only: look up the section-binding group for a section by contentType, slug, and sectionIndex. " +
     "Returns { group: null } when the section is not bound, or the enriched binding group with members. " +
-    "Use after structural edits or batch_update_fields when you need membership context. " +
-    "Does not mutate content — binding content sync happens on live update_section_field / update_section_fields.",
+    "Use after structural edits or update_fields when you need membership context. " +
+    "Does not mutate content — binding content sync happens on live update_fields (single-section).",
     {
       contentType: z.string().describe("Content type, e.g. 'page' or 'program'"),
       slug: z.string().describe("Page slug"),
@@ -4074,7 +3690,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "url_pattern, extra URL params, observed peer values for those params, create_via, body_model, " +
     "and schema_org_requirements with coverage { present, missing_slugs } when declared. " +
     "For editor.type json fields, read editor.<field>.schema (JSON Schema) before writing values via " +
-    "batch_update_fields / update_section_field — schema is required and returned again on validation failure. " +
+    "update_fields — schema is required and returned again on validation failure. " +
     "Call this before create_entry when unsure how a type works. " +
     "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
     MULTI_SITE_TOOL_BLURB,

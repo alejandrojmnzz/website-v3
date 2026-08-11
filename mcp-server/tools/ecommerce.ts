@@ -30,7 +30,7 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
 export function registerEcommerceTools(mcp: McpServer, mcpToken?: string): void {
   mcp.tool(
     "get_product_funnel",
-    "Get the effective conversion funnel for a purchasable product: funnel.traffic_sources (top-of-funnel types) + locked product page + authored funnel.steps + auto pages with ecommerce_products: all. Call explain_site topic ecommerce first if unsure. Not a section field — do not use update_section_field. Property paths: _ecommerce.yml funnel.steps, funnel.traffic_sources.",
+    "Get the effective conversion funnel for a purchasable product: funnel.traffic_sources (top-of-funnel types) + locked product page + authored funnel.steps + auto pages with ecommerce_products: all. Call explain_site topic ecommerce first if unsure. Not a section field — do not use update_fields. Property paths: _ecommerce.yml funnel.steps, funnel.traffic_sources.",
     {
       slug: z.string().describe("Product content slug, e.g. ai-fluency"),
       site: z.string().optional().describe('Site domain when multi-site. Always pass site when multiple sites are configured; call list_sites if unsure.'),

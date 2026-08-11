@@ -1,7 +1,7 @@
 /**
  * MCP guidance when live SEO + editor.required gates block a write.
  * Agents often hit a circular trap (empty meta.description AND empty description)
- * and need batch_update_fields to set both in one call.
+ * and need update_fields to set both in one call.
  */
 
 import {
@@ -54,11 +54,11 @@ export function liveRequiredFieldsActionRequired(opts: {
 
   const next_actions: NextAction[] = [
     {
-      tool: "batch_update_fields",
+      tool: "update_fields",
       priority: "required",
       reason: isCircularDescriptionTrap(missing_fields)
         ? "Set meta.description and description (and any other missing required fields) in ONE call — single-field writes stay blocked while the other side is empty."
-        : "Set all missing live-required fields in one atomic batch_update_fields call.",
+        : "Set all missing live-required fields in one atomic update_fields call.",
       args_hint: {
         slug: opts.slug,
         locale: opts.locale ?? "en",
@@ -98,8 +98,8 @@ export function liveRequiredFieldsActionRequired(opts: {
       missing_fields,
       details: {
         remedy:
-          "Use batch_update_fields with every missing path in updates[]. " +
-          "update_meta_fields alone cannot set body description; update_section_fields alone cannot set meta.description.",
+          "Use update_fields with every missing path in updates[]. " +
+          "update_meta_fields is multi-entry meta-only and cannot set body description.",
         non_effects:
           "Draft-only writes are exempt. This gate does not auto-copy description ↔ meta.description.",
       },

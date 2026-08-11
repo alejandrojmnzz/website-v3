@@ -66,7 +66,7 @@ describe("evaluateLiveEntrySeoAndRequiredFields", () => {
       "description",
     ]);
     expect(failure?.message).toContain("CIRCULAR_REQUIRED_FIELDS");
-    expect(failure?.message).toContain("batch_update_fields");
+    expect(failure?.message).toContain("update_fields");
   });
 
   it("passes when meta and required fields are populated", () => {

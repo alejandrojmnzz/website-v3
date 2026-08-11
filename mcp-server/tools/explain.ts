@@ -16,6 +16,7 @@ const VALID_TOPICS = [
   "images",
   "sections",
   "semantic_search",
+  "local_databases",
   "component-behaviors",
   "ecommerce",
   "shared-layout",
@@ -128,6 +129,7 @@ export function registerExplainTools(mcp: McpServer): void {
       "'images' (image registry, UniversalImage, image_id usage), " +
       "'sections' (SectionRenderer, component registry, how sections are authored), " +
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
+      "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ bank), " +
       "'component-behaviors' (CTA tracking, behaviors ids), " +
       "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example). " +
@@ -136,11 +138,26 @@ export function registerExplainTools(mcp: McpServer): void {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, component-behaviors, ecommerce, shared-layout.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout.",
         ),
     },
     async ({ topic }) => {
       if (!(VALID_TOPICS as readonly string[]).includes(topic)) {
+        const TOPIC_DESC: Record<string, string> = {
+          overview: "Start here — architectural summary and guide to all topics",
+          content_system: "YAML content files, _common.yml merge, safeYamlLoad requirement",
+          routing: "URL patterns, locale prefixes (/en/, /es/), dynamic route generation",
+          images: "Image registry, UniversalImage component, image_id referencing",
+          sections: "SectionRenderer, component registry, how sections are authored",
+          semantic_search:
+            "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
+          local_databases:
+            "Local YAML private DBs; MCP item CRUD; global index; FAQ bank; sync + reindex",
+          "component-behaviors": "CTA tracking, behaviors ids",
+          ecommerce: "products, funnels, product scope property paths, no CMS plans",
+          "shared-layout":
+            "single_template / shared shell, create_entry playbook, blog as example",
+        };
         return {
           content: [
             {
@@ -151,18 +168,7 @@ export function registerExplainTools(mcp: McpServer): void {
                   message: `'${topic}' is not a valid topic. Call explain_site with one of the valid topics listed below.`,
                   valid_topics: VALID_TOPICS.map((t) => ({
                     topic: t,
-                    description:
-                      t === "overview"
-                        ? "Start here — architectural summary and guide to all topics"
-                        : t === "content_system"
-                          ? "YAML content files, _common.yml merge, safeYamlLoad requirement"
-                          : t === "routing"
-                            ? "URL patterns, locale prefixes (/en/, /es/), dynamic route generation"
-                            : t === "images"
-                              ? "Image registry, UniversalImage component, image_id referencing"
-                              : t === "sections"
-                                ? "SectionRenderer, component registry, how sections are authored"
-                                : "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
+                    description: TOPIC_DESC[t] ?? t,
                   })),
                 },
                 null,

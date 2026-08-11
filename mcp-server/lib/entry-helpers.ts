@@ -74,7 +74,7 @@ export function requiredEditorFields(config: ContentTypeConfig): string[] {
     .map(([k]) => k);
 }
 
-/** Top-level field paths writable via batch_update_fields / update_section_field. */
+/** Top-level field paths writable via update_fields. */
 export function safeTopLevelFieldsForConfig(config: ContentTypeConfig): Set<string> {
   const allowed = new Set(["title", "slug", "settings"]);
   const editor = getEditorConfig(config);

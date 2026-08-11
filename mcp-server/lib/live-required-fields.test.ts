@@ -39,7 +39,7 @@ describe("liveSeoGate helpers", () => {
       "description",
     ]);
     expect(hint).toContain("CIRCULAR_REQUIRED_FIELDS");
-    expect(hint).toContain("batch_update_fields");
+    expect(hint).toContain("update_fields");
   });
 });
 
@@ -56,7 +56,7 @@ describe("MCP live required fields guidance", () => {
     expect(isLiveRequiredFieldsError("unrelated boom")).toBe(false);
   });
 
-  it("returns action_required with batch_update_fields next_action", () => {
+  it("returns action_required with update_fields next_action", () => {
     const result = liveRequiredFieldsActionRequired({
       errMsg:
         "meta.description is required before saving a live page. " +
@@ -80,7 +80,7 @@ describe("MCP live required fields guidance", () => {
       "meta.description",
       "description",
     ]);
-    expect(payload.next_actions[0]?.tool).toBe("batch_update_fields");
+    expect(payload.next_actions[0]?.tool).toBe("update_fields");
     expect(payload.next_actions[0]?.args_hint?.updates).toHaveLength(2);
   });
 });

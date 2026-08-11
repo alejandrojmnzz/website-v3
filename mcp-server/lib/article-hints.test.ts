@@ -22,14 +22,18 @@ describe("hintsAfterAddArticle", () => {
       locale: "en",
     });
     expect(result.warnings.map((w) => w.code)).toContain("article_split_always_share");
-    expect(result.next_actions.some((a) => a.tool === "update_section_fields")).toBe(true);
-    const fields = result.next_actions[0]?.args_hint?.fields as Record<string, unknown>;
-    expect(fields["sections.0.toc_group"]).toBeTruthy();
-    expect(fields["sections.1.toc_group"]).toBe(fields["sections.0.toc_group"]);
-    expect(fields["sections.0.show_toc"]).toBe(true);
-    expect(fields["sections.1.show_toc"]).toBeUndefined();
-    expect(result.next_actions[0]?.reason).not.toMatch(/ask the user/i);
-    expect(result.next_actions[0]?.reason).not.toMatch(/stay separate/i);
+    const fieldActions = result.next_actions.filter((a) => a.tool === "update_fields");
+    expect(fieldActions.length).toBeGreaterThanOrEqual(1);
+    const allUpdates = fieldActions.flatMap(
+      (a) => (a.args_hint?.updates as Array<{ field_path: string; value: unknown }>) || [],
+    );
+    const byPath = Object.fromEntries(allUpdates.map((u) => [u.field_path, u.value]));
+    expect(byPath["sections.0.toc_group"]).toBeTruthy();
+    expect(byPath["sections.1.toc_group"]).toBe(byPath["sections.0.toc_group"]);
+    expect(byPath["sections.0.show_toc"]).toBe(true);
+    expect(byPath["sections.1.show_toc"]).toBeUndefined();
+    expect(fieldActions[0]?.reason).not.toMatch(/ask the user/i);
+    expect(fieldActions[0]?.reason).not.toMatch(/stay separate/i);
   });
 
   it("still informs always-share when toc_group already matches", () => {
@@ -87,6 +91,6 @@ describe("hintsAfterReplaceSections", () => {
       locale: "en",
     });
     expect(result.warnings.map((w) => w.code)).toContain("article_split_always_share");
-    expect(result.next_actions.some((a) => a.tool === "update_section_fields")).toBe(true);
+    expect(result.next_actions.some((a) => a.tool === "update_fields")).toBe(true);
   });
 });

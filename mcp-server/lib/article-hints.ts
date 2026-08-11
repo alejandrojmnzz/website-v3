@@ -60,19 +60,52 @@ function articleEntries(sections: Array<Record<string, unknown>>): ArticleEntry[
     }));
 }
 
-function stampGroupFields(
+function stampGroupUpdates(
   articles: ArticleEntry[],
   groupId: string,
-): Record<string, unknown> {
-  const fields: Record<string, unknown> = {};
+): Array<{ field_path: string; value: unknown }> {
+  const updates: Array<{ field_path: string; value: unknown }> = [];
   articles.forEach((a, i) => {
-    fields[`sections.${a.index}.toc_group`] = groupId;
-    fields[`sections.${a.index}.toc_position`] = "side";
+    updates.push({ field_path: `sections.${a.index}.toc_group`, value: groupId });
+    updates.push({ field_path: `sections.${a.index}.toc_position`, value: "side" });
     if (i === 0) {
-      fields[`sections.${a.index}.show_toc`] = true;
+      updates.push({ field_path: `sections.${a.index}.show_toc`, value: true });
     }
   });
-  return fields;
+  return updates;
+}
+
+/** One update_fields next_action per section index (MCP rejects multi-section in one call). */
+function stampGroupNextActions(opts: {
+  articles: ArticleEntry[];
+  groupId: string;
+  slug: string;
+  locale: string;
+  reason: string;
+}): NextAction[] {
+  const updates = stampGroupUpdates(opts.articles, opts.groupId);
+  const byIndex = new Map<number, Array<{ field_path: string; value: unknown }>>();
+  for (const u of updates) {
+    const m = u.field_path.match(/^sections\.(\d+)/);
+    if (!m) continue;
+    const idx = parseInt(m[1], 10);
+    const list = byIndex.get(idx) || [];
+    list.push(u);
+    byIndex.set(idx, list);
+  }
+  return [...byIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([idx, sectionUpdates]) => ({
+      tool: "update_fields",
+      priority: "recommended" as const,
+      reason: `${opts.reason} (sections.${idx})`,
+      args_hint: {
+        slug: opts.slug,
+        locale: opts.locale,
+        updates: sectionUpdates,
+        confirm_live_edit: true,
+      },
+    }));
 }
 
 function leadMisconfigWarnings(articles: ArticleEntry[]): McpWarning[] {
@@ -207,33 +240,31 @@ export function hintsAfterAddArticle(opts: {
     postArticles[0]?.show_toc !== true;
 
   if (needsStamp) {
-    next_actions.push({
-      tool: "update_section_fields",
-      priority: "recommended",
-      reason:
-        "Stamp toc_group on all articles and set show_toc: true on the first (lead) article. " +
-        "Articles always continue one piece — there is no separate-TOC option. " +
-        "Later show_toc flags do not control TOC chrome.",
-      args_hint: {
+    next_actions.push(
+      ...stampGroupNextActions({
+        articles: postArticles,
+        groupId: preferredGroup,
         slug: opts.slug,
         locale: opts.locale,
-        fields: stampGroupFields(postArticles, preferredGroup),
-        confirm_live_edit: true,
-      },
-    });
+        reason:
+          "Stamp toc_group on articles and set show_toc: true on the first (lead) article. " +
+          "Articles always continue one piece — there is no separate-TOC option. " +
+          "Later show_toc flags do not control TOC chrome.",
+      }),
+    );
   }
 
   if (warnings.some((w) => w.code === "article_lead_toc_misconfigured") && !needsStamp) {
     next_actions.push({
-      tool: "update_section_fields",
+      tool: "update_fields",
       priority: "recommended",
       reason: "Set show_toc: true on the first article so the shared TOC appears at the page start.",
       args_hint: {
         slug: opts.slug,
         locale: opts.locale,
-        fields: {
-          [`sections.${postArticles[0]!.index}.show_toc`]: true,
-        },
+        updates: [
+          { field_path: `sections.${postArticles[0]!.index}.show_toc`, value: true },
+        ],
         confirm_live_edit: true,
       },
     });
@@ -276,18 +307,16 @@ export function hintsAfterReplaceSections(opts: {
     !articles.every((a) => a.toc_group === preferredGroup) || articles[0]?.show_toc !== true;
 
   if (needsStamp) {
-    next_actions.push({
-      tool: "update_section_fields",
-      priority: "recommended",
-      reason:
-        "Multiple articles always continue one piece. Apply toc_group on all and show_toc: true on the first article.",
-      args_hint: {
+    next_actions.push(
+      ...stampGroupNextActions({
+        articles,
+        groupId: preferredGroup,
         slug: opts.slug,
         locale: opts.locale,
-        fields: stampGroupFields(articles, preferredGroup),
-        confirm_live_edit: true,
-      },
-    });
+        reason:
+          "Multiple articles always continue one piece. Apply toc_group and show_toc: true on the first article.",
+      }),
+    );
   }
 
   return { warnings, next_actions };
