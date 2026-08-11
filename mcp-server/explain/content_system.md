@@ -12,6 +12,7 @@ All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by
                           # Web GTM ID is injected into the HTML shell from web_container_id (see server/gtm-web-inject.ts)
                           # IP Normalization: allowlisted destinations + X-IPN-Token; configure Constant + Request Headers
                           # in the GTM *server* container (not Stape admin). Empty secret while enabled → fail closed.
+                          # Recent /ipn calls: local .ipn-calls-state.txt (max 500), not content-repo / GitHub.
                           # Non-effect: does not call any CRM by name; side_effect of admin PUT: writes settings.yml.
   image-registry.json     # centralized image metadata
   theme.json              # color theme tokens

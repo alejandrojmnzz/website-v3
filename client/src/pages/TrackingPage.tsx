@@ -682,6 +682,8 @@ function IpnRecentCallsDialog({
       query?: string | null;
       bodyPreview?: string | null;
       headersPreview?: Record<string, string> | null;
+      egressIp?: string | null;
+      callerIp?: string | null;
     }>;
   }>({
     queryKey: ["/api/settings/optimization/ipn/recent"],
@@ -711,14 +713,19 @@ function IpnRecentCallsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" data-testid="dialog-ipn-recent-calls">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col"
+        data-testid="dialog-ipn-recent-calls"
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>Recent calls (test)</DialogTitle>
           <DialogDescription>
-            Last {data?.limit ?? 5} in-memory only — expand a row to see the request body. Cleared on server restart.
+            Last {data?.limit ?? 500} calls, persisted on disk. Row format:{" "}
+            <code className="font-mono text-[11px]">path · callerIp → host · egressIp</code>. Clear wipes the history
+            file. Expand a row for body and headers (secrets show as •••• + last 4 chars).
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end">
+        <div className="flex justify-end shrink-0">
           <Button
             type="button"
             size="sm"
@@ -740,7 +747,10 @@ function IpnRecentCallsDialog({
             <code className="font-mono">{IPN_TOKEN_HEADER}</code> to see them here.
           </p>
         ) : (
-          <ul className="space-y-2 max-h-[50vh] overflow-y-auto" data-testid="list-ipn-recent-calls">
+          <ul
+            className="space-y-2 flex-1 min-h-0 overflow-y-auto"
+            data-testid="list-ipn-recent-calls"
+          >
             {calls.map((call, i) => {
               const rowKey = `${call.at}-${i}`;
               const expanded = expandedAt === rowKey;
@@ -786,8 +796,17 @@ function IpnRecentCallsDialog({
                       {call.query ? (
                         <span className="text-muted-foreground">{call.query}</span>
                       ) : null}
+                      {call.callerIp ? (
+                        <span className="text-muted-foreground"> · {call.callerIp}</span>
+                      ) : null}
                       {call.targetHost ? (
-                        <span className="text-muted-foreground"> → {call.targetHost}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          → {call.targetHost}
+                          {call.egressIp ? ` · ${call.egressIp}` : ""}
+                        </span>
+                      ) : call.egressIp ? (
+                        <span className="text-muted-foreground"> · {call.egressIp}</span>
                       ) : null}
                     </p>
                   </button>
