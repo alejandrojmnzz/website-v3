@@ -1190,7 +1190,13 @@ export function registerSectionsRoutes(app: Express): void {
         }
         res.json(response);
       } else {
-        res.status(400).json({ error: result.error });
+        res.status(400).json({
+          error: result.error,
+          ...(result.errorCode ? { code: result.errorCode } : {}),
+          ...(result.missingFields?.length
+            ? { missing_fields: result.missingFields }
+            : {}),
+        });
       }
     } catch (error) {
       log.error({ err: error }, "Content edit error:");
@@ -1270,7 +1276,13 @@ export function registerSectionsRoutes(app: Express): void {
         invalidateContentCaches(contentType);
         res.json({ success: true });
       } else {
-        res.status(400).json({ error: result.error });
+        res.status(400).json({
+          error: result.error,
+          ...(result.errorCode ? { code: result.errorCode } : {}),
+          ...(result.missingFields?.length
+            ? { missing_fields: result.missingFields }
+            : {}),
+        });
       }
     } catch (error) {
       log.error({ err: error }, "Common content edit error:");

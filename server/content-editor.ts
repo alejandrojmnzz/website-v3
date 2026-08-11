@@ -12,7 +12,9 @@ import {
 import { generateSectionId } from "./utils/generateSectionId";
 import { loadAllFieldEditors } from "./component-registry";
 import { validateDocIdentity } from "./validate-content-identity";
-import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
+import {
+  evaluateLiveEntrySeoAndRequiredFields,
+} from "./live-entry-seo-gate";
 import {
   clampSchemaOrgSectionsLeading,
   isSchemaOrgSection,
@@ -404,6 +406,9 @@ function applyOperation(
 export async function editContent(request: ContentEditRequest): Promise<{
   success: boolean;
   error?: string;
+  /** Structured live-gate code when SEO/required fields block the write. */
+  errorCode?: string;
+  missingFields?: string[];
   warning?: string;
   updatedSections?: unknown[];
   clearedFields?: ClearedField[];
@@ -1023,7 +1028,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         string,
         unknown
       >;
-      const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+      const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
         contentType,
         slug,
         locale,
@@ -1033,7 +1038,12 @@ export async function editContent(request: ContentEditRequest): Promise<{
         isDraftWrite: false,
       });
       if (seoGateErr) {
-        return { success: false, error: seoGateErr };
+        return {
+          success: false,
+          error: seoGateErr.message,
+          errorCode: seoGateErr.code,
+          missingFields: seoGateErr.missing_fields,
+        };
       }
     }
 
@@ -1387,7 +1397,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
   operations: EditOperation[];
   author?: string;
   contentRoot?: string;
-}): { success: boolean; error?: string } {
+}): { success: boolean; error?: string; errorCode?: string; missingFields?: string[] } {
   const { contentType, slug, locale, operations, author } = opts;
   const rawRoot = opts.contentRoot ?? getDefaultContentRootName();
   const rootPath = path.isAbsolute(rawRoot) ? rawRoot : path.join(process.cwd(), rawRoot);
@@ -1422,7 +1432,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     const ciGate = contentIndex;
     const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
     const mergedForGate = deepMerge(commonForGate, entryData) as Record<string, unknown>;
-    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+    const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
       contentType,
       slug,
       locale,
@@ -1432,7 +1442,12 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       isDraftWrite: false,
     });
     if (seoGateErr) {
-      return { success: false, error: seoGateErr };
+      return {
+        success: false,
+        error: seoGateErr.message,
+        errorCode: seoGateErr.code,
+        missingFields: seoGateErr.missing_fields,
+      };
     }
 
     const dumped = safeYamlDump(entryData, { lineWidth: -1, noRefs: true });
@@ -1781,7 +1796,12 @@ interface CommonEditRequest {
   contentRootName?: string;
 }
 
-export function editCommonContent(request: CommonEditRequest): { success: boolean; error?: string } {
+export function editCommonContent(request: CommonEditRequest): {
+  success: boolean;
+  error?: string;
+  errorCode?: string;
+  missingFields?: string[];
+} {
   const { contentType, slug, operations, author } = request;
   const ci = request.ci ?? contentIndex;
   const contentRootName = request.contentRootName;
@@ -1823,7 +1843,7 @@ export function editCommonContent(request: CommonEditRequest): { success: boolea
       string,
       unknown
     >;
-    const seoGateErr = assertLiveEntrySeoAndRequiredFields({
+    const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
       contentType,
       slug,
       locale: defaultLocale,
@@ -1832,7 +1852,12 @@ export function editCommonContent(request: CommonEditRequest): { success: boolea
       mode: "live_update",
     });
     if (seoGateErr) {
-      return { success: false, error: seoGateErr };
+      return {
+        success: false,
+        error: seoGateErr.message,
+        errorCode: seoGateErr.code,
+        missingFields: seoGateErr.missing_fields,
+      };
     }
 
     const updatedYaml = safeYamlDump(commonData, {

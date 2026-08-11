@@ -248,7 +248,14 @@ async function callEditSectionsApi(
           ),
         };
       }
-      return { error: fail(errMsg) };
+      const { editApiErrorResult } = await import("../lib/live-required-fields.js");
+      return {
+        error: editApiErrorResult(errMsg, data, {
+          slug: params.slug,
+          locale: params.locale,
+          contentType: params.contentType,
+        }),
+      };
     }
     return { data };
   } catch (e) {
@@ -278,7 +285,12 @@ async function callEditCommonApi(
     });
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
-      return fail((data.error as string) || `Server error: ${res.status}`);
+      const errMsg = (data.error as string) || `Server error: ${res.status}`;
+      const { editApiErrorResult } = await import("../lib/live-required-fields.js");
+      return editApiErrorResult(errMsg, data, {
+        slug: params.slug,
+        contentType: params.contentType,
+      });
     }
     return null;
   } catch (e) {
@@ -1200,6 +1212,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "top-level field allowed by the content type editor (title, slug, settings, and editor.type-safe mapping keys such as description/content). " +
     "Do NOT use this for SEO/meta fields — use update_meta_field instead. " +
     "contentType is optional — omit it and the server will auto-detect from slug.\n\n" +
+    "CIRCULAR TRAP: if meta.description is also empty on a live page, setting body description alone still fails — " +
+    "use batch_update_fields to set meta.description + description together.\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the principal before calling this tool: " +
@@ -1346,6 +1360,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "the safe top-level fields ('title', 'slug'). " +
     "Do NOT use this for SEO/meta fields — use update_meta_fields instead. " +
     "contentType is optional — omit it and the server will auto-detect from slug.\n\n" +
+    "CIRCULAR TRAP: this tool cannot set meta.description — if meta.description is also empty, " +
+    "use batch_update_fields to set meta.description + description together.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -1496,7 +1512,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Do NOT use this for section/content edits — use update_section_field instead.\n\n" +
     "Live gate: live locale saves require resolved non-empty meta.page_title + meta.description " +
     "(draft-only writes exempt). Clearing either on a live page fails. " +
-    "editor.required fields (e.g. blog title/description) are separate — drafts may be empty; publish/live cannot clear.\n\n" +
+    "editor.required fields (e.g. blog title/description) are separate — drafts may be empty; publish/live cannot clear.\n" +
+    "CIRCULAR TRAP: if body description is also empty, setting meta.description alone still fails — " +
+    "use batch_update_fields to set meta.description + description together.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -1643,7 +1661,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Use 'custom_fields' + 'target' for non-standard meta fields. " +
     "Do NOT use this for section/content edits — use update_section_fields instead.\n\n" +
     "Live gate: live saves need resolved meta.page_title + meta.description; drafts exempt. " +
-    "Clearing required live meta or editor.required fields fails.\n\n" +
+    "Clearing required live meta or editor.required fields fails.\n" +
+    "CIRCULAR TRAP: this tool cannot set body description — if editor.required description is also empty, " +
+    "use batch_update_fields to set meta.description + description together.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -3535,7 +3555,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "  • Any other 'meta.*' key → locale file\n" +
     "  • Safe top-level fields allowed by content-type editor.type (title, slug, settings, description, content, …) → locale file\n\n" +
     "Live gate: live writes need resolved meta.page_title + meta.description; " +
-    "editor.required fields cannot be cleared on live. Drafts exempt.\n\n" +
+    "editor.required fields cannot be cleared on live. Drafts exempt.\n" +
+    "CIRCULAR TRAP: when both meta.description and body description are empty on a live blog, " +
+    "pass both paths in updates[] in this one call (do not use update_meta_field / update_section_field separately).\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "What the caller must supply: a non-empty updates array with valid field_path strings and values. " +
     "What the server handles: routing, conflict detection per file, atomic write(s), cache refresh, Git mark-modified.\n\n" +
