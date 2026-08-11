@@ -133,26 +133,37 @@ export function RelatedFeaturesPicker({ value, onChange, locale = "en", context 
   const label = isTestimonials ? "Topics" : "FAQ Topics";
   const itemLabel = isTestimonials ? "testimonials" : "FAQs";
 
+  const selectionSummary = (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground">
+        {selectedFeatures.length}/{maxSelection} selected
+        {totalForSelection > 0 && (
+          <span className="ml-1 text-primary">({totalForSelection} {itemLabel})</span>
+        )}
+      </span>
+      {selectedFeatures.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          className="text-xs text-primary hover:underline"
+          data-testid="props-features-clear"
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-3">
       {!hideLabel ? (
         <div className="flex items-center justify-between">
           <Label className="text-sm font-medium">{label}</Label>
-          <span className="text-xs text-muted-foreground">
-            {selectedFeatures.length}/{maxSelection} selected
-            {totalForSelection > 0 && (
-              <span className="ml-1 text-primary">({totalForSelection} {itemLabel})</span>
-            )}
-          </span>
+          {selectionSummary}
         </div>
       ) : (
         <div className="flex items-center justify-end">
-          <span className="text-xs text-muted-foreground">
-            {selectedFeatures.length}/{maxSelection} selected
-            {totalForSelection > 0 && (
-              <span className="ml-1 text-primary">({totalForSelection} {itemLabel})</span>
-            )}
-          </span>
+          {selectionSummary}
         </div>
       )}
       <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
