@@ -273,6 +273,75 @@ export function parsePipeFallback(fallback: string): unknown {
   }
 }
 
+const SINGLE_VAR_PATTERN =
+  /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
+const EXACT_SINGLE_VAR_PATTERN =
+  /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
+
+function getNestedBagValue(obj: Record<string, unknown>, dotPath: string): unknown {
+  const parts = dotPath.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    if (typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+/**
+ * Resolve `{{ single.* }}` tokens against a bag (exact match keeps structured
+ * values like FAQ JSON arrays; inline interpolation stringifies objects).
+ * Used by dynamic_entries (before resolveSingleVars) and FAQ editor preview.
+ */
+export function resolveSingleTemplateValue(
+  template: unknown,
+  bag: Record<string, unknown>,
+): unknown {
+  if (typeof template === "string") {
+    const exactMatch = template.match(EXACT_SINGLE_VAR_PATTERN);
+    if (exactMatch) {
+      const fieldPath = exactMatch[1];
+      const hasFallback = exactMatch[2] !== undefined;
+      const fallback = exactMatch[2]?.trim();
+      const value = getNestedBagValue(bag, fieldPath);
+      if (value !== undefined && value !== null) return value;
+      if (hasFallback) return parsePipeFallback(fallback ?? "");
+      return "";
+    }
+
+    if (!SINGLE_VAR_PATTERN.test(template)) return template;
+    SINGLE_VAR_PATTERN.lastIndex = 0;
+
+    return template.replace(
+      SINGLE_VAR_PATTERN,
+      (_match, fieldPath: string, fallback?: string) => {
+        const value = getNestedBagValue(bag, fieldPath);
+        if (value !== undefined && value !== null) {
+          if (typeof value === "object") return JSON.stringify(value);
+          return String(value);
+        }
+        if (fallback !== undefined) return fallback.trim();
+        return "";
+      },
+    );
+  }
+
+  if (Array.isArray(template)) {
+    return template.map((t) => resolveSingleTemplateValue(t, bag));
+  }
+
+  if (template !== null && typeof template === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(template as Record<string, unknown>)) {
+      result[key] = resolveSingleTemplateValue(value, bag);
+    }
+    return result;
+  }
+
+  return template;
+}
+
 /** Pretty-print structured value for the json CodeMirror draft. */
 export function formatJsonFieldDraft(value: unknown): string {
   if (value === null || value === undefined) return "";

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { expandMappedFields, getPickerSample, buildPickerMappedFields } from "./expandMappedFields";
 
 interface FieldValidationResult {
   valid: boolean;
@@ -40,6 +41,8 @@ interface SingleVariablePickerModalProps {
   onOpenChange: (open: boolean) => void;
   contentType: string;
   inlineDefault: string;
+  /** Current page's single bag — used for live sample values next to each field. */
+  singleEntry?: Record<string, unknown>;
   onCreated: (variableName: string, templateSyntax: string) => void;
 }
 
@@ -48,6 +51,7 @@ export function SingleVariablePickerModal({
   onOpenChange,
   contentType,
   inlineDefault,
+  singleEntry,
   onCreated,
 }: SingleVariablePickerModalProps) {
   const [search, setSearch] = useState("");
@@ -72,17 +76,19 @@ export function SingleVariablePickerModal({
     enabled: open && !!contentType,
   });
 
+  // Full property inventory (including nested paths under mapped fields like category.slug).
   const { data: availableProps } = useQuery<AvailableProperties>({
-    queryKey: [`/api/content-types/${contentType}/available-properties`, "exclude_mapped"],
-    queryFn: () => fetch(`/api/content-types/${contentType}/available-properties?exclude_mapped=true`).then(r => r.json()),
-    enabled: open && showAddForm && !!contentType,
+    queryKey: [`/api/content-types/${contentType}/available-properties`],
+    queryFn: () => fetch(`/api/content-types/${contentType}/available-properties`).then(r => r.json()),
+    enabled: open && !!contentType,
   });
 
   const isDbBacked = !!typeConfig?.database?.slug;
   const fieldMapping = typeConfig?.field_mapping || {};
-  const fields = Object.entries(fieldMapping)
-    .filter(([key]) => !key.startsWith("_"))
-    .map(([key, value]) => ({ key, source: mappingSourceString(value) }));
+  // Include system aliases (`slug` from `_slug`, etc.) so staff can pick {{ single.slug }}.
+  const mappedFields = buildPickerMappedFields(fieldMapping);
+
+  const fields = expandMappedFields(mappedFields, availableProps, singleEntry);
 
   const filteredFields = (() => {
     if (!search.trim()) return fields;
@@ -94,13 +100,21 @@ export function SingleVariablePickerModal({
     );
   })();
 
+  const mappedSources = new Set(
+    mappedFields.map((f) => f.source).filter((s) => s && !s.startsWith("function:")),
+  );
+
   const filteredAvailableProps = (() => {
     if (!availableProps) return { common: [], partial: [] };
+    const unmapped = {
+      common: availableProps.common.filter((k) => !mappedSources.has(k)),
+      partial: availableProps.partial.filter((p) => !mappedSources.has(p.key)),
+    };
     const q = newFieldSource.toLowerCase().trim();
-    if (!q) return availableProps;
+    if (!q) return unmapped;
     return {
-      common: availableProps.common.filter(k => k.toLowerCase().includes(q)),
-      partial: availableProps.partial.filter(p => p.key.toLowerCase().includes(q)),
+      common: unmapped.common.filter(k => k.toLowerCase().includes(q)),
+      partial: unmapped.partial.filter(p => p.key.toLowerCase().includes(q)),
     };
   })();
 
@@ -135,6 +149,10 @@ export function SingleVariablePickerModal({
       }
     }
   };
+
+  const selectedOption = selectedField
+    ? fields.find((f) => f.key === selectedField) ?? null
+    : null;
 
   const handleUseField = () => {
     if (!selectedField) return;
@@ -207,6 +225,7 @@ export function SingleVariablePickerModal({
   const label = typeConfig?.label || contentType;
   const validationWarning = !isDbBacked && validation && validation !== "loading" && !validation.valid ? validation : null;
   const canAdd = newFieldName.trim() && !(newFieldName.trim() in fieldMapping);
+  const selectedSourceLabel = selectedOption?.source || selectedField || "";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -369,11 +388,15 @@ export function SingleVariablePickerModal({
                 No fields found
               </div>
             ) : (
-              filteredFields.map((field) => (
+              filteredFields.map((field) => {
+                const sample = getPickerSample(singleEntry, field.key);
+                return (
                 <button
                   key={field.key}
                   type="button"
                   className={`w-full text-left px-3 py-2 flex items-center gap-2 border-b last:border-b-0 transition-colors ${
+                    field.isNested ? "pl-7" : ""
+                  } ${
                     selectedField === field.key
                       ? "bg-primary/5"
                       : "hover-elevate"
@@ -386,13 +409,33 @@ export function SingleVariablePickerModal({
                       <Check className="w-4 h-4 text-primary" />
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-mono font-medium text-foreground">
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <span className="text-sm font-mono font-medium text-foreground shrink-0">
                       {field.key}
                     </span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      {field.source}
-                    </span>
+                    {field.isObject && (
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">
+                        object
+                      </span>
+                    )}
+                    {field.isSystemAlias && !field.isObject && (
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">
+                        system
+                      </span>
+                    )}
+                    {sample ? (
+                      <span
+                        className="text-[10px] text-muted-foreground truncate min-w-0"
+                        title={sample}
+                        data-testid={`single-field-sample-${field.key}`}
+                      >
+                        {sample}
+                      </span>
+                    ) : field.source && field.source !== field.key ? (
+                      <span className="text-xs text-muted-foreground truncate min-w-0">
+                        {field.source}
+                      </span>
+                    ) : null}
                   </div>
                   {selectedField === field.key && !isDbBacked && (
                     <div className="flex-shrink-0">
@@ -408,14 +451,15 @@ export function SingleVariablePickerModal({
                     </div>
                   )}
                 </button>
-              ))
+                );
+              })
             )}
           </div>
 
           {validationWarning && selectedField && (
             <div className="text-[11px] text-destructive space-y-1" data-testid="text-single-validation-warning">
               <p>
-                Source property "<span className="font-mono font-medium">{mappingSourceString(fieldMapping[selectedField])}</span>" was not found in {validationWarning.found === 0 ? "any" : "some"} content {validationWarning.total === 1 ? "entry" : "entries"}.
+                Source property "<span className="font-mono font-medium">{selectedSourceLabel}</span>" was not found in {validationWarning.found === 0 ? "any" : "some"} content {validationWarning.total === 1 ? "entry" : "entries"}.
                 {" "}{validationWarning.found === 0 ? "None" : `Only ${validationWarning.found}`} of {validationWarning.total} {validationWarning.total === 1 ? "entry has" : "entries have"} this property.
               </p>
               {validationWarning.missing.length > 0 && (
@@ -448,6 +492,11 @@ export function SingleVariablePickerModal({
               <div className="px-3 py-2 rounded-md bg-muted font-mono text-sm" data-testid="text-single-preview">
                 {"{{ "}single.{selectedField}{" | "}{inlineDefault}{" }}"}
               </div>
+              {selectedOption?.isObject && (
+                <p className="text-[11px] text-muted-foreground" data-testid="text-object-field-hint">
+                  This field is an object. Use it when a component expects the whole value; for text (badge, label, URL), pick a nested property instead.
+                </p>
+              )}
             </div>
           )}
 

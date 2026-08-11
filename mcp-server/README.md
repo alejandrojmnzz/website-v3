@@ -42,11 +42,11 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` | Component registry |
 | `list_databases` / `list_database_items` / `get_database_item` | Local private DB discovery + read (global `index`) |
-| `add_database_item` / `update_database_item` / `delete_database_item` | Local YAML item CRUD (FAQ bank etc.) |
+| `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
 | `reindex_database` | Vector reindex after item writes (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
 
-See `explain_site` topic `local_databases` before FAQ bank mutations.
+See `explain_site` topic `local_databases` before FAQ database mutations.
 
 ---
 

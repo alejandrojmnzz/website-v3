@@ -578,7 +578,12 @@ export function registerSeoRoutes(app: Express): void {
         }> = [];
 
         if (Array.isArray(dbSections)) {
-          const collected = collectSectionSchemasDetailed(dbSections, {
+          const withDynamic = (await resolveDynamicEntries(dbSections, locale, {
+            contentRoot: getContentRoot(res),
+            contentIndex: getCI(res),
+            singleEntry,
+          })) as Array<Record<string, unknown>>;
+          const collected = collectSectionSchemasDetailed(withDynamic, {
             locale,
             contentRoot: getContentRoot(res),
             baseUrl: getBaseUrl(),
@@ -655,7 +660,17 @@ export function registerSeoRoutes(app: Express): void {
       }> = [];
 
       if (Array.isArray(sections)) {
-        const collected = collectSectionSchemasDetailed(sections, {
+        const singleEntry: Record<string, unknown> = {
+          ...(sectionsSource as Record<string, unknown>),
+          slug,
+          _slug: slug,
+        };
+        const withDynamic = (await resolveDynamicEntries(sections, locale, {
+          contentRoot: getContentRoot(res),
+          contentIndex: getCI(res),
+          singleEntry,
+        })) as Array<Record<string, unknown>>;
+        const collected = collectSectionSchemasDetailed(withDynamic, {
           locale,
           contentRoot: getContentRoot(res),
           baseUrl: getBaseUrl(),

@@ -9,17 +9,16 @@ import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { getFolder, getContentTypeConfig, resolveUrlPatternWithMapping } from "./content-types";
 import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generateHomepageHreflangTags } from "./hreflang";
 import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
-import { applyFilters, applyMatchCountSort, type QueryFilter } from "./query-entries";
-import { faqItemKey } from "./dynamic-entries";
-import {
-  peekDatabaseSearchCacheL1,
-  normalizeSearchQuery,
-  intersectSearchWithFiltersAndBackfill,
-} from "./database-search";
+import { resolveDynamicEntries } from "./dynamic-entries";
 import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
+import {
+  applyFaqHideOnLocations,
+  normalizeFaqEntries,
+  type FaqItemOverride,
+} from "@shared/faq-listing";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
 
@@ -61,9 +60,6 @@ function safeYamlLoad(yamlStr: string): unknown {
 interface FaqItem {
   question: string;
   answer: string;
-  locations?: string[];
-  related_features?: string[];
-  priority?: number;
 }
 
 interface FaqDynamicEntries {
@@ -80,10 +76,11 @@ interface FaqDynamicEntries {
 export interface FaqSection {
   type: "faq";
   title?: string;
+  /** Runtime-resolved by resolveDynamicEntries. */
   items?: FaqItem[];
-  related_features?: string[];
   dynamic_entries?: FaqDynamicEntries;
   hardcoded_entries?: FaqItem[];
+  item_overrides?: Record<string, FaqItemOverride>;
 }
 
 export interface BreadcrumbSectionItem {
@@ -102,88 +99,8 @@ interface ParsedRoute {
   locale: string;
 }
 
-const faqCacheByRoot = new Map<string, Record<string, FaqItem[]>>();
-
-function loadCentralizedFaqs(locale: string, contentRoot: string): FaqItem[] {
-  if (!faqCacheByRoot.has(contentRoot)) faqCacheByRoot.set(contentRoot, {});
-  const rootCache = faqCacheByRoot.get(contentRoot)!;
-  if (rootCache[locale]) return rootCache[locale];
-
-  const faqPath = path.join(contentRoot, "faqs", `${locale}.yml`);
-  if (!fs.existsSync(faqPath)) return [];
-
-  try {
-    const content = fs.readFileSync(faqPath, "utf-8");
-    const data = safeYamlLoad(content) as { faqs?: FaqItem[] };
-    rootCache[locale] = data?.faqs || [];
-    return rootCache[locale];
-  } catch {
-    return [];
-  }
-}
-
-interface LocalDbEntries {
-  entries: Record<string, unknown>[];
-  localeField: string | null;
-}
-
-const localDbCacheByRoot = new Map<string, Map<string, LocalDbEntries>>();
-
-/**
- * Synchronously loads entries from a local-source database
- * (e.g. db/frequently_asked_questions/faqs.yml). Remote databases are not
- * supported here; SSR schema generation must stay synchronous.
- */
-function loadLocalDatabaseEntries(database: string, contentRoot: string): LocalDbEntries {
-  if (!localDbCacheByRoot.has(contentRoot)) localDbCacheByRoot.set(contentRoot, new Map());
-  const rootCache = localDbCacheByRoot.get(contentRoot)!;
-  const cached = rootCache.get(database);
-  if (cached) return cached;
-
-  const empty: LocalDbEntries = { entries: [], localeField: null };
-  try {
-    const dbDir = path.join(contentRoot, "db", database);
-    const configPath = path.join(dbDir, "config.yml");
-    if (!fs.existsSync(configPath)) return empty;
-
-    const config = safeYamlLoad(fs.readFileSync(configPath, "utf-8")) as {
-      source?: { type?: string; local?: { filename?: string; results_path?: string } };
-      field_mapping?: Record<string, string>;
-      filter_by_locale?: boolean;
-    } | null;
-    if (!config || config.source?.type !== "local" || !config.source.local?.filename) return empty;
-
-    const dataPath = path.join(dbDir, config.source.local.filename);
-    if (!fs.existsSync(dataPath)) return empty;
-
-    const raw = safeYamlLoad(fs.readFileSync(dataPath, "utf-8"));
-    const resultsPath = config.source.local.results_path;
-    let entries: unknown = raw;
-    if (resultsPath && raw && typeof raw === "object" && !Array.isArray(raw)) {
-      entries = (raw as Record<string, unknown>)[resultsPath];
-    }
-    if (!Array.isArray(entries)) return empty;
-
-    const localeField =
-      config.filter_by_locale !== false && config.field_mapping?.locale
-        ? config.field_mapping.locale
-        : null;
-
-    const result: LocalDbEntries = {
-      entries: entries as Record<string, unknown>[],
-      localeField,
-    };
-    rootCache.set(database, result);
-    return result;
-  } catch {
-    return empty;
-  }
-}
-
 export function clearSsrSchemaCache(): void {
-  faqCacheByRoot.clear();
   imageRegistryByRoot.clear();
-  localDbCacheByRoot.clear();
 }
 
 function parseRoute(url: string, ci: typeof contentIndex = contentIndex): ParsedRoute | null {
@@ -277,169 +194,25 @@ export function buildBreadcrumbListSchema(items: BreadcrumbSectionItem[], baseUr
   };
 }
 
-export function resolveFaqItems(section: FaqSection, locale: string, locationSlug?: string, programSlug?: string, contentRoot: string = DEFAULT_CONTENT_ROOT): Array<{ question: string; answer: string }> {
-  if (section.items && section.items.length > 0) {
-    return section.items.map(({ question, answer }) => ({ question, answer }));
-  }
-
-  if (section.related_features && section.related_features.length > 0) {
-    const allFaqs = loadCentralizedFaqs(locale, contentRoot);
-    const relatedFeatures = section.related_features;
-
-    let filtered = allFaqs
-      .filter((faq) => {
-        const faqFeatures = faq.related_features || [];
-        return relatedFeatures.some((f) => faqFeatures.includes(f));
-      });
-
-    // Apply location filtering
-    if (locationSlug) {
-      // On location page: show "all" FAQs + FAQs for this specific location
-      filtered = filtered.filter((faq) => {
-        const locations = faq.locations || ["all"];
-        return locations.includes("all") || locations.includes(locationSlug);
-      });
-    } else {
-      // On general page: only show "all" FAQs, exclude location-specific ones
-      filtered = filtered.filter((faq) => {
-        const locations = faq.locations || ["all"];
-        return locations.includes("all") || locations.length === 0;
-      });
-    }
-
-    filtered = filtered
-      .sort((a, b) => {
-        const aFeatures = a.related_features || [];
-        const bFeatures = b.related_features || [];
-        const aCount = relatedFeatures.filter((f) => aFeatures.includes(f)).length;
-        const bCount = relatedFeatures.filter((f) => bFeatures.includes(f)).length;
-        
-        // Prioritize FAQs that have the programSlug tag when programSlug is provided and in selected topics
-        const shouldPrioritizeProgram = programSlug && relatedFeatures.includes(programSlug);
-        if (shouldPrioritizeProgram) {
-          const aHasProgram = aFeatures.includes(programSlug);
-          const bHasProgram = bFeatures.includes(programSlug);
-          if (aHasProgram !== bHasProgram) {
-            return aHasProgram ? -1 : 1; // FAQs with programSlug come first (lower sort value)
-          }
-        }
-        
-        if (bCount !== aCount) return bCount - aCount;
-        return (a.priority ?? 2) - (b.priority ?? 2);
-      })
-      .slice(0, 9);
-
-    return filtered.map(({ question, answer }) => ({ question, answer }));
-  }
-
-  const dyn = section.dynamic_entries;
-  if (dyn?.database) {
-    const { entries, localeField } = loadLocalDatabaseEntries(dyn.database, contentRoot);
-
-    let items = localeField
-      ? entries.filter((item) => String(item[localeField] ?? "") === locale)
-      : [...entries];
-
-    const filters: QueryFilter[] | undefined = dyn.permanent_filters?.map((pf) => ({
-      field: pf.item_property_slug,
-      value: pf.value,
-    }));
-
-    const hardcodedEntries = dyn.hardcoded_entries || section.hardcoded_entries || [];
-    const hardcodedCount = hardcodedEntries.length;
-    const remainingSlots =
-      dyn.limit && dyn.limit > 0 ? Math.max(0, dyn.limit - hardcodedCount) : items.length;
-
-    const searchPhrase = typeof dyn.search === "string" ? dyn.search.trim() : "";
-    const useSearch = searchPhrase.length >= 3;
-
-    if (useSearch) {
-      // Prefer L1 semantic cache (warmed by async page resolve); cold → keyword.
-      const refs = peekDatabaseSearchCacheL1(dyn.database, searchPhrase, locale);
-      let searchHits: Record<string, unknown>[] = [];
-
-      if (refs && refs.length > 0) {
-        for (const ref of refs) {
-          let item: Record<string, unknown> | undefined;
-          if (ref._idx !== undefined && ref._idx >= 0 && ref._idx < items.length) {
-            const candidate = items[ref._idx];
-            if (!ref.slug || String(candidate.slug ?? candidate.id ?? "") === ref.slug) {
-              item = candidate;
-            }
-          }
-          if (!item) {
-            item = items.find((i) => String(i.slug ?? i.id ?? "") === ref.slug);
-          }
-          if (item) searchHits.push(item);
-        }
-      } else {
-        const qLower = normalizeSearchQuery(searchPhrase);
-        searchHits = items.filter((item) => {
-          for (const f of ["question", "answer", "title", "description"]) {
-            const val = item[f];
-            if (val == null) continue;
-            if (typeof val === "object") {
-              if (JSON.stringify(val).toLowerCase().includes(qLower)) return true;
-            } else if (String(val).toLowerCase().includes(qLower)) {
-              return true;
-            }
-          }
-          return false;
-        });
-      }
-
-      searchHits = applyFilters(searchHits, filters);
-      let filterOnly = applyFilters(items, filters);
-      filterOnly = applyMatchCountSort(filterOnly, filters, dyn.sort);
-
-      if (dyn.ignored_entries && dyn.ignored_entries.length > 0) {
-        const ignoredSet = new Set(dyn.ignored_entries.map((k) => k.toLowerCase().trim()));
-        searchHits = searchHits.filter(
-          (item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))),
-        );
-        filterOnly = filterOnly.filter(
-          (item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))),
-        );
-      }
-
-      items = intersectSearchWithFiltersAndBackfill(
-        searchHits,
-        filterOnly,
-        remainingSlots,
-        (item) => {
-          const slug = item.slug ?? item.id;
-          if (slug !== undefined && slug !== null && String(slug)) return `slug:${String(slug)}`;
-          return `q:${faqItemKey(String(item.question ?? ""))}`;
-        },
-      );
-    } else {
-      items = applyFilters(items, filters);
-      items = applyMatchCountSort(items, filters, dyn.sort);
-
-      if (dyn.ignored_entries && dyn.ignored_entries.length > 0) {
-        const ignoredSet = new Set(dyn.ignored_entries.map((k) => k.toLowerCase().trim()));
-        items = items.filter((item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))));
-      }
-
-      if (dyn.limit && dyn.limit > 0) {
-        items = items.slice(0, remainingSlots);
-      }
-    }
-
-    return [...hardcodedEntries, ...(items as unknown as FaqItem[])]
-      .filter((item) => typeof item?.question === "string" && typeof item?.answer === "string")
-      .map(({ question, answer }) => ({ question, answer }));
-  }
-
-  // Standalone root hardcoded_entries (no dynamic database, no related_features):
-  // mirrors FaqDefault, which falls back to hardcoded_entries when items is empty.
-  if (section.hardcoded_entries && section.hardcoded_entries.length > 0) {
-    return section.hardcoded_entries
-      .filter((item) => typeof item?.question === "string" && typeof item?.answer === "string")
-      .map(({ question, answer }) => ({ question, answer }));
-  }
-
-  return [];
+/**
+ * Prefer post-DE `items`, else authored hardcoded_entries.
+ * Applies item_overrides.hideOnLocations for FAQPage parity with FaqDefault.
+ * Callers must run resolveDynamicEntries before collect when sections use dynamic_entries.
+ */
+export function resolveFaqItems(
+  section: FaqSection,
+  _locale: string,
+  locationSlug?: string,
+  _programSlug?: string,
+  _contentRoot: string = DEFAULT_CONTENT_ROOT,
+): Array<{ question: string; answer: string }> {
+  const fromItems = normalizeFaqEntries(section.items);
+  const fromHardcoded = normalizeFaqEntries(
+    section.hardcoded_entries ?? section.dynamic_entries?.hardcoded_entries,
+  );
+  let items = fromItems.length > 0 ? fromItems : fromHardcoded;
+  items = applyFaqHideOnLocations(items, section.item_overrides, locationSlug);
+  return items;
 }
 
 /** Dedupe FAQ items by normalized question text, preserving first occurrence. */
@@ -457,13 +230,13 @@ export function dedupeFaqItems(
   return result;
 }
 
-export function generateDatabaseSsrHtml(
+export async function generateDatabaseSsrHtml(
   contentType: string,
   record: Record<string, unknown>,
   locale: string,
   ci: typeof contentIndex = contentIndex,
   contentRoot: string = DEFAULT_CONTENT_ROOT,
-): string {
+): Promise<string> {
   const baseUrl = getBaseUrl();
   const config = getContentTypeConfig(contentType);
   if (!config?.url_pattern) return "";
@@ -516,6 +289,11 @@ export function generateDatabaseSsrHtml(
         context: { locale },
         skipSiteVars: false,
       }) as Array<Record<string, unknown>>;
+      const withDynamic = (await resolveDynamicEntries(resolvedSections, locale, {
+        contentRoot,
+        contentIndex: ci,
+        singleEntry: record,
+      })) as Array<Record<string, unknown>>;
       const context: SchemaComponentContext = {
         locale,
         contentRoot,
@@ -529,7 +307,7 @@ export function generateDatabaseSsrHtml(
         updatedAt: updatedAt || undefined,
         authorName,
       };
-      for (const sectionSchema of collectSectionSchemas(resolvedSections, context)) {
+      for (const sectionSchema of collectSectionSchemas(withDynamic, context)) {
         scripts.push(
           `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
         );
@@ -632,7 +410,7 @@ export function resolvePageRobots(url: string, ci: typeof contentIndex = content
   }
 }
 
-export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): string {
+export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = contentIndex, contentRoot: string = DEFAULT_CONTENT_ROOT): Promise<string> {
   try {
     const route = parseRoute(url, ci);
     if (!route) return "";
@@ -658,6 +436,16 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
     // Production emitters: SSR section pipeline only (no schema.include).
     const sections = pageData.sections as Array<Record<string, unknown>> | undefined;
     if (Array.isArray(sections)) {
+      const singleEntry: Record<string, unknown> = {
+        ...pageData,
+        slug: route.slug,
+        _slug: route.slug,
+      };
+      const withDynamic = (await resolveDynamicEntries(sections, route.locale, {
+        contentRoot,
+        contentIndex: ci,
+        singleEntry,
+      })) as Array<Record<string, unknown>>;
       const metaForSchema = pageData.meta as Record<string, unknown> | undefined;
       const context: SchemaComponentContext = {
         locale: route.locale,
@@ -674,7 +462,7 @@ export function generateSsrSchemaHtml(url: string, ci: typeof contentIndex = con
           typeof metaForSchema?.description === "string" ? metaForSchema.description : undefined,
         image: typeof metaForSchema?.og_image === "string" ? metaForSchema.og_image : undefined,
       };
-      for (const sectionSchema of collectSectionSchemas(sections, context)) {
+      for (const sectionSchema of collectSectionSchemas(withDynamic, context)) {
         scripts.push(
           `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`
         );

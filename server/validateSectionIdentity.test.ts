@@ -5,6 +5,7 @@ import {
   validateProductScope,
 } from "@shared/resolveProductScope";
 import {
+  collectTouchedSectionIndexes,
   validateDocumentSectionsIdentity,
   validateSectionIdentity,
 } from "@shared/validateSectionIdentity";
@@ -124,10 +125,41 @@ describe("validateProductScope (null vs missing)", () => {
   });
 });
 
+describe("collectTouchedSectionIndexes", () => {
+  it("collects update_section and sections.N field paths", () => {
+    const touched = collectTouchedSectionIndexes([
+      { action: "update_section", index: 0 },
+      { action: "update_field", path: "sections.2.form.conversion_name" },
+    ]);
+    expect(touched).toEqual(new Set([0, 2]));
+  });
+
+  it("returns null for whole-document section rewrites", () => {
+    expect(
+      collectTouchedSectionIndexes([{ action: "replace_all_sections" }]),
+    ).toBeNull();
+    expect(
+      collectTouchedSectionIndexes([
+        { action: "reorder_sections", from: 0, to: 1 },
+      ]),
+    ).toBeNull();
+  });
+});
+
 describe("validateDocumentSectionsIdentity (publish-shaped)", () => {
   const fieldEditorsByType = {
     lead_form: { ".": "form-settings" },
     pricing_plans: {},
+    sticky_cta: { form: "form-settings" },
+    hero: { "productShowcase:form": "form-settings" },
+  };
+
+  const baseDocOpts = {
+    fieldEditorsByType,
+    hasEcommerceBehavior: (t: string) => t === "pricing_plans",
+    contentType: "page",
+    contentSlug: "home",
+    resolveProduct,
   };
 
   it("rejects wiped draft YAML shape (missing identity)", () => {
@@ -138,13 +170,7 @@ describe("validateDocumentSectionsIdentity (publish-shaped)", () => {
           { type: "pricing_plans" },
         ],
       },
-      {
-        fieldEditorsByType,
-        hasEcommerceBehavior: (t) => t === "pricing_plans",
-        contentType: "page",
-        contentSlug: "home",
-        resolveProduct,
-      },
+      baseDocOpts,
     );
     expect(err).toMatch(/conversion_name|ecommerce_products/);
   });
@@ -157,13 +183,7 @@ describe("validateDocumentSectionsIdentity (publish-shaped)", () => {
           { type: "pricing_plans", ecommerce_products: null },
         ],
       },
-      {
-        fieldEditorsByType,
-        hasEcommerceBehavior: (t) => t === "pricing_plans",
-        contentType: "page",
-        contentSlug: "home",
-        resolveProduct,
-      },
+      baseDocOpts,
     );
     expect(err).toBeNull();
   });
@@ -180,5 +200,70 @@ describe("validateDocumentSectionsIdentity (publish-shaped)", () => {
         },
       ),
     ).toBeNull();
+  });
+
+  it("onlyValidateIndexes ignores broken siblings (draft section-save shape)", () => {
+    const doc = {
+      sections: [
+        {
+          type: "hero",
+          variant: "productShowcase",
+          form: {
+            variant: "stacked",
+            conversion_name: "request_more_info",
+            fields: { email: { visible: true } },
+          },
+        },
+        {
+          type: "sticky_cta",
+          form: {
+            variant: "inline",
+            fields: { email: { visible: true } },
+          },
+        },
+      ],
+    };
+    expect(
+      validateDocumentSectionsIdentity(doc, {
+        ...baseDocOpts,
+        onlyValidateIndexes: new Set([0]),
+      }),
+    ).toBeNull();
+    expect(
+      validateDocumentSectionsIdentity(doc, {
+        ...baseDocOpts,
+        onlyValidateIndexes: new Set([1]),
+      }),
+    ).toMatch(/sections\[1\].*conversion_name/);
+    expect(validateDocumentSectionsIdentity(doc, baseDocOpts)).toMatch(
+      /sections\[1\].*conversion_name/,
+    );
+  });
+
+  it("onlyValidateIndexes still fails the touched section when it is invalid", () => {
+    const err = validateDocumentSectionsIdentity(
+      {
+        sections: [
+          {
+            type: "hero",
+            variant: "productShowcase",
+            form: { variant: "stacked", fields: { email: { visible: true } } },
+          },
+          {
+            type: "sticky_cta",
+            form: {
+              variant: "inline",
+              conversion_name: "request_more_info",
+              fields: { email: { visible: true } },
+            },
+          },
+        ],
+      },
+      {
+        ...baseDocOpts,
+        onlyValidateIndexes: new Set([0]),
+      },
+    );
+    expect(err).toMatch(/sections\[0\].*conversion_name/);
   });
 });

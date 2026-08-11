@@ -44,6 +44,7 @@ interface VariableCreateDetail {
   selectionFrom?: number;
   selectionTo?: number;
   contentType?: string;
+  singleEntry?: Record<string, unknown>;
 }
 
 function highlightDomVariables(
@@ -151,7 +152,15 @@ function highlightDomVariables(
   };
 }
 
-function SelectionFloatingButton({ sectionIndex, contentType }: { sectionIndex: number; contentType?: string }) {
+function SelectionFloatingButton({
+  sectionIndex,
+  contentType,
+  singleEntry,
+}: {
+  sectionIndex: number;
+  contentType?: string;
+  singleEntry?: Record<string, unknown>;
+}) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const editMode = useEditModeOptional();
@@ -249,6 +258,7 @@ function SelectionFloatingButton({ sectionIndex, contentType }: { sectionIndex: 
           selectionFrom: from,
           selectionTo: to,
           contentType,
+          singleEntry,
         },
       }),
     );
@@ -289,12 +299,14 @@ export function VariableHighlightProvider({
   sectionIndex,
   contentType,
   hasSingleVars,
+  singleEntry,
 }: {
   children: ReactNode;
   variables?: unknown[];
   sectionIndex: number;
   contentType?: string;
   hasSingleVars?: boolean;
+  singleEntry?: Record<string, unknown>;
 }) {
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
@@ -388,7 +400,7 @@ export function VariableHighlightProvider({
       <div ref={wrapperRef} style={{ display: "contents" }}>
         {children}
       </div>
-      <SelectionFloatingButton sectionIndex={sectionIndex} contentType={contentType} />
+      <SelectionFloatingButton sectionIndex={sectionIndex} contentType={contentType} singleEntry={singleEntry} />
     </VariableHighlightContext.Provider>
   );
 }
@@ -411,6 +423,7 @@ export function VariableModalHost() {
     selectionFrom?: number;
     selectionTo?: number;
     contentType?: string;
+    singleEntry?: Record<string, unknown>;
   }>({ variableName: "", inlineDefault: "", mode: "inspect", sectionIndex: -1 });
 
   const [activeModal, setActiveModal] = useState<"chooser" | "global" | "single" | "single-detail" | null>(null);
@@ -442,6 +455,7 @@ export function VariableModalHost() {
         selectionFrom: detail.selectionFrom,
         selectionTo: detail.selectionTo,
         contentType: detail.contentType,
+        singleEntry: detail.singleEntry,
       });
       if (detail.contentType) {
         setActiveModal("chooser");
@@ -527,6 +541,7 @@ export function VariableModalHost() {
         onOpenChange={(open) => { if (!open) setActiveModal(null); }}
         contentType={modalState.contentType || ""}
         inlineDefault={modalState.inlineDefault}
+        singleEntry={modalState.singleEntry}
         onCreated={handleSingleCreated}
       />
       <SingleVariableDetailModal

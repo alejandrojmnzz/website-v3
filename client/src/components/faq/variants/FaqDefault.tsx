@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { FAQSection as FAQSectionType } from "@shared/schema";
 import { useLocation as useWouterLocation } from "wouter";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { faqItemKey, normalizeFaqEntries } from "@/lib/faqConstants";
+import { faqItemKey, normalizeFaqEntries, applyFaqHideOnLocations } from "@shared/faq-listing";
 import { useSession } from "@/contexts/SessionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 
@@ -40,19 +40,38 @@ export function FAQSection({ data }: FAQSectionProps) {
     const fromHardcoded = normalizeFaqEntries(
       (data as Record<string, unknown>).hardcoded_entries,
     );
-    let items: Array<{ question: string; answer: string }> = [
-      ...(fromItems.length ? fromItems : fromHardcoded),
-    ];
 
-    if (itemOverrides && Object.keys(itemOverrides).length > 0) {
-      const effectiveLocation = locationSlug || sessionLocationSlug;
-      if (effectiveLocation) {
-        items = items.filter((item) => {
-          const key = faqItemKey(item.question);
-          const override = itemOverrides[key];
-          return !override?.hideOnLocations?.includes(effectiveLocation);
-        });
-      }
+    // Prefer merged `items` from resolveDynamicEntries (hardcoded + DB).
+    // If items is DB-only (bind resolved too late) but hardcoded_entries is a
+    // real array, prepend unique hardcoded questions.
+    let items: Array<{ question: string; answer: string }>;
+    if (fromItems.length === 0) {
+      items = fromHardcoded;
+    } else if (fromHardcoded.length === 0) {
+      items = fromItems;
+    } else {
+      const seen = new Set(fromItems.map((i) => faqItemKey(i.question)));
+      const missingHardcoded = fromHardcoded.filter(
+        (i) => !seen.has(faqItemKey(i.question)),
+      );
+      items = missingHardcoded.length > 0
+        ? [...missingHardcoded, ...fromItems]
+        : fromItems;
+    }
+
+    items = applyFaqHideOnLocations(
+      items,
+      itemOverrides,
+      locationSlug || sessionLocationSlug,
+    );
+
+    const dyn = (data as Record<string, unknown>).dynamic_entries as
+      | { limit?: number }
+      | undefined;
+    const limit =
+      typeof dyn?.limit === "number" && dyn.limit > 0 ? dyn.limit : undefined;
+    if (limit != null) {
+      items = items.slice(0, limit);
     }
 
     return items;

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pre-commit hook for FAQ validation
-# Checks that all FAQ answers have been updated within the last 6 months
+# Checks that all FAQ database (frequently_asked_questions) entries have been updated within the last 6 months
 #
 # To install:
 #   cp scripts/pre-commit-faq-check.sh .git/hooks/pre-commit

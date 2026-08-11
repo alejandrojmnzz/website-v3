@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle, MapPin, Plus, Sparkles, Tags } from "lucide-react";
+import { HelpCircle, ListOrdered, MapPin, Plus, Sparkles, Tags } from "lucide-react";
 import { IconAlertTriangle, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,13 +21,22 @@ import { MAX_FAQ_SECTION_TOPICS } from "@/lib/faqConstants";
 import { cn } from "@/lib/utils";
 
 const MIN_SEARCH_CHARS = 3;
+const DEFAULT_FAQ_LIMIT = 9;
+const FAQ_LIMIT_PRESETS = [3, 5, 6, 9, 12, 15] as const;
+const MIN_FAQ_LIMIT = 1;
+const MAX_FAQ_LIMIT = 50;
 
 export interface FaqSectionEditorFieldProps {
   topics: string[];
   onTopicsChange: (value: string[]) => void;
   locations: string[];
   onLocationsChange: (value: string[]) => void;
+  /** Raw YAML search value (may still be `{{ single.* }}`) — used by the edit popover. */
   searchPhrase: string;
+  /**
+   * Resolved search string for badge + list ranking. When omitted, `searchPhrase` is used.
+   */
+  resolvedSearchPhrase?: string;
   onSearchChange: (value: string | null) => void;
   permanentFilters: Array<{ item_property_slug: string; value: string | string[] }>;
   locale: string;
@@ -43,6 +52,7 @@ export interface FaqSectionEditorFieldProps {
   ) => void;
   sortField?: string;
   limit?: number;
+  onLimitChange?: (value: number | null) => void;
   "data-testid"?: string;
 }
 
@@ -52,6 +62,7 @@ export function FaqSectionEditorField({
   locations,
   onLocationsChange,
   searchPhrase,
+  resolvedSearchPhrase,
   onSearchChange,
   permanentFilters,
   locale,
@@ -64,13 +75,18 @@ export function FaqSectionEditorField({
   onLocalizeDbEntry,
   sortField,
   limit,
+  onLimitChange,
   "data-testid": testId,
 }: FaqSectionEditorFieldProps) {
   const faqListRef = useRef<FaqItemsPickerHandle>(null);
   const [topicsOpen, setTopicsOpen] = useState(false);
   const [locationsOpen, setLocationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
   const [draftSearch, setDraftSearch] = useState(searchPhrase);
+  const [draftLimit, setDraftLimit] = useState(
+    String(limit && limit > 0 ? limit : DEFAULT_FAQ_LIMIT),
+  );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [searchMeta, setSearchMeta] = useState<FaqSearchMeta | null>(null);
 
@@ -78,12 +94,24 @@ export function FaqSectionEditorField({
     setDraftSearch(searchPhrase);
   }, [searchPhrase]);
 
+  useEffect(() => {
+    setDraftLimit(String(limit && limit > 0 ? limit : DEFAULT_FAQ_LIMIT));
+  }, [limit]);
+
   const topicCount = topics.length;
   const locationCount = locations.length;
-  const hasSearch = searchPhrase.trim().length >= MIN_SEARCH_CHARS;
+  const effectiveSearch = (resolvedSearchPhrase ?? searchPhrase).trim();
+  const hasSearch = effectiveSearch.length >= MIN_SEARCH_CHARS;
   const draftTrimmed = draftSearch.trim();
   const canApply = draftTrimmed.length >= MIN_SEARCH_CHARS;
   const isFallback = hasSearch && searchMeta != null && searchMeta.semantic === false;
+  const effectiveLimit = limit && limit > 0 ? limit : DEFAULT_FAQ_LIMIT;
+  const hasCustomLimit = typeof limit === "number" && limit > 0;
+  const draftLimitNum = Number.parseInt(draftLimit, 10);
+  const canApplyLimit =
+    Number.isFinite(draftLimitNum) &&
+    draftLimitNum >= MIN_FAQ_LIMIT &&
+    draftLimitNum <= MAX_FAQ_LIMIT;
 
   return (
     <div
@@ -109,9 +137,9 @@ export function FaqSectionEditorField({
                 data-testid="button-faq-search"
                 title={
                   isFallback
-                    ? `Semantic search unavailable — keyword only: ${searchPhrase}`
+                    ? `Semantic search unavailable — keyword only: ${effectiveSearch}`
                     : hasSearch
-                      ? `Semantic search: ${searchPhrase}`
+                      ? `Semantic search: ${effectiveSearch}`
                       : "Filter FAQs by meaning (semantic search)"
                 }
               >
@@ -231,6 +259,112 @@ export function FaqSectionEditorField({
             </PopoverContent>
           </Popover>
 
+          {onLimitChange && (
+            <Popover open={limitOpen} onOpenChange={setLimitOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="relative"
+                  data-testid="button-faq-limit"
+                  title={`Show up to ${effectiveLimit} questions`}
+                >
+                  <ListOrdered className="h-3.5 w-3.5" />
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                    {effectiveLimit}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-72 p-0 z-[10001]"
+                align="end"
+                data-testid="popover-faq-limit"
+              >
+                <div className="p-2 border-b space-y-1">
+                  <p className="text-xs font-medium text-foreground">Questions to show</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Caps total FAQs in this section (manually added count first; remaining
+                    slots come from the database). Saved as{" "}
+                    <span className="font-mono text-foreground">dynamic_entries.limit</span>.
+                  </p>
+                </div>
+                <div className="p-3 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {FAQ_LIMIT_PRESETS.map((n) => (
+                      <Button
+                        key={n}
+                        type="button"
+                        size="sm"
+                        variant={effectiveLimit === n ? "default" : "outline"}
+                        className="h-7 min-w-9 px-2 text-xs"
+                        onClick={() => {
+                          onLimitChange(n);
+                          setDraftLimit(String(n));
+                          setLimitOpen(false);
+                        }}
+                        data-testid={`button-faq-limit-preset-${n}`}
+                      >
+                        {n}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={MIN_FAQ_LIMIT}
+                      max={MAX_FAQ_LIMIT}
+                      value={draftLimit}
+                      onChange={(e) => setDraftLimit(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="input-faq-limit"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && canApplyLimit) {
+                          e.preventDefault();
+                          onLimitChange(draftLimitNum);
+                          setLimitOpen(false);
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 text-xs shrink-0"
+                      disabled={!canApplyLimit}
+                      onClick={() => {
+                        onLimitChange(draftLimitNum);
+                        setLimitOpen(false);
+                      }}
+                      data-testid="button-faq-limit-apply"
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                  {!canApplyLimit && draftLimit.trim().length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Enter a number from {MIN_FAQ_LIMIT} to {MAX_FAQ_LIMIT}.
+                    </p>
+                  )}
+                  {hasCustomLimit && effectiveLimit !== DEFAULT_FAQ_LIMIT && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs px-0"
+                      onClick={() => {
+                        onLimitChange(DEFAULT_FAQ_LIMIT);
+                        setDraftLimit(String(DEFAULT_FAQ_LIMIT));
+                      }}
+                      data-testid="button-faq-limit-reset"
+                    >
+                      Reset to {DEFAULT_FAQ_LIMIT}
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
           <Popover open={topicsOpen} onOpenChange={setTopicsOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -347,11 +481,16 @@ export function FaqSectionEditorField({
           from the bank.
         </p>
 
-        {(topicCount > 0 || locationCount > 0 || hasSearch) && (
+        {(topicCount > 0 || locationCount > 0 || hasSearch || hasCustomLimit) && (
           <div className="flex items-center gap-2 flex-wrap">
             {hasSearch && (
               <Badge variant="secondary" className="text-xs font-normal max-w-[220px] truncate">
-                Search: {searchPhrase}
+                Search: {effectiveSearch}
+              </Badge>
+            )}
+            {hasCustomLimit && (
+              <Badge variant="secondary" className="text-xs font-normal">
+                Limit: {effectiveLimit}
               </Badge>
             )}
             {topicCount > 0 && (
@@ -371,7 +510,7 @@ export function FaqSectionEditorField({
           ref={faqListRef}
           variant="embedded"
           permanentFilters={permanentFilters}
-          searchPhrase={hasSearch ? searchPhrase : undefined}
+          searchPhrase={hasSearch ? effectiveSearch : undefined}
           onSearchMeta={setSearchMeta}
           locale={locale}
           hardcodedItems={hardcodedItems}
@@ -410,9 +549,10 @@ export function FaqSectionEditorField({
                 </span>
               </p>
               <p>
-                Filters / search:{" "}
+                Filters / search / limit:{" "}
                 <span className="text-foreground">dynamic_entries.permanent_filters</span>,{" "}
-                <span className="text-foreground">dynamic_entries.search</span>
+                <span className="text-foreground">dynamic_entries.search</span>,{" "}
+                <span className="text-foreground">dynamic_entries.limit</span>
               </p>
               <p>
                 Shared search:{" "}

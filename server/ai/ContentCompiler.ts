@@ -189,47 +189,30 @@ export class ContentCompiler {
     const lines: string[] = ["# Frequently Asked Questions", ""];
     const contentPath = getMarketingContentPath(contentRoot);
 
-    const faqFilePath = path.join(contentPath, "faqs", `${effectiveLocale}.yml`);
-    const faqData = loadYamlFile(faqFilePath);
-    if (faqData && Array.isArray(faqData.faqs)) {
-      lines.push("## General FAQs");
-      for (const faq of faqData.faqs) {
-        if (typeof faq !== "object" || faq === null) continue;
+    const faqDbPath = path.join(contentPath, "db", "frequently_asked_questions", "faqs.yml");
+    const faqData = loadYamlFile(faqDbPath);
+    const allFaqs = Array.isArray(faqData?.faqs) ? (faqData!.faqs as unknown[]) : [];
+    const localeFaqs = allFaqs.filter((faq) => {
+      if (typeof faq !== "object" || faq === null) return false;
+      const f = faq as Record<string, unknown>;
+      return !f.locale || f.locale === effectiveLocale;
+    });
+
+    if (localeFaqs.length > 0) {
+      lines.push("## FAQ database (frequently_asked_questions)");
+      for (const faq of localeFaqs) {
         const f = faq as Record<string, unknown>;
+        if (programSlug) {
+          const tags = Array.isArray(f.related_features)
+            ? (f.related_features as string[])
+            : [];
+          if (!tags.includes(programSlug)) continue;
+        }
         if (f.question && f.answer) {
           lines.push(`Q: ${f.question as string}`);
           lines.push(`A: ${f.answer as string}`);
           lines.push("");
         }
-      }
-    }
-
-    const slugsToCheck = programSlug ? [programSlug] : contentIndex.listContentSlugs("program");
-
-    for (const slug of slugsToCheck) {
-      try {
-        const result = contentIndex.loadMergedContent("program", slug, effectiveLocale);
-        const data = result?.data;
-        if (!data || !data.sections || !Array.isArray(data.sections)) continue;
-
-        for (const section of data.sections) {
-          if (typeof section !== "object" || section === null) continue;
-          const s = section as Record<string, unknown>;
-          if (s.type !== "faq") continue;
-          const items = s.items as Array<Record<string, unknown>> | undefined;
-          if (!items) continue;
-
-          lines.push(`## FAQs for ${slug}`);
-          for (const item of items) {
-            if (item.question && item.answer) {
-              lines.push(`Q: ${item.question as string}`);
-              lines.push(`A: ${item.answer as string}`);
-              lines.push("");
-            }
-          }
-        }
-      } catch {
-        continue;
       }
     }
 

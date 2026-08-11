@@ -63,7 +63,7 @@ import type { Section, SectionLayout, ImageRegistry } from "@shared/schema";
 import { locations as allLocations, getLocationBySlug } from "@/lib/locations";
 import type { Location } from "@shared/session";
 import { Badge } from "@/components/ui/badge";
-import { normalizeFaqEntries } from "@/lib/faqConstants";
+import { normalizeFaqEntries, resolveFaqHardcodedEntries, resolveFaqSearchPhrase } from "@/lib/faqConstants";
 import {
   Popover,
   PopoverContent,
@@ -1456,6 +1456,7 @@ export function SectionEditorPanel({
                     updated.hardcoded_entries = updated.items;
                     delete updated.items;
                   }
+                  delete updated.related_features;
                   parent["permanent_filters"] = [{ item_property_slug: fieldName, value }];
                 }
               } else {
@@ -1467,6 +1468,7 @@ export function SectionEditorPanel({
                   }
                 }
               }
+              delete updated.related_features;
             }
           } else {
             // Generic nested object path
@@ -5533,7 +5535,7 @@ export function SectionEditorPanel({
                         .find(f => f.item_property_slug === "related_features");
                       return (rfItem?.value as string[]) ?? [];
                     }
-                    return ((permFilters as Record<string, unknown> | undefined)?.related_features as string[]) ?? (parsedSection?.related_features as string[]) ?? [];
+                    return ((permFilters as Record<string, unknown> | undefined)?.related_features as string[]) ?? [];
                   })();
                   const pickerPermanentFilters = (() => {
                     const dynEntries = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
@@ -5562,12 +5564,7 @@ export function SectionEditorPanel({
                     if (Array.isArray(permFilters)) {
                       return permFilters as Array<{ item_property_slug: string; value: string | string[] }>;
                     }
-                    const rfLegacy = ((permFilters as Record<string, unknown> | undefined)?.related_features as string[])
-                      ?? (parsedSection?.related_features as string[])
-                      ?? [];
-                    return rfLegacy.length > 0
-                      ? [{ item_property_slug: "related_features", value: rfLegacy }]
-                      : [];
+                    return [];
                   };
                   const permanentFilters = getPermanentFilters();
                   const topicsValue = (() => {
@@ -5576,7 +5573,7 @@ export function SectionEditorPanel({
                       const v = rfItem.value;
                       return Array.isArray(v) ? (v as string[]) : [String(v)];
                     }
-                    return (parsedSection?.related_features as string[]) ?? [];
+                    return [];
                   })();
                   const locationsValue = (() => {
                     const locItem = permanentFilters.find((f) => f.item_property_slug === "locations");
@@ -5605,6 +5602,10 @@ export function SectionEditorPanel({
                           const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
                           return typeof de?.search === "string" ? de.search : "";
                         })()}
+                        resolvedSearchPhrase={(() => {
+                          const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
+                          return resolveFaqSearchPhrase(de?.search, singleEntry);
+                        })()}
                         onSearchChange={(value) => {
                           try {
                             const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
@@ -5614,6 +5615,7 @@ export function SectionEditorPanel({
                               parsed.hardcoded_entries = parsed.items;
                               delete parsed.items;
                             }
+                            delete parsed.related_features;
                             if (!parsed.dynamic_entries || typeof parsed.dynamic_entries !== "object") {
                               parsed.dynamic_entries = {};
                             }
@@ -5637,8 +5639,9 @@ export function SectionEditorPanel({
                         permanentFilters={permanentFilters}
                         locale={locale || "en"}
                         hardcodedItems={(() => {
-                          const hardcoded = normalizeFaqEntries(
+                          const hardcoded = resolveFaqHardcodedEntries(
                             (parsedSection as Record<string, unknown>)?.hardcoded_entries,
+                            singleEntry,
                           );
                           const rootItems = normalizeFaqEntries(parsedSection?.items);
                           return [...hardcoded, ...rootItems];
@@ -5727,6 +5730,34 @@ export function SectionEditorPanel({
                           const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
                           return typeof de?.limit === "number" && de.limit > 0 ? de.limit : undefined;
                         })()}
+                        onLimitChange={(value) => {
+                          try {
+                            const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+                            if (!parsed || typeof parsed !== "object") return;
+                            pushUndoState(yamlContent);
+                            if (Array.isArray(parsed.items) && (parsed.items as unknown[]).length > 0 && !parsed.dynamic_entries && !parsed.hardcoded_entries) {
+                              parsed.hardcoded_entries = parsed.items;
+                              delete parsed.items;
+                            }
+                            if (!parsed.dynamic_entries || typeof parsed.dynamic_entries !== "object") {
+                              parsed.dynamic_entries = {};
+                            }
+                            const de = parsed.dynamic_entries as Record<string, unknown>;
+                            if (!de.database) de.database = "frequently_asked_questions";
+                            if (value == null || value <= 0) {
+                              delete de.limit;
+                            } else {
+                              de.limit = value;
+                            }
+                            const newYaml = safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' });
+                            setYamlContent(newYaml);
+                            setHasChanges(true);
+                            setParseError(null);
+                            if (onPreviewChange) onPreviewChange(parsed as Section);
+                          } catch (err) {
+                            console.error("Error updating dynamic_entries.limit:", err);
+                          }
+                        }}
                         onLocalizeDbEntry={(entry, ignoredKey) => {
                           try {
                             const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
@@ -5771,18 +5802,13 @@ export function SectionEditorPanel({
                           if (Array.isArray(permFilters)) {
                             return permFilters as Array<{ item_property_slug: string; value: string | string[] }>;
                           }
-                          // Legacy fallback: root-level related_features → wrap as single filter
-                          const rfLegacy = ((permFilters as Record<string, unknown> | undefined)?.related_features as string[])
-                            ?? (parsedSection?.related_features as string[])
-                            ?? [];
-                          return rfLegacy.length > 0
-                            ? [{ item_property_slug: "related_features", value: rfLegacy }]
-                            : [];
+                          return [];
                         })()}
                         locale={locale || "en"}
                         hardcodedItems={(() => {
-                          const hardcoded = normalizeFaqEntries(
+                          const hardcoded = resolveFaqHardcodedEntries(
                             (parsedSection as Record<string, unknown>)?.hardcoded_entries,
+                            singleEntry,
                           );
                           const rootItems = normalizeFaqEntries(parsedSection?.items);
                           return [...hardcoded, ...rootItems];

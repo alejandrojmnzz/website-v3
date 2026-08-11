@@ -129,7 +129,7 @@ export function registerExplainTools(mcp: McpServer): void {
       "'images' (image registry, UniversalImage, image_id usage), " +
       "'sections' (SectionRenderer, component registry, how sections are authored), " +
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
-      "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ bank), " +
+      "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ database), " +
       "'component-behaviors' (CTA tracking, behaviors ids), " +
       "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example). " +
@@ -152,7 +152,7 @@ export function registerExplainTools(mcp: McpServer): void {
           semantic_search:
             "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
           local_databases:
-            "Local YAML private DBs; MCP item CRUD; global index; FAQ bank; sync + reindex",
+            "Local YAML private DBs; MCP item CRUD; global index; FAQ database; sync + reindex",
           "component-behaviors": "CTA tracking, behaviors ids",
           ecommerce: "products, funnels, product scope property paths, no CMS plans",
           "shared-layout":

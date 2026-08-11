@@ -2,8 +2,8 @@ import * as fs from "fs";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { hasSchemaOrgContributors } from "@shared/schema-org-sections";
-let _generateSsrSchemaHtml: ((url: string) => string) | null = null;
-async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string> {
+let _generateSsrSchemaHtml: ((url: string) => string | Promise<string>) | null = null;
+async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string | Promise<string>> {
   if (!_generateSsrSchemaHtml) {
     try {
       const mod = await import("../../server/ssr-schema");
@@ -83,7 +83,7 @@ export const schemaCompletenessValidator: Validator = {
 
       try {
         const renderFn = await getGenerateSsrSchemaHtml();
-        html = renderFn(url);
+        html = await Promise.resolve(renderFn(url));
       } catch (err) {
         errors.push({
           type: "error",

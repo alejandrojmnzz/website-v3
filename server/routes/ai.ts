@@ -480,11 +480,6 @@ export function registerAiRoutes(app: Express): void {
   });
 
   // ============================================
-  // Centralized FAQs API
-  // ============================================
-
-  // Get centralized FAQs from YAML file
-  // ============================================
   // AI Chat Widget Routes (public)
   // ============================================
 

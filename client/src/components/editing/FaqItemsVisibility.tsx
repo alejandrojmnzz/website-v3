@@ -199,14 +199,23 @@ export function FaqItemsVisibility({
   const hasInline = inlineItems && inlineItems.length > 0;
 
   const { data: faqsData, isLoading } = useQuery<{ faqs: FaqItem[] }>({
-    queryKey: ["/api/faqs", locale],
+    queryKey: ["/api/databases/frequently_asked_questions/items", locale],
     queryFn: async () => {
       const token = getDebugToken();
-      const res = await fetch(`/api/faqs/${locale}`, {
-        headers: token ? { "X-Debug-Token": token } : {},
-      });
+      const res = await fetch(
+        `/api/databases/frequently_asked_questions/items?limit=1000&locale=${encodeURIComponent(locale)}`,
+        {
+          headers: token ? { "X-Debug-Token": token } : {},
+        },
+      );
       if (!res.ok) throw new Error("Failed to load FAQs");
-      return res.json();
+      const data = await res.json();
+      const items = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+          ? data
+          : [];
+      return { faqs: items as FaqItem[] };
     },
     enabled: hasCentralized,
     staleTime: 5 * 60 * 1000,

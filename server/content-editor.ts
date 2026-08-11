@@ -12,6 +12,8 @@ import {
 import { generateSectionId } from "./utils/generateSectionId";
 import { loadAllFieldEditors } from "./component-registry";
 import { validateDocIdentity } from "./validate-content-identity";
+import { collectTouchedSectionIndexes } from "@shared/validateSectionIdentity";
+import { validateFaqListingSections } from "@shared/validateFaqListing";
 import {
   evaluateLiveEntrySeoAndRequiredFields,
 } from "./live-entry-seo-gate";
@@ -55,7 +57,34 @@ import {
   cleanSectionIdFromEntryOverlays,
   isAllowlistedSectionFieldPath,
 } from "./shared-layout-sync";
-import {
+
+/**
+ * Draft/variant section saves: only identity-check touched section indexes.
+ * Live locale / full-list rewrites: omit onlyValidateIndexes (full document).
+ * Publish/promote never passes this (always full via validateYamlIdentity).
+ */
+function identityValidateOptsForWrite(opts: {
+  isDraftOrVariantWrite: boolean;
+  operations: EditOperation[];
+  skipIdentityIndexes?: Set<number>;
+  contentType: string;
+  contentSlug: string;
+}): {
+  contentType: string;
+  contentSlug: string;
+  skipIdentityIndexes?: Set<number>;
+  onlyValidateIndexes?: Set<number>;
+} {
+  const base = {
+    contentType: opts.contentType,
+    contentSlug: opts.contentSlug,
+    skipIdentityIndexes: opts.skipIdentityIndexes,
+  };
+  if (!opts.isDraftOrVariantWrite) return base;
+  const touched = collectTouchedSectionIndexes(opts.operations);
+  if (!touched || touched.size === 0) return base;
+  return { ...base, onlyValidateIndexes: touched };
+}import {
   isEntryDetached,
   isSharedLayoutType,
   rejectAttachedStructuralEdit,
@@ -535,6 +564,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         ci,
         // Draft template variants must not fan out onto live sibling singles
         skipSharedLayoutFanOut: hasVariant || request.skipSharedLayoutFanOut,
+        isDraftOrVariantWrite: hasVariant,
       });
     }
 
@@ -557,7 +587,20 @@ export async function editContent(request: ContentEditRequest): Promise<{
       if (allTopLevelFields) {
         return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot });
       }
-      return handleSharedTemplateEdit({ contentType, slug, locale, operations, localeData, filePath, author: request.author, contentRoot, database: request.database, ci, skipSharedLayoutFanOut: request.skipSharedLayoutFanOut });
+      return handleSharedTemplateEdit({
+        contentType,
+        slug,
+        locale,
+        operations,
+        localeData,
+        filePath,
+        author: request.author,
+        contentRoot,
+        database: request.database,
+        ci,
+        skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
+        isDraftOrVariantWrite: hasVariant,
+      });
     }
 
     // layoutTarget "entry" while load resolved to shared template: create/write per-entry file
@@ -762,6 +805,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
               database: request.database,
               ci,
               skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
+              isDraftOrVariantWrite: hasVariant,
             });
             if (!templateResult.success) {
               return { success: false, error: templateResult.error };
@@ -991,7 +1035,8 @@ export async function editContent(request: ContentEditRequest): Promise<{
       }
       if (typeof opResult.insertedSectionIndex === "number") {
         // Newly duplicated sections may be invalid until staff re-sets conversion/ecommerce.
-        // Allow the duplicate write itself; later saves validate all sections.
+        // Allow the duplicate write itself; draft later saves scope to touched sections;
+        // live saves + publish still validate the full document.
         skipIdentityValidationIndexes.add(opResult.insertedSectionIndex);
       }
     }
@@ -1005,14 +1050,25 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Validate conversion / CTA / product-scope identity before writing to disk.
+    // Draft/variant: only touched sections (avoids circular trap after duplicate wipe).
+    // Live locale: full document. Publish/promote always full (versioning routes).
     if (Array.isArray(localeData.sections)) {
-      const identityErr = validateDocIdentity(localeData, {
-        contentType,
-        contentSlug: slug,
-        skipIdentityIndexes: skipIdentityValidationIndexes,
-      });
+      const identityErr = validateDocIdentity(
+        localeData,
+        identityValidateOptsForWrite({
+          isDraftOrVariantWrite: hasVariant,
+          operations: resolvedOperations,
+          skipIdentityIndexes: skipIdentityValidationIndexes,
+          contentType,
+          contentSlug: slug,
+        }),
+      );
       if (identityErr) {
         return { success: false, error: identityErr };
+      }
+      const faqListingErr = validateFaqListingSections(localeData);
+      if (faqListingErr) {
+        return { success: false, error: faqListingErr };
       }
     }
 
@@ -1213,6 +1269,8 @@ function writeStructuralChangesToTemplate(opts: {
   requesterId?: string;
   ci?: ContentIndex;
   skipSharedLayoutFanOut?: boolean;
+  /** When true (draft/variant template), identity-check only touched sections. */
+  isDraftOrVariantWrite?: boolean;
 }): {
   success: boolean;
   error?: string;
@@ -1299,13 +1357,22 @@ function writeStructuralChangesToTemplate(opts: {
       }
     }
     if (contentType && Array.isArray(templateData.sections)) {
-      const identityErr = validateDocIdentity(templateData, {
-        contentType,
-        contentSlug: contentSlug || contentType,
-        skipIdentityIndexes,
-      });
+      const identityErr = validateDocIdentity(
+        templateData,
+        identityValidateOptsForWrite({
+          isDraftOrVariantWrite: Boolean(opts.isDraftOrVariantWrite),
+          operations: annotatedOps,
+          skipIdentityIndexes,
+          contentType,
+          contentSlug: contentSlug || contentType,
+        }),
+      );
       if (identityErr) {
         return { success: false, error: identityErr };
+      }
+      const faqListingErr = validateFaqListingSections(templateData);
+      if (faqListingErr) {
+        return { success: false, error: faqListingErr };
       }
     }
 
@@ -1541,6 +1608,8 @@ function handleSharedTemplateEdit(opts: {
   ci?: ContentIndex;
   requesterId?: string;
   skipSharedLayoutFanOut?: boolean;
+  /** Draft/variant template writes scope identity to touched sections. */
+  isDraftOrVariantWrite?: boolean;
 }): {
   success: boolean;
   error?: string;
@@ -1586,6 +1655,7 @@ function handleSharedTemplateEdit(opts: {
       requesterId,
       ci,
       skipSharedLayoutFanOut: opts.skipSharedLayoutFanOut,
+      isDraftOrVariantWrite: opts.isDraftOrVariantWrite,
     });
   }
 

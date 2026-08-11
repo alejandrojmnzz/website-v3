@@ -474,6 +474,9 @@ export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerPro
         .filter((i) => !hardcodedKeys.has(faqItemKey(i.question)))
         .filter((i) => !ignoredSet.has(faqItemKey(i.question)));
 
+    const includedHardcoded =
+      limit && limit > 0 ? hardcodedItems.slice(0, limit) : hardcodedItems;
+
     let uniqueDbItems: FaqItem[] = [];
 
     if (useSearch) {
@@ -486,7 +489,7 @@ export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerPro
         stripLocal(applyPermanentFilters(hasCentralized ? localeItems : [])),
       );
       const remainingSlots =
-        limit && limit > 0 ? Math.max(0, limit - hardcodedItems.length) : 100;
+        limit && limit > 0 ? Math.max(0, limit - includedHardcoded.length) : 100;
       const seen = new Set<string>();
       const selected: FaqItem[] = [];
       for (const item of searchHits) {
@@ -509,13 +512,13 @@ export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerPro
       uniqueDbItems = sortFilterOnly(stripLocal(dbItems));
 
       if (limit && limit > 0) {
-        const remainingSlots = Math.max(0, limit - hardcodedItems.length);
+        const remainingSlots = Math.max(0, limit - includedHardcoded.length);
         uniqueDbItems = uniqueDbItems.slice(0, remainingSlots);
       }
     }
 
     return [
-      ...hardcodedItems.map((i) => ({ ...i, _source: "hardcoded" as const })),
+      ...includedHardcoded.map((i) => ({ ...i, _source: "hardcoded" as const })),
       ...uniqueDbItems.map((i) => ({ ...i, _source: "db" as const })),
     ];
   }, [
@@ -557,7 +560,7 @@ export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerPro
     (k) => (itemOverrides[k]?.hideOnLocations?.length ?? 0) > 0,
   ).length;
 
-  const hardcodedCount = hardcodedItems.length;
+  const hardcodedCount = displayedItems.filter((i) => i._source === "hardcoded").length;
   const dbCount = displayedItems.filter((i) => i._source === "db").length;
 
   // --- Edit state factories ---

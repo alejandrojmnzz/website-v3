@@ -786,7 +786,7 @@ export function registerValidationRoutes(app: Express): void {
       let schemaHtml = "";
       let parsedSchemas: any[] = [];
       try {
-        schemaHtml = generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
+        schemaHtml = await generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
         const scriptRegex =
           /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
         let match: RegExpExecArray | null;

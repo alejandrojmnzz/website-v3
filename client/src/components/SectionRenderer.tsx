@@ -1664,13 +1664,13 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
                       onDelete={handleDelete}
                       onDuplicate={handleDuplicate}
                     >
-                      <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry}>
+                      <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry} singleEntry={singleEntry}>
                         {renderedSection}
                       </VariableHighlightProvider>
                     </EditableSection>
                   </Suspense>
                 ) : (
-                  <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry}>
+                  <VariableHighlightProvider sectionIndex={index} contentType={contentType} hasSingleVars={!!singleEntry} singleEntry={singleEntry}>
                     {renderedSection}
                   </VariableHighlightProvider>
                 )}

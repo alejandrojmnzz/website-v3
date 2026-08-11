@@ -1,3 +1,12 @@
+import { resolveSingleTemplateValue } from "@shared/json-field";
+import {
+  faqItemKey,
+  normalizeFaqEntries,
+  applyFaqHideOnLocations,
+} from "@shared/faq-listing";
+
+export { faqItemKey, normalizeFaqEntries, applyFaqHideOnLocations };
+
 export type RelatedFeature =
   | "online-platform"
   | "mentors-and-teachers"
@@ -120,26 +129,25 @@ export function filterFaqsByRelatedFeatures(
   return filtered.map(({ question, answer }) => ({ question, answer }));
 }
 
-export function faqItemKey(question: string | null | undefined): string {
-  return String(question ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, "-")
-    .slice(0, 80);
+/**
+ * Resolve `hardcoded_entries` when it is still a `{{ single.* }}` bind, then normalize.
+ * Literal arrays pass through unchanged.
+ */
+export function resolveFaqHardcodedEntries(
+  raw: unknown,
+  singleEntry?: Record<string, unknown> | null,
+): SimpleFaq[] {
+  const resolved = resolveSingleTemplateValue(raw, singleEntry ?? {});
+  return normalizeFaqEntries(resolved);
 }
 
 /**
- * Normalize FAQ entry lists from YAML / template resolution.
- * Unresolved binds like `{{ single.faq_entries | [] }}` stay strings — never spread those.
+ * Resolve `dynamic_entries.search` when it is still a `{{ single.* }}` bind.
  */
-export function normalizeFaqEntries(value: unknown): SimpleFaq[] {
-  if (!Array.isArray(value)) return [];
-  const out: SimpleFaq[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const row = item as Record<string, unknown>;
-    if (typeof row.question !== "string" || typeof row.answer !== "string") continue;
-    out.push({ question: row.question, answer: row.answer });
-  }
-  return out;
+export function resolveFaqSearchPhrase(
+  raw: unknown,
+  singleEntry?: Record<string, unknown> | null,
+): string {
+  const resolved = resolveSingleTemplateValue(raw, singleEntry ?? {});
+  return typeof resolved === "string" ? resolved.trim() : "";
 }

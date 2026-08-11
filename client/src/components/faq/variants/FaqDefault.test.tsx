@@ -74,4 +74,49 @@ describe("FAQSection empty state", () => {
     expect(html).toContain("Why?");
     expect(html).toContain("accordion-faq-0");
   });
+
+  it("prepends hardcoded entries missing from DB items", () => {
+    editModeMock.isEditMode = false;
+    const html = renderToStaticMarkup(
+      <FAQSection
+        data={
+          {
+            type: "faq",
+            title: "FAQ",
+            items: [{ question: "From DB?", answer: "Yes." }],
+            hardcoded_entries: [{ question: "From entry?", answer: "Also yes." }],
+          } as never
+        }
+      />,
+    );
+    expect(html).toContain("From entry?");
+    expect(html).toContain("From DB?");
+  });
+
+  it("respects dynamic_entries.limit after merging hardcoded + items", () => {
+    editModeMock.isEditMode = false;
+    const html = renderToStaticMarkup(
+      <FAQSection
+        data={
+          {
+            type: "faq",
+            title: "FAQ",
+            dynamic_entries: { limit: 2 },
+            items: [
+              { question: "Q1?", answer: "A1" },
+              { question: "Q2?", answer: "A2" },
+              { question: "Q3?", answer: "A3" },
+            ],
+            hardcoded_entries: [
+              { question: "Extra?", answer: "Should not appear if items already full" },
+            ],
+          } as never
+        }
+      />,
+    );
+    expect(html).toContain("Extra?");
+    expect(html).toContain("Q1?");
+    expect(html).not.toContain("Q2?");
+    expect(html).not.toContain("Q3?");
+  });
 });

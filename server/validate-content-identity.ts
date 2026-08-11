@@ -28,6 +28,8 @@ export function validateDocIdentity(
     contentType: string;
     contentSlug: string;
     skipIdentityIndexes?: Set<number>;
+    /** Draft/variant section saves: only check these indexes. Live/publish omit. */
+    onlyValidateIndexes?: Set<number>;
   },
 ): string | null {
   const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
@@ -41,6 +43,7 @@ export function validateDocIdentity(
     conversionNames,
     resolveProduct: makeProductResolver(),
     skipIdentityIndexes: opts.skipIdentityIndexes,
+    onlyValidateIndexes: opts.onlyValidateIndexes,
   });
 }
 

@@ -14,9 +14,14 @@ import {
   findFaqDuplicateIndex,
   filterIndexedItems,
   paginateItems,
+  prepareBatchAdd,
+  prepareBatchUpdate,
+  abortRemainingPatches,
   summarizeUsage,
+  validateBulkLength,
   validateFaqItem,
   withGlobalIndices,
+  type BatchRowResult,
 } from "../lib/database-items.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
@@ -496,6 +501,159 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
   );
 
   mcp.tool(
+    "add_database_items",
+    "Best-effort bulk append to a local database YAML (max 40). Per-row results[]; FAQ defaults + first-wins dedupe. Retry only failed input_index rows. Does not push content sync. Set reindex:true after any success if you have databases_manage.",
+    {
+      database: z.string(),
+      items: z
+        .array(itemSchema)
+        .min(1)
+        .max(40)
+        .describe("Items to append (max 40)"),
+      reindex: z
+        .boolean()
+        .optional()
+        .describe(
+          "If true and vector_search enabled, reindex once after any successful write (needs databases_manage)",
+        ),
+      site: z.string().optional(),
+    },
+    async ({ database, items, reindex, site }) => {
+      const denied = await requireItemCap(mcpToken);
+      if (denied) return denied;
+
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const domain = siteResult.domain;
+
+      const lenCheck = validateBulkLength(items.length);
+      if (!lenCheck.ok) return fail(lenCheck.message);
+
+      try {
+        const cfg = await fetchDbConfig(database, domain, mcpToken);
+        if (!cfg.ok) return fail(cfg.message);
+        const local = assertLocal(cfg.data.config, database);
+        if (!local.ok) return fail(local.message);
+
+        const all = await fetchAllItems(database, domain, mcpToken);
+        if (!all.ok) return fail(all.message);
+
+        const { results, toWrite } = prepareBatchAdd(database, items, all.items);
+        const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
+        const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
+
+        if (database === FAQ_DB_NAME) {
+          for (const row of toWrite) {
+            const rf = row.item.related_features;
+            if (Array.isArray(rf) && rf.length > 2) {
+              warnings.push({
+                code: "faq_too_many_tags",
+                message: `input_index ${row.input_index}: related_features has more than 2 tags (preferred max 2).`,
+              });
+            }
+          }
+          if (toWrite.length > 0) {
+            warnings.push({
+              code: "sibling_locale_not_created",
+              message:
+                "Only the locales in this batch were added. Add separate items for other locales if needed.",
+            });
+          }
+        }
+
+        let wrote_count = 0;
+        const items_written: Record<string, unknown>[] = [];
+        const indices: number[] = [];
+
+        if (toWrite.length > 0) {
+          const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify({ items: toWrite.map((r) => r.item) }),
+          });
+          const data = (await res.json()) as Record<string, unknown>;
+          if (!res.ok) {
+            return fail((data.error as string) || `Server error: ${res.status}`, {
+              results,
+              wrote_count: 0,
+              failed_count: results.length,
+            });
+          }
+          wrote_count = toWrite.length;
+          for (const row of toWrite) {
+            const r = results[row.input_index];
+            if (r?.ok) {
+              items_written.push(r.item);
+              indices.push(r.index);
+            }
+          }
+        }
+
+        const failed_count = results.filter((r) => !r.ok).length;
+        const ri =
+          wrote_count > 0
+            ? await maybeReindex(database, domain, mcpToken, reindex, vectorEnabled)
+            : { did: false as const };
+        if (ri.warning) warnings.push(ri.warning);
+        if (wrote_count > 0 && vectorEnabled && !ri.did) {
+          warnings.push({
+            code: "semantic_index_stale",
+            message: "Vector search index not updated yet.",
+          });
+        }
+
+        return ok(
+          {
+            message:
+              wrote_count > 0
+                ? `Added ${wrote_count} item(s) to ${database} (${failed_count} failed)`
+                : `No items written to ${database} (${failed_count} failed)`,
+            database,
+            wrote_count,
+            failed_count,
+            results,
+            indices,
+            items_written,
+            reindexed: ri.did,
+            item_file: `db/${database}/${local.filename}`,
+          },
+          {
+            warnings,
+            side_effects:
+              wrote_count > 0
+                ? [
+                    {
+                      kind: "yaml_write",
+                      summary: `Appended ${wrote_count} item(s) to db/${database}/${local.filename} (sync-state pending)`,
+                    },
+                  ]
+                : [],
+            next_actions: [
+              ...(wrote_count > 0 && !ri.did
+                ? reindexNextActions(database, vectorEnabled)
+                : []),
+              ...(failed_count > 0
+                ? [
+                    {
+                      tool: "add_database_items",
+                      reason:
+                        "Retry only failed input_index rows after fixing validation/duplicates",
+                      args_hint: { database },
+                      priority: "recommended" as const,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        );
+      } catch (e) {
+        return fail(`add_database_items failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  mcp.tool(
     "update_database_item",
     "PATCH a local database item by global index. Pass expect.question (from prior list/get) to refuse stale indices. FAQ dedupe applies if question/locale change. Set reindex:true to reindex after write.",
     {
@@ -624,6 +782,172 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         );
       } catch (e) {
         return fail(`update_database_item failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  mcp.tool(
+    "update_database_items",
+    "Best-effort bulk PATCH of local database items by global index (max 40). Recommended: pass expect_question per row from last list/get (optional — index alone is trusted when omitted). Working-copy order allows FAQ renames/swaps; two rows targeting the same FAQ key both fail. HTTP failure aborts remaining rows. Retry failed/aborted input_index only.",
+    {
+      database: z.string(),
+      updates: z
+        .array(
+          z.object({
+            index: z.number().int().min(0).describe("Global array index"),
+            item: itemSchema.describe("Partial fields to merge"),
+            expect_question: z
+              .string()
+              .optional()
+              .describe(
+                "Recommended: must match current item.question or this row is refused",
+              ),
+          }),
+        )
+        .min(1)
+        .max(40)
+        .describe("Updates to apply (max 40)"),
+      reindex: z.boolean().optional(),
+      site: z.string().optional(),
+    },
+    async ({ database, updates, reindex, site }) => {
+      const denied = await requireItemCap(mcpToken);
+      if (denied) return denied;
+
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return fail(siteResult.error);
+      const domain = siteResult.domain;
+
+      const lenCheck = validateBulkLength(updates.length);
+      if (!lenCheck.ok) return fail(lenCheck.message);
+
+      try {
+        const cfg = await fetchDbConfig(database, domain, mcpToken);
+        if (!cfg.ok) return fail(cfg.message);
+        const local = assertLocal(cfg.data.config, database);
+        if (!local.ok) return fail(local.message);
+
+        const all = await fetchAllItems(database, domain, mcpToken);
+        if (!all.ok) return fail(all.message);
+
+        const { results, toPatch } = prepareBatchUpdate(database, updates, all.items);
+        const finalResults: BatchRowResult[] = results.map((r) => ({ ...r }));
+        const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
+        const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
+
+        if (database === FAQ_DB_NAME) {
+          for (const row of toPatch) {
+            const rf = row.merged.related_features;
+            if (Array.isArray(rf) && rf.length > 2) {
+              warnings.push({
+                code: "faq_too_many_tags",
+                message: `input_index ${row.input_index}: related_features has more than 2 tags (preferred max 2).`,
+              });
+            }
+          }
+        }
+
+        let wrote_count = 0;
+        const items_written: Record<string, unknown>[] = [];
+        const indices: number[] = [];
+
+        for (let i = 0; i < toPatch.length; i++) {
+          const row = toPatch[i];
+          const url = `http://localhost:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${row.index}${siteQuery(domain)}`;
+          const res = await fetch(url, {
+            method: "PATCH",
+            headers: internalHeaders(mcpToken),
+            body: JSON.stringify(row.item),
+          });
+          const data = (await res.json()) as Record<string, unknown>;
+          if (!res.ok) {
+            const msg = (data.error as string) || `Server error: ${res.status}`;
+            finalResults[row.input_index] = {
+              input_index: row.input_index,
+              ok: false,
+              code: "http_error",
+              message: msg,
+              index: row.index,
+            };
+            abortRemainingPatches(
+              finalResults,
+              toPatch,
+              i,
+              `Aborted after HTTP failure on input_index ${row.input_index}: ${msg}`,
+            );
+            break;
+          }
+
+          const written = (data.item as Record<string, unknown> | undefined) ?? row.merged;
+          wrote_count += 1;
+          items_written.push(written);
+          indices.push(row.index);
+          finalResults[row.input_index] = {
+            input_index: row.input_index,
+            ok: true,
+            index: row.index,
+            item: written,
+          };
+        }
+
+        const failed_count = finalResults.filter((r) => !r.ok).length;
+        const ri =
+          wrote_count > 0
+            ? await maybeReindex(database, domain, mcpToken, reindex, vectorEnabled)
+            : { did: false as const };
+        if (ri.warning) warnings.push(ri.warning);
+        if (wrote_count > 0 && vectorEnabled && !ri.did) {
+          warnings.push({
+            code: "semantic_index_stale",
+            message: "Vector search index not updated yet.",
+          });
+        }
+
+        return ok(
+          {
+            message:
+              wrote_count > 0
+                ? `Updated ${wrote_count} item(s) in ${database} (${failed_count} failed/aborted)`
+                : `No items updated in ${database} (${failed_count} failed/aborted)`,
+            database,
+            wrote_count,
+            failed_count,
+            results: finalResults,
+            indices,
+            items_written,
+            reindexed: ri.did,
+            item_file: `db/${database}/${local.filename}`,
+          },
+          {
+            warnings,
+            side_effects:
+              wrote_count > 0
+                ? [
+                    {
+                      kind: "yaml_write",
+                      summary: `Patched ${wrote_count} item(s) in db/${database}/${local.filename} (sync-state pending)`,
+                    },
+                  ]
+                : [],
+            next_actions: [
+              ...(wrote_count > 0 && !ri.did
+                ? reindexNextActions(database, vectorEnabled)
+                : []),
+              ...(failed_count > 0
+                ? [
+                    {
+                      tool: "update_database_items",
+                      reason: "Retry only failed/aborted input_index rows",
+                      args_hint: { database },
+                      priority: "recommended" as const,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        );
+      } catch (e) {
+        return fail(`update_database_items failed: ${(e as Error).message}`);
       }
     },
   );

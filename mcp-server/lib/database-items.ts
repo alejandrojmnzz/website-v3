@@ -133,3 +133,392 @@ export function summarizeUsage(report: {
     sample_files,
   };
 }
+
+/** Max items/updates per bulk MCP tool call. */
+export const MAX_BULK = 40;
+
+export type BatchRowOk = {
+  input_index: number;
+  ok: true;
+  index: number;
+  item: Record<string, unknown>;
+};
+
+export type BatchRowFail = {
+  input_index: number;
+  ok: false;
+  code: string;
+  message: string;
+  field?: string;
+  existing_index?: number;
+  index?: number;
+};
+
+export type BatchRowResult = BatchRowOk | BatchRowFail;
+
+export function validateBulkLength(
+  length: number,
+): { ok: true } | { ok: false; message: string } {
+  if (length < 1) {
+    return { ok: false, message: "Batch must contain at least 1 row" };
+  }
+  if (length > MAX_BULK) {
+    return {
+      ok: false,
+      message: `Batch exceeds max of ${MAX_BULK} rows (got ${length})`,
+    };
+  }
+  return { ok: true };
+}
+
+function isPlainItem(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  );
+}
+
+export type PreparedAddRow = {
+  input_index: number;
+  item: Record<string, unknown>;
+};
+
+/**
+ * Best-effort prepare for bulk add. FAQ: per-item defaults + first-wins
+ * duplicate vs existing DB and earlier rows in this batch.
+ */
+export function prepareBatchAdd(
+  database: string,
+  items: unknown[],
+  existing: Record<string, unknown>[],
+): { results: BatchRowResult[]; toWrite: PreparedAddRow[] } {
+  const results: BatchRowResult[] = [];
+  const toWrite: PreparedAddRow[] = [];
+  const writtenSoFar: Record<string, unknown>[] = [];
+
+  for (let input_index = 0; input_index < items.length; input_index++) {
+    const raw = items[input_index];
+    if (!isPlainItem(raw)) {
+      results.push({
+        input_index,
+        ok: false,
+        code: "invalid_item",
+        message: "Item must be a plain object",
+      });
+      continue;
+    }
+
+    if (database === FAQ_DB_NAME) {
+      const v = validateFaqItem(raw);
+      if (!v.ok) {
+        results.push({
+          input_index,
+          ok: false,
+          code: "validation",
+          message: v.message,
+        });
+        continue;
+      }
+      const prepared = applyFaqDefaults({ ...raw });
+      const pool = [...existing, ...writtenSoFar];
+      const dup = findFaqDuplicateIndex(
+        pool,
+        String(prepared.locale),
+        String(prepared.question),
+      );
+      if (dup >= 0) {
+        results.push({
+          input_index,
+          ok: false,
+          code: "duplicate",
+          message: `Duplicate FAQ for locale="${prepared.locale}" question (normalized) already exists at global index ${dup}`,
+          existing_index: dup,
+        });
+        continue;
+      }
+      writtenSoFar.push(prepared);
+      toWrite.push({ input_index, item: prepared });
+      results.push({
+        input_index,
+        ok: true,
+        index: existing.length + writtenSoFar.length - 1,
+        item: prepared,
+      });
+      continue;
+    }
+
+    const prepared = { ...raw };
+    writtenSoFar.push(prepared);
+    toWrite.push({ input_index, item: prepared });
+    results.push({
+      input_index,
+      ok: true,
+      index: existing.length + writtenSoFar.length - 1,
+      item: prepared,
+    });
+  }
+
+  return { results, toWrite };
+}
+
+export type BatchUpdateInput = {
+  index: unknown;
+  item: unknown;
+  expect_question?: unknown;
+};
+
+export type PreparedPatchRow = {
+  input_index: number;
+  index: number;
+  /** Partial fields sent to PATCH */
+  item: Record<string, unknown>;
+  /** Merged item after apply */
+  merged: Record<string, unknown>;
+};
+
+/**
+ * Best-effort prepare for bulk update. Working-copy simulation in input_index
+ * order; then fail-both on shared FAQ keys among tentatives (or vs untouched rows).
+ */
+export function prepareBatchUpdate(
+  database: string,
+  updates: BatchUpdateInput[],
+  existing: Record<string, unknown>[],
+): { results: BatchRowResult[]; toPatch: PreparedPatchRow[] } {
+  const working = existing.map((row) => ({ ...row }));
+  const claimed = new Map<number, number>(); // global index → input_index
+  const tentatives: PreparedPatchRow[] = [];
+  const earlyFails: BatchRowFail[] = [];
+
+  for (let input_index = 0; input_index < updates.length; input_index++) {
+    const row = updates[input_index] ?? {};
+    const indexRaw = row.index;
+    const index =
+      typeof indexRaw === "number" && Number.isInteger(indexRaw)
+        ? indexRaw
+        : NaN;
+
+    if (!Number.isInteger(index) || index < 0) {
+      earlyFails.push({
+        input_index,
+        ok: false,
+        code: "not_found",
+        message: "index must be a non-negative integer",
+      });
+      continue;
+    }
+
+    if (index >= existing.length) {
+      earlyFails.push({
+        input_index,
+        ok: false,
+        code: "not_found",
+        message: `Item at index ${index} not found (length=${existing.length})`,
+        index,
+      });
+      continue;
+    }
+
+    if (claimed.has(index)) {
+      earlyFails.push({
+        input_index,
+        ok: false,
+        code: "duplicate_index",
+        message: `Global index ${index} already targeted by input_index ${claimed.get(index)}`,
+        index,
+      });
+      continue;
+    }
+
+    if (!isPlainItem(row.item)) {
+      earlyFails.push({
+        input_index,
+        ok: false,
+        code: "invalid_item",
+        message: "item must be a plain object (partial patch)",
+        index,
+      });
+      continue;
+    }
+
+    const currentOriginal = existing[index];
+    if (
+      row.expect_question !== undefined &&
+      String(currentOriginal.question ?? "") !== String(row.expect_question)
+    ) {
+      earlyFails.push({
+        input_index,
+        ok: false,
+        code: "expect_mismatch",
+        message: `expect_question mismatch at index ${index}`,
+        index,
+      });
+      continue;
+    }
+
+    const merged = { ...working[index], ...row.item };
+
+    if (database === FAQ_DB_NAME) {
+      const v = validateFaqItem(merged);
+      if (!v.ok) {
+        earlyFails.push({
+          input_index,
+          ok: false,
+          code: "validation",
+          message: v.message,
+          index,
+        });
+        continue;
+      }
+    }
+
+    claimed.set(index, input_index);
+    working[index] = merged;
+    tentatives.push({
+      input_index,
+      index,
+      item: { ...row.item },
+      merged,
+    });
+  }
+
+  const demoted = new Set<number>(); // input_index
+  const tentativeByIndex = new Map(tentatives.map((t) => [t.index, t] as const));
+
+  const rebuildWorking = (): Record<string, unknown>[] => {
+    const rebuilt = existing.map((row) => ({ ...row }));
+    for (const t of tentatives) {
+      if (!demoted.has(t.input_index)) rebuilt[t.index] = { ...t.merged };
+    }
+    return rebuilt;
+  };
+
+  if (database === FAQ_DB_NAME) {
+    // Fail-both: any FAQ key with count>1 demotes all tentatives on that key.
+    const markCollidingTentatives = (rows: Record<string, unknown>[]) => {
+      const keyToIndices = new Map<string, number[]>();
+      for (let i = 0; i < rows.length; i++) {
+        const loc = String(rows[i].locale ?? "");
+        const q = String(rows[i].question ?? "");
+        if (!q) continue;
+        const key = faqDuplicateKey(loc, q);
+        const list = keyToIndices.get(key) ?? [];
+        list.push(i);
+        keyToIndices.set(key, list);
+      }
+      let added = false;
+      for (const [, indices] of keyToIndices) {
+        if (indices.length < 2) continue;
+        for (const gi of indices) {
+          const t = tentativeByIndex.get(gi);
+          if (t && !demoted.has(t.input_index)) {
+            demoted.add(t.input_index);
+            added = true;
+          }
+        }
+      }
+      return added;
+    };
+
+    markCollidingTentatives(working);
+    let changed = true;
+    while (changed) {
+      changed = markCollidingTentatives(rebuildWorking());
+    }
+  }
+
+  const finalWorking = rebuildWorking();
+
+  const results: BatchRowResult[] = new Array(updates.length);
+  for (const f of earlyFails) {
+    results[f.input_index] = f;
+  }
+
+  const toPatch: PreparedPatchRow[] = [];
+  for (const t of tentatives) {
+    if (demoted.has(t.input_index)) {
+      const key = faqDuplicateKey(
+        String(t.merged.locale ?? ""),
+        String(t.merged.question ?? ""),
+      );
+      const colliding = finalWorking
+        .map((row, i) => ({ row, i }))
+        .filter(
+          ({ row, i }) =>
+            i !== t.index &&
+            row.question &&
+            faqDuplicateKey(String(row.locale ?? ""), String(row.question)) ===
+              key,
+        )
+        .map(({ i }) => i);
+      // Peers demoted for the same key (fail-both) may not appear in finalWorking.
+      const demotedPeers = tentatives
+        .filter(
+          (o) =>
+            o.input_index !== t.input_index &&
+            demoted.has(o.input_index) &&
+            faqDuplicateKey(
+              String(o.merged.locale ?? ""),
+              String(o.merged.question ?? ""),
+            ) === key,
+        )
+        .map((o) => o.index);
+      const allColliding = [...new Set([...colliding, ...demotedPeers])];
+      results[t.input_index] = {
+        input_index: t.input_index,
+        ok: false,
+        code: "duplicate",
+        message: `Update would create duplicate FAQ key (locale + normalized question); colliding global index(es): ${allColliding.join(", ") || "batch"}`,
+        index: t.index,
+        existing_index: allColliding[0],
+      };
+      continue;
+    }
+    results[t.input_index] = {
+      input_index: t.input_index,
+      ok: true,
+      index: t.index,
+      item: t.merged,
+    };
+    toPatch.push(t);
+  }
+
+  for (let i = 0; i < updates.length; i++) {
+    if (!results[i]) {
+      results[i] = {
+        input_index: i,
+        ok: false,
+        code: "validation",
+        message: "Row was not processed",
+      };
+    }
+  }
+
+  return { results, toPatch };
+}
+
+/**
+ * After an HTTP failure on one prepared patch, mark later prepared rows aborted
+ * (mutates `results` in place). Returns count of rows marked aborted.
+ */
+export function abortRemainingPatches(
+  results: BatchRowResult[],
+  toPatch: PreparedPatchRow[],
+  failedToPatchIndex: number,
+  message: string,
+): number {
+  let count = 0;
+  for (let i = failedToPatchIndex + 1; i < toPatch.length; i++) {
+    const row = toPatch[i];
+    results[row.input_index] = {
+      input_index: row.input_index,
+      ok: false,
+      code: "aborted",
+      message,
+      index: row.index,
+    };
+    count += 1;
+  }
+  return count;
+}

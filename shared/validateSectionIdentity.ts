@@ -84,11 +84,59 @@ export type DocumentIdentityOpts = {
   conversionNames?: string[];
   resolveProduct: ProductResolveFn;
   skipIdentityIndexes?: Set<number>;
+  /**
+   * When set, only these section indexes are identity-checked (draft/variant
+   * section saves). Publish/live omit this for full-document checks.
+   */
+  onlyValidateIndexes?: Set<number>;
+};
+
+/** Minimal op shape for collecting which section indexes a write touches. */
+export type SectionIndexTouchOp = {
+  action: string;
+  index?: number;
+  path?: string;
+  from?: number;
+  to?: number;
 };
 
 /**
- * Validate all sections in a locale/content document.
+ * Section indexes touched by edit ops, or `null` when an op rewrites / reorders
+ * the whole sections list (caller must not scope identity validation).
+ */
+export function collectTouchedSectionIndexes(
+  operations: SectionIndexTouchOp[],
+): Set<number> | null {
+  const indexes = new Set<number>();
+  for (const op of operations) {
+    if (op.action === "replace_all_sections" || op.action === "reorder_sections") {
+      return null;
+    }
+    if (op.action === "update_section" && typeof op.index === "number") {
+      indexes.add(op.index);
+      continue;
+    }
+    if (
+      (op.action === "add_item" || op.action === "remove_item") &&
+      op.path === "sections"
+    ) {
+      if (typeof op.index === "number" && op.index >= 0) {
+        indexes.add(op.index);
+      }
+      continue;
+    }
+    if (op.action === "update_field" && typeof op.path === "string") {
+      const m = op.path.match(/^sections\.(\d+)(?:\.|$)/);
+      if (m) indexes.add(Number(m[1]));
+    }
+  }
+  return indexes;
+}
+
+/**
+ * Validate sections in a locale/content document.
  * Returns first error prefixed with sections[i], or null.
+ * When `onlyValidateIndexes` is set, siblings outside that set are skipped.
  */
 export function validateDocumentSectionsIdentity(
   doc: Record<string, unknown>,
@@ -98,6 +146,9 @@ export function validateDocumentSectionsIdentity(
   if (!Array.isArray(sections)) return null;
 
   for (let i = 0; i < sections.length; i++) {
+    if (opts.onlyValidateIndexes && !opts.onlyValidateIndexes.has(i)) {
+      continue;
+    }
     const sec = sections[i];
     if (!sec || typeof sec !== "object" || Array.isArray(sec)) continue;
     const section = sec as Record<string, unknown>;

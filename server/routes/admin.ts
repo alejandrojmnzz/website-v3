@@ -2464,7 +2464,7 @@ export function registerAdminRoutes(app: Express): void {
             (p) => p.slug === resolved.slug && (p as any)[localeKey] === locale,
           ) || posts.find((p) => p.slug === resolved.slug);
         if (post) {
-          schemaHtml = generateDatabaseSsrHtml(
+          schemaHtml = await generateDatabaseSsrHtml(
             resolved.contentType,
             post,
             locale,
@@ -2506,7 +2506,7 @@ export function registerAdminRoutes(app: Express): void {
           posts.find((p) => p.slug === slug && (p as any)[localeKey] === locale) ||
           posts.find((p) => p.slug === slug);
         if (post) {
-          schemaHtml = generateDatabaseSsrHtml("blog", post, locale, getCI(res), getContentRoot(res));
+          schemaHtml = await generateDatabaseSsrHtml("blog", post, locale, getCI(res), getContentRoot(res));
           if (typeof (post as any).robots === "string") {
             robotsDirective = (post as any).robots;
           }
@@ -2515,7 +2515,7 @@ export function registerAdminRoutes(app: Express): void {
         log.error("[SSR-Blog] Error generating schema for", url, err);
       }
     } else {
-      schemaHtml = generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
+      schemaHtml = await generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
       robotsDirective = resolvePageRobots(url, getCI(res), getContentRoot(res));
     }
 

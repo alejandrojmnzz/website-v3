@@ -11,105 +11,18 @@ import {
   generateDatabaseSsrHtml,
   type FaqSection,
 } from "./ssr-schema";
+import { applyIgnoredEntries } from "@shared/faq-listing";
 import { contentIndex } from "./content-index";
+import { validateFaqListingSections } from "@shared/validateFaqListing";
+import { faqSectionSchema } from "../shared/component-registry/faq/v1.0/schema";
 
 let tempDir: string;
 let contentRoot: string;
-
-function writeFaqDatabaseFixture() {
-  const dbDir = path.join(contentRoot, "db", "frequently_asked_questions");
-  fs.mkdirSync(dbDir, { recursive: true });
-
-  fs.writeFileSync(
-    path.join(dbDir, "config.yml"),
-    `name: frequently asked questions
-source:
-  type: local
-  local:
-    filename: faqs.yml
-    results_path: faqs
-field_mapping:
-  locale: locale
-  question: question
-  answer: answer
-  locations: locations
-  related_features: related_features
-  priority: priority
-`,
-    "utf-8",
-  );
-
-  fs.writeFileSync(
-    path.join(dbDir, "faqs.yml"),
-    `faqs:
-  - locale: en
-    question: Do I need expensive hardware for AI development?
-    answer: No, all exercises run in the cloud.
-    locations:
-      - all
-    related_features:
-      - ai-engineering
-    priority: 3
-  - locale: en
-    question: How long does the AI Engineering program take?
-    answer: About 16 weeks full time.
-    locations:
-      - all
-    related_features:
-      - ai-engineering
-    priority: 1
-  - locale: en
-    question: Do you offer financing?
-    answer: Yes, multiple financing options.
-    locations:
-      - all
-    related_features:
-      - financing
-    priority: 2
-  - locale: es
-    question: Necesito hardware costoso para desarrollo de IA?
-    answer: No, todos los ejercicios corren en la nube.
-    locations:
-      - all
-    related_features:
-      - ai-engineering
-    priority: 3
-  - locale: en
-    question: Is this only for Madrid students?
-    answer: This applies to Madrid only.
-    locations:
-      - madrid-spain
-    related_features:
-      - ai-engineering
-    priority: 2
-`,
-    "utf-8",
-  );
-}
-
-function makeDynamicFaqSection(
-  overrides: Partial<NonNullable<FaqSection["dynamic_entries"]>> = {},
-): FaqSection {
-  return {
-    type: "faq",
-    title: "FAQ",
-    dynamic_entries: {
-      database: "frequently_asked_questions",
-      limit: 9,
-      permanent_filters: [
-        { item_property_slug: "related_features", value: ["ai-engineering"] },
-        { item_property_slug: "locations", value: "all" },
-      ],
-      ...overrides,
-    },
-  };
-}
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssr-schema-test-"));
   contentRoot = path.join(tempDir, "site_test");
   fs.mkdirSync(contentRoot, { recursive: true });
-  writeFaqDatabaseFixture();
   clearSsrSchemaCache();
 });
 
@@ -118,61 +31,110 @@ afterEach(() => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-describe("resolveFaqItems with dynamic_entries", () => {
-  it("resolves database-backed FAQ entries filtered by locale and permanent filters", () => {
-    const items = resolveFaqItems(makeDynamicFaqSection(), "en", undefined, "ai-engineering", contentRoot);
-
-    expect(items.map((i) => i.question)).toEqual([
-      "Do I need expensive hardware for AI development?",
-      "How long does the AI Engineering program take?",
-    ]);
-    expect(items[0].answer).toBe("No, all exercises run in the cloud.");
-  });
-
-  it("filters by locale", () => {
-    const items = resolveFaqItems(makeDynamicFaqSection(), "es", undefined, undefined, contentRoot);
-
-    expect(items).toHaveLength(1);
-    expect(items[0].question).toBe("Necesito hardware costoso para desarrollo de IA?");
-  });
-
-  it("applies limit after prepending hardcoded entries", () => {
-    const section = makeDynamicFaqSection({
-      limit: 2,
-      hardcoded_entries: [{ question: "Hardcoded question?", answer: "Hardcoded answer." }],
-    });
-    const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
-
-    expect(items).toHaveLength(2);
-    expect(items[0].question).toBe("Hardcoded question?");
-  });
-
-  it("excludes ignored entries by slug key", () => {
-    const section = makeDynamicFaqSection({
-      ignored_entries: ["how-long-does-the-ai-engineering-program-take"],
-    });
-    const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
-
-    expect(items.map((i) => i.question)).toEqual([
-      "Do I need expensive hardware for AI development?",
-    ]);
-  });
-
-  it("returns empty array when database does not exist", () => {
-    const section = makeDynamicFaqSection({ database: "nonexistent_db" });
-    const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
-
-    expect(items).toEqual([]);
-  });
-
-  it("still prefers inline items over dynamic entries", () => {
+describe("resolveFaqItems (slim — post-DE items / hardcoded)", () => {
+  it("reads resolved items", () => {
     const section: FaqSection = {
-      ...makeDynamicFaqSection(),
-      items: [{ question: "Inline question?", answer: "Inline answer." }],
+      type: "faq",
+      title: "FAQ",
+      items: [
+        { question: "How long does the AI Engineering program take?", answer: "About 16 weeks." },
+        { question: "Do I need expensive hardware for AI development?", answer: "No." },
+      ],
+      dynamic_entries: {
+        database: "frequently_asked_questions",
+      },
     };
     const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
+    expect(items.map((i) => i.question)).toEqual([
+      "How long does the AI Engineering program take?",
+      "Do I need expensive hardware for AI development?",
+    ]);
+  });
 
-    expect(items).toEqual([{ question: "Inline question?", answer: "Inline answer." }]);
+  it("falls back to hardcoded_entries when items empty", () => {
+    const section: FaqSection = {
+      type: "faq",
+      hardcoded_entries: [
+        { question: "Hardcoded question?", answer: "Hardcoded answer." },
+      ],
+    };
+    expect(resolveFaqItems(section, "en")).toEqual([
+      { question: "Hardcoded question?", answer: "Hardcoded answer." },
+    ]);
+  });
+
+  it("still prefers inline items over root hardcoded_entries", () => {
+    const section: FaqSection = {
+      type: "faq",
+      items: [{ question: "Inline?", answer: "Inline answer." }],
+      hardcoded_entries: [{ question: "Hardcoded?", answer: "Hardcoded answer." }],
+    };
+    expect(resolveFaqItems(section, "en")).toEqual([
+      { question: "Inline?", answer: "Inline answer." },
+    ]);
+  });
+
+  it("applies item_overrides.hideOnLocations for FAQPage parity", () => {
+    const section: FaqSection = {
+      type: "faq",
+      items: [
+        { question: "Visible everywhere?", answer: "Yes." },
+        { question: "Hidden in Madrid?", answer: "Hidden." },
+      ],
+      item_overrides: {
+        "hidden-in-madrid": { hideOnLocations: ["madrid-spain"] },
+      },
+    };
+    const items = resolveFaqItems(section, "en", "madrid-spain");
+    expect(items.map((i) => i.question)).toEqual(["Visible everywhere?"]);
+  });
+});
+
+describe("applyIgnoredEntries dual-match", () => {
+  it("matches slug/id when present, else question-key", () => {
+    const items = [
+      { slug: "financing", question: "Do you offer financing?", answer: "Yes." },
+      { question: "How long does the AI Engineering program take?", answer: "16 weeks." },
+    ];
+    const bySlug = applyIgnoredEntries(items, ["financing"]);
+    expect(bySlug).toHaveLength(1);
+    expect(bySlug[0].question).toContain("How long");
+
+    const byKey = applyIgnoredEntries(items, [
+      "how-long-does-the-ai-engineering-program-take",
+    ]);
+    expect(byKey).toHaveLength(1);
+    expect(byKey[0].slug).toBe("financing");
+  });
+});
+
+describe("faq listing contract", () => {
+  it("Zod accepts dynamic_entries FAQ shape", () => {
+    const parsed = faqSectionSchema.safeParse({
+      type: "faq",
+      title: "FAQ",
+      dynamic_entries: {
+        database: "frequently_asked_questions",
+        limit: 9,
+        permanent_filters: [
+          { item_property_slug: "related_features", value: ["online-platform"] },
+        ],
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects section-level related_features on save validation", () => {
+    const err = validateFaqListingSections({
+      sections: [
+        {
+          type: "faq",
+          title: "FAQ",
+          related_features: ["price"],
+        },
+      ],
+    });
+    expect(err).toMatch(/related_features/);
   });
 });
 
@@ -209,21 +171,6 @@ describe("dedupeFaqItems", () => {
 });
 
 describe("resolveFaqItems with standalone hardcoded_entries", () => {
-  it("resolves root hardcoded_entries without dynamic_entries or related_features", () => {
-    const section: FaqSection = {
-      type: "faq",
-      title: "FAQ",
-      hardcoded_entries: [
-        { question: "Do I need prior experience?", answer: "No prior experience required." },
-      ],
-    };
-    const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
-
-    expect(items).toEqual([
-      { question: "Do I need prior experience?", answer: "No prior experience required." },
-    ]);
-  });
-
   it("filters malformed hardcoded entries", () => {
     const section = {
       type: "faq",
@@ -236,31 +183,6 @@ describe("resolveFaqItems with standalone hardcoded_entries", () => {
     const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
 
     expect(items).toEqual([{ question: "Valid?", answer: "Yes." }]);
-  });
-
-  it("still prefers inline items over root hardcoded_entries", () => {
-    const section: FaqSection = {
-      type: "faq",
-      items: [{ question: "Inline?", answer: "Inline answer." }],
-      hardcoded_entries: [{ question: "Hardcoded?", answer: "Hardcoded answer." }],
-    };
-    const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
-
-    expect(items).toEqual([{ question: "Inline?", answer: "Inline answer." }]);
-  });
-
-  it("still merges root hardcoded_entries with dynamic database entries", () => {
-    const section: FaqSection = {
-      ...makeDynamicFaqSection(),
-      hardcoded_entries: [{ question: "Hardcoded question?", answer: "Hardcoded answer." }],
-    };
-    const items = resolveFaqItems(section, "en", undefined, undefined, contentRoot);
-
-    expect(items.map((i) => i.question)).toEqual([
-      "Hardcoded question?",
-      "Do I need expensive hardware for AI development?",
-      "How long does the AI Engineering program take?",
-    ]);
   });
 });
 
@@ -291,7 +213,7 @@ function makeFakeCi(
 }
 
 describe("generateSsrSchemaHtml section schema dispatch (static pages)", () => {
-  it("emits one FAQPage for a page mixing a listing component and FAQ sections", () => {
+  it("emits one FAQPage for a page mixing a listing component and FAQ sections", async () => {
     const ci = makeFakeCi({
       sections: [
         { type: "listing", dynamic_entries: { content_type: "blog" } },
@@ -299,7 +221,7 @@ describe("generateSsrSchemaHtml section schema dispatch (static pages)", () => {
         { type: "faq", items: [{ question: "q1?", answer: "Duplicate." }, { question: "Q2?", answer: "A2." }] },
       ],
     });
-    const html = generateSsrSchemaHtml("/en/test-page", ci, contentRoot);
+    const html = await generateSsrSchemaHtml("/en/test-page", ci, contentRoot);
 
     expect(countOccurrences(html, '"@type":"FAQPage"')).toBe(1);
     expect(countOccurrences(html, '"@type":"Question"')).toBe(2);
@@ -308,16 +230,16 @@ describe("generateSsrSchemaHtml section schema dispatch (static pages)", () => {
     expect(html).not.toContain("Duplicate.");
   });
 
-  it("emits no FAQPage when FAQ sections resolve no items", () => {
+  it("emits no FAQPage when FAQ sections resolve no items", async () => {
     const ci = makeFakeCi({
       sections: [{ type: "faq", title: "Empty" }, { type: "hero", title: "Hero" }],
     });
-    const html = generateSsrSchemaHtml("/en/test-page", ci, contentRoot);
+    const html = await generateSsrSchemaHtml("/en/test-page", ci, contentRoot);
 
     expect(html).not.toContain('"@type":"FAQPage"');
   });
 
-  it("resolves {{ single.* }} vars in shared-template pages before contributing schema", () => {
+  it("resolves {{ single.* }} vars in shared-template pages before contributing schema", async () => {
     const ci = makeFakeCi(
       {
         title: "My Course",
@@ -332,7 +254,7 @@ describe("generateSsrSchemaHtml section schema dispatch (static pages)", () => {
       },
       true,
     );
-    const html = generateSsrSchemaHtml("/en/test-page", ci, contentRoot);
+    const html = await generateSsrSchemaHtml("/en/test-page", ci, contentRoot);
 
     expect(countOccurrences(html, '"@type":"FAQPage"')).toBe(1);
     expect(html).toContain("About My Course?");
@@ -415,9 +337,9 @@ sections:
     published_at: "2026-01-01",
   };
 
-  it("emits FAQPage from the merged single template with per-entry overrides applied", () => {
+  it("emits FAQPage from the merged single template with per-entry overrides applied", async () => {
     writeBlogTemplateFixture();
-    const html = generateDatabaseSsrHtml("blog", record, "en", contentIndex, contentRoot);
+    const html = await generateDatabaseSsrHtml("blog", record, "en", contentIndex, contentRoot);
 
     expect(html).toContain('"@type":"BlogPosting"');
     expect(countOccurrences(html, '"@type":"FAQPage"')).toBe(1);
@@ -426,18 +348,18 @@ sections:
     expect(html).not.toContain("Template question?");
   });
 
-  it("emits section BreadcrumbList only (no synthetic blog trail)", () => {
+  it("emits section BreadcrumbList only (no synthetic blog trail)", async () => {
     writeBlogTemplateFixture();
-    const html = generateDatabaseSsrHtml("blog", record, "en", contentIndex, contentRoot);
+    const html = await generateDatabaseSsrHtml("blog", record, "en", contentIndex, contentRoot);
 
     expect(countOccurrences(html, '"@type":"BreadcrumbList"')).toBe(1);
     expect(html).not.toContain('"name":"Blog"');
     expect(html).toContain('"name":"My Post"');
   });
 
-  it("falls back to the shared template FAQ when the entry has no override", () => {
+  it("falls back to the shared template FAQ when the entry has no override", async () => {
     writeBlogTemplateFixture();
-    const html = generateDatabaseSsrHtml(
+    const html = await generateDatabaseSsrHtml(
       "blog",
       { ...record, slug: "another-post", title: "Another Post" },
       "en",

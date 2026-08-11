@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useVariableDefinitions } from "@/hooks/useVariables";
 import { useQuery } from "@tanstack/react-query";
+import { buildPickerMappedFields } from "./expandMappedFields";
 
 interface VariableTypeChooserModalProps {
   open: boolean;
@@ -39,8 +40,8 @@ export function VariableTypeChooserModal({
   });
 
   const fieldMapping = typeConfig?.field_mapping || {};
-  // Prefer readable schema keys (not {source,default} objects) for the sample badges.
-  const fieldNames = Object.keys(fieldMapping).filter((k) => !k.startsWith("_"));
+  // Include system aliases (slug, image, …) so chooser samples match the picker.
+  const fieldNames = buildPickerMappedFields(fieldMapping).map((f) => f.key);
   const sampleFields = fieldNames.slice(0, 4);
 
   const globalVarNames = definitions ? Object.keys(definitions).sort() : [];

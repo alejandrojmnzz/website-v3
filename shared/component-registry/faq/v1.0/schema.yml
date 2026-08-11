@@ -12,7 +12,9 @@ behaviors:
     notes: Contributes FAQPage JSON-LD during SSR via server/schema-components.
   listing:
     source: dynamic_entries
-    notes: Optional FAQ items from dynamic_entries / content type queries.
+    notes: >-
+      FAQ is a listing over frequently_asked_questions (or content_type). Author via dynamic_entries; items are
+      runtime-resolved.
 props:
   title:
     type: string
@@ -30,49 +32,104 @@ props:
         type: string
         required: true
         example: No prior experience is required. We start from the fundamentals.
-      locations:
+    description: >-
+      Runtime-resolved Q&A pairs from dynamic_entries (not authored). Prefer dynamic_entries / hardcoded_entries for
+      authoring.
+  dynamic_entries:
+    type: object
+    required: false
+    properties:
+      content_type:
         type: string
-        required: true
-      related_features:
+        required: false
+      database:
         type: string
-        required: true
-      priority:
+        required: false
+        example: frequently_asked_questions
+      limit:
+        type: number
+        required: false
+        example: 9
+      sort:
         type: string
-        required: true
-    description: "Deprecated: Use related_features instead. Inline Q&A pairs as fallback only."
-  related_features:
+        required: false
+        example: priority
+      search:
+        type: string
+        required: false
+      item_template:
+        type: object
+        required: false
+      hardcoded_entries:
+        type: array
+        required: false
+        items:
+          question:
+            type: string
+            required: true
+          answer:
+            type: string
+            required: true
+      permanent_filters:
+        type: array
+        required: false
+        items:
+          item_property_slug:
+            type: string
+            required: true
+          value:
+            type: string
+            required: true
+      user_filters:
+        type: array
+        required: false
+        items:
+          item_property_slug:
+            type: string
+            required: true
+          component_renderer:
+            type: string
+            required: true
+            options:
+              - text-input
+              - dropdown
+              - tags
+          default_value:
+            type: string
+            required: false
+          all_label:
+            type: string
+            required: false
+      ignored_entries:
+        type: array
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+        description: Keys to exclude. Prefer slug/id when present; otherwise faqItemKey(question).
+    description: >-
+      Listing query for FAQ items. Typical database: frequently_asked_questions. On location (or program) pages, filter
+      with permanent_filters and value "{{ single.slug }}" so the same bound section works across entries.
+  hardcoded_entries:
     type: array
     required: false
     items:
-      type:
+      question:
         type: string
         required: true
-        options:
-          - online-platform
-          - mentors-and-teachers
-          - price
-          - career-support
-          - content-and-syllabus
-          - job-guarantee
-          - full-stack
-          - cybersecurity
-          - data-science
-          - applied-ai
-          - ai-engineering
-          - outcomes
-          - scholarships
-          - rigobot
-          - learnpack
-          - certification
+      answer:
+        type: string
+        required: true
     description: >-
-      Select up to 3 topics to pull FAQs from centralized data. Sorted by match count and priority. Max 9 FAQs
-      displayed.
-    example:
-      - career-support
-      - job-guarantee
+      Authored Q&A pairs used when there is no dynamic database/content_type, or merged ahead of dynamic results (also
+      allowed under dynamic_entries).
   item_overrides:
     type: object
     required: false
+    description: >-
+      Per-item presentation overrides after listing resolve (e.g. hideOnLocations). Applied to both the accordion and
+      FAQPage JSON-LD.
   cta:
     type: object
     required: false

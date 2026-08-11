@@ -31,7 +31,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `images` | How images are registered, referenced, and rendered |
 | `sections` | How section components are defined, registered, and rendered |
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |
-| `local_databases` | Local YAML private DBs; MCP item CRUD; global index; FAQ bank |
+| `local_databases` | Local YAML private DBs; MCP item CRUD; global index; FAQ database (`frequently_asked_questions`) |
 | `component-behaviors` | behaviors ids, CTA `tracking` property paths |
 | `ecommerce` | products, funnels, product scope property paths, no CMS plan catalog |
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |

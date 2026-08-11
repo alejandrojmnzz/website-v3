@@ -1,5 +1,9 @@
 /**
  * FAQ Component Schemas - v1.0
+ *
+ * Listing contract: authored source is `dynamic_entries` / `hardcoded_entries`.
+ * `items` is runtime-resolved by resolveDynamicEntries (not authored).
+ * Section-level `related_features` is rejected — use permanent_filters instead.
  */
 import { z } from "zod";
 
@@ -45,33 +49,61 @@ export const faqItemOverrideSchema = z.object({
   hideOnLocations: z.array(z.string()).optional(),
 });
 
-export const faqSectionSchema = z
-  .object({
-    type: z.literal("faq"),
-    title: z.string(),
-    items: z.array(faqItemSchema).optional(),
-    related_features: z.array(relatedFeaturesEnum).optional(),
-    item_overrides: z.record(z.string(), faqItemOverrideSchema).optional(),
-    cta: z
-      .object({
-        text: z.string().optional(),
-        button: z
-          .object({
-            label: z.string(),
-            url: z.string(),
-          })
-          .optional(),
-      })
-      .optional(),
-  })
-  .refine(
-    (data) => (data.related_features?.length ?? 0) <= 3,
-    {
-      message: "FAQ section may have at most 3 topics selected.",
-      path: ["related_features"],
-    }
-  );
+/** Inline listing filters — keep in sync with shared/schema permanentFilterSchema / userFilterSchema (FAQ cannot import shared/schema: circular). */
+const faqPermanentFilterSchema = z.object({
+  item_property_slug: z.string(),
+  value: z.unknown(),
+});
 
+const faqUserFilterSchema = z.object({
+  item_property_slug: z.string(),
+  component_renderer: z.enum(["text-input", "dropdown", "tags"]),
+  default_value: z.unknown().optional(),
+  all_label: z.string().optional(),
+});
+
+/** Resolved/simple Q&A rows (runtime or hardcoded). */
+const faqSimpleItemSchema = z.object({
+  question: z.string(),
+  answer: z.string(),
+}).passthrough();
+
+export const faqDynamicEntriesSchema = z.object({
+  content_type: z.string().optional(),
+  database: z.string().optional(),
+  limit: z.number().optional(),
+  sort: z.string().optional(),
+  search: z.string().optional(),
+  item_template: z.record(z.string(), z.unknown()).optional(),
+  hardcoded_entries: z.array(faqSimpleItemSchema).optional(),
+  permanent_filters: z.array(faqPermanentFilterSchema).optional(),
+  user_filters: z.array(faqUserFilterSchema).optional(),
+  ignored_entries: z.array(z.string()).optional(),
+});
+
+export const faqSectionSchema = z.object({
+  type: z.literal("faq"),
+  title: z.string(),
+  /** Runtime-resolved by resolveDynamicEntries; not the primary authored source. */
+  items: z.array(faqSimpleItemSchema).optional(),
+  dynamic_entries: faqDynamicEntriesSchema.optional(),
+  /** Accepted fallback when no dynamic_entries database/content_type (same as listing resolver). */
+  hardcoded_entries: z.array(faqSimpleItemSchema).optional(),
+  item_overrides: z.record(z.string(), faqItemOverrideSchema).optional(),
+  cta: z
+    .object({
+      text: z.string().optional(),
+      button: z
+        .object({
+          label: z.string(),
+          url: z.string(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+/** @deprecated Legacy bank shape — prefer frequently_asked_questions DB. Kept for transitional validators. */
 export const centralizedFaqsSchema = z.object({
   faqs: z.array(faqItemSchema),
 });

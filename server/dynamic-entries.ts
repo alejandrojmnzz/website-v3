@@ -3,7 +3,10 @@ import { contentIndex, type ContentIndex } from "./content-index";
 import { resolveContentTypeUrl } from "./content-types";
 import { queryEntries, type QueryFilter, applyFilters, applyMatchCountSort } from "./query-entries";
 import { child } from "./logger";
-import { parsePipeFallback } from "@shared/json-field";
+import { resolveSingleTemplateValue } from "@shared/json-field";
+import { applyIgnoredEntries, faqItemKey } from "@shared/faq-listing";
+
+export { faqItemKey, applyIgnoredEntries } from "@shared/faq-listing";
 
 const log = child({ module: "dynamic-entries" });
 
@@ -13,66 +16,10 @@ export interface ResolveDynamicEntriesOptions {
   contentIndex?: ContentIndex;
   /**
    * Current page's single entry (DB or YAML-mapped fields).
-   * Used to resolve `{{ single.* }}` in permanent_filters before querying,
-   * so related listings can filter by the page's own tags/fields.
+   * Used to resolve `{{ single.* }}` in permanent_filters, search, and
+   * hardcoded_entries before querying/merging (resolveSingleVars runs too late).
    */
   singleEntry?: Record<string, unknown>;
-}
-
-const SINGLE_VAR_PATTERN = /\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
-const EXACT_SINGLE_VAR_PATTERN = /^\{\{\s*single\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
-
-function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
-  const parts = dotPath.split(".");
-  let current: unknown = obj;
-  for (const part of parts) {
-    if (current === null || current === undefined) return undefined;
-    if (typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
-
-function resolveTemplateValue(template: unknown, item: Record<string, unknown>): unknown {
-  if (typeof template === "string") {
-    const exactMatch = template.match(EXACT_SINGLE_VAR_PATTERN);
-    if (exactMatch) {
-      const fieldPath = exactMatch[1];
-      const hasFallback = exactMatch[2] !== undefined;
-      const fallback = exactMatch[2]?.trim();
-      const value = getNestedValue(item, fieldPath);
-      if (value !== undefined && value !== null) return value;
-      if (hasFallback) return parsePipeFallback(fallback ?? "");
-      return "";
-    }
-
-    if (!SINGLE_VAR_PATTERN.test(template)) return template;
-    SINGLE_VAR_PATTERN.lastIndex = 0;
-
-    return template.replace(SINGLE_VAR_PATTERN, (_match, fieldPath: string, fallback?: string) => {
-      const value = getNestedValue(item, fieldPath);
-      if (value !== undefined && value !== null) {
-        if (typeof value === "object") return JSON.stringify(value);
-        return String(value);
-      }
-      if (fallback !== undefined) return fallback.trim();
-      return "";
-    });
-  }
-
-  if (Array.isArray(template)) {
-    return template.map((t) => resolveTemplateValue(t, item));
-  }
-
-  if (template !== null && typeof template === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(template as Record<string, unknown>)) {
-      result[key] = resolveTemplateValue(value, item);
-    }
-    return result;
-  }
-
-  return template;
 }
 
 interface PermanentFilter {
@@ -100,21 +47,51 @@ interface DynamicEntriesConfig {
 
 const MIN_SEARCH_CHARS = 3;
 
-export function faqItemKey(question: string): string {
-  return question
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, "-")
-    .slice(0, 80);
+/** Resolve `{{ single.* }}` against the page entry (or pipe fallback when missing). */
+function resolveAgainstSingle(
+  value: unknown,
+  singleEntry?: Record<string, unknown>,
+): unknown {
+  return resolveSingleTemplateValue(value, singleEntry ?? {});
 }
 
-function applyIgnoredEntries(
-  items: Record<string, unknown>[],
-  ignored: string[] | undefined,
-): Record<string, unknown>[] {
-  if (!ignored?.length) return items;
-  const ignoredSet = new Set(ignored.map((k: string) => k.toLowerCase().trim()));
-  return items.filter((item) => !ignoredSet.has(faqItemKey(String(item.question ?? ""))));
+/**
+ * Resolve hardcoded_entries when still a `{{ single.* }}` bind string.
+ * Exported for unit tests.
+ */
+export function resolveHardcodedEntriesForDynamic(
+  raw: unknown,
+  singleEntry?: Record<string, unknown>,
+): unknown[] {
+  const resolved = resolveAgainstSingle(raw, singleEntry);
+  return Array.isArray(resolved) ? resolved : [];
+}
+
+/**
+ * Resolve dynamic_entries.search when still a `{{ single.* }}` bind.
+ * Exported for unit tests.
+ */
+export function resolveSearchPhraseForDynamic(
+  raw: unknown,
+  singleEntry?: Record<string, unknown>,
+): string {
+  const resolved = resolveAgainstSingle(raw, singleEntry);
+  return typeof resolved === "string" ? resolved.trim() : "";
+}
+
+/**
+ * Manually-added FAQs first, then DB — total capped at `limit` when set.
+ * Exported for unit tests.
+ */
+export function mergeFaqItemsWithLimit(
+  hardcoded: unknown[],
+  dbItems: unknown[],
+  limit?: number,
+): unknown[] {
+  if (!limit || limit <= 0) return [...hardcoded, ...dbItems];
+  const includedHardcoded = hardcoded.slice(0, limit);
+  const remaining = Math.max(0, limit - includedHardcoded.length);
+  return [...includedHardcoded, ...dbItems.slice(0, remaining)];
 }
 
 export async function resolveDynamicEntries(
@@ -154,10 +131,19 @@ export async function resolveDynamicEntries(
 
     try {
       const contentType = dynamicEntries.content_type || "";
-      const hardcodedEntries = (dynamicEntries?.hardcoded_entries || sec.hardcoded_entries) as
-        | unknown[]
-        | undefined;
-      const hardcodedCount = Array.isArray(hardcodedEntries) ? hardcodedEntries.length : 0;
+      // Resolve before merge/limit — resolveSingleVars runs after this function.
+      const hardcodedEntries = resolveHardcodedEntriesForDynamic(
+        dynamicEntries?.hardcoded_entries ?? sec.hardcoded_entries,
+        singleEntry,
+      );
+      const limit =
+        dynamicEntries.limit && dynamicEntries.limit > 0
+          ? dynamicEntries.limit
+          : undefined;
+      // Cap manually-added rows too — limit is total questions shown, not DB-only.
+      const includedHardcoded =
+        limit != null ? hardcodedEntries.slice(0, limit) : hardcodedEntries;
+      const hardcodedCount = includedHardcoded.length;
       const hasIgnored =
         Array.isArray(dynamicEntries.ignored_entries) &&
         dynamicEntries.ignored_entries.length > 0;
@@ -166,14 +152,13 @@ export async function resolveDynamicEntries(
       // before querying (resolveSingleVars runs too late for listing filters).
       const filters: QueryFilter[] | undefined = dynamicEntries.permanent_filters?.map((pf) => ({
         field: pf.item_property_slug,
-        value:
-          singleEntry && Object.keys(singleEntry).length > 0
-            ? resolveTemplateValue(pf.value, singleEntry)
-            : pf.value,
+        value: resolveAgainstSingle(pf.value, singleEntry),
       }));
 
-      const searchPhrase =
-        typeof dynamicEntries.search === "string" ? dynamicEntries.search.trim() : "";
+      const searchPhrase = resolveSearchPhraseForDynamic(
+        dynamicEntries.search,
+        singleEntry,
+      );
       const useSearch =
         Boolean(dynamicEntries.database) &&
         searchPhrase.length >= MIN_SEARCH_CHARS;
@@ -188,9 +173,7 @@ export async function resolveDynamicEntries(
         } = await import("./database-search");
 
         const remainingSlots =
-          dynamicEntries.limit && dynamicEntries.limit > 0
-            ? Math.max(0, dynamicEntries.limit - hardcodedCount)
-            : SEARCH_CACHE_CEILING;
+          limit != null ? Math.max(0, limit - hardcodedCount) : SEARCH_CACHE_CEILING;
 
         const searchResult = await searchDatabaseItems(dynamicEntries.database!, searchPhrase, {
           limit: SEARCH_CACHE_CEILING,
@@ -231,8 +214,8 @@ export async function resolveDynamicEntries(
       } else {
         // When ignored_entries exist, fetch without limit so FAQ ignores apply before slicing.
         const queryLimit =
-          !hasIgnored && dynamicEntries.limit && dynamicEntries.limit > 0
-            ? Math.max(0, dynamicEntries.limit - hardcodedCount)
+          !hasIgnored && limit != null
+            ? Math.max(0, limit - hardcodedCount)
             : undefined;
 
         const from = contentType
@@ -254,9 +237,8 @@ export async function resolveDynamicEntries(
 
         if (hasIgnored) {
           items = applyIgnoredEntries(items, dynamicEntries.ignored_entries);
-          if (dynamicEntries.limit && dynamicEntries.limit > 0) {
-            const remainingSlots = Math.max(0, dynamicEntries.limit - hardcodedCount);
-            items = items.slice(0, remainingSlots);
+          if (limit != null) {
+            items = items.slice(0, Math.max(0, limit - hardcodedCount));
           }
         }
       }
@@ -269,7 +251,7 @@ export async function resolveDynamicEntries(
             const url = resolveContentTypeUrl(contentType, item, locale, contentRoot);
             if (url) enriched._resolved_url = url;
           }
-          return resolveTemplateValue(itemTemplate, enriched);
+          return resolveAgainstSingle(itemTemplate, enriched);
         });
       } else {
         resolvedItems = items.map((item) => {
@@ -281,13 +263,17 @@ export async function resolveDynamicEntries(
         });
       }
 
-      const finalItems = [
-        ...(Array.isArray(hardcodedEntries) ? hardcodedEntries : []),
-        ...resolvedItems,
-      ];
+      const finalItems = mergeFaqItemsWithLimit(
+        includedHardcoded,
+        resolvedItems,
+        limit,
+      );
 
       resolved.push({
         ...sec,
+        // Keep resolved array on the section so FAQ UI / schema see it before
+        // the later resolveAllTemplateVars pass.
+        ...(hardcodedEntries.length > 0 ? { hardcoded_entries: hardcodedEntries } : {}),
         items: finalItems,
         _dynamic_meta: {
           content_type: contentType || dynamicEntries.database,
