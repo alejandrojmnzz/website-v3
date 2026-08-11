@@ -41,4 +41,37 @@ describe("FAQSection empty state", () => {
     expect(html).toContain("no results");
     expect(html).toContain("hidden on the live page");
   });
+
+  it("does not crash when hardcoded_entries is an unresolved template string", () => {
+    editModeMock.isEditMode = false;
+    const html = renderToStaticMarkup(
+      <FAQSection
+        data={
+          {
+            type: "faq",
+            title: "FAQ",
+            hardcoded_entries: "{{ single.faq_entries | [] }}",
+          } as never
+        }
+      />,
+    );
+    expect(html).toBe("");
+  });
+
+  it("renders resolved faq_entries arrays from hardcoded_entries", () => {
+    editModeMock.isEditMode = false;
+    const html = renderToStaticMarkup(
+      <FAQSection
+        data={
+          {
+            type: "faq",
+            title: "FAQ",
+            hardcoded_entries: [{ question: "Why?", answer: "Because." }],
+          } as never
+        }
+      />,
+    );
+    expect(html).toContain("Why?");
+    expect(html).toContain("accordion-faq-0");
+  });
 });

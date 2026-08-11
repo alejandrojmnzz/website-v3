@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { FAQSection as FAQSectionType } from "@shared/schema";
 import { useLocation as useWouterLocation } from "wouter";
 import { useInternalNav } from "@/hooks/useInternalNav";
-import { faqItemKey } from "@/lib/faqConstants";
+import { faqItemKey, normalizeFaqEntries } from "@/lib/faqConstants";
 import { useSession } from "@/contexts/SessionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 
@@ -36,12 +36,12 @@ export function FAQSection({ data }: FAQSectionProps) {
     | undefined;
 
   const faqItems = (() => {
-    const hardcodedEntries = (data as Record<string, unknown>)
-      .hardcoded_entries as
-      | Array<{ question: string; answer: string }>
-      | undefined;
+    const fromItems = normalizeFaqEntries(data.items);
+    const fromHardcoded = normalizeFaqEntries(
+      (data as Record<string, unknown>).hardcoded_entries,
+    );
     let items: Array<{ question: string; answer: string }> = [
-      ...(data.items?.length ? data.items : (hardcodedEntries ?? [])),
+      ...(fromItems.length ? fromItems : fromHardcoded),
     ];
 
     if (itemOverrides && Object.keys(itemOverrides).length > 0) {

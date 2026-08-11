@@ -120,10 +120,26 @@ export function filterFaqsByRelatedFeatures(
   return filtered.map(({ question, answer }) => ({ question, answer }));
 }
 
-export function faqItemKey(question: string): string {
-  return question
+export function faqItemKey(question: string | null | undefined): string {
+  return String(question ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, "-")
     .slice(0, 80);
+}
+
+/**
+ * Normalize FAQ entry lists from YAML / template resolution.
+ * Unresolved binds like `{{ single.faq_entries | [] }}` stay strings — never spread those.
+ */
+export function normalizeFaqEntries(value: unknown): SimpleFaq[] {
+  if (!Array.isArray(value)) return [];
+  const out: SimpleFaq[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.question !== "string" || typeof row.answer !== "string") continue;
+    out.push({ question: row.question, answer: row.answer });
+  }
+  return out;
 }

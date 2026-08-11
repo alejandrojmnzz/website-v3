@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { locations as allLocations } from "@/lib/locations";
-import { faqItemKey, type FaqItem } from "@/lib/faqConstants";
+import { faqItemKey, normalizeFaqEntries, type FaqItem } from "@/lib/faqConstants";
 import type { Location } from "@shared/session";
 import { FaqScopeDialog } from "@/components/editing/FaqScopeDialog";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
@@ -307,7 +307,7 @@ export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerPro
   searchPhrase,
   onSearchMeta,
   locale,
-  hardcodedItems,
+  hardcodedItems: hardcodedItemsProp,
   ignoredEntries,
   itemOverrides,
   onChange,
@@ -328,6 +328,12 @@ export const FaqItemsPicker = forwardRef<FaqItemsPickerHandle, FaqItemsPickerPro
     useState<DisplayItem | null>(null);
   const [globalDeleteConfirm, setGlobalDeleteConfirm] = useState<DisplayItem | null>(null);
   const [globalDeleting, setGlobalDeleting] = useState(false);
+
+  // Template binds (e.g. {{ single.faq_entries | [] }}) arrive as strings — never treat as item lists.
+  const hardcodedItems = useMemo(
+    () => normalizeFaqEntries(hardcodedItemsProp),
+    [hardcodedItemsProp],
+  );
 
   const activeSearch = (searchPhrase ?? "").trim();
   const useSearch = activeSearch.length >= 3;

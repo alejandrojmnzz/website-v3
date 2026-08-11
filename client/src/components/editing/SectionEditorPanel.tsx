@@ -63,6 +63,7 @@ import type { Section, SectionLayout, ImageRegistry } from "@shared/schema";
 import { locations as allLocations, getLocationBySlug } from "@/lib/locations";
 import type { Location } from "@shared/session";
 import { Badge } from "@/components/ui/badge";
+import { normalizeFaqEntries } from "@/lib/faqConstants";
 import {
   Popover,
   PopoverContent,
@@ -5636,9 +5637,11 @@ export function SectionEditorPanel({
                         permanentFilters={permanentFilters}
                         locale={locale || "en"}
                         hardcodedItems={(() => {
-                          const hardcoded = (parsedSection as Record<string, unknown>)?.hardcoded_entries as Array<{ question: string; answer: string }> | undefined;
-                          const rootItems = parsedSection?.items as Array<{ question: string; answer: string }> | undefined;
-                          return [...(hardcoded || []), ...(rootItems || [])];
+                          const hardcoded = normalizeFaqEntries(
+                            (parsedSection as Record<string, unknown>)?.hardcoded_entries,
+                          );
+                          const rootItems = normalizeFaqEntries(parsedSection?.items);
+                          return [...hardcoded, ...rootItems];
                         })()}
                         ignoredEntries={(() => {
                           const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
@@ -5778,9 +5781,11 @@ export function SectionEditorPanel({
                         })()}
                         locale={locale || "en"}
                         hardcodedItems={(() => {
-                          const hardcoded = (parsedSection as Record<string, unknown>)?.hardcoded_entries as Array<{ question: string; answer: string }> | undefined;
-                          const rootItems = parsedSection?.items as Array<{ question: string; answer: string }> | undefined;
-                          return [...(hardcoded || []), ...(rootItems || [])];
+                          const hardcoded = normalizeFaqEntries(
+                            (parsedSection as Record<string, unknown>)?.hardcoded_entries,
+                          );
+                          const rootItems = normalizeFaqEntries(parsedSection?.items);
+                          return [...hardcoded, ...rootItems];
                         })()}
                         ignoredEntries={(() => {
                           const de = parsedSection?.dynamic_entries as Record<string, unknown> | undefined;
