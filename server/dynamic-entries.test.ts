@@ -57,6 +57,24 @@ describe("resolveSearchPhraseForDynamic", () => {
   });
 });
 
+describe("location FAQ permanent_filters slug bind", () => {
+  it("resolves {{ single.slug | miami-usa }} to the page slug when singleEntry is provided", async () => {
+    const { resolveSingleTemplateValue } = await import("@shared/json-field");
+    expect(
+      resolveSingleTemplateValue("{{ single.slug | miami-usa }}", {
+        slug: "atlanta-usa",
+      }),
+    ).toBe("atlanta-usa");
+  });
+
+  it("falls back to miami-usa when singleEntry is missing (the pre-fix location API bug)", async () => {
+    const { resolveSingleTemplateValue } = await import("@shared/json-field");
+    expect(resolveSingleTemplateValue("{{ single.slug | miami-usa }}", {})).toBe(
+      "miami-usa",
+    );
+  });
+});
+
 describe("mergeFaqItemsWithLimit", () => {
   const hard = [
     { question: "H1", answer: "a" },

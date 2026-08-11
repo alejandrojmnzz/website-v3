@@ -53,6 +53,7 @@ import { TableContentEditor } from "./TableContentEditor";
 import { FaqItemsPicker } from "./FaqItemsPicker";
 import { FaqSectionEditorField } from "./FaqSectionEditorField";
 import { DbFieldValuesPicker } from "./DbFieldValuesPicker";
+import { restoreVariableFieldsForEditor, mergeSavedSectionForLivePreview } from "./restoreVariableFieldsForEditor";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { RichTextArea } from "./RichTextArea";
 import { MarkdownEditorField } from "./MarkdownEditorField";
@@ -196,15 +197,9 @@ function detectClearedTemplatePaths(
   );
 }
 
+/** Strip runtime keys; restore `{{ }}` binds from `_variableFields` for the Code editor. */
 function stripTransientDynamicKeys(section: unknown): unknown {
-  if (!section || typeof section !== "object") return section;
-  const sec = section as Record<string, unknown>;
-  const withoutPrivate = Object.fromEntries(
-    Object.entries(sec).filter(([k]) => !k.startsWith("_"))
-  );
-  if (!withoutPrivate.dynamic_entries) return withoutPrivate;
-  const { items: _items, ...authored } = withoutPrivate;
-  return authored;
+  return restoreVariableFieldsForEditor(section);
 }
 import { usePageHistoryOptional } from "@/contexts/PageHistoryContext";
 import { useImagePickerContext } from "@/contexts/ImagePickerContext";
@@ -557,10 +552,13 @@ export function SectionEditorPanel({
 
   const hasVariableFields = !!(section as Record<string, unknown>)._variableFields;
   const isPerEntryOverlaySection = !!(section as Record<string, unknown>)._perEntrySource;
-  /** Load raw single.*.yml into the editor for attached shared-layout template sections. */
+  /**
+   * Load raw single.*.yml for shared-layout template sections only.
+   * Ordinary pages (e.g. locations) keep authored `{{ }}` via
+   * restoreVariableFieldsForEditor — do not hit single-template-sections for them.
+   */
   const shouldLoadTemplateYaml =
-    !!contentType &&
-    (hasVariableFields || (!!isSharedTemplate && !isPerEntryOverlaySection));
+    !!contentType && !!isSharedTemplate && !isPerEntryOverlaySection;
 
   // Map from section field path → template key (e.g. "image.src" → "thumbnail")
   const variableFieldToTemplateKey = (() => {
@@ -2196,7 +2194,12 @@ export function SectionEditorPanel({
             "Server did not return updated section, using local parsed data",
           );
         }
-        onUpdate(confirmedSection || parsed);
+        onUpdate(
+          mergeSavedSectionForLivePreview(
+            section as Record<string, unknown>,
+            (confirmedSection || parsed) as Record<string, unknown>,
+          ) as Section,
+        );
         setHasChanges(false);
         setPendingClearedTemplatePaths([]);
 
@@ -2308,7 +2311,12 @@ export function SectionEditorPanel({
       });
       const data = await resp.json();
       if (data.success) {
-        onUpdate(parsed);
+        onUpdate(
+          mergeSavedSectionForLivePreview(
+            section as Record<string, unknown>,
+            parsed as Record<string, unknown>,
+          ) as Section,
+        );
         setHasChanges(false);
         initialYamlRef.current = yamlContent;
         emitContentUpdated({ contentType, slug, locale });

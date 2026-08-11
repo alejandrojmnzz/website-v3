@@ -462,12 +462,22 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const programData = program as unknown as Record<string, unknown>;
-    if (Array.isArray(programData.sections)) {
-      programData.sections = await resolveDynamicEntries(programData.sections, locale, dynamicEntriesOptions(res)) as any;
-    }
     const programRaw = getCI(res).loadMergedContent("program", slug, locale);
     const layout = resolveLayout("program", programRaw.data || {}, getContentRoot(res));
-    const singleEntry = buildSingleEntryFromContent("program", programData);
+    const singleEntry = buildSingleEntryFromContent("program", programData, {
+      slug,
+      locale,
+      contentRoot: getContentRoot(res),
+    });
+    // singleEntry must exist before dynamic_entries so {{ single.* }} filters resolve
+    // (otherwise pipe fallbacks like miami-usa bake the wrong FAQ list into items).
+    if (Array.isArray(programData.sections)) {
+      attachVariableFieldsToSections(programData.sections as unknown[]);
+      programData.sections = await resolveDynamicEntries(programData.sections, locale, {
+        ...dynamicEntriesOptions(res),
+        singleEntry: singleEntry || undefined,
+      }) as any;
+    }
     const param = contentParamBag(req, res, "program", slug, locale, programData);
     if (singleEntry) {
       Object.assign(
@@ -568,14 +578,23 @@ export function registerContentRoutes(app: Express): void {
       (commonData?.locations as string[] | undefined) || undefined;
     const landingData = landing as unknown as Record<string, unknown>;
 
+    const rawMerged = getCI(res).loadMergedContent("landing", slug, locale);
+    const layout = resolveLayout("landing", rawMerged.data || commonData || {}, getContentRoot(res));
+    const singleEntry = buildSingleEntryFromContent("landing", landingData, {
+      slug: baseSlug,
+      locale,
+      contentRoot: getContentRoot(res),
+    });
+    // singleEntry before dynamic_entries — listing filters use {{ single.* }}.
     if (landing.sections && Array.isArray(landing.sections)) {
-      (landing as any).sections = await resolveDynamicEntries(landing.sections as any, locale, dynamicEntriesOptions(res));
+      attachVariableFieldsToSections(landing.sections as unknown[]);
+      (landing as any).sections = await resolveDynamicEntries(landing.sections as any, locale, {
+        ...dynamicEntriesOptions(res),
+        singleEntry: singleEntry || undefined,
+      });
       applyComponentImageSizes((landing as any).sections as unknown[]);
     }
 
-    const rawMerged = getCI(res).loadMergedContent("landing", slug, locale);
-    const layout = resolveLayout("landing", rawMerged.data || commonData || {}, getContentRoot(res));
-    const singleEntry = buildSingleEntryFromContent("landing", landingData);
     const param = contentParamBag(req, res, "landing", slug, locale, landingData);
     if (singleEntry) {
       Object.assign(
@@ -654,14 +673,27 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const locationData = location as unknown as Record<string, unknown>;
-    if (locationData.sections && Array.isArray(locationData.sections)) {
-      applyComponentSectionDefaults(locationData.sections);
-      locationData.sections = await resolveDynamicEntries(locationData.sections as any, locale, dynamicEntriesOptions(res)) as any;
-      applyComponentImageSizes(locationData.sections);
-    }
     const locationRaw = getCI(res).loadMergedContent("location", slug, locale);
     const layout = resolveLayout("location", locationRaw.data || {}, getContentRoot(res));
-    const singleEntry = buildSingleEntryFromContent("location", locationData);
+    const singleEntry = buildSingleEntryFromContent("location", locationData, {
+      slug,
+      locale,
+      contentRoot: getContentRoot(res),
+    });
+    // Build singleEntry first: FAQ permanent_filters use {{ single.slug | miami-usa }}.
+    // Resolving dynamic_entries without singleEntry always hit the miami-usa fallback,
+    // while resolveAllTemplateVars later rewrote the filter string to the real slug —
+    // so the editor showed Atlanta/Dallas while the page kept Miami items.
+    if (locationData.sections && Array.isArray(locationData.sections)) {
+      applyComponentSectionDefaults(locationData.sections);
+      // Capture {{ }} binds before resolve so the editor can restore placeholders.
+      attachVariableFieldsToSections(locationData.sections);
+      locationData.sections = await resolveDynamicEntries(locationData.sections as any, locale, {
+        ...dynamicEntriesOptions(res),
+        singleEntry: singleEntry || undefined,
+      }) as any;
+      applyComponentImageSizes(locationData.sections);
+    }
     const param = contentParamBag(req, res, "location", slug, locale, locationData);
     if (singleEntry) {
       Object.assign(
@@ -797,20 +829,28 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
+    const pageData = page as unknown as Record<string, unknown>;
+    const pageRaw = getCI(res).loadMergedContent("page", slug, locale);
+    const layout = resolveLayout("page", pageRaw.data || {}, getContentRoot(res));
+    const singleEntry = buildSingleEntryFromContent("page", pageData, {
+      slug,
+      locale,
+      contentRoot: getContentRoot(res),
+    });
     if (page.sections && Array.isArray(page.sections)) {
+      attachVariableFieldsToSections(page.sections as unknown[]);
       page.sections = (await resolveDynamicEntries(
         page.sections,
         locale,
-        dynamicEntriesOptions(res),
+        {
+          ...dynamicEntriesOptions(res),
+          singleEntry: singleEntry || undefined,
+        },
       )) as any;
       applyComponentSectionDefaults(page.sections);
       applyComponentImageSizes(page.sections);
     }
 
-    const pageData = page as unknown as Record<string, unknown>;
-    const pageRaw = getCI(res).loadMergedContent("page", slug, locale);
-    const layout = resolveLayout("page", pageRaw.data || {}, getContentRoot(res));
-    const singleEntry = buildSingleEntryFromContent("page", pageData);
     const param = contentParamBag(req, res, "page", slug, locale, pageData);
     if (singleEntry) {
       pageData.singleEntry = singleEntry;
@@ -950,21 +990,24 @@ export function registerContentRoutes(app: Express): void {
         templateVariant,
       );
       if (merged) {
-        if (merged.sections && Array.isArray(merged.sections)) {
-          attachVariableFieldsToSections(merged.sections as unknown[]);
-          merged.sections = (await resolveDynamicEntries(
-            merged.sections as unknown[],
-            locale,
-            dynamicEntriesOptions(res),
-          )) as any;
-          applyComponentImageSizes(merged.sections as unknown[]);
-        }
         const variantLayout = resolveLayout(contentType, merged, root);
         const singleEntry = buildSingleEntryFromContent(contentType, merged, {
           slug,
           locale,
           contentRoot: root,
         });
+        if (merged.sections && Array.isArray(merged.sections)) {
+          attachVariableFieldsToSections(merged.sections as unknown[]);
+          merged.sections = (await resolveDynamicEntries(
+            merged.sections as unknown[],
+            locale,
+            {
+              ...dynamicEntriesOptions(res),
+              singleEntry: singleEntry || undefined,
+            },
+          )) as any;
+          applyComponentImageSizes(merged.sections as unknown[]);
+        }
         const param = contentParamBag(req, res, contentType, slug, locale, merged);
         if (singleEntry) {
           merged.singleEntry = singleEntry;
