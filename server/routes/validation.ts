@@ -9,6 +9,7 @@ import { applyValidationRunToCache } from "../services/validationCachePostProces
 import {
   DIAGNOSTICS_SKIP_FOR_PER_PAGE,
   getDiagnosticsJob,
+  isDiagnosticsRunning,
   listCacheIssues,
   listDiagnosticsJobs,
   startDiagnosticsJob,
@@ -435,9 +436,29 @@ export function registerValidationRoutes(app: Express): void {
     }
   });
 
-  // Clear validation cache
-  app.post("/api/validation/clear-cache", (_req, res) => {
-    res.json({ success: true, message: "Validation cache cleared" });
+  // Clear validation-cache.json (issues + run meta) for the current site
+  app.post("/api/validation/clear-cache", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    try {
+      const site = res.locals.site as SiteContext | undefined;
+      const contentRoot = site?.contentRoot ?? getDefaultContentRoot();
+      if (isDiagnosticsRunning(contentRoot)) {
+        res.status(409).json({
+          success: false,
+          error: "diagnostics_busy",
+          message:
+            "A diagnostics job is running for this site. Wait for it to finish before clearing the cache.",
+        });
+        return;
+      }
+      const cache = getValidationCache(res);
+      await cache.clearAll();
+      res.json({ success: true, message: "Validation cache cleared" });
+    } catch (error) {
+      log.error({ err: error }, "clear-cache error:");
+      res.status(500).json({ error: "Failed to clear validation cache" });
+    }
   });
 
   // Run a named fixer

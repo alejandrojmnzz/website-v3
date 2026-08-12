@@ -255,10 +255,21 @@ export class ValidationCacheService {
   private writeQueue: Promise<void> = Promise.resolve();
   private cacheFile: string;
   private contentFolder: string;
+  /** When true, flush writes local file only (diagnostics worker; parent owns GCS). */
+  private skipGcsUpload = false;
 
   constructor(contentRoot: string) {
     this.cacheFile = path.join(contentRoot, "validation-cache.json");
     this.contentFolder = path.relative(process.cwd(), contentRoot);
+    this.loadFromDisk();
+  }
+
+  setSkipGcsUpload(skip: boolean): void {
+    this.skipGcsUpload = skip;
+  }
+
+  /** Re-read validation-cache.json into memory (e.g. after worker flush). */
+  reloadFromDisk(): void {
     this.loadFromDisk();
   }
 
@@ -580,6 +591,19 @@ export class ValidationCacheService {
     return this.lastFullRunAt;
   }
 
+  /** Wipe all stored issues, indexes, run meta, and database health entries; flush to disk. */
+  async clearAll(): Promise<void> {
+    this.issues = {};
+    this.indexes = emptyIndexes();
+    this.runMetaByEntry = {};
+    this.runMetaByScope = {};
+    this.dbMap = new Map();
+    this.lastFullRunAt = null;
+    this.lastSiteWideRunAt = null;
+    await this.flush();
+    log.info("[ValidationCache] Cleared all issues and run metadata");
+  }
+
   flush(): Promise<void> {
     this.writeQueue = this.writeQueue.then(() => this.doFlush()).catch((err) => {
       log.error({ err }, "[ValidationCache] Flush error");
@@ -632,7 +656,9 @@ export class ValidationCacheService {
       log.error({ err }, "[ValidationCache] Failed to write cache file");
       return;
     }
-    this.saveToBucket();
+    if (!this.skipGcsUpload) {
+      this.saveToBucket();
+    }
   }
 
   async shutdown(): Promise<void> {

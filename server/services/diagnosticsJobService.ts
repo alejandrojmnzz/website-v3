@@ -4,24 +4,28 @@
  * - Max 1 running job per contentRoot
  * - Exact-scope dedupe returns the existing job_id
  * - Envelopes under {contentRoot}/.cache/diagnostics-jobs/{jobId}.json (last 50)
- * - Issues persist in ValidationCacheService; artifacts stay in-memory until GET
+ * - Heavy work runs in a forked child (scripts/validation/diagnostics-worker.ts)
+ * - Issues persist in ValidationCacheService; artifacts in {jobId}-results.json
  */
 
 import * as fs from "fs";
 import * as path from "path";
-import type {
-  PageCacheEntry,
-  ValidatorResult,
-} from "../../scripts/validation/shared/types";
-import { ValidationService } from "../../scripts/validation/service";
-import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
-import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import { fork, type ChildProcess } from "child_process";
+import type { ValidatorResult } from "../../scripts/validation/shared/types";
 import {
-  getValidatorRunClass,
-  isCrossEntryValidator,
-  isEntryLocalValidator,
-} from "../../scripts/validation/shared/runClass";
-import { validators as defaultValidators, getValidator } from "../../scripts/validation/validators";
+  effectiveValidatorNames,
+  issuesBySlugFromTargets,
+  resolveUrlTargets,
+  type MappedIssue,
+} from "../../scripts/validation/runDiagnosticsJob";
+import type {
+  DiagnosticsFreshness,
+  DiagnosticsJobResultsFile,
+  DiagnosticsWorkerOutboundMessage,
+  DiagnosticsWorkerStartMessage,
+} from "../../scripts/validation/diagnosticsIpc";
+import { isCrossEntryValidator } from "../../scripts/validation/shared/runClass";
+import { validators as defaultValidators } from "../../scripts/validation/validators";
 import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
 import { listCacheIssuesFromStore } from "./validationCacheService";
@@ -31,7 +35,9 @@ import { child } from "../logger";
 const log = child({ module: "diagnosticsJobService" });
 
 const MAX_JOB_ENVELOPES = 50;
-export type DiagnosticsFreshness = "hard" | "max_age";
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+
+export type { DiagnosticsFreshness, MappedIssue };
 export type DiagnosticsJobStatus =
   | "queued"
   | "running"
@@ -83,17 +89,6 @@ export interface DiagnosticsJobRecord extends DiagnosticsJobEnvelope {
   resultIssuesBySlug?: Record<string, MappedIssue[]>;
 }
 
-export interface MappedIssue {
-  code: string;
-  message: string;
-  severity: "error" | "warning";
-  category: string;
-  validator?: string;
-  file?: string;
-  suggestion?: string;
-  url?: string;
-}
-
 export type StartDiagnosticsResult =
   | {
       status: "cached";
@@ -125,9 +120,11 @@ export type StartDiagnosticsResult =
 
 const jobsById = new Map<string, DiagnosticsJobRecord>();
 const runningByContentRoot = new Map<string, string>();
-const jobCi = new Map<string, ContentIndex>();
 const jobCache = new Map<string, ValidationCacheService>();
 const jobContentRoot = new Map<string, string>();
+const jobChildren = new Map<string, ChildProcess>();
+const jobIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const jobTerminalHandled = new Set<string>();
 
 function jobsDir(contentRoot: string): string {
   return path.join(contentRoot, ".cache", "diagnostics-jobs");
@@ -137,6 +134,14 @@ function ensureJobsDir(contentRoot: string): string {
   const dir = jobsDir(contentRoot);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function isResultsFileName(name: string): boolean {
+  return name.endsWith("-results.json");
+}
+
+function resultsFilePath(contentRoot: string, jobId: string): string {
+  return path.join(jobsDir(contentRoot), `${jobId}-results.json`);
 }
 
 function writeEnvelope(contentRoot: string, job: DiagnosticsJobEnvelope): void {
@@ -150,15 +155,17 @@ function pruneEnvelopes(dir: string): void {
   try {
     const files = fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
+      .filter((f) => f.endsWith(".json") && !isResultsFileName(f))
       .map((f) => {
         const full = path.join(dir, f);
-        return { full, mtime: fs.statSync(full).mtimeMs };
+        return { full, base: f, mtime: fs.statSync(full).mtimeMs };
       })
       .sort((a, b) => b.mtime - a.mtime);
     for (const stale of files.slice(MAX_JOB_ENVELOPES)) {
       try {
         fs.unlinkSync(stale.full);
+        const resultsAlt = path.join(dir, stale.base.replace(/\.json$/, "-results.json"));
+        if (fs.existsSync(resultsAlt)) fs.unlinkSync(resultsAlt);
       } catch {
         /* ignore */
       }
@@ -176,6 +183,19 @@ function readEnvelopeFromDisk(
   try {
     if (!fs.existsSync(filePath)) return null;
     return JSON.parse(fs.readFileSync(filePath, "utf-8")) as DiagnosticsJobEnvelope;
+  } catch {
+    return null;
+  }
+}
+
+function readResultsFromDisk(
+  contentRoot: string,
+  jobId: string,
+): DiagnosticsJobResultsFile | null {
+  const filePath = resultsFilePath(contentRoot, jobId);
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as DiagnosticsJobResultsFile;
   } catch {
     return null;
   }
@@ -204,303 +224,6 @@ function retryAfterSeconds(urlCount: number): number {
   return urlCount > 50 ? 15 : 5;
 }
 
-async function resolveUrlTargets(
-  contentRoot: string,
-  ci: ContentIndex,
-  slugs?: string[],
-  urls?: string[],
-): Promise<{ url: string; slug: string; filePath: string; locale: string; type: string }[]> {
-  const service = new ValidationService();
-  const context = await service.buildContext({ contentRoot, ci });
-  const slugSet = slugs && slugs.length > 0 ? new Set(slugs) : null;
-  const urlSet =
-    urls && urls.length > 0
-      ? new Set(urls.map((u) => u.toLowerCase().replace(/\/$/, "") || "/"))
-      : null;
-
-  const targets: {
-    url: string;
-    slug: string;
-    filePath: string;
-    locale: string;
-    type: string;
-  }[] = [];
-  const seen = new Set<string>();
-
-  for (const file of context.contentFiles) {
-    if (slugSet && !slugSet.has(file.slug)) continue;
-    const url = getCanonicalUrl(file);
-    const norm = url.toLowerCase().replace(/\/$/, "") || "/";
-    if (urlSet && !urlSet.has(norm)) continue;
-    if (seen.has(norm)) continue;
-    seen.add(norm);
-    targets.push({
-      url,
-      slug: file.slug,
-      filePath: file.filePath,
-      locale: file.locale,
-      type: file.type,
-    });
-  }
-
-  return targets;
-}
-
-function mapEntryIssues(
-  url: string,
-  entry: PageCacheEntry | undefined,
-  categories?: string[],
-): MappedIssue[] {
-  if (!entry) return [];
-  const catSet = categories && categories.length > 0 ? new Set(categories) : null;
-  const all: MappedIssue[] = [
-    ...(entry.errors ?? []).map((e) => ({
-      code: e.code,
-      message: e.message,
-      severity: "error" as const,
-      category: e.category ?? "other",
-      ...(e.validator ? { validator: e.validator } : {}),
-      ...(e.file ? { file: e.file } : {}),
-      ...(e.suggestion ? { suggestion: e.suggestion } : {}),
-      url,
-    })),
-    ...(entry.warnings ?? []).map((w) => ({
-      code: w.code,
-      message: w.message,
-      severity: "warning" as const,
-      category: w.category ?? "other",
-      ...(w.validator ? { validator: w.validator } : {}),
-      ...(w.file ? { file: w.file } : {}),
-      ...(w.suggestion ? { suggestion: w.suggestion } : {}),
-      url,
-    })),
-  ];
-  return catSet ? all.filter((i) => catSet.has(i.category)) : all;
-}
-
-function issuesBySlugFromTargets(
-  cache: ValidationCacheService,
-  targets: { url: string; slug: string }[],
-  categories?: string[],
-): {
-  issuesBySlug: Record<string, MappedIssue[]>;
-  lastFullRunAtBySlug: Record<string, string | null>;
-  cacheMisses: string[];
-} {
-  const issuesBySlug: Record<string, MappedIssue[]> = {};
-  const lastFullRunAtBySlug: Record<string, string | null> = {};
-  const cacheMisses: string[] = [];
-
-  for (const t of targets) {
-    if (!issuesBySlug[t.slug]) issuesBySlug[t.slug] = [];
-    const entry = cache.getByUrl(t.url);
-    if (!entry) {
-      if (!cacheMisses.includes(t.slug)) cacheMisses.push(t.slug);
-      lastFullRunAtBySlug[t.slug] = lastFullRunAtBySlug[t.slug] ?? null;
-      continue;
-    }
-    issuesBySlug[t.slug].push(...mapEntryIssues(t.url, entry, categories));
-    const full = entry.lastFullRunAt ?? null;
-    const prev = lastFullRunAtBySlug[t.slug];
-    if (!prev || (full && full > prev)) lastFullRunAtBySlug[t.slug] = full;
-  }
-
-  return { issuesBySlug, lastFullRunAtBySlug, cacheMisses };
-}
-
-function effectiveValidatorNames(
-  requested?: string[],
-  opts?: { slugFiltered?: boolean },
-): {
-  pageValidators: string[];
-  siteWideValidators: string[];
-  partial: boolean;
-} {
-  const pool = defaultValidators.map((v) => v.name).filter((n) => n !== "lighthouse");
-  const names =
-    requested && requested.length > 0
-      ? requested.filter((n) => n !== "lighthouse" && !!getValidator(n))
-      : pool;
-
-  let resolved = names.filter((n) => n !== "lighthouse" && !!getValidator(n));
-  const partial = !!(requested && requested.length > 0);
-
-  // Slug-filtered jobs: entry-local only (never cross-entry on a subset)
-  if (opts?.slugFiltered) {
-    resolved = resolved.filter((n) => isEntryLocalValidator(n));
-  }
-
-  const pageValidators = resolved.filter((n) => getValidatorRunClass(n) === "entry-local");
-  const siteWideValidators = resolved.filter((n) => getValidatorRunClass(n) !== "entry-local");
-  return { pageValidators, siteWideValidators, partial };
-}
-
-async function runJob(contentRoot: string, jobId: string): Promise<void> {
-  const job = jobsById.get(jobId);
-  if (!job) return;
-
-  job.status = "running";
-  writeEnvelope(contentRoot, toEnvelope(job));
-
-  try {
-    const ci = jobCi.get(jobId);
-    const cache = jobCache.get(jobId);
-    if (!ci || !cache) {
-      throw new Error("Job context missing (ci/cache)");
-    }
-    const service = new ValidationService();
-    const context = await service.buildContext({
-      contentRoot,
-      ci,
-    });
-    const includeArtifacts = job.include_artifacts;
-    const slugFiltered = !!(job.slugs?.length || job.urls?.length);
-    const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(
-      job.validators,
-      { slugFiltered },
-    );
-
-    const allTargets = await resolveUrlTargets(
-      contentRoot,
-      ci,
-      job.slugs,
-      job.urls,
-    );
-
-    let staleTargets = allTargets;
-    if (!partial && job.freshness === "max_age") {
-      staleTargets = allTargets.filter((t) =>
-        isUrlStaleForFullRun(cache.getByUrl(t.url), job.max_age_seconds),
-      );
-    }
-
-    const workUnits =
-      (pageValidators.length > 0 ? staleTargets.length : 0) +
-      (siteWideValidators.length > 0 ? 1 : 0);
-    job.total = Math.max(workUnits, 1);
-    job.staleUrlCount = staleTargets.length;
-    job.urlCount = allTargets.length;
-    job.processed = 0;
-    writeEnvelope(contentRoot, toEnvelope(job));
-
-    const allValidatorResults: ValidatorResult[] = [];
-    const allContentFiles = context.contentFiles;
-    const nowIso = () => new Date().toISOString();
-
-    for (const target of pageValidators.length > 0 ? staleTargets : []) {
-      const normalizedTarget = target.url.toLowerCase().replace(/\/$/, "") || "/";
-      const filteredFiles = allContentFiles.filter((file) => {
-        const fileUrl = getCanonicalUrl(file).toLowerCase().replace(/\/$/, "") || "/";
-        return fileUrl === normalizedTarget;
-      });
-      context.contentFiles = filteredFiles;
-      try {
-        const result = await service.runValidators({
-          validators: pageValidators,
-          includeArtifacts,
-        });
-        allValidatorResults.push(...result.validators);
-
-        const entryKeys = filteredFiles.map((f) => entryKeyFromContentFile(f));
-        cache.applyValidatorResults(result.validators, {
-          contentFiles: allContentFiles,
-          entryKeys,
-          markSiteWide: false,
-        });
-      } finally {
-        context.contentFiles = allContentFiles;
-      }
-      job.processed += 1;
-      if (job.processed % 5 === 0) writeEnvelope(contentRoot, toEnvelope(job));
-    }
-
-    if (siteWideValidators.length > 0) {
-      // Never run cross-entry with filtered contentFiles
-      context.contentFiles = allContentFiles;
-      const result = await service.runValidators({
-        validators: siteWideValidators,
-        includeArtifacts,
-      });
-      allValidatorResults.push(...result.validators);
-
-      cache.applyValidatorResults(result.validators, {
-        contentFiles: allContentFiles,
-        markSiteWide: true,
-      });
-
-      const { applyValidationRunToCache } = await import("./validationCachePostProcess");
-      const dbOnly = result.validators.filter((v) => getValidatorRunClass(v.name) === "database");
-      if (dbOnly.length > 0) {
-        await applyValidationRunToCache(
-          cache,
-          {
-            summary: { total: dbOnly.length, passed: 0, failed: 0, warnings: 0, duration: 0 },
-            validators: dbOnly,
-          },
-          context,
-          { partial: true },
-        );
-      }
-
-      job.processed += 1;
-    }
-
-    if (!partial) {
-      cache.markFullRunAt(nowIso());
-    }
-    await cache.flush();
-
-    // Collapse duplicate validator names (per-URL runs append many copies) for UI
-    const byName = new Map<string, ValidatorResult>();
-    for (const v of allValidatorResults) {
-      const prev = byName.get(v.name);
-      if (!prev) {
-        byName.set(v.name, { ...v, errors: [...v.errors], warnings: [...v.warnings] });
-      } else {
-        prev.errors.push(...v.errors);
-        prev.warnings.push(...v.warnings);
-        prev.duration += v.duration;
-        if (v.status === "failed") prev.status = "failed";
-        else if (v.status === "warning" && prev.status === "passed") prev.status = "warning";
-        if (v.artifacts && includeArtifacts) {
-          prev.artifacts = { ...(prev.artifacts ?? {}), ...v.artifacts };
-        }
-      }
-    }
-    job.validatorResults = [...byName.values()];
-
-    const { issuesBySlug } = issuesBySlugFromTargets(cache, allTargets, job.categories);
-    job.resultIssuesBySlug = issuesBySlug;
-
-    let errorCount = 0;
-    let warningCount = 0;
-    for (const issues of Object.values(issuesBySlug)) {
-      for (const i of issues) {
-        if (i.severity === "error") errorCount += 1;
-        else warningCount += 1;
-      }
-    }
-    job.summary = { errorCount, warningCount };
-    job.status = "completed";
-    job.completedAt = Date.now();
-    job.processed = job.total;
-    writeEnvelope(contentRoot, toEnvelope(job));
-  } catch (err) {
-    log.error({ err, jobId }, "Diagnostics job failed");
-    job.status = "failed";
-    job.error = err instanceof Error ? err.message : String(err);
-    job.completedAt = Date.now();
-    writeEnvelope(contentRoot, toEnvelope(job));
-  } finally {
-    if (runningByContentRoot.get(contentRoot) === jobId) {
-      runningByContentRoot.delete(contentRoot);
-    }
-    jobCi.delete(jobId);
-    jobCache.delete(jobId);
-    // Keep jobContentRoot for list/get until pruned from memory map naturally
-  }
-}
-
 function toEnvelope(job: DiagnosticsJobRecord): DiagnosticsJobEnvelope {
   return {
     jobId: job.jobId,
@@ -526,18 +249,243 @@ function toEnvelope(job: DiagnosticsJobRecord): DiagnosticsJobEnvelope {
   };
 }
 
+export function isDiagnosticsRunning(contentRoot: string): boolean {
+  const id = runningByContentRoot.get(contentRoot);
+  if (!id) return false;
+  const job = jobsById.get(id);
+  return !!(job && (job.status === "queued" || job.status === "running"));
+}
+
+/** Mark leftover queued/running envelopes failed after server restart. */
+export function failInterruptedEnvelopes(contentRoot: string): void {
+  const dir = jobsDir(contentRoot);
+  if (!fs.existsSync(dir)) return;
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith(".json") || isResultsFileName(f)) continue;
+    try {
+      const full = path.join(dir, f);
+      const e = JSON.parse(fs.readFileSync(full, "utf-8")) as DiagnosticsJobEnvelope;
+      if (e.status === "queued" || e.status === "running") {
+        e.status = "failed";
+        e.error = "interrupted (server restart)";
+        e.completedAt = Date.now();
+        fs.writeFileSync(full, JSON.stringify(e, null, 2) + "\n", "utf-8");
+        log.info({ jobId: e.jobId }, "Marked interrupted diagnostics job as failed");
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function clearIdleTimer(jobId: string): void {
+  const t = jobIdleTimers.get(jobId);
+  if (t) clearTimeout(t);
+  jobIdleTimers.delete(jobId);
+}
+
+function resetIdleTimer(contentRoot: string, jobId: string): void {
+  clearIdleTimer(jobId);
+  jobIdleTimers.set(
+    jobId,
+    setTimeout(() => {
+      log.warn({ jobId }, "Diagnostics job idle timeout — killing child");
+      const childProc = jobChildren.get(jobId);
+      try {
+        childProc?.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      void finalizeJob(contentRoot, jobId, {
+        status: "failed",
+        error: "idle timeout (no progress for 15 minutes)",
+      });
+    }, IDLE_TIMEOUT_MS),
+  );
+}
+
+function clearRunningLock(contentRoot: string, jobId: string): void {
+  if (runningByContentRoot.get(contentRoot) === jobId) {
+    runningByContentRoot.delete(contentRoot);
+  }
+}
+
+async function finalizeJob(
+  contentRoot: string,
+  jobId: string,
+  outcome:
+    | { status: "completed"; summary: { errorCount: number; warningCount: number }; resultsPath?: string }
+    | { status: "failed"; error: string },
+): Promise<void> {
+  if (jobTerminalHandled.has(jobId)) return;
+  jobTerminalHandled.add(jobId);
+
+  clearIdleTimer(jobId);
+  const childProc = jobChildren.get(jobId);
+  jobChildren.delete(jobId);
+  if (outcome.status === "failed" && childProc && !childProc.killed) {
+    try {
+      childProc.kill("SIGTERM");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const job = jobsById.get(jobId);
+  const cache = jobCache.get(jobId);
+
+  if (job) {
+    job.completedAt = Date.now();
+    if (outcome.status === "completed") {
+      job.status = "completed";
+      job.summary = outcome.summary;
+      job.processed = job.total;
+      const results = readResultsFromDisk(contentRoot, jobId);
+      if (results) {
+        job.resultIssuesBySlug = results.issuesBySlug as Record<string, MappedIssue[]>;
+        job.validatorResults = results.validatorResults as ValidatorResult[] | undefined;
+      }
+    } else {
+      job.status = "failed";
+      job.error = outcome.error;
+    }
+    writeEnvelope(contentRoot, toEnvelope(job));
+  } else {
+    const disk = readEnvelopeFromDisk(contentRoot, jobId);
+    if (disk && (disk.status === "queued" || disk.status === "running")) {
+      disk.status = outcome.status === "completed" ? "completed" : "failed";
+      disk.completedAt = Date.now();
+      if (outcome.status === "completed") disk.summary = outcome.summary;
+      else disk.error = outcome.error;
+      writeEnvelope(contentRoot, disk);
+    }
+  }
+
+  clearRunningLock(contentRoot, jobId);
+  jobCache.delete(jobId);
+
+  if (cache) {
+    try {
+      cache.reloadFromDisk();
+      // Parent owns GCS upload after worker local flush
+      await cache.flush();
+    } catch (err) {
+      log.warn({ err, jobId }, "Failed to reload validation cache after diagnostics job");
+    }
+  }
+}
+
+function attachChildHandlers(
+  contentRoot: string,
+  jobId: string,
+  childProc: ChildProcess,
+): void {
+  childProc.on("message", (raw: DiagnosticsWorkerOutboundMessage) => {
+    const job = jobsById.get(jobId);
+    if (!job) return;
+    if (!raw || typeof raw !== "object") return;
+
+    if (raw.type === "progress") {
+      if (raw.jobId && raw.jobId !== jobId) return;
+      job.status = "running";
+      if (typeof raw.processed === "number") job.processed = raw.processed;
+      if (typeof raw.total === "number" && raw.total > 0) job.total = raw.total;
+      if (typeof raw.staleUrlCount === "number") job.staleUrlCount = raw.staleUrlCount;
+      if (typeof raw.urlCount === "number") job.urlCount = raw.urlCount;
+      writeEnvelope(contentRoot, toEnvelope(job));
+      resetIdleTimer(contentRoot, jobId);
+      return;
+    }
+
+    if (raw.type === "completed") {
+      void finalizeJob(contentRoot, jobId, {
+        status: "completed",
+        summary: raw.summary,
+        resultsPath: raw.resultsPath,
+      });
+      return;
+    }
+
+    if (raw.type === "failed") {
+      void finalizeJob(contentRoot, jobId, {
+        status: "failed",
+        error: raw.error || "Worker reported failure",
+      });
+    }
+  });
+
+  childProc.on("error", (err) => {
+    log.error({ err, jobId }, "Diagnostics worker process error");
+    void finalizeJob(contentRoot, jobId, {
+      status: "failed",
+      error: err.message || "Worker process error",
+    });
+  });
+
+  childProc.on("exit", (code, signal) => {
+    if (jobTerminalHandled.has(jobId)) return;
+    const msg =
+      signal != null
+        ? `Worker exited from signal ${signal}`
+        : `Worker exited with code ${code ?? "unknown"}`;
+    log.warn({ jobId, code, signal }, msg);
+    void finalizeJob(contentRoot, jobId, { status: "failed", error: msg });
+  });
+}
+
+function spawnWorker(contentRoot: string, jobId: string, start: DiagnosticsWorkerStartMessage): void {
+  const workerFile = path.join(process.cwd(), "scripts/validation/diagnostics-worker.ts");
+  let childProc: ChildProcess;
+  try {
+    childProc = fork(workerFile, [], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["inherit", "inherit", "inherit", "ipc"],
+      execArgv: ["--import", "tsx"],
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, jobId }, "Failed to fork diagnostics worker");
+    void finalizeJob(contentRoot, jobId, {
+      status: "failed",
+      error: `Failed to spawn diagnostics worker: ${message}`,
+    });
+    return;
+  }
+
+  jobChildren.set(jobId, childProc);
+  attachChildHandlers(contentRoot, jobId, childProc);
+  resetIdleTimer(contentRoot, jobId);
+
+  const job = jobsById.get(jobId);
+  if (job) {
+    job.status = "running";
+    writeEnvelope(contentRoot, toEnvelope(job));
+  }
+
+  try {
+    childProc.send(start);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    void finalizeJob(contentRoot, jobId, {
+      status: "failed",
+      error: `Failed to send start message to worker: ${message}`,
+    });
+  }
+}
+
 export async function startDiagnosticsJob(
   req: DiagnosticsJobRequest,
 ): Promise<StartDiagnosticsResult> {
   const freshness: DiagnosticsFreshness = req.freshness === "hard" ? "hard" : "max_age";
-  const maxAge = typeof req.max_age_seconds === "number" && req.max_age_seconds > 0
-    ? req.max_age_seconds
-    : 86400;
+  const maxAge =
+    typeof req.max_age_seconds === "number" && req.max_age_seconds > 0
+      ? req.max_age_seconds
+      : 86400;
   const slugFiltered = !!(req.slugs?.length || req.urls?.length);
-  const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(
-    req.validators,
-    { slugFiltered },
-  );
+  const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(req.validators, {
+    slugFiltered,
+  });
 
   if (req.slugs && req.slugs.length > 0) {
     const targetsProbe = await resolveUrlTargets(
@@ -607,9 +555,7 @@ export async function startDiagnosticsJob(
     (pageValidators.length > 0 && (partial || freshness === "hard" || staleTargets.length > 0)) ||
     (siteWideValidators.length > 0 && (partial || freshness === "hard" || staleTargets.length > 0));
 
-  // Cached hit: full job, max_age, nothing stale, and we have targets
   if (!partial && freshness === "max_age" && staleTargets.length === 0 && allTargets.length > 0) {
-    // Still run site-wide if never done? For simplicity, if all URLs have lastFullRunAt, return cached
     const { issuesBySlug, lastFullRunAtBySlug, cacheMisses } = issuesBySlugFromTargets(
       req.cache,
       allTargets,
@@ -650,8 +596,11 @@ export async function startDiagnosticsJob(
     startedAt: Date.now(),
     processed: 0,
     total: Math.max(
-      (pageValidators.length > 0 ? (partial || freshness === "hard" ? allTargets.length : staleTargets.length) : 0) +
-        (siteWideValidators.length > 0 ? 1 : 0),
+      (pageValidators.length > 0
+        ? partial || freshness === "hard"
+          ? allTargets.length
+          : staleTargets.length
+        : 0) + (siteWideValidators.length > 0 ? 1 : 0),
       1,
     ),
     staleUrlCount: staleTargets.length,
@@ -660,15 +609,28 @@ export async function startDiagnosticsJob(
   };
 
   jobsById.set(jobId, job);
-  jobCi.set(jobId, req.ci);
   jobCache.set(jobId, req.cache);
   jobContentRoot.set(jobId, req.contentRoot);
   runningByContentRoot.set(req.contentRoot, jobId);
+  jobTerminalHandled.delete(jobId);
   writeEnvelope(req.contentRoot, toEnvelope(job));
 
-  setImmediate(() => {
-    void runJob(req.contentRoot, jobId);
-  });
+  const startMsg: DiagnosticsWorkerStartMessage = {
+    type: "start",
+    jobId,
+    contentRoot: req.contentRoot,
+    contentRootName: req.contentRootName,
+    slugs: req.slugs,
+    urls: req.urls,
+    freshness,
+    max_age_seconds: maxAge,
+    validators: req.validators,
+    include_artifacts: !!req.include_artifacts,
+    categories: req.categories,
+    resultsPath: resultsFilePath(req.contentRoot, jobId),
+  };
+
+  spawnWorker(req.contentRoot, jobId, startMsg);
 
   return {
     status: "queued",
@@ -696,6 +658,16 @@ export function getDiagnosticsJob(
 } {
   const mem = jobsById.get(jobId);
   if (mem) {
+    if (
+      (mem.status === "completed" || mem.status === "failed") &&
+      !mem.resultIssuesBySlug
+    ) {
+      const results = readResultsFromDisk(contentRoot, jobId);
+      if (results?.issuesBySlug) {
+        mem.resultIssuesBySlug = results.issuesBySlug as Record<string, MappedIssue[]>;
+        mem.validatorResults = results.validatorResults as ValidatorResult[] | undefined;
+      }
+    }
     const retry =
       mem.status === "queued" || mem.status === "running"
         ? retryAfterSeconds(mem.urlCount || 1)
@@ -705,19 +677,23 @@ export function getDiagnosticsJob(
 
   const disk = readEnvelopeFromDisk(contentRoot, jobId);
   if (disk) {
-    // Completed envelope without in-memory artifacts
     if (disk.status === "completed" || disk.status === "failed") {
+      const results = readResultsFromDisk(contentRoot, jobId);
+      const job: DiagnosticsJobRecord = {
+        ...disk,
+        resultIssuesBySlug: results?.issuesBySlug as Record<string, MappedIssue[]> | undefined,
+        validatorResults: results?.validatorResults as ValidatorResult[] | undefined,
+      };
       return {
         status: disk.status,
-        job: disk,
+        job,
         retry_after_seconds: 0,
         message:
           disk.status === "completed"
-            ? "Job finished; artifacts may be unavailable after restart. Read validation cache or re-run with include_artifacts."
+            ? "Job finished. Issues are in validation-cache.json; artifacts may be in the results file."
             : disk.error,
       };
     }
-    // Was running but process lost it
     return {
       status: "not_found",
       code: "diagnostics_job_lost",
@@ -741,7 +717,7 @@ export function listDiagnosticsJobs(contentRoot: string): DiagnosticsJobEnvelope
   const byId = new Map<string, DiagnosticsJobEnvelope>();
   try {
     if (fs.existsSync(dir)) {
-      for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".json"))) {
+      for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".json") && !isResultsFileName(x))) {
         try {
           const e = JSON.parse(
             fs.readFileSync(path.join(dir, f), "utf-8"),

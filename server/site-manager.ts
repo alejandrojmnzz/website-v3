@@ -6,6 +6,7 @@ import { getSiteConfigs, hasMultipleSites, type SiteConfig } from "./site-config
 import { ContentIndex } from "./content-index";
 import { MediaGallery } from "./media-gallery";
 import { ValidationCacheService } from "./services/validationCacheService";
+import { failInterruptedEnvelopes } from "./services/diagnosticsJobService";
 import { AutoCommitQueue } from "./auto-commit";
 import { VersioningManager } from "./versioning/VersioningManager";
 import { DatabaseManager } from "./database";
@@ -72,6 +73,7 @@ function constructSiteContextMap(): { map: Map<string, SiteContext>; defaultSite
     const database = new DatabaseManager(contentRoot, mg);
     const ci = new ContentIndex(config.contentFolder, database);
     const validationCache = new ValidationCacheService(contentRoot);
+    failInterruptedEnvelopes(contentRoot);
     const autoCommitQueue = new AutoCommitQueue(contentRootName);
     const versioningManager = new VersioningManager(contentRoot);
     const siteDb = createSiteDb(contentRootName, isFirstSite);

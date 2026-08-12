@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Clipboard, Code, Crosshair, FileText, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Sparkles, Stethoscope, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Clipboard, Code, Crosshair, FileText, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Sparkles, Stethoscope, Trash2, Wrench, X} from "lucide-react";
 import { IconChartBar } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
@@ -729,6 +729,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [lastRun, setLastRun] = useState<Date | null>(null);
   const [jobBanner, setJobBanner] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [clearCacheOpen, setClearCacheOpen] = useState(false);
   const { resolveModalOpen, setResolveModalOpen, activeConflict, openResolver } = useRedirectConflictResolver();
 
   const { data: cacheIssuesData, refetch: refetchCacheIssues } = useQuery<{ issues: CachedIssueRow[] }>({
@@ -885,6 +886,42 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
   });
 
+  const clearCacheMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/validation/clear-cache", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = (await res.json()) as { success?: boolean; message?: string; error?: string };
+      if (res.status === 409) {
+        throw new Error(data.message || "Diagnostics job is running — wait before clearing.");
+      }
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.error || "Failed to clear validation cache");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      setClearCacheOpen(false);
+      setResults(null);
+      setLastRun(null);
+      void refetchCacheIssues();
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+      toast({
+        title: "Validation cache cleared",
+        description: "Run Refresh stale or Hard refresh to rebuild diagnostics.",
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Failed to clear cache",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
   const filteredValidators = (() => {
     if (!results) return [];
     return results.validators.filter((v) => {
@@ -911,7 +948,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     { key: "performance", label: "Performance" },
   ];
 
-  const jobPending = startJobMutation.isPending || runSingleMutation.isPending;
+  const jobPending = startJobMutation.isPending || runSingleMutation.isPending || clearCacheMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -920,11 +957,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <p className="text-foreground font-medium">How diagnostics work</p>
           <p>
             Results live in <code className="text-xs">validation-cache.json</code> (shared with agents).
+            Heavy Refresh / Hard refresh work runs in a <strong className="text-foreground font-medium">background worker process</strong> so the rest of the app stays usable; progress still comes from the job poll.
+            <strong className="text-foreground font-medium"> Cached issues refresh when the job finishes</strong> (not live mid-run).
             <strong className="text-foreground font-medium"> Refresh stale</strong> only recomputes URLs
             whose <code className="text-xs">lastFullRunAt</code> is older than 24h.
             <strong className="text-foreground font-medium"> Hard refresh</strong> recomputes everything in scope.
+            <strong className="text-foreground font-medium"> Delete cache</strong> wipes the stored issues so the next refresh rebuilds from scratch.
             Single-validator runs merge by validator name and do not mark a URL fully fresh.
-            One background job runs at a time per site. Lighthouse/PageSpeed is not part of this dashboard — use external tools.
+            One background job runs at a time per site. Saving during a run marks entries dirty — re-run if you need those edits reflected.
+            Lighthouse/PageSpeed is not part of this dashboard — use external tools.
           </p>
           <button
             type="button"
@@ -936,9 +977,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </button>
           {showAdvanced && (
             <ul className="list-disc pl-5 text-xs space-y-1">
-              <li><code>server/services/diagnosticsJobService.ts</code> — job runner</li>
+              <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC</li>
+              <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
               <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod)</li>
-              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — recent job envelopes</li>
+              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files</li>
               <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code>, <code>GET /api/validation/cache-issues</code></li>
             </ul>
           )}
@@ -1008,10 +1050,55 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               <Save className="h-4 w-4" />
               Save JSON report
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => setClearCacheOpen(true)}
+              data-testid="menu-item-delete-cache"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete cache
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         )}
       </div>
+
+      <Dialog open={clearCacheOpen} onOpenChange={setClearCacheOpen}>
+        <DialogContent data-testid="dialog-delete-validation-cache">
+          <DialogHeader>
+            <DialogTitle>Delete validation cache?</DialogTitle>
+            <DialogDescription>
+              This clears all stored diagnostics issues and run metadata in{" "}
+              <code className="text-xs">validation-cache.json</code> for this site.
+              Cached issues will disappear until you run Refresh stale or Hard refresh again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setClearCacheOpen(false)}
+              disabled={clearCacheMutation.isPending}
+              data-testid="button-cancel-delete-cache"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => clearCacheMutation.mutate()}
+              disabled={clearCacheMutation.isPending}
+              data-testid="button-confirm-delete-cache"
+            >
+              {clearCacheMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Delete cache
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {cacheIssues.length > 0 && (
         <Card style={{ borderRadius: "0.8rem" }} data-testid="cached-issues-panel">

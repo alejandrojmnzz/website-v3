@@ -978,8 +978,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
     "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects — avoids false all-clear). " +
-    "side_effects: replace-by-validator merge into validation-cache.json (clears obsolete codes for ran validators in scope; compounds with others). " +
-    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT. " +
+    "side_effects: job runs in a forked worker process; replace-by-validator merge into validation-cache.json on disk " +
+    "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
+    "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
+    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
+    "Cached issues in memory refresh only after job completion. " +
     "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs. " +
     "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
     {
@@ -1104,8 +1107,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "get_diagnostics_job",
     "Poll an async diagnostics job started by run_entry_diagnostics. " +
     "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
-    "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated), failed, or not_found " +
-    "(diagnostics_job_lost — start a new run_entry_diagnostics).",
+    "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated after worker finishes), failed, or not_found " +
+    "(diagnostics_job_lost — start a new run_entry_diagnostics). Disk validation-cache is authoritative after completed.",
     {
       job_id: z.string().describe("Job id from run_entry_diagnostics"),
       site: z.string().optional().describe(SITE_PARAM_DESC),

@@ -9,7 +9,7 @@ import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKe
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
-import { startDiagnosticsJob } from "./diagnosticsJobService";
+import { startDiagnosticsJob, isDiagnosticsRunning } from "./diagnosticsJobService";
 import { child } from "../logger";
 
 const log = child({ module: "onSaveValidation" });
@@ -105,6 +105,14 @@ async function runEntryLocalNow(args: OnSaveValidationArgs): Promise<void> {
     args.cache.markEntryDirty(ek);
   }
 
+  if (isDiagnosticsRunning(args.contentRoot)) {
+    log.info(
+      { entryKeys },
+      "[OnSaveValidation] Diagnostics job running — deferred entry-local apply (dirty only)",
+    );
+    return;
+  }
+
   context.contentFiles = filtered;
   try {
     const result = await service.runValidators({
@@ -134,7 +142,7 @@ async function runEntryLocalNow(args: OnSaveValidationArgs): Promise<void> {
 async function queueRedirectsJob(args: OnSaveValidationArgs): Promise<void> {
   args.cache.markScopeDirty("redirects");
   try {
-    await startDiagnosticsJob({
+    const result = await startDiagnosticsJob({
       contentRoot: args.contentRoot,
       contentRootName: args.contentRootName,
       ci: args.ci,
@@ -143,6 +151,13 @@ async function queueRedirectsJob(args: OnSaveValidationArgs): Promise<void> {
       freshness: "hard",
       include_artifacts: false,
     });
+    if (result.status === "busy") {
+      log.info(
+        { job_id: result.job_id },
+        "[OnSaveValidation] Redirects job deferred — diagnostics busy (scope left dirty)",
+      );
+      return;
+    }
     log.info("[OnSaveValidation] Queued redirects diagnostics job");
   } catch (err) {
     log.warn({ err }, "[OnSaveValidation] Failed to queue redirects job");
