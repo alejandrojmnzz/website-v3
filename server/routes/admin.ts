@@ -2568,7 +2568,10 @@ export function registerAdminRoutes(app: Express): void {
     res.json(userStore.getAllRoles());
   });
 
-  function validateRoleCapabilities(capabilities: unknown): { ok: boolean; error?: string; valid?: import("../user-store").CapabilityGrant[] } {
+  function validateRoleCapabilities(
+    capabilities: unknown,
+    res: Response,
+  ): { ok: boolean; error?: string; valid?: import("../user-store").CapabilityGrant[] } {
     if (!Array.isArray(capabilities)) {
       return { ok: false, error: "capabilities must be an array" };
     }
@@ -2600,43 +2603,55 @@ export function registerAdminRoutes(app: Express): void {
   }
 
   app.post("/api/admin/roles", async (req, res) => {
-    const auth = await requireCapability(req, res, "users_manage");
-    if (!auth.authorized) return;
-    const { id, label, description, capabilities } = req.body;
-    if (!id || !label || !Array.isArray(capabilities)) {
-      res.status(400).json({ error: "Missing required fields: id, label, capabilities" });
-      return;
+    try {
+      const auth = await requireCapability(req, res, "users_manage");
+      if (!auth.authorized) return;
+      const { id, label, description, capabilities } = req.body;
+      if (!id || !label || !Array.isArray(capabilities)) {
+        res.status(400).json({ error: "Missing required fields: id, label, capabilities" });
+        return;
+      }
+      if (!/^[a-z][a-z0-9_-]*$/.test(id)) {
+        res.status(400).json({ error: "Role id must be lowercase letters, numbers, hyphens, or underscores" });
+        return;
+      }
+      const capCheck = validateRoleCapabilities(capabilities, res);
+      if (!capCheck.ok) {
+        res.status(400).json({ error: capCheck.error });
+        return;
+      }
+      userStore.setRole(id, { label, description: description || undefined, capabilities: capCheck.valid! });
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create role";
+      log.error({ err, method: req.method, url: req.originalUrl }, "Failed to create role");
+      res.status(500).json({ error: message });
     }
-    if (!/^[a-z][a-z0-9_-]*$/.test(id)) {
-      res.status(400).json({ error: "Role id must be lowercase letters, numbers, hyphens, or underscores" });
-      return;
-    }
-    const capCheck = validateRoleCapabilities(capabilities);
-    if (!capCheck.ok) {
-      res.status(400).json({ error: capCheck.error });
-      return;
-    }
-    userStore.setRole(id, { label, description: description || undefined, capabilities: capCheck.valid! });
-    res.json({ ok: true });
   });
 
   app.put("/api/admin/roles/:roleId", async (req, res) => {
-    const auth = await requireCapability(req, res, "users_manage");
-    if (!auth.authorized) return;
-    const { roleId } = req.params;
-    const { label, description, capabilities } = req.body;
-    if (!label || !Array.isArray(capabilities)) {
-      res.status(400).json({ error: "Missing required fields: label, capabilities" });
-      return;
+    try {
+      const auth = await requireCapability(req, res, "users_manage");
+      if (!auth.authorized) return;
+      const { roleId } = req.params;
+      const { label, description, capabilities } = req.body;
+      if (!label || !Array.isArray(capabilities)) {
+        res.status(400).json({ error: "Missing required fields: label, capabilities" });
+        return;
+      }
+      const capCheck = validateRoleCapabilities(capabilities, res);
+      if (!capCheck.ok) {
+        res.status(400).json({ error: capCheck.error });
+        return;
+      }
+      // create-or-update semantics: PUT creates if not exists, updates if exists
+      userStore.setRole(roleId, { label, description: description || undefined, capabilities: capCheck.valid! });
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update role";
+      log.error({ err, method: req.method, url: req.originalUrl }, "Failed to update role");
+      res.status(500).json({ error: message });
     }
-    const capCheck = validateRoleCapabilities(capabilities);
-    if (!capCheck.ok) {
-      res.status(400).json({ error: capCheck.error });
-      return;
-    }
-    // create-or-update semantics: PUT creates if not exists, updates if exists
-    userStore.setRole(roleId, { label, description: description || undefined, capabilities: capCheck.valid! });
-    res.json({ ok: true });
   });
 
   app.delete("/api/admin/roles/:roleId", async (req, res) => {
