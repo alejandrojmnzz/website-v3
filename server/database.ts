@@ -661,6 +661,8 @@ export class DatabaseManager {
     if (this.configs.has(name)) {
       throw new Error(`Database "${name}" already exists`);
     }
+    const { assertSourceNameAvailable } = require("./query-options") as typeof import("./query-options");
+    assertSourceNameAvailable(name, "database", this.contentRoot, this);
     this.writeToDisk(name, config);
     this.configs.set(name, config);
   }

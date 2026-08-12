@@ -479,6 +479,37 @@ export function registerAiRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/ai/generate-json-schema", async (req, res) => {
+    try {
+      const { generateJsonSchema } = await import("../ai/generateJsonSchema");
+
+      const { fieldName, userPrompt, currentSchema } = req.body;
+
+      if (!fieldName || typeof fieldName !== "string" || !fieldName.trim()) {
+        res.status(400).json({ error: "fieldName must be a non-empty string" });
+        return;
+      }
+      if (!userPrompt || typeof userPrompt !== "string" || !userPrompt.trim()) {
+        res.status(400).json({ error: "userPrompt must be a non-empty string" });
+        return;
+      }
+
+      const result = await generateJsonSchema({
+        fieldName: fieldName.trim(),
+        userPrompt: userPrompt.trim(),
+        currentSchema:
+          typeof currentSchema === "string" && currentSchema.trim()
+            ? currentSchema
+            : undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      log.error("Error generating JSON schema:", error?.message || error);
+      const message = error?.message || "Failed to generate JSON schema";
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ============================================
   // AI Chat Widget Routes (public)
   // ============================================

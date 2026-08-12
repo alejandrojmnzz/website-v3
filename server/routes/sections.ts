@@ -1613,6 +1613,119 @@ export function registerSectionsRoutes(app: Express): void {
   });
 
   /**
+   * Bulk delete with relation cascade preview (authors → blog.authors).
+   * Body: { contentType, slugs, confirm?, reassignments?, author? }
+   * Without confirm: returns preview. With confirm: best-effort results[].
+   */
+  app.post("/api/content/delete-entries", async (req, res) => {
+    try {
+      const contentType = String(req.body?.contentType || req.body?.type || "");
+      const auth = await requireCapability(req, res, "content_delete_entry", contentType || undefined);
+      if (!auth.authorized) return;
+      const slugs = Array.isArray(req.body?.slugs)
+        ? (req.body.slugs as unknown[]).map(String).filter(Boolean)
+        : [];
+      const confirm = req.body?.confirm === true;
+      const author = auth.author || (typeof req.body?.author === "string" ? req.body.author : undefined);
+      const reassignments =
+        req.body?.reassignments && typeof req.body.reassignments === "object"
+          ? (req.body.reassignments as Record<string, string[]>)
+          : undefined;
+
+      if (!contentType || slugs.length === 0) {
+        res.status(400).json({ error: "contentType and slugs[] are required" });
+        return;
+      }
+
+      const {
+        previewAuthorDeleteCascade,
+        applyAuthorDeleteCascade,
+        DEFAULT_ORG_AUTHOR_SLUG,
+      } = await import("../relation-delete");
+
+      const preview =
+        contentType === "authors"
+          ? previewAuthorDeleteCascade(slugs, getContentRoot(res))
+          : {
+              blocked: [],
+              dependents: [],
+              needs_reassignment: [],
+              default_author_slug: DEFAULT_ORG_AUTHOR_SLUG,
+            };
+
+      if (!confirm) {
+        res.json({
+          success: true,
+          action_required: "confirm_delete",
+          preview,
+          message:
+            preview.needs_reassignment.length > 0
+              ? "Some posts would lose their last author — provide reassignments (defaults to org author) and confirm:true"
+              : "Pass confirm:true to delete. Protected slugs are blocked.",
+        });
+        return;
+      }
+
+      if (preview.blocked.length && preview.blocked.length === slugs.length) {
+        res.status(403).json({
+          error: `All requested slugs are protected and cannot be deleted: ${preview.blocked.join(", ")}`,
+          preview,
+        });
+        return;
+      }
+
+      const deletable = slugs.filter((s) => !preview.blocked.includes(s));
+
+      if (contentType === "authors" && deletable.length > 0) {
+        applyAuthorDeleteCascade(deletable, {
+          contentRoot: getContentRoot(res),
+          author,
+          reassignments,
+        });
+      }
+
+      const results: Array<{
+        slug: string;
+        ok: boolean;
+        error?: string;
+        skipped?: boolean;
+      }> = [];
+      for (const slug of slugs) {
+        if (preview.blocked.includes(slug)) {
+          results.push({
+            slug,
+            ok: false,
+            skipped: true,
+            error: "protected system entry",
+          });
+          continue;
+        }
+        const result = await deleteContentEntry({
+          type: contentType,
+          slug,
+          author,
+          contentRootName: getContentRootName(res),
+        });
+        if (!result.success) {
+          results.push({ slug, ok: false, error: result.error });
+        } else {
+          results.push({ slug, ok: true });
+        }
+      }
+
+      res.json({
+        success: true,
+        results,
+        preview,
+        blocked: preview.blocked,
+      });
+    } catch (error) {
+      log.error({ err: error }, "Content delete-entries error:");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  /**
    * GET /api/section-dependants?contentType=&sectionId=
    * Returns the list of entry slugs that have a per-entry section anchored to the given
    * template section ID. Used by the move-warning UI to show affected entries cheaply.

@@ -10,6 +10,9 @@ import type {
   SchemaContribution,
   SchemaOrgPreviewDocument,
 } from "./types";
+import { child } from "../logger";
+
+const log = child({ module: "schema-components" });
 
 export type {
   SchemaComponentContext,
@@ -41,6 +44,36 @@ function stripMarkdownRough(md: string): string {
     .trim();
 }
 
+function personFromAuthor(raw: Record<string, unknown> | string): Record<string, unknown> {
+  if (typeof raw === "string") {
+    return { "@type": "Person", name: raw };
+  }
+  if (raw._relation_broken) {
+    return {
+      "@type": "Organization",
+      name: "4Geeks Academy",
+    };
+  }
+  const name =
+    (typeof raw.name === "string" && raw.name) ||
+    `${raw.first_name || ""} ${raw.last_name || ""}`.trim() ||
+    (typeof raw.slug === "string" ? raw.slug : "Author");
+  const person: Record<string, unknown> = {
+    "@type": "Person",
+    name,
+  };
+  const url = typeof raw.url === "string" ? raw.url : undefined;
+  const id = typeof raw["@id"] === "string" ? raw["@id"] : url;
+  if (url) person.url = url;
+  if (id) person["@id"] = id;
+  if (typeof raw.job_title === "string" && raw.job_title) person.jobTitle = raw.job_title;
+  if (Array.isArray(raw.same_as) && raw.same_as.length) person.sameAs = raw.same_as;
+  if (typeof raw.bio === "string" && raw.bio) person.description = raw.bio;
+  if (typeof raw.image === "string" && raw.image) person.image = raw.image;
+  else if (typeof raw._image === "string" && raw._image) person.image = raw._image;
+  return person;
+}
+
 function buildArticleDocument(
   bodies: string[],
   context: SchemaComponentContext,
@@ -60,9 +93,21 @@ function buildArticleDocument(
     articleBody: articleBody || undefined,
   };
   if (context.image) doc.image = context.image;
-  if (context.authorName) {
+
+  const authorsRaw = context.authors;
+  if (Array.isArray(authorsRaw) && authorsRaw.length > 0) {
+    const people = authorsRaw.map(personFromAuthor);
+    doc.author = people.length === 1 ? people[0] : people;
+  } else if (context.authorName) {
     doc.author = { "@type": "Person", name: context.authorName };
+  } else if (context.contentType === "blog") {
+    doc.author = {
+      "@type": "Organization",
+      name: "4Geeks Academy",
+      ...(context.baseUrl ? { url: context.baseUrl } : {}),
+    };
   }
+
   if (context.baseUrl) {
     doc.publisher = {
       "@type": "Organization",
@@ -106,6 +151,19 @@ export function collectSectionSchemasDetailed(
 
   for (const section of sections) {
     if (!section || typeof section !== "object") continue;
+    if (
+      context.contentType === "blog" &&
+      String(section.type ?? "") === "article" &&
+      !Object.prototype.hasOwnProperty.call(section, "authors")
+    ) {
+      log.warn(
+        {
+          contentType: context.contentType,
+          pageUrl: context.pageUrl,
+        },
+        '[schema-components] blog article section missing authors: "{{ single.authors }}" mapping — byline/Person LD may fall back to Organization',
+      );
+    }
     const contributor = schemaComponentContributors[String(section.type ?? "")];
     if (!contributor) continue;
 

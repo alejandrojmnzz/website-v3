@@ -68,6 +68,30 @@ export function resolveSourceName(
   return { kind: "not_found", name };
 }
 
+/**
+ * Content-type keys and database slugs share one namespace for relation /
+ * query-options `source`. Reject creating a name that already exists on the
+ * other side.
+ */
+export function assertSourceNameAvailable(
+  name: string,
+  as: "contentType" | "database",
+  contentRoot?: string,
+  db: DatabaseManager = databaseManager,
+): void {
+  if (!name) throw new Error("Source name is required");
+  if (as === "contentType" && db.exists(name)) {
+    throw new Error(
+      `Cannot create content type "${name}": a database with the same slug already exists. Content-type keys and database slugs must be unique across both namespaces.`,
+    );
+  }
+  if (as === "database" && getContentTypeConfig(name, contentRoot)) {
+    throw new Error(
+      `Cannot create database "${name}": a content type with the same key already exists. Content-type keys and database slugs must be unique across both namespaces.`,
+    );
+  }
+}
+
 export function parseFilterQueryParams(
   query: Record<string, unknown>,
 ): {
@@ -192,9 +216,12 @@ export async function fetchQueryOptions(
   );
 
   const mapped: QueryOption[] = [];
+  const seen = new Set<string>();
   for (const item of items) {
     const opt = mapItemToOption(item, input.valuePath, input.labelPath);
-    if (opt) mapped.push(opt);
+    if (!opt || seen.has(opt.value)) continue;
+    seen.add(opt.value);
+    mapped.push(opt);
   }
 
   return {

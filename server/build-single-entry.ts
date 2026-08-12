@@ -129,3 +129,31 @@ export function buildSingleEntryFromContent(
     locale: opts?.locale,
   });
 }
+
+/**
+ * Build template `single` bag then hydrate `editor.type: relation` fields.
+ * Use on page/SSR delivery paths — not on listing projections.
+ */
+export async function buildResolvedSingleEntryFromContent(
+  contentType: string,
+  pageData: Record<string, unknown>,
+  opts?: {
+    slug?: string;
+    locale?: string;
+    contentRoot?: string;
+    baseUrl?: string;
+    db?: import("./database").DatabaseManager;
+    contentIndex?: import("./content-index").ContentIndex;
+  },
+): Promise<Record<string, unknown> | undefined> {
+  const entry = buildSingleEntryFromContent(contentType, pageData, opts);
+  if (!entry) return undefined;
+  const { resolveRelationsOnEntry } = await import("./resolve-relations");
+  return resolveRelationsOnEntry(contentType, entry, {
+    contentRoot: opts?.contentRoot,
+    locale: opts?.locale,
+    baseUrl: opts?.baseUrl,
+    db: opts?.db,
+    contentIndex: opts?.contentIndex,
+  });
+}

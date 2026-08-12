@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, Info, Plus, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Loader2,
+  Plus,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +53,14 @@ export type EditorHint = {
    * and used to lint/persist structured field values.
    */
   schema?: Record<string, unknown>;
+  /** Content type or database name for `relation` editors. */
+  source?: string;
+  /** Option value field (e.g. slug). */
+  value?: string;
+  /** Option label field (e.g. name). */
+  label?: string;
+  /** Allow selecting multiple related entries. */
+  multiple?: boolean;
 };
 
 export type EditorTypeDialogProps = {
@@ -114,7 +133,15 @@ export function EditorTypeDialog({
   const [description, setDescription] = useState("");
   const [schemaText, setSchemaText] = useState("");
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [relationSource, setRelationSource] = useState("");
+  const [relationValue, setRelationValue] = useState("");
+  const [relationLabel, setRelationLabel] = useState("");
+  const [relationMultiple, setRelationMultiple] = useState(false);
+  const [relationError, setRelationError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showSchemaAiPrompt, setShowSchemaAiPrompt] = useState(false);
+  const [schemaAiPrompt, setSchemaAiPrompt] = useState("");
+  const [schemaAiGenerating, setSchemaAiGenerating] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -138,7 +165,15 @@ export function EditorTypeDialog({
         : "",
     );
     setSchemaError(null);
+    setRelationSource(hint.source || "");
+    setRelationValue(hint.value || "");
+    setRelationLabel(hint.label || "");
+    setRelationMultiple(hint.multiple ?? false);
+    setRelationError(null);
     setShowAdvanced(false);
+    setShowSchemaAiPrompt(false);
+    setSchemaAiPrompt("");
+    setSchemaAiGenerating(false);
   }, [open, fieldName, initialHint, lockImageType]);
 
   const addOptions = () => {
@@ -151,6 +186,48 @@ export function EditorTypeDialog({
     if (newOpts.length === 0) return;
     setOptions((prev) => [...prev, ...newOpts]);
     setNewOption("");
+  };
+
+  const handleGenerateSchema = async () => {
+    const prompt = schemaAiPrompt.trim();
+    if (!prompt || !fieldName || schemaAiGenerating) return;
+    setSchemaAiGenerating(true);
+    setSchemaError(null);
+    try {
+      const res = await fetch("/api/ai/generate-json-schema", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fieldName,
+          userPrompt: prompt,
+          currentSchema: schemaText.trim() || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        schema?: Record<string, unknown>;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to generate JSON schema");
+      }
+      if (!data.schema || typeof data.schema !== "object") {
+        throw new Error("AI returned no schema");
+      }
+      const compiled = compileJsonSchema(data.schema);
+      if (!compiled.ok) {
+        throw new Error(compiled.error);
+      }
+      setSchemaText(JSON.stringify(compiled.schema, null, 2));
+      setSchemaError(null);
+      setShowSchemaAiPrompt(false);
+      setSchemaAiPrompt("");
+    } catch (err) {
+      setSchemaError(
+        err instanceof Error ? err.message : "Failed to generate JSON schema",
+      );
+    } finally {
+      setSchemaAiGenerating(false);
+    }
   };
 
   const handleApply = () => {
@@ -187,6 +264,20 @@ export function EditorTypeDialog({
       }
       hint.schema = compiled.schema;
       setSchemaError(null);
+    }
+    if (resolvedType === "relation") {
+      const source = relationSource.trim();
+      if (!source) {
+        setRelationError("Relation fields require a source (content type or database)");
+        return;
+      }
+      hint.source = source;
+      const value = relationValue.trim();
+      const label = relationLabel.trim();
+      if (value) hint.value = value;
+      if (label) hint.label = label;
+      if (relationMultiple) hint.multiple = true;
+      setRelationError(null);
     }
     if (initialHint?.cache_images) hint.cache_images = true;
     onApply(hint);
@@ -247,6 +338,7 @@ export function EditorTypeDialog({
                 <SelectItem value="select">select — dropdown</SelectItem>
                 <SelectItem value="tags">multi select — multi-value</SelectItem>
                 <SelectItem value="json">json — structured JSON (schema required)</SelectItem>
+                <SelectItem value="relation">relation — link to content type or database entries</SelectItem>
               </SelectContent>
             </Select>
             {lockImageType && (
@@ -267,6 +359,12 @@ export function EditorTypeDialog({
                 A JSON Schema is required.
               </p>
             )}
+            {type === "relation" && !lockImageType && (
+              <p className="text-[11px] text-muted-foreground" data-testid="text-hint-relation-howto">
+                Stores pointer slug(s) to related entries. Source is a content type or database;
+                options come from <code className="text-foreground">/api/query-options</code>.
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Description (shown as hint in editor)</Label>
@@ -281,7 +379,60 @@ export function EditorTypeDialog({
           </div>
           {type === "json" && !lockImageType && (
             <div className="space-y-2" data-testid="json-schema-editor">
-              <Label className="text-xs">JSON Schema (required)</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs">JSON Schema (required)</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0"
+                  title="Generate with AI"
+                  aria-label="Generate with AI"
+                  aria-expanded={showSchemaAiPrompt}
+                  disabled={schemaAiGenerating}
+                  onClick={() => setShowSchemaAiPrompt((v) => !v)}
+                  data-testid="button-generate-json-schema"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {showSchemaAiPrompt && (
+                <div className="space-y-1.5 rounded-md border bg-muted/30 p-2">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Describe what this field stores; AI drafts a JSON Schema you can edit before Apply.
+                  </p>
+                  <div className="flex gap-1.5 items-end">
+                    <Textarea
+                      placeholder={`What should "${fieldName || "this field"}" store? e.g. author name, email, and avatar URL`}
+                      value={schemaAiPrompt}
+                      onChange={(e) => setSchemaAiPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleGenerateSchema();
+                        }
+                      }}
+                      className="min-h-[36px] max-h-[72px] flex-1 resize-none text-xs"
+                      disabled={schemaAiGenerating}
+                      data-testid="input-generate-json-schema-prompt"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => void handleGenerateSchema()}
+                      disabled={schemaAiGenerating || !schemaAiPrompt.trim()}
+                      data-testid="button-generate-json-schema-send"
+                    >
+                      {schemaAiGenerating ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Textarea
                 value={schemaText}
                 onChange={(e) => {
@@ -319,12 +470,108 @@ export function EditorTypeDialog({
                     Validation: <code className="text-foreground">shared/json-field.ts</code>
                   </p>
                   <p>
+                    AI draft: <code className="text-foreground">POST /api/ai/generate-json-schema</code>{" "}
+                    fills this textarea only — Apply still required to persist{" "}
+                    <code className="text-foreground">editor.&lt;field&gt;.schema</code>.
+                  </p>
+                  <p>
                     Item editor:{" "}
                     <code className="text-foreground">client/src/components/databases/ItemEditModal.tsx</code>
                   </p>
                   <p>
                     Agents: call <code className="text-foreground">get_content_type_info</code> and read{" "}
                     <code className="text-foreground">editor.&lt;field&gt;.schema</code> before writing.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {type === "relation" && !lockImageType && (
+            <div className="space-y-2" data-testid="relation-hint-editor">
+              <div className="space-y-1">
+                <Label className="text-xs">Source (required)</Label>
+                <input
+                  type="text"
+                  value={relationSource}
+                  onChange={(e) => {
+                    setRelationSource(e.target.value);
+                    setRelationError(null);
+                  }}
+                  placeholder="content type or database name"
+                  className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-hint-relation-source"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Value field</Label>
+                <input
+                  type="text"
+                  value={relationValue}
+                  onChange={(e) => setRelationValue(e.target.value)}
+                  placeholder="slug"
+                  className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-hint-relation-value"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Label field</Label>
+                <input
+                  type="text"
+                  value={relationLabel}
+                  onChange={(e) => setRelationLabel(e.target.value)}
+                  placeholder="name"
+                  className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  data-testid="input-hint-relation-label"
+                />
+              </div>
+              <label
+                className="flex items-center gap-2 cursor-pointer"
+                data-testid="label-hint-relation-multiple"
+              >
+                <input
+                  type="checkbox"
+                  checked={relationMultiple}
+                  onChange={(e) => setRelationMultiple(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded"
+                  data-testid="checkbox-hint-relation-multiple"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Allow multiple related entries
+                </span>
+              </label>
+              {relationError && (
+                <p className="text-[11px] text-destructive" data-testid="text-hint-relation-error">
+                  {relationError}
+                </p>
+              )}
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => setShowAdvanced((v) => !v)}
+                data-testid="button-hint-relation-advanced"
+              >
+                {showAdvanced ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+              </button>
+              {showAdvanced && (
+                <div
+                  className="rounded-md border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground space-y-1.5"
+                  data-testid="hint-relation-advanced-details"
+                >
+                  <p>
+                    Options API: <code className="text-foreground">server/query-options.ts</code>
+                  </p>
+                  <p>
+                    Resolve at load:{" "}
+                    <code className="text-foreground">server/resolve-relations.ts</code>
+                  </p>
+                  <p>
+                    Query entries:{" "}
+                    <code className="text-foreground">server/query-entries.ts</code>
                   </p>
                 </div>
               )}

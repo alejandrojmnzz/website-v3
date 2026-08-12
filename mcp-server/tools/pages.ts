@@ -3683,6 +3683,144 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     }
   );
 
+  // delete_entries — bulk YAML entry delete with relation cascade (authors → blog.authors)
+  mcp.tool(
+    "delete_entries",
+    "Best-effort bulk delete of static content-type entries. Without confirm:true returns preview " +
+    "(dependents, needs_reassignment, blocked protected slugs). For authors, removing the last " +
+    "pointer from blog.authors requires reassignments (map blogSlug → authorSlug[]); defaults to " +
+    "4geeks-academy. Deleted author URLs 404. Does not soft-redirect. " +
+    MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().describe("Content type key, e.g. authors"),
+      slugs: z.array(z.string()).min(1).describe("Entry slugs to delete"),
+      confirm: z.boolean().optional().describe("Must be true to perform delete"),
+      reassignments: z
+        .record(z.array(z.string()))
+        .optional()
+        .describe("When last author would be cleared: blogSlug → replacement author slug[]"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, slugs, confirm, reassignments, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "delete_entries", { contentType, slugs });
+      }
+      const { domain } = siteResult;
+      if (!mcpToken || !(await checkCap(mcpToken, "content_delete_entry", contentType))) {
+        return denyResponse("content_delete_entry", contentType);
+      }
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/delete-entries${
+          domain ? `?__site=${encodeURIComponent(domain)}` : ""
+        }`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: internalHeaders(mcpToken),
+          body: JSON.stringify({
+            contentType,
+            slugs,
+            confirm: confirm === true,
+            reassignments,
+          }),
+        });
+        const data = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail((data.error as string) || `delete_entries failed: ${res.status}`, {
+            details: data,
+          });
+        }
+        if (confirm !== true) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_delete",
+              message: (data.message as string) || "Pass confirm:true to delete",
+              preview: data.preview,
+              tool: "delete_entries",
+            },
+            [
+              {
+                tool: "delete_entries",
+                reason: "Re-call with confirm:true and reassignments if needed",
+                args_hint: {
+                  contentType,
+                  slugs,
+                  confirm: true,
+                  reassignments: reassignments ?? undefined,
+                  site,
+                },
+                priority: "required",
+              },
+              {
+                tool: "explain_site",
+                reason: "Relation + authors delete contract",
+                args_hint: { topic: "relation-fields" },
+                priority: "recommended",
+              },
+            ],
+          );
+        }
+        return ok(
+          {
+            success: true,
+            results: data.results,
+            blocked: data.blocked,
+            preview: data.preview,
+          },
+          {
+            warnings: [
+              {
+                code: "best_effort_bulk",
+                message: "Best-effort bulk: check results[] per slug.",
+              },
+              {
+                code: "listing_vs_page",
+                message:
+                  "Listings keep author pointers as slug[]; page/SSR hydrate via resolve-relations.",
+              },
+              {
+                code: "protected_default_author",
+                message: "Protected default author (4geeks-academy) is never deleted.",
+              },
+              ...(contentType === "authors"
+                ? [
+                    {
+                      code: "blog_authors_cascade",
+                      message:
+                        "blog.authors arrays updated on _common.yml; empty posts reassigned (default 4geeks-academy).",
+                    },
+                  ]
+                : [
+                    {
+                      code: "no_author_cascade",
+                      message: "No author cascade for this content type.",
+                    },
+                  ]),
+            ],
+            side_effects: [
+              {
+                kind: "delete_entry_folder",
+                summary: `${contentType}/<slug>/ removed; URL 404s`,
+              },
+              ...(contentType === "authors"
+                ? [
+                    {
+                      kind: "cascade_blog_authors",
+                      summary: "blog/<slug>/_common.yml authors: slug[] updated / reassigned",
+                    },
+                  ]
+                : []),
+            ],
+            next_actions: [],
+          },
+        );
+      } catch (e) {
+        return fail(`delete_entries failed: ${(e as Error).message}`);
+      }
+    },
+  );
+
   // get_content_type_info
   mcp.tool(
     "get_content_type_info",
@@ -3718,6 +3856,31 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         observed[param] = observeParamValues(contentPath, contentType, config, param);
       }
       const editor = getEditorConfig(config);
+      const relation_fields = Object.entries(editor || {})
+        .filter(([, hint]) => hint && (hint as { type?: string }).type === "relation")
+        .map(([field, hint]) => {
+          const h = hint as {
+            source?: string;
+            value?: string;
+            label?: string;
+            multiple?: boolean;
+            required?: boolean;
+            description?: string;
+          };
+          return {
+            field,
+            source: h.source || null,
+            value: h.value || "slug",
+            label: h.label || "name",
+            multiple: !!h.multiple,
+            required: !!h.required,
+            description: h.description || null,
+            storage_note:
+              "Static types: relation values write to _common.yml. Pointers only (string|string[]); never Person JSON.",
+            resolve_note:
+              "Listings keep pointers; page/SSR hydrate via server/resolve-relations.ts",
+          };
+        });
       const createVia = createViaForConfig(config);
       const next_actions: NextAction[] = [];
       if (createVia === "create_entry") {
@@ -3797,6 +3960,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             url_params: urlParams,
             field_mapping: config.field_mapping ?? null,
             editor,
+            relation_fields,
+            immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
+            protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],
             indexes: config.indexes ?? [],
             observed_values: observed,
             create_via: createVia,

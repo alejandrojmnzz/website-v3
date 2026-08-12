@@ -5327,6 +5327,78 @@ export default function ContentTypeManagePage() {
       const author = await resolveAuthorName();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Token ${token}`;
+
+      if (contentType === "authors") {
+        const previewRes = await fetch("/api/content/delete-entries", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            contentType: "authors",
+            slugs: [deletingEntry.slug],
+            confirm: false,
+            author,
+          }),
+        });
+        const previewData = await previewRes.json();
+        if (!previewRes.ok) {
+          toast({
+            title: "Error",
+            description: previewData.error || "Failed to preview delete",
+            variant: "destructive",
+          });
+          return;
+        }
+        const needs = (previewData.preview?.needs_reassignment || []) as Array<{ slug: string }>;
+        const defaultAuthor = previewData.preview?.default_author_slug || "4geeks-academy";
+        const reassignments: Record<string, string[]> = {};
+        for (const row of needs) {
+          reassignments[row.slug] = [defaultAuthor];
+        }
+        if (needs.length > 0) {
+          const ok = window.confirm(
+            `${needs.length} blog post(s) would lose their last author. Reassign to "${defaultAuthor}" and delete?`,
+          );
+          if (!ok) return;
+        }
+        const response = await fetch("/api/content/delete-entries", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            contentType: "authors",
+            slugs: [deletingEntry.slug],
+            confirm: true,
+            reassignments,
+            author,
+          }),
+        });
+        const data = await response.json();
+        if (response.ok) {
+          const failed = Array.isArray(data.results)
+            ? data.results.filter((r: { ok?: boolean }) => !r.ok)
+            : [];
+          toast({
+            title: failed.length ? "Deleted with errors" : "Entry deleted",
+            description: failed.length
+              ? failed.map((f: { slug: string; error?: string }) => `${f.slug}: ${f.error}`).join("; ")
+              : "Author removed; blog.authors updated.",
+            variant: failed.length ? "destructive" : undefined,
+          });
+          setDeleteModalOpen(false);
+          setDeletingEntry(null);
+          setDeleteConfirmInput("");
+          queryClient.invalidateQueries({
+            queryKey: ["/api/content-types", contentType, "static-entries"],
+          });
+        } else {
+          toast({
+            title: "Error",
+            description: data.error || "Failed to delete",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
       const response = await fetch("/api/content/delete", {
         method: "POST",
         headers,

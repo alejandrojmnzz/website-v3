@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
@@ -148,6 +149,13 @@ export function SeoModal({
     return q.get("variant") || q.get("force_variant");
   }, [open, contentInfo.type, contentInfo.slug]);
 
+  const { data: ctConfig } = useQuery<{ immutable_slug?: boolean }>({
+    queryKey: ["/api/content-types", contentInfo.type, "config"],
+    enabled: open && !!contentInfo.type,
+    staleTime: 5 * 60 * 1000,
+  });
+  const slugImmutable = !!ctConfig?.immutable_slug;
+
   const snippetUrl = seoMeta.canonical_url || (typeof window !== "undefined" ? `${window.location.origin}/${contentInfo.slug || ""}` : "");
   const snippetBreadcrumb = (() => {
     try {
@@ -239,9 +247,14 @@ export function SeoModal({
                         placeholder={currentLocaleSlug}
                         className={`flex-1 min-w-0 px-3 py-2 text-sm font-mono rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring ${slugCheckStatus === "taken" ? "border-destructive" : slugCheckStatus === "available" ? "border-green-500" : ""}`}
                         data-testid="input-slug-editor"
-                        disabled={slugRenaming}
+                        disabled={slugRenaming || slugImmutable}
                       />
-                      {newSlugValue && newSlugValue !== currentLocaleSlug && !slugRedirectPrompt && (
+                      {slugImmutable && (
+                        <p className="text-xs text-muted-foreground" data-testid="text-slug-immutable">
+                          Slug is immutable for this content type (authors).
+                        </p>
+                      )}
+                      {newSlugValue && newSlugValue !== currentLocaleSlug && !slugRedirectPrompt && !slugImmutable && (
                         <>
                           <Button
                             size="sm"

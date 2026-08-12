@@ -259,65 +259,12 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
   // redirect — static types can match a pattern by slug alone even when category is wrong.
   const cleanUrl = req.path.split("?")[0].split("#")[0];
   try {
-    const segments = cleanUrl.split("/").filter(Boolean);
-    const lastSegment = segments[segments.length - 1];
-    const localeMatch = cleanUrl.match(/^\/([a-z]{2})\//);
-    const locale = localeMatch?.[1] ?? "en";
-
-    if (lastSegment) {
-      for (const [typeName, typeConfig] of Object.entries(getAllConfigs())) {
-        if (!typeConfig.url_pattern) continue;
-        if (listExtraUrlPatternParams(typeConfig.url_pattern).length === 0) continue;
-
-        let canonicalUrl: string | null = null;
-        let matched = false;
-
-        if (typeConfig.database?.slug) {
-          const items = databaseManager.getMappedItems(typeConfig.database.slug);
-          if (!items) continue;
-          const record = items.find((item) => String(item.slug || "") === lastSegment);
-          if (!record) continue;
-          matched = true;
-          // Use the record's own locale when available (wrong language prefix).
-          const localeField = getLocaleKey(typeName);
-          const rawLocale =
-            (localeField && record[localeField]) ||
-            record["language"] ||
-            record["lang"] ||
-            record["locale"];
-          const recordLocale = rawLocale ? String(rawLocale) : locale;
-          const canonicalLocale = typeConfig.url_pattern[recordLocale] ? recordLocale : locale;
-          const urlPattern =
-            typeConfig.url_pattern[canonicalLocale] ??
-            typeConfig.url_pattern["en"] ??
-            typeConfig.url_pattern["default"];
-          if (urlPattern) {
-            const fieldMapping = getFullFieldMapping(typeName);
-            const defaults = getFieldMappingDefaults(typeName);
-            canonicalUrl = resolveUrlPatternWithMapping(
-              urlPattern,
-              record,
-              canonicalLocale,
-              fieldMapping,
-              defaults,
-            );
-          }
-        } else {
-          const matches = activeCi.findBySlug(lastSegment, { contentType: typeName });
-          if (matches.length === 0) continue;
-          matched = true;
-          const urls = activeCi.getAlternateUrls(lastSegment, typeName);
-          canonicalUrl = urls[locale] || urls.en || Object.values(urls)[0] || null;
-        }
-
-        if (matched && canonicalUrl && canonicalUrl !== cleanUrl) {
-          const qs = getQueryString(req);
-          log.info(`[Redirects] 301 (canonical ${typeName}): ${cleanUrl} -> ${canonicalUrl}${qs}`);
-          res.redirect(301, canonicalUrl + qs);
-          return;
-        }
-        if (matched) break;
-      }
+    const soft = findCanonicalSoftMatch(cleanUrl, activeCi);
+    if (soft) {
+      const qs = getQueryString(req);
+      log.info(`[Redirects] 301 (canonical ${soft.typeName}): ${cleanUrl} -> ${soft.canonicalUrl}${qs}`);
+      res.redirect(301, soft.canonicalUrl + qs);
+      return;
     }
   } catch {}
 
@@ -455,10 +402,79 @@ export interface RedirectTestResult {
   status?: number;
   priority?: string;
   source?: string;
-  matchType?: "exact" | "regex";
+  matchType?: "exact" | "regex" | "canonical";
   captureGroups?: string[];
   pageExists?: boolean;
   destinationExists?: boolean;
+}
+
+/**
+ * Canonical soft-match for multi-param URL patterns (e.g. blog `:category/:slug`).
+ * When the last path segment equals a real entry slug but other params differ,
+ * returns the canonical public URL. Missing slug → null (no inventing posts).
+ */
+export function findCanonicalSoftMatch(
+  cleanUrl: string,
+  ci: typeof contentIndex = contentIndex,
+): { typeName: string; canonicalUrl: string } | null {
+  const segments = cleanUrl.split("/").filter(Boolean);
+  const lastSegment = segments[segments.length - 1];
+  if (!lastSegment) return null;
+
+  const localeMatch = cleanUrl.match(/^\/([a-z]{2})\//);
+  const locale = localeMatch?.[1] ?? "en";
+
+  for (const [typeName, typeConfig] of Object.entries(getAllConfigs())) {
+    if (!typeConfig.url_pattern) continue;
+    if (listExtraUrlPatternParams(typeConfig.url_pattern).length === 0) continue;
+
+    let canonicalUrl: string | null = null;
+    let matched = false;
+
+    if (typeConfig.database?.slug) {
+      const items = databaseManager.getMappedItems(typeConfig.database.slug);
+      if (!items) continue;
+      const record = items.find((item) => String(item.slug || "") === lastSegment);
+      if (!record) continue;
+      matched = true;
+      const localeField = getLocaleKey(typeName);
+      const rawLocale =
+        (localeField && record[localeField]) ||
+        record["language"] ||
+        record["lang"] ||
+        record["locale"];
+      const recordLocale = rawLocale ? String(rawLocale) : locale;
+      const canonicalLocale = typeConfig.url_pattern[recordLocale] ? recordLocale : locale;
+      const urlPattern =
+        typeConfig.url_pattern[canonicalLocale] ??
+        typeConfig.url_pattern["en"] ??
+        typeConfig.url_pattern["default"];
+      if (urlPattern) {
+        const fieldMapping = getFullFieldMapping(typeName);
+        const defaults = getFieldMappingDefaults(typeName);
+        canonicalUrl = resolveUrlPatternWithMapping(
+          urlPattern,
+          record,
+          canonicalLocale,
+          fieldMapping,
+          defaults,
+        );
+      }
+    } else {
+      const matches = ci.findBySlug(lastSegment, { contentType: typeName });
+      if (matches.length === 0) continue;
+      matched = true;
+      const urls = ci.getAlternateUrls(lastSegment, typeName);
+      canonicalUrl = urls[locale] || urls.en || Object.values(urls)[0] || null;
+    }
+
+    if (matched && canonicalUrl && canonicalUrl !== cleanUrl) {
+      return { typeName, canonicalUrl };
+    }
+    if (matched) return null;
+  }
+
+  return null;
 }
 
 function resolveTarget(entry: RedirectEntry, locale: string, captureGroups?: string[]): string {
@@ -537,6 +553,23 @@ export function testRedirect(
   for (const { regex, entry } of maps.regexFallbackNonCustom) {
     const m = urlPath.match(regex);
     if (m) return makeResult(entry, locale, "regex", "fallback", m.slice(1));
+  }
+
+  // Match live fallbackRedirectMiddleware: canonical soft-match before isKnownUrl.
+  const soft = findCanonicalSoftMatch(urlPath, ci);
+  if (soft) {
+    return {
+      match: true,
+      from: urlPath,
+      to: soft.canonicalUrl,
+      resolvedTo: soft.canonicalUrl,
+      status: 301,
+      priority: "fallback",
+      source: `canonical:${soft.typeName}`,
+      matchType: "canonical",
+      pageExists: false,
+      destinationExists: ci.isKnownUrl(soft.canonicalUrl),
+    };
   }
 
   const isKnown = ci.isKnownUrl(urlPath);

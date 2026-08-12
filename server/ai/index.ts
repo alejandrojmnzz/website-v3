@@ -12,6 +12,7 @@ export { getLLMService, LLMService } from "./LLMService";
 export { getContentAdapter, ContentAdapter } from "./ContentAdapter";
 export { SYSTEM_PROMPT, buildAdaptationPrompt, buildContextBlock, buildTargetStructureBlock } from "./prompts";
 export { componentToJsonSchema, getValidProperties, getRequiredProperties, validateContentAgainstSchema } from "./SchemaConverter";
+export { generateJsonSchema } from "./generateJsonSchema";
 
 export type {
   BrandContext,
@@ -25,3 +26,8 @@ export type {
   ICache,
   IContextLoader,
 } from "./types";
+
+export type {
+  GenerateJsonSchemaInput,
+  GenerateJsonSchemaResult,
+} from "./generateJsonSchema";

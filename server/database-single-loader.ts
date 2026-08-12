@@ -213,6 +213,23 @@ export function mergeSingleTemplate(
 }
 
 /**
+ * True when a static shared-layout entry has a live `{slug}/{locale}.yml`.
+ * Used by public delivery so missing slugs 404 instead of serving the empty
+ * `single.*.yml` shell.
+ */
+export function hasStaticSharedLayoutEntryLocale(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot?: string,
+): boolean {
+  const resolvedRoot = contentRoot ?? getDefaultContentRoot();
+  const folder = getFolder(contentType, resolvedRoot);
+  const entryLocalePath = path.join(resolvedRoot, folder, slug, `${locale}.yml`);
+  return fs.existsSync(entryLocalePath);
+}
+
+/**
  * Load a merged single-entry page for per-entry section ops.
  * Works for both DB-backed types and static types with `single_template: true`
  * (e.g. blog after convert-to-static). Prefer this over `loadDatabaseSinglePage`
@@ -234,9 +251,7 @@ export async function loadMergedSinglePage(
   const config = getContentTypeConfig(contentType, resolvedRoot);
   if (!config?.single_template) return null;
 
-  const folder = getFolder(contentType, resolvedRoot);
-  const entryLocalePath = path.join(resolvedRoot, folder, slug, `${locale}.yml`);
-  if (!fs.existsSync(entryLocalePath)) {
+  if (!hasStaticSharedLayoutEntryLocale(contentType, slug, locale, resolvedRoot)) {
     log.info(
       `[MergedSingle] Static entry not found: ${contentType}/${slug}/${locale}.yml`,
     );

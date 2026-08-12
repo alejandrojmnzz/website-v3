@@ -7,6 +7,7 @@ Use this topic before creating or restructuring entries for types with `single_t
 - **Shell** (hero, article wrapper, CTA, FAQ, breadcrumb, …) lives in `{directory}/single.{locale}.yml` (plus `_common.single.yml` defaults). It applies to **all attached** entries of that type in that locale.
 - **Entry fields** live in `{directory}/{slug}/_common.yml` + `{locale}.yml` — `title`, `description`, `content`, `category`, `meta`, etc. Attached entries normally use `sections: []`.
 - **`db_backed` ≠ `single_template`.** Static blog is YAML + `single_template` and **is** creatable via MCP `create_entry`. DB-backed types are not (`create_via: null` from `get_content_type_info`).
+- **Missing slug → 404**, not an empty shared shell. Public delivery requires `{slug}/{locale}.yml` (static) or a DB row; soft-match redirects only rewrite when that slug already exists (e.g. wrong `:category`).
 
 Example (blog): body markdown is `content` on the locale file; `{{ single.content }}` is bound inside `blog/single.es.yml`. Do **not** paste a page shell (hero/breadcrumb/article) into the entry.
 

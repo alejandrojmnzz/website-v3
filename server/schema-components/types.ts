@@ -25,6 +25,13 @@ export interface SchemaComponentContext {
   publishedAt?: string;
   updatedAt?: string;
   authorName?: string;
+  /**
+   * Hydrated relation authors (object[]) or legacy string name.
+   * When present, BlogPosting/Article `author` becomes Person[] with url/@id.
+   */
+  authors?: Array<Record<string, unknown> | string>;
+  /** Resolved single-entry bag (for mapping warnings, etc.). */
+  singleEntry?: Record<string, unknown>;
 }
 
 export type SchemaContribution =

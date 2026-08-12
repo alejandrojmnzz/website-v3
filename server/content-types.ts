@@ -62,6 +62,14 @@ export type ContentTypeEditorHint = {
    * `{{ single.field }}` binds can return arrays/objects at delivery.
    */
   schema?: Record<string, unknown>;
+  /** When type is `relation`: content-type key or database slug (query-options source). */
+  source?: string;
+  /** Relation value path on related items (default slug). */
+  value?: string;
+  /** Relation label path for picker (default title/name). */
+  label?: string;
+  /** When true, store string[] of pointers. */
+  multiple?: boolean;
 };
 
 export interface ContentTypeEntry {
@@ -90,6 +98,14 @@ export interface ContentTypeEntry {
    * Validated by schema-org-companions + live SEO gate; attach via ensure API/MCP.
    */
   schema_org_requirements?: Array<{ schema_type: string }>;
+  /**
+   * When true, entry slug cannot be renamed via rename-slug API / SEO UI.
+   */
+  immutable_slug?: boolean;
+  /**
+   * Entry slugs that cannot be deleted (system defaults, e.g. org author).
+   */
+  protected_slugs?: string[];
 }
 
 interface ContentTypesRegistry {
@@ -188,7 +204,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 # editor (optional):
 #   Per-field editor hints for the SEO Fields tab / item editors (same shape as db/*/config editor).
 #   Keys match field_mapping target names. Types: text, textarea, markdown, number, boolean,
-#   date, datetime, image, pdf, select, tags, json. Optional: options, populate_options,
+#   date, datetime, image, pdf, select, tags, json, relation. Optional: options, populate_options,
 #   allow_custom_values, split_comma_values, description, required, schema.
 #   required: when true, drafts may be empty; publish/live saves require a non-empty value
 #     (cannot clear on a live entry). Distinct from field_mapping ? prefix (key may be missing).
@@ -198,6 +214,11 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   json: structured object/array field (CodeMirror + schema lint). schema (JSON Schema object)
 #     is REQUIRED. Empty editor → null. Exact {{ single.field }} returns the value as-is;
 #     pipe fallbacks may be JSON literals (e.g. {{ single.field | [] }}).
+#   relation: pointer to another content type or private database (same source namespace as
+#     /api/query-options). Required: source (CT key or DB slug — must not collide across
+#     namespaces). Optional: value (default slug), label (default title/name), multiple.
+#     Stores slug string or string[] (multiple). Empty [] fails when required. Page/SSR
+#     hydrate to related objects via resolve-relations; listings keep pointers.
 #
 # schema_org_requirements (optional):
 #   List of companion schema_org sections required on every entry, e.g.
@@ -1028,6 +1049,10 @@ export function addContentType(name: string, config: ContentTypeEntry, contentRo
   if (reg.types[name]) {
     throw new Error(`Content type "${name}" already exists`);
   }
+
+  const { DatabaseManager } = require("./database") as typeof import("./database");
+  const { assertSourceNameAvailable } = require("./query-options") as typeof import("./query-options");
+  assertSourceNameAvailable(name, "contentType", contentRoot, new DatabaseManager(contentRoot));
 
   validateUrlPatterns(config.url_pattern);
 

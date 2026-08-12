@@ -42,6 +42,29 @@ export const articleSectionSchema = z.object({
   tags: z.array(z.string()).optional().describe("Optional tag chips in the article meta row"),
   category: z.string().optional().describe("Optional category chip in the article meta row"),
   category_url: z.string().optional().describe("Optional link for the category chip"),
+  /**
+   * Hydrated author objects (from `{{ single.authors }}`) or legacy strings.
+   * Byline joins names in array order (index 0 = primary).
+   */
+  authors: z
+    .array(
+      z.union([
+        z.string(),
+        z
+          .object({
+            name: z.string().optional(),
+            slug: z.string().optional(),
+            url: z.string().optional(),
+            first_name: z.string().optional(),
+            last_name: z.string().optional(),
+          })
+          .passthrough(),
+      ]),
+    )
+    .optional()
+    .describe(
+      "Author byline entries. Map explicitly: authors: '{{ single.authors }}'. Pointers hydrate on page/SSR.",
+    ),
   section_id: z.string().optional().describe("Stable section id (also used as heading-id prefix on split pages)"),
 });
 

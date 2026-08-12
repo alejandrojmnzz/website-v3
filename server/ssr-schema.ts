@@ -14,6 +14,7 @@ import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
+import { resolveRelationsOnEntry } from "./resolve-relations";
 import {
   applyFaqHideOnLocations,
   normalizeFaqEntries,
@@ -241,6 +242,14 @@ export async function generateDatabaseSsrHtml(
   const config = getContentTypeConfig(contentType);
   if (!config?.url_pattern) return "";
 
+  const hydrated = await resolveRelationsOnEntry(contentType, { ...record }, {
+    contentRoot,
+    locale,
+    contentIndex: ci,
+    baseUrl,
+  });
+  record = hydrated;
+
   const urlPattern = config.url_pattern[locale] || config.url_pattern["en"];
   if (!urlPattern) return "";
 
@@ -277,6 +286,11 @@ export async function generateDatabaseSsrHtml(
     authorName = record.author || "4Geeks Academy";
   }
 
+  let authorsForLd: Array<Record<string, unknown> | string> | undefined;
+  if (Array.isArray(record.authors) && record.authors.length > 0) {
+    authorsForLd = record.authors as Array<Record<string, unknown> | string>;
+  }
+
   // Section-driven schema contributions only (no hardcoded BlogPosting / synthetic breadcrumb).
   try {
     const template = mergeSingleTemplate(contentType, locale, (record.slug as string) || undefined, undefined, contentRoot);
@@ -306,6 +320,8 @@ export async function generateDatabaseSsrHtml(
         publishedAt: publishedAt || undefined,
         updatedAt: updatedAt || undefined,
         authorName,
+        authors: authorsForLd,
+        singleEntry: record,
       };
       for (const sectionSchema of collectSectionSchemas(withDynamic, context)) {
         scripts.push(

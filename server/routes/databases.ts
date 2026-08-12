@@ -42,6 +42,11 @@ import {
   validateEditorHintsHaveJsonSchemas,
 } from "../json-field-validate";
 import {
+  relationFieldFailureHttpBody,
+  validateAndCoerceRelationFields,
+  validateEditorHintsHaveRelationSources,
+} from "../relation-field-validate";
+import {
   redirectMiddleware,
   getRedirects,
   clearRedirectCache,
@@ -867,7 +872,12 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
           res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
           return;
         }
-        coercedItems.push(coerced.fields);
+        const relationCoerced = validateAndCoerceRelationFields(coerced.fields, editor);
+        if (!relationCoerced.ok) {
+          res.status(400).json(relationFieldFailureHttpBody(relationCoerced.failures));
+          return;
+        }
+        coercedItems.push(relationCoerced.fields);
       }
       const localConfig = config.source.local!;
       const { items: existing, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
@@ -901,13 +911,18 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;
       }
+      const relationCoerced = validateAndCoerceRelationFields(coerced.fields, editor);
+      if (!relationCoerced.ok) {
+        res.status(400).json(relationFieldFailureHttpBody(relationCoerced.failures));
+        return;
+      }
       const localConfig = config.source.local!;
       const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
-      items[idx] = { ...items[idx], ...coerced.fields };
+      items[idx] = { ...items[idx], ...relationCoerced.fields };
       writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
       res.json({ success: true, item: items[idx] });
     } catch (err: unknown) {
@@ -1090,6 +1105,11 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
         const editorCheck = validateEditorHintsHaveJsonSchemas(config.editor);
         if (!editorCheck.ok) {
           res.status(400).json({ error: editorCheck.error, field: editorCheck.field });
+          return;
+        }
+        const relationCheck = validateEditorHintsHaveRelationSources(config.editor);
+        if (!relationCheck.ok) {
+          res.status(400).json({ error: relationCheck.error, field: relationCheck.field });
           return;
         }
       }

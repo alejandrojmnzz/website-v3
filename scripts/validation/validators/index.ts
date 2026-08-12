@@ -35,6 +35,7 @@ import { ctaTrackingValidator } from "./cta-tracking";
 import { requiredFieldsValidator } from "./required-fields";
 import { schemaOrgCompanionsValidator } from "./schema-org-companions";
 import { staticFieldOverridesValidator } from "./static-field-overrides";
+import { sourceNameCollisionsValidator } from "./source-name-collisions";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -54,6 +55,7 @@ export const validators: Validator[] = [
   databaseSinglesValidator,
   databaseHealthValidator,
   slugConflictsValidator,
+  sourceNameCollisionsValidator,
   seoIntentValidator,
   imageOptimizationValidator,
   heroImageTagsValidator,

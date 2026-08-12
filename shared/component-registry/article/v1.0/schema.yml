@@ -79,6 +79,12 @@ props:
     type: string
     required: false
     description: Optional link for the category chip
+  authors:
+    type: array
+    required: false
+    description: >-
+      Author byline (hydrated objects or strings). Map explicitly as
+      authors: "{{ single.authors }}". First entry is primary.
   section_id:
     type: string
     required: false

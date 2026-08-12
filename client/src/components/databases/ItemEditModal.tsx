@@ -46,6 +46,7 @@ import {
   formatJsonFieldDraft,
   type JsonSchema,
 } from "@shared/json-field";
+import { coerceRelationFieldInput } from "@shared/relation-field";
 import {
   collectEditorFieldTokens,
   expandEditorFieldTokens,
@@ -53,6 +54,7 @@ import {
 import type { ImageEntry } from "@shared/schema";
 import { CheckCircle2, Clock, AlertCircle, Unlink, ImageIcon, Images, FileText } from "lucide-react";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
+import { RelationFieldPicker } from "@/components/databases/RelationFieldPicker";
 
 const MARKDOWN_TEXTAREA_KEYS = new Set(["content", "body", "readme", "markdown"]);
 
@@ -381,6 +383,11 @@ export interface EditorConfig {
   description?: string;
   /** Required when type is `json`. */
   schema?: Record<string, unknown>;
+  source?: string;
+  value?: string;
+  label?: string;
+  multiple?: boolean;
+  required?: boolean;
 }
 
 interface DBConfig {
@@ -426,6 +433,16 @@ export function buildItemFromForm(
       }
       if (coerced.value === null) {
         if (!omitEmpty) out[key] = null;
+      } else {
+        out[key] = coerced.value;
+      }
+    } else if (editorType === "relation") {
+      const coerced = coerceRelationFieldInput(value, editor?.[key]);
+      if (!coerced.ok) {
+        throw new Error(`${key}: ${coerced.error}`);
+      }
+      if (coerced.value === null) {
+        if (!omitEmpty) out[key] = editor?.[key]?.multiple ? [] : null;
       } else {
         out[key] = coerced.value;
       }
@@ -614,7 +631,11 @@ export function ItemEditModal({
       if (hiddenFields.includes(key)) continue;
       const editorType = editor?.[key]?.type;
       defaults[key] =
-        editorType === "tags" ? [] : editorType === "boolean" ? false : "";
+        editorType === "tags" || (editorType === "relation" && editor?.[key]?.multiple)
+          ? []
+          : editorType === "boolean"
+            ? false
+            : "";
     }
     setFormData(defaults);
     setInitialized(true);
@@ -644,6 +665,16 @@ export function ItemEditModal({
     return false;
   }, [editor, fields, formData]);
 
+  const relationFieldsInvalid = useMemo(() => {
+    if (!editor) return false;
+    for (const key of fields) {
+      if (editor[key]?.type !== "relation") continue;
+      const coerced = coerceRelationFieldInput(formData[key], editor[key]);
+      if (!coerced.ok) return true;
+    }
+    return false;
+  }, [editor, fields, formData]);
+
   const setValue = (key: string, v: unknown) =>
     setFormData((prev) => ({ ...prev, [key]: v }));
 
@@ -652,6 +683,14 @@ export function ItemEditModal({
       toast({
         title: "Save failed",
         description: "Fix invalid JSON fields before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (relationFieldsInvalid) {
+      toast({
+        title: "Save failed",
+        description: "Fix invalid relation fields (required pointers only; empty array not allowed).",
         variant: "destructive",
       });
       return;
@@ -1088,6 +1127,20 @@ export function ItemEditModal({
           </div>
         );
       }
+      case "relation": {
+        return (
+          <RelationFieldPicker
+            fieldKey={key}
+            source={editorConfig?.source || ""}
+            valuePath={editorConfig?.value || "slug"}
+            labelPath={editorConfig?.label || "name"}
+            multiple={!!editorConfig?.multiple}
+            required={!!editorConfig?.required}
+            value={value}
+            onChange={(next) => setValue(key, next)}
+          />
+        );
+      }
       default:
         return (
           <Input
@@ -1177,7 +1230,13 @@ export function ItemEditModal({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={saving || showLoading || fields.length === 0 || jsonFieldsInvalid}
+            disabled={
+              saving ||
+              showLoading ||
+              fields.length === 0 ||
+              jsonFieldsInvalid ||
+              relationFieldsInvalid
+            }
             data-testid="button-save-edit-item"
           >
             {saving ? (

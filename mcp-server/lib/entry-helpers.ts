@@ -34,6 +34,7 @@ export const SAFE_EDITOR_TYPES = new Set([
   "boolean",
   "number",
   "json",
+  "relation",
 ]);
 
 export function listExtraUrlPatternParams(

@@ -414,6 +414,18 @@ export function writeMappedFields(
   const filePath = layer.filePath;
   const pendingUpdates: Record<string, unknown | null> = { ...updates };
 
+  // Relation fields (and other common-only keys) always land on `_common.yml` for static types.
+  const commonOnlyUpdates: Record<string, unknown | null> = {};
+  if (isStatic && config.editor) {
+    for (const [key, hint] of Object.entries(config.editor)) {
+      if (hint?.type !== "relation") continue;
+      if (!Object.prototype.hasOwnProperty.call(pendingUpdates, key)) continue;
+      commonOnlyUpdates[key] = pendingUpdates[key] ?? null;
+      // Clear from locale layer so it cannot shadow common
+      pendingUpdates[key] = null;
+    }
+  }
+
   if (Object.prototype.hasOwnProperty.call(pendingUpdates, RESERVED_PUBLISHED_AT_FIELD)) {
     const pubVal = pendingUpdates[RESERVED_PUBLISHED_AT_FIELD];
     if (pubVal === null || pubVal === undefined || isPublishedAtEmpty(pubVal)) {
@@ -488,6 +500,10 @@ export function writeMappedFields(
     } else {
       commonForGate = contentIndex.loadCommonData(contentType, slug) || {};
     }
+    for (const [k, v] of Object.entries(commonOnlyUpdates)) {
+      if (v === null || v === undefined) delete commonForGate[k];
+      else commonForGate[k] = v;
+    }
     const pageForGate = isStatic
       ? { ...commonForGate, ...foForGate }
       : foForGate;
@@ -503,6 +519,34 @@ export function writeMappedFields(
     });
     if (seoGateErr) {
       return { success: false, error: seoGateErr, statusCode: 400, isVariantLayer: layer.isVariantLayer };
+    }
+
+    if (isStatic && Object.keys(commonOnlyUpdates).length > 0) {
+      const commonPath = path.join(path.dirname(filePath), "_common.yml");
+      try {
+        let commonData: Record<string, unknown> = {};
+        if (fs.existsSync(commonPath)) {
+          commonData =
+            (contentIndex.safeYamlLoad(fs.readFileSync(commonPath, "utf-8")) as Record<
+              string,
+              unknown
+            >) || {};
+        }
+        for (const [k, v] of Object.entries(commonOnlyUpdates)) {
+          if (v === null || v === undefined) delete commonData[k];
+          else commonData[k] = v;
+        }
+        fs.mkdirSync(path.dirname(commonPath), { recursive: true });
+        fs.writeFileSync(commonPath, safeYamlDump(commonData, { lineWidth: -1, noRefs: true }), "utf-8");
+        markFileAsModified(commonPath, author, undefined, contentRoot);
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+          statusCode: 500,
+          isVariantLayer: layer.isVariantLayer,
+        };
+      }
     }
 
     const written = isStatic

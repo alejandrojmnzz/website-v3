@@ -87,7 +87,8 @@ function stripInlineMarkdown(text: string): string {
     .trim();
 }
 
-function extractTocItems(content: string, idPrefix = ""): TocItem[] {
+function extractTocItems(content: string | null | undefined, idPrefix = ""): TocItem[] {
+  if (typeof content !== "string" || !content) return [];
   const body = content.startsWith(ARTICLE_HTML_MARKER)
     ? content.slice(ARTICLE_HTML_MARKER.length)
     : content;
@@ -151,12 +152,37 @@ function normalizeCategory(category: unknown): string | undefined {
   if (typeof category === "object") {
     const o = category as Record<string, unknown>;
     for (const key of ["title", "name", "slug", "category_title"]) {
-      if (typeof o[key] === "string" && (o[key] as string).trim()) {
-        return (o[key] as string).trim();
-      }
+      const v = o[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
     }
   }
   return undefined;
+}
+
+function normalizeAuthors(
+  raw: unknown,
+): Array<{ name: string; url?: string }> {
+  if (!raw) return [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  const out: Array<{ name: string; url?: string }> = [];
+  for (const item of list) {
+    if (typeof item === "string") {
+      const t = item.trim();
+      if (t && !t.includes("{{")) out.push({ name: t });
+      continue;
+    }
+    if (item && typeof item === "object") {
+      const o = item as Record<string, unknown>;
+      const name =
+        (typeof o.name === "string" && o.name.trim()) ||
+        `${o.first_name || ""} ${o.last_name || ""}`.trim() ||
+        (typeof o.slug === "string" ? o.slug : "");
+      if (!name || name.includes("{{")) continue;
+      const url = typeof o.url === "string" && o.url ? o.url : undefined;
+      out.push({ name, url });
+    }
+  }
+  return out;
 }
 
 function normalizeTags(tags: unknown): string[] {
@@ -414,22 +440,46 @@ function ArticleMeta({
   category,
   categoryUrl,
   readingMinutes,
+  authors,
 }: {
   tags: string[];
   category?: string;
   categoryUrl?: string;
   readingMinutes?: number;
+  authors: Array<{ name: string; url?: string }>;
 }) {
   const hasTags = tags.length > 0;
   const hasCategory = Boolean(category && category.trim() && !category.includes("{{"));
   const hasReading = typeof readingMinutes === "number" && readingMinutes > 0;
-  if (!hasTags && !hasCategory && !hasReading) return null;
+  const hasAuthors = authors.length > 0;
+  if (!hasTags && !hasCategory && !hasReading && !hasAuthors) return null;
 
   return (
     <div
       className="mb-6 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
       data-testid="article-meta"
     >
+      {hasAuthors && (
+        <span data-testid="article-authors" className="flex flex-wrap items-center gap-1">
+          <span className="sr-only">Authors:</span>
+          {authors.map((a, i) => (
+            <span key={`${a.name}-${i}`}>
+              {i > 0 && <span aria-hidden>, </span>}
+              {a.url ? (
+                <a
+                  href={a.url}
+                  className="text-foreground underline-offset-4 hover:underline"
+                  data-testid={`article-author-${i}`}
+                >
+                  {a.name}
+                </a>
+              ) : (
+                <span data-testid={`article-author-${i}`}>{a.name}</span>
+              )}
+            </span>
+          ))}
+        </span>
+      )}
       {hasReading && (
         <span data-testid="article-reading-time">{readingMinutes} min read</span>
       )}
@@ -518,6 +568,7 @@ export function Article({ data }: ArticleProps) {
     tags: rawTags,
     category,
     category_url,
+    authors: rawAuthors,
     show_reading_time = true,
   } = data;
 
@@ -541,6 +592,7 @@ export function Article({ data }: ArticleProps) {
 
   const tags = useMemo(() => normalizeTags(rawTags), [rawTags]);
   const categoryLabel = useMemo(() => normalizeCategory(category), [category]);
+  const authors = useMemo(() => normalizeAuthors(rawAuthors), [rawAuthors]);
 
   const readingMinutes = useMemo(() => {
     if (!show_reading_time) return undefined;
@@ -569,7 +621,7 @@ export function Article({ data }: ArticleProps) {
       }
       return items;
     }
-    return show_toc ? extractTocItems(content) : [];
+    return show_toc ? extractTocItems(typeof content === "string" ? content : "") : [];
   }, [isSplit, firstShowToc, pageArticles, show_toc, content]);
 
   const effectiveTocPosition = useMemo(() => {
@@ -612,13 +664,17 @@ export function Article({ data }: ArticleProps) {
         category={categoryLabel}
         categoryUrl={category_url}
         readingMinutes={readingMinutes}
+        authors={authors}
       />
     );
 
   const body = (
     <div className="article-prose mx-auto max-w-[68ch]">
       {meta}
-      <MarkdownRenderer content={content} getHeadingId={getHeadingId} />
+      <MarkdownRenderer
+        content={typeof content === "string" ? content : ""}
+        getHeadingId={getHeadingId}
+      />
     </div>
   );
 
@@ -731,13 +787,14 @@ function MarkdownRenderer({
   content,
   getHeadingId,
 }: {
-  content: string;
+  content: string | null | undefined;
   getHeadingId: (text: string) => string;
 }) {
-  const isEnhanced = content.startsWith(ARTICLE_HTML_MARKER);
+  const safeContent = typeof content === "string" ? content : "";
+  const isEnhanced = safeContent.startsWith(ARTICLE_HTML_MARKER);
   const source = isEnhanced
-    ? content.slice(ARTICLE_HTML_MARKER.length).trim()
-    : content;
+    ? safeContent.slice(ARTICLE_HTML_MARKER.length).trim()
+    : safeContent;
 
   // Server-enhanced HTML was already sanitized before Shiki; re-sanitizing
   // would strip token `style` / data-* attributes. Raw markdown still goes

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useInternalNav } from "@/hooks/useInternalNav";
+import { deslugifyLabel } from "@shared/relation-field";
 
 interface PermanentFilter {
   item_property_slug: string;
@@ -99,7 +100,24 @@ function formatDate(dateStr: string): string {
 
 function formatAuthor(value: unknown): string {
   if (!value) return "";
-  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => {
+        if (typeof v === "string") return deslugifyLabel(v);
+        if (v && typeof v === "object") {
+          const o = v as Record<string, unknown>;
+          const name =
+            (typeof o.name === "string" && o.name) ||
+            `${o.first_name || ""} ${o.last_name || ""}`.trim() ||
+            (typeof o.slug === "string" ? deslugifyLabel(o.slug) : "");
+          return name;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (typeof value === "string") return deslugifyLabel(value);
   if (typeof value === "object" && value !== null) {
     const author = value as Record<string, unknown>;
     const name = `${author.first_name || ""} ${author.last_name || ""}`.trim();

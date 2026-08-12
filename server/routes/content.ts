@@ -256,6 +256,11 @@ import {
   validateEditorHintsHaveJsonSchemas,
 } from "../json-field-validate";
 import {
+  relationFieldFailureHttpBody,
+  validateAndCoerceRelationFields,
+  validateEditorHintsHaveRelationSources,
+} from "../relation-field-validate";
+import {
   normalizeLocale,
   getSupportedLocales,
   getDefaultLocale,
@@ -299,7 +304,7 @@ import {
   type QueryFilter,
 } from "../query-entries";
 import { invalidateStaticListingCache } from "../static-listing-cache";
-import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections } from "../database-single-loader";
+import { loadDatabaseSinglePage, mergeSingleTemplate, attachVariableFieldsToSections, hasStaticSharedLayoutEntryLocale } from "../database-single-loader";
 import {
   DEFAULT_PREVIEW_MAX_HEIGHT,
   DEFAULT_PREVIEW_WIDTH,
@@ -370,6 +375,7 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
+import { resolveRelationsOnEntry } from "../resolve-relations";
 import { child } from "../logger";
 const log = child({ module: "routes/content" });
 
@@ -967,7 +973,9 @@ export function registerContentRoutes(app: Express): void {
         });
         return;
       }
-      // Slug not found in DB — fall through to static content loading below
+      // Slug not found in DB — do not fall through to shared template shell
+      res.status(404).json({ error: `Item not found: ${contentType}/${slug}` });
+      return;
     }
 
     // Variant resolution for YAML-backed content types
@@ -976,7 +984,13 @@ export function registerContentRoutes(app: Express): void {
       isSharedLayoutType(contentType, root) && !isEntryDetached(contentType, slug, root);
 
     // Attached shared-layout: apply template variant via mergeSingleTemplate
+    // Require the entry locale file (same gate as loadMergedSinglePage) so a
+    // missing slug cannot return the empty single.*.yml shell.
     if (sharedAttached) {
+      if (!hasStaticSharedLayoutEntryLocale(contentType, slug, locale, root)) {
+        res.status(404).json({ error: `${contentType} entry not found` });
+        return;
+      }
       const templateVariant =
         forceVariant ||
         resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
@@ -991,11 +1005,19 @@ export function registerContentRoutes(app: Express): void {
       );
       if (merged) {
         const variantLayout = resolveLayout(contentType, merged, root);
-        const singleEntry = buildSingleEntryFromContent(contentType, merged, {
+        let singleEntry = buildSingleEntryFromContent(contentType, merged, {
           slug,
           locale,
           contentRoot: root,
         });
+        if (singleEntry) {
+          singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
+            contentRoot: root,
+            locale,
+            contentIndex: getCI(res),
+            db: getDB(res),
+          });
+        }
         if (merged.sections && Array.isArray(merged.sections)) {
           attachVariableFieldsToSections(merged.sections as unknown[]);
           merged.sections = (await resolveDynamicEntries(
@@ -1122,12 +1144,18 @@ export function registerContentRoutes(app: Express): void {
 
     const page = result.data;
     const genericPageData = page as unknown as Record<string, unknown>;
-    const singleEntry = buildSingleEntryFromContent(contentType, genericPageData, {
+    let singleEntry = buildSingleEntryFromContent(contentType, genericPageData, {
       slug,
       locale,
       contentRoot: getContentRoot(res),
     });
     if (singleEntry) {
+      singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
+        contentRoot: getContentRoot(res),
+        locale,
+        contentIndex: getCI(res),
+        db: getDB(res),
+      });
       genericPageData.singleEntry = singleEntry;
     }
 
@@ -1627,6 +1655,8 @@ export function registerContentRoutes(app: Express): void {
         database: config.database || null,
         url_pattern: config.url_pattern,
         single_template: !!config.single_template,
+        immutable_slug: !!config.immutable_slug,
+        protected_slugs: config.protected_slugs || [],
         preview: config.preview || null,
         schema_org_requirements: config.schema_org_requirements || [],
         static_entry_count: getCI(res).findByType(type).length,
@@ -1888,6 +1918,13 @@ export function registerContentRoutes(app: Express): void {
           );
           if (!editorCheck.ok) {
             res.status(400).json({ error: editorCheck.error, field: editorCheck.field });
+            return;
+          }
+          const relationCheck = validateEditorHintsHaveRelationSources(
+            body.editor as Record<string, import("../content-types").ContentTypeEditorHint>,
+          );
+          if (!relationCheck.ok) {
+            res.status(400).json({ error: relationCheck.error, field: relationCheck.field });
             return;
           }
           update.editor = body.editor as import("../content-types").ContentTypeEntry["editor"];
@@ -3643,7 +3680,12 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;
       }
-      const result = writeMappedFields(type, slug, locale, coerced.fields, {
+      const relationCoerced = validateAndCoerceRelationFields(coerced.fields, editorHints);
+      if (!relationCoerced.ok) {
+        res.status(400).json(relationFieldFailureHttpBody(relationCoerced.failures));
+        return;
+      }
+      const result = writeMappedFields(type, slug, locale, relationCoerced.fields, {
         author,
         contentRoot: ctRoot(res),
         variant,
@@ -3759,11 +3801,16 @@ export function registerContentRoutes(app: Express): void {
         res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;
       }
+      const relationCoerced = validateAndCoerceRelationFields(coerced.fields, editorHints);
+      if (!relationCoerced.ok) {
+        res.status(400).json(relationFieldFailureHttpBody(relationCoerced.failures));
+        return;
+      }
       const patched = getDB(res).patchDbEntry(
         dbName,
         lookupKey,
         slug,
-        coerced.fields,
+        relationCoerced.fields,
         fieldMapping,
         author,
         getContentRoot(res),

@@ -2113,6 +2113,19 @@ export async function renameContentSlug(
     return { success: false, statusCode: 400, error: "Invalid slug format. Use lowercase letters, numbers, and hyphens only." };
   }
 
+  try {
+    const { isImmutableSlugContentType } = await import("./relation-delete");
+    if (isImmutableSlugContentType(contentType)) {
+      return {
+        success: false,
+        statusCode: 403,
+        error: `Content type "${contentType}" has immutable slugs; rename is not allowed`,
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+
   const contentFolder = getFolder(contentType);
   const resolvedFolderSlug = contentIndex.resolveBaseSlug(folderSlug, contentFolder);
   const folderPath = path.join(process.cwd(), rootName, contentFolder, resolvedFolderSlug);
@@ -2196,6 +2209,19 @@ export async function deleteContentEntry(
   }
   if (/[/\\]|\.\./.test(slug) || slug.startsWith(".")) {
     return { success: false, statusCode: 400, error: "Invalid slug format" };
+  }
+
+  try {
+    const { isProtectedContentSlug } = await import("./relation-delete");
+    if (isProtectedContentSlug(type, slug)) {
+      return {
+        success: false,
+        statusCode: 403,
+        error: `Entry "${slug}" is a protected system entry and cannot be deleted`,
+      };
+    }
+  } catch {
+    /* ignore */
   }
 
   const typeFolder = getFolder(type);

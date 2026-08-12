@@ -176,4 +176,62 @@ describe("collectSectionSchemas", () => {
     expect(schemas[0]["@type"]).toBe("BlogPosting");
     expect(schemas[0].author).toEqual({ "@type": "Person", name: "Ada" });
   });
+
+  it("emits Person[] with @id/url from hydrated authors (primary first)", () => {
+    const schemas = collectSectionSchemas(
+      [
+        {
+          type: "article",
+          content: "Post body with enough text.",
+          authors: "{{ single.authors }}",
+        },
+      ],
+      {
+        ...context,
+        contentType: "blog",
+        title: "My Post",
+        publishedAt: "2024-01-01",
+        authors: [
+          {
+            name: "Ada Lovelace",
+            slug: "ada-lovelace",
+            url: "https://example.com/en/authors/ada-lovelace",
+            "@id": "https://example.com/en/authors/ada-lovelace",
+          },
+          {
+            name: "Bob",
+            slug: "bob",
+            url: "https://example.com/en/authors/bob",
+            "@id": "https://example.com/en/authors/bob",
+          },
+        ],
+      },
+    );
+    expect(schemas).toHaveLength(1);
+    const author = schemas[0].author as Array<Record<string, unknown>>;
+    expect(Array.isArray(author)).toBe(true);
+    expect(author[0]).toMatchObject({
+      "@type": "Person",
+      name: "Ada Lovelace",
+      url: "https://example.com/en/authors/ada-lovelace",
+      "@id": "https://example.com/en/authors/ada-lovelace",
+    });
+    expect(author[1]).toMatchObject({ "@type": "Person", name: "Bob" });
+  });
+
+  it("falls back to Organization when blog has no authors", () => {
+    const schemas = collectSectionSchemas(
+      [{ type: "article", content: "Post body with enough text." }],
+      {
+        ...context,
+        contentType: "blog",
+        title: "My Post",
+        baseUrl: "https://example.com",
+      },
+    );
+    expect(schemas[0].author).toMatchObject({
+      "@type": "Organization",
+      name: "4Geeks Academy",
+    });
+  });
 });

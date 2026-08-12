@@ -20,6 +20,7 @@ const VALID_TOPICS = [
   "component-behaviors",
   "ecommerce",
   "shared-layout",
+  "relation-fields",
 ] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
@@ -132,13 +133,14 @@ export function registerExplainTools(mcp: McpServer): void {
       "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ database), " +
       "'component-behaviors' (CTA tracking, behaviors ids), " +
       "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
-      "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example). " +
+      "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
+      "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign). " +
       "Calling an unknown topic returns a clear error listing the valid options.",
     {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields.",
         ),
     },
     async ({ topic }) => {
@@ -157,6 +159,8 @@ export function registerExplainTools(mcp: McpServer): void {
           ecommerce: "products, funnels, product scope property paths, no CMS plans",
           "shared-layout":
             "single_template / shared shell, create_entry playbook, blog as example",
+          "relation-fields":
+            "relation editor type, authors hubs, listing deslugify vs page hydrate, delete_entries reassign",
         };
         return {
           content: [
