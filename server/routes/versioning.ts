@@ -127,7 +127,8 @@ import {
 import {
   isEntryDetached,
   isSharedLayoutType,
-  versioningContentSlug,
+  resolveVersioningReadSlug,
+  resolveWritableVersioningTarget,
   isTemplateVersioningSlug,
 } from "../shared-layout-entry";
 import {
@@ -238,26 +239,13 @@ function getContentRootName(res: Response): string {
 }
 
 
-/** Reject entry-slug versioning writes when the entry is still attached to a shared template. */
+/** Resolve writable versioning slug (entry drafts or template `single`). */
 function resolveWritableVersioningSlug(
   contentType: string,
   contentSlug: string,
   contentRoot: string,
 ): { ok: true; slug: string; templateMode: boolean } | { ok: false; error: string; status: number } {
-  if (isTemplateVersioningSlug(contentSlug)) {
-    if (!isSharedLayoutType(contentType, contentRoot)) {
-      return { ok: false, status: 400, error: "Template versioning (slug \"single\") is only valid for shared-layout content types" };
-    }
-    return { ok: true, slug: contentSlug, templateMode: true };
-  }
-  if (isSharedLayoutType(contentType, contentRoot) && !isEntryDetached(contentType, contentSlug, contentRoot)) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Attached shared-layout entries use template versioning. Use content slug \"single\" (or detach the entry for Page Versions).",
-    };
-  }
-  return { ok: true, slug: contentSlug, templateMode: false };
+  return resolveWritableVersioningTarget(contentType, contentSlug, contentRoot);
 }
 
 export function registerVersioningRoutes(app: Express): void {
@@ -314,11 +302,8 @@ export function registerVersioningRoutes(app: Express): void {
     const shared = isSharedLayoutType(contentType, root);
     const entrySlug = isTemplateVersioningSlug(contentSlug) ? null : contentSlug;
     const detached = entrySlug ? isEntryDetached(contentType, entrySlug, root) : false;
-    // When client passes an entry slug for an attached shared-layout page, read template versioning
-    const resolvedSlug =
-      entrySlug && shared
-        ? versioningContentSlug(contentType, entrySlug, root)
-        : contentSlug;
+    // Entry-level translation drafts (translate_entry) win over template remapping
+    const resolvedSlug = resolveVersioningReadSlug(contentType, contentSlug, root);
     const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
 
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();

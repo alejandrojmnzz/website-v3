@@ -57,9 +57,43 @@ export function isEntryDetached(
 }
 
 /**
- * Versioning identity for an entry page:
- * - attached shared-layout → template (`single`)
+ * True when the entry folder owns its own drafts/versioning.yml
+ * (e.g. translate_entry wrote `draft.{locale}.yml` while still attached).
+ * Used to prefer entry-level Page Versions over type-root Template Versions.
+ */
+export function hasEntryLevelVersioning(
+  contentType: string,
+  entrySlug: string,
+  contentRoot?: string,
+): boolean {
+  if (!entrySlug || entrySlug === TEMPLATE_VERSIONING_SLUG) return false;
+  const root = contentRoot ?? getDefaultContentRoot();
+  const folder = getFolder(contentType, root);
+  const entryDir = path.join(root, folder, entrySlug);
+  if (!fs.existsSync(entryDir)) return false;
+  if (fs.existsSync(path.join(entryDir, "versioning.yml"))) return true;
+  try {
+    for (const name of fs.readdirSync(entryDir)) {
+      // {variant}.{locale}.yml — not plain `{locale}.yml` or `_common.yml`
+      const m = /^([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)\.ya?ml$/i.exec(name);
+      if (!m) continue;
+      const variantSlug = m[1];
+      if (variantSlug === "single" || variantSlug.startsWith("_")) continue;
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Versioning identity for live traffic / HTML assignment:
+ * - attached shared-layout → template (`single`) — shell A/B
  * - detached or non-shared → entry slug
+ *
+ * Does **not** consider entry-level translation drafts; those use
+ * {@link resolveVersioningReadSlug} / writable entry slug paths.
  */
 export function versioningContentSlug(
   contentType: string,
@@ -73,6 +107,48 @@ export function versioningContentSlug(
     return TEMPLATE_VERSIONING_SLUG;
   }
   return entrySlug;
+}
+
+/**
+ * Slug for reading versioning.yml / listing variants in admin + MCP.
+ * Prefer entry-level drafts when present; otherwise template for attached shared-layout.
+ */
+export function resolveVersioningReadSlug(
+  contentType: string,
+  contentSlug: string,
+  contentRoot?: string,
+): string {
+  if (isTemplateVersioningSlug(contentSlug)) return contentSlug;
+  if (!isSharedLayoutType(contentType, contentRoot)) return contentSlug;
+  if (isEntryDetached(contentType, contentSlug, contentRoot)) return contentSlug;
+  if (hasEntryLevelVersioning(contentType, contentSlug, contentRoot)) {
+    return contentSlug;
+  }
+  return TEMPLATE_VERSIONING_SLUG;
+}
+
+/**
+ * Writable versioning target (promote / publish / create / delete / allocate).
+ * Entry slugs are allowed while attached so translate_entry drafts can go live.
+ * Pass content slug `single` for type-root template variants.
+ */
+export function resolveWritableVersioningTarget(
+  contentType: string,
+  contentSlug: string,
+  contentRoot?: string,
+): { ok: true; slug: string; templateMode: boolean } | { ok: false; error: string; status: number } {
+  if (isTemplateVersioningSlug(contentSlug)) {
+    if (!isSharedLayoutType(contentType, contentRoot)) {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          'Template versioning (slug "single") is only valid for shared-layout content types',
+      };
+    }
+    return { ok: true, slug: contentSlug, templateMode: true };
+  }
+  return { ok: true, slug: contentSlug, templateMode: false };
 }
 
 /** True when versioning APIs should use type-root paths (template mode). */

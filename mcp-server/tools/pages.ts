@@ -2130,7 +2130,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     async ({ contentType, slug, variantSlug, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
-      const { contentPath, domain } = siteResult;
+      const { domain } = siteResult;
       try {
         assertSafeSegment(contentType, "contentType");
         assertSafeSegment(slug, "slug");
@@ -2146,7 +2146,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       try {
-        const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+        // Entry slug as-is (same as promote_variant) — do not remap attached entries to "single".
+        const versioningSlug = slug;
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",
@@ -2210,6 +2211,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "promote_variant",
     "Promote a variant to become the live version for ONE locale: overwrites the default locale file with the variant's content, " +
     "removes the variant from versioning.yml, and deletes the variant file. " +
+    "For attached shared-layout entries, pass the entry slug (not \"single\") to promote entry drafts from translate_entry " +
+    "({variantSlug}.{locale}.yml under the entry folder). Pass slug \"single\" only to promote a type-root template variant. " +
     "For unpublished draft entries (no live locales), use publish_draft instead (all-or-nothing across locales). " +
     "Fails when resolved meta.page_title / meta.description are empty, editor.required fields are empty, " +
     "or the promoted detached locale would be empty (EMPTY_LOCALE: no sections and no content). " +
@@ -2245,7 +2248,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const sharedLayout = config ? isSharedLayoutConfig(config) : false;
 
       try {
-        const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
+        // Entry slug as-is: attached translate drafts live under the entry folder.
+        // Use slug "single" only for type-root template variants.
+        const versioningSlug = slug;
         const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
         const res = await fetch(url, {
           method: "POST",

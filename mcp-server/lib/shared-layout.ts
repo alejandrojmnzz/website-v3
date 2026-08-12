@@ -10,23 +10,49 @@ import type { NextAction, McpSideEffect, McpWarning } from "./respond.js";
 
 export type LayoutTarget = "auto" | "entry" | "type_single";
 
-/** Versioning API slug: attached shared-layout → `single`; else entry slug. */
+/** Versioning API slug for list/create.
+ * Attached shared-layout → `single` (template) unless the entry already has
+ * its own drafts/versioning.yml (translate_entry), then keep the entry slug.
+ * Detached / non-shared → entry slug.
+ * Promote/publish should pass the entry slug (or `single` for template) as-is.
+ */
 export function versioningApiSlug(
   contentType: string,
   entrySlug: string,
   contentPath?: string,
 ): string {
+  if (entrySlug === "single") return "single";
   const config = getContentTypeConfig(contentType, contentPath);
   if (!config || !isSharedLayoutConfig(config)) return entrySlug;
   const typeDir = getDirectory(contentType, config);
-  const commonPath = path.join(contentPath || "", typeDir, entrySlug, "_common.yml");
+  const entryDir = path.join(contentPath || "", typeDir, entrySlug);
+  const commonPath = path.join(entryDir, "_common.yml");
   if (fs.existsSync(commonPath)) {
     try {
       const raw = fs.readFileSync(commonPath, "utf-8");
       if (/^\s*detached:\s*true\s*$/m.test(raw)) return entrySlug;
     } catch { /* ignore */ }
   }
+  if (hasEntryLevelVersioningDir(entryDir)) return entrySlug;
   return "single";
+}
+
+/** Entry folder has versioning.yml or `{variant}.{locale}.yml` drafts. */
+export function hasEntryLevelVersioningDir(entryDir: string): boolean {
+  if (!fs.existsSync(entryDir)) return false;
+  if (fs.existsSync(path.join(entryDir, "versioning.yml"))) return true;
+  try {
+    for (const name of fs.readdirSync(entryDir)) {
+      const m = /^([a-z0-9-]+)\.([a-z]{2}(?:-[a-zA-Z]+)?)\.ya?ml$/i.exec(name);
+      if (!m) continue;
+      const variantSlug = m[1];
+      if (variantSlug === "single" || variantSlug.startsWith("_")) continue;
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 export function getContentTypeConfig(
