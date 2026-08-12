@@ -250,8 +250,8 @@ export default function LeadsTab() {
               testIdPrefix="expected-conversion-name"
             />
             <AllowlistEditor
-              title="Expected tags (ActiveCampaign)"
-              description="A form passes if its conversion_name or any of its tags matches this list. Forms with tags and no match get a warning."
+              title="Expected CRM tags"
+              description="CRM-agnostic allowlist. A form passes if its conversion_name or any of its tags matches this list. Forms with tags and no match get a warning."
               values={expectedTags}
               onChange={(next) => saveMutation.mutate({ leads_expected_tags: next })}
               saving={saveMutation.isPending}

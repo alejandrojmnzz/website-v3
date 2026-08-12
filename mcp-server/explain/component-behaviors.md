@@ -32,3 +32,37 @@ Values: `none` | `add_to_cart` | `begin_checkout`.
 ## Ecommerce product scope + funnels
 
 For product scope (`ecommerce_products`, `programs[].id`, inherit), conversion funnels, and “no CMS plans”, call **`explain_site` topic `ecommerce`** — it lists exact property paths per component.
+
+## Lead conversion names (closed list)
+
+`conversion_name` on lead forms / embedded `form:` / blog `call_to_action.conversion_name` **must** match a name from `settings.yml` → `tracking.conversion_events`. Validators reject unknown names.
+
+**Agents:** before setting `conversion_name`, use this live catalog. If intent is ambiguous → ask a human. Never invent event names.
+
+<!-- @dynamic:conversion_events -->
+<!-- /dynamic -->
+
+Default tags on each event are CRM-oriented defaults applied when the form omits `tags`. Prefer omitting entry/`form.tags` when those defaults already fit.
+
+## CRM tags allowlist (do not invent)
+
+Form / blog `call_to_action.tags` is an optional CRM tag string (comma-separated). Values must come from `tracking.leads_expected_tags` (CRM-agnostic; maintained in Leads → Expected CRM tags).
+
+**Agents:**
+
+1. Call this topic before writing tags.
+2. Only use tags from the list below (or omit `tags`).
+3. If unsure which tag, or the list is empty / tag missing → **ask a human and stop**. **Never invent** tags.
+
+<!-- @dynamic:crm_tags -->
+<!-- /dynamic -->
+
+## Post-submit success
+
+- `success.message` — inline thank-you (stay on page)
+- `success.url` — **optional**; when set, **redirects** the user after a successful submit
+
+## Blog `call_to_action`
+
+Shared-layout blog CTA (`cta_banner` on `blog/single.{locale}.yml`) binds copy + conversion/tags/success from the entry field `call_to_action`. Same conversion + CRM tag rules as above. Non-effects: does not change form field layout or the shared shell structure — only entry field values.
+

@@ -11,6 +11,10 @@ import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
 import { useContentTypes, getFolderFromType, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import {
+  restoreEditModeScrollPosition,
+  saveEditModeScrollPosition,
+} from "@/lib/editModeScroll";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSyncOptional } from "@/contexts/SyncContext";
 import { Button } from "@/components/ui/button";
@@ -149,6 +153,7 @@ export function DebugBubble() {
   const [sitemapSearch, setSitemapSearch] = useState("");
   const [sitemapLoading, setSitemapLoading] = useState(false);
   const [showSitemapSearch, setShowSitemapSearch] = useState(false);
+  const [sitemapPresenceFilter, setSitemapPresenceFilter] = useState<"all" | "in-sitemap" | "not-in-sitemap">("all");
   const [showYamlEditor, setShowYamlEditor] = useState(false);
   const [yamlEditorInfo, setYamlEditorInfo] = useState<{ contentType: string; slug: string; locale: string; variantSlug?: string; readOnly?: boolean } | null>(null);
   const [showContentTypesYmlEditor, setShowContentTypesYmlEditor] = useState(false);
@@ -520,11 +525,17 @@ export function DebugBubble() {
           const hasPathLocale = /^[a-z]{2}$/.test(urlLocale);
           const resolvedLocale = hasPathLocale ? normalizeLocale(urlLocale) : (pageDiagnostics?.locale || normalizeLocale(i18n.language));
           const previewUrl = `/private/preview/${contentInfo.type}/${contentInfo.slug}?locale=${resolvedLocale}`;
+          saveEditModeScrollPosition();
           navigate(previewUrl);
         }
       }
     }
   }, [isValidated, isLoading, pendingAutoEditMode, editMode, contentInfo, pathname, i18n.language, navigate, pageDiagnostics?.locale]);
+
+  // Restore scroll after Edit ↔ Read navigations (public ↔ /private/preview)
+  useEffect(() => {
+    restoreEditModeScrollPosition();
+  }, [pathname]);
 
   // Fetch sitemap URL count on mount
   useEffect(() => {
@@ -1484,15 +1495,20 @@ export function DebugBubble() {
     if (!newOpen) {
       setSitemapSearch("");
       setShowSitemapSearch(false);
+      setSitemapPresenceFilter("all");
     }
   };
 
-  // Filter sitemap URLs by search
-  const filteredSitemapUrls = sitemapUrls.filter(
-    (url) =>
+  // Filter sitemap URLs by search + optional in/out of sitemap presence
+  const filteredSitemapUrls = sitemapUrls.filter((url) => {
+    const matchesSearch =
       url.label.toLowerCase().includes(sitemapSearch.toLowerCase()) ||
-      url.loc.toLowerCase().includes(sitemapSearch.toLowerCase())
-  );
+      url.loc.toLowerCase().includes(sitemapSearch.toLowerCase());
+    if (!matchesSearch) return false;
+    if (sitemapPresenceFilter === "not-in-sitemap") return url.inSitemap === false;
+    if (sitemapPresenceFilter === "in-sitemap") return url.inSitemap !== false;
+    return true;
+  });
 
   // Group sitemap URLs into nested folders based on URL path structure
   interface SitemapFolder {
@@ -1548,6 +1564,14 @@ export function DebugBubble() {
   };
 
   const { folders, rootUrls } = groupedSitemapUrls();
+
+  // When filtering by sitemap presence, expand folders so matches are visible
+  useEffect(() => {
+    if (sitemapPresenceFilter === "all") return;
+    setExpandedFolders(new Set(folders.map((f) => f.name)));
+    // Only re-expand when the filter mode changes (not on every folders recalculation)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: fold on filter toggle only
+  }, [sitemapPresenceFilter]);
 
   const toggleFolder = (folderName: string) => {
     setExpandedFolders((prev) => {
@@ -2059,6 +2083,8 @@ export function DebugBubble() {
     setSitemapSearch,
     showSitemapSearch,
     setShowSitemapSearch,
+    sitemapPresenceFilter,
+    setSitemapPresenceFilter,
     filteredSitemapUrls,
     folders,
     rootUrls,

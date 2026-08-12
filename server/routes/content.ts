@@ -269,6 +269,7 @@ import {
   getHomePage,
   getOptimizationSettings,
   updateOptimizationSettings,
+  getTrackingSettings,
 } from "../settings";
 import { getVM } from "../site-manager";
 import { getValidationService } from "../../scripts/validation/service";
@@ -3675,7 +3676,11 @@ export function registerContentRoutes(app: Express): void {
           // ignore missing DB editor
         }
       }
-      const coerced = validateAndCoerceJsonFields(fields, editorHints);
+      const tracking = getTrackingSettings(ctRoot(res));
+      const coerced = validateAndCoerceJsonFields(fields, editorHints, {
+        conversionNames: tracking.conversion_events.map((e) => e.name),
+        crmTags: tracking.leads_expected_tags ?? [],
+      });
       if (!coerced.ok) {
         res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;
@@ -3796,7 +3801,11 @@ export function registerContentRoutes(app: Express): void {
       } catch {
         // ignore
       }
-      const coerced = validateAndCoerceJsonFields(fields, editorHints);
+      const tracking = getTrackingSettings(getContentRoot(res));
+      const coerced = validateAndCoerceJsonFields(fields, editorHints, {
+        conversionNames: tracking.conversion_events.map((e) => e.name),
+        crmTags: tracking.leads_expected_tags ?? [],
+      });
       if (!coerced.ok) {
         res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;

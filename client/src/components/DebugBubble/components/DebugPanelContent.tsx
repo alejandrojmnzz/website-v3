@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { normalizeLocale } from "@/lib/locale";
+import { saveEditModeScrollPosition } from "@/lib/editModeScroll";
 import { GitHubSyncChip } from "./GitHubSyncChip";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
 import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
@@ -114,6 +115,8 @@ export interface DebugPanelContentProps {
   setSitemapSearch: (v: string) => void;
   showSitemapSearch: boolean;
   setShowSitemapSearch: (v: boolean) => void;
+  sitemapPresenceFilter: "all" | "in-sitemap" | "not-in-sitemap";
+  setSitemapPresenceFilter: (v: "all" | "in-sitemap" | "not-in-sitemap") => void;
   filteredSitemapUrls: SitemapUrl[];
   folders: Record<string, SitemapUrl[]>;
   rootUrls: SitemapUrl[];
@@ -546,6 +549,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                         const _cp = new URLSearchParams(window.location.search);
                         const _activeVariant = _cp.get("variant") || _cp.get("force_variant");
                         const previewUrl = `/private/preview/${props.contentInfo.type}/${props.contentInfo.slug}?locale=${resolvedLocale}${_activeVariant ? `&variant=${encodeURIComponent(_activeVariant)}` : ""}`;
+                        saveEditModeScrollPosition();
                         props.navigate(previewUrl);
                       }
                     }
@@ -587,6 +591,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                       const _rp = new URLSearchParams(window.location.search);
                       const _rv = _rp.get("variant") || _rp.get("force_variant");
                       if (_rv) targetUrl = targetUrl + (targetUrl.includes("?") ? "&" : "?") + `force_variant=${encodeURIComponent(_rv)}`;
+                      saveEditModeScrollPosition();
                       props.navigate(targetUrl);
                     }
                   }}
@@ -1193,6 +1198,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           setSitemapSearch={props.setSitemapSearch}
           showSitemapSearch={props.showSitemapSearch}
           setShowSitemapSearch={props.setShowSitemapSearch}
+          sitemapPresenceFilter={props.sitemapPresenceFilter}
+          setSitemapPresenceFilter={props.setSitemapPresenceFilter}
           filteredSitemapUrls={props.filteredSitemapUrls}
           folders={props.folders}
           rootUrls={props.rootUrls}

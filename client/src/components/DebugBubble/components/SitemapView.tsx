@@ -23,6 +23,8 @@ interface SitemapViewProps {
   setSitemapSearch: (v: string) => void;
   showSitemapSearch: boolean;
   setShowSitemapSearch: (v: boolean) => void;
+  sitemapPresenceFilter: "all" | "in-sitemap" | "not-in-sitemap";
+  setSitemapPresenceFilter: (v: "all" | "in-sitemap" | "not-in-sitemap") => void;
   filteredSitemapUrls: SitemapUrl[];
   folders: SitemapFolder[];
   rootUrls: SitemapUrl[];
@@ -231,6 +233,8 @@ export function SitemapView({
   setSitemapSearch,
   showSitemapSearch,
   setShowSitemapSearch,
+  sitemapPresenceFilter,
+  setSitemapPresenceFilter,
   filteredSitemapUrls,
   folders,
   rootUrls,
@@ -356,7 +360,37 @@ export function SitemapView({
                     <h3 className="font-semibold text-sm truncate">Content URLs</h3>
                   </div>
                   <p className="text-xs text-muted-foreground truncate" data-testid="text-sitemap-counts">
-                    {inCount} in sitemap · {notInCount} no sitemap
+                    <button
+                      type="button"
+                      className={`hover:text-foreground transition-colors ${
+                        sitemapPresenceFilter === "in-sitemap" ? "text-foreground font-medium underline underline-offset-2" : ""
+                      }`}
+                      onClick={() =>
+                        setSitemapPresenceFilter(
+                          sitemapPresenceFilter === "in-sitemap" ? "all" : "in-sitemap"
+                        )
+                      }
+                      title={sitemapPresenceFilter === "in-sitemap" ? "Clear filter" : "Show only URLs in sitemap"}
+                      data-testid="button-filter-in-sitemap"
+                    >
+                      {inCount} in sitemap
+                    </button>
+                    {" · "}
+                    <button
+                      type="button"
+                      className={`hover:text-foreground transition-colors ${
+                        sitemapPresenceFilter === "not-in-sitemap" ? "text-foreground font-medium underline underline-offset-2" : ""
+                      }`}
+                      onClick={() =>
+                        setSitemapPresenceFilter(
+                          sitemapPresenceFilter === "not-in-sitemap" ? "all" : "not-in-sitemap"
+                        )
+                      }
+                      title={sitemapPresenceFilter === "not-in-sitemap" ? "Clear filter" : "Show only URLs not in sitemap"}
+                      data-testid="button-filter-not-in-sitemap"
+                    >
+                      {notInCount} no sitemap
+                    </button>
                   </p>
                 </div>
               </div>

@@ -37,6 +37,32 @@ function getFormSettingsObject(
   return current as Record<string, unknown>;
 }
 
+/**
+ * Normalize a conversion_name for membership checks against known events.
+ * Exact `{{ single.… | plainFallback }}` binds → validate the plain fallback.
+ * Other template binds (no usable plain fallback) → skip (return null).
+ * Plain strings → return as-is.
+ */
+export function conversionNameForValidation(raw: string): string | null {
+  const name = raw.trim();
+  if (!name) return null;
+
+  const exactTemplate = name.match(
+    /^\{\{\s*single\.[a-zA-Z_][a-zA-Z0-9_.]*\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/,
+  );
+  if (exactTemplate) {
+    const fallback = exactTemplate[1]?.trim() ?? "";
+    if (!fallback) return null;
+    // Nested/object JSON fallbacks are not conversion names
+    if (fallback.startsWith("{") || fallback.startsWith("[")) return null;
+    if (fallback.includes("{{")) return null;
+    return fallback;
+  }
+
+  if (name.includes("{{")) return null;
+  return name;
+}
+
 /** Collect non-empty conversion_name from form root and routes[].conversion_name. */
 export function collectConversionNames(form: Record<string, unknown>): string[] {
   const names: string[] = [];
@@ -125,7 +151,9 @@ export function validateFormSection(
 
   if (!conversionNames?.length) return null;
 
-  for (const name of namesToCheck) {
+  for (const raw of namesToCheck) {
+    const name = conversionNameForValidation(raw);
+    if (name === null) continue;
     if (!conversionNames.includes(name)) {
       return `conversion_name "${name}" is not valid. Valid values: ${conversionNames.join(", ")}`;
     }

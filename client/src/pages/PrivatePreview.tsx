@@ -17,6 +17,7 @@ import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
+import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -127,6 +128,12 @@ export default function PrivatePreview() {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     });
+  }, [content, isLoading]);
+
+  // Fast-path restore after preview content paints (Edit toggle from public page)
+  useEffect(() => {
+    if (!content || isLoading) return;
+    restoreEditModeScrollPosition();
   }, [content, isLoading]);
 
   useEffect(() => {

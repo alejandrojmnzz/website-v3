@@ -99,12 +99,84 @@ function resolveImageStorage(): string {
   }
 }
 
+function loadTrackingSettings(): Record<string, unknown> | null {
+  const filePath = path.join(MARKETING_CONTENT_PATH, "settings.yml");
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = yaml.load(raw) as Record<string, unknown> | null;
+    if (!parsed) return null;
+    const tracking = parsed.tracking;
+    if (!tracking || typeof tracking !== "object" || Array.isArray(tracking)) return null;
+    return tracking as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function resolveConversionEvents(): string {
+  const tracking = loadTrackingSettings();
+  if (!tracking) return "_settings.yml tracking not found_";
+  const events = tracking.conversion_events;
+  if (!Array.isArray(events) || events.length === 0) {
+    return "_No tracking.conversion_events defined in settings.yml_";
+  }
+  const lines: string[] = [
+    "| Name | Description | Default tags |",
+    "|---|---|---|",
+  ];
+  for (const entry of events) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const e = entry as Record<string, unknown>;
+    const name = typeof e.name === "string" ? e.name : "";
+    if (!name) continue;
+    const description = typeof e.description === "string" ? e.description : "";
+    const tags = Array.isArray(e.tags)
+      ? e.tags.filter((t): t is string => typeof t === "string").map((t) => `\`${t}\``).join(", ")
+      : "—";
+    lines.push(`| \`${name}\` | ${description || "—"} | ${tags || "—"} |`);
+  }
+  return lines.join("\n");
+}
+
+function resolveCrmTags(): string {
+  const tracking = loadTrackingSettings();
+  if (!tracking) return "_settings.yml tracking not found_";
+  const tags = tracking.leads_expected_tags;
+  if (!Array.isArray(tags) || tags.length === 0) {
+    return (
+      "_`tracking.leads_expected_tags` is empty or missing._ " +
+      "Agents **must ask a human** before setting form/`call_to_action` tags — **never invent** CRM tags. " +
+      "Prefer omitting `tags` and relying on conversion-event defaults. " +
+      "Staff can populate Expected CRM tags in Leads settings."
+    );
+  }
+  const cleaned = tags.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+  if (cleaned.length === 0) {
+    return (
+      "_`tracking.leads_expected_tags` has no usable strings._ " +
+      "Agents **must ask a human** — **never invent** tags."
+    );
+  }
+  const lines: string[] = ["| CRM tag |", "|---|"];
+  for (const t of cleaned) {
+    lines.push(`| \`${t}\` |`);
+  }
+  lines.push("");
+  lines.push(
+    "Agents may only use tags from this list (or omit `tags`). If unsure which tag fits → **ask a human**. Never invent tags.",
+  );
+  return lines.join("\n");
+}
+
 // ─── Tag resolver ─────────────────────────────────────────────────────────────
 
 const TAG_RESOLVERS: Record<string, () => string> = {
   content_types: resolveContentTypes,
   active_locales: resolveActiveLocales,
   image_storage: resolveImageStorage,
+  conversion_events: resolveConversionEvents,
+  crm_tags: resolveCrmTags,
 };
 
 export function resolveDynamicTags(content: string): string {
@@ -131,7 +203,7 @@ export function registerExplainTools(mcp: McpServer): void {
       "'sections' (SectionRenderer, component registry, how sections are authored), " +
       "'semantic_search' (Qdrant, local embeddings, vector_search config, keyword fallback), " +
       "'local_databases' (local YAML private DBs, MCP item CRUD, global index, FAQ database), " +
-      "'component-behaviors' (CTA tracking, behaviors ids), " +
+      "'component-behaviors' (CTA tracking, conversion_events, CRM tags allowlist), " +
       "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign). " +
@@ -155,7 +227,7 @@ export function registerExplainTools(mcp: McpServer): void {
             "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
           local_databases:
             "Local YAML private DBs; MCP item CRUD; global index; FAQ database; sync + reindex",
-          "component-behaviors": "CTA tracking, behaviors ids",
+          "component-behaviors": "CTA tracking, conversion_events catalog, CRM tags allowlist",
           ecommerce: "products, funnels, product scope property paths, no CMS plans",
           "shared-layout":
             "single_template / shared shell, create_entry playbook, blog as example",

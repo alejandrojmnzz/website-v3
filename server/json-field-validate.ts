@@ -6,6 +6,7 @@ import {
   compileJsonSchema,
   type JsonSchema,
 } from "@shared/json-field";
+import { validateCallToActionSemantics } from "@shared/call-to-action-field";
 import type { ContentTypeEditorHint } from "./content-types";
 
 export type JsonFieldValidationFailure = {
@@ -18,6 +19,13 @@ export type JsonFieldValidationFailure = {
 export type ValidateJsonFieldsResult =
   | { ok: true; fields: Record<string, unknown> }
   | { ok: false; failures: JsonFieldValidationFailure[] };
+
+export type JsonFieldSemanticContext = {
+  /** Known tracking.conversion_events names */
+  conversionNames?: string[];
+  /** tracking.leads_expected_tags CRM allowlist */
+  crmTags?: string[];
+};
 
 export function validateEditorHintsHaveJsonSchemas(
   editor: Record<string, ContentTypeEditorHint | { type?: string; schema?: unknown }> | undefined | null,
@@ -43,10 +51,12 @@ export function validateEditorHintsHaveJsonSchemas(
 /**
  * For each key in `fields` whose editor type is json: coerce (parse string once) + schema-validate.
  * Non-json keys pass through unchanged. Missing editor type → pass through.
+ * When `semantics` is provided, `call_to_action` also checks conversion_name + CRM tags.
  */
 export function validateAndCoerceJsonFields(
   fields: Record<string, unknown>,
   editor: Record<string, { type?: string; schema?: unknown }> | undefined | null,
+  semantics?: JsonFieldSemanticContext,
 ): ValidateJsonFieldsResult {
   if (!editor) return { ok: true, fields: { ...fields } };
   const out: Record<string, unknown> = { ...fields };
@@ -70,6 +80,16 @@ export function validateAndCoerceJsonFields(
       continue;
     }
     out[field] = coerced.value;
+
+    if (field === "call_to_action" && semantics) {
+      const semantic = validateCallToActionSemantics(coerced.value, {
+        conversionNames: semantics.conversionNames ?? [],
+        crmTags: semantics.crmTags ?? [],
+      });
+      if (!semantic.ok) {
+        failures.push({ field, error: semantic.error });
+      }
+    }
   }
 
   if (failures.length > 0) return { ok: false, failures };
