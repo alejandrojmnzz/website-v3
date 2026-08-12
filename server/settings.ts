@@ -297,6 +297,58 @@ export const DEFAULT_ROBOTS_SETTINGS: RobotsSettings = {
   ],
 };
 
+/**
+ * Non-secret Browser Run pacing for OG / entry-preview captures.
+ * Credentials stay env-only; these rate fields live in settings.yml → entry_preview.
+ */
+export interface EntryPreviewSettings {
+  /** Min ms between Cloudflare /screenshot starts (process-wide). Free ≈ 6/min → 10000. */
+  min_interval_ms: number;
+  /** Max in-flight capture jobs per content root (1–8). */
+  max_concurrency: number;
+  /** Retries on HTTP 429 before failing the job (1–20). */
+  max_retries: number;
+}
+
+export const DEFAULT_ENTRY_PREVIEW_SETTINGS: EntryPreviewSettings = {
+  min_interval_ms: 10_000,
+  max_concurrency: 1,
+  max_retries: 5,
+};
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+export function parseEntryPreviewSettings(raw: unknown): EntryPreviewSettings {
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  return {
+    min_interval_ms: clampInt(
+      obj.min_interval_ms,
+      0,
+      120_000,
+      DEFAULT_ENTRY_PREVIEW_SETTINGS.min_interval_ms,
+    ),
+    max_concurrency: clampInt(
+      obj.max_concurrency,
+      1,
+      8,
+      DEFAULT_ENTRY_PREVIEW_SETTINGS.max_concurrency,
+    ),
+    max_retries: clampInt(
+      obj.max_retries,
+      1,
+      20,
+      DEFAULT_ENTRY_PREVIEW_SETTINGS.max_retries,
+    ),
+  };
+}
+
 interface SiteSettings {
   i18n: I18nSettings;
   home_page: HomePageSettings;
@@ -304,6 +356,7 @@ interface SiteSettings {
   tracking: TrackingSettings;
   robots: RobotsSettings;
   auth: AuthSettings;
+  entry_preview: EntryPreviewSettings;
 }
 
 /** Build robots.txt body from settings. `baseUrl` is used for the Sitemap line when included. */
@@ -383,6 +436,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     auth: {},
+    entry_preview: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
   };
 
   if (!fs.existsSync(settingsPath)) {
@@ -544,9 +598,8 @@ function loadSettings(contentRoot?: string): SiteSettings {
     const authRaw = parsed.auth as Record<string, unknown> | undefined;
     const auth = normalizeAuthSettings(authRaw);
 
-    // Legacy `entry_preview` secrets in settings.yml are ignored (env-only).
-    // Orphan keys remain on disk until staff deletes them; writers dump from disk
-    // and do not re-inject secrets from memory.
+    // entry_preview: rate fields are loaded; legacy secrets (account/token/capture)
+    // are ignored (env-only) and scrubbed on the next entry_preview write.
 
     const result: SiteSettings = {
       ...defaults,
@@ -556,6 +609,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       tracking,
       robots,
       auth,
+      entry_preview: parseEntryPreviewSettings(parsed.entry_preview),
     };
     settingsCache.set(key, result);
     log.info(
@@ -780,8 +834,86 @@ export function getRobotsSettings(contentRoot?: string): RobotsSettings {
   return loadSettings(contentRoot).robots;
 }
 
+export function getEntryPreviewSettings(contentRoot?: string): EntryPreviewSettings {
+  return loadSettings(contentRoot).entry_preview;
+}
+
 export function getAuthSettings(contentRoot?: string): AuthSettings {
   return loadSettings(contentRoot).auth;
+}
+
+/**
+ * Persist Browser Run pacing to settings.yml → entry_preview (non-secret fields only).
+ * Scrubs legacy credential keys if present on disk.
+ */
+export function updateEntryPreviewSettings(
+  input: Partial<EntryPreviewSettings>,
+  contentRoot?: string,
+): EntryPreviewSettings {
+  if (input.min_interval_ms !== undefined) {
+    if (typeof input.min_interval_ms !== "number" || !Number.isFinite(input.min_interval_ms)) {
+      throw new Error("min_interval_ms must be a number");
+    }
+    if (input.min_interval_ms < 0 || input.min_interval_ms > 120_000) {
+      throw new Error("min_interval_ms must be between 0 and 120000");
+    }
+  }
+  if (input.max_concurrency !== undefined) {
+    if (typeof input.max_concurrency !== "number" || !Number.isFinite(input.max_concurrency)) {
+      throw new Error("max_concurrency must be a number");
+    }
+    if (input.max_concurrency < 1 || input.max_concurrency > 8) {
+      throw new Error("max_concurrency must be between 1 and 8");
+    }
+  }
+  if (input.max_retries !== undefined) {
+    if (typeof input.max_retries !== "number" || !Number.isFinite(input.max_retries)) {
+      throw new Error("max_retries must be a number");
+    }
+    if (input.max_retries < 1 || input.max_retries > 20) {
+      throw new Error("max_retries must be between 1 and 20");
+    }
+  }
+
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const current = loadSettings(contentRoot).entry_preview;
+  const updated: EntryPreviewSettings = {
+    min_interval_ms:
+      input.min_interval_ms !== undefined
+        ? Math.floor(input.min_interval_ms)
+        : current.min_interval_ms,
+    max_concurrency:
+      input.max_concurrency !== undefined
+        ? Math.floor(input.max_concurrency)
+        : current.max_concurrency,
+    max_retries:
+      input.max_retries !== undefined ? Math.floor(input.max_retries) : current.max_retries,
+  };
+
+  // Keep only rate fields; drop legacy secrets so they are not re-committed.
+  existing.entry_preview = {
+    min_interval_ms: updated.min_interval_ms,
+    max_concurrency: updated.max_concurrency,
+    max_retries: updated.max_retries,
+  };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated entry_preview: min_interval_ms=${updated.min_interval_ms}, max_concurrency=${updated.max_concurrency}, max_retries=${updated.max_retries}`,
+  );
+  return updated;
 }
 
 /** Signup is available only when both a host (explicit or env fallback) and a signup path are configured. */

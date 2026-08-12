@@ -501,6 +501,10 @@ export function EditorTypeDialog({
                   className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                   data-testid="input-hint-relation-source"
                 />
+                <p className="text-[11px] text-muted-foreground" data-testid="text-hint-relation-source-help">
+                  Content-type key or private database slug that supplies picker options (same namespace as{" "}
+                  <code className="text-foreground">/api/query-options</code>). Must not collide across those namespaces.
+                </p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Value field</Label>
@@ -512,6 +516,10 @@ export function EditorTypeDialog({
                   className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                   data-testid="input-hint-relation-value"
                 />
+                <p className="text-[11px] text-muted-foreground" data-testid="text-hint-relation-value-help">
+                  Field on related entries stored as the pointer (default <code className="text-foreground">slug</code>).
+                  The field value is this pointer only — not the full related object.
+                </p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Label field</Label>
@@ -523,6 +531,10 @@ export function EditorTypeDialog({
                   className="w-full text-sm px-3 py-1.5 rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                   data-testid="input-hint-relation-label"
                 />
+                <p className="text-[11px] text-muted-foreground" data-testid="text-hint-relation-label-help">
+                  Field shown in the picker UI (default <code className="text-foreground">title</code> /{" "}
+                  <code className="text-foreground">name</code>). Display-only; not what gets saved.
+                </p>
               </div>
               <label
                 className="flex items-center gap-2 cursor-pointer"

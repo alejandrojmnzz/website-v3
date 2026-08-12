@@ -14,6 +14,7 @@ import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
+import { combinedArticleContentFromSections } from "@shared/reading-time";
 import { resolveRelationsOnEntry } from "./resolve-relations";
 import {
   applyFaqHideOnLocations,
@@ -22,6 +23,37 @@ import {
 } from "@shared/faq-listing";
 import { child } from "./logger";
 const log = child({ module: "ssr-schema" });
+
+/**
+ * Static listing projections omit `content`. Blog templates bind
+ * `{{ single.content }}` into the article section — without this body,
+ * BlogPosting (and nested Person author) never emit.
+ */
+function ensureRecordArticleContent(
+  contentType: string,
+  record: Record<string, unknown>,
+  locale: string,
+  contentRoot: string,
+): Record<string, unknown> {
+  if (typeof record.content === "string" && record.content.trim()) return record;
+  const slug = typeof record.slug === "string" ? record.slug : "";
+  if (!slug) return record;
+  try {
+    const merged = mergeSingleTemplate(contentType, locale, slug, undefined, contentRoot);
+    if (!merged) return record;
+    const body = merged.content;
+    if (typeof body === "string" && body.trim()) {
+      return { ...record, content: body };
+    }
+    const fromArticles = combinedArticleContentFromSections(merged.sections);
+    if (fromArticles) {
+      return { ...record, content: fromArticles };
+    }
+  } catch {
+    /* keep listing row as-is */
+  }
+  return record;
+}
 
 
 
@@ -239,10 +271,12 @@ export async function generateDatabaseSsrHtml(
   contentRoot: string = DEFAULT_CONTENT_ROOT,
 ): Promise<string> {
   const baseUrl = getBaseUrl();
-  const config = getContentTypeConfig(contentType);
+  const config = getContentTypeConfig(contentType, contentRoot);
   if (!config?.url_pattern) return "";
 
-  const hydrated = await resolveRelationsOnEntry(contentType, { ...record }, {
+  record = ensureRecordArticleContent(contentType, { ...record }, locale, contentRoot);
+
+  const hydrated = await resolveRelationsOnEntry(contentType, record, {
     contentRoot,
     locale,
     contentIndex: ci,

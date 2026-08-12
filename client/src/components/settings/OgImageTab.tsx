@@ -5,6 +5,7 @@ import {
   IconCamera,
   IconCheck,
   IconCircleCheck,
+  IconDeviceFloppy,
   IconInfoCircle,
   IconLoader2,
   IconX,
@@ -13,10 +14,13 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ChevronDown } from "lucide-react";
 
 type CredentialSource = "env" | "session" | "none";
@@ -33,6 +37,14 @@ export interface EntryPreviewSettingsResponse {
   site_url_ok: boolean;
   site_url_publicly_reachable: boolean;
   config_error: string | null;
+  min_interval_ms: number;
+  max_concurrency: number;
+  max_retries: number;
+  defaults: {
+    min_interval_ms: number;
+    max_concurrency: number;
+    max_retries: number;
+  };
 }
 
 function sourceBadge(source: CredentialSource) {
@@ -78,6 +90,20 @@ export function OgImageTab() {
   const [testPreviewUrl, setTestPreviewUrl] = useState<string | null>(null);
   const [testCaptureUrl, setTestCaptureUrl] = useState<string | null>(null);
 
+  const [minIntervalMs, setMinIntervalMs] = useState(10_000);
+  const [maxConcurrency, setMaxConcurrency] = useState(1);
+  const [maxRetries, setMaxRetries] = useState(5);
+  const [rateDirty, setRateDirty] = useState(false);
+  const [savingRate, setSavingRate] = useState(false);
+
+  useEffect(() => {
+    if (!data) return;
+    setMinIntervalMs(data.min_interval_ms);
+    setMaxConcurrency(data.max_concurrency);
+    setMaxRetries(data.max_retries);
+    setRateDirty(false);
+  }, [data]);
+
   useEffect(() => {
     return () => {
       if (testPreviewUrl) URL.revokeObjectURL(testPreviewUrl);
@@ -90,6 +116,28 @@ export function OgImageTab() {
       return null;
     });
     setTestCaptureUrl(null);
+  }
+
+  async function handleSaveRate() {
+    setSavingRate(true);
+    try {
+      await apiRequest("PUT", "/api/settings/entry-preview", {
+        min_interval_ms: minIntervalMs,
+        max_concurrency: maxConcurrency,
+        max_retries: maxRetries,
+      });
+      setRateDirty(false);
+      await queryClient.invalidateQueries({ queryKey: ["/api/settings/entry-preview"] });
+      toast({
+        title: "Rate settings saved",
+        description: "Stored in settings.yml → entry_preview (queued for content sync).",
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to save rate settings";
+      toast({ title: "Save failed", description: message, variant: "destructive" });
+    } finally {
+      setSavingRate(false);
+    }
   }
 
   async function handleTestScreenshot(target: "home" | "example" = "home") {
@@ -151,6 +199,7 @@ export function OgImageTab() {
   }
 
   const ready = !data.config_error;
+  const defaults = data.defaults;
 
   return (
     <div className="space-y-4" data-testid="tab-panel-og-image">
@@ -172,9 +221,10 @@ export function OgImageTab() {
           </p>
           <p>
             Queue and generate previews per content type under Content Type manage → Entry Preview.{" "}
-            <code className="font-mono text-xs">SITE_URL</code> must be a public URL (env only). If an old{" "}
-            <code className="font-mono text-xs">entry_preview</code> block remains in settings.yml, delete it
-            before the next content push — it is ignored at runtime.
+            <code className="font-mono text-xs">SITE_URL</code> must be a public URL (env only). Rate pacing
+            (interval, concurrency, 429 retries) is configured below and stored in{" "}
+            <code className="font-mono text-xs">settings.yml</code> under{" "}
+            <code className="font-mono text-xs">entry_preview</code> — never put API secrets in that block.
           </p>
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <CollapsibleTrigger asChild>
@@ -187,8 +237,107 @@ export function OgImageTab() {
               <p>server/cloudflare-browser.ts</p>
               <p>server/entry-preview-capture-auth.ts</p>
               <p>server/entry-preview-capture-queue.ts</p>
+              <p>server/settings.ts (entry_preview rate fields)</p>
             </CollapsibleContent>
           </Collapsible>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-og-rate-limits">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base">Browser rate limits</CardTitle>
+            <Button
+              size="sm"
+              onClick={() => void handleSaveRate()}
+              disabled={!canEdit || !rateDirty || savingRate}
+              data-testid="button-og-save-rate"
+            >
+              {savingRate ? (
+                <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+              ) : (
+                <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+              )}
+              {savingRate ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted-foreground">
+            Cloudflare Browser Rendering REST is rate-limited (error{" "}
+            <code className="font-mono text-xs">2001</code> / HTTP 429). Workers Free is about{" "}
+            <strong className="text-foreground font-medium">6 requests per minute</strong> — keep the interval near
+            10000&nbsp;ms and concurrency at 1. On Workers Paid you can lower the interval (e.g. 300) and raise
+            concurrency (e.g. 2). Changes apply to the next capture start; in-flight jobs keep their current attempt.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="og-min-interval">Min interval (ms)</Label>
+              <Input
+                id="og-min-interval"
+                type="number"
+                min={0}
+                max={120000}
+                step={100}
+                value={minIntervalMs}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  setMinIntervalMs(Number(e.target.value));
+                  setRateDirty(true);
+                }}
+                data-testid="input-og-min-interval"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Default {defaults.min_interval_ms}. Space between /screenshot API starts.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="og-max-concurrency">Max concurrency</Label>
+              <Input
+                id="og-max-concurrency"
+                type="number"
+                min={1}
+                max={8}
+                step={1}
+                value={maxConcurrency}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  setMaxConcurrency(Number(e.target.value));
+                  setRateDirty(true);
+                }}
+                data-testid="input-og-max-concurrency"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Default {defaults.max_concurrency}. In-flight queue jobs per site (1–8).
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="og-max-retries">Max 429 retries</Label>
+              <Input
+                id="og-max-retries"
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={maxRetries}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  setMaxRetries(Number(e.target.value));
+                  setRateDirty(true);
+                }}
+                data-testid="input-og-max-retries"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Default {defaults.max_retries}. Honors Retry-After when present.
+              </p>
+            </div>
+          </div>
+          {!canEdit && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <IconInfoCircle className="h-3.5 w-3.5" />
+              You need the seo_edit capability to change rate limits.
+            </p>
+          )}
         </CardContent>
       </Card>
 

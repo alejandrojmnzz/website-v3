@@ -371,4 +371,80 @@ sections:
     expect(html).toContain("Template question?");
     expect(html).toContain("Template answer.");
   });
+
+  it("hydrates omitted listing content so BlogPosting emits from {{ single.content }}", async () => {
+    fs.writeFileSync(
+      path.join(contentRoot, "content-types.yml"),
+      `blog:
+  directory: blog
+  single_template: true
+  field_mapping:
+    title: title
+    content: content
+    authors: authors
+  url_pattern:
+    en: /en/blog/:category/:slug
+`,
+      "utf-8",
+    );
+
+    const blogDir = path.join(contentRoot, "blog");
+    fs.mkdirSync(blogDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(blogDir, "single.en.yml"),
+      `sections:
+  - type: article
+    section_id: article-1
+    content: "{{ single.content }}"
+    authors: "{{ single.authors }}"
+`,
+      "utf-8",
+    );
+
+    const entryDir = path.join(blogDir, "ai-act-post");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(entryDir, "_common.yml"),
+      `slug: ai-act-post
+title: AI Act for companies
+authors:
+  - 4geeks-academy
+category:
+  slug: regulations
+published_at: "2026-08-10T00:00:00.000Z"
+`,
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(entryDir, "en.yml"),
+      `content: |-
+  Full article body about the AI Act that must appear in BlogPosting.
+description: What the AI Act requires.
+`,
+      "utf-8",
+    );
+
+    // Mimic queryEntries static listing projection: no content field.
+    const listingRecord = {
+      slug: "ai-act-post",
+      title: "AI Act for companies",
+      description: "What the AI Act requires.",
+      category: { slug: "regulations" },
+      authors: ["4geeks-academy"],
+      lang: "en",
+      published_at: "2026-08-10T00:00:00.000Z",
+    };
+
+    const html = await generateDatabaseSsrHtml(
+      "blog",
+      listingRecord,
+      "en",
+      contentIndex,
+      contentRoot,
+    );
+
+    expect(html).toContain('"@type":"BlogPosting"');
+    expect(html).toContain("Full article body about the AI Act");
+    expect(html).toContain('"headline":"AI Act for companies"');
+  });
 });

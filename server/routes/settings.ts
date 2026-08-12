@@ -144,6 +144,9 @@ import {
   getAuthSettings,
   updateAuthSettings,
   isSignupConfigured,
+  getEntryPreviewSettings,
+  updateEntryPreviewSettings,
+  DEFAULT_ENTRY_PREVIEW_SETTINGS,
 } from "../settings";
 import { clearIpnRecentCalls, getIpnRecentCalls, IPN_RECENT_CALLS_LIMIT, resolveIpnSecret } from "../ipn-proxy";
 import { getVM } from "../site-manager";
@@ -1319,6 +1322,7 @@ export function registerSettingsRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "seo_edit");
     if (!auth.authorized) return;
     try {
+      const contentRoot = getContentRoot(res);
       const {
         resolveCloudflareAccountId,
         resolveCloudflareApiToken,
@@ -1332,6 +1336,7 @@ export function registerSettingsRoutes(app: Express): void {
       const token = resolveCloudflareApiToken();
       const capture = resolveEntryPreviewCaptureSecret();
       const siteUrl = getPublicSiteUrl();
+      const rate = getEntryPreviewSettings(contentRoot);
 
       res.json({
         account_id: account.value,
@@ -1345,9 +1350,48 @@ export function registerSettingsRoutes(app: Express): void {
         site_url_ok: !!siteUrl,
         site_url_publicly_reachable: isSiteUrlPubliclyReachable(),
         config_error: cloudflareBrowserConfigError(),
+        min_interval_ms: rate.min_interval_ms,
+        max_concurrency: rate.max_concurrency,
+        max_retries: rate.max_retries,
+        defaults: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to load entry-preview settings" });
+    }
+  });
+
+  app.put("/api/settings/entry-preview", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const schema = z.object({
+        min_interval_ms: z.number().min(0).max(120_000).optional(),
+        max_concurrency: z.number().int().min(1).max(8).optional(),
+        max_retries: z.number().int().min(1).max(20).optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+      }
+      if (
+        parsed.data.min_interval_ms === undefined &&
+        parsed.data.max_concurrency === undefined &&
+        parsed.data.max_retries === undefined
+      ) {
+        return res.status(400).json({ error: "Provide at least one of min_interval_ms, max_concurrency, max_retries" });
+      }
+      const contentRoot = getContentRoot(res);
+      const rate = updateEntryPreviewSettings(parsed.data, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      res.json({
+        success: true,
+        min_interval_ms: rate.min_interval_ms,
+        max_concurrency: rate.max_concurrency,
+        max_retries: rate.max_retries,
+        defaults: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
     }
   });
 
@@ -1422,6 +1466,7 @@ export function registerSettingsRoutes(app: Express): void {
           timeoutMs,
           width: 1200,
           height: 630,
+          contentRoot,
         });
 
         res.setHeader("Content-Type", "image/webp");

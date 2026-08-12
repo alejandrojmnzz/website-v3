@@ -10,10 +10,11 @@ import {
   shouldWriteGeneratedOgToYaml,
 } from "./entry-preview-og-yaml";
 import { isSiteUrlPubliclyReachable, cloudflareBrowserConfigError, resolveCloudflareAccountId, resolveCloudflareApiToken, resolveEntryPreviewCaptureSecret } from "./cloudflare-browser";
-import { resetSettings } from "./settings";
+import { getEntryPreviewSettings, resetSettings, updateEntryPreviewSettings } from "./settings";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import yaml from "js-yaml";
 
 describe("entry-preview-capture-auth", () => {
   it("signs and verifies capture tokens", () => {
@@ -125,7 +126,7 @@ describe("cloudflare-browser config helpers", () => {
     process.env.SITE_URL = s;
   });
 
-  it("ignores legacy settings.yml entry_preview and uses env only", () => {
+  it("ignores legacy settings.yml entry_preview secrets and uses env only", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ep-settings-"));
     fs.writeFileSync(
       path.join(tmp, "settings.yml"),
@@ -134,6 +135,9 @@ describe("cloudflare-browser config helpers", () => {
         "  cloudflare_account_id: settings-account",
         "  cloudflare_api_token: settings-token",
         "  capture_secret: settings-capture-secret",
+        "  min_interval_ms: 3000",
+        "  max_concurrency: 2",
+        "  max_retries: 4",
         "",
       ].join("\n"),
       "utf-8",
@@ -160,6 +164,12 @@ describe("cloudflare-browser config helpers", () => {
       source: "env",
     });
 
+    expect(getEntryPreviewSettings(tmp)).toEqual({
+      min_interval_ms: 3000,
+      max_concurrency: 2,
+      max_retries: 4,
+    });
+
     process.env.CLOUDFLARE_ACCOUNT_ID = prevA;
     process.env.CLOUDFLARE_API_TOKEN = prevT;
     process.env.ENTRY_PREVIEW_CAPTURE_SECRET = prevC;
@@ -175,5 +185,46 @@ describe("cloudflare-browser config helpers", () => {
       source: "env",
     });
     process.env.CLOUDFLARE_ACCOUNT_ID = prevA;
+  });
+
+  it("updateEntryPreviewSettings writes rate fields and scrubs legacy secrets", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ep-rate-"));
+    fs.writeFileSync(
+      path.join(tmp, "settings.yml"),
+      [
+        "entry_preview:",
+        "  cloudflare_account_id: leak-me",
+        "  cloudflare_api_token: leak-token",
+        "  capture_secret: leak-secret",
+        "  min_interval_ms: 10000",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    resetSettings(tmp);
+
+    const updated = updateEntryPreviewSettings(
+      { min_interval_ms: 500, max_concurrency: 2, max_retries: 3 },
+      tmp,
+    );
+    expect(updated).toEqual({
+      min_interval_ms: 500,
+      max_concurrency: 2,
+      max_retries: 3,
+    });
+
+    const raw = fs.readFileSync(path.join(tmp, "settings.yml"), "utf-8");
+    const parsed = yaml.load(raw) as Record<string, unknown>;
+    expect(parsed.entry_preview).toEqual({
+      min_interval_ms: 500,
+      max_concurrency: 2,
+      max_retries: 3,
+    });
+    expect(raw).not.toContain("leak-me");
+    expect(raw).not.toContain("leak-token");
+    expect(raw).not.toContain("leak-secret");
+
+    resetSettings(tmp);
+    fs.rmSync(tmp, { recursive: true, force: true });
   });
 });

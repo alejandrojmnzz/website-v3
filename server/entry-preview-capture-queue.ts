@@ -14,7 +14,7 @@ import { captureScreenshotToWebp, cloudflareBrowserConfigError } from "./cloudfl
 import { buildSignedEntryPreviewFrameUrl } from "./entry-preview-capture-auth";
 import { persistGeneratedOgImageToEntryYaml } from "./entry-preview-og-yaml";
 import { buildPreviewPropResolveContext } from "./entry-preview-resolve";
-import { normalizeLocale } from "./settings";
+import { getEntryPreviewSettings, normalizeLocale } from "./settings";
 import { child } from "./logger";
 
 const log = child({ module: "entry-preview-capture-queue" });
@@ -48,7 +48,18 @@ type InternalJob = EntryPreviewCaptureJob & {
   contentRootName: string;
 };
 
-const MAX_CONCURRENCY = 2;
+/**
+ * Concurrent in-flight captures per content-root.
+ * From settings.yml → entry_preview.max_concurrency (SEO/GEO → OG Image).
+ * Screenshot API starts are still paced process-wide in cloudflare-browser.ts.
+ */
+function resolveMaxConcurrency(contentRoot?: string): number {
+  try {
+    return getEntryPreviewSettings(contentRoot).max_concurrency;
+  } catch {
+    return 1;
+  }
+}
 
 /** Per content-root queues */
 const queues = new Map<
@@ -175,6 +186,7 @@ async function runOneJob(job: InternalJob): Promise<void> {
     url: frameUrl,
     width,
     height: preview!.maxHeight ?? 630,
+    contentRoot: site.contentRoot,
   });
 
   const meta = await manager.upsertWebp({
@@ -210,7 +222,9 @@ async function pump(contentRootName: string): Promise<void> {
   if (q.pumping) return;
   q.pumping = true;
   try {
-    while (q.pending.length > 0 && q.active.size < MAX_CONCURRENCY) {
+    const site = resolveSiteByContentRootName(contentRootName);
+    const maxConcurrency = resolveMaxConcurrency(site?.contentRoot);
+    while (q.pending.length > 0 && q.active.size < maxConcurrency) {
       const job = q.pending.shift()!;
       q.active.add(job.key);
       void (async () => {
