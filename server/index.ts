@@ -8,6 +8,7 @@ import { initialDataMiddleware } from "./initial-data-middleware";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import path from "path";
+import fs from "fs";
 import { setAutoCommitCallback } from "./sync-state";
 import { queueFileChange } from "./auto-commit";
 import { contentIndex } from "./content-index";
@@ -522,6 +523,49 @@ app.use((req, res, next) => {
         import("./component-insights")
           .then(({ markInsightsDirty }) => markInsightsDirty(filePath))
           .catch(() => {});
+      }
+      // Scoped on-save validation → unified issue store
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) {
+        for (const ctx of getSiteContextMap().values()) {
+          if (!filePath.startsWith(ctx.contentRootName + "/")) continue;
+          const abs = path.isAbsolute(filePath)
+            ? filePath
+            : path.join(process.cwd(), filePath);
+          const isCustomRedirects = filePath.endsWith("custom-redirects.yml");
+          let redirectsChanged = isCustomRedirects;
+          if (!isCustomRedirects) {
+            try {
+              const raw = fs.readFileSync(abs, "utf-8");
+              redirectsChanged = /\n\s*redirects\s*:/.test(raw) || /\nmeta:[\s\S]*?redirects\s*:/.test(raw);
+            } catch {
+              /* ignore */
+            }
+          }
+          import("./services/onSaveValidation")
+            .then(({ scheduleOnSaveValidation, scheduleRedirectsValidation }) => {
+              if (isCustomRedirects) {
+                scheduleRedirectsValidation({
+                  contentRoot: ctx.contentRoot,
+                  contentRootName: ctx.contentRootName,
+                  ci: ctx.contentIndex,
+                  cache: ctx.validationCache,
+                  filePath: abs,
+                  redirectsChanged: true,
+                });
+                return;
+              }
+              scheduleOnSaveValidation({
+                contentRoot: ctx.contentRoot,
+                contentRootName: ctx.contentRootName,
+                ci: ctx.contentIndex,
+                cache: ctx.validationCache,
+                filePath: abs,
+                redirectsChanged,
+              });
+            })
+            .catch(() => {});
+          break;
+        }
       }
     });
   });

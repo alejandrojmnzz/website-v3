@@ -436,32 +436,60 @@ function getCachedValidationIssues(
     if (!fs.existsSync(cachePath)) return [];
     const raw = fs.readFileSync(cachePath, "utf-8");
     const cache = JSON.parse(raw) as {
-      pages: Record<string, {
-        errors: Array<{ type?: string; code: string; message: string; category?: string; file?: string; suggestion?: string }>;
-        warnings: Array<{ type?: string; code: string; message: string; category?: string; file?: string; suggestion?: string }>;
+      pages?: Record<string, {
+        errors: Array<{ type?: string; code: string; message: string; category?: string; file?: string; suggestion?: string; validator?: string }>;
+        warnings: Array<{ type?: string; code: string; message: string; category?: string; file?: string; suggestion?: string; validator?: string }>;
       }>;
+      issues?: Record<string, {
+        code: string;
+        severity: string;
+        message: string;
+        category?: string;
+        file?: string;
+        suggestion?: string;
+        validator?: string;
+      }>;
+      indexes?: { byUrl?: Record<string, string>; byEntry?: Record<string, string[]> };
     };
-    const entry = cache.pages?.[url];
-    if (!entry) return [];
 
-    const all: MappedValidationIssue[] = [
-      ...(entry.errors ?? []).map(e => ({
-        code: e.code,
-        message: e.message,
-        severity: "error" as const,
-        category: e.category ?? "other",
-        ...(e.file ? { file: e.file } : {}),
-        ...(e.suggestion ? { suggestion: e.suggestion } : {}),
-      })),
-      ...(entry.warnings ?? []).map(w => ({
-        code: w.code,
-        message: w.message,
-        severity: "warning" as const,
-        category: w.category ?? "other",
-        ...(w.file ? { file: w.file } : {}),
-        ...(w.suggestion ? { suggestion: w.suggestion } : {}),
-      })),
-    ];
+    let all: MappedValidationIssue[] = [];
+    if (cache.issues && cache.indexes) {
+      const entryKey = cache.indexes.byUrl?.[url];
+      const ids = entryKey ? cache.indexes.byEntry?.[entryKey] ?? [] : [];
+      for (const id of ids) {
+        const issue = cache.issues[id];
+        if (!issue || issue.severity === "info") continue;
+        all.push({
+          code: issue.code,
+          message: issue.message,
+          severity: issue.severity === "error" ? "error" : "warning",
+          category: issue.category ?? "other",
+          ...(issue.file ? { file: issue.file } : {}),
+          ...(issue.suggestion ? { suggestion: issue.suggestion } : {}),
+        });
+      }
+    } else {
+      const entry = cache.pages?.[url];
+      if (!entry) return [];
+      all = [
+        ...(entry.errors ?? []).map(e => ({
+          code: e.code,
+          message: e.message,
+          severity: "error" as const,
+          category: e.category ?? "other",
+          ...(e.file ? { file: e.file } : {}),
+          ...(e.suggestion ? { suggestion: e.suggestion } : {}),
+        })),
+        ...(entry.warnings ?? []).map(w => ({
+          code: w.code,
+          message: w.message,
+          severity: "warning" as const,
+          category: w.category ?? "other",
+          ...(w.file ? { file: w.file } : {}),
+          ...(w.suggestion ? { suggestion: w.suggestion } : {}),
+        })),
+      ];
+    }
 
     if (categoryFilter && categoryFilter.length > 0) {
       const catSet = new Set(categoryFilter);
@@ -945,12 +973,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // run_entry_diagnostics (async — returns cached or queues a background job)
   mcp.tool(
     "run_entry_diagnostics",
-    "Start or read page diagnostics. Does NOT wait for validators to finish. " +
+    "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
     "Returns status 'cached' (issues from validation-cache when fresh) or 'queued'/'running' with job_id. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
-    "'hard' forces a recompute. Optional slugs scopes the run. categories filters the response only (cache always stores full issues). " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs.",
+    "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects — avoids false all-clear). " +
+    "side_effects: replace-by-validator merge into validation-cache.json (clears obsolete codes for ran validators in scope; compounds with others). " +
+    "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT. " +
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs. " +
+    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
       categories: z.array(z.string()).optional().describe("Filter returned issues to categories (e.g. ['seo']). Does not narrow the job."),

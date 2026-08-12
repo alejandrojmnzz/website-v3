@@ -1,43 +1,107 @@
 /**
- * Validation Cache Service
+ * Validation Cache Service (v5)
  *
- * Per-site class that persists page validation results to
- * <contentRoot>/validation-cache.json (local cache) and, in production,
- * to GCS at {site}/sync/validation-cache.json.
- *
- * Concurrent flush writes are serialized via a Promise chain (write queue).
+ * Unified issue store: issues map + indexes (byEntry, byScope, …).
+ * Persists to <contentRoot>/validation-cache.json and GCS in production.
  */
 
 import * as fs from "fs";
 import { getDefaultContentRoot } from "../site-config";
 import * as path from "path";
 import type {
-  PageCacheEntry,
+  ContentFile,
   DatabaseCacheEntry,
+  EntryRunMeta,
+  PageCacheEntry,
+  StoredValidationIssue,
   ValidationCacheFile,
+  ValidationCacheFileV5,
+  ValidationCacheIndexes,
+  ValidationIssue,
+  ValidatorResult,
 } from "../../scripts/validation/shared/types";
+import type { ValidationScope } from "../../scripts/validation/shared/runClass";
+import {
+  getValidatorRunClass,
+  isCrossEntryValidator,
+  isDatabaseValidator,
+  isEntryLocalValidator,
+  isMediaValidator,
+} from "../../scripts/validation/shared/runClass";
+import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { siteSyncGcsKey, SYNC_FILENAMES, validationCacheReadKeys } from "@shared/gcsKeys";
 import { gcs } from "../gcs";
 import { getSiteContextMap } from "../site-manager";
 import { child } from "../logger";
+import {
+  issueToStored,
+  pageEntryFromStored,
+} from "./validationCacheMerge";
 
 const log = child({ module: "validationCacheService" });
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 
-function emptyCache(): ValidationCacheFile {
+function emptyIndexes(): ValidationCacheIndexes {
   return {
-    meta: { lastFullRunAt: null, version: CACHE_VERSION },
-    pages: {},
+    byEntry: {},
+    byScope: {},
+    byMedia: {},
+    byDatabase: {},
+    byRedirect: {},
+    byUrl: {},
+  };
+}
+
+function emptyCache(): ValidationCacheFileV5 {
+  return {
+    meta: { version: 5, lastFullRunAt: null, lastSiteWideRunAt: null },
+    issues: {},
+    indexes: emptyIndexes(),
+    runMeta: { byEntry: {}, byScope: {} },
     databases: {},
   };
 }
 
-/** v3→v4: treat existing lastRunAt as lastFullRunAt when missing. */
+function rebuildIndexes(
+  issues: Record<string, StoredValidationIssue>,
+  byUrl: Record<string, string> = {},
+): ValidationCacheIndexes {
+  const indexes = emptyIndexes();
+  indexes.byUrl = { ...byUrl };
+
+  for (const issue of Object.values(issues)) {
+    const push = (bag: Record<string, string[]>, key: string) => {
+      if (!bag[key]) bag[key] = [];
+      if (!bag[key]!.includes(issue.id)) bag[key]!.push(issue.id);
+    };
+    const pushScope = (scope: ValidationScope) => {
+      if (!indexes.byScope[scope]) indexes.byScope[scope] = [];
+      if (!indexes.byScope[scope]!.includes(issue.id)) indexes.byScope[scope]!.push(issue.id);
+    };
+
+    for (const scope of issue.scopes) pushScope(scope);
+    for (const t of issue.targets) {
+      if (t.type === "entry") {
+        push(indexes.byEntry, t.entryKey);
+        if (t.url) indexes.byUrl[t.url] = t.entryKey;
+      } else if (t.type === "media") {
+        push(indexes.byMedia, t.imageId);
+      } else if (t.type === "database") {
+        push(indexes.byDatabase, t.dbSlug);
+      } else if (t.type === "redirect") {
+        push(indexes.byRedirect, t.from);
+      }
+    }
+  }
+  return indexes;
+}
+
 function migratePagesToV4(
-  pages: Record<string, import("../../scripts/validation/shared/types").PageCacheEntry>,
-): Record<string, import("../../scripts/validation/shared/types").PageCacheEntry> {
+  pages: Record<string, PageCacheEntry>,
+): Record<string, PageCacheEntry> {
   const out: typeof pages = {};
   for (const [url, entry] of Object.entries(pages ?? {})) {
     out[url] = {
@@ -48,40 +112,114 @@ function migratePagesToV4(
   return out;
 }
 
-function migrateCache(parsed: ValidationCacheFile): ValidationCacheFile {
+function migrateV4ToV5(v4: {
+  meta: { lastFullRunAt: string | null; version: number };
+  pages: Record<string, PageCacheEntry>;
+  databases?: Record<string, DatabaseCacheEntry>;
+}): ValidationCacheFileV5 {
+  const nowIso = new Date().toISOString();
+  const issues: Record<string, StoredValidationIssue> = {};
+  const byUrl: Record<string, string> = {};
+  const runMetaByEntry: Record<string, EntryRunMeta> = {};
+
+  for (const [url, entry] of Object.entries(v4.pages ?? {})) {
+    const entryKey = `legacy${url.replace(/\//g, "__")}`;
+    byUrl[url] = entryKey;
+    const byValidator: Record<string, string> = {};
+
+    const add = (raw: ValidationIssue, severity: "error" | "warning") => {
+      const validator = raw.validator || "legacy";
+      const id = `${validator}:${raw.code}:${entryKey}:${severity}`.slice(0, 64);
+      const stored: StoredValidationIssue = {
+        id,
+        code: raw.code,
+        severity,
+        message: raw.message,
+        suggestion: raw.suggestion,
+        validator,
+        scopes: validator === "redirects" ? ["site", "entry", "redirects"] : ["entry"],
+        targets: [{ type: "entry", entryKey, url, file: raw.file }],
+        file: raw.file,
+        line: raw.line,
+        category: raw.category,
+        lastSeenAt: entry.lastRunAt || nowIso,
+        lastRunAt: entry.lastRunAt || nowIso,
+      };
+      let finalId = id;
+      let n = 0;
+      while (issues[finalId] && issues[finalId]!.message !== stored.message) {
+        finalId = `${id}:${++n}`;
+      }
+      stored.id = finalId;
+      issues[finalId] = stored;
+      byValidator[validator] = entry.lastRunAt || nowIso;
+    };
+
+    for (const e of entry.errors ?? []) add(e, "error");
+    for (const w of entry.warnings ?? []) add(w, "warning");
+
+    runMetaByEntry[entryKey] = {
+      lastRunAt: entry.lastRunAt || nowIso,
+      byValidator,
+      dirty: false,
+    };
+  }
+
+  return {
+    meta: {
+      version: 5,
+      lastFullRunAt: v4.meta?.lastFullRunAt ?? null,
+      lastSiteWideRunAt: v4.meta?.lastFullRunAt ?? null,
+    },
+    issues,
+    indexes: rebuildIndexes(issues, byUrl),
+    runMeta: { byEntry: runMetaByEntry, byScope: {} },
+    databases: v4.databases ?? {},
+  };
+}
+
+function migrateCache(parsed: ValidationCacheFile): ValidationCacheFileV5 {
   const version = parsed.meta?.version ?? 0;
-  if (version >= CACHE_VERSION) {
+  if (version >= 5 && "issues" in parsed && (parsed as ValidationCacheFileV5).issues) {
+    const v5 = parsed as ValidationCacheFileV5;
     return {
-      ...parsed,
-      databases: parsed.databases ?? {},
+      ...v5,
+      meta: {
+        version: 5,
+        lastFullRunAt: v5.meta.lastFullRunAt ?? null,
+        lastSiteWideRunAt: v5.meta.lastSiteWideRunAt ?? v5.meta.lastFullRunAt ?? null,
+      },
+      indexes: v5.indexes ?? rebuildIndexes(v5.issues, v5.indexes?.byUrl ?? {}),
+      runMeta: v5.runMeta ?? { byEntry: {}, byScope: {} },
+      databases: v5.databases ?? {},
     };
   }
-  if (version === 3 && parsed.pages) {
-    log.info("[ValidationCache] Migrating v3 cache to v4 (lastFullRunAt per page)");
-    return {
-      meta: { lastFullRunAt: parsed.meta?.lastFullRunAt ?? null, version: CACHE_VERSION },
-      pages: migratePagesToV4(parsed.pages),
-      databases: parsed.databases ?? {},
-    };
+
+  if (version === 4 || version === 3 || version === 2) {
+    log.info(`[ValidationCache] Migrating v${version} cache to v5`);
+    const pages = migratePagesToV4(
+      (parsed as { pages: Record<string, PageCacheEntry> }).pages,
+    );
+    return migrateV4ToV5({
+      meta: {
+        lastFullRunAt: parsed.meta?.lastFullRunAt ?? null,
+        version: 4,
+      },
+      pages,
+      databases: (parsed as { databases?: Record<string, DatabaseCacheEntry> }).databases,
+    });
   }
-  if (version === 2 && parsed.pages) {
-    log.info("[ValidationCache] Migrating v2 cache to v4");
-    return {
-      meta: { lastFullRunAt: parsed.meta?.lastFullRunAt ?? null, version: CACHE_VERSION },
-      pages: migratePagesToV4(parsed.pages),
-      databases: {},
-    };
-  }
+
   log.info("[ValidationCache] Stale cache version — discarding and starting fresh");
   return emptyCache();
 }
 
-function readFromDisk(cacheFile: string): ValidationCacheFile {
+function readFromDisk(cacheFile: string): ValidationCacheFileV5 {
   try {
     if (fs.existsSync(cacheFile)) {
       const raw = fs.readFileSync(cacheFile, "utf-8");
       const parsed = JSON.parse(raw) as ValidationCacheFile;
-      if (parsed && typeof parsed === "object" && parsed.pages) {
+      if (parsed && typeof parsed === "object") {
         return migrateCache(parsed);
       }
     }
@@ -91,10 +229,29 @@ function readFromDisk(cacheFile: string): ValidationCacheFile {
   return emptyCache();
 }
 
+function issueScopesForValidatorName(name: string): ValidationScope[] {
+  if (name === "redirects") return ["redirects", "site"];
+  if (name === "sitemap") return ["sitemap", "site"];
+  if (isMediaValidator(name)) return ["media", "site"];
+  return ["site"];
+}
+
+export type ApplyValidatorResultsOptions = {
+  contentFiles: ContentFile[];
+  entryKeys?: string[];
+  markSiteWide?: boolean;
+};
+
 export class ValidationCacheService {
-  private map: Map<string, PageCacheEntry> = new Map();
+  private issues: Record<string, StoredValidationIssue> = {};
+  private indexes: ValidationCacheIndexes = emptyIndexes();
+  private runMetaByEntry: Record<string, EntryRunMeta> = {};
+  private runMetaByScope: Partial<
+    Record<ValidationScope, { lastRunAt: string; byValidator: Record<string, string>; dirty?: boolean }>
+  > = {};
   private dbMap: Map<string, DatabaseCacheEntry> = new Map();
   private lastFullRunAt: string | null = null;
+  private lastSiteWideRunAt: string | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
   private cacheFile: string;
   private contentFolder: string;
@@ -109,9 +266,13 @@ export class ValidationCacheService {
     return siteSyncGcsKey(this.contentFolder, SYNC_FILENAMES.validationCache);
   }
 
-  private applyLoadedData(data: ValidationCacheFile): void {
+  private applyLoadedData(data: ValidationCacheFileV5): void {
     this.lastFullRunAt = data.meta?.lastFullRunAt ?? null;
-    this.map = new Map(Object.entries(data.pages ?? {}));
+    this.lastSiteWideRunAt = data.meta?.lastSiteWideRunAt ?? null;
+    this.issues = { ...(data.issues ?? {}) };
+    this.indexes = data.indexes ?? rebuildIndexes(this.issues);
+    this.runMetaByEntry = { ...(data.runMeta?.byEntry ?? {}) };
+    this.runMetaByScope = { ...(data.runMeta?.byScope ?? {}) };
     this.dbMap = new Map(Object.entries(data.databases ?? {}));
   }
 
@@ -119,11 +280,10 @@ export class ValidationCacheService {
     const data = readFromDisk(this.cacheFile);
     this.applyLoadedData(data);
     log.info(
-      `[ValidationCache] Loaded ${this.map.size} page entries, ${this.dbMap.size} database entries from disk`,
+      `[ValidationCache] Loaded ${Object.keys(this.issues).length} issues, ${this.dbMap.size} database entries from disk`,
     );
   }
 
-  /** Load cached validation results from GCS (production only). */
   async loadFromBucket(): Promise<void> {
     if (!IS_PRODUCTION || !gcs.available) {
       if (!IS_PRODUCTION) {
@@ -140,31 +300,264 @@ export class ValidationCacheService {
       }
 
       const parsed = JSON.parse(result.data.toString("utf-8")) as ValidationCacheFile;
-      if (!parsed || typeof parsed !== "object" || !parsed.pages) {
+      if (!parsed || typeof parsed !== "object") {
         log.warn("[ValidationCache] Invalid cache in bucket, keeping local file");
         return;
       }
 
       this.applyLoadedData(migrateCache(parsed));
       this.writeLocalFile();
-      log.info(
-        `[ValidationCache] Loaded ${this.map.size} page entries, ${this.dbMap.size} database entries from GCS`,
-      );
+      log.info(`[ValidationCache] Loaded ${Object.keys(this.issues).length} issues from GCS`);
     } catch (err) {
       log.error({ err }, "[ValidationCache] Error loading from bucket:");
     }
   }
 
+  resolveEntryKeyFromUrl(url: string): string | undefined {
+    return this.indexes.byUrl[url];
+  }
+
+  registerUrl(url: string, entryKey: string): void {
+    this.indexes.byUrl[url] = entryKey;
+  }
+
+  getIssuesByEntryKey(entryKey: string): StoredValidationIssue[] {
+    const ids = this.indexes.byEntry[entryKey] ?? [];
+    return ids.map((id) => this.issues[id]).filter(Boolean) as StoredValidationIssue[];
+  }
+
+  getIssuesByScope(scope: ValidationScope): StoredValidationIssue[] {
+    const ids = this.indexes.byScope[scope] ?? [];
+    return ids.map((id) => this.issues[id]).filter(Boolean) as StoredValidationIssue[];
+  }
+
+  getAllIssues(): StoredValidationIssue[] {
+    return Object.values(this.issues);
+  }
+
+  getRunMetaForEntry(entryKey: string): EntryRunMeta | undefined {
+    return this.runMetaByEntry[entryKey];
+  }
+
+  markEntryDirty(entryKey: string): void {
+    const existing = this.runMetaByEntry[entryKey] ?? {
+      lastRunAt: new Date().toISOString(),
+      byValidator: {},
+    };
+    this.runMetaByEntry[entryKey] = { ...existing, dirty: true };
+  }
+
+  markScopeDirty(scope: ValidationScope): void {
+    const existing = this.runMetaByScope[scope] ?? {
+      lastRunAt: new Date().toISOString(),
+      byValidator: {},
+    };
+    this.runMetaByScope[scope] = { ...existing, dirty: true };
+  }
+
+  applyValidatorResults(
+    validators: ValidatorResult[],
+    options: ApplyValidatorResultsOptions,
+  ): void {
+    const nowIso = new Date().toISOString();
+    const contentFiles = options.contentFiles;
+    const entryKeySet =
+      options.entryKeys && options.entryKeys.length > 0
+        ? new Set(options.entryKeys)
+        : null;
+
+    for (const file of contentFiles) {
+      const ek = entryKeyFromContentFile(file);
+      const url = getCanonicalUrl(file);
+      this.indexes.byUrl[url] = ek;
+    }
+
+    for (const v of validators) {
+      const runClass = getValidatorRunClass(v.name);
+      this.clearValidatorSlice(v.name, runClass, entryKeySet);
+
+      const stampedErrors = v.errors.map((i) => ({
+        ...i,
+        validator: v.name,
+        category: i.category ?? v.category,
+      }));
+      const stampedWarnings = v.warnings.map((i) => ({
+        ...i,
+        validator: v.name,
+        category: i.category ?? v.category,
+      }));
+
+      for (const raw of [...stampedErrors, ...stampedWarnings]) {
+        const stored = issueToStored(raw, v.name, nowIso, contentFiles);
+        this.issues[stored.id] = stored;
+      }
+
+      if (isEntryLocalValidator(v.name) && entryKeySet) {
+        for (const ek of entryKeySet) {
+          const prev = this.runMetaByEntry[ek] ?? { lastRunAt: nowIso, byValidator: {} };
+          this.runMetaByEntry[ek] = {
+            lastRunAt: nowIso,
+            byValidator: { ...prev.byValidator, [v.name]: nowIso },
+            dirty: false,
+          };
+        }
+      } else if (isCrossEntryValidator(v.name) || isMediaValidator(v.name)) {
+        for (const issue of Object.values(this.issues)) {
+          if (issue.validator !== v.name) continue;
+          for (const t of issue.targets) {
+            if (t.type !== "entry") continue;
+            const prev = this.runMetaByEntry[t.entryKey] ?? {
+              lastRunAt: nowIso,
+              byValidator: {},
+            };
+            this.runMetaByEntry[t.entryKey] = {
+              lastRunAt: nowIso,
+              byValidator: { ...prev.byValidator, [v.name]: nowIso },
+              dirty: false,
+            };
+          }
+        }
+        for (const scope of issueScopesForValidatorName(v.name)) {
+          const prev = this.runMetaByScope[scope] ?? {
+            lastRunAt: nowIso,
+            byValidator: {},
+          };
+          this.runMetaByScope[scope] = {
+            lastRunAt: nowIso,
+            byValidator: { ...prev.byValidator, [v.name]: nowIso },
+            dirty: false,
+          };
+        }
+      } else if (isDatabaseValidator(v.name)) {
+        const prev = this.runMetaByScope.database ?? {
+          lastRunAt: nowIso,
+          byValidator: {},
+        };
+        this.runMetaByScope.database = {
+          lastRunAt: nowIso,
+          byValidator: { ...prev.byValidator, [v.name]: nowIso },
+          dirty: false,
+        };
+      }
+
+      if (isEntryLocalValidator(v.name) && !entryKeySet) {
+        for (const file of contentFiles) {
+          const ek = entryKeyFromContentFile(file);
+          const prev = this.runMetaByEntry[ek] ?? { lastRunAt: nowIso, byValidator: {} };
+          this.runMetaByEntry[ek] = {
+            lastRunAt: nowIso,
+            byValidator: { ...prev.byValidator, [v.name]: nowIso },
+            dirty: false,
+          };
+        }
+      }
+    }
+
+    this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+    this.lastFullRunAt = nowIso;
+    if (options.markSiteWide) {
+      this.lastSiteWideRunAt = nowIso;
+    }
+  }
+
+  private clearValidatorSlice(
+    validatorName: string,
+    runClass: ReturnType<typeof getValidatorRunClass>,
+    entryKeySet: Set<string> | null,
+  ): void {
+    const toDelete: string[] = [];
+    for (const [id, issue] of Object.entries(this.issues)) {
+      if (issue.validator !== validatorName) continue;
+
+      if (runClass === "cross-entry" || runClass === "media" || runClass === "database") {
+        toDelete.push(id);
+        continue;
+      }
+
+      if (!entryKeySet) {
+        toDelete.push(id);
+        continue;
+      }
+      const touches = issue.targets.some(
+        (t) => t.type === "entry" && entryKeySet.has(t.entryKey),
+      );
+      if (touches || issue.targets.length === 0) {
+        toDelete.push(id);
+      }
+    }
+    for (const id of toDelete) delete this.issues[id];
+  }
+
   getByUrl(url: string): PageCacheEntry | undefined {
-    return this.map.get(url);
+    const entryKey = this.indexes.byUrl[url];
+    if (!entryKey) {
+      const legacyKey = `legacy${url.replace(/\//g, "__")}`;
+      const legacyIssues = this.getIssuesByEntryKey(legacyKey);
+      if (legacyIssues.length === 0 && !this.runMetaByEntry[legacyKey]) return undefined;
+      return pageEntryFromStored(legacyIssues, this.runMetaByEntry[legacyKey]);
+    }
+    const issues = this.getIssuesByEntryKey(entryKey);
+    const meta = this.runMetaByEntry[entryKey];
+    if (issues.length === 0 && !meta) return undefined;
+    return pageEntryFromStored(issues, {
+      lastRunAt: meta?.lastRunAt,
+      lastFullRunAt: meta?.lastRunAt,
+    });
+  }
+
+  getByEntryKey(entryKey: string): PageCacheEntry | undefined {
+    const issues = this.getIssuesByEntryKey(entryKey);
+    const meta = this.runMetaByEntry[entryKey];
+    if (issues.length === 0 && !meta) return undefined;
+    return pageEntryFromStored(issues, {
+      lastRunAt: meta?.lastRunAt,
+      lastFullRunAt: meta?.lastRunAt,
+    });
   }
 
   setByUrl(url: string, entry: PageCacheEntry): void {
-    this.map.set(url, entry);
+    let entryKey = this.indexes.byUrl[url];
+    if (!entryKey) {
+      entryKey = `legacy${url.replace(/\//g, "__")}`;
+      this.indexes.byUrl[url] = entryKey;
+    }
+
+    const existingIds = [...(this.indexes.byEntry[entryKey] ?? [])];
+    for (const id of existingIds) delete this.issues[id];
+
+    const nowIso = entry.lastRunAt || new Date().toISOString();
+    const byValidator: Record<string, string> = {};
+
+    const add = (raw: ValidationIssue, severity: "error" | "warning") => {
+      const validator = raw.validator || "legacy";
+      const stored = issueToStored(
+        { ...raw, type: severity, validator },
+        validator,
+        nowIso,
+        [],
+        [{ type: "entry", entryKey, url, file: raw.file }],
+      );
+      this.issues[stored.id] = stored;
+      byValidator[validator] = nowIso;
+    };
+    for (const e of entry.errors) add(e, "error");
+    for (const w of entry.warnings) add(w, "warning");
+
+    this.runMetaByEntry[entryKey] = {
+      lastRunAt: nowIso,
+      byValidator,
+      dirty: false,
+    };
+    this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
   }
 
   getAll(): Map<string, PageCacheEntry> {
-    return this.map;
+    const map = new Map<string, PageCacheEntry>();
+    for (const [url, entryKey] of Object.entries(this.indexes.byUrl)) {
+      const entry = this.getByEntryKey(entryKey);
+      if (entry) map.set(url, entry);
+    }
+    return map;
   }
 
   getByDatabase(name: string): DatabaseCacheEntry | undefined {
@@ -183,10 +576,10 @@ export class ValidationCacheService {
     this.lastFullRunAt = ts;
   }
 
-  /**
-   * Serialize writes through a Promise chain so concurrent flushes
-   * never interleave writes to the same file.
-   */
+  getLastFullRunAt(): string | null {
+    return this.lastFullRunAt;
+  }
+
   flush(): Promise<void> {
     this.writeQueue = this.writeQueue.then(() => this.doFlush()).catch((err) => {
       log.error({ err }, "[ValidationCache] Flush error");
@@ -194,10 +587,26 @@ export class ValidationCacheService {
     return this.writeQueue;
   }
 
-  private buildCacheFile(): ValidationCacheFile {
+  private buildCacheFile(): ValidationCacheFileV5 {
+    const pages: Record<string, PageCacheEntry> = {};
+    for (const [url] of Object.entries(this.indexes.byUrl)) {
+      const entry = this.getByUrl(url);
+      if (entry) pages[url] = entry;
+    }
+
     return {
-      meta: { lastFullRunAt: this.lastFullRunAt, version: CACHE_VERSION },
-      pages: Object.fromEntries(this.map.entries()),
+      meta: {
+        version: CACHE_VERSION,
+        lastFullRunAt: this.lastFullRunAt,
+        lastSiteWideRunAt: this.lastSiteWideRunAt,
+      },
+      issues: this.issues,
+      indexes: this.indexes,
+      runMeta: {
+        byEntry: this.runMetaByEntry,
+        byScope: this.runMetaByScope,
+      },
+      pages,
       databases: Object.fromEntries(this.dbMap.entries()),
     };
   }
@@ -209,7 +618,6 @@ export class ValidationCacheService {
 
   private saveToBucket(): void {
     if (!IS_PRODUCTION || !gcs.available) return;
-
     const content = JSON.stringify(this.buildCacheFile(), null, 2) + "\n";
     gcs.debouncedUpload(this.gcsKey(), Buffer.from(content, "utf-8"), "application/json", 30_000);
   }
@@ -218,17 +626,15 @@ export class ValidationCacheService {
     try {
       this.writeLocalFile();
       log.info(
-        `[ValidationCache] Flushed ${this.map.size} page entries, ${this.dbMap.size} database entries to disk`,
+        `[ValidationCache] Flushed ${Object.keys(this.issues).length} issues, ${this.dbMap.size} database entries to disk`,
       );
     } catch (err) {
       log.error({ err }, "[ValidationCache] Failed to write cache file");
       return;
     }
-
     this.saveToBucket();
   }
 
-  /** Force-upload the cache to GCS (e.g. on graceful shutdown). */
   async shutdown(): Promise<void> {
     try {
       this.writeLocalFile();
@@ -236,9 +642,7 @@ export class ValidationCacheService {
       log.error({ err }, "[ValidationCache] Failed to write cache file on shutdown");
       return;
     }
-
     if (!IS_PRODUCTION || !gcs.available) return;
-
     await gcs.flushPending();
     try {
       const content = JSON.stringify(this.buildCacheFile(), null, 2) + "\n";
@@ -249,9 +653,111 @@ export class ValidationCacheService {
   }
 }
 
+export function listCacheIssuesFromStore(
+  cache: ValidationCacheService,
+  filters?: {
+    entryKey?: string;
+    url?: string;
+    scope?: ValidationScope;
+    redirect?: string;
+    media?: string;
+    database?: string;
+  },
+): Array<{
+  url: string;
+  entryKey?: string;
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  validator?: string;
+  category?: string;
+  lastFullRunAt?: string;
+  suggestion?: string;
+  file?: string;
+}> {
+  let issues = cache.getAllIssues();
+
+  if (filters?.entryKey) {
+    issues = cache.getIssuesByEntryKey(filters.entryKey);
+  } else if (filters?.url) {
+    const ek = cache.resolveEntryKeyFromUrl(filters.url);
+    issues = ek ? cache.getIssuesByEntryKey(ek) : [];
+  } else if (filters?.scope) {
+    issues = cache.getIssuesByScope(filters.scope);
+  } else if (filters?.redirect) {
+    issues = cache
+      .getAllIssues()
+      .filter((i) =>
+        i.targets.some((t) => t.type === "redirect" && t.from === filters.redirect),
+      );
+  } else if (filters?.media) {
+    issues = cache
+      .getAllIssues()
+      .filter((i) =>
+        i.targets.some((t) => t.type === "media" && t.imageId === filters.media),
+      );
+  } else if (filters?.database) {
+    issues = cache
+      .getAllIssues()
+      .filter((i) =>
+        i.targets.some((t) => t.type === "database" && t.dbSlug === filters.database),
+      );
+  }
+
+  const out: Array<{
+    url: string;
+    entryKey?: string;
+    severity: "error" | "warning";
+    code: string;
+    message: string;
+    validator?: string;
+    category?: string;
+    lastFullRunAt?: string;
+    suggestion?: string;
+    file?: string;
+  }> = [];
+
+  for (const issue of issues) {
+    if (issue.severity === "info") continue;
+    const entryTargets = issue.targets.filter((t) => t.type === "entry") as Array<{
+      type: "entry";
+      entryKey: string;
+      url?: string;
+    }>;
+    if (entryTargets.length === 0) {
+      out.push({
+        url: "",
+        severity: issue.severity,
+        code: issue.code,
+        message: issue.message,
+        validator: issue.validator,
+        category: issue.category,
+        lastFullRunAt: issue.lastRunAt,
+        suggestion: issue.suggestion,
+        file: issue.file,
+      });
+      continue;
+    }
+    for (const t of entryTargets) {
+      out.push({
+        url: t.url ?? "",
+        entryKey: t.entryKey,
+        severity: issue.severity,
+        code: issue.code,
+        message: issue.message,
+        validator: issue.validator,
+        category: issue.category,
+        lastFullRunAt: issue.lastRunAt,
+        suggestion: issue.suggestion,
+        file: issue.file,
+      });
+    }
+  }
+  return out;
+}
+
 let _defaultInstance: ValidationCacheService | null = null;
 
-/** Returns the ValidationCacheService for the default site. */
 export function getValidationCacheService(): ValidationCacheService {
   if (!_defaultInstance) {
     const contentRoot = getDefaultContentRoot();
@@ -260,14 +766,12 @@ export function getValidationCacheService(): ValidationCacheService {
   return _defaultInstance;
 }
 
-/** Load per-site validation caches from GCS before startup validation runs. */
 export async function loadValidationCachesFromBucket(): Promise<void> {
   await Promise.all(
     [...getSiteContextMap().values()].map((ctx) => ctx.validationCache.loadFromBucket()),
   );
 }
 
-/** Flush all per-site validation caches to GCS on shutdown. */
 export async function shutdownValidationCaches(): Promise<void> {
   await Promise.all(
     [...getSiteContextMap().values()].map((ctx) => ctx.validationCache.shutdown()),

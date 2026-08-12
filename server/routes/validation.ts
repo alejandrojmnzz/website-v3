@@ -13,10 +13,12 @@ import {
   listDiagnosticsJobs,
   startDiagnosticsJob,
 } from "../services/diagnosticsJobService";
+import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
 import {
-  buildFullPageCacheEntry,
-  collectIssuesByFile,
-} from "../services/validationCacheMerge";
+  isEntryLocalValidator,
+  ENTRY_LOCAL_VALIDATOR_NAMES,
+} from "../../scripts/validation/shared/runClass";
+import type { ValidationScope } from "../../scripts/validation/shared/runClass";
 import { validators as allPageValidators } from "../../scripts/validation/validators";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import {
@@ -26,12 +28,7 @@ import {
 } from "../../scripts/validation/shared/imageRegistrySrc";
 import type { ProgressEvent } from "../../scripts/validation/fixers/types";
 import { contentIndex } from "../content-index";
-import { getAvailableSchemaKeys } from "../schema-org";
 import { generateSsrSchemaHtml } from "../ssr-schema";
-import {
-  getSchemaOrgRequirementGaps,
-  validateHeroCourseCompanions,
-} from "../schema-org-requirements";
 import {
   hasSchemaOrgContributors,
   isSchemaOrgSection,
@@ -172,7 +169,7 @@ export function registerValidationRoutes(app: Express): void {
     }
   });
 
-  // Run validators for a single page only — faster than a full site scan
+  // Run entry-local validators for a single page — merge into unified store
   app.post("/api/validation/run-page", async (req, res) => {
     try {
       const { url, validators: validatorNames } = req.body;
@@ -181,7 +178,6 @@ export function registerValidationRoutes(app: Express): void {
         return res.status(400).json({ error: "Missing or invalid 'url' field" });
       }
 
-      // Site-wide validators cannot run meaningfully on a single page.
       const service = new ValidationService();
       await service.buildContext({ contentRoot: getContentRoot(res), ci: getCI(res) });
 
@@ -190,7 +186,6 @@ export function registerValidationRoutes(app: Express): void {
         return res.status(500).json({ error: "Failed to build validation context" });
       }
 
-      // Filter contentFiles to only those matching the requested URL
       const normalizedTarget = url.toLowerCase().replace(/\/$/, "") || "/";
       const allContentFiles = context.contentFiles;
       const filteredFiles = allContentFiles.filter((file) => {
@@ -198,19 +193,22 @@ export function registerValidationRoutes(app: Express): void {
         return fileUrl === normalizedTarget;
       });
 
-      // Temporarily narrow the context so validators only see the target page
       context.contentFiles = filteredFiles;
 
       let effectiveValidators = validatorNames as string[] | undefined;
       if (effectiveValidators) {
         effectiveValidators = effectiveValidators.filter(
-          (n) => !DIAGNOSTICS_SKIP_FOR_PER_PAGE.has(n) && n !== "lighthouse",
+          (n) =>
+            isEntryLocalValidator(n) &&
+            !DIAGNOSTICS_SKIP_FOR_PER_PAGE.has(n) &&
+            n !== "lighthouse",
         );
       } else {
-        // Default per-page pool: skip site-wide validators even when list omitted
-        effectiveValidators = allPageValidators
-          .map((v) => v.name)
-          .filter((n) => !DIAGNOSTICS_SKIP_FOR_PER_PAGE.has(n) && n !== "lighthouse");
+        effectiveValidators = [
+          ...ENTRY_LOCAL_VALIDATOR_NAMES.filter((n) =>
+            allPageValidators.some((v) => v.name === n),
+          ),
+        ];
       }
 
       let result;
@@ -220,25 +218,20 @@ export function registerValidationRoutes(app: Express): void {
           includeArtifacts: false,
         });
       } finally {
-        // Restore original contentFiles regardless of success/failure
         context.contentFiles = allContentFiles;
       }
 
-      // Update only this page's cache entry; leave all other entries untouched
       try {
         const cache = getValidationCache(res);
-        const nowIso = new Date().toISOString();
-        const byFile = collectIssuesByFile(result.validators);
-
-        const combinedErrors: typeof result.validators[0]["errors"] = [];
-        const combinedWarnings: typeof result.validators[0]["warnings"] = [];
+        const entryKeys = filteredFiles.map((f) => entryKeyFromContentFile(f));
         for (const file of filteredFiles) {
-          const fileIssues = byFile.get(file.filePath) ?? { errors: [], warnings: [] };
-          combinedErrors.push(...fileIssues.errors);
-          combinedWarnings.push(...fileIssues.warnings);
+          cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
         }
-
-        cache.setByUrl(url, buildFullPageCacheEntry(combinedErrors, combinedWarnings, nowIso));
+        cache.applyValidatorResults(result.validators, {
+          contentFiles: allContentFiles,
+          entryKeys,
+          markSiteWide: false,
+        });
         await cache.flush();
       } catch (err) {
         log.warn({ err }, "ValidationCache post-process error (non-fatal)");
@@ -572,7 +565,15 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/validation/cache-issues", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
-    res.json({ issues: listCacheIssues(getValidationCache(res)) });
+    const filters = {
+      entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
+      url: typeof req.query.url === "string" ? req.query.url : undefined,
+      scope: typeof req.query.scope === "string" ? (req.query.scope as ValidationScope) : undefined,
+      redirect: typeof req.query.redirect === "string" ? req.query.redirect : undefined,
+      media: typeof req.query.media === "string" ? req.query.media : undefined,
+      database: typeof req.query.database === "string" ? req.query.database : undefined,
+    };
+    res.json({ issues: listCacheIssues(getValidationCache(res), filters) });
   });
 
   app.get("/api/validation/diagnostics-jobs", async (req, res) => {
@@ -887,200 +888,6 @@ export function registerValidationRoutes(app: Express): void {
         });
       }
 
-      const issues: any[] = [];
-
-      if (!schemaValidation.valid) {
-        for (const err of schemaValidation.errors) {
-          issues.push({
-            type: "error",
-            code: err.code,
-            message: err.path ? `${err.path}: ${err.message}` : err.message,
-            category: "schema-validation",
-            details: {
-              path: err.path,
-              expected: err.expected,
-              received: err.received,
-            },
-          });
-        }
-      }
-      for (const err of schemaValidation.errors) {
-        if (err.code === "MISSING_META") {
-          issues.push({
-            type: "warning",
-            code: err.code,
-            message: err.message,
-            category: "meta",
-            details: { path: err.path },
-          });
-        }
-      }
-
-      const schemaData = rawData.schema as
-        | { include?: string[]; overrides?: Record<string, unknown> }
-        | undefined;
-      if (schemaData?.include) {
-        const availableKeys = getAvailableSchemaKeys();
-        const availableSet = new Set(availableKeys);
-        for (const ref of schemaData.include) {
-          if (!availableSet.has(ref)) {
-            issues.push({
-              type: "error",
-              code: "INVALID_SCHEMA_REF",
-              message: `Invalid schema reference: "${ref}"`,
-              category: "schema-org",
-            });
-          }
-        }
-        if (schemaData.overrides) {
-          for (const key of Object.keys(schemaData.overrides)) {
-            if (!availableSet.has(key)) {
-              issues.push({
-                type: "error",
-                code: "INVALID_SCHEMA_OVERRIDE",
-                message: `Invalid schema override key: "${key}"`,
-                category: "schema-org",
-              });
-            }
-          }
-        }
-      }
-
-      const meta = file.meta || {};
-      let seoScore = 0;
-      let seoMax = 0;
-
-      seoMax += 20;
-      if (meta.page_title) {
-        seoScore += 20;
-      } else {
-        issues.push({
-          type: "warning",
-          code: "MISSING_PAGE_TITLE",
-          message: "Missing page_title",
-        });
-      }
-
-      seoMax += 10;
-      if (
-        meta.page_title &&
-        meta.page_title.length >= 30 &&
-        meta.page_title.length <= 60
-      ) {
-        seoScore += 10;
-      }
-
-      seoMax += 20;
-      if (meta.description) {
-        seoScore += 20;
-      } else {
-        issues.push({
-          type: "warning",
-          code: "MISSING_DESCRIPTION",
-          message: "Missing description",
-        });
-      }
-
-      seoMax += 10;
-      if (
-        meta.description &&
-        meta.description.length >= 70 &&
-        meta.description.length <= 160
-      ) {
-        seoScore += 10;
-      }
-
-      seoMax += 10;
-      if (meta.og_image) seoScore += 10;
-
-      seoMax += 10;
-      if (meta.canonical_url) seoScore += 10;
-
-      let schemaScore = 0;
-      let schemaMax = 0;
-
-      const hasSchemaOrgSection = sections.some((s: any) => isSchemaOrgSection(s));
-      const hasSectionDrivenEmission =
-        hasSchemaOrgSection || parsedSchemas.length > 0;
-
-      schemaMax += 30;
-      if (hasSectionDrivenEmission) {
-        schemaScore += 30;
-      }
-
-      schemaMax += 20;
-      if (parsedSchemas.length > 0) {
-        schemaScore += 20;
-      }
-
-      schemaMax += 15;
-      if (parsedSchemas.some((s: any) => s.name)) {
-        schemaScore += 15;
-      }
-
-      schemaMax += 15;
-      if (parsedSchemas.some((s: any) => s.description)) {
-        schemaScore += 15;
-      }
-
-      schemaMax += 10;
-      const hasPlaceholders = parsedSchemas.some((s: any) =>
-        JSON.stringify(s).match(/todo/i),
-      );
-      if (!hasPlaceholders) {
-        schemaScore += 10;
-      }
-
-      schemaMax += 10;
-      if (hasFaq) {
-        if (parsedSchemas.some((s: any) => s["@type"] === "FAQPage")) {
-          schemaScore += 10;
-        }
-      } else {
-        schemaScore += 10;
-      }
-
-      // CT schema_org_requirements + hero Course companion (award when N/A or satisfied)
-      schemaMax += 10;
-      const ctGaps = getSchemaOrgRequirementGaps(sections, file.type, getContentRoot(res), {
-        slug: file.slug,
-      });
-      const heroGaps = validateHeroCourseCompanions(sections, {
-        contentType: file.type,
-        slug: file.slug,
-        locale: file.locale,
-      });
-      if (ctGaps.length === 0 && heroGaps.length === 0) {
-        schemaScore += 10;
-      } else {
-        for (const g of [...ctGaps, ...heroGaps]) {
-          issues.push({
-            type: "warning",
-            code: "SCHEMA_ORG_COMPANION",
-            message: g.message,
-          });
-        }
-      }
-
-      let contentScore = 0;
-      let contentMax = 0;
-
-      contentMax += 25;
-      if (sections.length > 0) {
-        contentScore += 25;
-      }
-
-      contentMax += 20;
-      const allTyped = sections.every((s: any) => s.type);
-      if (sections.length > 0 && allTyped) {
-        contentScore += 20;
-      }
-
-      contentMax += 20;
-      if (counterpartFile) {
-        contentScore += 20;
-      }
-
       const emptyFields: string[] = [];
       function findEmptyFields(obj: unknown, path: string = ""): void {
         if (!obj || typeof obj !== "object") return;
@@ -1111,31 +918,37 @@ export function registerValidationRoutes(app: Express): void {
       }
       findEmptyFields(rawData);
 
-      contentMax += 20;
-      if (missingFromRegistry.length === 0 && missingFromDisk.length === 0) {
-        contentScore += 20;
-      }
+      const meta = file.meta || {};
+      const cache = getValidationCache(res);
+      const entryKey = entryKeyFromContentFile(file);
+      cache.registerUrl(url, entryKey);
 
-      const seoPercent = seoMax > 0 ? Math.round((seoScore / seoMax) * 100) : 0;
-      const schemaPercent =
-        schemaMax > 0 ? Math.round((schemaScore / schemaMax) * 100) : 0;
-      const contentPercent =
-        contentMax > 0 ? Math.round((contentScore / contentMax) * 100) : 0;
-      const totalScore = Math.round(
-        (seoPercent + schemaPercent + contentPercent) / 3,
-      );
+      const storedIssues = cache.getIssuesByEntryKey(entryKey);
+      const runMeta = cache.getRunMetaForEntry(entryKey);
+      const issues = storedIssues.map((s) => ({
+        type: s.severity === "error" ? "error" : s.severity === "info" ? "info" : "warning",
+        code: s.code,
+        message: s.message,
+        category: s.category,
+        suggestion: s.suggestion,
+        validator: s.validator,
+        file: s.file,
+        validationCacheBuiltAt: s.lastRunAt,
+      }));
 
-      const cachedEntry = getValidationCache(res).getByUrl(url) ?? null;
+      const cachedEntry = cache.getByUrl(url) ?? cache.getByEntryKey(entryKey) ?? null;
 
       res.json({
         url,
         contentType: file.type,
         slug: file.slug,
         locale: file.locale,
+        entryKey,
         filePath: file.filePath,
         title: file.title,
 
         cached: cachedEntry,
+        dirty: runMeta?.dirty === true,
 
         schemaValidation,
 
@@ -1202,11 +1015,9 @@ export function registerValidationRoutes(app: Express): void {
 
         issues,
 
-        score: {
-          total: totalScore,
-          seo: seoPercent,
-          schema: schemaPercent,
-          content: contentPercent,
+        education: {
+          summary:
+            "Validation uses one shared store. This page shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
         },
       });
     } catch (error) {

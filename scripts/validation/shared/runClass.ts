@@ -1,0 +1,90 @@
+/**
+ * Validator run-class taxonomy for the unified issue store.
+ */
+
+export type ValidatorRunClass = "entry-local" | "cross-entry" | "media" | "database";
+
+export type ValidationScope =
+  | "site"
+  | "entry"
+  | "redirects"
+  | "media"
+  | "database"
+  | "sitemap"
+  | "forms"
+  | "bindings";
+
+/** Default runClass when a validator omits metadata (conservative: entry-local). */
+const RUN_CLASS_BY_NAME: Record<string, ValidatorRunClass> = {
+  redirects: "cross-entry",
+  "slug-conflicts": "cross-entry",
+  "broken-anchors": "cross-entry",
+  sitemap: "cross-entry",
+  "orphaned-files": "cross-entry",
+  "source-name-collisions": "cross-entry",
+  images: "media",
+  "image-tags": "media",
+  "image-optimization": "media",
+  "hero-image-tags": "media",
+  "database-health": "database",
+  "database-singles": "database",
+  // everything else defaults to entry-local
+};
+
+export function getValidatorRunClass(name: string): ValidatorRunClass {
+  return RUN_CLASS_BY_NAME[name] ?? "entry-local";
+}
+
+export function isEntryLocalValidator(name: string): boolean {
+  return getValidatorRunClass(name) === "entry-local";
+}
+
+export function isCrossEntryValidator(name: string): boolean {
+  return getValidatorRunClass(name) === "cross-entry";
+}
+
+export function isMediaValidator(name: string): boolean {
+  return getValidatorRunClass(name) === "media";
+}
+
+export function isDatabaseValidator(name: string): boolean {
+  return getValidatorRunClass(name) === "database";
+}
+
+/** Scopes typically associated with a validator for indexing. */
+export function scopesForValidator(name: string): ValidationScope[] {
+  const runClass = getValidatorRunClass(name);
+  switch (runClass) {
+    case "cross-entry":
+      if (name === "redirects") return ["site", "entry", "redirects"];
+      if (name === "sitemap") return ["site", "sitemap"];
+      return ["site", "entry"];
+    case "media":
+      return ["site", "media", "entry"];
+    case "database":
+      return ["site", "database"];
+    default:
+      return ["entry"];
+  }
+}
+
+/** Entry-local validators safe to run on save / run-page / slug-filtered jobs. */
+export const ENTRY_LOCAL_VALIDATOR_NAMES = [
+  "meta",
+  "required-fields",
+  "seo-depth",
+  "seo-intent",
+  "schema-completeness",
+  "schema-org-companions",
+  "content-quality",
+  "section-variants",
+  "backgrounds",
+  "faqs",
+  "schema",
+  "forms",
+  "consent-legacy-keys",
+  "binding-integrity",
+  "component-behaviors",
+  "cta-tracking",
+  "static-field-overrides",
+] as const;

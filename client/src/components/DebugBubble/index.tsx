@@ -490,9 +490,12 @@ export function DebugBubble() {
         if (!data) return;
         const finalData = await autoValidateIfNeverRun(data);
         setPageDiagnostics(finalData);
+        // Auto-open from store issues (canonical truth) — not a parallel live list
+        const storeErrors = finalData.issues?.filter((i) => i.type === "error").length ?? 0;
+        const storeWarnings = finalData.issues?.filter((i) => i.type === "warning").length ?? 0;
         const cachedErrors = finalData.cached?.errors?.length ?? 0;
         const cachedWarnings = finalData.cached?.warnings?.length ?? 0;
-        if (cachedErrors > 0 || cachedWarnings > 0) {
+        if (storeErrors > 0 || storeWarnings > 0 || cachedErrors > 0 || cachedWarnings > 0) {
           setPageErrorsModalOpen(true);
         }
       })
@@ -2230,24 +2233,27 @@ export function DebugBubble() {
                 <span>System error</span>
               </button>
             )}
-            {/* Show "Page errors" indicator when diagnostics found issues */}
-            {(pageErrorCount > 0 || pageWarningCount > 0) && (
+            {(pageErrorCount > 0 || pageWarningCount > 0 || pageDiagnostics?.dirty) && (
               <button
                 onClick={() => setPageErrorsModalOpen(true)}
                 className="absolute left-full ml-1 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
                 style={{
                   top: pillTop((hasCommitIndicator ? 1 : 0) + (hasSystemAlerts ? 1 : 0)),
-                  backgroundColor: pageErrorCount > 0 ? '#ef4444' : '#f59e0b',
+                  backgroundColor: pageErrorCount > 0 ? '#ef4444' : pageDiagnostics?.dirty ? '#78716c' : '#f59e0b',
                   color: '#fff',
                   boxShadow: pageErrorCount > 0
                     ? '0 0 12px 2px rgba(239, 68, 68, 0.6), 0 0 20px 4px rgba(239, 68, 68, 0.3)'
                     : '0 0 12px 2px rgba(245, 158, 11, 0.6), 0 0 20px 4px rgba(245, 158, 11, 0.3)',
                 }}
                 data-testid="indicator-page-errors"
-                title={`${pageErrorCount} error${pageErrorCount !== 1 ? 's' : ''}, ${pageWarningCount} warning${pageWarningCount !== 1 ? 's' : ''} - click to view`}
+                title={
+                  pageDiagnostics?.dirty && pageErrorCount === 0 && pageWarningCount === 0
+                    ? "Validation may be outdated — click to view"
+                    : `${pageErrorCount} error${pageErrorCount !== 1 ? 's' : ''}, ${pageWarningCount} warning${pageWarningCount !== 1 ? 's' : ''} - click to view`
+                }
               >
                 <AlertTriangle className="h-3 w-3" />
-                <span>Page errors</span>
+                <span>{pageDiagnostics?.dirty && pageErrorCount === 0 ? "Stale" : "Page errors"}</span>
               </button>
             )}
           </div>

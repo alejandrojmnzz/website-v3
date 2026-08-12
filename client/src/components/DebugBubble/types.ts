@@ -200,8 +200,10 @@ export interface PageDiagnostics {
   contentType: string;
   slug: string;
   locale: string;
+  entryKey?: string;
   filePath: string;
   title: string;
+  dirty?: boolean;
   schemaValidation: {
     valid: boolean;
     errors: Array<{ path: string; code: string; message: string; expected?: string; received?: string }>;
@@ -211,10 +213,15 @@ export interface PageDiagnostics {
     code: string;
     message: string;
     category?: string;
+    suggestion?: string;
+    validator?: string;
+    file?: string;
     details?: { path?: string; expected?: string; received?: string };
   }>;
-  score: { total: number; seo: number; schema: number; content: number };
+  /** @deprecated Removed — use issue counts from the shared store. */
+  score?: { total: number; seo: number; schema: number; content: number };
   cached?: CachedValidationEntry | null;
+  education?: { summary: string };
 }
 
 export interface SeoData {

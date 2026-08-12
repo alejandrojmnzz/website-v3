@@ -129,29 +129,22 @@ interface PageDiagnostics {
     code: string;
     message: string;
     category?: string;
+    validator?: string;
     details?: {
       path?: string;
       expected?: string;
       received?: string;
     };
   }>;
-  score: { total: number; seo: number; schema: number; content: number };
+  /** @deprecated Removed from API — use issues from the shared store. */
+  score?: { total: number; seo: number; schema: number; content: number };
+  dirty?: boolean;
+  entryKey?: string;
+  education?: { summary: string };
 }
 
 type SeverityFilter = "all" | "errors" | "warnings";
 type CategoryFilter = "all" | "seo" | "integrity" | "content" | "components" | "forms" | "performance" | "bindings";
-
-function getScoreColorClass(score: number): string {
-  if (score >= 80) return "text-chart-3";
-  if (score >= 50) return "text-chart-2";
-  return "text-destructive";
-}
-
-function getScoreCssVar(score: number): string {
-  if (score >= 80) return "var(--chart-3)";
-  if (score >= 50) return "var(--chart-2)";
-  return "var(--destructive)";
-}
 
 function InfoPopover({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
@@ -170,29 +163,6 @@ function InfoPopover({ children, testId }: { children: React.ReactNode; testId?:
         {children}
       </PopoverContent>
     </Popover>
-  );
-}
-
-function ScoreCircle({ label, score }: { label: string; score: number }) {
-  const cssVar = getScoreCssVar(score);
-  const deg = (score / 100) * 360;
-
-  return (
-    <div className="flex flex-col items-center gap-2" data-testid={`score-${label.toLowerCase()}`}>
-      <div
-        className="relative flex items-center justify-center rounded-full"
-        style={{
-          width: 72,
-          height: 72,
-          background: `conic-gradient(hsl(${cssVar}) ${deg}deg, hsl(${cssVar} / 0.2) ${deg}deg 360deg)`,
-        }}
-      >
-        <div className="absolute inset-[6px] rounded-full bg-background flex items-center justify-center">
-          <span className={`text-lg font-bold ${getScoreColorClass(score)}`}>{score}</span>
-        </div>
-      </div>
-      <span className="text-xs text-muted-foreground font-medium">{label}</span>
-    </div>
   );
 }
 
@@ -990,6 +960,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <h2 className="text-xl font-semibold text-foreground" data-testid="text-global-health-title">
             Content Diagnostics
           </h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+            Shared validation store for the whole site. Page bubbles show the same issues filtered to each entry.
+          </p>
           {lastRun && (
             <p className="text-xs text-muted-foreground mt-1" data-testid="text-last-run">
               Last run: {lastRun.toLocaleTimeString()}
@@ -1342,18 +1315,52 @@ function PageAnalysisTab() {
             >{pageDiag.url}</a>
           </div>
 
-          <div className="flex flex-wrap items-center justify-start gap-6" data-testid="score-dashboard">
-            <ScoreCircle label="Total" score={pageDiag.score.total} />
-            <ScoreCircle label="SEO" score={pageDiag.score.seo} />
-            <ScoreCircle label="Schema" score={pageDiag.score.schema} />
-            <ScoreCircle label="Content" score={pageDiag.score.content} />
-            <InfoPopover testId="info-scores">
-              <p><strong className="text-foreground">Total</strong> is the simple average of the three sub-scores.</p>
-              <p><strong className="text-foreground">SEO</strong> (max 80 pts): page_title present (+20), title 30–60 chars (+10), description present (+20), description 70–160 chars (+10), og_image set (+10), canonical_url set (+10).</p>
-              <p><strong className="text-foreground">Schema</strong> (max 110 pts): section-driven schema emission — schema_org section or rendered JSON-LD (+30), valid parsed schemas (+20), schema has name (+15) and description (+15), no "todo" placeholders (+10), FAQPage schema present when FAQ sections exist (+10), content-type / hero Course companion requirements satisfied or N/A (+10).</p>
-              <p><strong className="text-foreground">Content</strong> (max 85 pts): has sections (+25), all sections typed (+20), counterpart locale exists (+20), all images resolve (+20).</p>
-            </InfoPopover>
+          <p className="text-sm text-muted-foreground max-w-2xl">
+            One shared validation store. Global Health lists every cached issue; the page DebugBubble
+            shows issues targeting that entry (including redirects/media). Saving re-checks local rules;
+            redirect conflicts refresh when redirect config changes or you run Redirects here. Results
+            persist until that area is re-validated — there is no health score %.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-4" data-testid="issue-count-dashboard">
+            <div className="rounded-lg border border-border px-4 py-3">
+              <p className="text-2xl font-bold text-destructive" data-testid="text-page-error-count">
+                {pageDiag.issues?.filter((i) => i.type === "error").length ?? 0}
+              </p>
+              <p className="text-xs text-muted-foreground">Errors</p>
+            </div>
+            <div className="rounded-lg border border-border px-4 py-3">
+              <p className="text-2xl font-bold text-chart-2" data-testid="text-page-warning-count">
+                {pageDiag.issues?.filter((i) => i.type === "warning").length ?? 0}
+              </p>
+              <p className="text-xs text-muted-foreground">Warnings</p>
+            </div>
+            {pageDiag.dirty && (
+              <Badge variant="secondary" data-testid="badge-page-dirty">May be outdated</Badge>
+            )}
           </div>
+
+          {pageDiag.issues && pageDiag.issues.length > 0 && (
+            <Card style={{ borderRadius: "0.8rem" }} data-testid="card-page-store-issues">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Store issues for this entry</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 max-h-64 overflow-auto">
+                {pageDiag.issues.map((issue, i) => (
+                  <div key={`${issue.code}-${i}`} className="text-xs border-b border-border/60 pb-2">
+                    <span className={issue.type === "error" ? "text-destructive font-medium" : "text-chart-2 font-medium"}>
+                      {issue.type}
+                    </span>
+                    {" · "}
+                    <span className="text-muted-foreground">{issue.validator || "unknown"}</span>
+                    {" · "}
+                    <code>{issue.code}</code>
+                    <div className="text-foreground mt-0.5">{issue.message}</div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
 
           {pageDiag.schemaValidation && !pageDiag.schemaValidation.valid && (

@@ -5,6 +5,10 @@
  * Used by both CLI and API.
  */
 
+import type { ValidationScope, ValidatorRunClass } from "./runClass";
+
+export type { ValidationScope, ValidatorRunClass } from "./runClass";
+
 export interface FixHint {
   type: "api" | "script" | "llm" | "manual";
   label: string;
@@ -46,10 +50,81 @@ export interface ValidatorMetadata {
   apiExposed: boolean;
   estimatedDuration: "fast" | "medium" | "slow";
   category: "content" | "seo" | "integrity" | "components" | "performance" | "forms" | "bindings";
+  /** Execution / clear-scope class. Defaults via runClass.ts map when omitted. */
+  runClass?: ValidatorRunClass;
 }
 
 export interface Validator extends ValidatorMetadata {
   run(context: ValidationContext): Promise<ValidatorResult>;
+}
+
+export type IssueTarget =
+  | {
+      type: "entry";
+      entryKey: string;
+      url?: string;
+      file?: string;
+      slug?: string;
+      contentType?: string;
+    }
+  | { type: "redirect"; from: string }
+  | { type: "media"; imageId: string }
+  | { type: "database"; dbSlug: string }
+  | { type: "file"; path: string };
+
+export interface StoredValidationIssue {
+  id: string;
+  code: string;
+  severity: "error" | "warning" | "info";
+  message: string;
+  suggestion?: string;
+  validator: string;
+  scopes: ValidationScope[];
+  targets: IssueTarget[];
+  file?: string;
+  line?: number;
+  category?: ValidatorMetadata["category"];
+  lastSeenAt: string;
+  lastRunAt: string;
+}
+
+export interface EntryRunMeta {
+  lastRunAt: string;
+  byValidator: Record<string, string>;
+  dirty?: boolean;
+}
+
+export interface ScopeRunMeta {
+  lastRunAt: string;
+  byValidator: Record<string, string>;
+  dirty?: boolean;
+}
+
+export interface ValidationCacheIndexes {
+  byEntry: Record<string, string[]>;
+  byScope: Partial<Record<ValidationScope, string[]>>;
+  byMedia: Record<string, string[]>;
+  byDatabase: Record<string, string[]>;
+  byRedirect: Record<string, string[]>;
+  /** Secondary: public URL → entryKey */
+  byUrl: Record<string, string>;
+}
+
+export interface ValidationCacheFileV5 {
+  meta: {
+    version: 5;
+    lastFullRunAt: string | null;
+    lastSiteWideRunAt: string | null;
+  };
+  issues: Record<string, StoredValidationIssue>;
+  indexes: ValidationCacheIndexes;
+  runMeta: {
+    byEntry: Record<string, EntryRunMeta>;
+    byScope: Partial<Record<ValidationScope, ScopeRunMeta>>;
+  };
+  /** @deprecated Compat projection rebuilt from issues; prefer issues + indexes. */
+  pages?: Record<string, PageCacheEntry>;
+  databases?: Record<string, DatabaseCacheEntry>;
 }
 
 export interface ContentMeta {
@@ -158,7 +233,8 @@ export interface DatabaseCacheEntry {
   warnings: ValidationIssue[];
 }
 
-export interface ValidationCacheFile {
+/** @deprecated v4 on-disk shape — migrated to ValidationCacheFileV5 on load. */
+export interface ValidationCacheFileV4 {
   meta: {
     lastFullRunAt: string | null;
     version: number;
@@ -166,3 +242,5 @@ export interface ValidationCacheFile {
   pages: Record<string, PageCacheEntry>;
   databases?: Record<string, DatabaseCacheEntry>;
 }
+
+export type ValidationCacheFile = ValidationCacheFileV5 | ValidationCacheFileV4;

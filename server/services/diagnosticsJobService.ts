@@ -11,39 +11,26 @@ import * as fs from "fs";
 import * as path from "path";
 import type {
   PageCacheEntry,
-  ValidationIssue,
   ValidatorResult,
 } from "../../scripts/validation/shared/types";
 import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
+import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import {
+  getValidatorRunClass,
+  isCrossEntryValidator,
+  isEntryLocalValidator,
+} from "../../scripts/validation/shared/runClass";
 import { validators as defaultValidators, getValidator } from "../../scripts/validation/validators";
 import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
-import {
-  buildFullPageCacheEntry,
-  collectIssuesByFile,
-  isUrlStaleForFullRun,
-  mergePartialPageCacheEntry,
-} from "./validationCacheMerge";
+import { listCacheIssuesFromStore } from "./validationCacheService";
+import { isUrlStaleForFullRun } from "./validationCacheMerge";
 import { child } from "../logger";
 
 const log = child({ module: "diagnosticsJobService" });
 
 const MAX_JOB_ENVELOPES = 50;
-const SKIP_FOR_PER_PAGE = new Set(["broken-anchors", "slug-conflicts"]);
-const SITE_WIDE_VALIDATORS = new Set([
-  "database-health",
-  "broken-anchors",
-  "slug-conflicts",
-  "orphaned-files",
-  "images",
-  "image-optimization",
-  "image-tags",
-  "hero-image-tags",
-  "field-mappings",
-  "sitemap",
-]);
-
 export type DiagnosticsFreshness = "hard" | "max_age";
 export type DiagnosticsJobStatus =
   | "queued"
@@ -321,7 +308,10 @@ function issuesBySlugFromTargets(
   return { issuesBySlug, lastFullRunAtBySlug, cacheMisses };
 }
 
-function effectiveValidatorNames(requested?: string[]): {
+function effectiveValidatorNames(
+  requested?: string[],
+  opts?: { slugFiltered?: boolean },
+): {
   pageValidators: string[];
   siteWideValidators: string[];
   partial: boolean;
@@ -332,20 +322,16 @@ function effectiveValidatorNames(requested?: string[]): {
       ? requested.filter((n) => n !== "lighthouse" && !!getValidator(n))
       : pool;
 
-  const resolved = names.filter((n) => n !== "lighthouse" && !!getValidator(n));
+  let resolved = names.filter((n) => n !== "lighthouse" && !!getValidator(n));
   const partial = !!(requested && requested.length > 0);
-  const pageValidators = resolved.filter(
-    (n) => !SITE_WIDE_VALIDATORS.has(n) && !SKIP_FOR_PER_PAGE.has(n),
-  );
-  const siteWideValidators = resolved.filter((n) => SITE_WIDE_VALIDATORS.has(n));
-  // If caller asked for skip-for-per-page validators explicitly (partial), include as site-wide
-  if (partial) {
-    for (const n of resolved) {
-      if (SKIP_FOR_PER_PAGE.has(n) && !siteWideValidators.includes(n)) {
-        siteWideValidators.push(n);
-      }
-    }
+
+  // Slug-filtered jobs: entry-local only (never cross-entry on a subset)
+  if (opts?.slugFiltered) {
+    resolved = resolved.filter((n) => isEntryLocalValidator(n));
   }
+
+  const pageValidators = resolved.filter((n) => getValidatorRunClass(n) === "entry-local");
+  const siteWideValidators = resolved.filter((n) => getValidatorRunClass(n) !== "entry-local");
   return { pageValidators, siteWideValidators, partial };
 }
 
@@ -368,8 +354,10 @@ async function runJob(contentRoot: string, jobId: string): Promise<void> {
       ci,
     });
     const includeArtifacts = job.include_artifacts;
+    const slugFiltered = !!(job.slugs?.length || job.urls?.length);
     const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(
       job.validators,
+      { slugFiltered },
     );
 
     const allTargets = await resolveUrlTargets(
@@ -413,32 +401,12 @@ async function runJob(contentRoot: string, jobId: string): Promise<void> {
         });
         allValidatorResults.push(...result.validators);
 
-        const byFile = collectIssuesByFile(result.validators);
-        const combinedErrors: ValidationIssue[] = [];
-        const combinedWarnings: ValidationIssue[] = [];
-        for (const file of filteredFiles) {
-          const fileIssues = byFile.get(file.filePath) ?? { errors: [], warnings: [] };
-          combinedErrors.push(...fileIssues.errors);
-          combinedWarnings.push(...fileIssues.warnings);
-        }
-        const ts = nowIso();
-        if (partial) {
-          cache.setByUrl(
-            target.url,
-            mergePartialPageCacheEntry(
-              cache.getByUrl(target.url),
-              combinedErrors,
-              combinedWarnings,
-              new Set(pageValidators),
-              ts,
-            ),
-          );
-        } else {
-          cache.setByUrl(
-            target.url,
-            buildFullPageCacheEntry(combinedErrors, combinedWarnings, ts),
-          );
-        }
+        const entryKeys = filteredFiles.map((f) => entryKeyFromContentFile(f));
+        cache.applyValidatorResults(result.validators, {
+          contentFiles: allContentFiles,
+          entryKeys,
+          markSiteWide: false,
+        });
       } finally {
         context.contentFiles = allContentFiles;
       }
@@ -447,6 +415,7 @@ async function runJob(contentRoot: string, jobId: string): Promise<void> {
     }
 
     if (siteWideValidators.length > 0) {
+      // Never run cross-entry with filtered contentFiles
       context.contentFiles = allContentFiles;
       const result = await service.runValidators({
         validators: siteWideValidators,
@@ -454,63 +423,20 @@ async function runJob(contentRoot: string, jobId: string): Promise<void> {
       });
       allValidatorResults.push(...result.validators);
 
-      // Apply site-wide issues that have file paths onto URLs; database-health via post-process logic
-      const byFile = collectIssuesByFile(result.validators);
-      const ts = nowIso();
-      const ran = new Set(siteWideValidators);
-      const seenUrls = new Set<string>();
-      for (const file of allContentFiles) {
-        const url = getCanonicalUrl(file);
-        if (seenUrls.has(url)) continue;
-        seenUrls.add(url);
-        if (job.slugs?.length && !job.slugs.includes(file.slug)) continue;
-        const fileIssues = byFile.get(file.filePath);
-        if (!fileIssues) continue;
-        if (partial) {
-          cache.setByUrl(
-            url,
-            mergePartialPageCacheEntry(
-              cache.getByUrl(url),
-              fileIssues.errors,
-              fileIssues.warnings,
-              ran,
-              ts,
-            ),
-          );
-        } else if (staleTargets.some((t) => t.url === url) || job.freshness === "hard") {
-          // For full jobs, site-wide issues merge into pages that were refreshed or all on hard
-          const existing = cache.getByUrl(url);
-          if (existing) {
-            cache.setByUrl(
-              url,
-              mergePartialPageCacheEntry(
-                existing,
-                fileIssues.errors,
-                fileIssues.warnings,
-                ran,
-                existing.lastFullRunAt ? existing.lastRunAt : ts,
-              ),
-            );
-            // Preserve lastFullRunAt if already set by per-URL pass
-            const updated = cache.getByUrl(url)!;
-            if (existing.lastFullRunAt) {
-              cache.setByUrl(url, {
-                ...updated,
-                lastFullRunAt: existing.lastFullRunAt,
-                lastRunAt: existing.lastFullRunAt,
-              });
-            }
-          }
-        }
-      }
+      cache.applyValidatorResults(result.validators, {
+        contentFiles: allContentFiles,
+        markSiteWide: true,
+      });
 
-      // database-health db map
-      const dbHealth = result.validators.find((v) => v.name === "database-health");
-      if (dbHealth) {
-        const { applyValidationRunToCache } = await import("./validationCachePostProcess");
+      const { applyValidationRunToCache } = await import("./validationCachePostProcess");
+      const dbOnly = result.validators.filter((v) => getValidatorRunClass(v.name) === "database");
+      if (dbOnly.length > 0) {
         await applyValidationRunToCache(
           cache,
-          { summary: { total: 1, passed: 0, failed: 0, warnings: 0, duration: 0 }, validators: [dbHealth] },
+          {
+            summary: { total: dbOnly.length, passed: 0, failed: 0, warnings: 0, duration: 0 },
+            validators: dbOnly,
+          },
           context,
           { partial: true },
         );
@@ -607,8 +533,10 @@ export async function startDiagnosticsJob(
   const maxAge = typeof req.max_age_seconds === "number" && req.max_age_seconds > 0
     ? req.max_age_seconds
     : 86400;
+  const slugFiltered = !!(req.slugs?.length || req.urls?.length);
   const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(
     req.validators,
+    { slugFiltered },
   );
 
   if (req.slugs && req.slugs.length > 0) {
@@ -837,8 +765,17 @@ export function listDiagnosticsJobs(contentRoot: string): DiagnosticsJobEnvelope
 
 export function listCacheIssues(
   cache: ValidationCacheService,
+  filters?: {
+    entryKey?: string;
+    url?: string;
+    scope?: import("../../scripts/validation/shared/runClass").ValidationScope;
+    redirect?: string;
+    media?: string;
+    database?: string;
+  },
 ): Array<{
   url: string;
+  entryKey?: string;
   severity: "error" | "warning";
   code: string;
   message: string;
@@ -848,47 +785,10 @@ export function listCacheIssues(
   suggestion?: string;
   file?: string;
 }> {
-  const out: Array<{
-    url: string;
-    severity: "error" | "warning";
-    code: string;
-    message: string;
-    validator?: string;
-    category?: string;
-    lastFullRunAt?: string;
-    suggestion?: string;
-    file?: string;
-  }> = [];
-  for (const [url, entry] of cache.getAll()) {
-    for (const e of entry.errors) {
-      out.push({
-        url,
-        severity: "error",
-        code: e.code,
-        message: e.message,
-        validator: e.validator,
-        category: e.category,
-        lastFullRunAt: entry.lastFullRunAt,
-        suggestion: e.suggestion,
-        file: e.file,
-      });
-    }
-    for (const w of entry.warnings) {
-      out.push({
-        url,
-        severity: "warning",
-        code: w.code,
-        message: w.message,
-        validator: w.validator,
-        category: w.category,
-        lastFullRunAt: entry.lastFullRunAt,
-        suggestion: w.suggestion,
-        file: w.file,
-      });
-    }
-  }
-  return out;
+  return listCacheIssuesFromStore(cache, filters);
 }
 
-/** Exported for tests / run-page SKIP set (lighthouse removed). */
-export const DIAGNOSTICS_SKIP_FOR_PER_PAGE = SKIP_FOR_PER_PAGE;
+/** Validators that must not run in per-page / slug-filtered mode (cross-entry). */
+export const DIAGNOSTICS_SKIP_FOR_PER_PAGE = new Set(
+  defaultValidators.filter((v) => isCrossEntryValidator(v.name)).map((v) => v.name),
+);

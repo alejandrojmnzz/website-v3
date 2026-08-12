@@ -5,6 +5,7 @@
  */
 
 import type { Validator, ValidatorMetadata } from "../shared/types";
+import { getValidatorRunClass } from "../shared/runClass";
 import { redirectValidator } from "./redirects";
 import { metaValidator } from "./meta";
 import { schemaValidator } from "./schema";
@@ -101,6 +102,7 @@ export function listValidators(): ValidatorMetadata[] {
     apiExposed: v.apiExposed,
     estimatedDuration: v.estimatedDuration,
     category: v.category,
+    runClass: v.runClass ?? getValidatorRunClass(v.name),
   }));
 }
 

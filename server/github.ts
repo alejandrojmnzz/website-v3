@@ -1585,7 +1585,7 @@ export async function ensureWebhook(opts?: { repoUrl?: string; contentRoot?: str
     let webhookId: number | null = null;
 
     if (existingHook) {
-      webhookId = await adoptWebhook(config, existingHook.id, secret);
+      webhookId = await adoptWebhook(config, existingHook.id, webhookUrl, secret);
       if (webhookId) {
         setWebhookInfo({
           webhookId,
@@ -1675,7 +1675,12 @@ async function findExistingWebhookOnGitHub(config: GitHubConfig, url: string): P
   }
 }
 
-async function adoptWebhook(config: GitHubConfig, hookId: number, newSecret: string): Promise<number | null> {
+async function adoptWebhook(
+  config: GitHubConfig,
+  hookId: number,
+  webhookUrl: string,
+  newSecret: string,
+): Promise<number | null> {
   try {
     const response = await fetch(
       `https://api.github.com/repos/${config.owner}/${config.repo}/hooks/${hookId}`,
@@ -1687,10 +1692,15 @@ async function adoptWebhook(config: GitHubConfig, hookId: number, newSecret: str
           'Content-Type': 'application/json',
           'X-GitHub-Api-Version': '2022-11-28',
         },
+        // GitHub requires `url` whenever `config` is sent.
         body: JSON.stringify({
           active: true,
+          events: ['push'],
           config: {
+            url: webhookUrl,
+            content_type: 'json',
             secret: newSecret,
+            insecure_ssl: '0',
           },
         }),
       }
@@ -1768,6 +1778,106 @@ export async function cleanupDuplicateWebhooks(config: GitHubConfig, activeWebho
   } catch {
     return [];
   }
+}
+
+/**
+ * Delete every GitHub webhook that targets this app URL, clear local webhook
+ * state, then create a fresh hook with a new HMAC secret.
+ * Use when signature verification is failing due to a secret mismatch.
+ */
+export async function forceResetWebhook(opts?: {
+  repoUrl?: string;
+  contentRoot?: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  deletedIds: number[];
+  webhookId?: number;
+  webhookUrl?: string;
+}> {
+  const { withSyncLogContextAsync } = await import("./sync-log");
+  return withSyncLogContextAsync(opts?.contentRoot, async () => {
+    const config = getGitHubConfig(opts?.repoUrl);
+    if (!config) {
+      return { success: false, message: "GitHub not configured.", deletedIds: [] };
+    }
+
+    const baseUrl = getWebhookBaseUrl();
+    const skipReason = getWebhookSetupSkipReason(baseUrl);
+    if (skipReason) {
+      return { success: false, message: `Skipped: ${skipReason}`, deletedIds: [] };
+    }
+
+    const webhookUrl = `${baseUrl!}/api/github/webhook`;
+    const { logSync } = await import("./sync-log");
+    const { clearWebhookInfo, getWebhookInfo } = await import("./sync-state");
+
+    const deletedIds: number[] = [];
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${config.owner}/${config.repo}/hooks?per_page=100`,
+        {
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+            Accept: "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        },
+      );
+      if (response.ok) {
+        const hooks: Array<{ id: number; config: { url: string } }> = await response.json();
+        const matching = hooks.filter((h) => h.config.url === webhookUrl);
+        await Promise.all(matching.map((h) => deleteWebhook(config, h.id)));
+        deletedIds.push(...matching.map((h) => h.id));
+        if (matching.length > 0) {
+          logSync(
+            "WEBHOOK",
+            `Force reset: deleted ${matching.length} webhook(s) at ${webhookUrl}: #${matching.map((h) => h.id).join(", #")}`,
+          );
+        } else {
+          logSync("WEBHOOK", `Force reset: no existing webhooks at ${webhookUrl}`);
+        }
+      } else {
+        const text = await response.text();
+        logSync("ERROR", `Force reset: failed to list webhooks (${response.status}): ${text}`);
+        return {
+          success: false,
+          message: `Failed to list GitHub webhooks (${response.status}). Check token permissions (admin:repo_hook).`,
+          deletedIds,
+        };
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logSync("ERROR", `Force reset: list/delete failed: ${msg}`);
+      return { success: false, message: `Failed to delete existing webhooks: ${msg}`, deletedIds };
+    }
+
+    clearWebhookInfo(opts?.contentRoot);
+    await ensureWebhook({ repoUrl: opts?.repoUrl, contentRoot: opts?.contentRoot });
+
+    const info = getWebhookInfo(opts?.contentRoot);
+    if (!info) {
+      return {
+        success: false,
+        message:
+          "Deleted existing hooks but failed to register a new one. Check that your GitHub token has the admin:repo_hook scope.",
+        deletedIds,
+        webhookUrl,
+      };
+    }
+
+    logSync(
+      "WEBHOOK",
+      `Force reset complete: webhook #${info.webhookId} active at ${info.webhookUrl}`,
+    );
+    return {
+      success: true,
+      message: `Re-setup complete. Deleted ${deletedIds.length} old webhook(s); new webhook #${info.webhookId} is active.`,
+      deletedIds,
+      webhookId: info.webhookId,
+      webhookUrl: info.webhookUrl,
+    };
+  });
 }
 
 async function deleteWebhook(config: GitHubConfig, webhookId: number): Promise<void> {

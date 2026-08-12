@@ -13,14 +13,14 @@ import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { IconAlertTriangle, IconRefresh, IconLoader2, IconClock } from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
 
-/** Validators that make sense for a single page (site-wide ones are skipped server-side anyway). */
+/** Validators that make sense for a single page (entry-local only). */
 export const PER_PAGE_VALIDATORS = [
   "meta",
+  "required-fields",
   "seo-depth",
   "seo-intent",
   "schema-completeness",
   "content-quality",
-  "images",
   "section-variants",
 ];
 
@@ -237,13 +237,28 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               )}
             </div>
 
+            <div className="p-3 rounded-md bg-muted/50 border border-border text-sm space-y-1">
+              <p className="text-muted-foreground text-xs">
+                Validation uses one shared store. This list shows issues that target this entry
+                (including redirects/media that touch it). Saving re-checks local rules; redirect
+                conflicts refresh when redirect config changes or via Redirects / Global Health.
+              </p>
+              {(!pageDiagnostics.issues || pageDiagnostics.issues.length === 0) && (
+                <p className="text-sm text-muted-foreground" data-testid="text-no-cached-issues">
+                  No cached issues for this entry.
+                </p>
+              )}
+            </div>
+
             <div className="p-3 rounded-md bg-muted/50 border border-border text-sm">
-              <div className="text-muted-foreground mb-1">Health Score</div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span data-testid="text-modal-score-total">Total: <strong>{pageDiagnostics.score?.total}%</strong></span>
-                <span data-testid="text-modal-score-seo">SEO: {pageDiagnostics.score?.seo}%</span>
-                <span data-testid="text-modal-score-schema">Schema: {pageDiagnostics.score?.schema}%</span>
-                <span data-testid="text-modal-score-content">Content: {pageDiagnostics.score?.content}%</span>
+              <div className="text-muted-foreground mb-1">Issue counts</div>
+              <div className="flex items-center gap-3 flex-wrap text-sm">
+                <span data-testid="text-modal-error-count">
+                  Errors: <strong>{pageDiagnostics.issues?.filter((i) => i.type === "error").length ?? 0}</strong>
+                </span>
+                <span data-testid="text-modal-warning-count">
+                  Warnings: <strong>{pageDiagnostics.issues?.filter((i) => i.type === "warning").length ?? 0}</strong>
+                </span>
               </div>
             </div>
           </div>
