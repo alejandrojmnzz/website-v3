@@ -114,10 +114,11 @@ Agent loop for adding a locale on shared-layout types (e.g. blog, authors) **whi
 
 1. **`translate_entry`** in `attached_fields` mode — supply field_mapping keys (`title`/`content`/`bio`, …) + optional `meta`; `sections` omit or `[]`. New target locale (no live file) → `draft.{locale}.yml` at 0%. Existing non-empty live → **merge** fields/meta (preserves unrelated keys and legacy `sections`). Draft may omit `editor.required` (warned); live merge hard-gates SEO/required. Shell still comes from `single.{locale}.yml`.
 2. Edit draft (`get_entry_content` with `variant: draft`) → `run_entry_diagnostics` with `slugs: [slug]` and `freshness: "hard"` (returns `queued` — do not wait) → poll `get_diagnostics_job` until `completed` → **`promote_variant`** (one locale on a live entry) or **`publish_draft`** (all-draft entry). Confirm with the user before promote/publish.
+3. After go-live success, follow the **required** `next_actions` entry: `run_entry_diagnostics` again (`hard` + slug) → poll `get_diagnostics_job` (refreshes live validation cache; server does not auto-queue diagnostics on publish/promote).
 
 **Custom shell (rare):** `set_entry_attachment` with `action: "detach"` and `confirm: true` bakes **all existing live** `{locale}.yml` files from `single.{locale}.yml` and sets `detached: true`. Does **not** invent missing siblings. Then `translate_entry` uses `detached_sections` mode (non-empty `sections` for new/full shell; fields-only merge preserves existing sections). Reattach with `action: "reattach"` + `confirm: true` (lossy: strips structure, deletes entry versioning/variants — preview when confirm omitted). Ordinary local section tweaks use section tools with `layout_target: "entry"` — **not** detach.
 
-**Non-effects:** `translate_entry` does not AI-translate; it does not create live public stubs for new locales; detach does not create missing locale files; migrate script `scripts/migrate-empty-detached-locales.ts` moves leftover empty live stubs to draft.
+**Non-effects:** `translate_entry` does not AI-translate; it does not create live public stubs for new locales; detach does not create missing locale files; migrate script `scripts/migrate-empty-detached-locales.ts` moves leftover empty live stubs to draft; `publish_draft` / `promote_variant` do **not** auto-start diagnostics — agents must follow `next_actions` (`run_entry_diagnostics` → `get_diagnostics_job`).
 
 ### Entry preview (`preview.props`)
 

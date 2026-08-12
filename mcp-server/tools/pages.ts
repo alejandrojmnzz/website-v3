@@ -21,7 +21,7 @@ import {
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { getTokenUsername } from "../lib/oauth.js";
-import { promoteWarnings, VARIANT_WARNINGS, actionRequired, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
+import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
   fail,
@@ -2120,7 +2120,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Fails if the entry already has a live locale (use promote_variant instead) or if some draft locales lack the variantSlug. " +
     "Also fails when resolved meta.page_title / meta.description are empty, when editor.required fields " +
     "(e.g. blog title + description) are empty, or when a detached locale would go live empty (EMPTY_LOCALE: no sections and no content). " +
-    "Confirm with the user before calling — this makes the page live.",
+    "Confirm with the user before calling — this makes the page live. " +
+    "On success, next_actions requires run_entry_diagnostics (hard + slug) then poll get_diagnostics_job.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -2197,7 +2198,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               kind: "publish_all_locales",
               summary: `Promoted ${variantSlug} to live locale files; remaining drafts are variants at 0%; may stamp published_at on _common.yml`,
             }],
-            next_actions: [],
+            next_actions: [diagnosticsAfterGoLiveNextAction(slug, site)],
           },
         );
       } catch (e) {
@@ -2216,7 +2217,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "For unpublished draft entries (no live locales), use publish_draft instead (all-or-nothing across locales). " +
     "Fails when resolved meta.page_title / meta.description are empty, editor.required fields are empty, " +
     "or the promoted detached locale would be empty (EMPTY_LOCALE: no sections and no content). " +
-    "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling.",
+    "This is a destructive operation — the previous live content will be replaced. Confirm with the user before calling. " +
+    "On success, next_actions requires run_entry_diagnostics (hard + slug) then poll get_diagnostics_job.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -2284,6 +2286,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               args_hint: { contentType, slug, locale },
             }]
           : [];
+        next_actions.push(diagnosticsAfterGoLiveNextAction(slug, site));
         return ok(
           { message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})` },
           { warnings: promoteWarnings(sharedLayout), next_actions },
@@ -2637,9 +2640,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         });
         next_actions.push({
           tool: "run_entry_diagnostics",
-          priority: "optional",
-          reason: "Validate the new live entry",
-          args_hint: { slugs: [slug], ...siteHint },
+          priority: "recommended",
+          reason: "Hard-refresh diagnostics for the new live entry (async — then poll get_diagnostics_job)",
+          args_hint: { slugs: [slug], freshness: "hard", ...siteHint },
         });
       } else {
         warnings.push({

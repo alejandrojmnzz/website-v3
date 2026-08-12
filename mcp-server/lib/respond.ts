@@ -130,3 +130,14 @@ export function promoteWarnings(sharedLayout: boolean): McpWarning[] {
   }
   return warnings;
 }
+
+/** Required follow-up after publish_draft / promote_variant — scoped hard refresh. */
+export function diagnosticsAfterGoLiveNextAction(slug: string, site?: string): NextAction {
+  return {
+    tool: "run_entry_diagnostics",
+    priority: "required",
+    reason:
+      "Hard-refresh diagnostics for the live page (async — then poll get_diagnostics_job)",
+    args_hint: { slugs: [slug], freshness: "hard", ...(site ? { site } : {}) },
+  };
+}

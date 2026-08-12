@@ -5,13 +5,14 @@
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { ok, fail, actionRequired } from "../mcp-server/lib/respond";
+import { ok, fail, actionRequired, diagnosticsAfterGoLiveNextAction } from "../mcp-server/lib/respond";
 
 const MUTATING_TOOLS = [
   "update_fields",
   "update_meta_fields",
   "create_variant",
   "promote_variant",
+  "publish_draft",
   "create_entry",
   "add_section",
   "remove_section",
@@ -70,6 +71,19 @@ describe("respond helpers", () => {
     expect(Array.isArray(payload.next_actions)).toBe(true);
     expect((payload.next_actions as unknown[]).length).toBe(1);
   });
+
+  it("diagnosticsAfterGoLiveNextAction shapes required hard refresh", () => {
+    const withSite = diagnosticsAfterGoLiveNextAction("my-slug", "4geeks.com");
+    expect(withSite).toEqual({
+      tool: "run_entry_diagnostics",
+      priority: "required",
+      reason:
+        "Hard-refresh diagnostics for the live page (async — then poll get_diagnostics_job)",
+      args_hint: { slugs: ["my-slug"], freshness: "hard", site: "4geeks.com" },
+    });
+    const noSite = diagnosticsAfterGoLiveNextAction("other");
+    expect(noSite.args_hint).toEqual({ slugs: ["other"], freshness: "hard" });
+  });
 });
 
 describe("mcp-server mutating tools use respond helpers", () => {
@@ -82,6 +96,16 @@ describe("mcp-server mutating tools use respond helpers", () => {
     );
     expect(src.includes("ok(")).toBe(true);
     expect(src.includes("fail(")).toBe(true);
+  });
+
+  it("publish_draft and promote_variant use diagnosticsAfterGoLiveNextAction", () => {
+    expect(src.includes("diagnosticsAfterGoLiveNextAction")).toBe(true);
+    const publishChunk = extractToolHandlerSource(src, "publish_draft");
+    const promoteChunk = extractToolHandlerSource(src, "promote_variant");
+    expect(publishChunk).toBeTruthy();
+    expect(promoteChunk).toBeTruthy();
+    expect(publishChunk!.includes("diagnosticsAfterGoLiveNextAction")).toBe(true);
+    expect(promoteChunk!.includes("diagnosticsAfterGoLiveNextAction")).toBe(true);
   });
 
   for (const tool of MUTATING_TOOLS) {

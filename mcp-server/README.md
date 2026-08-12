@@ -20,6 +20,8 @@ Every **mutating** tool success payload is JSON inside `content[0].text` and alw
 
 Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). Gates such as `confirm_live_edit`, `confirm_layout_target`, multi-site `site`, and `confirm_new_values` use `actionRequired` (not bare errors).
 
+**Go-live:** successful `publish_draft` / `promote_variant` include a **required** `next_actions` for `run_entry_diagnostics` (`freshness: "hard"`, scoped `slugs`) — then poll `get_diagnostics_job`. The server does not auto-queue diagnostics on publish.
+
 **Shared layout:** use the same tools with `layout_target` (`auto` \| `entry` \| `type_single`). MCP does **not** auto-fan-out sibling `single.*.yml` files — follow `next_actions`. Live `update_fields` edits that touch exactly one `sections.N` index **do** propagate section bindings (`bound_updates`). Multi-section updates are rejected.
 
 ## Tools
