@@ -1,5 +1,6 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, Home, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, Home, Info, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +60,169 @@ function ValidationBadge({
   );
 }
 
+function excludeReasonCopy(reason?: string): { title: string; body: string } {
+  switch (reason) {
+    case "noindex":
+      return {
+        title: "Excluded by robots",
+        body: "This page’s robots meta includes noindex, so it is left out of /sitemap.xml. It still exists and can be opened. Change robots under SEO → Visibility to index it.",
+      };
+    case "site_blocked":
+      return {
+        title: "Site indexing blocked",
+        body: "The whole site is disallowed for search indexing, so every URL is excluded from /sitemap.xml until block indexing is turned off in settings.",
+      };
+    case "empty_detached":
+      return {
+        title: "Empty detached locale",
+        body: "This locale is detached but empty, so it is not included in the sitemap.",
+      };
+    case "unresolved_url":
+    case "unresolved_slug":
+      return {
+        title: "URL could not be resolved",
+        body: "The page is missing a usable slug or URL pattern values, so it cannot be listed in the sitemap until those fields are fixed.",
+      };
+    default:
+      return {
+        title: "No sitemap",
+        body: "This page exists but is excluded from /sitemap.xml. Indexing is controlled by robots (and site-wide indexing settings), not by whether the content folder exists.",
+      };
+  }
+}
+
+function RowStatusBadges({ url }: { url: SitemapUrl }) {
+  const testIdBase = url.label.toLowerCase().replace(/\s+/g, "-");
+  const showNotInSitemap = url.inSitemap === false && !url.isDraft;
+  const { title, body } = excludeReasonCopy(url.excludeReason);
+
+  return (
+    <>
+      {url.isDraft && (
+        <Badge
+          variant="secondary"
+          className="shrink-0 text-[10px] px-1.5 py-0"
+          data-testid={`badge-draft-${testIdBase}`}
+        >
+          Draft
+        </Badge>
+      )}
+      {showNotInSitemap && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`badge-not-in-sitemap-${testIdBase}`}
+            >
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 cursor-pointer">
+                no sitemap
+              </Badge>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-72 space-y-1.5"
+            align="end"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-medium">{title}</p>
+            <p className="text-xs text-muted-foreground">{body}</p>
+          </PopoverContent>
+        </Popover>
+      )}
+    </>
+  );
+}
+
+function UrlRowActions({
+  url,
+  menuTestIdPrefix,
+  copyUrl,
+  extractSlug,
+  isBlogUrl,
+  handleDuplicatePage,
+  handleDeletePage,
+  handleDownloadYml,
+  handleEditYaml,
+  handleRefreshCache,
+}: {
+  url: SitemapUrl;
+  menuTestIdPrefix: string;
+  copyUrl: (loc: string) => void;
+  extractSlug: (loc: string) => string;
+  isBlogUrl: (loc: string) => boolean;
+  handleDuplicatePage: (url: SitemapUrl) => void;
+  handleDeletePage: (url: SitemapUrl) => void;
+  handleDownloadYml: (url: SitemapUrl) => void;
+  handleEditYaml: (url: SitemapUrl) => void;
+  handleRefreshCache: (url: SitemapUrl) => void;
+}) {
+  const id = url.label.toLowerCase().replace(/\s+/g, "-");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex-shrink-0 p-1 rounded bg-muted hover:bg-muted-foreground/20 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+          data-testid={`button-url-menu-${menuTestIdPrefix}${id}`}
+        >
+          <MoreVertical className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onClick={() => copyUrl(url.loc)} className="text-[13px]" data-testid={`menu-copy-url-${menuTestIdPrefix}${id}`}>
+          <Clipboard className="h-3.5 w-3.5 mr-2" />
+          Copy URL
+        </DropdownMenuItem>
+        {isBlogUrl(url.loc) ? (
+          <>
+            <DropdownMenuItem onClick={() => { window.location.href = "/private/type/blog"; }} className="text-[13px]" data-testid={`menu-blog-manager-${menuTestIdPrefix}${id}`}>
+              <ExternalLink className="h-3.5 w-3.5 mr-2" />
+              Open Blog Manager
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${menuTestIdPrefix}${id}`}>
+              <RefreshCw className="h-3.5 w-3.5 mr-2" />
+              Refresh Cache
+            </DropdownMenuItem>
+          </>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={() => handleDuplicatePage(url)} className="text-[13px]" data-testid={`menu-duplicate-${menuTestIdPrefix}${id}`}>
+              <Copy className="h-3.5 w-3.5 mr-2" />
+              Duplicate
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDownloadYml(url)} className="text-[13px]" data-testid={`menu-download-${menuTestIdPrefix}${id}`}>
+              <Download className="h-3.5 w-3.5 mr-2" />
+              Download YAML
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleEditYaml(url)} className="text-[13px]" data-testid={`menu-edit-yaml-${menuTestIdPrefix}${id}`}>
+              <Code className="h-3.5 w-3.5 mr-2" />
+              Edit YAML
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
+              className="text-[13px]"
+              data-testid={`menu-changelog-${menuTestIdPrefix}${id}`}
+            >
+              <History className="h-3.5 w-3.5 mr-2" />
+              View Change Log
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${menuTestIdPrefix}${id}`}>
+              <RefreshCw className="h-3.5 w-3.5 mr-2" />
+              Refresh Cache
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDeletePage(url)} className="text-[13px] text-destructive" data-testid={`menu-delete-${menuTestIdPrefix}${id}`}>
+              <Trash2 className="h-3.5 w-3.5 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function SitemapView({
   setMenuView,
   sitemapUrls,
@@ -87,6 +251,13 @@ export function SitemapView({
   });
   const siteDisallowed = !!robotsSettings?.block_indexing;
 
+  let inCount = 0;
+  let notInCount = 0;
+  for (const u of sitemapUrls) {
+    if (u.inSitemap === false) notInCount += 1;
+    else inCount += 1;
+  }
+
   const copyUrl = async (loc: string) => {
     await navigator.clipboard.writeText(loc);
     toast({ title: "Copied", description: loc, duration: 2000 });
@@ -95,16 +266,32 @@ export function SitemapView({
   const LOCALE_PREFIXES = new Set(["en", "es", "us"]);
 
   const extractSlug = (loc: string): string => {
-    const parts = new URL(loc).pathname.split('/').filter(Boolean);
-    const contentParts = parts.length > 0 && LOCALE_PREFIXES.has(parts[0]) ? parts.slice(1) : parts;
-    return contentParts[contentParts.length - 1] || '';
+    try {
+      const parts = new URL(loc).pathname.split("/").filter(Boolean);
+      const contentParts = parts.length > 0 && LOCALE_PREFIXES.has(parts[0]) ? parts.slice(1) : parts;
+      return contentParts[contentParts.length - 1] || "";
+    } catch {
+      return "";
+    }
   };
 
   const isBlogUrl = (loc: string): boolean => {
-    const parts = new URL(loc).pathname.split('/').filter(Boolean);
-    const hasLocale = parts[0] === 'en' || parts[0] === 'es' || parts[0] === 'us';
-    const contentParts = hasLocale ? parts.slice(1) : parts;
-    return contentParts[0] === 'blog';
+    try {
+      const parts = new URL(loc).pathname.split("/").filter(Boolean);
+      const hasLocale = parts[0] === "en" || parts[0] === "es" || parts[0] === "us";
+      const contentParts = hasLocale ? parts.slice(1) : parts;
+      return contentParts[0] === "blog";
+    } catch {
+      return false;
+    }
+  };
+
+  const safePath = (loc: string): string => {
+    try {
+      return new URL(loc).pathname + new URL(loc).search;
+    } catch {
+      return loc;
+    }
   };
 
   return (
@@ -136,20 +323,44 @@ export function SitemapView({
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <button
                   onClick={() => setMenuView("main")}
-                  className="p-1 rounded-md hover-elevate"
+                  className="p-1 rounded-md hover-elevate flex-shrink-0"
                   data-testid="button-back-to-main-sitemap"
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
-                <div>
-                  <h3 className="font-semibold text-sm">Sitemap URLs</h3>
-                  <p className="text-xs text-muted-foreground">{sitemapUrls.length} URLs indexed</p>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="p-0.5 rounded hover-elevate flex-shrink-0 text-muted-foreground"
+                          title="About Content URLs"
+                          data-testid="button-sitemap-info"
+                        >
+                          <Info className="h-3.5 w-3.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72" align="start" data-testid="sitemap-education">
+                        <p className="text-xs text-muted-foreground leading-snug">
+                          This list includes known content URLs.{" "}
+                          <span className="text-foreground/80">no sitemap</span> means the page exists but is
+                          excluded from /sitemap.xml (usually robots: noindex).{" "}
+                          <span className="text-foreground/80">Draft</span> means unpublished (preview only).
+                        </p>
+                      </PopoverContent>
+                    </Popover>
+                    <h3 className="font-semibold text-sm truncate">Content URLs</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate" data-testid="text-sitemap-counts">
+                    {inCount} in sitemap · {notInCount} no sitemap
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => setCreateContentModalOpen(true)}
                   className="p-1.5 rounded hover-elevate"
@@ -239,7 +450,8 @@ export function SitemapView({
                   {expandedFolders.has(folder.name) && (
                     <div className="ml-4 border-l pl-2 space-y-1 mt-1">
                       {folder.urls.map((url, urlIndex) => {
-                        const path = new URL(url.loc).pathname;
+                        const path = safePath(url.loc);
+                        const pathOnly = path.split("?")[0];
                         return (
                           <div
                             key={`${folder.name}-${urlIndex}-${url.loc}`}
@@ -248,75 +460,28 @@ export function SitemapView({
                             <a
                               href={path}
                               className="flex-1 min-w-0 text-xs text-muted-foreground cursor-pointer truncate"
-                              data-testid={`link-sitemap-url-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
+                              data-testid={`link-sitemap-url-${url.label.toLowerCase().replace(/\s+/g, "-")}`}
                             >
-                              {path.slice(folder.path.length + 1)}
+                              {pathOnly.slice(folder.path.length + 1) || path}
                             </a>
+                            <RowStatusBadges url={url} />
                             <ValidationBadge
-                              urlPath={path}
+                              urlPath={pathOnly}
                               validationSummary={validationSummary}
                               onOpenDiagnosticsForUrl={onOpenDiagnosticsForUrl}
                             />
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  className="flex-shrink-0 p-1 rounded bg-muted hover:bg-muted-foreground/20 transition-colors"
-                                  onClick={(e) => e.stopPropagation()}
-                                  data-testid={`button-url-menu-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
-                                >
-                                  <MoreVertical className="h-3 w-3 text-muted-foreground" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-44">
-                                <DropdownMenuItem onClick={() => copyUrl(url.loc)} className="text-[13px]" data-testid={`menu-copy-url-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                  <Clipboard className="h-3.5 w-3.5 mr-2" />
-                                  Copy URL
-                                </DropdownMenuItem>
-                                {isBlogUrl(url.loc) ? (
-                                  <>
-                                    <DropdownMenuItem onClick={() => { window.location.href = '/private/type/blog'; }} className="text-[13px]" data-testid={`menu-blog-manager-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <ExternalLink className="h-3.5 w-3.5 mr-2" />
-                                      Open Blog Manager
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                                      Refresh Cache
-                                    </DropdownMenuItem>
-                                  </>
-                                ) : (
-                                  <>
-                                    <DropdownMenuItem onClick={() => handleDuplicatePage(url)} className="text-[13px]" data-testid={`menu-duplicate-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <Copy className="h-3.5 w-3.5 mr-2" />
-                                      Duplicate
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleDownloadYml(url)} className="text-[13px]" data-testid={`menu-download-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <Download className="h-3.5 w-3.5 mr-2" />
-                                      Download YAML
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleEditYaml(url)} className="text-[13px]" data-testid={`menu-edit-yaml-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <Code className="h-3.5 w-3.5 mr-2" />
-                                      Edit YAML
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
-                                      className="text-[13px]"
-                                      data-testid={`menu-changelog-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
-                                    >
-                                      <History className="h-3.5 w-3.5 mr-2" />
-                                      View Change Log
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                                      Refresh Cache
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleDeletePage(url)} className="text-[13px] text-destructive" data-testid={`menu-delete-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                                      <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            <UrlRowActions
+                              url={url}
+                              menuTestIdPrefix=""
+                              copyUrl={copyUrl}
+                              extractSlug={extractSlug}
+                              isBlogUrl={isBlogUrl}
+                              handleDuplicatePage={handleDuplicatePage}
+                              handleDeletePage={handleDeletePage}
+                              handleDownloadYml={handleDownloadYml}
+                              handleEditYaml={handleEditYaml}
+                              handleRefreshCache={handleRefreshCache}
+                            />
                           </div>
                         );
                       })}
@@ -325,7 +490,8 @@ export function SitemapView({
                 </div>
               ))}
               {rootUrls.map((url, urlIndex) => {
-                const path = new URL(url.loc).pathname;
+                const path = safePath(url.loc);
+                const pathOnly = path.split("?")[0];
                 return (
                   <div
                     key={`root-${urlIndex}-${url.loc}`}
@@ -334,75 +500,28 @@ export function SitemapView({
                     <a
                       href={path}
                       className="flex-1 min-w-0 text-xs text-muted-foreground cursor-pointer truncate"
-                      data-testid={`link-sitemap-url-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
+                      data-testid={`link-sitemap-url-${url.label.toLowerCase().replace(/\s+/g, "-")}`}
                     >
                       {path}
                     </a>
+                    <RowStatusBadges url={url} />
                     <ValidationBadge
-                      urlPath={path}
+                      urlPath={pathOnly}
                       validationSummary={validationSummary}
                       onOpenDiagnosticsForUrl={onOpenDiagnosticsForUrl}
                     />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          className="flex-shrink-0 p-1 rounded bg-muted hover:bg-muted-foreground/20 transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                          data-testid={`button-url-menu-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
-                        >
-                          <MoreVertical className="h-3 w-3 text-muted-foreground" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem onClick={() => copyUrl(url.loc)} className="text-[13px]" data-testid={`menu-copy-url-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                          <Clipboard className="h-3.5 w-3.5 mr-2" />
-                          Copy URL
-                        </DropdownMenuItem>
-                        {isBlogUrl(url.loc) ? (
-                          <>
-                            <DropdownMenuItem onClick={() => { window.location.href = '/private/type/blog'; }} className="text-[13px]" data-testid={`menu-blog-manager-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <ExternalLink className="h-3.5 w-3.5 mr-2" />
-                              Open Blog Manager
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                              Refresh Cache
-                            </DropdownMenuItem>
-                          </>
-                        ) : (
-                          <>
-                            <DropdownMenuItem onClick={() => handleDuplicatePage(url)} className="text-[13px]" data-testid={`menu-duplicate-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <Copy className="h-3.5 w-3.5 mr-2" />
-                              Duplicate
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadYml(url)} className="text-[13px]" data-testid={`menu-download-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <Download className="h-3.5 w-3.5 mr-2" />
-                              Download YAML
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleEditYaml(url)} className="text-[13px]" data-testid={`menu-edit-yaml-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <Code className="h-3.5 w-3.5 mr-2" />
-                              Edit YAML
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
-                              className="text-[13px]"
-                              data-testid={`menu-changelog-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}
-                            >
-                              <History className="h-3.5 w-3.5 mr-2" />
-                              View Change Log
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleRefreshCache(url)} className="text-[13px]" data-testid={`menu-refresh-cache-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                              Refresh Cache
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeletePage(url)} className="text-[13px] text-destructive" data-testid={`menu-delete-root-${url.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                              <Trash2 className="h-3.5 w-3.5 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <UrlRowActions
+                      url={url}
+                      menuTestIdPrefix="root-"
+                      copyUrl={copyUrl}
+                      extractSlug={extractSlug}
+                      isBlogUrl={isBlogUrl}
+                      handleDuplicatePage={handleDuplicatePage}
+                      handleDeletePage={handleDeletePage}
+                      handleDownloadYml={handleDownloadYml}
+                      handleEditYaml={handleEditYaml}
+                      handleRefreshCache={handleRefreshCache}
+                    />
                   </div>
                 );
               })}

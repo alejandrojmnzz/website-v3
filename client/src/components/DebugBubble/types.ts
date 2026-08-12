@@ -8,6 +8,11 @@ export interface SitemapUrl {
   loc: string;
   label: string;
   locale?: string;
+  /** When false, page exists but is excluded from /sitemap.xml. Missing treated as true. */
+  inSitemap?: boolean;
+  excludeReason?: string;
+  /** Unpublished draft — preview URL only. */
+  isDraft?: boolean;
 }
 
 export interface RedirectItem {

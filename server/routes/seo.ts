@@ -23,6 +23,7 @@ import {
   clearSitemapCache,
   getSitemapCacheStatus,
   getSitemapUrls,
+  getDebugSitemapUrls,
   invalidateSitemapEntry,
   invalidateSitemapEntriesByContentKey,
   refreshSitemapEntry,
@@ -282,9 +283,9 @@ export function registerSeoRoutes(app: Express): void {
     }
   });
 
-  // Sitemap URLs as JSON (for debug tools)
+  // Sitemap URLs as JSON (for debug tools) — includes excluded + drafts
   app.get("/api/debug/sitemap-urls", (req, res) => {
-    const urls = getSitemapUrls(getSiteSitemapCtx(res));
+    const urls = getDebugSitemapUrls(getSiteSitemapCtx(res));
     res.json(urls);
   });
 

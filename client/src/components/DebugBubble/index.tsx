@@ -546,7 +546,11 @@ export function DebugBubble() {
         .then((res) => res.json())
         .then((data) => {
           setSitemapUrls(data);
-          setSitemapUrlCount(data.length);
+          setSitemapUrlCount(
+            Array.isArray(data)
+              ? data.filter((u: SitemapUrl) => u.inSitemap !== false).length
+              : 0,
+          );
           setSitemapLoading(false);
         })
         .catch(() => setSitemapLoading(false));
@@ -658,7 +662,11 @@ export function DebugBubble() {
         .then((r) => r.json())
         .then((d) => {
           setSitemapUrls(d);
-          setSitemapUrlCount(d.length);
+          setSitemapUrlCount(
+            Array.isArray(d)
+              ? d.filter((u: SitemapUrl) => u.inSitemap !== false).length
+              : 0,
+          );
           setSitemapLoading(false);
         })
         .catch(() => setSitemapLoading(false));
@@ -1499,7 +1507,13 @@ export function DebugBubble() {
     const folderMap = new Map<string, SitemapFolder>();
 
     filteredSitemapUrls.forEach((url) => {
-      const path = new URL(url.loc).pathname;
+      let path: string;
+      try {
+        path = new URL(url.loc).pathname;
+      } catch {
+        rootUrls.push(url);
+        return;
+      }
       const segments = path.split('/').filter(Boolean);
       
       // Root level pages (e.g., "/", "/about")
@@ -1808,7 +1822,11 @@ export function DebugBubble() {
         if (freshRes.ok) {
           const freshData = await freshRes.json();
           setSitemapUrls(freshData);
-          setSitemapUrlCount(freshData.length);
+          setSitemapUrlCount(
+            Array.isArray(freshData)
+              ? freshData.filter((u: SitemapUrl) => u.inSitemap !== false).length
+              : 0,
+          );
         }
       } else {
         console.error("Failed to clear sitemap cache");

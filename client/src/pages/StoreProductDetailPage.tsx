@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconShoppingBag, IconInfoCircle, IconGripVertical, IconPlus, IconTrash } from "@tabler/icons-react";
+import {
+  IconShoppingBag,
+  IconInfoCircle,
+  IconGripVertical,
+  IconPlus,
+  IconTrash,
+  IconSpeakerphone,
+  IconTarget,
+  IconShoppingCart,
+  IconBolt,
+} from "@tabler/icons-react";
 import { Link, useParams } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type ReactNode, useState } from "react";
+import { type ComponentType, type ReactNode, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -117,8 +127,18 @@ const FUNNEL_TAPER = {
   tight: "w-[64%] max-w-full",
 } as const;
 
+/** Very light stage washes — chart tokens at low opacity so phases stay distinct. */
+const FUNNEL_STAGE_TONE = {
+  full: "bg-primary/15 border-primary/25",
+  mid: "bg-chart-3/15 border-chart-3/25",
+  narrow: "bg-chart-2/15 border-chart-2/25",
+  tight: "bg-muted/40 border-border",
+} as const;
+
 function FunnelStage({
   label,
+  description,
+  icon: Icon,
   index,
   isLast,
   children,
@@ -126,6 +146,9 @@ function FunnelStage({
   taper = "full",
 }: {
   label: string;
+  /** Short helper under the stage name (e.g. TOFU / MOFU / BOFU meaning). */
+  description?: string;
+  icon?: ComponentType<{ className?: string }>;
   index: number;
   isLast?: boolean;
   children: ReactNode;
@@ -134,21 +157,37 @@ function FunnelStage({
   taper?: keyof typeof FUNNEL_TAPER;
 }) {
   return (
-    <div className="relative flex gap-3" data-testid={`funnel-stage-${label.toLowerCase().replace(/\s+/g, "-")}`}>
-      <div className="flex flex-col items-center w-6 shrink-0">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-[10px] font-mono text-muted-foreground z-[1]">
-          {index}
-        </div>
-        {!isLast && <div className="w-px flex-1 min-h-[12px] bg-border mt-1" aria-hidden />}
-      </div>
-      <div className={cn("flex-1 min-w-0 pb-5", isLast && "pb-0")}>
-        <div className={cn("mx-auto", FUNNEL_TAPER[taper])}>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</h3>
-            {actions}
+    <div
+      className={cn("pb-5", isLast && "pb-0")}
+      data-testid={`funnel-stage-${label.toLowerCase().replace(/\s+/g, "-")}`}
+    >
+      <div
+        className={cn(
+          "mx-auto rounded-lg border px-3 py-3",
+          FUNNEL_TAPER[taper],
+          FUNNEL_STAGE_TONE[taper],
+        )}
+      >
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="min-w-0 flex gap-2">
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-border/80 bg-background/60 text-[10px] font-mono text-muted-foreground">
+                {index}
+              </span>
+              {Icon && (
+                <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+              )}
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</h3>
+              {description && (
+                <p className="text-xs text-muted-foreground/80 mt-0.5 leading-snug">{description}</p>
+              )}
+            </div>
           </div>
-          {children}
+          {actions}
         </div>
+        {children}
       </div>
     </div>
   );
@@ -748,16 +787,10 @@ export default function StoreProductDetailPage() {
             </Card>
 
             <section className="space-y-1">
-              <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="mb-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   Conversion journey
                 </h2>
-                <AddFunnelPageModal
-                  disabled={saveMutation.isPending}
-                  suggestions={data.funnel.suggestions}
-                  excludeKeys={excludeKeys}
-                  onPick={(content_type, stepSlug) => addStep(content_type, stepSlug)}
-                />
               </div>
               {saveMutation.isError && (
                 <p className="text-xs text-destructive mb-2">
@@ -765,7 +798,13 @@ export default function StoreProductDetailPage() {
                 </p>
               )}
 
-              <FunnelStage label="Top of funnel" index={stageIndex++} taper="full">
+              <FunnelStage
+                label="Awareness"
+                description="Top of funnel (TOFU) — widest audience, most general, least ready to convert."
+                icon={IconSpeakerphone}
+                index={stageIndex++}
+                taper="full"
+              >
                 <TrafficSourcesEditor
                   sources={trafficSources}
                   disabled={saveMutation.isPending}
@@ -773,7 +812,13 @@ export default function StoreProductDetailPage() {
                 />
               </FunnelStage>
 
-              <FunnelStage label="Product" index={stageIndex++} taper="mid">
+              <FunnelStage
+                label="Consideration"
+                description="Middle of funnel (MOFU) — target audience / buyer persona; may already be a lead."
+                icon={IconTarget}
+                index={stageIndex++}
+                taper="mid"
+              >
                 <div className="space-y-2">
                   {locked.map((step) => (
                     <StaticStepCard key={`locked-${step.slug}`} step={step} />
@@ -782,7 +827,9 @@ export default function StoreProductDetailPage() {
               </FunnelStage>
 
               <FunnelStage
-                label="Journey steps"
+                label="Decision"
+                description="Bottom of funnel (BOFU) — narrower audience, MQL/SQL, ready to buy."
+                icon={IconShoppingCart}
                 index={stageIndex++}
                 taper="narrow"
                 isLast={!hasAuto}
@@ -853,7 +900,14 @@ export default function StoreProductDetailPage() {
               </FunnelStage>
 
               {hasAuto && (
-                <FunnelStage label="Always on" index={stageIndex++} taper="tight" isLast>
+                <FunnelStage
+                  label="Always on"
+                  description="Auto-appended for every product — not part of the authored TOFU→BOFU path."
+                  icon={IconBolt}
+                  index={stageIndex++}
+                  taper="tight"
+                  isLast
+                >
                   <p className="text-xs text-muted-foreground mb-2">
                     Pages with <code className="bg-muted px-1 rounded">ecommerce_products: all</code> —
                     appended automatically for every product.

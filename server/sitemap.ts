@@ -9,6 +9,12 @@ import { child } from "./logger";
 import type { SiteContext } from "./site-manager";
 import { getDefaultContentFolder } from "./site-config";
 import { isEmptyDetachedLocaleEntry } from "./empty-locale";
+import {
+  getEntryContentDir,
+  isDraftEntry,
+  listDraftLocales,
+} from "./draft-entry";
+import { isTemplateVersioningSlug } from "./shared-layout-entry";
 import path from "path";
 const log = child({ module: "sitemap" });
 
@@ -129,7 +135,6 @@ interface AvailableLocation {
   dirSlug: string;
   locale: string;
   name: string;
-  visibility: string;
   meta: ContentMeta;
 }
 
@@ -199,16 +204,12 @@ function getAvailableLocations(ci: typeof contentIndex = _ci()): AvailableLocati
         const merged = loadMergedContent("location", slug, locale, ci);
         if (!merged) continue;
 
-        const visibility = (merged.visibility as string) || "listed";
-        if (visibility !== "listed") continue;
-
         const meta = (merged.meta as ContentMeta) || {};
         locations.push({
           slug: (merged.slug as string) || slug,
           dirSlug: slug,
           locale,
           name: meta.page_title || (merged.name as string) || slug,
-          visibility,
           meta,
         });
       }
@@ -263,6 +264,21 @@ function shouldIndex(robots?: string, contentRoot?: string): boolean {
   if (isIndexingBlocked(contentRoot)) return false;
   if (!robots) return true;
   return !robots.toLowerCase().includes("noindex");
+}
+
+/**
+ * Resolve robots for a DB-mapped item — same defaults as YAML:
+ * entry override → field_mapping default → "" (index).
+ */
+function resolveDbItemRobots(
+  item: Record<string, unknown>,
+  typeName: string,
+  cf: string,
+): string {
+  if (typeof item.robots === "string") return item.robots;
+  const defaults = getFieldMappingDefaults(typeName, cf);
+  if (typeof defaults.robots === "string") return defaults.robots;
+  return "";
 }
 
 /** Unresolved {{ }} placeholders (e.g. slug: {{ single.slug }} from _common.single.yml). */
@@ -448,6 +464,13 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
         if (missing.length > 0) {
           log.warn(
             `[Sitemap] Skipping ${typeName} entry "${String(item.slug || item.id || "")}" (${locale}): cannot resolve URL pattern variable(s) ${missing.map((m) => `:${m}`).join(", ")} from entry data`,
+          );
+          continue;
+        }
+        const robots = resolveDbItemRobots(item, typeName, cf);
+        if (!shouldIndex(robots, contentRoot)) {
+          log.info(
+            `[Sitemap] Skipping noindex ${typeName}: ${String(item.slug || item.id || "")} (${locale})`,
           );
           continue;
         }
@@ -691,6 +714,369 @@ export function getSitemapUrls(ctx?: ActiveSiteCtx): Array<{
   return entriesToHumanReadable(Array.from(entriesMap.values()));
 }
 
+export type DebugSitemapUrl = {
+  loc: string;
+  label: string;
+  locale?: string;
+  content_type?: string;
+  slug?: string;
+  inSitemap: boolean;
+  excludeReason?: string;
+  isDraft?: boolean;
+};
+
+function splitContentKey(contentKey?: string): { content_type?: string; slug?: string } {
+  if (!contentKey) return {};
+  const colon = contentKey.indexOf(":");
+  if (colon <= 0) return {};
+  return {
+    content_type: contentKey.slice(0, colon),
+    slug: contentKey.slice(colon + 1),
+  };
+}
+
+function pushDebugUrl(
+  out: DebugSitemapUrl[],
+  opts: {
+    loc: string;
+    label: string;
+    locale?: string;
+    contentKey?: string;
+    inSitemap: boolean;
+    excludeReason?: string;
+    isDraft?: boolean;
+  },
+): void {
+  const { content_type, slug } = splitContentKey(opts.contentKey);
+  out.push({
+    loc: opts.loc,
+    label: opts.label,
+    ...(opts.locale ? { locale: opts.locale } : {}),
+    ...(content_type && slug ? { content_type, slug } : {}),
+    inSitemap: opts.inSitemap,
+    ...(opts.excludeReason && !opts.inSitemap && !opts.isDraft
+      ? { excludeReason: opts.excludeReason }
+      : {}),
+    ...(opts.isDraft ? { isDraft: true } : {}),
+  });
+}
+
+/**
+ * Debug-only content URL list: indexed + excluded (and drafts with preview locs).
+ * Does not write to the XML sitemap cache.
+ */
+export function getDebugSitemapUrls(ctx?: ActiveSiteCtx): DebugSitemapUrl[] {
+  _activeSiteCtx = ctx ?? null;
+  try {
+    const contentRoot = resolveSitemapContentRoot(ctx);
+    const siteBlocked = isIndexingBlocked(contentRoot);
+    const ci = ctx?.contentIndex ?? contentIndex;
+    const db = ctx?.database ?? databaseManager;
+    const cf = ctx?.contentRootName ?? getDefaultContentFolder();
+    const base = getBaseUrl(ctx);
+    const out: DebugSitemapUrl[] = [];
+    const seen = new Set<string>();
+
+    const emit = (opts: {
+      loc: string;
+      label: string;
+      locale?: string;
+      contentKey?: string;
+      indexable: boolean;
+      excludeReason?: string;
+      isDraft?: boolean;
+    }) => {
+      if (seen.has(opts.loc)) return;
+      seen.add(opts.loc);
+      const inSitemap = !siteBlocked && opts.indexable && !opts.isDraft;
+      pushDebugUrl(out, {
+        loc: opts.loc,
+        label: opts.label,
+        locale: opts.locale,
+        contentKey: opts.contentKey,
+        inSitemap,
+        excludeReason: siteBlocked
+          ? "site_blocked"
+          : opts.isDraft
+            ? undefined
+            : opts.excludeReason,
+        isDraft: opts.isDraft,
+      });
+    };
+
+    // Home
+    emit({
+      loc: `${base}/`,
+      label: "Home",
+      indexable: true,
+    });
+
+    // Programs
+    {
+      const slugs = ci.listContentSlugs("program");
+      for (const dirSlug of slugs) {
+        if (isDraftEntry("program", dirSlug, cf)) {
+          const dir = getEntryContentDir("program", dirSlug, cf);
+          const draftLocales = listDraftLocales(dir, false);
+          const locales = draftLocales.length > 0 ? draftLocales : getSupportedLocales(cf).slice(0, 1);
+          for (const locale of locales) {
+            emit({
+              loc: `${base}/private/preview/program/${dirSlug}?locale=${locale}`,
+              label: `Program: ${dirSlug} (${formatLocaleLabel(locale)})`,
+              locale,
+              contentKey: `program:${dirSlug}`,
+              indexable: false,
+              isDraft: true,
+            });
+          }
+          continue;
+        }
+        const locales = ci.getAvailableLocalesOrVariants("program", dirSlug);
+        for (const locale of locales) {
+          if (!getSupportedLocales(cf).includes(locale)) continue;
+          if (shouldSkipEmptyDetachedLocale("program", dirSlug, locale, ci)) {
+            continue;
+          }
+          const merged = loadMergedContent("program", dirSlug, locale, ci);
+          if (!merged) continue;
+          const meta = (merged.meta as ContentMeta) || {};
+          const urlSlug = resolveSitemapUrlSlug(merged.slug) ?? dirSlug;
+          const loc = `${base}${ci.buildUrl("program", locale, urlSlug)}`;
+          const title = meta.page_title || (merged.title as string) || dirSlug;
+          const entryNoindex = !!meta.robots?.toLowerCase().includes("noindex");
+          emit({
+            loc,
+            label: `${title} (${formatLocaleLabel(locale)})`,
+            locale,
+            contentKey: `program:${dirSlug}`,
+            indexable: !entryNoindex,
+            excludeReason: entryNoindex ? "noindex" : undefined,
+          });
+        }
+      }
+    }
+
+    // Locations (robots only — no visibility gate)
+    {
+      const slugs = ci.listContentSlugs("location");
+      for (const dirSlug of slugs) {
+        if (isDraftEntry("location", dirSlug, cf)) {
+          const dir = getEntryContentDir("location", dirSlug, cf);
+          const draftLocales = listDraftLocales(dir, false);
+          const locales = draftLocales.length > 0 ? draftLocales : getSupportedLocales(cf).slice(0, 1);
+          for (const locale of locales) {
+            emit({
+              loc: `${base}/private/preview/location/${dirSlug}?locale=${locale}`,
+              label: `Location: ${dirSlug} (${formatLocaleLabel(locale)})`,
+              locale,
+              contentKey: `location:${dirSlug}`,
+              indexable: false,
+              isDraft: true,
+            });
+          }
+          continue;
+        }
+        const locales = ci.getAvailableLocalesOrVariants("location", dirSlug);
+        for (const locale of locales) {
+          if (!getSupportedLocales(cf).includes(locale)) continue;
+          if (shouldSkipEmptyDetachedLocale("location", dirSlug, locale, ci)) continue;
+          const merged = loadMergedContent("location", dirSlug, locale, ci);
+          if (!merged) continue;
+          const meta = (merged.meta as ContentMeta) || {};
+          const urlSlug = resolveSitemapUrlSlug(merged.slug) ?? dirSlug;
+          const loc = `${base}${ci.buildUrl("location", locale, urlSlug)}`;
+          const name = meta.page_title || (merged.name as string) || dirSlug;
+          const entryNoindex = !!meta.robots?.toLowerCase().includes("noindex");
+          emit({
+            loc,
+            label: `Location: ${name} (${formatLocaleLabel(locale)})`,
+            locale,
+            contentKey: `location:${dirSlug}`,
+            indexable: !entryNoindex,
+            excludeReason: entryNoindex ? "noindex" : undefined,
+          });
+        }
+      }
+    }
+
+    // Template pages
+    {
+      const slugs = ci.listContentSlugs("page");
+      for (const dirSlug of slugs) {
+        if (isDraftEntry("page", dirSlug, cf)) {
+          const dir = getEntryContentDir("page", dirSlug, cf);
+          const draftLocales = listDraftLocales(dir, isTemplateVersioningSlug(dirSlug));
+          const locales = draftLocales.length > 0 ? draftLocales : getSupportedLocales(cf).slice(0, 1);
+          for (const locale of locales) {
+            emit({
+              loc: `${base}/private/preview/page/${dirSlug}?locale=${locale}`,
+              label: `Page: ${dirSlug} (${formatLocaleLabel(locale)})`,
+              locale,
+              contentKey: `page:${dirSlug}`,
+              indexable: false,
+              isDraft: true,
+            });
+          }
+          continue;
+        }
+        const locales = ci.getAvailableLocalesOrVariants("page", dirSlug);
+        for (const locale of locales) {
+          if (!getSupportedLocales(cf).includes(locale)) continue;
+          if (shouldSkipEmptyDetachedLocale("page", dirSlug, locale, ci)) continue;
+          const merged = loadMergedContent("page", dirSlug, locale, ci);
+          if (!merged) continue;
+          const meta = (merged.meta as ContentMeta) || {};
+          const urlSlug = resolveSitemapUrlSlug(merged.slug) ?? dirSlug;
+          const loc = `${base}${ci.buildUrl("page", locale, urlSlug)}`;
+          const title = meta.page_title || (merged.title as string) || dirSlug;
+          const entryNoindex = !!meta.robots?.toLowerCase().includes("noindex");
+          emit({
+            loc,
+            label: `Page: ${title} (${formatLocaleLabel(locale)})`,
+            locale,
+            contentKey: `page:${dirSlug}`,
+            indexable: !entryNoindex,
+            excludeReason: entryNoindex ? "noindex" : undefined,
+          });
+        }
+      }
+    }
+
+    // DB-backed types
+    try {
+      const allTypeConfigs = getAllConfigs(cf);
+      for (const [typeName, typeConfig] of Object.entries(allTypeConfigs)) {
+        if (!typeConfig.database?.slug) continue;
+        const dbName = typeConfig.database.slug;
+        const items = db.getMappedItems(dbName);
+        if (!items || items.length === 0) continue;
+        const localeFieldKey = getLocaleKey(typeName);
+        const localeSource = getLocaleSource(typeName);
+        const urlPatterns = typeConfig.url_pattern;
+        const fieldMapping = getFullFieldMapping(typeName);
+        const typeLabel = typeName.charAt(0).toUpperCase() + typeName.slice(1);
+        for (const item of items) {
+          let locale = "en";
+          if (localeFieldKey) {
+            const resolvedLocaleField =
+              fieldMapping && localeFieldKey in fieldMapping
+                ? fieldMapping[localeFieldKey]
+                : localeFieldKey;
+            const langVal = String(item[resolvedLocaleField] || item[localeFieldKey] || "en");
+            locale = localeSource ? applyTransformIfNeeded(localeSource, langVal) : langVal;
+          }
+          const urlPattern = urlPatterns[locale] || urlPatterns["en"];
+          if (!urlPattern) continue;
+          const defaults = getFieldMappingDefaults(typeName, cf);
+          const { missing } = extractUrlPatternParams(urlPattern, item, fieldMapping, defaults);
+          if (missing.length > 0) continue;
+          const itemUrl = `${base}${resolveUrlPatternWithMapping(urlPattern, item, locale, fieldMapping, defaults)}`;
+          const title = String(item.title || item.slug || item.id || "");
+          const itemSlug = String(item.slug || item.id || "");
+          const hreflangMap = resolveHreflangsFromRecord(item, typeName, cf);
+          const canonicalSlug = hreflangMap ? getCanonicalHreflangSlug(hreflangMap) : null;
+          const contentKey = canonicalSlug
+            ? `${typeName}:${canonicalSlug}`
+            : itemSlug
+              ? `${typeName}:${itemSlug}`
+              : undefined;
+          const robots = resolveDbItemRobots(item, typeName, cf);
+          const entryNoindex = robots.toLowerCase().includes("noindex");
+          emit({
+            loc: itemUrl,
+            label: `${typeLabel}: ${title} (${formatLocaleLabel(locale)})`,
+            locale,
+            contentKey,
+            indexable: !entryNoindex,
+            excludeReason: entryNoindex ? "noindex" : undefined,
+          });
+        }
+      }
+    } catch (err) {
+      log.warn("[Sitemap] Debug list: could not load DB-backed types:", err);
+    }
+
+    // Other YAML content types
+    const handledTypes = new Set(["program", "location", "page"]);
+    try {
+      const allTypeConfigs = getAllConfigs(cf);
+      for (const [typeName, typeConfig] of Object.entries(allTypeConfigs)) {
+        if (handledTypes.has(typeName)) continue;
+        if (typeConfig.database) continue;
+
+        const slugs = ci.listContentSlugs(typeName);
+        for (const slug of slugs) {
+          if (isDraftEntry(typeName, slug, cf)) {
+            const dir = getEntryContentDir(typeName, slug, cf);
+            const draftLocales = listDraftLocales(dir, isTemplateVersioningSlug(slug));
+            const locales = draftLocales.length > 0 ? draftLocales : getSupportedLocales(cf).slice(0, 1);
+            for (const locale of locales) {
+              emit({
+                loc: `${base}/private/preview/${typeName}/${slug}?locale=${locale}`,
+                label: `${typeName}: ${slug} (${formatLocaleLabel(locale)})`,
+                locale,
+                contentKey: `${typeName}:${slug}`,
+                indexable: false,
+                isDraft: true,
+              });
+            }
+            continue;
+          }
+
+          const locales = ci.getAvailableLocalesOrVariants(typeName, slug);
+          for (const locale of locales) {
+            if (!getSupportedLocales(cf).includes(locale)) continue;
+            if (shouldSkipEmptyDetachedLocale(typeName, slug, locale, ci)) {
+              // empty detached — no reliable public URL; skip per plan (only emit when loc resolvable)
+              continue;
+            }
+
+            const merged = loadMergedContent(typeName, slug, locale, ci);
+            if (!merged) continue;
+
+            const meta = (merged.meta as ContentMeta) || {};
+            const urlPattern =
+              typeConfig.url_pattern?.[locale] || typeConfig.url_pattern?.["default"];
+            let params: Record<string, string> | undefined;
+            if (urlPattern) {
+              const fieldMapping = getFullFieldMapping(typeName, cf);
+              const defaults = getFieldMappingDefaults(typeName, cf);
+              const extracted = extractUrlPatternParams(
+                urlPattern,
+                merged,
+                fieldMapping,
+                defaults,
+              );
+              if (extracted.missing.length > 0) continue;
+              params = extracted.params;
+            }
+            const urlSlug = resolveSitemapUrlSlug(merged.slug);
+            if (!urlSlug) continue;
+            const loc = `${base}${ci.buildUrl(typeName, locale, urlSlug, params)}`;
+            const title = meta.page_title || (merged.title as string) || slug;
+            const typeLabel = typeName.charAt(0).toUpperCase() + typeName.slice(1);
+            const entryNoindex = !!meta.robots?.toLowerCase().includes("noindex");
+            emit({
+              loc,
+              label: `${typeLabel}: ${title} (${formatLocaleLabel(locale)})`,
+              locale,
+              contentKey: `${typeName}:${slug}`,
+              indexable: !entryNoindex,
+              excludeReason: entryNoindex ? "noindex" : undefined,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      log.warn("[Sitemap] Debug list: error scanning YAML content types:", err);
+    }
+
+    return out;
+  } finally {
+    _activeSiteCtx = null;
+  }
+}
+
 export function clearSitemapCache(): { success: boolean; message: string } {
   const hadSiteCount = _perSiteSitemapCache.size;
 
@@ -796,9 +1182,9 @@ export function upsertSitemapEntry(entry: CanonicalSitemapEntry): void {
 
 /**
  * Build a single CanonicalSitemapEntry for one locale of a YAML-driven content
- * type. Returns null when the content is not found, not indexable, or filtered
- * out by type-specific rules (e.g. location visibility).
+ * type. Returns null when the content is not found or not indexable.
  * Blog posts are DB-backed and are not handled here.
+ * Location indexing is robots-only (visibility no longer gates the sitemap).
  */
 function buildSingleEntry(type: string, dirSlug: string, locale: string): CanonicalSitemapEntry | null {
   const merged = loadMergedContent(type, dirSlug, locale);
@@ -806,11 +1192,6 @@ function buildSingleEntry(type: string, dirSlug: string, locale: string): Canoni
 
   const meta = (merged.meta as ContentMeta) || {};
   if (!shouldIndex(meta.robots, resolveSitemapContentRoot(_activeSiteCtx ?? undefined))) return null;
-
-  if (type === "location") {
-    const visibility = (merged.visibility as string) || "listed";
-    if (visibility !== "listed") return null;
-  }
 
   // Prefer resolved merged.slug; fall back to dirSlug only when merged has no slug field
   // (classic YAML types). Never index unresolved {{ single.slug }} placeholders.

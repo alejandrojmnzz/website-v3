@@ -684,7 +684,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
 
               <MenuItem
                 icon={Map}
-                label="Indexed URLs"
+                label="Content URLs"
                 onClick={() => props.setMenuView("sitemap")}
                 indicator="chevron"
                 testId="button-sitemap-all-urls"
