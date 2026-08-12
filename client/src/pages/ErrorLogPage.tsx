@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 
 type LevelFilter = "all" | "error" | "warn";
 
@@ -66,6 +67,14 @@ function LevelBadge({ level }: { level: "error" | "warn" }) {
 }
 
 export default function ErrorLogPage() {
+  return (
+    <MetricsAccessGate>
+      <ErrorLogPageInner />
+    </MetricsAccessGate>
+  );
+}
+
+function ErrorLogPageInner() {
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
 
   const { data, isLoading, refetch, isFetching } = useQuery<ErrorLogResponse>({

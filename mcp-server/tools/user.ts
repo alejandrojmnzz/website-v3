@@ -23,7 +23,8 @@ export function registerUserTools(mcp: McpServer, mcpToken?: string): void {
     "get_current_user",
     "Return the identity, roles, and effective capabilities of the authenticated MCP caller. " +
       "Useful for agents that need to understand who they are acting as and what operations they are permitted to perform. " +
-      "Returns: username, firstName, lastName, email, roles (list of role names), and capabilities (list of effective capability names).",
+      "Returns: username, firstName, lastName, email, roles (list of role names), and capabilities (list of effective capability names). " +
+      "Note: metrics_view is read-only (diagnostics/insights/error log/conversions/tracking); it does not authorize content edits or job runs.",
     {},
     async () => {
       const username = mcpToken ? getTokenUsername(mcpToken) : null;

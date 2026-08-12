@@ -291,14 +291,14 @@ export function registerAuthRoutes(app: Express): void {
 
       // Auto-register user; grant webmaster if no one currently holds the role
       const noWebmasterExists = userStore.isFirstUser();
-      userStore.upsertUser({
+      const userRecord = userStore.upsertUser({
         username: profile.username,
         firstName: profile.firstName,
         lastName: profile.lastName,
         email: profile.email,
       });
       if (noWebmasterExists) {
-        userStore.assignRoles(profile.username, ["webmaster"]);
+        userStore.assignRoles(profile.username, ["webmaster"], profile.email);
         log.info(`[UserStore] Bootstrap: no webmaster existed — "${profile.username}" auto-assigned webmaster role`);
       }
 
@@ -306,22 +306,23 @@ export function registerAuthRoutes(app: Express): void {
       if (profile.email) {
         const pendingRole = userStore.claimPendingUser(profile.email);
         if (pendingRole) {
-          const existingUser = userStore.getUser(profile.username);
-          const currentRoles = existingUser?.roles ?? [];
+          const currentRoles = userStore.getUserRoles(profile.username, profile.email);
           if (!currentRoles.includes(pendingRole)) {
-            userStore.assignRoles(profile.username, [...currentRoles, pendingRole]);
+            userStore.assignRoles(profile.username, [...currentRoles, pendingRole], profile.email);
           }
           log.info(`[UserStore] Claimed pending role "${pendingRole}" for user "${profile.username}" via email match`);
         }
       }
 
-      const capabilities = userStore.getEffectiveCapabilities(profile.username);
+      const capabilities = userStore.getEffectiveCapabilities(profile.username, profile.email);
+      const roles = userStore.getUserRoles(profile.username, profile.email);
       const userName = profile.username;
-      const staffId = userStore.getOrCreateStaffUserId(profile.username);
+      const staffId = userStore.getOrCreateStaffUserId(profile.username, profile.email);
 
       res.json({
         valid: true,
         capabilities,
+        roles,
         userName,
         username: profile.username,
         staffId,

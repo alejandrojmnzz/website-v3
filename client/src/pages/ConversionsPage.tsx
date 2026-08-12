@@ -56,6 +56,8 @@ import type { ConsentValues } from "@/components/editing/ConsentCard";
 import { WebhookCard } from "@/components/editing/WebhookCard";
 import { SuccessCard } from "@/components/editing/SuccessCard";
 import { useToast } from "@/hooks/use-toast";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { type TrackingSettingsResponse, type ConversionEventEntry } from "@/lib/tracking";
 import { buildWebhookSamplePayload } from "@/lib/webhookPayload";
@@ -233,7 +235,16 @@ function UsageRows({ eventName }: { eventName: string }) {
 }
 
 export default function ConversionsPage() {
+  return (
+    <MetricsAccessGate>
+      <ConversionsPageInner />
+    </MetricsAccessGate>
+  );
+}
+
+function ConversionsPageInner() {
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
   const { session } = useSession();
 
   const sessionEnrichedPayload = buildWebhookSamplePayload(null, null, session);
@@ -616,7 +627,11 @@ export default function ConversionsPage() {
               <h1 className="text-xl font-semibold" data-testid="text-conversions-title">
                 Conversion Events
               </h1>
-              <p className="text-sm text-muted-foreground">Manage conversion event definitions</p>
+              <p className="text-sm text-muted-foreground">
+                {canMutateMetrics
+                  ? "Manage conversion event definitions"
+                  : "View conversion event definitions (read-only)"}
+              </p>
             </div>
           </div>
         </div>
@@ -656,7 +671,7 @@ export default function ConversionsPage() {
                   when no URL is set in settings.
                 </p>
               </div>
-              {!webhookEditing && trackingSettings?.webhook?.url && (
+              {!webhookEditing && trackingSettings?.webhook?.url && canMutateMetrics && (
                 <div className="flex items-center gap-2 shrink-0">
                   <Button
                     variant="outline"
@@ -701,6 +716,7 @@ export default function ConversionsPage() {
                 <p className="text-sm text-muted-foreground" data-testid="text-webhook-empty-state">
                   No global webhook configured yet.
                 </p>
+                {canMutateMetrics && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -710,6 +726,7 @@ export default function ConversionsPage() {
                   <IconPlus className="h-3.5 w-3.5" />
                   Configure
                 </Button>
+                )}
               </div>
             ) : !webhookEditing ? (
               <div className="space-y-2 py-1">
@@ -859,6 +876,7 @@ export default function ConversionsPage() {
                   <code className="font-mono text-xs">tracking.conversion_events</code>.
                 </p>
               </div>
+              {canMutateMetrics && (
               <Button
                 variant="outline"
                 size="sm"
@@ -869,6 +887,7 @@ export default function ConversionsPage() {
                 <IconPlus className="h-3.5 w-3.5" />
                 Add event
               </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="pt-0">
@@ -1030,6 +1049,8 @@ export default function ConversionsPage() {
                                   </TooltipTrigger>
                                   <TooltipContent>Show payload</TooltipContent>
                                 </Tooltip>
+                                {canMutateMetrics && (
+                                <>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button
@@ -1062,6 +1083,8 @@ export default function ConversionsPage() {
                                   </TooltipTrigger>
                                   <TooltipContent>Delete event</TooltipContent>
                                 </Tooltip>
+                                </>
+                                )}
                               </div>
                             </td>
                           </tr>

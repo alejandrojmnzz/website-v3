@@ -41,6 +41,8 @@ import { getGtmWebStatus, type GtmWebStatus } from "@/lib/gtm-web";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { TRACKING_EVENTS } from "@/lib/tracking";
 import { cn } from "@/lib/utils";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 
 interface TagManagerConfig {
   web_container_id: string;
@@ -77,6 +79,7 @@ function generateIpnSecret(): string {
 
 function WebContainerSection() {
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
   const [status, setStatus] = useState<GtmWebStatus>(() => getGtmWebStatus());
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -166,7 +169,7 @@ function WebContainerSection() {
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={!dirty || saving || isLoading}
+            disabled={!canMutateMetrics || !dirty || saving || isLoading}
             data-testid="button-save-web-container"
           >
             {saving ? (
@@ -319,6 +322,7 @@ function WebContainerSection() {
 
 function GTMSection() {
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
   const [showInstructions, setShowInstructions] = useState(false);
 
   const { data, isLoading } = useQuery<OptimizationConfig>({
@@ -479,7 +483,7 @@ function GTMSection() {
                   <button
                     type="button"
                     onClick={toggleEnabled}
-                    disabled={savingToggle}
+                    disabled={!canMutateMetrics || savingToggle}
                     className="shrink-0 text-muted-foreground disabled:opacity-50"
                     data-testid="toggle-sgtm-enabled"
                     aria-label={enabled ? "Disable sGTM proxy" : "Enable sGTM proxy"}
@@ -517,7 +521,7 @@ function GTMSection() {
                       size="sm"
                       variant="outline"
                       onClick={handleTestConnection}
-                      disabled={!serverUrl.trim() || testing}
+                      disabled={!canMutateMetrics || !serverUrl.trim() || testing}
                       data-testid="button-test-sgtm-connection"
                       className="shrink-0"
                     >
@@ -532,7 +536,7 @@ function GTMSection() {
                       type="button"
                       size="sm"
                       onClick={saveServerUrl}
-                      disabled={!serverUrlDirty || savingUrl}
+                      disabled={!canMutateMetrics || !serverUrlDirty || savingUrl}
                       data-testid="button-save-sgtm-server-url"
                       className="shrink-0"
                     >
@@ -581,7 +585,7 @@ function GTMSection() {
                       type="button"
                       size="sm"
                       onClick={saveProxyPath}
-                      disabled={!proxyPathDirty || savingPath}
+                      disabled={!canMutateMetrics || !proxyPathDirty || savingPath}
                       data-testid="button-save-sgtm-proxy-path"
                       className="shrink-0"
                     >
@@ -668,6 +672,7 @@ function IpnRecentCallsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
   const [clearing, setClearing] = useState(false);
   const [expandedAt, setExpandedAt] = useState<string | null>(null);
 
@@ -733,7 +738,7 @@ function IpnRecentCallsDialog({
             size="sm"
             variant="outline"
             onClick={handleClear}
-            disabled={clearing || calls.length === 0}
+            disabled={!canMutateMetrics || clearing || calls.length === 0}
             data-testid="button-clear-ipn-recent"
           >
             {clearing ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Clear"}
@@ -869,6 +874,7 @@ function destinationsForSave(dests: IpnDestinationConfig[]): IpnDestinationConfi
 
 function IpNormalizationSection() {
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
   const [showStapeSteps, setShowStapeSteps] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLog, setShowLog] = useState(false);
@@ -1118,7 +1124,8 @@ function IpNormalizationSection() {
                     <button
                       type="button"
                       onClick={toggleEnabled}
-                      className="text-muted-foreground"
+                      disabled={!canMutateMetrics}
+                      className="text-muted-foreground disabled:opacity-50"
                       data-testid="toggle-ipn-enabled"
                       aria-label={enabled ? "Disable IP Normalization" : "Enable IP Normalization"}
                     >
@@ -1179,6 +1186,7 @@ function IpNormalizationSection() {
                       size="sm"
                       variant="outline"
                       onClick={addDestination}
+                      disabled={!canMutateMetrics}
                       data-testid="button-add-ipn-destination"
                     >
                       <IconPlus className="h-4 w-4 mr-1.5" />
@@ -1681,6 +1689,14 @@ function EventsSection() {
 
 
 export default function TrackingPage() {
+  return (
+    <MetricsAccessGate>
+      <TrackingPageInner />
+    </MetricsAccessGate>
+  );
+}
+
+function TrackingPageInner() {
   const [location] = useLocation();
   const isSgtm = location === "/private/tracking/sgtm";
   const isIpn = location === "/private/tracking/ipn";

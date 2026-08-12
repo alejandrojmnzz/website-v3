@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, LogOut } from "lucide-react";
-import { IconRefresh } from "@tabler/icons-react";
+import { Check, Copy, LogOut, ChevronDown } from "lucide-react";
+import { IconRefresh, IconShield } from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,22 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { getConsumerToken, clearConsumerToken } from "@/hooks/useAuthUser";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { CAPABILITY_REGISTRY } from "@shared/capabilities";
+import { cn } from "@/lib/utils";
 
+const BUILT_IN_ROLE_LABELS: Record<string, string> = {
+  webmaster: "Webmaster",
+  metrics_viewer: "Metrics Viewer",
+};
+
+function capabilityLabel(name: string): string {
+  return CAPABILITY_REGISTRY.find((c) => c.name === name)?.label ?? name;
+}
+
+function roleLabel(roleId: string): string {
+  return BUILT_IN_ROLE_LABELS[roleId] ?? roleId;
+}
 interface SessionModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -123,6 +138,8 @@ export function SessionModal(props: SessionModalProps) {
   const [consumerToken, setConsumerTokenState] = useState<string | null>(() => getConsumerToken());
   const debugToken = hasToken ? getDebugToken() : null;
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rolesCapsOpen, setRolesCapsOpen] = useState(false);
+  const { roles, capabilities, isValidated } = useDebugAuth();
 
   // Re-read on open in case the user logged in/out since the modal mounted.
   useEffect(() => {
@@ -200,6 +217,117 @@ export function SessionModal(props: SessionModalProps) {
               testIdPrefix="consumer-session"
             />
           </div>
+
+          <Collapsible
+            open={rolesCapsOpen}
+            onOpenChange={setRolesCapsOpen}
+            className="rounded-md border border-border p-3 space-y-2"
+            data-testid="session-staff-roles-capabilities"
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 text-left hover-elevate rounded-sm -m-1 p-1"
+                data-testid="button-session-roles-capabilities-toggle"
+              >
+                <IconShield className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-semibold text-foreground shrink-0">
+                    Staff roles &amp; capabilities
+                  </h4>
+                  {!rolesCapsOpen && hasToken && isValidated !== false && (
+                    <div className="flex flex-wrap gap-1" data-testid="session-staff-roles-collapsed">
+                      {roles.length > 0 ? (
+                        roles.map((roleId) => (
+                          <Badge
+                            key={roleId}
+                            variant="secondary"
+                            className="text-xs font-mono"
+                            title={roleId}
+                            data-testid={`badge-session-role-${roleId}`}
+                          >
+                            {roleLabel(roleId)}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No roles assigned</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 text-muted-foreground shrink-0 transition-transform",
+                    rolesCapsOpen && "rotate-180",
+                  )}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2.5 pt-1">
+              {!hasToken || isValidated === false ? (
+                <p className="text-xs text-muted-foreground">
+                  Sign in with a staff token to see your assigned roles and capabilities.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Roles</p>
+                    <div className="flex flex-wrap gap-1.5" data-testid="session-staff-roles">
+                      {roles.length > 0 ? (
+                        roles.map((roleId) => (
+                          <Badge
+                            key={roleId}
+                            variant="secondary"
+                            className="text-xs font-mono"
+                            title={roleId}
+                            data-testid={`badge-session-role-expanded-${roleId}`}
+                          >
+                            {roleLabel(roleId)}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No roles assigned</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Capabilities</p>
+                    <div
+                      className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto"
+                      data-testid="session-staff-capabilities"
+                    >
+                      {capabilities.length > 0 ? (
+                        capabilities.map((cap) => (
+                          <Badge
+                            key={cap.name}
+                            variant="outline"
+                            className="text-xs font-mono"
+                            title={
+                              Array.isArray(cap.contentTypes)
+                                ? `${cap.name} (${cap.contentTypes.join(", ")})`
+                                : cap.contentTypes === "*"
+                                  ? `${cap.name} (all content types)`
+                                  : cap.name
+                            }
+                            data-testid={`badge-session-cap-${cap.name}`}
+                          >
+                            {capabilityLabel(cap.name)}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No capabilities</span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Roles are assigned in Security → Staff Users. Capability list is effective grants from
+                    those roles (see{" "}
+                    <code className="font-mono text-foreground">shared/capabilities.ts</code>).
+                  </p>
+                </>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
 
           <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Geolocation</h4>
