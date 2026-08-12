@@ -37,7 +37,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `update_fields` | Single-entry field writes (meta + body + one section); `updates[]` length ≥ 1 |
 | `update_meta_fields` | Multi-entry meta-only bulk (same `updates[]` across `slugs[]`, max 50) |
 | `add_section` / `remove_section` / `reorder_sections` / `replace_entry_sections` | Section topology |
-| `translate_entry` | Draft/live translation workflow |
+| `translate_entry` | Translate locale fields (attached) or sections (detached/classic); draft-first for new locales |
+| `set_entry_attachment` | Detach/reattach shared-layout shell ownership (`confirm` required to execute) |
 | `run_entry_diagnostics` | Async diagnostics job |
 | `get_section_bindings` | Binding-group membership |
 | `list_components` / `get_component_schema` / `get_component_variant` | Component registry |

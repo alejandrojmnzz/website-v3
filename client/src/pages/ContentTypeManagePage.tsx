@@ -3743,6 +3743,28 @@ function FieldMappingDialog({
                 URL / query values use{" "}
                 <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ param.* }}"}</code>.
               </p>
+              {contentType === "authors" && (
+                <div
+                  className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs space-y-1.5 text-muted-foreground"
+                  data-testid="fields-authors-person-education"
+                >
+                  <p className="font-medium text-foreground">Authors = Schema.org Person</p>
+                  <p>
+                    These fields map to a public Person entity (author hubs + BlogPosting.author). Fill for E-E-A-T:
+                    stable <code className="font-mono">name</code>, optional <code className="font-mono">jobTitle</code>,
+                    short <code className="font-mono">description</code> (bio), <code className="font-mono">sameAs</code>{" "}
+                    profile URLs, <code className="font-mono">worksFor</code>, <code className="font-mono">knowsAbout</code>{" "}
+                    topics, and a real portrait. Slug is immutable; default author{" "}
+                    <code className="font-mono">4geeks-academy</code> is undeletable. Blog posts only store slug
+                    pointers in <code className="font-mono">authors: []</code> — never paste Person JSON into blog.
+                  </p>
+                  <p>
+                    Agent playbook: <code className="font-mono">explain_site</code> topic{" "}
+                    <code className="font-mono">relation-fields</code>; field specs live in each field&apos;s editor
+                    description (sliders icon) and below.
+                  </p>
+                </div>
+              )}
               <p data-testid="fields-compute-education">
                 The <strong className="font-medium text-foreground">default</strong> is the fallback when an entry has no value
                 (click it to edit). Use the <strong className="font-medium text-foreground">Code</strong> button to compute

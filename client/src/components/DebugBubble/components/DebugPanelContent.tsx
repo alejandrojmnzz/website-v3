@@ -1270,11 +1270,15 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   </p>
                 </div>
                 <div>
-                  <p className="font-medium text-foreground mb-1">Translations after detach</p>
+                  <p className="font-medium text-foreground mb-1">Translations</p>
                   <ul className="list-disc pl-5 space-y-1">
+                    <li>
+                      Field translations do <strong className="font-medium">not</strong> need detach — use MCP{" "}
+                      <code className="text-[11px]">translate_entry</code> while attached (draft → promote)
+                    </li>
+                    <li>After detach, shell-owned locales use <code className="text-[11px]">translate_entry</code> sections mode or MCP <code className="text-[11px]">set_entry_attachment</code></li>
                     <li>New locales start as <code className="text-[11px]">draft.{"{locale}"}.yml</code> (not public) until promote/publish</li>
                     <li>Empty live stubs are converted to draft — they 404 publicly with an unavailable message</li>
-                    <li>Agents use MCP <code className="text-[11px]">translate_page</code> → edit draft → diagnose → promote</li>
                   </ul>
                 </div>
                 <div>

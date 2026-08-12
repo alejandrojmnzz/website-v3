@@ -52,8 +52,17 @@ Hydrated authors → `Person[]` with `url` / `@id` = author page. Broken / unres
 - If a post would become `[]`: require **reassignment** (picker / `reassignments` map); default = `4geeks-academy`.
 - Deleted author URLs **404** (no soft redirect).
 
-## Agent tools
+## Authors Person fields (fill guidance)
 
-- `get_content_type_info` → `relation_fields[]`, `immutable_slug`, `protected_slugs`
-- `delete_entries` → confirm + reassign
-- `explain_site` topic `relation-fields` (this doc)
+| Field | Schema.org | How to fill |
+|-------|------------|-------------|
+| `name` | `Person.name` | Required public byline name |
+| `job_title` | `Person.jobTitle` | Short role/credential |
+| `bio` | `Person.description` | ~50–100 words; factual; not meta.description |
+| `same_as` | `Person.sameAs` | Absolute profile URLs (https), one per tag |
+| `works_for` | `Person.worksFor` | Org name string → `{@type:Organization,name}` |
+| `knows_about` | `Person.knowsAbout` | Short topic tags (Text), not sentences |
+| `_image` | `Person.image` | Real portrait via Media Gallery |
+| `published_at` | (editorial) | Go-live; not a Person property |
+
+Never write Person JSON into blog `authors` — pointers only.

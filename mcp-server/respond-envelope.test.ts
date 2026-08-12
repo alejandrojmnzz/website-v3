@@ -18,6 +18,7 @@ const MUTATING_TOOLS = [
   "reorder_sections",
   "replace_entry_sections",
   "translate_entry",
+  "set_entry_attachment",
   "regenerate_entry_previews",
   "ensure_content_type_schema_org",
 ] as const;

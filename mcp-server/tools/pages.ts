@@ -61,6 +61,14 @@ import {
   bodyModelForConfig,
   createViaForConfig,
 } from "../lib/entry-helpers.js";
+import {
+  resolveTranslateMode,
+  splitTranslateContent,
+  filterAllowedFields,
+  buildTranslateLocaleData,
+  draftMissingRequiredWarnings,
+  listLiveLocaleFiles,
+} from "../lib/translate-entry.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
@@ -2359,7 +2367,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             code: "shared_layout_single_locale_create",
             message:
               "Shared-layout types go live immediately and must be created with exactly one locale. " +
-              "Create the first locale now; add translations later via translate_entry (draft → promote).",
+              "Create the first locale now; add translations later via translate_entry (draft → promote) with locale fields while attached.",
             contentType,
             slug,
             locales_provided: localeKeys,
@@ -2607,7 +2615,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           code: "shared_layout_single_locale_create",
           message:
             `Created live ${primaryLocale}.yml only. Did not seed sibling locales. ` +
-            "Add translations later with translate_entry (draft until promote) after content is ready; detach first if still attached.",
+            "Add translations later with translate_entry using locale fields while attached (draft until promote). " +
+            "Use set_entry_attachment only when this entry needs a custom shell (not for field translation).",
         });
         warnings.push({
           code: "published_at_stamped",
@@ -3364,20 +3373,23 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "translate_entry",
     "Write translated content for a target locale. Does NOT perform AI translation — supply the translated payload.\n\n" +
-    "Shared-layout types (e.g. blog): entry must be detached first; otherwise fails with require_detach.\n" +
-    "New target locale (no live file): writes draft.{locale}.yml at 0% traffic (not public). " +
-    "Empty live stub: auto-converts to draft then writes the translation into the draft. " +
-    "Existing non-empty live locale: overwrites live (must pass empty/SEO/required gates).\n" +
-    "Go live with promote_variant (live entry) or publish_draft (all-draft entry). Confirm with the user before promote/publish.",
+    "Modes (from entry state, not a detach flag):\n" +
+    "- attached shared-layout: locale field_mapping keys + optional meta; sections omit or []. Shell stays on single.{locale}.yml.\n" +
+    "- detached shared-layout or classic page: non-empty sections for new/full shell (fields optional); fields-only merges preserve existing sections.\n" +
+    "New target locale (no live file): writes draft.{locale}.yml at 0% (not public). " +
+    "Empty detached live stub: auto-converts to draft then writes. " +
+    "Existing non-empty live: merges fields/meta (preserves unrelated keys); live SEO/required gates apply.\n" +
+    "Custom shell ownership: set_entry_attachment (not this tool). Tiny field tweaks on existing locales: update_fields is fine.\n" +
+    "Go live with promote_variant or publish_draft (confirm with the user first).",
     {
       slug: z.string().describe("Page slug of the page to translate"),
-      contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
+      contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program', 'authors'). Omit to auto-detect from slug."),
       source_locale: z.string().describe("The locale code of the existing source file used for validation, e.g. 'en'"),
       target_locale: z.string().describe("The locale code to write the translated content to, e.g. 'es' or 'fr'"),
-      content: z.object({
-        meta: z.record(z.unknown()).optional().describe("Translated meta block (page_title, description, og_image, etc.)"),
-        sections: z.array(z.record(z.unknown())).describe("Fully translated sections array. Every section must include a 'type' field."),
-      }).describe("The complete translated payload. Caller is responsible for providing accurate translations."),
+      content: z.record(z.unknown()).describe(
+        "Translated payload. Attached: field keys (bio, title, content, …) + optional meta; sections [] or omit. " +
+        "Detached/classic: sections[] for shell translate; or fields-only to merge into an existing locale (preserves sections).",
+      ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ slug, contentType, source_locale, target_locale, content, site }) => {
@@ -3419,25 +3431,51 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const sharedLayout = isSharedLayoutType(resolved.contentType, contentPath);
       const detached = isEntryDetached(resolved.contentType, slug, contentPath);
+      const mode = resolveTranslateMode({ sharedLayout, detached });
 
-      if (sharedLayout && !detached) {
+      const split = splitTranslateContent(content as Record<string, unknown>);
+      const { allowed: allowedFields, rejected } = filterAllowedFields(split.fields, resolved.config);
+
+      if (mode === "attached_fields" && Array.isArray(split.sections) && split.sections.length > 0) {
+        const siteHint = site ? { site } : {};
         return actionRequired(
           {
             success: false,
-            action_required: "require_detach",
-            code: "require_detach",
+            action_required: "shared_layout_sections_must_be_empty",
+            code: "shared_layout_sections_must_be_empty",
             message:
-              `Shared-layout entry "${slug}" is still attached. Detach via POST /api/content/${resolved.contentType}/${slug}/detach ` +
-              "(or DebugBubble → Detach) before translate_entry. Detach only bakes existing live locale files; it does not invent siblings.",
+              "Attached shared-layout translate must use sections: [] (or omit sections). " +
+              "Put translated body in locale fields. For a custom per-entry shell, call set_entry_attachment " +
+              'with action: "detach" and confirm: true, then retry translate_entry with sections.',
             contentType: resolved.contentType,
             slug,
+            mode,
           },
           [
             {
-              tool: "get_entry_content",
-              reason: "Confirm attached shared-layout state, then detach in admin/API, then retry translate_entry",
-              args_hint: { slug, contentType: resolved.contentType, locale: source_locale },
+              tool: "translate_entry",
+              reason: "Retry with field_mapping keys and sections: [] (or omit sections)",
+              args_hint: {
+                slug,
+                contentType: resolved.contentType,
+                source_locale,
+                target_locale,
+                content: { ...allowedFields, ...(split.meta ? { meta: split.meta } : {}), sections: [] },
+                ...siteHint,
+              },
               priority: "required",
+            },
+            {
+              tool: "set_entry_attachment",
+              reason: "Only if this entry needs a custom shell — then retry translate_entry with sections",
+              args_hint: {
+                contentType: resolved.contentType,
+                slug,
+                action: "detach",
+                confirm: true,
+                ...siteHint,
+              },
+              priority: "optional",
             },
           ],
         );
@@ -3451,7 +3489,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail((e as Error).message);
       }
       if (!fs.existsSync(sourceFilePath)) {
-        // Allow source from draft.{source}.yml when live missing
         const draftSource = path.join(dir, `draft.${source_locale}.yml`);
         if (!fs.existsSync(draftSource)) {
           return fail(`Source locale '${source_locale}' not found for page '${slug}'`);
@@ -3497,11 +3534,51 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const targetFilePath = writeAsDraft ? draftTargetPath : liveTargetPath;
       const targetRelPath = `${contentFolder}/${ctDir}/${slug}/${targetFileName}`;
 
-      const localeData: Record<string, unknown> = { slug, sections: content.sections };
-      if (content.meta && Object.keys(content.meta).length > 0) {
-        localeData.meta = content.meta;
+      const existing = fs.existsSync(targetFilePath)
+        ? (safeLoad(fs.readFileSync(targetFilePath, "utf-8")) as Record<string, unknown> | null)
+        : null;
+      const mergeIntoExisting = !!existing;
+
+      const built = buildTranslateLocaleData({
+        mode,
+        slug,
+        targetLocale: target_locale,
+        meta: split.meta,
+        sections: split.sections,
+        allowedFields,
+        existing,
+        writeAsDraft,
+        mergeIntoExisting,
+      });
+      if (!built.ok) {
+        return fail(built.message, { code: built.code, mode, path: `${ctDir}/${slug}/${targetFileName}` });
       }
+      const localeData = built.localeData;
       const intendedContent = safeDump(localeData);
+
+      const commonPath = path.join(dir, "_common.yml");
+      const common = fs.existsSync(commonPath)
+        ? ((safeLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null) ?? {})
+        : {};
+
+      const warnings: McpWarning[] = [];
+      if (rejected.length > 0) {
+        warnings.push({
+          code: "translate_fields_rejected",
+          message: `Ignored disallowed field keys (not in editor/field_mapping safe set): ${rejected.join(", ")}.`,
+        });
+      }
+      if (writeAsDraft) {
+        const missing = draftMissingRequiredWarnings(resolved.config, common, localeData);
+        if (missing.length > 0) {
+          warnings.push({
+            code: "draft_missing_required_fields",
+            message:
+              `Draft is missing editor.required fields (ok until promote): ${missing.join(", ")}. ` +
+              "Values on _common.yml count toward required.",
+          });
+        }
+      }
 
       if (!writeAsDraft) {
         const gateErr = assertLiveEntrySeoAndRequiredFields({
@@ -3525,7 +3602,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             relativePath: targetRelPath,
             remoteContent: conflictCheck.remoteContent,
             intendedContent,
-            intendedChange: { action: "translate_entry", source_locale, target_locale },
+            intendedChange: { action: "translate_entry", source_locale, target_locale, mode },
           });
         }
       }
@@ -3552,24 +3629,38 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         callRefreshCacheApi(resolved.contentType, domain),
       ]);
 
-      const warnings: McpWarning[] = [];
       if (commitResult.warning) {
         warnings.push({ code: "github_commit_failed", message: commitResult.warning });
+      }
+      if (mode === "attached_fields") {
+        warnings.push({
+          code: "attached_shell_unchanged",
+          message:
+            "Entry remains attached. Shell still comes from single.{locale}.yml; this write did not bake or detach.",
+        });
       }
       if (writeAsDraft) {
         warnings.push({
           code: "translation_not_public",
           message: `${targetFileName} is not in listings/sitemap/hreflang until promote_variant or publish_draft. Did not create live ${target_locale}.yml as a public locale.`,
         });
-        warnings.push({
-          code: "empty_locale_blocked_on_promote",
-          message: "Promote/publish fails if the detached locale would still be empty (no sections and no content).",
-        });
+        if (mode === "detached_sections") {
+          warnings.push({
+            code: "empty_locale_blocked_on_promote",
+            message: "Promote/publish fails if the detached locale would still be empty (no sections and no content).",
+          });
+        }
       }
       if (autoConverted) {
         warnings.push({
           code: "empty_live_auto_converted",
           message: `Empty live ${target_locale}.yml was moved to draft.${target_locale}.yml before writing the translation.`,
+        });
+      }
+      if (built.merge) {
+        warnings.push({
+          code: "locale_merged",
+          message: `Merged into existing ${targetFileName}; unrelated keys and preserved sections were kept where applicable.`,
         });
       }
 
@@ -3578,13 +3669,19 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             {
               tool: "get_entry_content",
               reason: "Inspect the draft translation",
-              args_hint: { slug, contentType: resolved.contentType, locale: target_locale, variant: "draft" },
+              args_hint: {
+                slug,
+                contentType: resolved.contentType,
+                locale: target_locale,
+                variant: "draft",
+                ...(site ? { site } : {}),
+              },
               priority: "recommended",
             },
             {
               tool: "run_entry_diagnostics",
               reason: "Validate before going live (async — then poll get_diagnostics_job)",
-              args_hint: { slugs: [slug], freshness: "hard" },
+              args_hint: { slugs: [slug], freshness: "hard", ...(site ? { site } : {}) },
               priority: "recommended",
             },
             {
@@ -3595,12 +3692,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                 slug,
                 locale: target_locale,
                 variantSlug: "draft",
+                ...(site ? { site } : {}),
               },
               priority: "optional",
             },
           ]
         : [];
 
+      const sectionsArr = Array.isArray(localeData.sections) ? localeData.sections : [];
       return ok(
         {
           message: writeAsDraft
@@ -3610,26 +3709,356 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           contentType: resolved.contentType,
           source_locale,
           target_locale,
+          mode,
           created: isNew,
           live: !writeAsDraft,
           layer: writeAsDraft ? "draft_locale" : "entry_locale",
           reason,
-          sectionsCount: content.sections.length,
-          metaKeys: content.meta ? Object.keys(content.meta) : [],
+          merge: built.merge,
+          sectionsCount: sectionsArr.length,
+          metaKeys: localeData.meta && typeof localeData.meta === "object"
+            ? Object.keys(localeData.meta as object)
+            : [],
           ...(commitResult.commitSha ? { commitSha: commitResult.commitSha } : {}),
           ...wrotePayload({
-            layer: writeAsDraft ? "draft_locale" : "entry_locale",
+            layer: writeAsDraft ? "variant" : "entry_locale",
             contentType: resolved.contentType,
             path: `${ctDir}/${slug}/${targetFileName}`,
             locale: target_locale,
             slug,
           }),
         },
-        { warnings, next_actions, side_effects: writeAsDraft ? [{
-          kind: "wrote_draft_locale",
-          summary: `Wrote ${targetFileName} + versioning 0%; did not publish live ${target_locale}.yml`,
-        }] : undefined },
+        {
+          warnings,
+          next_actions,
+          side_effects: writeAsDraft
+            ? [{
+                kind: "wrote_draft_locale",
+                summary: `Wrote ${targetFileName} + versioning 0%; did not publish live ${target_locale}.yml`,
+              }]
+            : [{
+                kind: "merged_live_locale",
+                summary: `Updated live ${targetFileName} (${built.merge ? "merge" : "write"})`,
+              }],
+        },
       );
+    }
+  );
+
+  // set_entry_attachment — detach / reattach shared-layout shell ownership
+  mcp.tool(
+    "set_entry_attachment",
+    "Change whether a shared-layout entry owns its page shell.\n\n" +
+    'action "detach": bake single.{locale}.yml into every existing live {locale}.yml and set detached: true. ' +
+    "Does not invent missing sibling locales. Not required for field translation (use translate_entry while attached) " +
+    "or local section overlays (layout_target: entry).\n\n" +
+    'action "reattach": strip entry sections/layout, clear detached, delete entry versioning/variants (lossy). ' +
+    "Field data kept.\n\n" +
+    "confirm omitted or false → preview only (action_required). confirm: true → execute. Cap: content_edit_structure.",
+    {
+      contentType: z.string().describe("Shared-layout content type, e.g. 'blog' or 'authors'"),
+      slug: z.string().describe("Entry slug"),
+      action: z.enum(["detach", "reattach"]).describe('detach = bake shell onto entry; reattach = return to shared single template'),
+      confirm: z.boolean().optional().describe("Must be true to execute; omit or false returns a confirm_* preview"),
+      locale: z.string().optional().describe("Locale for reattach loss preview (default en)"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, slug, action, confirm, locale, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "set_entry_attachment", {
+          contentType, slug, action, confirm, locale,
+        });
+      }
+      const { contentPath, contentFolder, domain } = siteResult;
+      const previewLocale = locale || "en";
+      try {
+        assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(slug, "slug");
+        assertSafeLocale(previewLocale);
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      if (mcpToken) {
+        if (!await checkCap(mcpToken, "content_edit_structure", contentType)) {
+          return denyResponse("content_edit_structure", contentType);
+        }
+      }
+
+      const { isEntryDetached, isSharedLayoutType } = await import("../../server/shared-layout-entry.js");
+      const {
+        detachEntry,
+        reattachEntry,
+        getReattachSectionLossPreview,
+      } = await import("../../server/shared-layout-detach.js");
+
+      if (!isSharedLayoutType(contentType, contentPath)) {
+        return fail(
+          `Content type "${contentType}" is not a shared-layout type. set_entry_attachment only applies to single_template / DB shared-layout types.`,
+          { code: "not_shared_layout", contentType, slug },
+        );
+      }
+
+      const configs = loadContentTypes(contentPath);
+      const config = configs[contentType];
+      if (!config) return fail(`Unknown contentType '${contentType}'`);
+      const ctDir = getDirectory(contentType, config);
+      const entryDir = path.join(contentPath, ctDir, slug);
+      const siteHint = site ? { site } : {};
+      const author = mcpToken ? getTokenUsername(mcpToken) : "mcp-set_entry_attachment";
+
+      if (action === "detach") {
+        if (isEntryDetached(contentType, slug, contentPath)) {
+          return fail(`Entry "${slug}" is already detached.`, {
+            code: "already_detached",
+            contentType,
+            slug,
+          });
+        }
+        const liveLocales = listLiveLocaleFiles(entryDir, (p) => fs.readdirSync(p));
+        if (liveLocales.length === 0) {
+          return fail(
+            `Cannot detach "${slug}": no live locale files found. Create a locale file first, then detach.`,
+            { code: "no_live_locales", contentType, slug },
+          );
+        }
+
+        if (confirm !== true) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_detach",
+              code: "confirm_detach",
+              message:
+                `Detach will bake single.{locale}.yml into these live locale files: ${liveLocales.join(", ")}. ` +
+                "Sets detached: true on _common.yml. Does not invent missing locales. " +
+                "Not needed for field translation (translate_entry while attached) or layout_target: entry overlays.",
+              contentType,
+              slug,
+              locales_to_bake: liveLocales,
+              warnings: [
+                {
+                  code: "detach_no_invent_locales",
+                  message: "Only existing live {locale}.yml files are baked; missing siblings are not created.",
+                },
+                {
+                  code: "detach_not_for_field_translate",
+                  message: "Use translate_entry with locale fields while attached for translations; detach only for a custom shell.",
+                },
+              ],
+            },
+            [
+              {
+                tool: "set_entry_attachment",
+                reason: "Re-call with confirm: true to execute detach",
+                args_hint: { contentType, slug, action: "detach", confirm: true, ...siteHint },
+                priority: "required",
+              },
+            ],
+          );
+        }
+
+        try {
+          const result = detachEntry({
+            contentType,
+            slug,
+            contentRoot: contentPath,
+            author,
+            // 9C: always all live locales — do not pass a subset
+          });
+          const relPaths = result.filesWritten.map((abs) => {
+            const normalized = abs.replace(/\\/g, "/");
+            const idx = normalized.indexOf(`${contentFolder}/`);
+            if (idx >= 0) return normalized.slice(idx);
+            // fallback: contentFolder/ctDir/slug/file
+            return `${contentFolder}/${path.relative(contentPath, abs).replace(/\\/g, "/")}`;
+          });
+          const commitMsg = `Detach ${contentType}/${slug} from shared layout`;
+          const commitResults = await Promise.all(
+            relPaths.map((p) => callCommitFileApi(p, commitMsg, mcpToken, domain)),
+          );
+          await callRefreshCacheApi(contentType, domain);
+          const warnings: McpWarning[] = [
+            {
+              code: "detach_no_invent_locales",
+              message: "Only existing live locales were baked; missing siblings were not created.",
+            },
+            {
+              code: "detach_shell_owned",
+              message:
+                "Entry now owns its shell. Template single.* changes no longer apply. " +
+                "translate_entry uses detached_sections mode. Section overlays previously used layout_target: entry — prefer entry-owned section tools now.",
+            },
+          ];
+          for (const r of commitResults) {
+            if (r.warning) warnings.push({ code: "github_commit_failed", message: r.warning });
+          }
+          const commitShas = commitResults.map((r) => r.commitSha).filter(Boolean) as string[];
+          return ok(
+            {
+              message: `Detached ${contentType}/${slug}`,
+              contentType,
+              slug,
+              action: "detach",
+              detached: true,
+              locales: result.locales,
+              paths: relPaths,
+              ...(commitShas.length ? { commitShas } : {}),
+            },
+            {
+              warnings,
+              next_actions: [
+                {
+                  tool: "get_entry_content",
+                  reason: "Inspect baked sections on a live locale",
+                  args_hint: {
+                    contentType,
+                    slug,
+                    locale: result.locales[0] || "en",
+                    ...siteHint,
+                  },
+                  priority: "recommended",
+                },
+              ],
+              side_effects: [
+                {
+                  kind: "detached_entry",
+                  summary: `Set detached: true; baked locales: ${result.locales.join(", ")}`,
+                },
+              ],
+            },
+          );
+        } catch (e) {
+          return fail((e as Error).message, { code: "detach_failed", contentType, slug });
+        }
+      }
+
+      // reattach
+      if (!isEntryDetached(contentType, slug, contentPath)) {
+        return fail(`Entry "${slug}" is not detached.`, {
+          code: "not_detached",
+          contentType,
+          slug,
+        });
+      }
+
+      const preview = getReattachSectionLossPreview({
+        contentType,
+        slug,
+        locale: previewLocale,
+        contentRoot: contentPath,
+      });
+
+      if (confirm !== true) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "confirm_reattach",
+            code: "confirm_reattach",
+            message:
+              "Reattach strips entry sections/layout, clears detached, and deletes entry versioning.yml + variant files " +
+              "(including draft.{locale}.yml). Field/mapping data on locale and _common is kept. Shell returns to single.{locale}.yml.",
+            contentType,
+            slug,
+            locale: previewLocale,
+            sectionsThatWillBeLost: preview.sectionsThatWillBeLost,
+            variantsThatWillBeLost: preview.variantsThatWillBeLost,
+            hasLayoutOverride: preview.hasLayoutOverride,
+            warnings: [
+              {
+                code: "reattach_lossy_structure",
+                message:
+                  "Custom sections, layout overrides, and draft/variant files listed in the preview will be permanently removed.",
+              },
+            ],
+          },
+          [
+            {
+              tool: "set_entry_attachment",
+              reason: "Re-call with confirm: true after reviewing loss preview",
+              args_hint: {
+                contentType,
+                slug,
+                action: "reattach",
+                confirm: true,
+                locale: previewLocale,
+                ...siteHint,
+              },
+              priority: "required",
+            },
+          ],
+        );
+      }
+
+      try {
+        const result = reattachEntry({
+          contentType,
+          slug,
+          contentRoot: contentPath,
+          author,
+          confirm: true,
+        });
+        const relPaths = result.filesModified.map((abs) => {
+          const normalized = abs.replace(/\\/g, "/");
+          const idx = normalized.indexOf(`${contentFolder}/`);
+          if (idx >= 0) return normalized.slice(idx);
+          return `${contentFolder}/${path.relative(contentPath, abs).replace(/\\/g, "/")}`;
+        });
+        const commitMsg = `Reattach ${contentType}/${slug} to shared layout`;
+        const commitResults = await Promise.all(
+          relPaths.map((p) => callCommitFileApi(p, commitMsg, mcpToken, domain)),
+        );
+        await callRefreshCacheApi(contentType, domain);
+        const warnings: McpWarning[] = [
+          {
+            code: "reattach_shell_shared",
+            message:
+              "Entry is attached again. Shell comes from single.{locale}.yml. translate_entry uses attached_fields mode.",
+          },
+        ];
+        if (result.hadTrafficVariants) {
+          warnings.push({
+            code: "reattach_had_traffic_variants",
+            message: "Entry had traffic-allocated variants that were removed on reattach.",
+          });
+        }
+        for (const r of commitResults) {
+          if (r.warning) warnings.push({ code: "github_commit_failed", message: r.warning });
+        }
+        const commitShas = commitResults.map((r) => r.commitSha).filter(Boolean) as string[];
+        return ok(
+          {
+            message: `Reattached ${contentType}/${slug}`,
+            contentType,
+            slug,
+            action: "reattach",
+            detached: false,
+            hadTrafficVariants: result.hadTrafficVariants,
+            paths: relPaths,
+            ...(commitShas.length ? { commitShas } : {}),
+          },
+          {
+            warnings,
+            next_actions: [
+              {
+                tool: "get_entry_content",
+                reason: "Confirm fields remain and shell comes from shared single",
+                args_hint: { contentType, slug, locale: previewLocale, ...siteHint },
+                priority: "recommended",
+              },
+            ],
+            side_effects: [
+              {
+                kind: "reattached_entry",
+                summary: "Cleared detached; stripped structure; removed entry versioning/variants",
+              },
+            ],
+          },
+        );
+      } catch (e) {
+        return fail((e as Error).message, { code: "reattach_failed", contentType, slug });
+      }
     }
   );
 

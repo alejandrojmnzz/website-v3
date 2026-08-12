@@ -71,6 +71,20 @@ function personFromAuthor(raw: Record<string, unknown> | string): Record<string,
   if (typeof raw.bio === "string" && raw.bio) person.description = raw.bio;
   if (typeof raw.image === "string" && raw.image) person.image = raw.image;
   else if (typeof raw._image === "string" && raw._image) person.image = raw._image;
+  if (typeof raw.works_for === "string" && raw.works_for.trim()) {
+    person.worksFor = {
+      "@type": "Organization",
+      name: raw.works_for.trim(),
+    };
+  }
+  if (Array.isArray(raw.knows_about) && raw.knows_about.length) {
+    person.knowsAbout = raw.knows_about.map(String).map((s) => s.trim()).filter(Boolean);
+  } else if (typeof raw.knows_about === "string" && raw.knows_about.trim()) {
+    person.knowsAbout = raw.knows_about
+      .split(/[,|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
   return person;
 }
 

@@ -18,16 +18,22 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 3. `create_entry` with **exactly one** locale for shared-layout; put required fields on the locale object; `sections: []` (or omit); put URL params / category on `common` as the type expects.
 4. If a URL-param/select value is **not** in observed peers → stop; get approval from the **principal** (human or orchestrator/reviewer), then re-call with `confirm_new_values: true`.
 5. Fill SEO via `update_fields` or multi-entry `update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`.
-6. `run_entry_diagnostics` when ready.
+6. Add another locale with `translate_entry` (fields while attached → draft → promote). Do **not** detach for field translation.
+7. `run_entry_diagnostics` when ready.
+
+## Custom shell
+
+Only when this entry must diverge from `single.{locale}.yml`: `set_entry_attachment` (`action: "detach"`, `confirm: true`). Bakes all existing live locales. Local section overlays without ownership change: section tools + `layout_target: "entry"`.
 
 ## Anti-patterns
 
 - Treating `single_template` types as DB-backed and skipping `create_entry`.
-- Authoring breadcrumb/hero/article shells on the entry locale file.
+- Authoring breadcrumb/hero/article shells on the entry locale file (while attached).
+- Detaching only to add a translation — use `translate_entry` with fields instead.
 - Calling `list_entry_seo` without `slugs` expecting a full dump (unfiltered returns a **minimal sample** only).
 - Inventing new `:category` (or other URL-param) values without principal approval.
 
 ## Related tools
 
-- `get_content_type_info`, `create_entry`, `list_entry_seo`, `get_entry_seo`, `get_entry_content`, `update_fields`, `list_sites`
-- Topic `content_system` for merge / drafts / detach translate loop
+- `get_content_type_info`, `create_entry`, `list_entry_seo`, `get_entry_seo`, `get_entry_content`, `update_fields`, `translate_entry`, `set_entry_attachment`, `list_sites`
+- Topic `content_system` for merge / drafts / translate + attachment loop
