@@ -306,6 +306,67 @@ export async function requireStaffSession(
   return { authorized: true, token, username: profile.username };
 }
 
+/**
+ * Allow mutates on metrics surfaces (diagnostics jobs, insights rebuild, tracking
+ * settings, etc.) for webmasters and any staff with at least one capability other
+ * than metrics_view. Metrics-only viewers get 403.
+ *
+ * Dev mode always allows (same as requireCapability / requireStaffSession).
+ */
+export async function requireMutatingStaff(
+  req: Request,
+  res: Response,
+): Promise<{ authorized: boolean; token: string | null; username: string | null; author: string | null }> {
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const token = extractToken(req);
+
+  if (isDevelopment) {
+    if (token) {
+      try {
+        const profile = await userManager.validateToken(token);
+        if (profile.valid && profile.username) {
+          return { authorized: true, token, username: profile.username, author: profile.username };
+        }
+      } catch {
+        // Ignore errors in dev
+      }
+    }
+    return { authorized: true, token, username: null, author: null };
+  }
+
+  const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+  if (MCP_SERVER_SECRET) {
+    const authHeader = req.headers.authorization || "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (bearerToken === MCP_SERVER_SECRET) {
+      const mcpAuthorHeader = req.headers["x-mcp-author"];
+      const author = typeof mcpAuthorHeader === "string" && mcpAuthorHeader ? mcpAuthorHeader : null;
+      return { authorized: true, token: bearerToken, username: author, author };
+    }
+  }
+
+  if (!token) {
+    res.status(401).json({ error: "Authorization required" });
+    return { authorized: false, token: null, username: null, author: null };
+  }
+
+  const profile = await userManager.validateToken(token);
+  if (!profile.valid || !profile.username) {
+    res.status(401).json({ error: "Your session has expired. Please log in again." });
+    return { authorized: false, token, username: null, author: null };
+  }
+
+  if (!userStore.canMutateMetrics(profile.username)) {
+    res.status(403).json({
+      error: "Insufficient permissions: mutating metrics requires more than metrics_view",
+    });
+    return { authorized: false, token, username: profile.username, author: null };
+  }
+
+  const author = await userManager.resolveCommitAuthor(token);
+  return { authorized: true, token, username: profile.username, author };
+}
+
 export function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
   const parsed = yaml.load(escaped);

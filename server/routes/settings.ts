@@ -189,6 +189,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireMutatingStaff,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -701,7 +702,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/settings/tracking", (req, res) => {
+  app.get("/api/settings/tracking", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     res.json({
       ...getTrackingSettings(getContentRoot(res)),
       has_env_webhook: !!process.env.DEFAULT_WEBHOOK_URL,
@@ -954,6 +957,8 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.put("/api/settings/tracking", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { conversion_events, webhook, leads_expected_conversion_names, leads_expected_tags } = req.body;
       if (
@@ -983,7 +988,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/settings/tracking/conversion-events/:name", (req, res) => {
+  app.patch("/api/settings/tracking/conversion-events/:name", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { name } = req.params;
       const { newName } = req.body as { newName?: string };
@@ -1010,7 +1017,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/settings/tracking/conversion-events/:name/merge", (req, res) => {
+  app.post("/api/settings/tracking/conversion-events/:name/merge", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { name } = req.params;
       const { mergeInto } = req.body as { mergeInto?: string };
@@ -1030,7 +1039,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/form-state/suggestions", (_req, res) => {
+  app.get("/api/form-state/suggestions", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     buildFormState();
     res.json(getFormStateSuggestions());
   });
@@ -1125,12 +1136,16 @@ export function registerSettingsRoutes(app: Express): void {
     });
   });
 
-  app.get("/api/form-state/conversion-counts", (_req, res) => {
+  app.get("/api/form-state/conversion-counts", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     buildFormState();
     res.json(getConversionNameCounts());
   });
 
-  app.get("/api/settings/tracking/conversion-events/:name/usage", (req, res) => {
+  app.get("/api/settings/tracking/conversion-events/:name/usage", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     const { name } = req.params;
     // Always rebuild from disk before checking — ensures edits made via
     // the section editor (or any other path) are reflected immediately.
@@ -1152,7 +1167,9 @@ export function registerSettingsRoutes(app: Express): void {
     });
   });
 
-  app.post("/api/settings/tracking/conversion-events/:name/reassign", (req, res) => {
+  app.post("/api/settings/tracking/conversion-events/:name/reassign", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { name } = req.params;
       const { newName, entries } = req.body as {
@@ -1199,7 +1216,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/settings/tracking/conversion-events/:name", (req, res) => {
+  app.delete("/api/settings/tracking/conversion-events/:name", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { name } = req.params;
       const current = getTrackingSettings(getContentRoot(res));
@@ -1211,7 +1230,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/settings/tracking/conversion-events/:name", (req, res) => {
+  app.patch("/api/settings/tracking/conversion-events/:name", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { name } = req.params;
       const { newName } = req.body as { newName?: string };
@@ -1237,7 +1258,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/settings/tracking/conversion-events/:name/merge", (req, res) => {
+  app.post("/api/settings/tracking/conversion-events/:name/merge", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { name } = req.params;
       const { mergeInto } = req.body as { mergeInto?: string };
@@ -1257,7 +1280,9 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/settings/optimization", (_req, res) => {
+  app.get("/api/settings/optimization", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     const contentRoot = getContentRoot(res);
     const opt = getOptimizationSettings(contentRoot);
     const secret = resolveIpnSecret();
@@ -1273,6 +1298,8 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.put("/api/settings/optimization", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { tagmanager, ip_normalization } = req.body || {};
       const hasTm = tagmanager && typeof tagmanager === "object";
@@ -1544,19 +1571,25 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/settings/optimization/ipn/recent", (_req, res) => {
+  app.get("/api/settings/optimization/ipn/recent", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     res.json({
       limit: IPN_RECENT_CALLS_LIMIT,
       calls: getIpnRecentCalls(),
     });
   });
 
-  app.delete("/api/settings/optimization/ipn/recent", (_req, res) => {
+  app.delete("/api/settings/optimization/ipn/recent", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     clearIpnRecentCalls();
     res.json({ success: true, calls: [] });
   });
 
   app.post("/api/settings/optimization/test", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     const { url: rawUrl } = req.body;
     if (!rawUrl || typeof rawUrl !== "string") {
       return res.status(400).json({ reachable: false, reason: "No URL provided." });

@@ -78,7 +78,14 @@ interface UsersState {
   pendingUsers?: Record<string, PendingUserRecord>;
 }
 
-// ─── Built-in webmaster role ───────────────────────────────────────────────────
+// ─── Built-in roles ────────────────────────────────────────────────────────────
+
+export const BUILT_IN_ROLE_IDS = ["webmaster", "metrics_viewer"] as const;
+export type BuiltInRoleId = (typeof BUILT_IN_ROLE_IDS)[number];
+
+export function isBuiltInRole(roleId: string): boolean {
+  return (BUILT_IN_ROLE_IDS as readonly string[]).includes(roleId);
+}
 
 const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
   label: "Webmaster",
@@ -93,6 +100,7 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
     { name: "databases_manage" },
     { name: "components_manage" },
     { name: "migrations_run" },
+    { name: "metrics_view" },
     { name: "content_create_entry", contentTypes: "*" },
     { name: "content_delete_entry", contentTypes: "*" },
     { name: "content_edit_structure", contentTypes: "*" },
@@ -107,12 +115,27 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
   ],
 };
 
+const BUILT_IN_METRICS_VIEWER_ROLE: RoleDefinition = {
+  label: "Metrics Viewer",
+  description:
+    "Read-only access to diagnostics, component insights, error log, conversions, and tracking. Cannot start jobs, apply fixers, or change settings.",
+  capabilities: [{ name: "metrics_view" }],
+};
+
 const DEFAULT_STATE: UsersState = {
   roles: {
     webmaster: BUILT_IN_WEBMASTER_ROLE,
+    metrics_viewer: BUILT_IN_METRICS_VIEWER_ROLE,
   },
   users: {},
 };
+
+/** Overwrite built-in roles from code so local/GCS edits cannot drift. */
+function syncBuiltInRoles(): void {
+  if (!state.roles) state.roles = {};
+  state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+  state.roles.metrics_viewer = BUILT_IN_METRICS_VIEWER_ROLE;
+}
 
 // ─── In-memory state ───────────────────────────────────────────────────────────
 
@@ -170,9 +193,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   if (!IS_PRODUCTION) {
     log.info("[UserStore] Development mode — using local file only");
     state = loadLocal();
-    // Always sync built-in webmaster role from code
-    if (!state.roles) state.roles = {};
-    state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+    syncBuiltInRoles();
     if (!state.users) state.users = {};
     backfillMissingUserIds();
     saveLocal();
@@ -183,9 +204,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   if (!gcs.available) {
     log.info("[UserStore] GCS unavailable — loading from local file");
     state = loadLocal();
-    // Always sync built-in webmaster role from code
-    if (!state.roles) state.roles = {};
-    state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+    syncBuiltInRoles();
     if (!state.users) state.users = {};
     backfillMissingUserIds();
     saveLocal();
@@ -208,9 +227,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
     state = loadLocal();
   }
 
-  // Always sync built-in webmaster role from code
-  if (!state.roles) state.roles = {};
-  state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+  syncBuiltInRoles();
   if (!state.users) state.users = {};
   backfillMissingUserIds();
   save();
@@ -221,8 +238,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
 function ensureLoaded(): void {
   if (!loaded) {
     state = loadLocal();
-    if (!state.roles) state.roles = {};
-    state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
+    syncBuiltInRoles();
     if (!state.users) state.users = {};
     if (!state.pendingUsers) state.pendingUsers = {};
     backfillMissingUserIds();
@@ -310,14 +326,41 @@ export function isFirstUser(): boolean {
 }
 
 /** True when the user holds the built-in webmaster role (full platform access). */
-export function hasWebmasterRole(username: string): boolean {
+export function hasWebmasterRole(username: string, email?: string): boolean {
   ensureLoaded();
-  const user = state.users[username];
-  return user?.roles.includes("webmaster") ?? false;
+  const found = findUserEntry(username, email);
+  return found?.user.roles.includes("webmaster") ?? false;
+}
+
+/**
+ * Find a staff user by username key, or by email (key or email field).
+ * Store keys are often emails historically; Breathecode username may differ.
+ */
+function findUserEntry(
+  username: string,
+  email?: string,
+): { key: string; user: UserRecord } | null {
+  if (state.users[username]) {
+    return { key: username, user: state.users[username] };
+  }
+  const emailNorm = email?.toLowerCase().trim();
+  if (!emailNorm) return null;
+  if (state.users[emailNorm]) {
+    return { key: emailNorm, user: state.users[emailNorm] };
+  }
+  for (const [key, user] of Object.entries(state.users)) {
+    if (user.email?.toLowerCase().trim() === emailNorm) {
+      return { key, user };
+    }
+  }
+  return null;
 }
 
 /**
  * Upsert a user record (from Breathecode profile). Updates lastLoginAt.
+ * Resolves existing rows by username or email so role assignments are not lost
+ * when Breathecode username differs from an email-keyed store entry.
+ * Migrates the store key to `profile.username` when a legacy email key is found.
  */
 export function upsertUser(profile: {
   username: string;
@@ -326,7 +369,8 @@ export function upsertUser(profile: {
   email?: string;
 }): UserRecord {
   ensureLoaded();
-  const existing = state.users[profile.username];
+  const found = findUserEntry(profile.username, profile.email);
+  const existing = found?.user;
   const id =
     existing?.id ??
     generateUniqueStaffId({ username: profile.username, email: profile.email ?? existing?.email });
@@ -337,51 +381,66 @@ export function upsertUser(profile: {
     lastName: profile.lastName ?? existing?.lastName,
     email: profile.email ?? existing?.email,
     lastLoginAt: new Date().toISOString(),
-    roles: existing?.roles ?? [],
+    roles: existing?.roles ? [...existing.roles] : [],
   };
   state.users[profile.username] = record;
+  if (found && found.key !== profile.username) {
+    delete state.users[found.key];
+  }
   save();
   return record;
 }
 
 /**
  * Assign roles to a user, replacing all existing assignments.
+ * Optional email helps resolve legacy email-keyed store rows.
  */
-export function assignRoles(username: string, roleIds: string[]): void {
+export function assignRoles(username: string, roleIds: string[], email?: string): void {
   ensureLoaded();
-  if (!state.users[username]) {
-    state.users[username] = {
-      id: generateUniqueStaffId({ username }),
+  const found = findUserEntry(username, email);
+  const key = found?.key ?? username;
+  if (!state.users[key]) {
+    state.users[key] = {
+      id: generateUniqueStaffId({ username, email }),
       username,
+      email,
       roles: [],
     };
-  } else if (!state.users[username].id) {
-    ensureUserHasId(username);
+  } else if (!state.users[key].id) {
+    ensureUserHasId(key);
   }
-  state.users[username].roles = roleIds;
+  state.users[key].roles = roleIds;
+  if (key !== username && !state.users[username]) {
+    // Keep canonical username key in sync after assign
+    state.users[username] = { ...state.users[key], username };
+    delete state.users[key];
+  }
   save();
 }
 
 /** Resolve immutable staff id for labels; assigns one if missing. */
-export function getOrCreateStaffUserId(username: string): string | null {
+export function getOrCreateStaffUserId(username: string, email?: string): string | null {
   ensureLoaded();
-  if (!state.users[username]) return null;
-  if (state.users[username].id) return state.users[username].id;
+  const found = findUserEntry(username, email);
+  if (!found) return null;
+  if (found.user.id) return found.user.id;
   const id = generateUniqueStaffId({
     username,
-    email: state.users[username].email,
+    email: found.user.email ?? email,
   });
-  state.users[username].id = id;
+  state.users[found.key].id = id;
   save();
   return id;
 }
 
 /**
  * Get all effective capability grants for a user (union across all their roles).
+ * Resolves by username key or email so lookups match upsertUser identity rules.
  */
-export function getEffectiveCapabilities(username: string): CapabilityGrant[] {
+export function getEffectiveCapabilities(username: string, email?: string): CapabilityGrant[] {
   ensureLoaded();
-  const user = state.users[username];
+  const found = findUserEntry(username, email);
+  const user = found?.user;
   if (!user) return [];
 
   const grantMap = new Map<string, CapabilityGrant>();
@@ -411,6 +470,12 @@ export function getEffectiveCapabilities(username: string): CapabilityGrant[] {
   }
 
   return Array.from(grantMap.values());
+}
+
+/** Roles for a staff identity (username and/or email). */
+export function getUserRoles(username: string, email?: string): string[] {
+  ensureLoaded();
+  return findUserEntry(username, email)?.user.roles ?? [];
 }
 
 /**
@@ -597,10 +662,21 @@ export function assignPendingToUser(email: string, username: string): { ok: bool
   return { ok: true };
 }
 
+/**
+ * True when the user can mutate metrics surfaces (run diagnostics, rebuild insights,
+ * change tracking/conversions). Metrics-only viewers (solely metrics_view) cannot.
+ */
+export function canMutateMetrics(username: string): boolean {
+  ensureLoaded();
+  if (hasWebmasterRole(username)) return true;
+  const caps = getEffectiveCapabilities(username);
+  return caps.some((g) => g.name !== "metrics_view");
+}
+
 export function deleteRole(roleId: string): { ok: boolean; error?: string } {
   ensureLoaded();
-  if (roleId === "webmaster") {
-    return { ok: false, error: "The built-in webmaster role cannot be deleted" };
+  if (isBuiltInRole(roleId)) {
+    return { ok: false, error: `The built-in ${roleId} role cannot be deleted` };
   }
   if (!state.roles[roleId]) {
     return { ok: false, error: "Role not found" };

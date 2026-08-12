@@ -119,6 +119,13 @@ const REGISTRY = [
     scoped: false,
     description: "Invite users, assign roles, and configure role permissions.",
   },
+  {
+    name: "metrics_view",
+    label: "View metrics & performance",
+    scoped: false,
+    description:
+      "Read diagnostics, component insights, error log, conversions, and tracking. Does not allow running jobs or changing settings.",
+  },
 ] as const;
 
 type RegistryEntry = (typeof REGISTRY)[number];

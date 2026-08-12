@@ -43,6 +43,7 @@ import {
 
   safeYamlLoad,
   requireCapability,
+  requireMutatingStaff,
   createValidationFixRun,
   appendValidationRunLog,
   applyFixerProgress,
@@ -275,6 +276,8 @@ export function registerValidationRoutes(app: Express): void {
 
   // LLM prompt format — runs validators and returns a copy-pasteable prompt
   app.post("/api/validation/run.prompt", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { validators: validatorNames, includeArtifacts } = req.body;
       const { formatAsLlmPrompt } = await import("../../scripts/validation/reporting/llm-prompt");
@@ -348,7 +351,9 @@ export function registerValidationRoutes(app: Express): void {
   });
 
   // Save a full JSON report to /tmp/validation-reports/
-  app.post("/api/validation/save-report", async (_req, res) => {
+  app.post("/api/validation/save-report", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { formatAsJson } = await import("../../scripts/validation/reporting/json");
       const fs = await import("fs");
@@ -444,6 +449,8 @@ export function registerValidationRoutes(app: Express): void {
 
   // Run a named fixer
   app.post("/api/validation/fix/:fixerName", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const { fixerName } = req.params;
       const { getFixer } = await import("../../scripts/validation/fixers/index");
@@ -562,15 +569,21 @@ export function registerValidationRoutes(app: Express): void {
     res.json(summary);
   });
 
-  app.get("/api/validation/cache-issues", (_req, res) => {
+  app.get("/api/validation/cache-issues", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     res.json({ issues: listCacheIssues(getValidationCache(res)) });
   });
 
-  app.get("/api/validation/diagnostics-jobs", (_req, res) => {
+  app.get("/api/validation/diagnostics-jobs", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     res.json({ jobs: listDiagnosticsJobs(getContentRoot(res)) });
   });
 
-  app.get("/api/validation/diagnostics-jobs/:jobId", (req, res) => {
+  app.get("/api/validation/diagnostics-jobs/:jobId", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     const result = getDiagnosticsJob(getContentRoot(res), req.params.jobId);
     if (result.status === "not_found") {
       return res.status(404).json({
@@ -604,6 +617,8 @@ export function registerValidationRoutes(app: Express): void {
   });
 
   app.post("/api/validation/diagnostics-jobs", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const site = res.locals.site as { contentRootName?: string } | undefined;
       const contentRoot = getContentRoot(res);
@@ -638,7 +653,9 @@ export function registerValidationRoutes(app: Express): void {
   // Diagnostics API
   // ============================================
 
-  app.get("/api/diagnostics/pages", async (_req, res) => {
+  app.get("/api/diagnostics/pages", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
@@ -665,6 +682,8 @@ export function registerValidationRoutes(app: Express): void {
   });
 
   app.get("/api/diagnostics/page", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       const url = req.query.url as string;
       if (!url) {

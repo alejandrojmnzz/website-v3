@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RefreshCw, BarChart2, ArrowUp, ArrowDown, ArrowUpDown, X } from "lucide-react";
 import type { ComponentInsightsData, ComponentPairing, ComponentSequence } from "@shared/schema";
 import ComponentGraph from "@/components/ComponentGraph";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 
 type SortKey = "from" | "to" | "count" | "frequency" | "pmi" | "distance";
 type SortDir = "asc" | "desc";
@@ -299,7 +301,16 @@ function GraphLegend() {
 }
 
 export default function ComponentInsightsPage() {
+  return (
+    <MetricsAccessGate>
+      <ComponentInsightsPageInner />
+    </MetricsAccessGate>
+  );
+}
+
+function ComponentInsightsPageInner() {
   const queryClient = useQueryClient();
+  const { canMutateMetrics } = useDebugAuth();
 
   const { data, isLoading, isError } = useQuery<ComponentInsightsData>({
     queryKey: ["/api/private/component-insights"],
@@ -346,8 +357,11 @@ export default function ComponentInsightsPage() {
         <BarChart2 size={48} className="mx-auto text-muted-foreground" />
         <h1 className="text-2xl font-bold">Component Insights</h1>
         <p className="text-muted-foreground">
-          No insights data yet. Run the first scan to analyse component co-occurrence patterns across all page YAML files.
+          {canMutateMetrics
+            ? "No insights data yet. Run the first scan to analyse component co-occurrence patterns across all page YAML files."
+            : "No insights data yet. Ask a Webmaster (or staff with edit access) to run the first scan."}
         </p>
+        {canMutateMetrics && (
         <Button
           onClick={() => rebuild.mutate()}
           disabled={rebuild.isPending}
@@ -356,6 +370,7 @@ export default function ComponentInsightsPage() {
           {rebuild.isPending && <RefreshCw className="animate-spin mr-2" size={16} />}
           Run first scan
         </Button>
+        )}
         {rebuild.isError && (
           <p className="text-sm text-destructive">Scan failed. Check server logs.</p>
         )}
@@ -377,6 +392,7 @@ export default function ComponentInsightsPage() {
             Last generated: <span className="font-mono">{new Date(data.generatedAt).toLocaleString()}</span>
           </p>
         </div>
+        {canMutateMetrics && (
         <Button
           onClick={() => rebuild.mutate()}
           disabled={rebuild.isPending}
@@ -388,6 +404,7 @@ export default function ComponentInsightsPage() {
             : <><RefreshCw className="mr-2" size={16} />Rebuild</>
           }
         </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

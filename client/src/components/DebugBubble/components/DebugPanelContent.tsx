@@ -251,6 +251,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
   }, [detachConfirmOpen]);
   const { hasCapability } = useDebugAuth();
   const canManageUsers = hasCapability("users_manage");
+  const canViewMetrics = hasCapability("metrics_view");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [storeExpanded, setStoreExpanded] = useState(false);
@@ -314,6 +315,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
     },
     refetchInterval: 60000,
     staleTime: 30000,
+    enabled: canViewMetrics,
   });
 
   const { data: robotsSettings } = useQuery<RobotsSettingsResponse>({
@@ -401,7 +403,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           <div className="flex-1">
             <h3 className="font-semibold text-sm mb-1">Limited access</h3>
             <p className="text-xs text-muted-foreground mb-3">
-              Token detected but no webmaster capabilities have been detected
+              Token detected but no staff capabilities have been detected
             </p>
             <div className="flex gap-2">
               <Button
@@ -800,13 +802,15 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 indicator="chevron"
                 testId="button-menus-menu"
               />
-              <MenuItem
-                icon={BarChart2}
-                label="Component Insights"
-                href="/private/component-insights"
-                indicator="arrow"
-                testId="link-component-insights"
-              />
+              {canViewMetrics && (
+                <MenuItem
+                  icon={BarChart2}
+                  label="Component Insights"
+                  href="/private/component-insights"
+                  indicator="arrow"
+                  testId="link-component-insights"
+                />
+              )}
               <MenuItem
                 icon={IconLayersIntersect}
                 label="Modals & CTA"
@@ -863,6 +867,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               />
             </ExpandableMenuItem>
 
+            {canViewMetrics && (
             <ExpandableMenuItem
               icon={Stethoscope}
               label="Errors & Diagnostics"
@@ -909,6 +914,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 }
               />
             </ExpandableMenuItem>
+            )}
 
             <ExpandableMenuItem
               icon={IconShoppingBag}
@@ -941,13 +947,15 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 indicator="arrow"
                 testId="link-store-products"
               />
-              <MenuItem
-                icon={IconTargetArrow}
-                label="Conversion Events"
-                href="/private/store/conversions"
-                indicator="arrow"
-                testId="link-store-conversions"
-              />
+              {canViewMetrics && (
+                <MenuItem
+                  icon={IconTargetArrow}
+                  label="Conversion Events"
+                  href="/private/store/conversions"
+                  indicator="arrow"
+                  testId="link-store-conversions"
+                />
+              )}
             </ExpandableMenuItem>
 
             <ExpandableMenuItem
@@ -988,13 +996,15 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                 indicator="arrow"
                 testId="link-theme-editor"
               />
-              <MenuItem
-                icon={BarChart2}
-                label="Tracking"
-                href="/private/tracking"
-                indicator="arrow"
-                testId="link-tracking"
-              />
+              {canViewMetrics && (
+                <MenuItem
+                  icon={BarChart2}
+                  label="Tracking"
+                  href="/private/tracking"
+                  indicator="arrow"
+                  testId="link-tracking"
+                />
+              )}
               {canManageUsers && (
                 <MenuItem
                   icon={IconShield}

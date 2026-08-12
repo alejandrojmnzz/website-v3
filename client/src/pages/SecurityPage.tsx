@@ -446,7 +446,7 @@ function RolesTab() {
           <p className="text-sm text-muted-foreground text-center py-8">No roles defined yet.</p>
         )}
         {roles.map(([roleId, role]) => {
-          const isBuiltIn = roleId === "webmaster";
+          const isBuiltIn = roleId === "webmaster" || roleId === "metrics_viewer";
           const isEditing = editingRoleId === roleId;
           const isDeleting = deletingRoleId === roleId;
           return (
@@ -567,6 +567,28 @@ function RolesTab() {
                   <>
                     {role.description && (
                       <p className="text-xs text-muted-foreground mb-2">{role.description}</p>
+                    )}
+                    {roleId === "metrics_viewer" && (
+                      <details className="mb-2 group">
+                        <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
+                          <IconChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                          Read more (advanced)
+                        </summary>
+                        <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                          <p>
+                            Grants only <code className="font-mono">metrics_view</code> — read diagnostics,
+                            component insights, error log, conversions, and tracking.
+                          </p>
+                          <p>
+                            Does not allow starting diagnostics jobs, rebuilding insights, applying fixers,
+                            or saving tracking/conversion settings.
+                          </p>
+                          <p>
+                            Defined in <code className="font-mono">shared/capabilities.ts</code> and synced from{" "}
+                            <code className="font-mono">server/user-store.ts</code> on every server start.
+                          </p>
+                        </div>
+                      </details>
                     )}
                     <div className="flex flex-wrap gap-1">
                       {role.capabilities.map((cap) => (

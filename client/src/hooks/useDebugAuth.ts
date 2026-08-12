@@ -6,6 +6,7 @@ const DEBUG_SESSION_EXPIRY_KEY = "debug_validated_expiry";
 const DEBUG_TOKEN_KEY = "debug_token";
 const DEBUG_MODE_KEY = "debug_mode";
 const DEBUG_CAPABILITIES_KEY = "debug_capabilities";
+const DEBUG_ROLES_KEY = "debug_roles";
 const DEBUG_USERNAME_KEY = "debug_username";
 const DEBUG_STAFF_ID_KEY = "debug_staff_id";
 
@@ -84,6 +85,32 @@ export function getCachedCapabilities(): CapabilityGrant[] {
   return DEFAULT_CAPABILITIES;
 }
 
+export function getCachedRoles(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const cached = localStorage.getItem(DEBUG_ROLES_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) return parsed.filter((r): r is string => typeof r === "string");
+    }
+  } catch {
+  }
+  return [];
+}
+
+function rolesFromResponse(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((r): r is string => typeof r === "string");
+}
+
+function cacheRoles(roles: string[]) {
+  localStorage.setItem(DEBUG_ROLES_KEY, JSON.stringify(roles));
+}
+
+function clearRolesCache() {
+  localStorage.removeItem(DEBUG_ROLES_KEY);
+}
+
 export function getDebugUserName(): string {
   if (typeof window === 'undefined') return '';
   return localStorage.getItem(DEBUG_USERNAME_KEY) || "";
@@ -153,7 +180,10 @@ interface DebugAuthValue {
   isDevelopment: boolean;
   isDebugMode: boolean;
   capabilities: CapabilityGrant[];
+  roles: string[];
   hasCapability: (capability: string, contentType?: string) => boolean;
+  /** True if user can run metrics jobs / change tracking (not metrics_view-only). */
+  canMutateMetrics: boolean;
   canEdit: boolean;
   retryValidation: () => Promise<void>;
   validateManualToken: (manualToken: string) => Promise<void>;
@@ -205,6 +235,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
   const [hasToken, setHasToken] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<CapabilityGrant[]>(DEFAULT_CAPABILITIES);
+  const [roles, setRoles] = useState<string[]>([]);
   
   const isDevelopment = import.meta.env.DEV;
   const isDebugMode = isDebugModeActive();
@@ -228,19 +259,37 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         const expiryTime = parseInt(cachedExpiry, 10);
         if (Date.now() < expiryTime) {
           if (cachedUsername) {
-            setAuthToken(cachedToken);
-            setHasToken(true);
-            setIsValidated(true);
+            const cachedRoles = getCachedRoles();
+            let cachedCapCount = 0;
             if (cachedCaps) {
               try {
-                setCapabilities(capabilityGrantsFromResponse(JSON.parse(cachedCaps)));
+                cachedCapCount = capabilityGrantsFromResponse(JSON.parse(cachedCaps)).length;
               } catch {
               }
             }
-            setIsLoading(false);
-            return;
+            // Roles were added later — refresh if missing, or if caps exist without roles (stale desync).
+            if (
+              localStorage.getItem(DEBUG_ROLES_KEY) === null ||
+              (cachedRoles.length === 0 && cachedCapCount > 0)
+            ) {
+              revalidateWithCachedToken = true;
+            } else {
+              setAuthToken(cachedToken);
+              setHasToken(true);
+              setIsValidated(true);
+              if (cachedCaps) {
+                try {
+                  setCapabilities(capabilityGrantsFromResponse(JSON.parse(cachedCaps)));
+                } catch {
+                }
+              }
+              setRoles(cachedRoles);
+              setIsLoading(false);
+              return;
+            }
+          } else {
+            revalidateWithCachedToken = true;
           }
-          revalidateWithCachedToken = true;
         }
       }
     } else {
@@ -248,6 +297,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
       localStorage.removeItem(DEBUG_TOKEN_KEY);
       localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
+      clearRolesCache();
     }
 
     const envToken = import.meta.env.VITE_BREATHECODE_TOKEN;
@@ -258,6 +308,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
       setHasToken(false);
       setIsValidated(false);
       setCapabilities(DEFAULT_CAPABILITIES);
+      setRoles([]);
       setIsLoading(false);
       return;
     }
@@ -295,6 +346,9 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(DEBUG_CAPABILITIES_KEY, JSON.stringify(grants));
           setCapabilities(grants);
         }
+        const nextRoles = rolesFromResponse(data.roles);
+        cacheRoles(nextRoles);
+        setRoles(nextRoles);
         if (data.userName || data.staffId) {
           cacheStaffIdentity(data);
         }
@@ -304,15 +358,18 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
         localStorage.removeItem(DEBUG_TOKEN_KEY);
         localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
+        clearRolesCache();
         clearStaffIdentity();
         setAuthToken(undefined);
         setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
+        setRoles([]);
         setIsValidated(false);
       }
     } catch (error) {
       console.error("Debug auth validation error:", error);
       setIsValidated(false);
       setCapabilities(DEFAULT_CAPABILITIES);
+      setRoles([]);
     }
 
     setIsLoading(false);
@@ -336,6 +393,7 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
     localStorage.removeItem(DEBUG_TOKEN_KEY);
     localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
+    clearRolesCache();
     clearStaffIdentity();
 
     try {
@@ -362,6 +420,9 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(DEBUG_CAPABILITIES_KEY, JSON.stringify(grants));
           setCapabilities(grants);
         }
+        const nextRoles = rolesFromResponse(data.roles);
+        cacheRoles(nextRoles);
+        setRoles(nextRoles);
         if (data.userName || data.staffId) {
           cacheStaffIdentity(data);
         }
@@ -369,12 +430,14 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
       } else {
         setAuthToken(undefined);
         setCapabilities(data.capabilities ? capabilityGrantsFromResponse(data.capabilities) : DEFAULT_CAPABILITIES);
+        setRoles([]);
         setIsValidated(false);
       }
     } catch (error) {
       console.error("Debug auth validation error:", error);
       setIsValidated(false);
       setCapabilities(DEFAULT_CAPABILITIES);
+      setRoles([]);
     }
 
     setIsLoading(false);
@@ -412,10 +475,12 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
         localStorage.removeItem(DEBUG_TOKEN_KEY);
         localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
+        clearRolesCache();
         clearStaffIdentity();
         setHasToken(false);
         setIsValidated(false);
         setCapabilities(DEFAULT_CAPABILITIES);
+        setRoles([]);
         return { valid: false, expired: data.expired };
       }
     } catch (error) {
@@ -429,11 +494,13 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(DEBUG_SESSION_EXPIRY_KEY);
     localStorage.removeItem(DEBUG_TOKEN_KEY);
     localStorage.removeItem(DEBUG_CAPABILITIES_KEY);
+    clearRolesCache();
     clearStaffIdentity();
     setAuthToken(undefined);
     setHasToken(false);
     setIsValidated(false);
     setCapabilities(DEFAULT_CAPABILITIES);
+    setRoles([]);
   };
 
   const hasCapability = (capability: string, contentType?: string): boolean => {
@@ -444,6 +511,10 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
                   grantHasCapability(capabilities, "content_edit_structure") ||
                   grantHasCapability(capabilities, "content_edit_media");
 
+  // Aligns with server userStore.canMutateMetrics: any grant other than solely metrics_view.
+  const canMutateMetrics =
+    capabilities.length > 0 && capabilities.some((c) => c.name !== "metrics_view");
+
   const value: DebugAuthValue = {
     isValidated,
     hasToken,
@@ -451,7 +522,9 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
     isDevelopment,
     isDebugMode,
     capabilities,
+    roles,
     hasCapability,
+    canMutateMetrics,
     canEdit,
     retryValidation,
     validateManualToken,

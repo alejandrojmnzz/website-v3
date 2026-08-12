@@ -204,6 +204,7 @@ import {
   extractToken,
   requireCapability,
   requireStaffSession,
+  requireMutatingStaff,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -309,7 +310,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/admin/gcs-recheck-migration", async (req, res) => {
-    const auth = await requireStaffSession(req, res);
+    const auth = await requireMutatingStaff(req, res);
     if (!auth.authorized) return;
 
     const diagnostics = await gcs.checkArchitecture();
@@ -375,14 +376,14 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/admin/system-alerts", async (req, res) => {
-    const auth = await requireStaffSession(req, res);
+    const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
     await gcs.checkArchitecture();
     res.json({ alerts: await collectSystemAlerts() });
   });
 
   app.post("/api/admin/database-recheck", async (req, res) => {
-    const auth = await requireStaffSession(req, res);
+    const auth = await requireMutatingStaff(req, res);
     if (!auth.authorized) return;
 
     const { database, site } = req.body as { database?: string; site?: string };
@@ -2290,7 +2291,9 @@ export function registerAdminRoutes(app: Express): void {
   // ============================================================
   // Component Co-occurrence & Ordering Insights
   // ============================================================
-  app.post("/api/private/component-insights/rebuild", async (_req, res) => {
+  app.post("/api/private/component-insights/rebuild", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
     try {
       const data = await requestInsightsRebuild();
       res.json(data);
@@ -2300,7 +2303,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/private/component-insights/status", (_req, res) => {
+  app.get("/api/private/component-insights/status", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       res.json(getInsightsStatus());
     } catch (err) {
@@ -2308,7 +2313,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/private/component-insights/summary/:type", (req, res) => {
+  app.get("/api/private/component-insights/summary/:type", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       const summary = getUsageSummary(req.params.type);
       res.json(summary);
@@ -2317,7 +2324,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/private/component-insights", (_req, res) => {
+  app.get("/api/private/component-insights", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       // Status getter kicks a lazy rebuild when cache is missing/outdated.
       const st = getInsightsStatus();
@@ -2335,7 +2344,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/private/component-insights/suggest", (req, res) => {
+  app.get("/api/private/component-insights/suggest", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       const after = typeof req.query.after === "string" ? req.query.after : "";
       const intent = typeof req.query.intent === "string" && req.query.intent !== "__global__" ? req.query.intent : undefined;
@@ -2383,7 +2394,9 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/private/component-insights/component/:type", (req, res) => {
+  app.get("/api/private/component-insights/component/:type", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
     try {
       const componentType = req.params.type;
       const intent = typeof req.query.intent === "string" && req.query.intent ? req.query.intent : undefined;
@@ -2811,7 +2824,7 @@ export function registerAdminRoutes(app: Express): void {
 
   // Error & Warning Log dashboard endpoint
   app.get("/api/admin/error-log", async (req, res) => {
-    const auth = await requireCapability(req, res, "webmaster");
+    const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
 
     const levelParam = (req.query.level as string | undefined);

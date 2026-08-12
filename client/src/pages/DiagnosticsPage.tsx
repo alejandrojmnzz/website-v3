@@ -34,6 +34,8 @@ import {
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 import LeadsTab from "@/components/diagnostics/LeadsTab";
 import {
   RedirectConflictResolverModal,
@@ -385,6 +387,7 @@ function ValidatorCard({
   const [fixResult, setFixResult] = useState<Record<string, { ok: boolean; message: string } | null>>({});
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
 
   const promptMutation = useMutation({
     mutationFn: async () => {
@@ -562,7 +565,7 @@ function ValidatorCard({
             </Accordion>
           )}
 
-          {apiFixes.length > 0 && (
+          {apiFixes.length > 0 && canMutateMetrics && (
             <div className="space-y-2" data-testid={`api-fixes-${v.name}`}>
               {apiFixes.map(({ name, label, count }) => (
                 <div key={name} className="flex flex-wrap items-center gap-2">
@@ -630,7 +633,7 @@ function ValidatorCard({
           )}
 
           <div className="flex justify-end gap-2">
-            {hasIssues && (
+            {hasIssues && canMutateMetrics && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -641,6 +644,7 @@ function ValidatorCard({
                 AI Prompt
               </Button>
             )}
+            {canMutateMetrics && (
             <Button
               variant="ghost"
               size="sm"
@@ -651,6 +655,7 @@ function ValidatorCard({
               <Play className="h-3.5 w-3.5" />
               Run
             </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -745,6 +750,7 @@ function runResultFromValidators(validatorsList: ValidatorResult[]): RunResult {
 function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { canMutateMetrics } = useDebugAuth();
   const formatSitePath = useFormatSitePath();
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
@@ -990,6 +996,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             </p>
           )}
         </div>
+        {canMutateMetrics && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1030,6 +1037,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </div>
 
       {cacheIssues.length > 0 && (
@@ -1144,8 +1152,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <CardContent className="p-8 text-center">
             <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">
-              No cached diagnostics yet — run Refresh stale or Hard refresh.
+              {canMutateMetrics
+                ? "No cached diagnostics yet — run Refresh stale or Hard refresh."
+                : "No cached diagnostics yet. Ask a Webmaster (or staff with edit access) to run a refresh."}
             </p>
+            {canMutateMetrics && (
             <div className="flex flex-wrap justify-center gap-2">
               <Button
                 onClick={() => runAllMutation.mutate("max_age")}
@@ -1163,6 +1174,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 Hard refresh
               </Button>
             </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1665,6 +1677,7 @@ function PageAnalysisTab() {
 export default function DiagnosticsPage() {
   const [activeTab, setActiveTab] = useState("global-health");
   return (
+    <MetricsAccessGate>
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1714,5 +1727,6 @@ export default function DiagnosticsPage() {
         </Tabs>
       </div>
     </div>
+    </MetricsAccessGate>
   );
 }

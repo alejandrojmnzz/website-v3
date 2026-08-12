@@ -1,7 +1,7 @@
 import type { Express, Request } from "express";
 import * as crypto from "crypto";
 import { getWebhookSecret } from "../utils/webhookSecret";
-import { requireCapability } from "./_helpers";
+import { requireCapability, requireMutatingStaff } from "./_helpers";
 import { getDatabaseName, getAllTypes } from "../content-types";
 import { databaseManager } from "../database";
 import { clearMarkdownCache } from "../markdown";
@@ -260,7 +260,7 @@ export function registerWebhooksRoutes(app: Express): void {
    */
   app.post("/api/tracking/webhook/test", async (req, res) => {
     try {
-      const auth = await requireCapability(req, res, "content_edit");
+      const auth = await requireMutatingStaff(req, res);
       if (!auth.authorized) return;
 
       const tracking = getTrackingSettings();
