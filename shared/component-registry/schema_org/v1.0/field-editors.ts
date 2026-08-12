@@ -1,7 +1,9 @@
 /**
- * Schema.org section — YAML-edited only (section panel CodeMirror).
- * No visual field editors; staff edit schema_type + properties as YAML.
+ * Schema.org section — Props card with curated @type picker + live JSON-LD preview.
+ * Properties remain editable in the Code tab.
  */
 export type EditorType = string;
 
-export const fieldEditors: Record<string, EditorType> = {};
+export const fieldEditors: Record<string, EditorType> = {
+  schema_type: "schema-org-section-editor",
+};

@@ -52,6 +52,7 @@ import { TestimonialItemsPreview } from "./TestimonialItemsPreview";
 import { TableContentEditor } from "./TableContentEditor";
 import { FaqItemsPicker } from "./FaqItemsPicker";
 import { FaqSectionEditorField } from "./FaqSectionEditorField";
+import { SchemaOrgSectionEditorField } from "./SchemaOrgSectionEditorField";
 import { DbFieldValuesPicker } from "./DbFieldValuesPicker";
 import { restoreVariableFieldsForEditor, mergeSavedSectionForLivePreview } from "./restoreVariableFieldsForEditor";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
@@ -4810,7 +4811,7 @@ export function SectionEditorPanel({
 
                 // For dotted simple fields like "cta_button.url", skip if the parent object doesn't exist in the YAML.
                 // Exception: self-initializing editors (e.g. related-features-picker) always show — they create the structure on save.
-                const selfInitializingEditors = new Set(["related-features-picker", "faq-visibility-editor", "faq-section-editor"]);
+                const selfInitializingEditors = new Set(["related-features-picker", "faq-visibility-editor", "faq-section-editor", "schema-org-section-editor"]);
                 const isSelfInitializing = selfInitializingEditors.has(editorType) || editorType.startsWith("db-field-values-picker");
                 if (isSimpleField && fieldPath.includes(".") && !isSelfInitializing && !fieldPath.includes(".*")) {
                   const parentParts = fieldPath.split(".");
@@ -5560,6 +5561,31 @@ export function SectionEditorPanel({
                         onChange={(value) => updateArrayProperty(fieldPath, value)}
                         locale={locale}
                         permanentFilters={pickerPermanentFilters}
+                      />
+                    </div>
+                  );
+                }
+
+                if (isSimpleField && editorType === "schema-org-section-editor") {
+                  const propsRaw = parsedSection?.properties;
+                  const properties =
+                    propsRaw && typeof propsRaw === "object" && !Array.isArray(propsRaw)
+                      ? (propsRaw as Record<string, unknown>)
+                      : {};
+                  const currentType =
+                    typeof parsedSection?.schema_type === "string"
+                      ? parsedSection.schema_type
+                      : typeof (parsedSection as { schemaType?: unknown } | null)?.schemaType === "string"
+                        ? String((parsedSection as { schemaType?: string }).schemaType)
+                        : "";
+                  return (
+                    <div key={fieldPath}>
+                      <SchemaOrgSectionEditorField
+                        schemaType={currentType}
+                        properties={properties}
+                        locale={locale || "en"}
+                        onSchemaTypeChange={(value) => updateProperty("schema_type", value)}
+                        data-testid="props-schema-org-section-editor"
                       />
                     </div>
                   );

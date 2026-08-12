@@ -9,6 +9,9 @@ import type { SchemaComponentContributor, SchemaContribution } from "./types";
  * Emits one JSON-LD document from a schema_org section.
  * Marks `needsStandaloneOrganization` when `@organization` refs are expanded
  * so collectSectionSchemas can dual-emit the site Organization once.
+ *
+ * For Person, fills `url` / `@id` from `context.pageUrl` when missing so author
+ * hubs match BlogPosting.author Person entity ids.
  */
 export const contributeSchemaOrg: SchemaComponentContributor = (section, context) => {
   const schemaType = typeof section.schema_type === "string" ? section.schema_type.trim() : "";
@@ -22,6 +25,18 @@ export const contributeSchemaOrg: SchemaComponentContributor = (section, context
   const transformed = transformToJsonLd(rawProps, context.locale);
   // Prefer explicit schema_type over nested `type` in properties.
   transformed["@type"] = schemaType;
+
+  if (schemaType === "Person" && context.pageUrl) {
+    if (typeof transformed.url !== "string" || !transformed.url.trim()) {
+      transformed.url = context.pageUrl;
+    }
+    if (typeof transformed["@id"] !== "string" || !String(transformed["@id"]).trim()) {
+      transformed["@id"] =
+        typeof transformed.url === "string" && transformed.url.trim()
+          ? transformed.url
+          : context.pageUrl;
+    }
+  }
 
   const doc: Record<string, unknown> = {
     "@context": "https://schema.org",

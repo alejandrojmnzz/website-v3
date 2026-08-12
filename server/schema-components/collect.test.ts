@@ -234,4 +234,51 @@ describe("collectSectionSchemas", () => {
       name: "4Geeks Academy",
     });
   });
+
+  it("emits Person from schema_org on authors hub; text_block bio does not emit Article", () => {
+    const pageUrl = "https://example.com/en/authors/ada-lovelace";
+    const schemas = collectSectionSchemas(
+      [
+        {
+          type: "schema_org",
+          section_id: "schema-org-author-person",
+          schema_type: "Person",
+          properties: {
+            name: "Ada Lovelace",
+            description: "Mathematician and writer.",
+            job_title: "Analyst",
+            same_as: ["https://en.wikipedia.org/wiki/Ada_Lovelace"],
+            knows_about: ["mathematics", "computing"],
+            works_for: { type: "Organization", name: "Analytical Engine" },
+          },
+        },
+        {
+          type: "text_block",
+          section_id: "authors-bio",
+          body: "Mathematician and writer.",
+          alignment: "left",
+          max_width: "default",
+        },
+      ],
+      {
+        ...context,
+        contentType: "authors",
+        pageUrl,
+        title: "Ada Lovelace | Authors | 4Geeks",
+      },
+    );
+    expect(schemas).toHaveLength(1);
+    expect(schemas[0]["@type"]).toBe("Person");
+    expect(schemas[0].name).toBe("Ada Lovelace");
+    expect(schemas[0].jobTitle).toBe("Analyst");
+    expect(schemas[0].sameAs).toEqual(["https://en.wikipedia.org/wiki/Ada_Lovelace"]);
+    expect(schemas[0].knowsAbout).toEqual(["mathematics", "computing"]);
+    expect(schemas[0].worksFor).toMatchObject({
+      "@type": "Organization",
+      name: "Analytical Engine",
+    });
+    expect(schemas[0].url).toBe(pageUrl);
+    expect(schemas[0]["@id"]).toBe(pageUrl);
+    expect(schemas.some((s) => s["@type"] === "Article")).toBe(false);
+  });
 });
