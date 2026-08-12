@@ -574,11 +574,11 @@ export function SeoModal({
                 </p>
                 <p>
                   Schema.org comes from leading <code className="font-mono">schema_org</code> sections plus FAQ, Article, and Breadcrumb contributors.
-                  Site Organization/Website in <code className="font-mono">schema-org.yml</code> are templates.
-                  Page WebSite/Organization sections are page-local. Course hero needs a Course companion section.
+                  Site Organization/Website in <code className="font-mono">schema-org.yml</code> are templates (prefill + dual-emit + social defaults).
+                  WebSite/Organization belong on the home page as <code className="font-mono">schema_org</code> sections; elsewhere they are page-local overrides. Course hero needs a Course companion section.
                 </p>
                 <p>
-                  This tab is a read-only preview of resolved JSON-LD. Edit sections on the page (or SEO &amp; GEO → Schema.org for site templates) — do not use legacy <code className="font-mono">schema.include</code>.
+                  This tab is a read-only preview of resolved JSON-LD. Edit sections on the page (or SEO &amp; GEO → Schema.org for site templates) — legacy <code className="font-mono">schema.include</code> is removed and ignored.
                 </p>
                 <Collapsible open={schemaAdvancedOpen} onOpenChange={setSchemaAdvancedOpen}>
                   <CollapsibleTrigger asChild>

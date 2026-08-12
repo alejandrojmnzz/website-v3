@@ -1472,7 +1472,7 @@ function PageAnalysisTab() {
               <CardTitle className="text-sm">Schema / JSON-LD</CardTitle>
               <InfoPopover testId="info-schema">
                 <p>Schema.org structured data helps search engines and AI assistants understand page content beyond plain text.</p>
-                <p>Emission is <strong className="text-foreground">section-driven</strong>: leading <code className="bg-muted px-1 rounded text-foreground">schema_org</code> sections plus FAQ, Article, and Breadcrumb contributors. Site Organization/Website templates live in <code className="bg-muted px-1 rounded text-foreground">schema-org.yml</code>; page WebSite/Organization sections are page-local.</p>
+                <p>Emission is <strong className="text-foreground">section-driven</strong>: leading <code className="bg-muted px-1 rounded text-foreground">schema_org</code> sections plus FAQ, Article, and Breadcrumb contributors. Site Organization/Website templates live in <code className="bg-muted px-1 rounded text-foreground">schema-org.yml</code>. WebSite/Organization belong on the home page as <code className="bg-muted px-1 rounded text-foreground">schema_org</code> sections; elsewhere they are page-local. Legacy <code className="bg-muted px-1 rounded text-foreground">schema.include</code> is ignored.</p>
                 <p>If the page has FAQ sections, a <code className="bg-muted px-1 rounded text-foreground">FAQPage</code> schema should also be present to unlock rich results. Any <code className="bg-muted px-1 rounded text-foreground">todo</code> placeholder in a schema field is flagged and penalises the Schema score.</p>
                 <p>The JSON-LD preview shows the fully resolved objects that will be rendered.</p>
               </InfoPopover>
