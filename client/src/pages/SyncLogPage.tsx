@@ -278,6 +278,8 @@ export default function SyncLogPage() {
   const [webhookRetryOpen, setWebhookRetryOpen] = useState(false);
   const [webhookRetryResult, setWebhookRetryResult] = useState<{ success: boolean; message: string } | null>(null);
   const [cleanupResult, setCleanupResult] = useState<{ deleted: number; ids: number[] } | null>(null);
+  const [webhookResetConfirmOpen, setWebhookResetConfirmOpen] = useState(false);
+  const [webhookResetResult, setWebhookResetResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const webhookSetupMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/github/webhook/setup").then(r => r.json()),
@@ -297,6 +299,20 @@ export default function SyncLogPage() {
     },
     onError: (err: any) => {
       setCleanupResult({ deleted: -1, ids: [] });
+    },
+  });
+
+  const webhookResetMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/github/webhook/reset").then(r => r.json()),
+    onSuccess: (data) => {
+      setWebhookResetResult({ success: !!data.success, message: data.message || "Done" });
+      setWebhookResetConfirmOpen(false);
+      qc.invalidateQueries({ queryKey: ["/api/github/sync-info"] });
+      qc.invalidateQueries({ queryKey: ["/api/github/sync-log"] });
+    },
+    onError: (err: any) => {
+      setWebhookResetResult({ success: false, message: err.message || "Request failed" });
+      setWebhookResetConfirmOpen(false);
     },
   });
 
@@ -1260,7 +1276,7 @@ export default function SyncLogPage() {
       </AlertDialogContent>
     </AlertDialog>
 
-    <Dialog open={webhookRetryOpen} onOpenChange={(open) => { if (!open) { setWebhookRetryOpen(false); setWebhookRetryResult(null); setCleanupResult(null); } }}>
+    <Dialog open={webhookRetryOpen} onOpenChange={(open) => { if (!open) { setWebhookRetryOpen(false); setWebhookRetryResult(null); setCleanupResult(null); setWebhookResetResult(null); } }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{syncInfo?.webhook.active ? "Webhook Active" : "Webhook Inactive"}</DialogTitle>
@@ -1309,8 +1325,19 @@ export default function SyncLogPage() {
                 <Check className="h-3.5 w-3.5 flex-shrink-0 text-green-600 dark:text-green-400" />
                 {cleanupResult.deleted === 0
                   ? "No duplicate webhooks found — already clean."
-                  : `Deleted ${cleanupResult.deleted} duplicate webhook${cleanupResult.deleted !== 1 ? "s" : ""} (#${cleanupResult.ids.join(", #")}).`
+                  : cleanupResult.deleted < 0
+                    ? "Failed to clean up duplicate webhooks."
+                    : `Deleted ${cleanupResult.deleted} duplicate webhook${cleanupResult.deleted !== 1 ? "s" : ""} (#${cleanupResult.ids.join(", #")}).`
                 }
+              </div>
+            )}
+            {webhookResetResult && (
+              <div className={`flex items-start gap-2 p-2.5 rounded-md border text-xs ${webhookResetResult.success ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900 text-green-700 dark:text-green-300" : "bg-destructive/10 border-destructive/20 text-destructive"}`}>
+                {webhookResetResult.success
+                  ? <Check className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                  : <X className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                }
+                <p>{webhookResetResult.message}</p>
               </div>
             )}
           </div>
@@ -1328,27 +1355,38 @@ export default function SyncLogPage() {
           </div>
         ) : null}
 
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={() => { setWebhookRetryOpen(false); setWebhookRetryResult(null); }}
-            data-testid="button-close-webhook-retry"
-          >
-            {syncInfo?.webhook.active || webhookRetryResult ? "Close" : "Cancel"}
-          </Button>
-          {syncInfo?.webhook.active && cleanupResult === null && (
-            <Button
-              variant="outline"
-              onClick={() => cleanupMutation.mutate()}
-              disabled={cleanupMutation.isPending}
-              data-testid="button-cleanup-webhooks"
-              className="text-destructive border-destructive/40 hover:border-destructive"
-            >
-              {cleanupMutation.isPending
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</>
-                : <><Trash2 className="h-4 w-4 mr-2" />Delete inactive webhooks</>
-              }
-            </Button>
+        <DialogFooter className="flex-row flex-nowrap justify-end gap-2 sm:space-x-0">
+          {syncInfo?.webhook.active && (
+            <>
+              {cleanupResult === null && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => cleanupMutation.mutate()}
+                  disabled={cleanupMutation.isPending || webhookResetMutation.isPending}
+                  data-testid="button-cleanup-webhooks"
+                  className="text-destructive border-destructive/40 hover:border-destructive shrink-0"
+                >
+                  {cleanupMutation.isPending
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</>
+                    : <><Trash2 className="h-4 w-4 mr-2" />Delete inactive webhooks</>
+                  }
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setWebhookResetResult(null); setWebhookResetConfirmOpen(true); }}
+                disabled={cleanupMutation.isPending || webhookResetMutation.isPending}
+                data-testid="button-reset-webhook"
+                className="shrink-0"
+              >
+                {webhookResetMutation.isPending
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Re-setting up...</>
+                  : <><RefreshCw className="h-4 w-4 mr-2" />Re-setup webhook</>
+                }
+              </Button>
+            </>
           )}
           {!syncInfo?.webhook.active && !webhookRetryResult?.success && (
             <Button
@@ -1365,6 +1403,40 @@ export default function SyncLogPage() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={webhookResetConfirmOpen} onOpenChange={setWebhookResetConfirmOpen}>
+      <AlertDialogContent data-testid="dialog-confirm-webhook-reset">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Re-setup GitHub webhook?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                This deletes every GitHub webhook pointing at this app&apos;s URL, clears the local secret, and registers a fresh hook with a new HMAC secret.
+              </p>
+              <p>
+                Use this when deliveries show <code className="text-xs bg-muted px-1 py-0.5 rounded">invalid HMAC signature</code> or the secret is out of sync.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-webhook-reset">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={cn(buttonVariants({ variant: "destructive" }))}
+            data-testid="button-confirm-webhook-reset"
+            onClick={(e) => {
+              e.preventDefault();
+              webhookResetMutation.mutate();
+            }}
+            disabled={webhookResetMutation.isPending}
+          >
+            {webhookResetMutation.isPending
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Re-setting up...</>
+              : "Delete & re-setup"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }

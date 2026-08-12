@@ -781,9 +781,15 @@ export function registerGithubRoutes(app: Express): void {
           message: `Skipped webhook setup: ${skipReason}`,
         });
       }
-      await ensureWebhook();
+      const site = res.locals.site as
+        | { contentRootName?: string; config?: { githubRepoUrl?: string } }
+        | undefined;
+      await ensureWebhook({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
       const { getWebhookInfo } = await import("../sync-state");
-      const info = getWebhookInfo();
+      const info = getWebhookInfo(site?.contentRootName);
       if (info) {
         res.json({
           success: true,
@@ -808,10 +814,43 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
+  // Force-delete all hooks for this app URL, then register a fresh one (new HMAC secret).
+  app.post("/api/github/webhook/reset", async (_req, res) => {
+    try {
+      const { forceResetWebhook, getWebhookSetupSkipReason } = await import("../github");
+      const skipReason = getWebhookSetupSkipReason();
+      if (skipReason) {
+        return res.json({
+          success: false,
+          skipped: true,
+          message: `Skipped webhook reset: ${skipReason}`,
+          deletedIds: [],
+        });
+      }
+      const site = res.locals.site as
+        | { contentRootName?: string; config?: { githubRepoUrl?: string } }
+        | undefined;
+      const result = await forceResetWebhook({
+        repoUrl: site?.config?.githubRepoUrl,
+        contentRoot: site?.contentRootName,
+      });
+      res.status(result.success ? 200 : 500).json(result);
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || "Webhook reset failed",
+        deletedIds: [],
+      });
+    }
+  });
+
   app.delete("/api/github/webhook/duplicates", async (_req, res) => {
     try {
+      const site = res.locals.site as
+        | { contentRootName?: string; config?: { githubRepoUrl?: string } }
+        | undefined;
       const { getWebhookInfo } = await import("../sync-state");
-      const info = getWebhookInfo();
+      const info = getWebhookInfo(site?.contentRootName);
       if (!info) {
         return res
           .status(400)
@@ -823,7 +862,7 @@ export function registerGithubRoutes(app: Express): void {
       const { cleanupDuplicateWebhooks, getGitHubConfig } = await import(
         "../github"
       );
-      const config = getGitHubConfig();
+      const config = getGitHubConfig(site?.config?.githubRepoUrl);
       if (!config) {
         return res
           .status(400)
