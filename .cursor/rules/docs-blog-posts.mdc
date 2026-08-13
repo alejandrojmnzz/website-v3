@@ -7,11 +7,11 @@ alwaysApply: false
 
 When creating or editing files under `docs/blog/`:
 
-1. **Purpose:** Long-form engineering essays (case studies / design narratives). Not ops runbooks (`docs/*.md`) and not live site YAML blog entries (`site_*/blog/`).
-2. **Title:** Attention-first. State a sharp claim or tension. Avoid keyword-stack titles. The filename and frontmatter `slug` must be a kebab-case reflection of the title — not a separate SEO phrase dump.
+1. **Purpose:** Long-form engineering essays (case studies / design narratives) **or** human-friendly standards/reference docs (e.g. `mcp-standards.md`). Not ops runbooks (`docs/*.md`) and not live site YAML blog entries (`site_*/blog/`).
+2. **Title:** Essays — attention-first; state a sharp claim or tension; avoid keyword-stack titles. Standards docs — clear plain titles (e.g. “MCP Server Standards”) are fine. The filename and frontmatter `slug` must be a kebab-case reflection of the title — not a separate SEO phrase dump.
 3. **Frontmatter (required):** `title`, `description`, `date` (ISO), `slug` (matches filename without `.md`), `tags` (array). Optional: `status: draft|published`.
-4. **Length:** Aim 2.5–4k words unless the piece is an intentional short follow-up.
-5. **Structure (default H2 spine):** Hook → problem / industry gap → mental model → numbered principles/standards → worked story (proof) → deliberate refusals → reader checklist → close.
+4. **Length:** Essays aim 2.5–4k words unless an intentional short follow-up. Standards/reference docs may be shorter; prefer scannable checklists and tables over narrative padding.
+5. **Structure:** Essays — Hook → problem / industry gap → mental model → numbered principles/standards → worked story (proof) → deliberate refusals → reader checklist → close. Standards docs — purpose → principles → checklists / refusals → where knowledge lives.
 6. **Tone:** Engineering essay. Concrete names and fields are fine. Persuade with narrative — do not dump a README or tool catalog.
 7. **Evidence:** Prefer real repo patterns (`warnings` / `side_effects` / `next_actions`, gates, playbooks). At most **one** illustrative JSON envelope; then paraphrase. No full tool-parameter tables.
 8. **Sources (this MCP):** Ground claims in `mcp-server/lib/respond.ts`, `mcp-server/explain/`, `mcp-server/README.md`, `.cursor/rules/mcp-server-responses.mdc`, `.cursor/rules/education-layer-planning.mdc`. Do not invent tools or side effects.
