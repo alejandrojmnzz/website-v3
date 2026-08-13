@@ -186,6 +186,8 @@ export function inventoryCategoryDescription(label: string): string | null {
       return "Index of form sections across this site's YAML content: conversion names, automations, and metadata used by the forms admin tools.";
     case "Validation cache":
       return "Cached validation results for this site — page and database health issues from the last diagnostics run. Stored per site in GCS (not GitHub) so results survive deploys without polluting the content repo.";
+    case "Runtime issues":
+      return "Rolled-up public 404s and related runtime signals for this site. Written locally and flushed to GCS so Diagnostics → Runtime stays populated across deploys (last-write-wins).";
     case "Media":
       return "Site images from the local images/ folder, mirrored to the GCS media prefix. Shows whether cloud copies exist and when they were last updated.";
     case "Lighthouse reports":

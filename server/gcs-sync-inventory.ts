@@ -7,6 +7,7 @@ import {
   platformSitesYmlReadKeys,
   platformUserStoreGcsKey,
   platformUserStoreLocalFilename,
+  runtimeIssuesStateReadKeys,
   siteConversationsGcsPrefix,
   siteLighthouseGcsPrefixRoot,
   siteMediaGcsPrefix,
@@ -183,6 +184,15 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         gcsKey: siteSyncGcsKey(safeFolder, SYNC_FILENAMES.validationCache),
         readKeys: validationCacheReadKeys(safeFolder),
         localPath: path.join(root, "validation-cache.json"),
+        writesBlocked: true,
+      }),
+      await resolveRow({
+        id: `runtime-issues-${safeFolder}`,
+        label: "Runtime issues",
+        siteFolder: site.contentFolder,
+        gcsKey: siteSyncGcsKey(safeFolder, SYNC_FILENAMES.runtimeIssuesState),
+        readKeys: runtimeIssuesStateReadKeys(safeFolder),
+        localPath: path.join(root, `.${SYNC_FILENAMES.runtimeIssuesState}`),
         writesBlocked: true,
       }),
     );

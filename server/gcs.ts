@@ -22,6 +22,7 @@ import {
   formStateReadKeys,
   platformSitesYmlReadKeys,
   platformUserStoreGcsKey,
+  runtimeIssuesStateReadKeys,
   siteConversationsGcsPrefix,
   siteLighthouseGcsPrefixRoot,
   siteMediaGcsPrefix,
@@ -607,6 +608,7 @@ class GCSClient {
       this.probeKey("Versioning", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.versioningState), versioningStateReadKeys(siteFolder).slice(1)),
       this.probeKey("Form registry", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.formState), formStateReadKeys(siteFolder, isDefaultSite).slice(1)),
       this.probeKey("Validation cache", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.validationCache), validationCacheReadKeys(siteFolder).slice(1)),
+      this.probeKey("Runtime issues", siteSyncGcsKey(siteFolder, SYNC_FILENAMES.runtimeIssuesState), runtimeIssuesStateReadKeys(siteFolder).slice(1)),
     ]);
 
     const legacySyncPrefix = `sync/${siteFolder}/`;
