@@ -61,6 +61,12 @@ export interface SeoModalProps {
   contentTypeLabel?: string;
   /** Tab to show when the modal opens (defaults to SEO Meta). */
   initialTab?: SeoModalTab;
+  /** live = published locale file; variant = draft or A/B file. */
+  seoContext?: "live" | "variant";
+  /** Active variant slug when seoContext is variant. */
+  seoVariant?: string;
+  /** Meta keys defined on the variant file (overrides). */
+  metaOverrides?: string[];
 }
 
 function resolveSchemaPreviewDocs(seoData: any): SchemaOrgPreviewDoc[] {
@@ -124,10 +130,14 @@ export function SeoModal({
   locale = "en",
   contentTypeLabel,
   initialTab = "general",
+  seoContext = "live",
+  seoVariant,
+  metaOverrides = [],
 }: SeoModalProps) {
   const [activeTab, setActiveTab] = useState<SeoModalTab>(initialTab);
   const [schemaAdvancedOpen, setSchemaAdvancedOpen] = useState(false);
   const [expandedSchemaDocs, setExpandedSchemaDocs] = useState<Record<number, boolean>>({});
+  const [variantAdvancedOpen, setVariantAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (open) setActiveTab(initialTab);
@@ -144,10 +154,17 @@ export function SeoModal({
       ? contentInfo.type.charAt(0).toUpperCase() + contentInfo.type.slice(1)
       : "Content type");
   const fieldsVariant = useMemo(() => {
+    if (seoVariant) return seoVariant;
     if (typeof window === "undefined") return null;
     const q = new URLSearchParams(window.location.search);
     return q.get("variant") || q.get("force_variant");
-  }, [open, contentInfo.type, contentInfo.slug]);
+  }, [open, contentInfo.type, contentInfo.slug, seoVariant]);
+
+  const isVariantContext = seoContext === "variant" && !!seoVariant;
+  const variantFileName = isVariantContext
+    ? `${seoVariant}.${fieldsLocale}.yml`
+    : `${fieldsLocale}.yml`;
+  const slugRenameDisabled = isVariantContext;
 
   const { data: ctConfig } = useQuery<{ immutable_slug?: boolean }>({
     queryKey: ["/api/content-types", contentInfo.type, "config"],
@@ -178,8 +195,40 @@ export function SeoModal({
           <DialogTitle>SEO & Meta Tags</DialogTitle>
           <DialogDescription>
             {contentInfo.slug ? `${contentInfo.label}: ${contentInfo.slug}` : "Page SEO settings"}
+            {isVariantContext ? ` · variant ${seoVariant}` : ""}
           </DialogDescription>
         </DialogHeader>
+
+        {isVariantContext && (
+          <div
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm space-y-2"
+            data-testid="banner-seo-variant-context"
+          >
+            <p>
+              You are editing <strong>variant</strong> SEO (
+              <code className="font-mono text-xs">{variantFileName}</code>
+              ). Values shown are variant-first; missing keys inherit from LIVE
+              {metaOverrides.length > 0
+                ? ` (${metaOverrides.length} override${metaOverrides.length === 1 ? "" : "s"})`
+                : ""}
+              . Saves write only to this variant — not LIVE. Publish/promote copies them to LIVE.
+            </p>
+            <Collapsible open={variantAdvancedOpen} onOpenChange={setVariantAdvancedOpen}>
+              <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${variantAdvancedOpen ? "rotate-180" : ""}`}
+                />
+                Read more (advanced)
+              </CollapsibleTrigger>
+              <CollapsibleContent className="text-xs text-muted-foreground mt-1 space-y-0.5 font-mono">
+                <p>server/routes/seo.ts — preview merge (common → live → variant)</p>
+                <p>server/draft-entry.ts — draft write gate</p>
+                <p>server/routes/versioning.ts — promote to live</p>
+                <p>update-locations → _common.yml</p>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        )}
 
         {seoLoading ? (
           <div className="flex flex-col items-center justify-center py-12 gap-3">
@@ -247,14 +296,19 @@ export function SeoModal({
                         placeholder={currentLocaleSlug}
                         className={`flex-1 min-w-0 px-3 py-2 text-sm font-mono rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring ${slugCheckStatus === "taken" ? "border-destructive" : slugCheckStatus === "available" ? "border-green-500" : ""}`}
                         data-testid="input-slug-editor"
-                        disabled={slugRenaming || slugImmutable}
+                        disabled={slugRenaming || slugImmutable || slugRenameDisabled}
                       />
-                      {slugImmutable && (
+                      {slugRenameDisabled && (
+                        <p className="text-xs text-muted-foreground" data-testid="text-slug-rename-disabled-variant">
+                          Slug rename is disabled while editing a variant. Open LIVE context to rename.
+                        </p>
+                      )}
+                      {slugImmutable && !slugRenameDisabled && (
                         <p className="text-xs text-muted-foreground" data-testid="text-slug-immutable">
                           Slug is immutable for this content type (authors).
                         </p>
                       )}
-                      {newSlugValue && newSlugValue !== currentLocaleSlug && !slugRedirectPrompt && !slugImmutable && (
+                      {newSlugValue && newSlugValue !== currentLocaleSlug && !slugRedirectPrompt && !slugImmutable && !slugRenameDisabled && (
                         <>
                           <Button
                             size="sm"
@@ -763,6 +817,7 @@ export function SeoModal({
                     </h4>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Choose which campus locations appear on this landing page. If none are selected, the visitor's nearest location is used automatically.
+                      {" "}Locations always live in <code className="font-mono">_common.yml</code> (entry-wide — not per variant).
                     </p>
                   </div>
 
@@ -859,6 +914,16 @@ export function SeoModal({
                   Old URL paths that should redirect to this page (301). Each entry is a path relative to the site root, e.g. <code className="font-mono bg-muted px-1 rounded">/old-page-slug</code>.
                 </p>
               </div>
+
+              {isVariantContext && (
+                <div
+                  className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground"
+                  data-testid="banner-seo-redirects-variant"
+                >
+                  If you edit redirects on this variant, they apply only to this variant and you lose inherited
+                  LIVE redirects. Edit LIVE if you want redirects for all.
+                </div>
+              )}
 
               {seoMeta.redirects.length > 0 ? (
                 <div className="space-y-1.5">

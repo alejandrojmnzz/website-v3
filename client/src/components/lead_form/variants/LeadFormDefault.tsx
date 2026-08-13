@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -45,6 +45,13 @@ import {
   buildQueryOptionsUrl,
   type FormFieldSourceInput,
 } from "@shared/parseFormFieldSource";
+import {
+  applyChoiceCardinality,
+  resolveFormFieldRelationSource,
+  resolveSubmitValueFromOptions,
+  type FormFieldOption as RelationFormFieldOption,
+} from "@shared/resolveFormFieldRelationSource";
+import type { RelationEditorHint } from "@shared/relation-field";
 
 /** Runtime defaults when YAML omits `fields.*.component_renderer`. */
 const SELECT_DEFAULT_FIELDS = new Set(["program", "plan", "location", "region"]);
@@ -497,7 +504,7 @@ function buildEffectiveSubmitConfig(
 
 export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const landingLocations = undefined as string[] | undefined;
-  const { slug, contentType } = useSectionContext();
+  const { slug, contentType, singleEntry } = useSectionContext();
   const programContext = contentType === "program" ? slug : undefined;
   const { t, i18n } = useTranslation();
   const locale = i18n.language === "es" ? "es" : "en";
@@ -646,10 +653,21 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     queryKey: ["/api/form-options", locale],
   });
 
+  const { data: contentTypeConfig } = useQuery<{
+    editor?: Record<string, { type?: string } & RelationEditorHint>;
+  }>({
+    queryKey: [`/api/content-types/${contentType}/config`],
+    enabled: !!contentType,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const programSourceRaw = fields.program?.source;
   const programSource = programSourceRaw
     ? parseFormFieldSource(programSourceRaw)
     : null;
+
+  const planSourceRaw = fields.plan?.source;
+  const planSource = planSourceRaw ? parseFormFieldSource(planSourceRaw) : null;
 
   const { data: programQueryOptions } = useQuery<{
     options: Array<{ value: string; label: string }>;
@@ -664,7 +682,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     ],
     enabled: !!programSource?.name,
     queryFn: async () => {
-      if (!programSource) return { options: [] };
+      if (!programSource?.name) return { options: [] };
       const url = buildQueryOptionsUrl(programSource, locale);
       const res = await apiFetch(url);
       if (!res.ok) {
@@ -673,9 +691,6 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       return res.json();
     },
   });
-
-  const planSourceRaw = fields.plan?.source;
-  const planSource = planSourceRaw ? parseFormFieldSource(planSourceRaw) : null;
 
   const { data: planQueryOptions } = useQuery<{
     options: Array<{ value: string; label: string }>;
@@ -691,7 +706,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     ],
     enabled: !!planSource?.name,
     queryFn: async () => {
-      if (!planSource) return { options: [] };
+      if (!planSource?.name) return { options: [] };
       const url = buildQueryOptionsUrl(planSource, locale);
       const res = await apiFetch(url);
       if (!res.ok) {
@@ -700,6 +715,57 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       return res.json();
     },
   });
+
+  const programCatalogByPointer = useMemo(() => {
+    const map = new Map<string, { label?: string; bc_slug?: string }>();
+    for (const p of formOptions?.programs ?? []) {
+      map.set(p.slug, { label: p.title, bc_slug: p.bc_slug || p.slug });
+      if (p.bc_slug) map.set(p.bc_slug, { label: p.title, bc_slug: p.bc_slug });
+    }
+    return map;
+  }, [formOptions?.programs]);
+
+  const programRelationOptions = useMemo((): RelationFormFieldOption[] => {
+    if (!programSource?.relation) return [];
+    const resolved = resolveFormFieldRelationSource({
+      formFieldName: "program",
+      relationField: programSource.relation,
+      singleEntry: singleEntry ?? {},
+      editorHint: contentTypeConfig?.editor?.[programSource.relation],
+      catalogByPointer: programCatalogByPointer,
+      requireCatalogHit: false,
+      valuePath: programSource.value,
+      labelPath: programSource.label,
+    });
+    return resolved.ok ? resolved.options : [];
+  }, [
+    programSource?.relation,
+    programSource?.value,
+    programSource?.label,
+    singleEntry,
+    contentTypeConfig?.editor,
+    programCatalogByPointer,
+  ]);
+
+  const planRelationOptions = useMemo((): RelationFormFieldOption[] => {
+    if (!planSource?.relation) return [];
+    const resolved = resolveFormFieldRelationSource({
+      formFieldName: "plan",
+      relationField: planSource.relation,
+      singleEntry: singleEntry ?? {},
+      editorHint: contentTypeConfig?.editor?.[planSource.relation],
+      requireCatalogHit: false,
+      valuePath: planSource.value,
+      labelPath: planSource.label,
+    });
+    return resolved.ok ? resolved.options : [];
+  }, [
+    planSource?.relation,
+    planSource?.value,
+    planSource?.label,
+    singleEntry,
+    contentTypeConfig?.editor,
+  ]);
 
   const landingRegions = (() => {
     if (!hasLandingLocations || !formOptions?.locations) return null;
@@ -729,7 +795,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       client_comments: { visible: false, required: false },
       current_download: { visible: false, required: false },
     };
-    const baseConfig = { ...defaults[fieldName], ...fields[fieldName] };
+    let baseConfig = { ...defaults[fieldName], ...fields[fieldName] };
 
     // Signup mode: identity fields already known from the profile are hidden
     // (their values are prefilled and still submitted).
@@ -752,6 +818,40 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       }
       if (multipleLandingRegions) {
         return { ...baseConfig, visible: true, required: true, default: "" };
+      }
+    }
+
+    // When source is set, cardinality overrides authored visible/default/required.
+    // relation ignores default: auto (options drive the default).
+    const sourceRaw = baseConfig.source;
+    if (sourceRaw) {
+      const src = parseFormFieldSource(sourceRaw);
+      let options: RelationFormFieldOption[] = [];
+      if (fieldName === "program") {
+        if (src.relation) options = programRelationOptions;
+        else if (src.name) {
+          options = (programQueryOptions?.options ?? []).map((o) => ({
+            value: o.value,
+            label: o.label,
+            bc_slug: o.value,
+          }));
+        }
+      } else if (fieldName === "plan") {
+        if (src.relation) options = planRelationOptions;
+        else if (src.name) {
+          options = (planQueryOptions?.options ?? []).map((o) => ({
+            value: o.value,
+            label: o.label,
+          }));
+        }
+      }
+      if (src.relation || src.name) {
+        const authoredDefault =
+          src.relation && baseConfig.default === "auto"
+            ? { ...baseConfig, default: "" }
+            : baseConfig;
+        const { mode: _mode, ...card } = applyChoiceCardinality(authoredDefault, options);
+        baseConfig = card;
       }
     }
 
@@ -789,9 +889,16 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     }
   };
 
-  const programFieldSlugs = getFieldConfig("program").slugs;
+  const programFieldSlugs = fields.program?.slugs;
   const visiblePrograms = (() => {
-    if (programSource) {
+    if (programSource?.relation) {
+      return programRelationOptions.map((o) => ({
+        slug: o.value,
+        bc_slug: o.bc_slug || o.value,
+        title: o.label,
+      }));
+    }
+    if (programSource?.name) {
       return (programQueryOptions?.options ?? []).map((o) => ({
         slug: o.value,
         bc_slug: o.value,
@@ -807,9 +914,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       .filter((p): p is NonNullable<typeof p> => p !== undefined);
   })();
 
-  const planFieldSlugs = getFieldConfig("plan").slugs;
+  const planFieldSlugs = fields.plan?.slugs;
   const visiblePlans = (() => {
-    if (planSource) {
+    if (planSource?.relation) {
+      return planRelationOptions.map((o) => ({ value: o.bc_slug || o.value, label: o.label }));
+    }
+    if (planSource?.name) {
       return planQueryOptions?.options ?? [];
     }
     if (planFieldSlugs && planFieldSlugs.length > 0) {
@@ -929,8 +1039,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   }, [sessionLocation, utm, programContext, form, singleLandingLocation, singleLandingRegion]);
 
   useEffect(() => {
-    if (programSource) {
-      if (!programQueryOptions?.options) return;
+    if (programSource?.relation || programSource?.name) {
+      if (programSource.name && !programQueryOptions?.options) return;
       const currentValue = form.getValues("program");
       if (!currentValue) return;
       const isValid = visiblePrograms.some(p => (p.bc_slug || p.slug) === currentValue);
@@ -946,36 +1056,77 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     }
   }, [visiblePrograms, programFieldSlugs, formOptions?.programs, programSource, programQueryOptions?.options, form]);
 
+  // When source cardinality hides + autofills a single option, keep form value in sync.
+  useEffect(() => {
+    const programCfg = getFieldConfig("program");
+    if (programSource && programCfg.default && !programCfg.visible) {
+      form.setValue("program", resolveDefault("program", programCfg.default));
+    }
+    const planCfg = getFieldConfig("plan");
+    if (planSource && planCfg.default && !planCfg.visible) {
+      form.setValue("plan", resolveDefault("plan", planCfg.default));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    programSource?.relation,
+    programSource?.name,
+    planSource?.relation,
+    planSource?.name,
+    programRelationOptions,
+    planRelationOptions,
+    programQueryOptions?.options,
+    planQueryOptions?.options,
+    form,
+  ]);
+
   /** Same field defaults used for lead payload and route matching. */
-  const resolveEffectiveFieldValues = (values: FormValues) => ({
-    ...values,
-    program:
+  const resolveEffectiveFieldValues = (values: FormValues) => {
+    const programOpts: RelationFormFieldOption[] = programSource?.relation
+      ? programRelationOptions
+      : programSource?.name
+        ? (programQueryOptions?.options ?? []).map((o) => ({
+            value: o.value,
+            label: o.label,
+            bc_slug: o.value,
+          }))
+        : visiblePrograms.map((p) => ({
+            value: p.slug,
+            label: p.title,
+            bc_slug: p.bc_slug || p.slug,
+          }));
+
+    const rawProgram =
       values.program ||
       formOptions?.programs.find((p) => p.slug === programContext)?.bc_slug ||
       programContext ||
-      resolveDefault("program", getFieldConfig("program").default),
-    location:
-      singleLandingLocation ||
-      values.location ||
-      sessionLocation?.slug ||
-      resolveDefault("location", getFieldConfig("location").default),
-    region:
-      singleLandingRegion ||
-      values.region ||
-      sessionLocation?.region ||
-      resolveDefault("region", getFieldConfig("region").default),
-    coupon:
-      values.coupon ||
-      utm.coupon ||
-      resolveDefault("coupon", getFieldConfig("coupon").default),
-    current_download:
-      values.current_download ||
-      resolveDefault("current_download", getFieldConfig("current_download").default),
-    plan:
-      values.plan ||
-      resolveDefault("plan", getFieldConfig("plan").default) ||
-      "",
-  });
+      resolveDefault("program", getFieldConfig("program").default);
+
+    return {
+      ...values,
+      program: resolveSubmitValueFromOptions(rawProgram, programOpts) || rawProgram,
+      location:
+        singleLandingLocation ||
+        values.location ||
+        sessionLocation?.slug ||
+        resolveDefault("location", getFieldConfig("location").default),
+      region:
+        singleLandingRegion ||
+        values.region ||
+        sessionLocation?.region ||
+        resolveDefault("region", getFieldConfig("region").default),
+      coupon:
+        values.coupon ||
+        utm.coupon ||
+        resolveDefault("coupon", getFieldConfig("coupon").default),
+      current_download:
+        values.current_download ||
+        resolveDefault("current_download", getFieldConfig("current_download").default),
+      plan:
+        values.plan ||
+        resolveDefault("plan", getFieldConfig("plan").default) ||
+        "",
+    };
+  };
 
   const submitMutation = useMutation({
     mutationFn: async (values: FormValues) => {

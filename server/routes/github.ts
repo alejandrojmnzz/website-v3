@@ -209,8 +209,152 @@ import {
   currentPushAllRun,
 } from "./_helpers";
 import { child } from "../logger";
+import type { SiteContext } from "../site-manager";
+import type { SyncLogCategory } from "../sync-log";
+
 const log = child({ module: "routes/github" });
 
+type WebhookDeliveryReason =
+  | "missing_signature"
+  | "no_webhook_configured"
+  | "invalid_signature"
+  | "ping"
+  | "ignored_event"
+  | "self_push"
+  | "push"
+  | "push_no_site_files";
+
+type WebhookDeliveryMeta = {
+  status: number;
+  reason: WebhookDeliveryReason;
+  host: string;
+  forwardedHost?: string;
+  event?: string;
+  deliveryId?: string;
+  webhookId?: number;
+  registeredUrl?: string;
+  sha?: string;
+  pusher?: string;
+  ref?: string;
+  filesChanged?: number;
+  added?: number;
+  modified?: number;
+  removed?: number;
+  pathsSample?: string[];
+  ignoredEvent?: string;
+};
+
+const PATHS_SAMPLE_LIMIT = 5;
+
+function normalizeRepoUrl(url: string | undefined | null): string {
+  return (url || "").replace(/\.git$/, "").toLowerCase();
+}
+
+function extractIncomingRepoUrl(body: unknown): string {
+  const b = body as { repository?: { html_url?: string; clone_url?: string } } | null;
+  return normalizeRepoUrl(b?.repository?.html_url || b?.repository?.clone_url || "");
+}
+
+function resolveMatchedSitesForRepo(repoUrl: string): SiteContext[] {
+  const matched: SiteContext[] = [];
+  if (repoUrl) {
+    for (const ctx of Array.from(getSiteContextMap().values())) {
+      const siteRepo = normalizeRepoUrl(ctx.config.githubRepoUrl);
+      if (siteRepo && siteRepo === repoUrl) matched.push(ctx);
+    }
+  }
+  if (matched.length === 0) matched.push(getDefaultSite());
+  return matched;
+}
+
+function requestHostMeta(req: Request): { host: string; forwardedHost?: string } {
+  const host = req.hostname || "";
+  const xf = req.headers["x-forwarded-host"];
+  const forwardedRaw = Array.isArray(xf) ? xf[0] : xf;
+  const headerHost = typeof req.headers.host === "string" ? req.headers.host : undefined;
+  const forwardedHost = (forwardedRaw || headerHost || "").split(",")[0]?.trim() || undefined;
+  return forwardedHost && forwardedHost !== host
+    ? { host, forwardedHost }
+    : forwardedHost
+      ? { host: host || forwardedHost, forwardedHost }
+      : { host };
+}
+
+function headerString(req: Request, name: string): string | undefined {
+  const v = req.headers[name];
+  if (Array.isArray(v)) return v[0];
+  return typeof v === "string" ? v : undefined;
+}
+
+function buildWebhookDeliveryMeta(
+  req: Request,
+  partial: Omit<WebhookDeliveryMeta, "host" | "forwardedHost" | "event" | "deliveryId"> &
+    Partial<Pick<WebhookDeliveryMeta, "event" | "deliveryId">>,
+): WebhookDeliveryMeta {
+  const hosts = requestHostMeta(req);
+  const event = partial.event ?? headerString(req, "x-github-event");
+  const deliveryId = partial.deliveryId ?? headerString(req, "x-github-delivery");
+  return {
+    ...partial,
+    ...hosts,
+    ...(event ? { event } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
+  };
+}
+
+function countPushPaths(commits: Array<{ added?: string[]; modified?: string[]; removed?: string[] }>): {
+  changedFiles: Set<string>;
+  added: number;
+  modified: number;
+  removed: number;
+} {
+  const changedFiles = new Set<string>();
+  let added = 0;
+  let modified = 0;
+  let removed = 0;
+  for (const commit of commits) {
+    for (const f of commit.added || []) {
+      changedFiles.add(f);
+      added++;
+    }
+    for (const f of commit.modified || []) {
+      changedFiles.add(f);
+      modified++;
+    }
+    for (const f of commit.removed || []) {
+      changedFiles.add(f);
+      removed++;
+    }
+  }
+  return { changedFiles, added, modified, removed };
+}
+
+function pathsSampleFrom(files: Iterable<string>, limit = PATHS_SAMPLE_LIMIT): string[] {
+  return Array.from(files).slice(0, limit);
+}
+
+function fanOutWebhookLog(
+  sites: SiteContext[],
+  message: string,
+  meta: WebhookDeliveryMeta,
+  logSyncFn: (
+    category: SyncLogCategory,
+    message: string,
+    person?: string,
+    meta?: Record<string, unknown>,
+    contentRoot?: string,
+  ) => void,
+  person?: string,
+): void {
+  const seen = new Set<string>();
+  for (const ctx of sites) {
+    const key = ctx.contentRootName || ctx.config.domain;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (ctx.syncLog) ctx.syncLog.log("WEBHOOK", message, person, meta);
+    else logSyncFn("WEBHOOK", message, person, meta, ctx.contentRootName);
+  }
+}
 
 export function registerGithubRoutes(app: Express): void {
   // GitHub sync status endpoint
@@ -233,16 +377,32 @@ export function registerGithubRoutes(app: Express): void {
   app.post("/api/github/webhook", async (req, res) => {
     try {
       const { logSync } = await import("../sync-log");
-      const signature = req.headers["x-hub-signature-256"] as string;
+      const { getWebhookInfo } = await import("../sync-state");
+      const { verifyWebhookSignature } = await import("../github");
+
+      const rawBody = (req as any).rawBody;
+      let parsedBody: unknown = req.body;
+      try {
+        if (rawBody) parsedBody = JSON.parse(rawBody.toString("utf-8"));
+      } catch {
+        parsedBody = req.body;
+      }
+      const incomingRepo = extractIncomingRepoUrl(parsedBody);
+      const matchedForLog = resolveMatchedSitesForRepo(incomingRepo);
+
+      const signature = req.headers["x-hub-signature-256"] as string | undefined;
       if (!signature) {
-        logSync("WEBHOOK", "Rejected: missing signature header");
+        const meta = buildWebhookDeliveryMeta(req, { status: 401, reason: "missing_signature" });
+        fanOutWebhookLog(
+          matchedForLog,
+          "Webhook rejected (401): request reached the app without GitHub's X-Hub-Signature-256 header. A proxy may have stripped it, or the hook was registered without a secret.",
+          meta,
+          logSync,
+        );
         res.status(401).json({ error: "Missing signature" });
         return;
       }
 
-      const { getWebhookInfo } = await import("../sync-state");
-      const { verifyWebhookSignature } = await import("../github");
-      const rawBody = (req as any).rawBody;
       const payload = rawBody
         ? rawBody.toString("utf-8")
         : JSON.stringify(req.body);
@@ -251,28 +411,29 @@ export function registerGithubRoutes(app: Express): void {
       // against registered site configs.  Falls back to the default (no contentRoot)
       // state for single-site deployments.
       let webhookInfo = (() => {
-        try {
-          const parsedRaw = rawBody ? JSON.parse(rawBody.toString("utf-8")) : req.body;
-          const incomingRepo = (
-            parsedRaw?.repository?.html_url ||
-            parsedRaw?.repository?.clone_url ||
-            ""
-          ).replace(/\.git$/, "").toLowerCase();
-          if (incomingRepo) {
-            for (const ctx of Array.from(getSiteContextMap().values())) {
-              const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
-              if (siteRepo && siteRepo === incomingRepo) {
-                const perSiteInfo = getWebhookInfo(ctx.contentRootName);
-                if (perSiteInfo) return perSiteInfo;
-              }
+        if (incomingRepo) {
+          for (const ctx of Array.from(getSiteContextMap().values())) {
+            const siteRepo = normalizeRepoUrl(ctx.config.githubRepoUrl);
+            if (siteRepo && siteRepo === incomingRepo) {
+              const perSiteInfo = getWebhookInfo(ctx.contentRootName);
+              if (perSiteInfo) return perSiteInfo;
             }
           }
-        } catch { /* fall through */ }
+        }
         return getWebhookInfo();
       })();
 
       if (!webhookInfo) {
-        logSync("WEBHOOK", "Rejected: no webhook configured in sync state");
+        const meta = buildWebhookDeliveryMeta(req, {
+          status: 500,
+          reason: "no_webhook_configured",
+        });
+        fanOutWebhookLog(
+          matchedForLog,
+          "Webhook rejected (500): this process has no webhook secret in sync state. Register or Re-setup the webhook so deliveries can be verified.",
+          meta,
+          logSync,
+        );
         res.status(500).json({ error: "No webhook configured" });
         return;
       }
@@ -280,62 +441,105 @@ export function registerGithubRoutes(app: Express): void {
       if (
         !verifyWebhookSignature(payload, signature, webhookInfo.webhookSecret)
       ) {
-        logSync("WEBHOOK", "Rejected: invalid HMAC signature");
+        const meta = buildWebhookDeliveryMeta(req, {
+          status: 401,
+          reason: "invalid_signature",
+          webhookId: webhookInfo.webhookId,
+          registeredUrl: webhookInfo.webhookUrl,
+        });
+        fanOutWebhookLog(
+          matchedForLog,
+          "Webhook rejected (401): signature mismatch — GitHub's hook secret does not match this app's sync-state secret. Often caused by multiple sites sharing one content repo (each re-registering the hook) or SITE_URL drift. Try Re-setup webhook and compare the hook URL to SITE_URL.",
+          meta,
+          logSync,
+        );
         res.status(401).json({ error: "Invalid signature" });
         return;
       }
 
-      const event = req.headers["x-github-event"] as string;
+      const event = headerString(req, "x-github-event") || "";
 
       if (event === "ping") {
-        logSync("WEBHOOK", "Received ping event — webhook is active");
+        const meta = buildWebhookDeliveryMeta(req, {
+          status: 200,
+          reason: "ping",
+          webhookId: webhookInfo.webhookId,
+          registeredUrl: webhookInfo.webhookUrl,
+          event: "ping",
+        });
+        fanOutWebhookLog(
+          matchedForLog,
+          "Webhook ping received — GitHub can reach this app and the signature is valid.",
+          meta,
+          logSync,
+        );
         res.json({ ok: true, message: "pong" });
         return;
       }
 
       if (event !== "push") {
-        logSync("WEBHOOK", `Ignored event: ${event}`);
+        const meta = buildWebhookDeliveryMeta(req, {
+          status: 200,
+          reason: "ignored_event",
+          webhookId: webhookInfo.webhookId,
+          registeredUrl: webhookInfo.webhookUrl,
+          event,
+          ignoredEvent: event,
+        });
+        fanOutWebhookLog(
+          matchedForLog,
+          `Webhook ignored non-push event "${event}". Only push events trigger auto-pull.`,
+          meta,
+          logSync,
+        );
         res.json({ ok: true, message: `Ignored event: ${event}` });
         return;
       }
 
-      const pushPayload = req.body;
+      const pushPayload = (parsedBody && typeof parsedBody === "object" ? parsedBody : req.body) as {
+        after?: string;
+        ref?: string;
+        pusher?: { name?: string };
+        repository?: { html_url?: string; clone_url?: string };
+        commits?: Array<{ added?: string[]; modified?: string[]; removed?: string[]; message?: string }>;
+        head_commit?: { message?: string };
+      };
       const commitSha = pushPayload.after;
       const pusher = pushPayload.pusher?.name || "unknown";
 
       const { getAutoCommitStatus } = await import("../auto-commit");
       const { lastCommitSha } = getAutoCommitStatus();
 
-      // Sites that share this push's github repo (multi-site can share one content repo).
-      const pushRepoUrl = (
-        pushPayload.repository?.html_url ||
-        pushPayload.repository?.clone_url ||
-        ""
-      ).replace(/\.git$/, "").toLowerCase();
-
-      const matchedSites: import("../site-manager").SiteContext[] = [];
-      if (pushRepoUrl) {
-        for (const ctx of Array.from(getSiteContextMap().values())) {
-          const siteRepo = (ctx.config.githubRepoUrl || "").replace(/\.git$/, "").toLowerCase();
-          if (siteRepo && siteRepo === pushRepoUrl) {
-            matchedSites.push(ctx);
-          }
-        }
-      }
-      if (matchedSites.length === 0) {
-        // Single-site / unmatched: fall back to default site.
-        matchedSites.push(getDefaultSite());
-      }
+      const pushRepoUrl = incomingRepo || extractIncomingRepoUrl(pushPayload);
+      const matchedSites = resolveMatchedSitesForRepo(pushRepoUrl);
 
       const logForSite = (
-        ctx: import("../site-manager").SiteContext | null,
-        cat: import("../sync-log").SyncLogCategory,
+        ctx: SiteContext | null,
+        cat: SyncLogCategory,
         msg: string,
         person?: string,
+        meta?: Record<string, unknown>,
       ) => {
-        if (ctx?.syncLog) ctx.syncLog.log(cat, msg, person);
-        else logSync(cat, msg, person);
+        if (ctx?.syncLog) ctx.syncLog.log(cat, msg, person, meta);
+        else logSync(cat, msg, person, meta, ctx?.contentRootName);
       };
+
+      const { changedFiles, added, modified, removed } = countPushPaths(pushPayload.commits || []);
+      const basePushMeta = buildWebhookDeliveryMeta(req, {
+        status: 200,
+        reason: "push",
+        webhookId: webhookInfo.webhookId,
+        registeredUrl: webhookInfo.webhookUrl,
+        event: "push",
+        sha: commitSha ? commitSha.slice(0, 7) : undefined,
+        pusher,
+        ref: pushPayload.ref,
+        filesChanged: changedFiles.size,
+        added,
+        modified,
+        removed,
+        pathsSample: pathsSampleFrom(changedFiles),
+      });
 
       if (
         lastCommitSha &&
@@ -344,13 +548,11 @@ export function registerGithubRoutes(app: Express): void {
           commitSha.startsWith(lastCommitSha) ||
           lastCommitSha.startsWith(commitSha))
       ) {
-        const primary = matchedSites[0] ?? null;
-        logForSite(
-          primary,
-          "WEBHOOK",
-          `Push ${commitSha?.slice(0, 7)} by ${pusher}: skipping auto-pull — commit was pushed by this instance`,
-          pusher,
-        );
+        const selfMeta: WebhookDeliveryMeta = { ...basePushMeta, reason: "self_push" };
+        const msg = `Push ${commitSha.slice(0, 7)} by ${pusher}: skipping auto-pull — this commit was pushed by this instance (avoids echo).`;
+        for (const ctx of matchedSites) {
+          logForSite(ctx, "WEBHOOK", msg, pusher, selfMeta);
+        }
         res.json({ ok: true, message: "Self-push, skipping auto-pull" });
         return;
       }
@@ -363,7 +565,7 @@ export function registerGithubRoutes(app: Express): void {
       const realAuthor = (() => {
         const messages = [
           pushPayload.head_commit?.message,
-          ...commits.map((c: { message?: string }) => c.message),
+          ...commits.map((c) => c.message),
         ].filter(Boolean) as string[];
         for (const msg of messages) {
           const m = msg.match(autoSyncAuthorRe);
@@ -372,13 +574,6 @@ export function registerGithubRoutes(app: Express): void {
         return null;
       })();
       const person = realAuthor ?? pusher;
-
-      const changedFiles = new Set<string>();
-      for (const commit of commits) {
-        for (const f of commit.added || []) changedFiles.add(f);
-        for (const f of commit.modified || []) changedFiles.add(f);
-        for (const f of commit.removed || []) changedFiles.add(f);
-      }
 
       const isAutoPullEnabled =
         process.env.GITHUB_SYNC_ENABLED === "true" &&
@@ -400,8 +595,14 @@ export function registerGithubRoutes(app: Express): void {
           logForSite(
             ctx,
             "WEBHOOK",
-            `Push ${commitSha?.slice(0, 7)} by ${person}: no ${contentFolderPrefix} files changed`,
+            `Push ${commitSha?.slice(0, 7)} by ${person}: no ${contentFolderPrefix} files changed — nothing to pull for this site.`,
             person,
+            {
+              ...basePushMeta,
+              reason: "push_no_site_files",
+              filesChanged: 0,
+              pathsSample: [],
+            },
           );
           continue;
         }
@@ -410,8 +611,13 @@ export function registerGithubRoutes(app: Express): void {
         logForSite(
           ctx,
           "WEBHOOK",
-          `Push ${commitSha?.slice(0, 7)} by ${person}: ${siteFiles.length} ${contentFolderPrefix} files changed`,
+          `Push ${commitSha?.slice(0, 7)} by ${person}: ${siteFiles.length} file(s) under ${contentFolderPrefix} changed.`,
           person,
+          {
+            ...basePushMeta,
+            filesChanged: siteFiles.length,
+            pathsSample: pathsSampleFrom(siteFiles),
+          },
         );
 
         if (!isAutoPullEnabled) {

@@ -7981,7 +7981,8 @@ export function SectionEditorPanel({
                 const webhookSamplePayload = buildWebhookSamplePayload(
                   sectionSource,
                   formSettingsPath,
-                  session
+                  session,
+                  { singleEntry },
                 );
                 return (
                   <WebhookCard

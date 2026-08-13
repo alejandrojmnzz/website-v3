@@ -156,7 +156,6 @@ import {
   generateDatabaseSsrHtml,
   generateListingSsrHtml,
   clearSsrSchemaCache,
-  loadRawYaml,
   resolvePageRobots,
 } from "../ssr-schema";
 import { collectSectionSchemasDetailed } from "../schema-components";
@@ -176,6 +175,13 @@ import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
 import type { CapabilityName } from "../user-store";
+import {
+  DEFAULT_DRAFT_VARIANT,
+  findSourceDraftVariant,
+  getEntryContentDir,
+  hasLiveLocaleFile,
+  listVariantSlugsForLocale,
+} from "../draft-entry";
 
 
 import {
@@ -233,6 +239,43 @@ function getSiteSitemapCtx(res: Response): ActiveSiteCtx | undefined {
   const site = res.locals.site as SiteContext | undefined;
   if (!site?.contentIndex || !site?.contentRootName || !site?.database) return undefined;
   return toActiveSiteCtx(site);
+}
+
+function metaRecord(data: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const meta = data?.meta;
+  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+    return { ...(meta as Record<string, unknown>) };
+  }
+  return {};
+}
+
+type SeoContextOption =
+  | { type: "live" }
+  | { type: "variant"; variant: string };
+
+function listSeoContextsForLocale(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot: string,
+): { contexts: SeoContextOption[]; default: SeoContextOption | null } {
+  const dir = getEntryContentDir(contentType, slug, contentRoot);
+  const contexts: SeoContextOption[] = [];
+  if (hasLiveLocaleFile(dir, locale)) {
+    contexts.push({ type: "live" });
+  }
+  for (const variant of listVariantSlugsForLocale(dir, locale)) {
+    contexts.push({ type: "variant", variant });
+  }
+  let defaultCtx: SeoContextOption | null = null;
+  if (contexts.some((c) => c.type === "live")) {
+    defaultCtx = { type: "live" };
+  } else if (contexts.some((c) => c.type === "variant" && c.variant === DEFAULT_DRAFT_VARIANT)) {
+    defaultCtx = { type: "variant", variant: DEFAULT_DRAFT_VARIANT };
+  } else if (contexts.length > 0) {
+    defaultCtx = contexts[0];
+  }
+  return { contexts, default: defaultCtx };
 }
 
 export function registerSeoRoutes(app: Express): void {
@@ -540,12 +583,55 @@ export function registerSeoRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/seo-preview/:contentType/:slug/contexts", (req, res) => {
+    try {
+      const { contentType, slug } = req.params;
+      const locale = normalizeLocale(
+        (req.query.locale as string) || getDefaultLocale(),
+      );
+
+      if (!isValidType(contentType)) {
+        res.status(400).json({
+          error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+        });
+        return;
+      }
+
+      // DB-backed / shared-layout singles: live-only (C1)
+      if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+        res.json({
+          contexts: [{ type: "live" }] satisfies SeoContextOption[],
+          default: { type: "live" } satisfies SeoContextOption,
+        });
+        return;
+      }
+
+      const listed = listSeoContextsForLocale(
+        contentType,
+        slug,
+        locale,
+        getContentRoot(res),
+      );
+      res.json(listed);
+    } catch (error) {
+      log.error({ err: error }, "[SEO Preview] contexts error:");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/seo-preview/:contentType/:slug", async (req, res) => {
     try {
       const { contentType, slug } = req.params;
       const locale = normalizeLocale(
         (req.query.locale as string) || getDefaultLocale(),
       );
+      const queryVariantRaw = req.query.variant;
+      const queryVariant =
+        typeof queryVariantRaw === "string" &&
+        queryVariantRaw &&
+        queryVariantRaw !== "default"
+          ? queryVariantRaw
+          : undefined;
 
       if (!isValidType(contentType)) {
         res.status(400).json({
@@ -611,6 +697,9 @@ export function registerSeoRoutes(app: Express): void {
 
         res.json({
           meta,
+          liveMeta: meta,
+          metaOverrides: [],
+          context: "live" as const,
           faqSchema,
           schemaOrg,
           schemaOrgDocuments,
@@ -623,13 +712,57 @@ export function registerSeoRoutes(app: Express): void {
         return;
       }
 
-      const pageData = loadRawYaml(contentType, slug, locale);
-      if (!pageData) {
+      const ci = getCI(res);
+      const contentRoot = getContentRoot(res);
+      const contentDir = getEntryContentDir(contentType, slug, contentRoot);
+      const commonData = (ci.loadCommonData(contentType as ContentType, slug) ||
+        {}) as Record<string, unknown>;
+      const commonMeta = metaRecord(commonData);
+
+      const liveFile = ci.loadLocaleData(contentType, slug, locale);
+      const hasLive = !!liveFile.data && !liveFile.error;
+      const liveOwnMeta = hasLive ? metaRecord(liveFile.data) : {};
+      const liveMeta = deepMerge(commonMeta, liveOwnMeta);
+
+      let resolvedVariant = queryVariant;
+      // Variant-only entries: auto-pick when caller omitted variant
+      if (!resolvedVariant && !hasLive) {
+        resolvedVariant =
+          findSourceDraftVariant(contentDir, locale) ?? undefined;
+      }
+
+      const contextIsVariant = !!resolvedVariant;
+      let pageData: Record<string, unknown> | null = null;
+      let variantOwnMeta: Record<string, unknown> = {};
+      let metaOverrides: string[] = [];
+      let displayMeta: Record<string, unknown> = liveMeta;
+
+      if (contextIsVariant && resolvedVariant) {
+        const variantFile = ci.loadLocaleData(
+          contentType,
+          slug,
+          locale,
+          resolvedVariant,
+        );
+        if (!variantFile.data) {
+          res.status(404).json({ error: "Content not found" });
+          return;
+        }
+        variantOwnMeta = metaRecord(variantFile.data);
+        metaOverrides = Object.keys(variantOwnMeta);
+        displayMeta = deepMerge(liveMeta, variantOwnMeta);
+        pageData = deepMerge(
+          deepMerge(commonData, hasLive ? liveFile.data! : {}),
+          variantFile.data,
+        );
+      } else if (hasLive) {
+        pageData = deepMerge(commonData, liveFile.data!);
+        displayMeta = liveMeta;
+      } else {
         res.status(404).json({ error: "Content not found" });
         return;
       }
 
-      const meta = (pageData.meta as Record<string, unknown>) || {};
       const schema = pageData.schema as
         | {
             include?: string[];
@@ -637,14 +770,18 @@ export function registerSeoRoutes(app: Express): void {
           }
         | undefined;
 
-      // Use fully merged sections (shared single_template + per-entry layers)
-      // so the preview matches what SSR actually emits.
-      const mergedContent = getCI(res).loadMergedContent(contentType, slug, locale);
+      // Sections from the active context file (variant or live)
+      const mergedContent = ci.loadMergedContent(
+        contentType,
+        slug,
+        locale,
+        contextIsVariant ? resolvedVariant : undefined,
+      );
       let sectionsSource = mergedContent.data ?? pageData;
       if (mergedContent.data && mergedContent.isSharedTemplate) {
         sectionsSource = resolveAllTemplateVars(sectionsSource, {
           singleEntry: sectionsSource as Record<string, unknown>,
-          contentRoot: getContentRoot(res),
+          contentRoot,
           context: { locale },
           skipSiteVars: false,
         }) as Record<string, unknown>;
@@ -667,21 +804,33 @@ export function registerSeoRoutes(app: Express): void {
           _slug: slug,
         };
         const withDynamic = (await resolveDynamicEntries(sections, locale, {
-          contentRoot: getContentRoot(res),
-          contentIndex: getCI(res),
+          contentRoot,
+          contentIndex: ci,
           singleEntry,
         })) as Array<Record<string, unknown>>;
         const collected = collectSectionSchemasDetailed(withDynamic, {
           locale,
-          contentRoot: getContentRoot(res),
+          contentRoot,
           baseUrl: getBaseUrl(),
           contentType,
           locationSlug: getType(contentType) === "location" ? slug : undefined,
           programSlug: getType(contentType) === "program" ? slug : undefined,
-          pageUrl: typeof meta.canonical_url === "string" ? meta.canonical_url : undefined,
-          title: typeof meta.page_title === "string" ? meta.page_title : undefined,
-          description: typeof meta.description === "string" ? meta.description : undefined,
-          image: typeof meta.og_image === "string" ? meta.og_image : undefined,
+          pageUrl:
+            typeof displayMeta.canonical_url === "string"
+              ? displayMeta.canonical_url
+              : undefined,
+          title:
+            typeof displayMeta.page_title === "string"
+              ? displayMeta.page_title
+              : undefined,
+          description:
+            typeof displayMeta.description === "string"
+              ? displayMeta.description
+              : undefined,
+          image:
+            typeof displayMeta.og_image === "string"
+              ? displayMeta.og_image
+              : undefined,
         });
         schemaOrg = collected.documents;
         schemaOrgDocuments = collected.preview;
@@ -696,20 +845,25 @@ export function registerSeoRoutes(app: Express): void {
         (schema?.overrides as Record<string, Record<string, unknown>>) || {};
 
       const responseData: Record<string, unknown> = {
-        meta,
+        meta: displayMeta,
+        liveMeta,
+        metaOverrides,
+        context: contextIsVariant ? "variant" : "live",
+        ...(contextIsVariant && resolvedVariant
+          ? { variant: resolvedVariant }
+          : {}),
         faqSchema,
         schemaOrg,
         schemaOrgDocuments,
         schemaInclude,
         schemaOverrides,
-        title: pageData.title || "",
-        slug: pageData.slug || slug,
+        title: (pageData.title as string) || "",
+        slug: (pageData.slug as string) || slug,
       };
 
       if (getType(contentType) === "landing") {
-        const commonData = getCI(res).loadCommonData("landing", slug);
         responseData.locations = (commonData?.locations as string[]) || [];
-        responseData.availableLocations = listLocationPages(locale, getCI(res)).map(
+        responseData.availableLocations = listLocationPages(locale, ci).map(
           (loc) => ({
             slug: loc.slug,
             name: loc.name,

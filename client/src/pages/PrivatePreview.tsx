@@ -1,7 +1,7 @@
-import { useState, useEffect, lazy, Suspense } from "react";
-import { AlertTriangle, ArrowLeft, Code, Loader2 } from "lucide-react";
+import { useState, useEffect, lazy, Suspense, useMemo } from "react";
+import { AlertTriangle, ArrowLeft, Code, FilePenLine, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useSearch } from "wouter";
+import { useParams, useSearch, useLocation } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
 import { apiFetch } from "@/lib/queryClient";
 import { normalizeContentType, useContentTypesRaw } from "@/hooks/useContentTypes";
@@ -12,6 +12,7 @@ import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import LazyRender from "@/components/LazyRender";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
@@ -23,6 +24,34 @@ const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditor
 
 type ContentData = CareerProgram | LandingPage | LocationPage | TemplatePage;
 
+type PreviewVariantOption = {
+  variantSlug: string;
+  locale: string;
+  displayName: string;
+  isPromoted: boolean;
+  version: number | null;
+};
+
+type VariantsApiResponse = {
+  variants: PreviewVariantOption[];
+};
+
+type VersioningLocaleData = {
+  variants?: Array<{ slug: string; allocation: number }>;
+};
+
+type VersioningApiResponse = {
+  isDraft?: boolean;
+  hasLiveDefault?: boolean;
+  versioningSlug?: string;
+  liveByLocale?: Record<string, boolean>;
+  versioning?: Record<string, VersioningLocaleData> | null;
+};
+
+type PreviewVariantRow = PreviewVariantOption & {
+  allocation: number | null;
+};
+
 // Only special-case types whose API path differs from their registry directory name.
 // For all other known content types, the directory from the registry is used as the API path.
 const STATIC_API_PATHS: Record<string, string> = {
@@ -33,6 +62,7 @@ export default function PrivatePreview() {
   const params = useParams<{ contentType: string; slug: string }>();
   const searchString = useSearch();
   const searchParams = new URLSearchParams(searchString);
+  const [, navigate] = useLocation();
   
   const contentType = params.contentType!;
   const slug = params.slug;
@@ -99,6 +129,9 @@ export default function PrivatePreview() {
     enabled: !!slug && isValidContentType && !typesLoading,
   });
 
+  const contentMissing = !!error || !content;
+  const recoveryEnabled = !!slug && isValidContentType && !typesLoading && !isLoading && contentMissing;
+
   const { data: rawFileCheck } = useQuery<{ exists: boolean }>({
     queryKey: ["/api/content/raw-file", normalizedType, slug, locale],
     queryFn: async () => {
@@ -107,8 +140,80 @@ export default function PrivatePreview() {
       const data = await res.json();
       return { exists: !!data.exists };
     },
-    enabled: !!slug && isValidContentType && (!!error || !content),
+    enabled: recoveryEnabled,
   });
+
+  const { data: versioningInfo } = useQuery<VersioningApiResponse | null>({
+    queryKey: ["/api/versioning", normalizedType, slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/versioning/${encodeURIComponent(normalizedType)}/${encodeURIComponent(slug!)}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: recoveryEnabled,
+  });
+
+  const versioningSlug = versioningInfo?.versioningSlug || slug;
+
+  const { data: variantsInfo, isLoading: variantsLoading } = useQuery<VariantsApiResponse | null>({
+    queryKey: ["/api/variants", normalizedType, versioningSlug],
+    queryFn: async () => {
+      const res = await fetch(`/api/variants/${encodeURIComponent(normalizedType)}/${encodeURIComponent(versioningSlug!)}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: recoveryEnabled && !!versioningSlug,
+  });
+
+  const availableVariants = useMemo((): PreviewVariantRow[] => {
+    const list = variantsInfo?.variants ?? [];
+    const versioning = versioningInfo?.versioning ?? null;
+
+    const allocationFor = (option: PreviewVariantOption): number | null => {
+      const localeData = versioning?.[option.locale];
+      if (!localeData) {
+        // No versioning file: live is 100%, named files are unpublished (0%).
+        if (option.isPromoted) return 100;
+        return 0;
+      }
+      const variants = localeData.variants ?? [];
+      if (option.isPromoted) {
+        const sum = variants.reduce((s, v) => s + (v.allocation ?? 0), 0);
+        return Math.max(0, 100 - sum);
+      }
+      const match = variants.find((v) => v.slug === option.variantSlug);
+      return match?.allocation ?? 0;
+    };
+
+    return list
+      .map((option) => ({
+        ...option,
+        allocation: allocationFor(option),
+      }))
+      .sort((a, b) => {
+        if (a.isPromoted !== b.isPromoted) return a.isPromoted ? -1 : 1;
+        if (a.locale !== b.locale) return a.locale.localeCompare(b.locale);
+        const allocA = a.allocation ?? -1;
+        const allocB = b.allocation ?? -1;
+        if (allocA !== allocB) return allocB - allocA;
+        return a.variantSlug.localeCompare(b.variantSlug);
+      });
+  }, [variantsInfo, versioningInfo]);
+
+  const isDraftOnly =
+    !!versioningInfo?.isDraft ||
+    versioningInfo?.hasLiveDefault === false ||
+    (availableVariants.length > 0 && !availableVariants.some((v) => v.isPromoted));
+
+  const openVariantPreview = (option: PreviewVariantRow) => {
+    const qs = new URLSearchParams();
+    qs.set("locale", option.locale || locale);
+    if (!option.isPromoted && option.variantSlug && option.variantSlug !== "promoted") {
+      qs.set("variant", option.variantSlug);
+      if (option.version != null) qs.set("version", String(option.version));
+    }
+    navigate(`/private/preview/${normalizedType}/${slug}?${qs.toString()}`);
+  };
 
   usePageMeta(content?.meta, locale);
   useSchemaOrg(content?.schema);
@@ -201,17 +306,102 @@ export default function PrivatePreview() {
   }
 
   if (error || !content) {
+    const requestedVariantMissing =
+      !!variant &&
+      availableVariants.length > 0 &&
+      !availableVariants.some(
+        (v) => !v.isPromoted && v.variantSlug === variant && v.locale === locale,
+      );
+    const title = isDraftOnly
+      ? `No published ${typeLabel.toLowerCase()} yet`
+      : `${typeLabel} not found`;
+    const description = (() => {
+      if (isDraftOnly && availableVariants.length > 0) {
+        return variant
+          ? `Could not load variant “${variant}” for locale ${locale.toUpperCase()}. Available versions are listed below — open one to preview and edit.`
+          : "This page has no published (live) version. Available versions are listed below — open one to preview and edit.";
+      }
+      if (isDraftOnly) {
+        return "This page has no published (live) version yet.";
+      }
+      if (availableVariants.length > 0) {
+        return variant
+          ? `Could not load variant “${variant}” for locale ${locale.toUpperCase()}. Try another version below.`
+          : "Could not load the requested content. Try a draft or variant below.";
+      }
+      if (variant) {
+        return `Could not load variant “${variant}” for locale ${locale.toUpperCase()}.`;
+      }
+      return "Could not load the requested content variant.";
+    })();
+
     return (
       <>
-        <div className="min-h-screen flex items-center justify-center" data-testid="error-preview">
-          <div className="text-center">
+        <div className="min-h-screen flex items-center justify-center bg-background px-4" data-testid="error-preview">
+          <div className="w-full max-w-lg text-center">
             <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              {typeLabel} not found
-            </h1>
-            <p className="text-muted-foreground mb-4">
-              Could not load the requested content variant.
-            </p>
+            <h1 className="text-2xl font-bold text-foreground mb-2">{title}</h1>
+            <p className="text-muted-foreground mb-6">{description}</p>
+
+            {(variantsLoading || (recoveryEnabled && versioningInfo === undefined)) && (
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-6" data-testid="loading-preview-variants">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Looking for variants…
+              </div>
+            )}
+
+            {availableVariants.length > 0 && (
+              <div className="mb-6 text-left rounded-md border border-border bg-card p-4" data-testid="preview-variant-picker">
+                <p className="text-sm font-medium text-foreground mb-3">
+                  {requestedVariantMissing
+                    ? "Available versions"
+                    : "Open a draft or variant?"}
+                </p>
+                <ul className="space-y-2">
+                  {availableVariants.map((option) => {
+                    const name = option.isPromoted ? "Live" : option.variantSlug;
+                    return (
+                      <li
+                        key={`${option.variantSlug}:${option.locale}:${option.version ?? ""}`}
+                        className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">
+                              {name}
+                            </p>
+                            {option.allocation != null && (
+                              <Badge
+                                variant={option.allocation > 0 ? "default" : "secondary"}
+                                className="text-[10px] shrink-0"
+                                data-testid={`badge-allocation-${option.variantSlug}-${option.locale}`}
+                              >
+                                {option.allocation}% traffic allocated
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {option.locale.toUpperCase()}
+                            {option.version != null ? ` · v${option.version}` : ""}
+                            {option.isPromoted ? " · published" : " · variant"}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => openVariantPreview(option)}
+                          data-testid={`button-edit-variant-${option.variantSlug}-${option.locale}`}
+                        >
+                          <FilePenLine className="w-4 h-4 mr-2" />
+                          {option.isPromoted ? "Edit live" : "Edit this variant"}
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
             <div className="flex items-center justify-center gap-2 flex-wrap">
               <Button variant="outline" onClick={() => window.history.back()} data-testid="button-go-back">
                 <ArrowLeft className="w-4 h-4 mr-2" />

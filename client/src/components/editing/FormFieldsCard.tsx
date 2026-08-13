@@ -73,6 +73,15 @@ function sortFieldNames(names: string[]): string[] {
 
 function summarizeField(cfg: FormFieldConfig): string[] {
   const parts: string[] = [];
+  const source = cfg.source;
+  if (typeof source === "string" && source.trim()) {
+    parts.push(`source: ${source.trim()}`);
+  } else if (source && typeof source === "object" && !Array.isArray(source)) {
+    const rel = (source as { relation?: string }).relation;
+    const name = (source as { name?: string }).name;
+    if (typeof rel === "string" && rel.trim()) parts.push(`relation: ${rel.trim()}`);
+    else if (typeof name === "string" && name.trim()) parts.push(`catalog: ${name.trim()}`);
+  }
   if (cfg.visible === true) parts.push("visible");
   if (cfg.visible === false) parts.push("hidden");
   if (cfg.required === true) parts.push("required");
@@ -243,6 +252,47 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
             {editing ? <IconX className="h-3.5 w-3.5" /> : <IconPencil className="h-3.5 w-3.5" />}
           </Button>
         )}
+      </div>
+
+      <div
+        className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-[11px] text-muted-foreground space-y-1.5"
+        data-testid="form-fields-source-education"
+      >
+        <p>
+          Choice options can come from a <span className="font-medium text-foreground">source</span>:{" "}
+          <code className="font-mono text-[10px]">source.relation</code> reads an entry relation field
+          (e.g. <code className="font-mono text-[10px]">programs</code> on _common.yml), or{" "}
+          <code className="font-mono text-[10px]">source.name</code> loads a catalog. When source is set,
+          option count controls visibility (0 hidden + fallback default, 1 hidden + autofill, 2+ shown
+          required). Empty relation blocks publish; empty catalog does not.
+        </p>
+        <p>
+          The form field name (e.g. <code className="font-mono text-[10px]">program</code>) is still the
+          submit key — it is not the same as the content-type relation field name. Multiple forms on a
+          page that share the same <code className="font-mono text-[10px]">source.relation</code> share
+          that one entry field.
+        </p>
+        <details className="text-[10px]">
+          <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
+            Read more (advanced)
+          </summary>
+          <ul className="mt-1 list-disc pl-4 space-y-0.5">
+            <li>
+              Resolver: <code className="font-mono">shared/resolveFormFieldRelationSource.ts</code>
+            </li>
+            <li>
+              Parse: <code className="font-mono">shared/parseFormFieldSource.ts</code>
+            </li>
+            <li>
+              Live gate: <code className="font-mono">server/live-entry-seo-gate.ts</code> +{" "}
+              <code className="font-mono">shared/validateFormFieldSources.ts</code>
+            </li>
+            <li>
+              Do not combine <code className="font-mono">source.relation</code> with{" "}
+              <code className="font-mono">slugs</code> — put allowed pointers on the entry field.
+            </li>
+          </ul>
+        </details>
       </div>
 
       {names.length === 0 ? (

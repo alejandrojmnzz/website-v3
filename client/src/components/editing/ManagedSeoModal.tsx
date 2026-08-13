@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { SeoModal, type SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "@/components/DebugBubble/types";
 import { useToast } from "@/hooks/use-toast";
@@ -10,6 +10,8 @@ export interface ManagedSeoModalTarget {
   contentType: string;
   slug: string;
   locale: string;
+  /** When set, SEO reads/writes this variant file (draft or A/B). */
+  variant?: string;
   initialTab?: SeoModalTab;
 }
 
@@ -31,6 +33,36 @@ const EMPTY_SEO_META: SeoMeta = {
   redirects: [],
 };
 
+const EDITABLE_META_KEYS = [
+  "page_title",
+  "description",
+  "og_image",
+  "canonical_url",
+  "robots",
+  "priority",
+  "change_frequency",
+] as const;
+
+type EditableMetaKey = (typeof EDITABLE_META_KEYS)[number];
+
+function redirectsEqual(a: string[], b: unknown): boolean {
+  const bArr = Array.isArray(b)
+    ? b
+        .map((r) => (typeof r === "string" ? r : (r as { path?: string })?.path))
+        .filter((r): r is string => Boolean(r))
+    : [];
+  if (a.length !== bArr.length) return false;
+  return a.every((v, i) => v === bArr[i]);
+}
+
+function valuesEqual(key: EditableMetaKey | "redirects", formVal: string | string[], liveVal: unknown): boolean {
+  if (key === "redirects") {
+    return redirectsEqual(formVal as string[], liveVal);
+  }
+  const liveStr = liveVal == null ? "" : String(liveVal);
+  return String(formVal || "") === liveStr;
+}
+
 export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: ManagedSeoModalProps) {
   const { toast } = useToast();
   const contentTypesMap = useContentTypes();
@@ -38,6 +70,10 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
   const [seoLoading, setSeoLoading] = useState(false);
   const [seoData, setSeoData] = useState<{
     meta: Record<string, unknown>;
+    liveMeta?: Record<string, unknown>;
+    metaOverrides?: string[];
+    context?: "live" | "variant";
+    variant?: string;
     faqSchema: Record<string, unknown> | null;
     schemaOrg: Record<string, unknown>[];
     schemaOrgDocuments?: Array<{ schema: Record<string, unknown>; source: string }>;
@@ -49,6 +85,10 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
   const [seoLocations, setSeoLocations] = useState<string[]>([]);
   const [seoAvailableLocations, setSeoAvailableLocations] = useState<SeoLocation[]>([]);
   const [seoLocationSearch, setSeoLocationSearch] = useState("");
+
+  const [metaOverrides, setMetaOverrides] = useState<string[]>([]);
+  const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
+  const baselineMetaRef = useRef<SeoMeta>(EMPTY_SEO_META);
 
   const [newSlugValue, setNewSlugValue] = useState("");
   const [slugCheckStatus, setSlugCheckStatus] = useState<SlugCheckStatus>("idle");
@@ -66,19 +106,43 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
 
   const locale = normalizeLocale(target?.locale || "en");
   const currentLocaleSlug = (seoData?.slug as string) || target?.slug || "";
+  const seoContext = seoData?.context ?? (target?.variant ? "variant" : "live");
+  const seoVariant = seoData?.variant ?? target?.variant;
+
+  const applySeoMetaFromForm = useCallback((next: SeoMeta) => {
+    setSeoMeta(next);
+    const dirty = new Set<string>();
+    for (const key of EDITABLE_META_KEYS) {
+      if (next[key] !== baselineMetaRef.current[key]) dirty.add(key);
+    }
+    if (
+      next.redirects.length !== baselineMetaRef.current.redirects.length ||
+      next.redirects.some((r, i) => r !== baselineMetaRef.current.redirects[i])
+    ) {
+      dirty.add("redirects");
+    }
+    setDirtyKeys(dirty);
+  }, []);
 
   const fetchSeoPreview = useCallback(async () => {
     if (!target?.contentType || !target?.slug) return;
     setSeoLoading(true);
     setSeoData(null);
     try {
+      const params = new URLSearchParams({ locale });
+      if (target.variant) params.set("variant", target.variant);
       const res = await fetch(
-        `/api/seo-preview/${encodeURIComponent(target.contentType)}/${encodeURIComponent(target.slug)}?locale=${encodeURIComponent(locale)}`,
+        `/api/seo-preview/${encodeURIComponent(target.contentType)}/${encodeURIComponent(target.slug)}?${params}`,
       );
-      if (!res.ok) throw new Error("Failed to fetch SEO data");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          (errData as { error?: string }).error || "Failed to fetch SEO data",
+        );
+      }
       const data = await res.json();
       setSeoData(data);
-      setSeoMeta({
+      const nextMeta: SeoMeta = {
         page_title: (data.meta?.page_title as string) || "",
         description: (data.meta?.description as string) || "",
         og_image: (data.meta?.og_image as string) || "",
@@ -89,7 +153,11 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         redirects: ((data.meta?.redirects as Array<string | { path: string; status?: number }>) || [])
           .map((r) => (typeof r === "string" ? r : r?.path))
           .filter((r): r is string => Boolean(r)),
-      });
+      };
+      baselineMetaRef.current = nextMeta;
+      setSeoMeta(nextMeta);
+      setMetaOverrides(Array.isArray(data.metaOverrides) ? data.metaOverrides : []);
+      setDirtyKeys(new Set());
       setSeoLocations((data.locations as string[]) || []);
       setSeoAvailableLocations(
         (data.availableLocations as SeoLocation[]) || [],
@@ -103,13 +171,14 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       console.error("Error fetching SEO preview:", error);
       toast({
         title: "Failed to load SEO data",
-        description: "Could not fetch page SEO information.",
+        description:
+          error instanceof Error ? error.message : "Could not fetch page SEO information.",
         variant: "destructive",
       });
     } finally {
       setSeoLoading(false);
     }
-  }, [target?.contentType, target?.slug, locale, toast]);
+  }, [target?.contentType, target?.slug, target?.variant, locale, toast]);
 
   useEffect(() => {
     if (open && target) {
@@ -186,27 +255,69 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
     if (!target?.contentType || !target?.slug) return;
     setSeoSaving(true);
     try {
-      const existingMeta = { ...(seoData?.meta || {}) };
-      const editableKeys = [
-        "page_title",
-        "description",
-        "og_image",
-        "canonical_url",
-        "robots",
-        "priority",
-        "change_frequency",
-      ] as const;
-      for (const key of editableKeys) {
-        if (seoMeta[key]) {
-          existingMeta[key] = seoMeta[key];
-        } else {
-          delete existingMeta[key];
+      const liveMeta = (seoData?.liveMeta || {}) as Record<string, unknown>;
+      const isVariant = seoContext === "variant" && !!seoVariant;
+
+      let metaPayload: Record<string, unknown>;
+
+      if (isVariant) {
+        metaPayload = {};
+        // Preserve non-editable override keys already on the variant file
+        for (const key of metaOverrides) {
+          if (
+            (EDITABLE_META_KEYS as readonly string[]).includes(key) ||
+            key === "redirects"
+          ) {
+            continue;
+          }
+          if (seoData?.meta && seoData.meta[key] !== undefined) {
+            metaPayload[key] = seoData.meta[key];
+          }
         }
-      }
-      if (seoMeta.redirects.length > 0) {
-        existingMeta.redirects = seoMeta.redirects;
+        for (const key of EDITABLE_META_KEYS) {
+          const isDirty = dirtyKeys.has(key);
+          const wasOverride = metaOverrides.includes(key);
+          if (!isDirty && !wasOverride) continue;
+          const formVal = seoMeta[key];
+          if (isDirty) {
+            if (!formVal) continue; // clear → re-inherit
+            if (valuesEqual(key, formVal, liveMeta[key])) continue; // A1
+            metaPayload[key] = formVal;
+          } else if (formVal) {
+            metaPayload[key] = formVal; // keep existing override
+          }
+        }
+        {
+          const isDirty = dirtyKeys.has("redirects");
+          const wasOverride = metaOverrides.includes("redirects");
+          if (isDirty || wasOverride) {
+            if (isDirty) {
+              if (
+                seoMeta.redirects.length > 0 &&
+                !valuesEqual("redirects", seoMeta.redirects, liveMeta.redirects)
+              ) {
+                metaPayload.redirects = seoMeta.redirects;
+              }
+              // cleared or A1 equal → omit
+            } else if (seoMeta.redirects.length > 0) {
+              metaPayload.redirects = seoMeta.redirects;
+            }
+          }
+        }
       } else {
-        delete existingMeta.redirects;
+        metaPayload = { ...(seoData?.meta || {}) };
+        for (const key of EDITABLE_META_KEYS) {
+          if (seoMeta[key]) {
+            metaPayload[key] = seoMeta[key];
+          } else {
+            delete metaPayload[key];
+          }
+        }
+        if (seoMeta.redirects.length > 0) {
+          metaPayload.redirects = seoMeta.redirects;
+        } else {
+          delete metaPayload.redirects;
+        }
       }
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -214,22 +325,27 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       if (token) headers["X-Debug-Token"] = token;
       const author = await resolveAuthorName();
 
+      const body: Record<string, unknown> = {
+        contentType: target.contentType,
+        slug: target.slug,
+        locale,
+        author: author || undefined,
+        operations: [
+          {
+            action: "update_field",
+            path: "meta",
+            value: Object.keys(metaPayload).length > 0 ? metaPayload : null,
+          },
+        ],
+      };
+      if (isVariant && seoVariant) {
+        body.variant = seoVariant;
+      }
+
       const metaRes = await fetch("/api/content/edit-sections", {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          contentType: target.contentType,
-          slug: target.slug,
-          locale,
-          author: author || undefined,
-          operations: [
-            {
-              action: "update_field",
-              path: "meta",
-              value: Object.keys(existingMeta).length > 0 ? existingMeta : null,
-            },
-          ],
-        }),
+        body: JSON.stringify(body),
       });
       if (!metaRes.ok) {
         const errData = await metaRes.json().catch(() => ({}));
@@ -255,7 +371,9 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
 
       toast({
         title: "SEO updated",
-        description: "Meta tags have been saved successfully.",
+        description: isVariant
+          ? `Meta saved to variant "${seoVariant}".`
+          : "Meta tags have been saved successfully.",
       });
       onOpenChange(false);
       onSaved?.();
@@ -279,7 +397,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       seoLoading={seoLoading}
       seoData={seoData}
       seoMeta={seoMeta}
-      setSeoMeta={setSeoMeta}
+      setSeoMeta={applySeoMetaFromForm}
       seoLocations={seoLocations}
       setSeoLocations={setSeoLocations}
       seoAvailableLocations={seoAvailableLocations}
@@ -306,6 +424,9 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
           : undefined
       }
       initialTab={target?.initialTab}
+      seoContext={seoContext}
+      seoVariant={seoVariant}
+      metaOverrides={metaOverrides}
     />
   );
 }

@@ -6,12 +6,23 @@ import { SyncProvider } from "@/contexts/SyncContext";
 import { SyncConflictBanner } from "@/components/SyncConflictBanner";
 import { StaffSystemAlertBanner } from "@/components/StaffSystemAlertBanner";
 import { PageHistoryProvider, usePageHistoryOptional } from "@/contexts/PageHistoryContext";
-import { subscribeToEditStarted, emitVariantCreated } from "@/lib/contentEvents";
+import { subscribeToEditStarted, emitVariantCreated, emitVariantPromoted } from "@/lib/contentEvents";
 import { FirstEditPromptModal, type ExistingVariant } from "@/components/editing/FirstEditPromptModal";
 import { navigate } from "wouter/use-browser-location";
 import { useLocation, useSearch } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { IconGitFork } from "@tabler/icons-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { IconCrown, IconGitFork, IconX } from "@tabler/icons-react";
+import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
 import {
   isSharedLayoutType,
@@ -65,6 +76,7 @@ interface PendingEdit {
  */
 function FirstEditGate({ children }: { children: React.ReactNode }) {
   const editMode = useEditModeOptional();
+  const { toast } = useToast();
   const [pathname] = useLocation();
   const searchString = useSearch();
   const contentTypesMap = useContentTypes();
@@ -76,7 +88,10 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
   const [variantTraffic, setVariantTraffic] = useState<{
     isDraft: boolean;
     allocation: number | null;
+    versioningSlug: string | null;
   } | null>(null);
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Derive the active variant from the URL (?variant=xxx on private preview routes)
   const searchParams = useMemo(() => new URLSearchParams(searchString), [searchString]);
@@ -106,6 +121,7 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
         setVariantTraffic({
           isDraft,
           allocation: match ? (match.allocation ?? 0) : null,
+          versioningSlug: typeof data.versioningSlug === "string" ? data.versioningSlug : contentInfo.slug,
         });
       })
       .catch(() => {
@@ -140,6 +156,66 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
     },
     [contentTypesRaw],
   );
+
+  const handlePublishDraft = useCallback(async () => {
+    if (
+      !contentInfo.type ||
+      !contentInfo.slug ||
+      !activeVariantFromUrl ||
+      !variantTraffic?.isDraft
+    ) {
+      return;
+    }
+    setIsPublishing(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+
+      const versioningWriteSlug =
+        variantTraffic.versioningSlug ||
+        (await resolveVersioningSlug(contentInfo.type, contentInfo.slug));
+
+      const res = await fetch(
+        `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/publish`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ variantSlug: activeVariantFromUrl }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to publish draft", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: `Published "${activeVariantFromUrl}"`,
+        description: `Live for locale(s): ${(data.locales || []).join(", ") || "all"}`,
+      });
+      emitVariantPromoted({
+        contentType: contentInfo.type,
+        slug: contentInfo.slug,
+        locale: urlLocale,
+        variantSlug: activeVariantFromUrl,
+      });
+      setPublishConfirmOpen(false);
+      navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?locale=${urlLocale}`);
+    } catch {
+      toast({ title: "Failed to publish draft", variant: "destructive" });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [
+    activeVariantFromUrl,
+    contentInfo.slug,
+    contentInfo.type,
+    resolveVersioningSlug,
+    toast,
+    urlLocale,
+    variantTraffic?.isDraft,
+    variantTraffic?.versioningSlug,
+  ]);
 
   useEffect(() => {
     return subscribeToEditStarted((payload) => {
@@ -292,9 +368,65 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
                 )
               ) : null}
             </span>
+            {variantTraffic?.isDraft && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-6 px-2 text-xs ml-1"
+                onClick={() => setPublishConfirmOpen(true)}
+                data-testid="button-publish-draft-badge"
+              >
+                <IconCrown className="h-3 w-3" />
+                Publish
+              </Button>
+            )}
           </Badge>
         </div>
       )}
+      <Dialog
+        open={publishConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !isPublishing) setPublishConfirmOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Publish this draft?</DialogTitle>
+            <DialogDescription>
+              This will publish{" "}
+              <code className="text-xs bg-muted px-1 py-0.5 rounded">{activeVariantFromUrl}</code>{" "}
+              as the live page for <strong>all remaining draft locales</strong> that have this draft.
+              Other drafts become normal variants at 0% traffic. The page will appear in the sitemap.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              variant="destructive"
+              onClick={handlePublishDraft}
+              disabled={isPublishing}
+              className="w-full"
+              data-testid="button-confirm-publish-draft-badge"
+            >
+              {isPublishing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <IconCrown className="h-4 w-4" />
+              )}
+              Yes, publish now
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setPublishConfirmOpen(false)}
+              disabled={isPublishing}
+              className="w-full"
+              data-testid="button-cancel-publish-draft-badge"
+            >
+              <IconX className="h-4 w-4" />
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {pendingEdit && (
         <FirstEditPromptModal
           isOpen={modalOpen}

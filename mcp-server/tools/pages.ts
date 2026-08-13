@@ -21,6 +21,7 @@ import {
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import {
   ok,
@@ -1889,13 +1890,51 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json();
         if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);
-        return ok(
-          {
-            message: `Fields for ${resolved.contentType}/${slug} (${locale}${variant ? `, variant=${variant}` : ""})`,
-            ...(data as Record<string, unknown>),
-          },
-          { warnings: [], next_actions: [] },
-        );
+
+        // Enrich relation fields with MCP-only system_hints (never staff description).
+        const payload = data as {
+          fields?: Array<Record<string, unknown>>;
+          [key: string]: unknown;
+        };
+        let fieldsOut = payload.fields;
+        try {
+          const configs = loadContentTypes(siteResult.contentPath);
+          const cfg = configs[resolved.contentType];
+          const ed = cfg ? getEditorConfig(cfg) : undefined;
+          if (Array.isArray(fieldsOut) && ed) {
+            fieldsOut = fieldsOut.map((f) => {
+              const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
+              if (!name) return f;
+              const hint = ed[name];
+              const system_hints = buildEditorSystemHints(name, hint as Parameters<typeof buildEditorSystemHints>[1]);
+              if (!system_hints) return f;
+              return { ...f, system_hints };
+            });
+          }
+          const relation_fields = Object.entries(ed || {})
+            .filter(([, h]) => h && (h as { type?: string }).type === "relation")
+            .map(([field, hint]) => ({
+              field,
+              system_hints: buildEditorSystemHints(field, hint as Parameters<typeof buildEditorSystemHints>[1]) ?? [],
+            }));
+          return ok(
+            {
+              message: `Fields for ${resolved.contentType}/${slug} (${locale}${variant ? `, variant=${variant}` : ""})`,
+              ...payload,
+              fields: fieldsOut ?? payload.fields,
+              relation_fields,
+            },
+            { warnings: [], next_actions: [] },
+          );
+        } catch {
+          return ok(
+            {
+              message: `Fields for ${resolved.contentType}/${slug} (${locale}${variant ? `, variant=${variant}` : ""})`,
+              ...(data as Record<string, unknown>),
+            },
+            { warnings: [], next_actions: [] },
+          );
+        }
       } catch (e) {
         return fail((e as Error).message);
       }
@@ -4337,7 +4376,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             multiple?: boolean;
             required?: boolean;
             description?: string;
+            type?: string;
           };
+          const system_hints = buildEditorSystemHints(field, h as Parameters<typeof buildEditorSystemHints>[1]);
           return {
             field,
             source: h.source || null,
@@ -4346,6 +4387,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             multiple: !!h.multiple,
             required: !!h.required,
             description: h.description || null,
+            system_hints: system_hints ?? [],
             storage_note:
               "Static types: relation values write to _common.yml. Pointers only (string|string[]); never Person JSON.",
             resolve_note:

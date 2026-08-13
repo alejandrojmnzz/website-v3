@@ -290,9 +290,14 @@ export function DebugBubble() {
   const [seoLoading, setSeoLoading] = useState(false);
   const [seoData, setSeoData] = useState<{
     meta: Record<string, unknown>;
+    liveMeta?: Record<string, unknown>;
+    metaOverrides?: string[];
+    context?: "live" | "variant";
+    variant?: string;
     faqSchema: Record<string, unknown> | null;
     schemaOrg: Record<string, unknown>[];
     title: string;
+    slug?: string;
   } | null>(null);
   const [seoMeta, setSeoMeta] = useState<{
     page_title: string;
@@ -1033,6 +1038,11 @@ export function DebugBubble() {
     }
   };
 
+  const getUrlVariant = (): string | undefined => {
+    const q = new URLSearchParams(window.location.search);
+    return q.get("variant") || q.get("force_variant") || undefined;
+  };
+
   // Handle session check (validates without clearing cache first)
   const fetchSeoPreview = async () => {  // eslint-disable-next-line react-hooks/exhaustive-deps
     if (!contentInfo.type || !contentInfo.slug) return;
@@ -1042,8 +1052,14 @@ export function DebugBubble() {
       const urlLocale = getEffectiveLocale();
       const locale = normalizeLocale(urlLocale || i18n.language);
       const apiContentType = contentTypesMap ? getFolderFromType(contentTypesMap, contentInfo.type) : contentInfo.type;
-      const res = await fetch(`/api/seo-preview/${apiContentType}/${contentInfo.slug}?locale=${locale}`);
-      if (!res.ok) throw new Error("Failed to fetch SEO data");
+      const params = new URLSearchParams({ locale });
+      const urlVariant = getUrlVariant();
+      if (urlVariant) params.set("variant", urlVariant);
+      const res = await fetch(`/api/seo-preview/${apiContentType}/${contentInfo.slug}?${params}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error((errData as { error?: string }).error || "Failed to fetch SEO data");
+      }
       const data = await res.json();
       setSeoData(data);
       setSeoMeta({
@@ -1052,7 +1068,7 @@ export function DebugBubble() {
         og_image: (data.meta?.og_image as string) || "",
         canonical_url: (data.meta?.canonical_url as string) || "",
         robots: (data.meta?.robots as string) || "",
-        priority: (data.meta?.priority as string) || "",
+        priority: data.meta?.priority != null ? String(data.meta.priority) : "",
         change_frequency: (data.meta?.change_frequency as string) || "",
         redirects: ((data.meta?.redirects as Array<string | { path: string; status?: number }>) || [])
           .map((r) => (typeof r === "string" ? r : r?.path))
@@ -1065,7 +1081,7 @@ export function DebugBubble() {
       console.error("Error fetching SEO preview:", error);
       toast({
         title: "Failed to load SEO data",
-        description: "Could not fetch page SEO information.",
+        description: error instanceof Error ? error.message : "Could not fetch page SEO information.",
         variant: "destructive",
       });
     } finally {
@@ -1170,20 +1186,73 @@ export function DebugBubble() {
       const urlLocale = getEffectiveLocale();
       const locale = normalizeLocale(urlLocale || i18n.language);
       const apiContentType = contentInfo.type;
-      
-      const existingMeta = { ...(seoData?.meta || {}) };
-      const editableKeys = ["page_title", "description", "og_image", "canonical_url", "robots", "priority", "change_frequency"] as const;
-      for (const key of editableKeys) {
-        if (seoMeta[key]) {
-          existingMeta[key] = seoMeta[key];
-        } else {
-          delete existingMeta[key];
+      const urlVariant = getUrlVariant() || seoData?.variant;
+      const isVariant =
+        (seoData?.context === "variant" || !!urlVariant) && !!urlVariant;
+      const liveMeta = (seoData?.liveMeta || {}) as Record<string, unknown>;
+      const metaOverrides = Array.isArray(seoData?.metaOverrides)
+        ? seoData!.metaOverrides!
+        : [];
+      const editableKeys = [
+        "page_title",
+        "description",
+        "og_image",
+        "canonical_url",
+        "robots",
+        "priority",
+        "change_frequency",
+      ] as const;
+
+      let metaPayload: Record<string, unknown>;
+
+      if (isVariant) {
+        metaPayload = {};
+        for (const key of metaOverrides) {
+          if (
+            (editableKeys as readonly string[]).includes(key) ||
+            key === "redirects"
+          ) {
+            continue;
+          }
+          if (seoData?.meta && seoData.meta[key] !== undefined) {
+            metaPayload[key] = seoData.meta[key];
+          }
         }
-      }
-      if (seoMeta.redirects.length > 0) {
-        existingMeta.redirects = seoMeta.redirects;
+        for (const key of editableKeys) {
+          const formVal = seoMeta[key];
+          const liveVal = liveMeta[key];
+          const liveStr = liveVal == null ? "" : String(liveVal);
+          if (!formVal) continue; // clear → omit
+          if (formVal === liveStr) continue; // A1 (treat save as dirty)
+          metaPayload[key] = formVal;
+        }
+        if (seoMeta.redirects.length > 0) {
+          const liveRedirects = Array.isArray(liveMeta.redirects)
+            ? liveMeta.redirects
+                .map((r) =>
+                  typeof r === "string" ? r : (r as { path?: string })?.path,
+                )
+                .filter((r): r is string => Boolean(r))
+            : [];
+          const same =
+            seoMeta.redirects.length === liveRedirects.length &&
+            seoMeta.redirects.every((r, i) => r === liveRedirects[i]);
+          if (!same) metaPayload.redirects = seoMeta.redirects;
+        }
       } else {
-        delete existingMeta.redirects;
+        metaPayload = { ...(seoData?.meta || {}) };
+        for (const key of editableKeys) {
+          if (seoMeta[key]) {
+            metaPayload[key] = seoMeta[key];
+          } else {
+            delete metaPayload[key];
+          }
+        }
+        if (seoMeta.redirects.length > 0) {
+          metaPayload.redirects = seoMeta.redirects;
+        } else {
+          delete metaPayload.redirects;
+        }
       }
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -1191,20 +1260,25 @@ export function DebugBubble() {
       if (token) headers["X-Debug-Token"] = token;
       const author = await resolveAuthorName();
 
-      // meta fields (page_title, description, og_image, etc.) are locale-specific
-      // → write to the locale file (en.yml / es.yml) via edit-sections
+      const body: Record<string, unknown> = {
+        contentType: apiContentType,
+        slug: contentInfo.slug,
+        locale,
+        author: author || undefined,
+        operations: [
+          {
+            action: "update_field",
+            path: "meta",
+            value: Object.keys(metaPayload).length > 0 ? metaPayload : null,
+          },
+        ],
+      };
+      if (isVariant && urlVariant) body.variant = urlVariant;
+
       const metaRes = await fetch("/api/content/edit-sections", {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          contentType: apiContentType,
-          slug: contentInfo.slug,
-          locale,
-          author: author || undefined,
-          operations: [
-            { action: "update_field", path: "meta", value: Object.keys(existingMeta).length > 0 ? existingMeta : null },
-          ],
-        }),
+        body: JSON.stringify(body),
       });
       if (!metaRes.ok) {
         const errData = await metaRes.json().catch(() => ({}));
@@ -1230,7 +1304,9 @@ export function DebugBubble() {
       
       toast({
         title: "SEO updated",
-        description: "Meta tags have been saved successfully.",
+        description: isVariant
+          ? `Meta saved to variant "${urlVariant}".`
+          : "Meta tags have been saved successfully.",
       });
       setSeoModalOpen(false);
     } catch (error) {
@@ -2473,6 +2549,9 @@ export function DebugBubble() {
         setSlugRedirectPrompt={setSlugRedirectPrompt}
         locale={getEffectiveLocale()}
         contentTypeLabel={contentInfo.type ? contentInfo.label : undefined}
+        seoContext={seoData?.context ?? (getUrlVariant() ? "variant" : "live")}
+        seoVariant={seoData?.variant ?? getUrlVariant()}
+        metaOverrides={seoData?.metaOverrides ?? []}
       />
       {showYamlEditor && yamlEditorInfo && (
         <Suspense fallback={null}>

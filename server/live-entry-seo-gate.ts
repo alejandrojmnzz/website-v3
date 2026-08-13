@@ -33,6 +33,10 @@ import path from "path";
 import fs from "fs";
 import { contentIndex } from "./content-index";
 import { formatSchemaOrgCompanionGateError } from "./schema-org-requirements";
+import {
+  validateFormFieldSources,
+  formatFormFieldSourceErrors,
+} from "@shared/validateFormFieldSources";
 
 export type LiveSeoGateOptions = {
   contentType: string;
@@ -172,6 +176,23 @@ export function evaluateLiveEntrySeoAndRequiredFields(
   });
   if (companionErr) {
     return { message: companionErr, code: "schema_org_companion" };
+  }
+
+  const formSourceIssues = validateFormFieldSources({
+    singleEntry: { ...singleEntry, ...resolvedPage },
+    editor: editor as Record<string, { type?: string }> | undefined,
+    sections: Array.isArray(resolvedPage.sections) ? resolvedPage.sections : [],
+    mode: "publish",
+  });
+  const formSourceErr = formatFormFieldSourceErrors(formSourceIssues);
+  if (formSourceErr) {
+    return {
+      message: formSourceErr,
+      code: LIVE_REQUIRED_FIELDS_CODE,
+      missing_fields: formSourceIssues
+        .filter((i) => i.severity === "error" && i.relationField)
+        .map((i) => i.relationField!),
+    };
   }
 
   return null;

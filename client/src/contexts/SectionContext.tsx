@@ -6,6 +6,8 @@ export interface SectionContextValue {
   contentType: string;
   slug: string;
   locale: string;
+  /** Current page entry bag (same as {{ single.* }}); used by form source.relation */
+  singleEntry?: Record<string, unknown>;
   variableFields?: Record<string, string>;
   variableKeys?: Record<string, string>;
   imageSizes: Record<string, string>;
@@ -17,6 +19,7 @@ const defaultValue: SectionContextValue = {
   contentType: "",
   slug: "",
   locale: "",
+  singleEntry: undefined,
   variableFields: undefined,
   variableKeys: undefined,
   imageSizes: {},

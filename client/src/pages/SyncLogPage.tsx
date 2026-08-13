@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, ChevronDown, Filter, Github, Loader2, RefreshCw, Search, Server, Trash2, User, Webhook, X } from "lucide-react";
+import { ArrowLeft, Braces, Check, ChevronDown, Filter, Github, Loader2, RefreshCw, Search, Server, Trash2, User, Webhook, X } from "lucide-react";
 import {
   IconCloudUpload,
   IconCloudDownload,
@@ -280,6 +280,8 @@ export default function SyncLogPage() {
   const [cleanupResult, setCleanupResult] = useState<{ deleted: number; ids: number[] } | null>(null);
   const [webhookResetConfirmOpen, setWebhookResetConfirmOpen] = useState(false);
   const [webhookResetResult, setWebhookResetResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [webhookPayloadMeta, setWebhookPayloadMeta] = useState<Record<string, unknown> | null>(null);
+  const syncLogCardRef = useRef<HTMLDivElement | null>(null);
 
   const webhookSetupMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/github/webhook/setup").then(r => r.json()),
@@ -790,7 +792,7 @@ export default function SyncLogPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card ref={syncLogCardRef}>
           <CardContent className="p-0">
             <div className="flex items-center justify-between px-4 py-2 border-b">
               <span className="text-sm text-muted-foreground" data-testid="text-entry-count">
@@ -810,7 +812,9 @@ export default function SyncLogPage() {
                 <span className="text-sm">
                   {entries.length === 0
                     ? "No sync log entries yet"
-                    : "No entries match current filters"}
+                    : activeCategories.size === 1 && activeCategories.has("WEBHOOK")
+                      ? "No WEBHOOK entries on this process yet. Deliveries may have hit another replica — check GitHub → Webhooks → Recent Deliveries."
+                      : "No entries match current filters"}
                 </span>
               </div>
             ) : (
@@ -822,7 +826,7 @@ export default function SyncLogPage() {
                     .map((entry, i) => (
                       <div
                         key={i}
-                        className={`flex gap-3 px-4 py-1.5 border-b border-border/50 ${
+                        className={`flex gap-3 px-4 py-1.5 border-b border-border/50 items-start ${
                           entry.category === "ERROR"
                             ? "bg-red-50/50 dark:bg-red-950/20"
                             : entry.category === "CONFLICT"
@@ -850,9 +854,22 @@ export default function SyncLogPage() {
                             {entry.person}
                           </span>
                         )}
-                        <span className="text-foreground break-all">
+                        <span className="text-foreground break-all min-w-0 flex-1">
                           {renderMessageWithLinks(entry.message, syncInfo?.repoUrl)}
                         </span>
+                        {entry.category === "WEBHOOK" && entry.meta && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 shrink-0 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                            onClick={() => setWebhookPayloadMeta(entry.meta!)}
+                            data-testid={`button-view-webhook-payload-${i}`}
+                          >
+                            <Braces className="h-3 w-3 mr-1" />
+                            View payload
+                          </Button>
+                        )}
                       </div>
                     ))}
                 </div>
@@ -1304,6 +1321,40 @@ export default function SyncLogPage() {
           </DialogDescription>
         </DialogHeader>
 
+        <details className="rounded-md border bg-muted/30 px-3 py-2 text-sm" data-testid="details-view-webhook-log">
+          <summary className="cursor-pointer font-medium text-foreground select-none" data-testid="summary-view-webhook-log">
+            View log
+          </summary>
+          <div className="mt-2 space-y-2 text-muted-foreground text-xs leading-relaxed">
+            <p>
+              Webhook deliveries are written to the <span className="font-medium text-foreground">main sync log</span> on this page under category{" "}
+              <span className="font-mono text-foreground">WEBHOOK</span>. Use the category filter chips above the log, or click the button below to show only those entries.
+            </p>
+            <p>
+              This log is per process — if another replica handled the delivery, it may not appear here. Cross-check GitHub → Webhooks → Recent Deliveries when empty.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full sm:w-auto"
+              data-testid="button-filter-webhook-log"
+              onClick={() => {
+                setActiveCategories(new Set(["WEBHOOK"]));
+                setWebhookRetryOpen(false);
+                setWebhookRetryResult(null);
+                setCleanupResult(null);
+                setWebhookResetResult(null);
+                requestAnimationFrame(() => {
+                  syncLogCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                });
+              }}
+            >
+              Show WEBHOOK entries only
+            </Button>
+          </div>
+        </details>
+
         {syncInfo?.webhook.active && (
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2 p-3 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
@@ -1400,6 +1451,27 @@ export default function SyncLogPage() {
               }
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog open={webhookPayloadMeta !== null} onOpenChange={(open) => { if (!open) setWebhookPayloadMeta(null); }}>
+      <DialogContent className="sm:max-w-lg" data-testid="dialog-webhook-payload">
+        <DialogHeader>
+          <DialogTitle>Webhook delivery summary</DialogTitle>
+          <DialogDescription>
+            Safe debug fields stored with this WEBHOOK log entry (no secret or raw GitHub body).
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[min(60vh,420px)] rounded-md border bg-muted/40">
+          <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-all text-foreground" data-testid="text-webhook-payload-json">
+            {webhookPayloadMeta ? JSON.stringify(webhookPayloadMeta, null, 2) : ""}
+          </pre>
+        </ScrollArea>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setWebhookPayloadMeta(null)} data-testid="button-close-webhook-payload">
+            Close
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -5,6 +5,7 @@
  * - conversion_name values that are set but not in the known conversion events list
  * - missing conversion_name when a bound form-settings object is present
  *   (absent nested forms, e.g. CTA-only heroes, are allowed)
+ * - form fields.*.source.relation issues (empty/missing/broken/slugs combo)
  */
 
 import * as fs from "fs";
@@ -15,12 +16,20 @@ import {
   validateFormSection,
   validateRequiredConversionName,
 } from "../../../shared/validateFormSection";
+import { validateFormFieldSources } from "../../../shared/validateFormFieldSources";
 import { resolveBoundFormSettingsPath } from "../../../shared/wipeOnDuplicate";
-import { getAllDirectories } from "../../../server/content-types";
+import {
+  getAllDirectories,
+  getContentTypeConfig,
+  getType,
+} from "../../../server/content-types";
 import { getTrackingSettings } from "../../../server/settings";
 import { loadAllFieldEditors } from "../../../server/component-registry";
+import { escapeTemplateVars, unescapeObjectVars } from "../../../shared/templateVars";
+import { getDefaultContentRoot } from "../../../server/site-config";
 
-const CONTENT_DIRS = getAllDirectories().map((dir) => `4geeks-com/${dir}`);
+const CONTENT_ROOT = getDefaultContentRoot();
+const CONTENT_DIRS = getAllDirectories().map((dir) => path.join(CONTENT_ROOT, dir));
 
 function walkYamlFiles(dir: string): string[] {
   const results: string[] = [];
@@ -38,10 +47,34 @@ function walkYamlFiles(dir: string): string[] {
   return results;
 }
 
+function safeLoadYaml(filePath: string): Record<string, unknown> | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const { escaped, map } = escapeTemplateVars(raw);
+    const loaded = yaml.load(escaped);
+    if (!loaded || typeof loaded !== "object" || Array.isArray(loaded)) return null;
+    return unescapeObjectVars(loaded, map) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function contentTypeFromPath(filePath: string): string | null {
+  const rel = path.relative(path.join(process.cwd(), CONTENT_ROOT), filePath);
+  const parts = rel.split(path.sep);
+  const dir = parts[0];
+  if (!dir) return null;
+  try {
+    return getType(dir, CONTENT_ROOT);
+  } catch {
+    return dir;
+  }
+}
+
 export const formsValidator: Validator = {
   name: "forms",
   description:
-    "Validates form conversion_name (required when bound form object is present; must match known events when set)",
+    "Validates form conversion_name and fields.*.source.relation (publish rules)",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "forms",
@@ -53,27 +86,50 @@ export const formsValidator: Validator = {
     const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
     const allFieldEditors = loadAllFieldEditors();
 
-    for (const contentDir of CONTENT_DIRS) {
-      const fullDir = path.join(process.cwd(), contentDir);
+    for (const fullDir of CONTENT_DIRS) {
       const yamlFiles = walkYamlFiles(fullDir);
 
       for (const filePath of yamlFiles) {
-        let parsed: Record<string, unknown>;
-        try {
-          const raw = fs.readFileSync(filePath, "utf-8");
-          const loaded = yaml.load(raw);
-          if (!loaded || typeof loaded !== "object" || Array.isArray(loaded)) continue;
-          parsed = loaded as Record<string, unknown>;
-        } catch {
-          continue;
+        const parsed = safeLoadYaml(filePath);
+        if (!parsed) continue;
+
+        const relativePath = path.relative(process.cwd(), filePath);
+        const sections = Array.isArray(parsed.sections) ? parsed.sections : [];
+        const base = path.basename(filePath);
+        const isCommon = base === "_common.yml" || base === "_common.yaml";
+        if (isCommon) continue;
+
+        const commonPath = path.join(path.dirname(filePath), "_common.yml");
+        const common = safeLoadYaml(commonPath) || {};
+        const singleEntry = { ...common, ...parsed };
+        const ct = contentTypeFromPath(filePath);
+        const config = ct ? getContentTypeConfig(ct, CONTENT_ROOT) : undefined;
+        const editor = config?.editor as Record<string, { type?: string }> | undefined;
+        const isDraft = base.startsWith("draft.");
+
+        if (sections.length > 0 && editor) {
+          const sourceIssues = validateFormFieldSources({
+            singleEntry,
+            editor,
+            sections,
+            mode: isDraft ? "draft" : "publish",
+          });
+          for (const issue of sourceIssues) {
+            const target = issue.severity === "error" ? errors : warnings;
+            target.push({
+              type: issue.severity === "error" ? "error" : "warning",
+              code: `FORM_SOURCE_${issue.code.toUpperCase()}`,
+              message: `sections[${issue.sectionIndex ?? "?"}].${issue.formPath}: ${issue.message}. File: ${relativePath}`,
+              file: relativePath,
+              suggestion: issue.staffMessage,
+            });
+          }
         }
 
-        const sections = Array.isArray(parsed.sections) ? parsed.sections : [];
         for (let i = 0; i < sections.length; i++) {
           const section = sections[i];
           if (!section || typeof section !== "object" || Array.isArray(section)) continue;
           const sec = section as Record<string, unknown>;
-          const relativePath = path.relative(process.cwd(), filePath);
 
           const err = validateFormSection(sec, conversionNames);
           if (err) {

@@ -1,6 +1,28 @@
+/**
+ * Builds a sample webhook payload by merging the base SAMPLE_LEAD_PAYLOAD with:
+ * - YML form-settings fields (program, tags, automations, consent) extracted from
+ *   `sectionSource` at the given `formSettingsPath`
+ * - Session-derived fields: language, browser language, location, geo-coordinates,
+ *   and all UTM / referral parameters
+ *
+ * Pass the result directly as `samplePayload` to WebhookCard and as the `payload`
+ * body when calling the webhook test endpoint.
+ *
+ * `formSettingsPath` of `""` / `"."` means settings live at the section root (lead_form).
+ * When `singleEntry` is provided and the form field uses `source.relation`, resolve
+ * the program value from that entry field; otherwise fall back to authored `default`.
+ */
+
 import type { Session } from "@shared/session";
 import { joinFormSettingsPath } from "@shared/joinFormSettingsPath";
 import { buildSamplePayload } from "@/lib/tracking";
+import { parseFormFieldSource } from "@shared/parseFormFieldSource";
+import {
+  applyChoiceCardinality,
+  resolveFormFieldRelationSource,
+  resolveSubmitValueFromOptions,
+} from "@shared/resolveFormFieldRelationSource";
+import type { RelationEditorHint } from "@shared/relation-field";
 
 function getValueAtPath(obj: unknown, fieldPath: string): unknown {
   if (!fieldPath) return obj;
@@ -14,28 +36,72 @@ function getValueAtPath(obj: unknown, fieldPath: string): unknown {
   return current;
 }
 
-/**
- * Builds a sample webhook payload by merging the base SAMPLE_LEAD_PAYLOAD with:
- * - YML form-settings fields (program, tags, automations, consent) extracted from
- *   `sectionSource` at the given `formSettingsPath`
- * - Session-derived fields: language, browser language, location, geo-coordinates,
- *   and all UTM / referral parameters
- *
- * Pass the result directly as `samplePayload` to WebhookCard and as the `payload`
- * body when calling the webhook test endpoint.
- *
- * `formSettingsPath` of `""` / `"."` means settings live at the section root (lead_form).
- */
+export type BuildWebhookSamplePayloadOptions = {
+  singleEntry?: Record<string, unknown>;
+  editor?: Record<string, { type?: string } & RelationEditorHint> | null;
+};
+
+function resolveProgramFromFormSettings(
+  sectionSource: unknown,
+  formSettingsPath: string,
+  opts?: BuildWebhookSamplePayloadOptions,
+): string | undefined {
+  const fp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
+  const sourceRaw = getValueAtPath(sectionSource, fp("fields.program.source"));
+  const authoredDefault = getValueAtPath(
+    sectionSource,
+    fp("fields.program.default"),
+  ) as string | undefined;
+
+  if (sourceRaw != null && opts?.singleEntry) {
+    const src = parseFormFieldSource(
+      sourceRaw as string | { name?: string; relation?: string },
+    );
+    if (src.relation) {
+      const resolved = resolveFormFieldRelationSource({
+        formFieldName: "program",
+        relationField: src.relation,
+        singleEntry: opts.singleEntry,
+        editorHint: opts.editor?.[src.relation],
+        requireCatalogHit: false,
+        valuePath: src.value,
+        labelPath: src.label,
+      });
+      if (resolved.ok && resolved.options.length > 0) {
+        const card = applyChoiceCardinality(
+          { default: typeof authoredDefault === "string" ? authoredDefault : "" },
+          resolved.options,
+        );
+        const selected = card.default || resolved.options[0]!.value;
+        return resolveSubmitValueFromOptions(selected, resolved.options);
+      }
+      // Runtime/sample fallback when relation empty
+      return typeof authoredDefault === "string" && authoredDefault !== "auto"
+        ? authoredDefault
+        : undefined;
+    }
+  }
+
+  return typeof authoredDefault === "string" && authoredDefault.trim()
+    ? authoredDefault
+    : undefined;
+}
+
 export function buildWebhookSamplePayload(
   sectionSource: unknown,
   formSettingsPath: string | null | undefined,
-  session: Session
+  session: Session,
+  opts?: BuildWebhookSamplePayloadOptions,
 ): Record<string, unknown> {
   const formSettingsOverrides: Partial<Record<string, unknown>> = {};
 
   if (formSettingsPath != null) {
     const fp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
-    const program = getValueAtPath(sectionSource, fp("fields.program.default")) as string | undefined;
+    const program = resolveProgramFromFormSettings(
+      sectionSource,
+      formSettingsPath,
+      opts,
+    );
     const currentDownload = getValueAtPath(sectionSource, fp("fields.current_download.default")) as string | undefined;
     const tags = getValueAtPath(sectionSource, fp("tags"));
     const automations = getValueAtPath(sectionSource, fp("automations")) as string | undefined;

@@ -70,6 +70,36 @@ export const imageWithStyleSchema = z.object({
 
 export type ImageWithStyle = z.infer<typeof imageWithStyleSchema>;
 
+/** Catalog or entry-relation options source for choice fields. */
+export const leadFormFieldSourceSchema = z.union([
+  z.string(),
+  z
+    .object({
+      name: z.string().optional(),
+      relation: z.string().optional(),
+      query: z.string().optional(),
+      value: z.string().optional(),
+      label: z.string().optional(),
+    })
+    .superRefine((val, ctx) => {
+      const hasName = typeof val.name === "string" && val.name.trim().length > 0;
+      const hasRelation =
+        typeof val.relation === "string" && val.relation.trim().length > 0;
+      if (hasName && hasRelation) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "source cannot set both name (catalog) and relation (entry field)",
+        });
+      }
+      if (!hasName && !hasRelation) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "source must set either name (catalog) or relation (entry field)",
+        });
+      }
+    }),
+]);
+
 // Lead Form field config
 export const leadFormFieldConfigSchema = z.object({
   visible: z.boolean().optional(),
@@ -80,7 +110,8 @@ export const leadFormFieldConfigSchema = z.object({
   placeholder: z.string().optional(),
   show_label: z.boolean().optional(),
   label: z.string().optional(),
-  slugs: z.array(z.string()).optional(), // For program field: limits which programs appear in the dropdown
+  slugs: z.array(z.string()).optional(), // Legacy when source is omitted
+  source: leadFormFieldSourceSchema.optional(),
 });
 
 // Webhook configuration — used at form-level, per-event, and global tracking level

@@ -49,6 +49,12 @@ import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageM
 import { CreateContentModal } from "@/components/DebugBubble/components/CreateContentModal";
 import type { SitemapUrl } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
+import {
+  SeoContextPickerDialog,
+  resolveSeoContexts,
+  type SeoContextChoice,
+} from "@/components/editing/SeoContextPickerDialog";
+import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import { SharedLayoutExplainDialog } from "@/components/editing/SharedLayoutExplainDialog";
 import { SharedLayoutEnableDialog } from "@/components/editing/SharedLayoutEnableDialog";
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
@@ -4750,6 +4756,12 @@ export default function ContentTypeManagePage() {
   const [listPerspective, setListPerspective] = useState<"default" | "seo">("default");
   const [seoModalOpen, setSeoModalOpen] = useState(false);
   const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
+  const [seoPickerOpen, setSeoPickerOpen] = useState(false);
+  const [seoPickerPending, setSeoPickerPending] = useState<{
+    slug: string;
+    locale: string;
+    initialTab?: SeoModalTab;
+  } | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<StaticEntry | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
@@ -5791,6 +5803,36 @@ export default function ContentTypeManagePage() {
     }
   };
 
+  const beginEditSeo = useCallback(
+    async (slug: string, locale: string, initialTab?: SeoModalTab) => {
+      try {
+        const data = await resolveSeoContexts(contentType, slug, locale);
+        if (data.contexts.length <= 1) {
+          const choice: SeoContextChoice =
+            data.default ?? data.contexts[0] ?? { type: "live" };
+          setSeoModalTarget({
+            contentType,
+            slug,
+            locale,
+            initialTab,
+            variant: choice.type === "variant" ? choice.variant : undefined,
+          });
+          setSeoModalOpen(true);
+          return;
+        }
+        setSeoPickerPending({ slug, locale, initialTab });
+        setSeoPickerOpen(true);
+      } catch (e) {
+        toast({
+          title: "Failed to load SEO contexts",
+          description: e instanceof Error ? e.message : "Could not list LIVE/variant contexts.",
+          variant: "destructive",
+        });
+      }
+    },
+    [contentType, toast],
+  );
+
   const handleDuplicate = async (entry: StaticEntry) => {
     const firstLocale = entry.locales[0] || "en";
     const firstUrl = entry.urls[firstLocale] || Object.values(entry.urls)[0] || "";
@@ -6639,12 +6681,7 @@ export default function ContentTypeManagePage() {
                                   className="text-xs gap-1.5"
                                   data-testid={`button-edit-meta-${rowKey}`}
                                   onClick={() => {
-                                    setSeoModalTarget({
-                                      contentType,
-                                      slug,
-                                      locale,
-                                    });
-                                    setSeoModalOpen(true);
+                                    void beginEditSeo(slug, locale);
                                   }}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
@@ -6971,13 +7008,11 @@ export default function ContentTypeManagePage() {
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => {
-                                        setSeoModalTarget({
-                                          contentType,
-                                          slug: entry.slug,
-                                          locale: entry.locales[0] || "en",
-                                          initialTab: "fields",
-                                        });
-                                        setSeoModalOpen(true);
+                                        void beginEditSeo(
+                                          entry.slug,
+                                          entry.locales[0] || "en",
+                                          "fields",
+                                        );
                                       }}
                                       className="text-[13px]"
                                       data-testid={`menu-edit-fields-${entry.slug}`}
@@ -7753,6 +7788,31 @@ export default function ContentTypeManagePage() {
           queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });
         }}
       />
+
+      {seoPickerPending && (
+        <SeoContextPickerDialog
+          open={seoPickerOpen}
+          onOpenChange={(open) => {
+            setSeoPickerOpen(open);
+            if (!open) setSeoPickerPending(null);
+          }}
+          contentType={contentType}
+          slug={seoPickerPending.slug}
+          locale={seoPickerPending.locale}
+          onConfirm={(choice) => {
+            setSeoModalTarget({
+              contentType,
+              slug: seoPickerPending.slug,
+              locale: seoPickerPending.locale,
+              initialTab: seoPickerPending.initialTab,
+              variant: choice.type === "variant" ? choice.variant : undefined,
+            });
+            setSeoPickerOpen(false);
+            setSeoPickerPending(null);
+            setSeoModalOpen(true);
+          }}
+        />
+      )}
 
       <Dialog open={createVersionOpen} onOpenChange={(open) => {
         setCreateVersionOpen(open);

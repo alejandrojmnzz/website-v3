@@ -69,7 +69,6 @@ function FieldsEducationBlock({
   slug,
   locale,
   layerFileName,
-  isVariantLayer,
 }: {
   hasDatabase: boolean;
   directory: string;
@@ -77,9 +76,8 @@ function FieldsEducationBlock({
   slug: string;
   locale: string;
   layerFileName?: string;
-  isVariantLayer?: boolean;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dbPath = `db/${databaseSlug || "<database>"}/overrides.json`;
   const ctPath = `${directory}/${slug}/${layerFileName || `${locale}.yml`}`;
@@ -140,13 +138,6 @@ function FieldsEducationBlock({
                 <code className="text-xs font-mono">title</code> / <code className="text-xs font-mono">content</code>
                 ). The API path is still named <code className="text-xs font-mono">field-overrides</code>, but
                 static types do not store a <code className="text-xs font-mono">field_overrides</code> bag.
-              </p>
-            )}
-            {isVariantLayer && layerFileName && (
-              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-amber-900 dark:text-amber-100">
-                Editing <code className="font-mono text-xs">{layerFileName}</code> — not the published{" "}
-                <code className="font-mono text-xs">{locale}.yml</code>. Changes stay on this variant until
-                promote/publish.
               </p>
             )}
             <p>
@@ -377,6 +368,18 @@ export function MappingFieldsTab({
   const layerFileName = provenance?.layerFileName;
   const isVariantLayer = !!provenance?.isVariantLayer || !!variantParam;
 
+  const variantWarning =
+    isVariantLayer && layerFileName ? (
+      <p
+        className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
+        data-testid="banner-fields-variant-layer"
+      >
+        Editing <code className="font-mono text-xs">{layerFileName}</code> — not the published{" "}
+        <code className="font-mono text-xs">{locale}.yml</code>. Changes stay on this variant until
+        promote/publish.
+      </p>
+    ) : null;
+
   const education = (
     <FieldsEducationBlock
       hasDatabase={hasDatabase}
@@ -385,7 +388,6 @@ export function MappingFieldsTab({
       slug={slug}
       locale={locale}
       layerFileName={layerFileName}
-      isVariantLayer={isVariantLayer}
     />
   );
 
@@ -501,6 +503,7 @@ export function MappingFieldsTab({
     const label = typeLabel || contentType;
     return (
       <div className="space-y-3 pt-4" data-testid="fields-tab-empty">
+        {variantWarning}
         {education}
         <p className="text-sm text-muted-foreground">
           {label} entries don&apos;t have any fields declared yet. Declare fields on the content type
@@ -519,6 +522,7 @@ export function MappingFieldsTab({
 
   return (
     <div className="space-y-3 pt-4" data-testid="fields-tab-table">
+      {variantWarning}
       {education}
       <div className="rounded-md border overflow-hidden">
         <table className="w-full text-sm">
