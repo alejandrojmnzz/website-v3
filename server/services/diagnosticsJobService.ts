@@ -36,6 +36,7 @@ const log = child({ module: "diagnosticsJobService" });
 
 const MAX_JOB_ENVELOPES = 50;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_JOB_LOG_LINES = 200;
 
 export type { DiagnosticsFreshness, MappedIssue };
 export type DiagnosticsJobStatus =
@@ -46,6 +47,14 @@ export type DiagnosticsJobStatus =
   | "cached"
   | "busy"
   | "not_found";
+
+export type DiagnosticsJobLogLevel = "info" | "warn" | "error";
+
+export interface DiagnosticsJobLogLine {
+  t: number;
+  level: DiagnosticsJobLogLevel;
+  text: string;
+}
 
 export interface DiagnosticsJobRequest {
   contentRoot: string;
@@ -87,6 +96,20 @@ export interface DiagnosticsJobEnvelope {
 export interface DiagnosticsJobRecord extends DiagnosticsJobEnvelope {
   validatorResults?: ValidatorResult[];
   resultIssuesBySlug?: Record<string, MappedIssue[]>;
+  /** In-memory only — not written to disk envelopes */
+  log?: DiagnosticsJobLogLine[];
+}
+
+function appendJobLog(
+  job: DiagnosticsJobRecord,
+  text: string,
+  level: DiagnosticsJobLogLevel = "info",
+): void {
+  if (!job.log) job.log = [];
+  job.log.push({ t: Date.now(), level, text });
+  if (job.log.length > MAX_JOB_LOG_LINES) {
+    job.log.splice(0, job.log.length - MAX_JOB_LOG_LINES);
+  }
 }
 
 export type StartDiagnosticsResult =
@@ -345,9 +368,14 @@ async function finalizeJob(
         job.resultIssuesBySlug = results.issuesBySlug as Record<string, MappedIssue[]>;
         job.validatorResults = results.validatorResults as ValidatorResult[] | undefined;
       }
+      appendJobLog(
+        job,
+        `Completed — ${outcome.summary.errorCount} errors, ${outcome.summary.warningCount} warnings`,
+      );
     } else {
       job.status = "failed";
       job.error = outcome.error;
+      appendJobLog(job, `Failed — ${outcome.error}`, "error");
     }
     writeEnvelope(contentRoot, toEnvelope(job));
   } else {
@@ -392,6 +420,13 @@ function attachChildHandlers(
       if (typeof raw.total === "number" && raw.total > 0) job.total = raw.total;
       if (typeof raw.staleUrlCount === "number") job.staleUrlCount = raw.staleUrlCount;
       if (typeof raw.urlCount === "number") job.urlCount = raw.urlCount;
+      if (raw.message) {
+        const prefix =
+          typeof raw.total === "number" && raw.total > 0
+            ? `[${raw.processed ?? job.processed}/${raw.total}] `
+            : "";
+        appendJobLog(job, `${prefix}${raw.message}`);
+      }
       writeEnvelope(contentRoot, toEnvelope(job));
       resetIdleTimer(contentRoot, jobId);
       return;
@@ -460,11 +495,13 @@ function spawnWorker(contentRoot: string, jobId: string, start: DiagnosticsWorke
   const job = jobsById.get(jobId);
   if (job) {
     job.status = "running";
+    appendJobLog(job, "Worker forked");
     writeEnvelope(contentRoot, toEnvelope(job));
   }
 
   try {
     childProc.send(start);
+    if (job) appendJobLog(job, "Start message sent to worker");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     void finalizeJob(contentRoot, jobId, {
@@ -606,6 +643,7 @@ export async function startDiagnosticsJob(
     staleUrlCount: staleTargets.length,
     urlCount: allTargets.length,
     partial,
+    log: [],
   };
 
   jobsById.set(jobId, job);
@@ -613,6 +651,7 @@ export async function startDiagnosticsJob(
   jobContentRoot.set(jobId, req.contentRoot);
   runningByContentRoot.set(req.contentRoot, jobId);
   jobTerminalHandled.delete(jobId);
+  appendJobLog(job, "Job queued");
   writeEnvelope(req.contentRoot, toEnvelope(job));
 
   const startMsg: DiagnosticsWorkerStartMessage = {

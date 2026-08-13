@@ -126,6 +126,19 @@ function variantLiteralName(field: ZodType | undefined): string | null {
   return null;
 }
 
+/** When a single SectionSchema uses `variant: z.enum([...])`, those names belong in schema.yml `variants:`. */
+function extractEnumVariantNamesFromObject(
+  schema: ZodObject<Record<string, ZodType>>,
+): string[] {
+  const shape = schema._def.shape();
+  const field = shape.variant as ZodType | undefined;
+  if (!field) return [];
+  const inner = unwrapOptional(field);
+  if (!(inner instanceof ZodEnum)) return [];
+  const values = inner._def.values as string[];
+  return values.filter((v) => typeof v === "string").sort();
+}
+
 function collectVariantsFromOptions(
   options: ZodType[],
   into: Record<string, ZodObject<Record<string, ZodType>>>,
@@ -359,8 +372,11 @@ async function loadVariantSchemasFromModule(schemaTs: string): Promise<{
 }
 
 export async function extractZodVariantNames(schemaTs: string): Promise<string[]> {
-  const { variantSchemas } = await loadVariantSchemasFromModule(schemaTs);
-  return Object.keys(variantSchemas).sort();
+  const { mainSchema, variantSchemas } = await loadVariantSchemasFromModule(schemaTs);
+  const fromLiterals = Object.keys(variantSchemas);
+  if (fromLiterals.length > 0) return fromLiterals.sort();
+  if (mainSchema) return extractEnumVariantNamesFromObject(mainSchema);
+  return [];
 }
 
 function ymlVariantKeys(schemaYml: SchemaYml | null): string[] {
@@ -454,6 +470,17 @@ async function processComponent(
       }
     } else if (mainSchema) {
       newSchema.props = mergeProps(extractProps(mainSchema), existing?.props);
+      // Single-schema components with `variant: z.enum([...])` still need a variants map
+      // so section-variants validation / MCP get_component_schema see real names (not only "default").
+      const enumVariants = extractEnumVariantNamesFromObject(mainSchema);
+      if (enumVariants.length > 0) {
+        newSchema.variants = {};
+        for (const variantName of enumVariants) {
+          newSchema.variants[variantName] = existing?.variants?.[variantName] || {};
+        }
+      } else if (existing?.variants && typeof existing.variants === "object") {
+        newSchema.variants = existing.variants;
+      }
     }
 
     const yamlContent = yaml.dump(newSchema, {
@@ -500,7 +527,10 @@ async function checkComponent(
 
   try {
     const { mainSchema, variantSchemas } = await loadVariantSchemasFromModule(schemaTs);
-    const zodVariants = Object.keys(variantSchemas).sort();
+    let zodVariants = Object.keys(variantSchemas).sort();
+    if (zodVariants.length === 0 && mainSchema) {
+      zodVariants = extractEnumVariantNamesFromObject(mainSchema);
+    }
     const syncable = !!mainSchema || zodVariants.length > 0;
 
     // schema.ts with no extractable section/variant schemas cannot be healed by sync — skip.

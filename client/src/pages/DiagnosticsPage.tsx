@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Clipboard, Code, Crosshair, FileText, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Sparkles, Stethoscope, Trash2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Crosshair, FileText, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Wrench, X} from "lucide-react";
 import { IconChartBar } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
@@ -17,12 +17,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@/components/ui/accordion";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   DropdownMenu,
@@ -31,6 +25,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
@@ -42,7 +43,6 @@ import {
   parseRedirectConflict,
   useRedirectConflictResolver,
   type ValidatorIssue,
-  type RedirectConflictInfo,
 } from "@/components/RedirectConflictResolver";
 
 interface ValidatorResult {
@@ -54,17 +54,6 @@ interface ValidatorResult {
   duration: number;
   category?: string;
   artifacts?: Record<string, unknown>;
-}
-
-interface RunResult {
-  summary: {
-    total: number;
-    passed: number;
-    failed: number;
-    warnings: number;
-    duration: number;
-  };
-  validators: ValidatorResult[];
 }
 
 interface PageSummary {
@@ -166,480 +155,6 @@ function InfoPopover({ children, testId }: { children: React.ReactNode; testId?:
   );
 }
 
-function StatusBadge({ status }: { status: "passed" | "failed" | "warning" }) {
-  if (status === "passed") {
-    return (
-      <Badge variant="secondary" className="gap-1" data-testid={`badge-status-${status}`}>
-        <Check className="h-3 w-3" />
-        Passed
-      </Badge>
-    );
-  }
-  if (status === "warning") {
-    return (
-      <Badge variant="outline" className="gap-1" data-testid={`badge-status-${status}`}>
-        <AlertTriangle className="h-3 w-3" />
-        Warning
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="destructive" className="gap-1" data-testid={`badge-status-${status}`}>
-      <X className="h-3 w-3" />
-      Failed
-    </Badge>
-  );
-}
-
-
-function IssueRow({ issue, onResolve }: { issue: ValidatorIssue; onResolve?: (issue: ValidatorIssue) => void }) {
-  const formatSitePath = useFormatSitePath();
-  const conflict = parseRedirectConflict(issue);
-  const navUrl = issue.fix?.type === "manual" && issue.fix?.url ? issue.fix.url : null;
-
-  return (
-    <div className="flex flex-wrap items-start gap-2 py-2 border-b last:border-b-0" data-testid={`issue-${issue.code}`}>
-      <div className="flex-shrink-0 mt-0.5">
-        {issue.type === "error" ? (
-          <X className="h-4 w-4 text-destructive" />
-        ) : (
-          <AlertTriangle className="h-4 w-4 text-chart-2" />
-        )}
-      </div>
-      <Badge variant="outline" className="text-xs font-mono">{issue.code}</Badge>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-foreground">{issue.message}</p>
-        {issue.file && (
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate" title={issue.file}>
-            {formatSitePath(issue.file)}
-          </p>
-        )}
-        {issue.suggestion && (
-          <p className="text-xs text-muted-foreground mt-1 italic">{issue.suggestion}</p>
-        )}
-      </div>
-      {navUrl && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-shrink-0 gap-1"
-          asChild
-          data-testid={`link-goto-section-${issue.code}`}
-        >
-          <a href={navUrl} target="_blank" rel="noopener noreferrer">
-            <ArrowRight className="h-3.5 w-3.5" />
-            Go to section
-          </a>
-        </Button>
-      )}
-      {conflict && onResolve && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-shrink-0 gap-1"
-          onClick={() => onResolve(issue)}
-          data-testid={`button-resolve-${issue.code}`}
-        >
-          <Wrench className="h-3.5 w-3.5" />
-          Resolve
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function LengthBar({ value, max, optimal }: { value: number; max: number; optimal: number }) {
-  const pct = Math.min((value / max) * 100, 100);
-  const isGood = value <= optimal && value > 0;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${isGood ? "bg-chart-3" : value === 0 ? "bg-muted" : "bg-chart-2"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-xs text-muted-foreground tabular-nums">{value}/{max}</span>
-    </div>
-  );
-}
-
-function AiPromptDialog({
-  open,
-  onOpenChange,
-  prompt,
-  validatorName,
-  isPending,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  prompt: string | null;
-  validatorName: string;
-  isPending: boolean;
-}) {
-  const { toast } = useToast();
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy() {
-    if (!prompt) return;
-    navigator.clipboard.writeText(prompt).then(() => {
-      setCopied(true);
-      toast({ title: "Prompt copied", description: "Paste it into your LLM" });
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-0 p-0">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b">
-          <DialogTitle className="text-base font-semibold">
-            AI Prompt — {validatorName}
-          </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Copy this prompt and paste it into any LLM running locally.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-hidden flex flex-col">
-          {isPending && (
-            <div className="flex items-center justify-center py-16">
-              <div className="text-center">
-                <div className="inline-block h-6 w-6 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
-                <p className="mt-3 text-sm text-muted-foreground">Generating prompt…</p>
-              </div>
-            </div>
-          )}
-          {!isPending && prompt && (
-            <ScrollArea className="flex-1 max-h-[60vh]">
-              <pre className="p-4 text-xs font-mono text-foreground whitespace-pre-wrap break-words leading-relaxed bg-muted rounded-none">
-                {prompt}
-              </pre>
-            </ScrollArea>
-          )}
-        </div>
-
-        <DialogFooter className="px-6 py-4 border-t">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCopy}
-            disabled={!prompt || isPending}
-            data-testid="button-copy-prompt"
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5" />
-            ) : (
-              <Clipboard className="h-3.5 w-3.5" />
-            )}
-            {copied ? "Copied!" : "Copy to clipboard"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ValidatorCard({
-  v,
-  runSingleMutation,
-  openResolver,
-  onOpenLeads,
-}: {
-  v: ValidatorResult;
-  runSingleMutation: { mutate: (name: string) => void; isPending: boolean };
-  openResolver?: (issue: ValidatorIssue) => void;
-  onOpenLeads?: () => void;
-}) {
-  const [promptOpen, setPromptOpen] = useState(false);
-  const [promptText, setPromptText] = useState<string | null>(null);
-  const [fixPending, setFixPending] = useState<Record<string, boolean>>({});
-  const [fixResult, setFixResult] = useState<Record<string, { ok: boolean; message: string } | null>>({});
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  const { toast } = useToast();
-  const { canMutateMetrics } = useDebugAuth();
-
-  const promptMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/validation/run.prompt", {
-        validators: [v.name],
-      });
-      return (await res.json()) as { prompt: string; validatorNames: string[]; issueCount: number };
-    },
-    onSuccess: (data) => {
-      setPromptText(data.prompt);
-    },
-    onError: (err) => {
-      toast({
-        title: "Failed to generate prompt",
-        description: err instanceof Error ? err.message : "Unknown error",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const allIssues = [...v.errors, ...v.warnings];
-  const hasIssues = allIssues.length > 0;
-
-  const apiFixes = (() => {
-    const map = new Map<string, { label: string; count: number }>();
-    for (const issue of allIssues) {
-      if (issue.fix?.type === "api" && issue.fix.fixerName) {
-        const existing = map.get(issue.fix.fixerName);
-        if (existing) { existing.count++; }
-        else { map.set(issue.fix.fixerName, { label: issue.fix.label, count: 1 }); }
-      }
-    }
-    return Array.from(map.entries()).map(([name, { label, count }]) => ({ name, label, count }));
-  })();
-
-  const scriptFixes = (() => {
-    const map = new Map<string, { label: string; command: string; count: number }>();
-    for (const issue of allIssues) {
-      if (issue.fix?.type === "script" && issue.fix.command) {
-        const key = issue.fix.command;
-        const existing = map.get(key);
-        if (existing) { existing.count++; }
-        else { map.set(key, { label: issue.fix.label, command: key, count: 1 }); }
-      }
-    }
-    return Array.from(map.values());
-  })();
-
-  const fixSummary = (() => {
-    let auto = 0, needPrompt = 0, script = 0, manual = 0;
-    for (const issue of allIssues) {
-      if (!issue.fix || issue.fix.type === "manual") manual++;
-      else if (issue.fix.type === "api") auto++;
-      else if (issue.fix.type === "llm") needPrompt++;
-      else if (issue.fix.type === "script") script++;
-    }
-    return { auto, needPrompt, script, manual };
-  })();
-
-  const hasFixHints = allIssues.some((i) => i.fix && i.fix.type !== "manual");
-
-  async function handleApiFix(fixerName: string) {
-    setFixPending((p) => ({ ...p, [fixerName]: true }));
-    setFixResult((r) => ({ ...r, [fixerName]: null }));
-    try {
-      const res = await apiRequest("POST", `/api/validation/fix/${fixerName}`, {});
-      const data = await res.json() as { ok: boolean; message: string; details?: Record<string, unknown> };
-      setFixResult((r) => ({ ...r, [fixerName]: { ok: data.ok, message: data.message } }));
-      if (data.ok) {
-        setTimeout(() => runSingleMutation.mutate(v.name), 500);
-      }
-    } catch (err) {
-      setFixResult((r) => ({
-        ...r,
-        [fixerName]: { ok: false, message: err instanceof Error ? err.message : "Unknown error" },
-      }));
-    } finally {
-      setFixPending((p) => ({ ...p, [fixerName]: false }));
-    }
-  }
-
-  function handleCopyCmd(cmd: string) {
-    navigator.clipboard.writeText(cmd).then(() => {
-      setCopiedCmd(cmd);
-      setTimeout(() => setCopiedCmd(null), 2000);
-    });
-  }
-
-  function handleOpenPrompt() {
-    setPromptText(null);
-    setPromptOpen(true);
-    promptMutation.mutate();
-  }
-
-  return (
-    <>
-      <Card style={{ borderRadius: "0.8rem" }} data-testid={`card-validator-${v.name}`}>
-        <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm font-semibold truncate">{v.name}</CardTitle>
-            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{v.description}</p>
-          </div>
-          <StatusBadge status={v.status} />
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            {v.errors.length > 0 && (
-              <span className="flex items-center gap-1">
-                <X className="h-3 w-3 text-destructive" />
-                {v.errors.length} error{v.errors.length !== 1 ? "s" : ""}
-              </span>
-            )}
-            {v.warnings.length > 0 && (
-              <span className="flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3 text-chart-2" />
-                {v.warnings.length} warning{v.warnings.length !== 1 ? "s" : ""}
-              </span>
-            )}
-            <span>{v.duration}ms</span>
-          </div>
-
-          {v.name === "forms" && onOpenLeads && (
-            <button
-              onClick={onOpenLeads}
-              className="flex items-center gap-1 text-xs text-primary hover:underline"
-              data-testid="button-forms-view-all-sections"
-            >
-              View all diagnosed form sections in the Leads tab
-              <ArrowRight className="h-3 w-3" />
-            </button>
-          )}
-
-          {hasIssues && hasFixHints && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs" data-testid={`fix-summary-${v.name}`}>
-              {fixSummary.auto > 0 && (
-                <span className="text-chart-3 font-medium">{fixSummary.auto} auto-fixable</span>
-              )}
-              {fixSummary.script > 0 && (
-                <span className="text-muted-foreground">{fixSummary.script} script</span>
-              )}
-              {fixSummary.needPrompt > 0 && (
-                <span className="text-chart-2">{fixSummary.needPrompt} need prompt</span>
-              )}
-              {fixSummary.manual > 0 && (
-                <span className="text-muted-foreground">{fixSummary.manual} manual</span>
-              )}
-            </div>
-          )}
-
-          {hasIssues && (
-            <Accordion type="single" collapsible>
-              <AccordionItem value="issues" className="border-0">
-                <AccordionTrigger className="py-2 text-xs" data-testid={`trigger-issues-${v.name}`}>
-                  View Issues ({v.errors.length + v.warnings.length})
-                </AccordionTrigger>
-                <AccordionContent className="text-sm">
-                  <div className="max-h-64 overflow-y-auto space-y-0">
-                    {v.errors.map((e, i) => (
-                      <IssueRow
-                        key={`e-${i}`}
-                        issue={e}
-                        onResolve={v.name === "redirects" ? openResolver : undefined}
-                      />
-                    ))}
-                    {v.warnings.map((w, i) => (
-                      <IssueRow
-                        key={`w-${i}`}
-                        issue={w}
-                        onResolve={v.name === "redirects" ? openResolver : undefined}
-                      />
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          )}
-
-          {apiFixes.length > 0 && canMutateMetrics && (
-            <div className="space-y-2" data-testid={`api-fixes-${v.name}`}>
-              {apiFixes.map(({ name, label, count }) => (
-                <div key={name} className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleApiFix(name)}
-                    disabled={fixPending[name] || runSingleMutation.isPending}
-                    data-testid={`button-fix-${name}`}
-                  >
-                    {fixPending[name] ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Wrench className="h-3.5 w-3.5" />
-                    )}
-                    {label}
-                    <Badge variant="secondary" className="ml-1 text-xs">{count}</Badge>
-                  </Button>
-                  {fixResult[name] && (
-                    <span
-                      className={`text-xs ${fixResult[name]!.ok ? "text-chart-3" : "text-destructive"}`}
-                      data-testid={`fix-result-${name}`}
-                    >
-                      {fixResult[name]!.message}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {scriptFixes.length > 0 && (
-            <div className="space-y-2" data-testid={`script-fixes-${v.name}`}>
-              {scriptFixes.map(({ label, command, count }) => (
-                <details key={command} className="text-xs group">
-                  <summary
-                    className="cursor-pointer flex items-center gap-1 text-muted-foreground hover:text-foreground select-none"
-                    data-testid={`summary-script-${v.name}`}
-                  >
-                    <Code className="h-3.5 w-3.5" />
-                    {label}
-                    <Badge variant="secondary" className="ml-1">{count}</Badge>
-                  </summary>
-                  <div className="mt-2 flex items-start gap-2">
-                    <code className="flex-1 p-2 bg-muted rounded text-xs font-mono break-all leading-relaxed">
-                      {command}
-                    </code>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => handleCopyCmd(command)}
-                      data-testid={`button-copy-cmd-${v.name}`}
-                    >
-                      {copiedCmd === command ? (
-                        <Check className="h-3.5 w-3.5 text-chart-3" />
-                      ) : (
-                        <Clipboard className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                  <p className="mt-1 text-muted-foreground">Run this command from your terminal.</p>
-                </details>
-              ))}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2">
-            {hasIssues && canMutateMetrics && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleOpenPrompt}
-                data-testid={`button-ai-prompt-${v.name}`}
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                AI Prompt
-              </Button>
-            )}
-            {canMutateMetrics && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => runSingleMutation.mutate(v.name)}
-              disabled={runSingleMutation.isPending}
-              data-testid={`button-run-${v.name}`}
-            >
-              <Play className="h-3.5 w-3.5" />
-              Run
-            </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <AiPromptDialog
-        open={promptOpen}
-        onOpenChange={setPromptOpen}
-        prompt={promptText}
-        validatorName={v.name}
-        isPending={promptMutation.isPending}
-      />
-    </>
-  );
-}
 
 type CachedIssueRow = {
   url: string;
@@ -649,6 +164,8 @@ type CachedIssueRow = {
   validator?: string;
   category?: string;
   lastFullRunAt?: string;
+  suggestion?: string;
+  file?: string;
 };
 
 type JobStartResponse = {
@@ -662,6 +179,12 @@ type JobStartResponse = {
   scope?: { processed?: number; total?: number; staleUrlCount?: number; urlCount?: number };
 };
 
+type JobLogLine = {
+  t: number;
+  level: string;
+  text: string;
+};
+
 type JobPollResponse = {
   status: string;
   job_id?: string;
@@ -673,9 +196,30 @@ type JobPollResponse = {
   message?: string;
   code?: string;
   summary?: { errorCount: number; warningCount: number };
+  log?: JobLogLine[];
 };
 
-async function pollDiagnosticsJob(jobId: string, onProgress?: (p: { processed: number; total: number; status: string }) => void): Promise<JobPollResponse> {
+type JobPanelState = {
+  jobId: string;
+  label?: string;
+  status: string;
+  processed: number;
+  total: number;
+  log: JobLogLine[];
+  running: boolean;
+};
+
+const ISSUE_DISPLAY_CAP = 200;
+
+async function pollDiagnosticsJob(
+  jobId: string,
+  onProgress?: (p: {
+    processed: number;
+    total: number;
+    status: string;
+    log: JobLogLine[];
+  }) => void,
+): Promise<JobPollResponse> {
   for (;;) {
     const res = await apiFetch(`/api/validation/diagnostics-jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include",
@@ -692,6 +236,7 @@ async function pollDiagnosticsJob(jobId: string, onProgress?: (p: { processed: n
         processed: data.processed ?? 0,
         total: data.total ?? 0,
         status: data.status,
+        log: data.log ?? [],
       });
       const waitMs = Math.max(1, data.retry_after_seconds ?? 5) * 1000;
       await new Promise((r) => setTimeout(r, waitMs));
@@ -701,23 +246,18 @@ async function pollDiagnosticsJob(jobId: string, onProgress?: (p: { processed: n
   }
 }
 
-function runResultFromValidators(validatorsList: ValidatorResult[]): RunResult {
-  const passed = validatorsList.filter((v) => v.status === "passed").length;
-  const failed = validatorsList.filter((v) => v.status === "failed").length;
-  const warnings = validatorsList.filter((v) => v.status === "warning").length;
+function cacheRowToValidatorIssue(row: CachedIssueRow): ValidatorIssue {
   return {
-    summary: {
-      total: validatorsList.length,
-      passed,
-      failed,
-      warnings,
-      duration: validatorsList.reduce((s, v) => s + (v.duration || 0), 0),
-    },
-    validators: validatorsList,
+    type: row.severity === "error" ? "error" : "warning",
+    code: row.code,
+    message: row.message,
+    ...(row.file ? { file: row.file } : {}),
+    ...(row.suggestion ? { suggestion: row.suggestion } : {}),
   };
 }
 
 function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
+  void onOpenLeads;
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { canMutateMetrics } = useDebugAuth();
@@ -725,20 +265,48 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [results, setResults] = useState<RunResult | null>(null);
+  const [validatorFilter, setValidatorFilter] = useState<string>("all");
+  const [rerunValidator, setRerunValidator] = useState<string>("");
   const [lastRun, setLastRun] = useState<Date | null>(null);
-  const [jobBanner, setJobBanner] = useState<string | null>(null);
+  const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
+  const jobLogScrollRef = useRef<HTMLDivElement>(null);
+  const hideJobPanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolveModalOpen, setResolveModalOpen, activeConflict, openResolver } = useRedirectConflictResolver();
+
+  useEffect(() => {
+    const el = jobLogScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [jobPanel?.log.length, jobPanel?.jobId]);
+
+  useEffect(() => {
+    return () => {
+      if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
+    };
+  }, []);
+
+  const scheduleHideJobPanel = () => {
+    if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
+    hideJobPanelTimer.current = setTimeout(() => setJobPanel(null), 3000);
+  };
 
   const { data: cacheIssuesData, refetch: refetchCacheIssues } = useQuery<{ issues: CachedIssueRow[] }>({
     queryKey: ["/api/validation/cache-issues"],
   });
   const cacheIssues = cacheIssuesData?.issues ?? [];
 
+  const { data: validatorsData } = useQuery<{
+    validators: Array<{ name: string; description?: string; category?: string }>;
+  }>({
+    queryKey: ["/api/validation/validators"],
+  });
+  const availableValidators = validatorsData?.validators ?? [];
+
   const startJobMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
+      if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
       const res = await apiFetch("/api/validation/diagnostics-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -758,9 +326,32 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       if (!data.job_id) {
         throw new Error("Missing job_id from diagnostics-jobs");
       }
-      setJobBanner(`Job ${data.job_id}: queued…`);
-      const final = await pollDiagnosticsJob(data.job_id, (p) => {
-        setJobBanner(`Job ${data.job_id}: ${p.status} (${p.processed}/${p.total})`);
+      const jobId = data.job_id;
+      setJobPanel({
+        jobId,
+        status: "queued",
+        processed: 0,
+        total: 0,
+        log: [],
+        running: true,
+      });
+      const final = await pollDiagnosticsJob(jobId, (p) => {
+        setJobPanel({
+          jobId,
+          status: p.status,
+          processed: p.processed,
+          total: p.total,
+          log: p.log,
+          running: true,
+        });
+      });
+      setJobPanel({
+        jobId,
+        status: final.status,
+        processed: final.processed ?? 0,
+        total: final.total ?? 0,
+        log: final.log ?? [],
+        running: false,
       });
       if (final.status === "failed" || final.status === "not_found") {
         throw new Error(final.error || final.message || `Job ${final.status}`);
@@ -768,7 +359,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       return { kind: "completed" as const, data: final };
     },
     onSuccess: (outcome) => {
-      setJobBanner(null);
+      scheduleHideJobPanel();
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
       if (outcome.kind === "cached") {
@@ -776,17 +367,33 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         setLastRun(new Date());
         return;
       }
-      const list = outcome.data.validators ?? [];
-      if (list.length > 0) {
-        setResults(runResultFromValidators(list));
-      }
       setLastRun(new Date());
-      toast({ title: "Diagnostics completed", description: outcome.data.summary
-        ? `${outcome.data.summary.errorCount} errors, ${outcome.data.summary.warningCount} warnings`
-        : "Cache updated." });
+      toast({
+        title: "Diagnostics completed",
+        description: outcome.data.summary
+          ? `${outcome.data.summary.errorCount} errors, ${outcome.data.summary.warningCount} warnings`
+          : "Cache updated.",
+      });
     },
     onError: (err) => {
-      setJobBanner(null);
+      setJobPanel((prev) =>
+        prev
+          ? {
+              ...prev,
+              running: false,
+              status: "failed",
+              log: [
+                ...prev.log,
+                {
+                  t: Date.now(),
+                  level: "error",
+                  text: err instanceof Error ? err.message : "Unknown error",
+                },
+              ],
+            }
+          : prev,
+      );
+      scheduleHideJobPanel();
       toast({
         title: "Diagnostics failed",
         description: err instanceof Error ? err.message : "Unknown error",
@@ -808,6 +415,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
 
   const runSingleMutation = useMutation({
     mutationFn: async (name: string) => {
+      if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
       const res = await apiFetch("/api/validation/diagnostics-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -826,38 +434,73 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         throw new Error((data as { message?: string }).message || "Failed to start job");
       }
       if (data.status === "cached") {
-        return { validators: [] as ValidatorResult[] };
+        return { name };
       }
       if (!data.job_id) throw new Error("Missing job_id");
-      setJobBanner(`Validator ${name}: running…`);
-      const final = await pollDiagnosticsJob(data.job_id, (p) => {
-        setJobBanner(`${name}: ${p.status} (${p.processed}/${p.total})`);
+      const jobId = data.job_id;
+      setJobPanel({
+        jobId,
+        label: name,
+        status: "queued",
+        processed: 0,
+        total: 0,
+        log: [],
+        running: true,
       });
-      setJobBanner(null);
+      const final = await pollDiagnosticsJob(jobId, (p) => {
+        setJobPanel({
+          jobId,
+          label: name,
+          status: p.status,
+          processed: p.processed,
+          total: p.total,
+          log: p.log,
+          running: true,
+        });
+      });
+      setJobPanel({
+        jobId,
+        label: name,
+        status: final.status,
+        processed: final.processed ?? 0,
+        total: final.total ?? 0,
+        log: final.log ?? [],
+        running: false,
+      });
       if (final.status === "failed" || final.status === "not_found") {
         throw new Error(final.error || final.message || `Job ${final.status}`);
       }
-      return { validators: final.validators ?? [] };
+      return { name };
     },
     onSuccess: (data) => {
+      scheduleHideJobPanel();
       void refetchCacheIssues();
-      if (!data.validators.length) return;
-      if (!results) {
-        setResults(runResultFromValidators(data.validators));
-        setLastRun(new Date());
-        return;
-      }
-      const updated = { ...results };
-      for (const v of data.validators) {
-        const idx = updated.validators.findIndex((x) => x.name === v.name);
-        if (idx >= 0) updated.validators[idx] = v;
-        else updated.validators.push(v);
-      }
-      setResults(runResultFromValidators(updated.validators));
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
       setLastRun(new Date());
+      toast({
+        title: "Validator finished",
+        description: `Updated cache for ${data.name}.`,
+      });
     },
     onError: (err) => {
-      setJobBanner(null);
+      setJobPanel((prev) =>
+        prev
+          ? {
+              ...prev,
+              running: false,
+              status: "failed",
+              log: [
+                ...prev.log,
+                {
+                  t: Date.now(),
+                  level: "error",
+                  text: err instanceof Error ? err.message : "Unknown error",
+                },
+              ],
+            }
+          : prev,
+      );
+      scheduleHideJobPanel();
       toast({
         title: "Validator run failed",
         description: err instanceof Error ? err.message : "Unknown error",
@@ -869,7 +512,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const saveReportMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/validation/save-report", {});
-      return (await res.json()) as { ok: boolean; path: string; timestamp: string; summary: RunResult["summary"] };
+      return (await res.json()) as { ok: boolean; path: string; timestamp: string };
     },
     onSuccess: (data) => {
       toast({
@@ -903,7 +546,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
     onSuccess: () => {
       setClearCacheOpen(false);
-      setResults(null);
       setLastRun(null);
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
@@ -922,21 +564,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
   });
 
-  const filteredValidators = (() => {
-    if (!results) return [];
-    return results.validators.filter((v) => {
-      if (search && !v.name.toLowerCase().includes(search.toLowerCase()) && !v.description.toLowerCase().includes(search.toLowerCase())) {
-        return false;
-      }
-      if (severityFilter === "errors" && v.status !== "failed") return false;
-      if (severityFilter === "warnings" && v.status !== "warning") return false;
-      if (categoryFilter !== "all") {
-        if (v.category !== categoryFilter) return false;
-      }
-      return true;
-    });
-  })();
-
   const categories: { key: CategoryFilter; label: string }[] = [
     { key: "all", label: "All" },
     { key: "seo", label: "SEO" },
@@ -948,7 +575,43 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     { key: "performance", label: "Performance" },
   ];
 
+  const validatorNamesInCache = Array.from(
+    new Set(cacheIssues.map((i) => i.validator).filter(Boolean) as string[]),
+  ).sort();
+
+  const filteredIssues = cacheIssues.filter((issue) => {
+    if (severityFilter === "errors" && issue.severity !== "error") return false;
+    if (severityFilter === "warnings" && issue.severity !== "warning") return false;
+    if (categoryFilter !== "all" && issue.category !== categoryFilter) return false;
+    if (validatorFilter !== "all" && (issue.validator || "unknown") !== validatorFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const hay = [issue.message, issue.code, issue.url, issue.validator, issue.category]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const filteredSummary = {
+    errors: filteredIssues.filter((i) => i.severity === "error").length,
+    warnings: filteredIssues.filter((i) => i.severity === "warning").length,
+    urls: new Set(filteredIssues.map((i) => i.url).filter(Boolean)).size,
+  };
+
   const jobPending = startJobMutation.isPending || runSingleMutation.isPending || clearCacheMutation.isPending;
+  const displayedIssues = filteredIssues.slice(0, ISSUE_DISPLAY_CAP);
+
+  const rerunOptions = (() => {
+    const names = new Set<string>();
+    for (const v of availableValidators) {
+      if (v.name && v.name !== "lighthouse") names.add(v.name);
+    }
+    for (const n of validatorNamesInCache) names.add(n);
+    return Array.from(names).sort();
+  })();
 
   return (
     <div className="space-y-6">
@@ -956,16 +619,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
           <p className="text-foreground font-medium">How diagnostics work</p>
           <p>
-            Results live in <code className="text-xs">validation-cache.json</code> (shared with agents).
-            Heavy Refresh / Hard refresh work runs in a <strong className="text-foreground font-medium">background worker process</strong> so the rest of the app stays usable; progress still comes from the job poll.
-            <strong className="text-foreground font-medium"> Cached issues refresh when the job finishes</strong> (not live mid-run).
-            <strong className="text-foreground font-medium"> Refresh stale</strong> only recomputes URLs
-            whose <code className="text-xs">lastFullRunAt</code> is older than 24h.
-            <strong className="text-foreground font-medium"> Hard refresh</strong> recomputes everything in scope.
-            <strong className="text-foreground font-medium"> Delete cache</strong> wipes the stored issues so the next refresh rebuilds from scratch.
-            Single-validator runs merge by validator name and do not mark a URL fully fresh.
-            One background job runs at a time per site. Saving during a run marks entries dirty — re-run if you need those edits reflected.
-            Lighthouse/PageSpeed is not part of this dashboard — use external tools.
+            Global Health shows one shared issue store in{" "}
+            <code className="text-xs">validation-cache.json</code>. Filters narrow that store; there is no
+            separate run-results issue list. Refresh / Hard refresh / Re-run validator update the store via a{" "}
+            <strong className="text-foreground font-medium">background worker</strong>; the job panel shows
+            milestones (fixed height, scrolls). Cached issues refresh when the job finishes. Delete cache
+            wipes the store until the next refresh. One job runs at a time per site.
           </p>
           <button
             type="button"
@@ -987,13 +646,52 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </CardContent>
       </Card>
 
-      {jobBanner && (
+      {jobPanel && (
         <div
-          className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-foreground flex items-center gap-2"
+          className="rounded-lg border border-border overflow-hidden"
           data-testid="diagnostics-job-banner"
         >
-          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          {jobBanner}
+          <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground bg-muted/40 border-b border-border">
+            {jobPanel.running ? (
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+            ) : jobPanel.status === "failed" || jobPanel.status === "not_found" ? (
+              <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+            ) : (
+              <Check className="h-4 w-4 text-chart-2 shrink-0" />
+            )}
+            <span className="truncate">
+              {jobPanel.label ? `${jobPanel.label}: ` : "Job "}
+              {jobPanel.jobId}: {jobPanel.status}
+              {jobPanel.total > 0 ? ` (${jobPanel.processed}/${jobPanel.total})` : ""}
+            </span>
+          </div>
+          <div
+            ref={jobLogScrollRef}
+            className="bg-zinc-950 text-zinc-100 font-mono text-xs max-h-48 overflow-y-auto px-3 py-2 space-y-0.5"
+            data-testid="diagnostics-job-log"
+          >
+            {jobPanel.log.length === 0 ? (
+              <div className="text-zinc-500">Waiting for worker output…</div>
+            ) : (
+              jobPanel.log.map((line, i) => (
+                <div
+                  key={`${line.t}-${i}`}
+                  className={
+                    line.level === "error"
+                      ? "text-red-400"
+                      : line.level === "warn"
+                        ? "text-amber-300"
+                        : "text-zinc-200"
+                  }
+                >
+                  <span className="text-zinc-500 mr-2">
+                    {new Date(line.t).toLocaleTimeString()}
+                  </span>
+                  {line.text}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 
@@ -1012,55 +710,82 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           )}
         </div>
         {canMutateMetrics && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={rerunValidator || undefined} onValueChange={setRerunValidator}>
+              <SelectTrigger className="w-[180px]" data-testid="select-rerun-validator">
+                <SelectValue placeholder="Re-run validator…" />
+              </SelectTrigger>
+              <SelectContent>
+                {rerunOptions.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
-              disabled={jobPending || saveReportMutation.isPending}
-              data-testid="button-run-all"
+              variant="outline"
+              disabled={!rerunValidator || jobPending}
+              onClick={() => rerunValidator && runSingleMutation.mutate(rerunValidator)}
+              data-testid="button-rerun-validator"
             >
-              {jobPending || saveReportMutation.isPending ? (
+              {runSingleMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <RefreshCw className="h-4 w-4" />
+                <Play className="h-4 w-4" />
               )}
-              {jobPending ? "Running..." : saveReportMutation.isPending ? "Saving..." : "Refresh"}
-              <ChevronDown className="h-3 w-3 ml-1" />
+              Run
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => runAllMutation.mutate("max_age")}
-              data-testid="menu-item-refresh-stale"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh stale
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => runAllMutation.mutate("hard")}
-              data-testid="menu-item-hard-refresh"
-            >
-              <Play className="h-4 w-4" />
-              Hard refresh
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => saveReportMutation.mutate()}
-              data-testid="menu-item-save-report"
-            >
-              <Save className="h-4 w-4" />
-              Save JSON report
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => setClearCacheOpen(true)}
-              data-testid="menu-item-delete-cache"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete cache
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={jobPending || saveReportMutation.isPending}
+                  data-testid="button-run-all"
+                >
+                  {jobPending || saveReportMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {jobPending ? "Running..." : saveReportMutation.isPending ? "Saving..." : "Refresh"}
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => runAllMutation.mutate("max_age")}
+                  data-testid="menu-item-refresh-stale"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh stale
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => runAllMutation.mutate("hard")}
+                  data-testid="menu-item-hard-refresh"
+                >
+                  <Play className="h-4 w-4" />
+                  Hard refresh
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => saveReportMutation.mutate()}
+                  data-testid="menu-item-save-report"
+                >
+                  <Save className="h-4 w-4" />
+                  Save JSON report
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setClearCacheOpen(true)}
+                  data-testid="menu-item-delete-cache"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete cache
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         )}
       </div>
 
@@ -1101,104 +826,99 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       </Dialog>
 
       {cacheIssues.length > 0 && (
-        <Card style={{ borderRadius: "0.8rem" }} data-testid="cached-issues-panel">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Cached issues ({cacheIssues.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="max-h-64 overflow-auto space-y-2">
-            {cacheIssues.slice(0, 100).map((issue, idx) => (
-              <div key={`${issue.url}-${issue.code}-${idx}`} className="text-xs border-b border-border/60 pb-2">
-                <span className={issue.severity === "error" ? "text-destructive font-medium" : "text-chart-2 font-medium"}>
-                  {issue.severity}
-                </span>
-                {" · "}
-                <span className="text-muted-foreground">{issue.validator || "unknown"}</span>
-                {" · "}
-                <code>{issue.code}</code>
-                <div className="text-foreground mt-0.5">{issue.message}</div>
-                <div className="text-muted-foreground">{issue.url}</div>
-              </div>
-            ))}
-            {cacheIssues.length > 100 && (
-              <p className="text-xs text-muted-foreground">Showing first 100 of {cacheIssues.length}</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {results && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="summary-bar">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="cache-summary-bar">
           <Card style={{ borderRadius: "0.8rem" }}>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{results.summary.total}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
+              <p className="text-2xl font-bold text-destructive">{filteredSummary.errors}</p>
+              <p className="text-xs text-muted-foreground">Errors</p>
             </CardContent>
           </Card>
           <Card style={{ borderRadius: "0.8rem" }}>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-chart-3">{results.summary.passed}</p>
-              <p className="text-xs text-muted-foreground">Passed</p>
-            </CardContent>
-          </Card>
-          <Card style={{ borderRadius: "0.8rem" }}>
-            <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-chart-2">{results.summary.warnings}</p>
+              <p className="text-2xl font-bold text-chart-2">{filteredSummary.warnings}</p>
               <p className="text-xs text-muted-foreground">Warnings</p>
             </CardContent>
           </Card>
           <Card style={{ borderRadius: "0.8rem" }}>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-destructive">{results.summary.failed}</p>
-              <p className="text-xs text-muted-foreground">Failed</p>
+              <p className="text-2xl font-bold text-foreground">{filteredSummary.urls}</p>
+              <p className="text-xs text-muted-foreground">Unique URLs</p>
             </CardContent>
           </Card>
         </div>
       )}
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search validators..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-validators"
-            />
+      {cacheIssues.length > 0 && (
+        <div className="space-y-3" data-testid="cache-issue-filters">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search issues…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-issues"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(["all", "errors", "warnings"] as SeverityFilter[]).map((s) => (
+                <Button
+                  key={s}
+                  variant={severityFilter === s ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSeverityFilter(s)}
+                  className="toggle-elevate"
+                  data-testid={`button-severity-${s}`}
+                >
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </Button>
+              ))}
+            </div>
           </div>
           <div className="flex flex-wrap gap-1">
-            {(["all", "errors", "warnings"] as SeverityFilter[]).map((s) => (
+            {categories.map((c) => (
               <Button
-                key={s}
-                variant={severityFilter === s ? "default" : "outline"}
+                key={c.key}
+                variant={categoryFilter === c.key ? "default" : "outline"}
                 size="sm"
-                onClick={() => setSeverityFilter(s)}
+                onClick={() => setCategoryFilter(c.key)}
                 className="toggle-elevate"
-                data-testid={`button-severity-${s}`}
+                data-testid={`button-category-${c.key}`}
               >
-                {s.charAt(0).toUpperCase() + s.slice(1)}
+                {c.label}
               </Button>
             ))}
           </div>
+          {validatorNamesInCache.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              <Button
+                variant={validatorFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setValidatorFilter("all")}
+                className="toggle-elevate"
+                data-testid="button-validator-all"
+              >
+                All validators
+              </Button>
+              {validatorNamesInCache.map((name) => (
+                <Button
+                  key={name}
+                  variant={validatorFilter === name ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setValidatorFilter(name)}
+                  className="toggle-elevate"
+                  data-testid={`button-validator-${name}`}
+                >
+                  {name}
+                </Button>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex flex-wrap gap-1">
-          {categories.map((c) => (
-            <Button
-              key={c.key}
-              variant={categoryFilter === c.key ? "default" : "outline"}
-              size="sm"
-              onClick={() => setCategoryFilter(c.key)}
-              className="toggle-elevate"
-              data-testid={`button-category-${c.key}`}
-            >
-              {c.label}
-            </Button>
-          ))}
-        </div>
-      </div>
+      )}
 
-      {jobPending && !results && (
+      {jobPending && cacheIssues.length === 0 && (
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
@@ -1207,7 +927,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </div>
       )}
 
-      {!results && !jobPending && cacheIssues.length === 0 && (
+      {!jobPending && cacheIssues.length === 0 && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-8 text-center">
             <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -1217,46 +937,101 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 : "No cached diagnostics yet. Ask a Webmaster (or staff with edit access) to run a refresh."}
             </p>
             {canMutateMetrics && (
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button
-                onClick={() => runAllMutation.mutate("max_age")}
-                data-testid="button-run-all-empty"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Refresh stale
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => runAllMutation.mutate("hard")}
-                data-testid="button-hard-refresh-empty"
-              >
-                <Play className="h-4 w-4" />
-                Hard refresh
-              </Button>
-            </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  onClick={() => runAllMutation.mutate("max_age")}
+                  data-testid="button-run-all-empty"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh stale
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => runAllMutation.mutate("hard")}
+                  data-testid="button-hard-refresh-empty"
+                >
+                  <Play className="h-4 w-4" />
+                  Hard refresh
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
       )}
 
-      {results && (
-        <div className="grid grid-cols-1 gap-4">
-          {filteredValidators.map((v) => (
-            <ValidatorCard
-              key={v.name}
-              v={v}
-              runSingleMutation={runSingleMutation}
-              openResolver={openResolver}
-              onOpenLeads={onOpenLeads}
-            />
-          ))}
-        </div>
-      )}
-
-      {results && filteredValidators.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground" data-testid="text-no-validators">No validators match your filters</p>
-        </div>
+      {cacheIssues.length > 0 && (
+        <Card style={{ borderRadius: "0.8rem" }} data-testid="cached-issues-panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Cached issues ({filteredIssues.length}
+              {filteredIssues.length !== cacheIssues.length ? ` of ${cacheIssues.length}` : ""})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-[32rem] overflow-auto space-y-2">
+            {displayedIssues.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-issues-match">
+                No issues match your filters
+              </p>
+            ) : (
+              displayedIssues.map((issue, idx) => {
+                const asValidatorIssue = cacheRowToValidatorIssue(issue);
+                const conflict = parseRedirectConflict(asValidatorIssue);
+                return (
+                  <div
+                    key={`${issue.url}-${issue.code}-${issue.validator}-${idx}`}
+                    className="text-xs border-b border-border/60 pb-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={
+                          issue.severity === "error"
+                            ? "text-destructive font-medium"
+                            : "text-chart-2 font-medium"
+                        }
+                      >
+                        {issue.severity}
+                      </span>
+                      <span className="text-muted-foreground">{issue.validator || "unknown"}</span>
+                      {issue.category && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {issue.category}
+                        </Badge>
+                      )}
+                      <code>{issue.code}</code>
+                      {conflict && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 ml-auto"
+                          onClick={() => openResolver(asValidatorIssue)}
+                          data-testid={`button-resolve-cache-${issue.code}-${idx}`}
+                        >
+                          <Wrench className="h-3.5 w-3.5" />
+                          Resolve
+                        </Button>
+                      )}
+                    </div>
+                    <div className="text-foreground mt-0.5">{issue.message}</div>
+                    {issue.suggestion && (
+                      <div className="text-muted-foreground italic mt-0.5">{issue.suggestion}</div>
+                    )}
+                    {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
+                    {issue.file && (
+                      <div className="text-muted-foreground font-mono truncate" title={issue.file}>
+                        {formatSitePath(issue.file)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {filteredIssues.length > ISSUE_DISPLAY_CAP && (
+              <p className="text-xs text-muted-foreground">
+                Showing first {ISSUE_DISPLAY_CAP} of {filteredIssues.length}
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <RedirectConflictResolverModal

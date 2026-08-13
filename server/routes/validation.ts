@@ -13,6 +13,7 @@ import {
   listCacheIssues,
   listDiagnosticsJobs,
   startDiagnosticsJob,
+  type DiagnosticsJobRecord,
 } from "../services/diagnosticsJobService";
 import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
 import {
@@ -635,6 +636,9 @@ export function registerValidationRoutes(app: Express): void {
       validators: job.validatorResults,
       cache_updated: result.status === "completed",
       message: result.message,
+      log: Array.isArray((job as DiagnosticsJobRecord).log)
+        ? (job as DiagnosticsJobRecord).log
+        : [],
     });
   });
 

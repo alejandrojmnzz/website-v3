@@ -82,10 +82,16 @@ props:
   authors:
     type: array
     required: false
+    items:
+      type:
+        type: string
+        required: true
     description: >-
-      Author byline (hydrated objects or strings). Map explicitly as
-      authors: "{{ single.authors }}". First entry is primary.
+      Author byline (hydrated objects or strings). Map explicitly as authors: "{{ single.authors }}". First entry is
+      primary.
   section_id:
     type: string
     required: false
     description: Stable section id (also used as heading-id prefix on split pages)
+variants:
+  default: {}
