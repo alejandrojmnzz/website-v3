@@ -559,8 +559,18 @@ export function CreateContentModal({
 
   const sourceSlug = (() => {
     if (!duplicatingPage) return undefined;
-    const parts = duplicatingPage.loc.replace(/\/$/, "").split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? undefined;
+    if (duplicatingPage.sourceSlug) return duplicatingPage.sourceSlug;
+    try {
+      const pathname = new URL(duplicatingPage.loc, window.location.origin).pathname;
+      const previewMatch = pathname.match(/^\/private\/preview\/[^/]+\/([^/]+)\/?$/);
+      if (previewMatch) return previewMatch[1];
+      const parts = pathname.replace(/\/$/, "").split("/").filter(Boolean);
+      return parts[parts.length - 1] ?? undefined;
+    } catch {
+      const parts = duplicatingPage.loc.replace(/\/$/, "").split("/").filter(Boolean);
+      const last = parts[parts.length - 1] ?? undefined;
+      return last?.split("?")[0];
+    }
   })();
 
   const sourceLocale = (() => {

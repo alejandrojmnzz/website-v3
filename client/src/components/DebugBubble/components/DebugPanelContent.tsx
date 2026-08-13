@@ -24,6 +24,7 @@ import { DatabasesView } from "./DatabasesView";
 import { ContentTypesView } from "./ContentTypesView";
 import { SitemapView } from "./SitemapView";
 import type { RobotsSettingsResponse } from "@/components/settings/RobotsTab";
+import { apiFetch } from "@/lib/queryClient";
 import type {
   MenuView,
   ContentInfo,
@@ -309,7 +310,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
   const { data: errorLogData } = useQuery<{ totalErrors: number; totalWarnings: number }>({
     queryKey: ["/api/admin/error-log", "badge"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/error-log");
+      const res = await apiFetch("/api/admin/error-log");
       if (!res.ok) throw new Error("Failed to fetch error log");
       return res.json();
     },

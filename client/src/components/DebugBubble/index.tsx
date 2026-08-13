@@ -1709,7 +1709,16 @@ export function DebugBubble() {
     const path = new URL(url.loc).pathname;
     const info = detectContentInfo(path, contentTypesMap);
     if (info.type && info.slug) {
-      setDuplicatingPage({ loc: url.loc, label: url.label, contentType: info.type, locale: url.locale });
+      // Always pass sourceSlug so draft preview URLs (/private/preview/...) still
+      // duplicate folder YAML — sourceUrl alone only resolves live public patterns.
+      setDuplicatingPage({
+        loc: url.loc,
+        label: url.label,
+        contentType: info.type,
+        locale: url.locale,
+        sourceSlug: info.slug,
+        isDraft: !!url.isDraft,
+      });
       setCreateContentType(info.type);
       setCreateContentTitle("");
       setCreateContentSlugEn("");

@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { apiFetch } from "@/lib/queryClient";
 
 interface RuntimeIssueRow {
   fingerprint: string;
@@ -65,10 +66,10 @@ export default function RuntimeIssuesTab() {
   const [sortKey, setSortKey] = useState<SortKey>("count");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const { data, isLoading, refetch, isFetching } = useQuery<RuntimeIssuesResponse>({
+  const { data, isLoading, refetch, isFetching, isError, error } = useQuery<RuntimeIssuesResponse>({
     queryKey: ["/api/admin/runtime-issues", hideBots],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/runtime-issues?hideBots=${hideBots ? "1" : "0"}`);
+      const res = await apiFetch(`/api/admin/runtime-issues?hideBots=${hideBots ? "1" : "0"}`);
       if (!res.ok) throw new Error("Failed to fetch runtime issues");
       return res.json();
     },
@@ -169,7 +170,16 @@ export default function RuntimeIssuesTab() {
         </div>
       )}
 
-      {!isLoading && (!data || data.issues.length === 0) && (
+      {!isLoading && isError && (
+        <Card style={{ borderRadius: "0.8rem" }}>
+          <CardContent className="p-8 text-center text-destructive text-sm" data-testid="runtime-issues-error">
+            <IconAlertTriangle className="h-8 w-8 mx-auto mb-3 opacity-50" />
+            {error instanceof Error ? error.message : "Failed to load runtime issues"}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && !isError && (!data || data.issues.length === 0) && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-8 text-center text-muted-foreground text-sm">
             <IconAlertTriangle className="h-8 w-8 mx-auto mb-3 opacity-50" />
@@ -178,7 +188,7 @@ export default function RuntimeIssuesTab() {
         </Card>
       )}
 
-      {data && data.issues.length > 0 && (
+      {!isError && data && data.issues.length > 0 && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-0 overflow-x-auto">
             <Table>

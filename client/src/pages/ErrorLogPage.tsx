@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
+import { apiFetch } from "@/lib/queryClient";
 
 type LevelFilter = "all" | "error" | "warn";
 
@@ -77,11 +78,11 @@ export default function ErrorLogPage() {
 function ErrorLogPageInner() {
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
 
-  const { data, isLoading, refetch, isFetching } = useQuery<ErrorLogResponse>({
+  const { data, isLoading, refetch, isFetching, isError } = useQuery<ErrorLogResponse>({
     queryKey: ["/api/admin/error-log", levelFilter],
     queryFn: async () => {
       const params = levelFilter !== "all" ? `?level=${levelFilter}` : "";
-      const res = await fetch(`/api/admin/error-log${params}`);
+      const res = await apiFetch(`/api/admin/error-log${params}`);
       if (!res.ok) throw new Error("Failed to fetch error log");
       return res.json();
     },
@@ -238,6 +239,10 @@ function ErrorLogPageInner() {
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 text-center text-muted-foreground text-sm">Loading…</div>
+          ) : isError ? (
+            <div className="p-6 text-center text-destructive text-sm" data-testid="error-log-fetch-error">
+              Failed to load error log. Check that you are signed in.
+            </div>
           ) : !data?.recent || data.recent.length === 0 ? (
             <div className="p-6 text-center text-muted-foreground text-sm">
               No events in the last 48 hours.

@@ -2472,9 +2472,22 @@ export async function createContentEntry(
       } else if (sourceUrl) {
         const sourceUrlObj = new URL(sourceUrl);
         const sourcePath = sourceUrlObj.pathname;
-        resolved = contentIndex.resolveUrl(sourcePath);
-        foundSourceFolder = resolved ? path.join(process.cwd(), resolved.entry.directory) : "";
-        if (resolved) resolvedSourceType = resolved.contentType;
+        // Draft sitemap rows use /private/preview/:type/:slug — not a public URL pattern.
+        const previewMatch = sourcePath.match(/^\/private\/preview\/([^/]+)\/([^/]+)\/?$/);
+        if (previewMatch) {
+          const previewType = sourceType || previewMatch[1];
+          const previewSlug = previewMatch[2];
+          const srcFolder = getFolder(previewType);
+          const candidate = path.join(process.cwd(), rootName, srcFolder, previewSlug);
+          if (fs.existsSync(candidate)) {
+            foundSourceFolder = candidate;
+            resolvedSourceType = previewType;
+          }
+        } else {
+          resolved = contentIndex.resolveUrl(sourcePath);
+          foundSourceFolder = resolved ? path.join(process.cwd(), resolved.entry.directory) : "";
+          if (resolved) resolvedSourceType = resolved.contentType;
+        }
       }
 
       if (foundSourceFolder) {
