@@ -1,32 +1,167 @@
 ---
-description: site_* content edits must be committed to the content GitHub repo (not app git), with conflict resolve.
+description: site_* edits MUST be pushed to content GitHub before task end; includes exact commit playbook.
 alwaysApply: true
 ---
 
 # Site content → content GitHub
 
-## Why
+## Standing authorization (do not skip)
 
-Folders like `site_4geeks-com/`, `site_*/` are **gitignored** in the app repo. Local YAML/registry edits are wiped by content sync pull unless they exist on the **site content GitHub** repo (see `github_repo_url` / `contentFolder` in [`sites.yml`](sites.yml)).
+Edits under `site_*/` / `site_<name>/` **must** be committed to the **content** GitHub repo as part of the same task.
 
-App-repo `git commit` / `git push` does **not** persist `site_*` changes.
+This is **not** covered by “only commit when the user asks” (that rule is for the **app** git repo only). Touching `site_*` **is** the ask to push content. Do **not** end the turn with “sync was disabled / I’ll leave it local / please commit from Cloud Sync” unless every path below failed — and then report it as a **failure**, not as done.
 
-## Required finish step
+Folders like `site_4geeks-com/` are **gitignored** in the app repo. Local-only YAML/registry edits are wiped by content sync pull. App `git commit` / `git push` does **not** persist them.
 
-Before ending any task that modified files under `site_*` / `site_<name>/`:
+## Resolve target (always)
 
-1. Identify `contentRoot` (e.g. `site_4geeks-com`).
-2. `markFileAsModified` for each changed path ([`server/sync-state.ts`](server/sync-state.ts)).
-3. Check conflicts for that site (`getConflictInfo` / pull-conflict helpers in [`server/github.ts`](server/github.ts)).
-4. If remote advanced on overlapping files: pull those paths, re-apply the intended local edits, then commit.
-5. Commit/push via `commitSingleFile` or `commitAndPush` with the correct `contentRoot` (and site `repoUrl` when multi-site).
-6. Confirm success (`commitSha` / `commitHash`). Leaving only-local `site_*` diffs is a bug.
+From [`sites.yml`](sites.yml):
 
-Use force commit only after an intentional conflict resolve when the sync API requires it.
+- `contentRoot` = that site’s `content_folder` (e.g. `site_4geeks-com`)
+- Content GitHub = `github_repo_url` (may redirect; today often `breatheco-de/website-content-folders`)
+- Remote paths **keep** the `site_<name>/` prefix (e.g. `site_4geeks-com/component-registry/.../schema.yml`)
+
+## Definition of done (hard gate)
+
+Before any final response on a task that modified `site_*`:
+
+1. List every changed path under `contentRoot`.
+2. Push those paths to the content repo (Path A or B below).
+3. Hold a real **`commitSha`** and verify the file(s) on remote.
+4. Update local sync state so those paths are no longer pending.
+
+**No SHA → task incomplete.** Do not claim the content fix is shipped.
+
+---
+
+## Path A — app sync helpers (preferred)
+
+Run from the **app repo root**. Always load dotenv so `GITHUB_TOKEN` / `GITHUB_SYNC_ENABLED` match `npm run dev` (bare `tsx` without dotenv often false-negatives “sync disabled”).
+
+```ts
+// npx tsx <<'TS'  (from website-v3 root)
+import { config as loadDotenv } from "dotenv";
+loadDotenv({ quiet: true });
+
+import { markFileAsModified, detectPendingChanges, updateFileAfterCommit } from "./server/sync-state.ts";
+import { getConflictInfo, commitAndPush, commitSingleFile } from "./server/github.ts";
+
+const contentRoot = "site_4geeks-com"; // from sites.yml
+const files = [
+  // absolute-from-root paths that you changed, e.g.:
+  "site_4geeks-com/component-registry/list_press_mentions/v1.0/schema.yml",
+];
+
+for (const f of files) markFileAsModified(f, "agent", undefined, contentRoot);
+
+const conflicts = await getConflictInfo({ contentRoot });
+const remoteTouched: string[] = (conflicts as any)?.changedFiles ?? [];
+const overlap = files.filter((f) => remoteTouched.includes(f));
+if (overlap.length) {
+  // pull ONLY overlapping paths (pullSingleFile / sync helpers), re-apply local edits, then continue
+  throw new Error(`Resolve overlap before push: ${overlap.join(", ")}`);
+}
+// Behind on unrelated files is OK — do not abort.
+
+// One file:
+const one = await commitSingleFile({
+  filePath: files[0],
+  message: "Describe why (content-facing)",
+  author: "agent",
+  contentRoot,
+});
+// Many files:
+const many = await commitAndPush("Describe why (content-facing)", {
+  files,
+  contentRoot,
+  // force: true  // only after intentional conflict resolve
+});
+
+const sha = one.commitSha ?? many.commitHash;
+if (!sha) throw new Error(`Content push failed: ${one.error ?? many.error}`);
+console.log("commitSha", sha);
+
+// If commitAndPush already updated state, skip; after gh/external push use:
+// for (const f of files) updateFileAfterCommit(f, sha, contentRoot);
+
+const still = detectPendingChanges(contentRoot).filter((c) => files.includes(c.file));
+if (still.length) console.warn("still pending", still);
+```
+
+Confirm: `success` / non-empty `commitSha`|`commitHash`. Print the SHA in the final user message.
+
+---
+
+## Path B — `gh` HTTPS fallback (when Path A fails)
+
+Use when Path A returns “sync disabled”, missing token in the agent shell, or `/api/github/commit` is 403 without staff session. Do **not** stop at Path A failure.
+
+```bash
+# From anywhere; requires `gh` auth with write access to the content repo
+set -e
+CONTENT_REPO="breatheco-de/website-content-folders"   # resolve via sites.yml / gh repo view
+CONTENT_ROOT="site_4geeks-com"
+APP_ROOT="/Users/…/website-v3"                        # this app checkout
+REPO_DIR="/tmp/content-push-$$"
+
+# HTTPS clone (SSH often fails in agent environments)
+gh repo clone "https://github.com/${CONTENT_REPO}.git" "$REPO_DIR" -- --depth 20 --branch main
+# If clone still tries SSH, set insteadOf or use the https URL explicitly as above.
+
+# Copy ONLY the files you changed (keep site_ prefix)
+# Example: one schema
+mkdir -p "$REPO_DIR/${CONTENT_ROOT}/component-registry/list_press_mentions/v1.0"
+cp "$APP_ROOT/${CONTENT_ROOT}/component-registry/list_press_mentions/v1.0/schema.yml" \
+   "$REPO_DIR/${CONTENT_ROOT}/component-registry/list_press_mentions/v1.0/schema.yml"
+
+cd "$REPO_DIR"
+git add ${CONTENT_ROOT}/…
+git -c user.email="agent@4geeks.com" -c user.name="Cursor Agent" commit -m "$(cat <<'EOF'
+Describe why (content-facing)
+
+EOF
+)"
+git push origin HEAD
+SHA=$(git rev-parse HEAD)
+echo "commitSha $SHA"
+```
+
+Then from the **app** root, mark sync state clean:
+
+```ts
+import { updateFileAfterCommit } from "./server/sync-state.ts";
+const sha = "…paste SHA…";
+const contentRoot = "site_4geeks-com";
+for (const f of files) updateFileAfterCommit(f, sha, contentRoot);
+```
+
+Verify remote, e.g.:
+
+```bash
+gh api "repos/${CONTENT_REPO}/commits/${SHA}" --jq '{sha:.sha[0:7], message:.commit.message, files:(.files|length)}'
+```
+
+---
+
+## Conflicts
+
+- **Overlap** (remote changed the same path you changed): pull that path, re-apply your edit, then Path A/B again. Use `force` on sync commit **only** after that intentional resolve.
+- **Behind on other paths** (blog/landings/etc.): ignore for your push; Path B on top of latest `main` is fine if your files do not overlap.
+
+## Recurring agent mistakes (avoid)
+
+| Mistake | Correct behavior |
+|---|---|
+| Finish after editing `site_*` only locally | Path A or B → report SHA |
+| Treat “ask before commit” as blocking content push | App git = ask; `site_*` = always push |
+| Bare `tsx` → “sync disabled” → stop | `loadDotenv()` then retry, or Path B |
+| Abort because site is “behind” on unrelated files | Push non-overlapping paths |
+| App-repo commit of `site_*` | Useless — gitignored |
+| Vague “please commit in Cloud Sync” as success | Failure unless user must unblock auth |
 
 ## Redirect tip (blog)
 
-Prefer exact `meta.redirects` entries for legacy `/us/...` and wrong-category paths so they 301 **once** to the canonical URL. Relying only on the global `/us/` regex plus canonical category fix causes a double redirect.
+Prefer exact `meta.redirects` for legacy `/us/...` and wrong-category paths so they 301 **once**. Relying only on the global `/us/` regex plus canonical category fix causes a double redirect.
 
 ## Related
 

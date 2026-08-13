@@ -13,9 +13,9 @@ Optional FAQ freshness check via [scripts/pre-commit-faq-check.sh](scripts/pre-c
 
 GitHub sync uses `[Author: X] Message`; consider similar clarity for human-authored commits (e.g. conventional commits or brief scope + summary).
 
-## Site content (`site_*`)
+## Site content (`site_*`) — exception to “ask before commit”
 
-Edits under `site_*/` must be committed to the **content** GitHub repo via sync APIs — not only the app git repo. See [`site-content-github.mdc`](site-content-github.mdc).
+Edits under `site_*/` must be pushed to the **content** GitHub repo in the **same task** (SHA required). That is a standing authorization; do **not** wait for the user to ask, and do **not** confuse this with app-repo commits. See [`site-content-github.mdc`](site-content-github.mdc).
 
 ## Validation
 
