@@ -21,7 +21,7 @@
 //
 // Dev-console deprecation warnings observed during audit: NONE from Vite.
 // (PostCSS "from" warning originates from a PostCSS plugin, not Vite.)
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import fs from "fs";
 import path from "path";
 import { createServer as createViteServer, createLogger, type ViteDevServer } from "vite";
@@ -38,6 +38,26 @@ import {
 } from "./html-page-cache";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
 import { child as loggerChild } from "./logger";
+import { recordPublicNotFound } from "./runtime-issues-store";
+
+function maybeRecordPublicNotFound(req: Request, res: Response, status: number): void {
+  if (status !== 404) return;
+  const pathOnly = (req.originalUrl || req.url || "/").split("?")[0].split("#")[0];
+  if (pathOnly.startsWith("/api/") || pathOnly.startsWith("/private/")) return;
+  const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string; config?: { domain?: string } } }).site;
+  try {
+    recordPublicNotFound({
+      site: site?.contentRootName || "default",
+      contentRoot: site?.contentRoot,
+      path: pathOnly,
+      hostname: req.hostname || site?.config?.domain,
+      referrer: typeof req.get === "function" ? req.get("referer") : undefined,
+      userAgent: typeof req.get === "function" ? req.get("user-agent") : undefined,
+    });
+  } catch {
+    // never break HTML responses
+  }
+}
 
 const ssrLogger = loggerChild({ module: "ssr" });
 
@@ -253,6 +273,7 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
           ? (initialDataPayload as { httpStatus: number }).httpStatus
           : undefined;
       const status = payloadStatus ?? (isKnownRoute(url) ? 200 : 404);
+      maybeRecordPublicNotFound(req, res, status);
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -396,6 +417,7 @@ export function serveStatic(app: Express) {
           res.setHeader("X-HTML-Cache", "MISS");
         }
 
+        maybeRecordPublicNotFound(_req, res, status);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
       }
@@ -412,6 +434,7 @@ export function serveStatic(app: Express) {
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
         html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+        maybeRecordPublicNotFound(_req, res, status);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
       } catch {
@@ -424,8 +447,10 @@ export function serveStatic(app: Express) {
       html = applyEntryModulePreload(html);
       html = applyEntryPreloads(html, res);
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+      maybeRecordPublicNotFound(_req, res, status);
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
     } catch {
+      maybeRecordPublicNotFound(_req, res, status);
       res.status(status).sendFile(indexHtmlPath);
     }
   });

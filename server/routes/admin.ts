@@ -2906,6 +2906,28 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.get("/api/admin/runtime-issues", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    try {
+      const { listRuntimeIssues } = await import("../runtime-issues-store");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const hideBotsParam = req.query.hideBots;
+      const hideBots =
+        hideBotsParam === undefined || hideBotsParam === "1" || hideBotsParam === "true";
+      const data = listRuntimeIssues(siteName, {
+        hideBots,
+        contentRoot: site?.contentRoot,
+      });
+      res.json(data);
+    } catch (err) {
+      log.error({ err }, "Failed to list runtime issues:");
+      res.status(500).json({ error: "Failed to list runtime issues" });
+    }
+  });
+
   // ============================================================
   // Site Manager — create new site scaffold
   // ============================================================

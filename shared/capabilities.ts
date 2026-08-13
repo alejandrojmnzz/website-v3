@@ -124,7 +124,7 @@ const REGISTRY = [
     label: "View metrics & performance",
     scoped: false,
     description:
-      "Read diagnostics, component insights, error log, conversions, and tracking. Does not allow running jobs or changing settings.",
+      "Read diagnostics, runtime issues, component insights, error log, conversions, and tracking. Does not allow running jobs or changing settings.",
   },
 ] as const;
 

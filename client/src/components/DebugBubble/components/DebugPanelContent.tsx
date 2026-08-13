@@ -894,6 +894,14 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               />
               <MenuItem
                 icon={IconAlertTriangle}
+                label="Runtime Issues"
+                href="/private/diagnostics/runtime-issues"
+                indicator="arrow"
+                testId="link-runtime-issues"
+                infoTooltip="Visitor-facing signals for the active site (public 404s). Durable via GCS. Separate from the process Error Log."
+              />
+              <MenuItem
+                icon={IconAlertTriangle}
                 label="Server Error Log"
                 href="/private/error-log"
                 indicator="arrow"
@@ -912,6 +920,13 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     </span>
                   ) : undefined
                 }
+              />
+              <MenuItem
+                icon={Search}
+                label="SEO overview"
+                href="/private/diagnostics/seo"
+                indicator="arrow"
+                testId="link-diagnostics-seo"
               />
             </ExpandableMenuItem>
             )}

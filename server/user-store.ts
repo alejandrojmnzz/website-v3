@@ -118,7 +118,7 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
 const BUILT_IN_METRICS_VIEWER_ROLE: RoleDefinition = {
   label: "Metrics Viewer",
   description:
-    "Read-only access to diagnostics, component insights, error log, conversions, and tracking. Cannot start jobs, apply fixers, or change settings.",
+    "Read-only access to diagnostics, runtime issues, component insights, error log, conversions, and tracking. Cannot start jobs, apply fixers, or change settings.",
   capabilities: [{ name: "metrics_view" }],
 };
 

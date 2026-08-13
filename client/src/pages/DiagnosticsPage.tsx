@@ -1,14 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Crosshair, FileText, Globe, Image, Info, LayoutGrid, Link as LinkIcon, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Wrench, X} from "lucide-react";
-import { IconChartBar } from "@tabler/icons-react";
+import {AlertTriangle, ArrowLeft, Check, ChevronDown, Info, Loader2, Play, RefreshCw, Search, Stethoscope, Trash2, Wrench, X} from "lucide-react";
 import { useState, useRef, useEffect } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -36,8 +34,12 @@ import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 import LeadsTab from "@/components/diagnostics/LeadsTab";
+import RuntimeIssuesTab from "@/components/diagnostics/RuntimeIssuesTab";
+import { DiagnosticsSeoPanel, DiagnosticsGeoPanel } from "@/components/diagnostics/DiagnosticsSeoGeoPanels";
+import { SitemapSearch } from "@/components/menus/SitemapSearch";
 import {
   RedirectConflictResolverModal,
   parseRedirectConflict,
@@ -132,7 +134,19 @@ interface PageDiagnostics {
   education?: { summary: string };
 }
 
-type SeverityFilter = "all" | "errors" | "warnings";
+type SeverityFilter = "error" | "warning";
+
+function normalizeIssuePath(urlOrPath: string): string {
+  let raw = (urlOrPath || "").split("#")[0].split("?")[0].trim();
+  if (!raw) return "";
+  try {
+    if (/^https?:\/\//i.test(raw)) raw = new URL(raw).pathname || "";
+  } catch {
+    /* keep */
+  }
+  if (raw.length > 1 && raw.endsWith("/")) raw = raw.slice(0, -1);
+  return raw;
+}
 type CategoryFilter = "all" | "seo" | "integrity" | "content" | "components" | "forms" | "performance" | "bindings";
 
 function InfoPopover({ children, testId }: { children: React.ReactNode; testId?: string }) {
@@ -263,9 +277,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const { canMutateMetrics } = useDebugAuth();
   const formatSitePath = useFormatSitePath();
   const [search, setSearch] = useState("");
-  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [validatorFilter, setValidatorFilter] = useState<string>("all");
+  const [pagePathFilter, setPagePathFilter] = useState("");
+  const [severityFilters, setSeverityFilters] = useState<SeverityFilter[]>([]);
+  const [categoryFilters, setCategoryFilters] = useState<Exclude<CategoryFilter, "all">[]>([]);
+  const [validatorFilters, setValidatorFilters] = useState<string[]>([]);
   const [rerunValidator, setRerunValidator] = useState<string>("");
   const [lastRun, setLastRun] = useState<Date | null>(null);
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
@@ -564,8 +579,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
   });
 
-  const categories: { key: CategoryFilter; label: string }[] = [
-    { key: "all", label: "All" },
+  const severityOptions: { key: SeverityFilter; label: string }[] = [
+    { key: "error", label: "Errors" },
+    { key: "warning", label: "Warnings" },
+  ];
+
+  const scopeCategories: { key: Exclude<CategoryFilter, "all">; label: string }[] = [
     { key: "seo", label: "SEO" },
     { key: "integrity", label: "Integrity" },
     { key: "content", label: "Content" },
@@ -579,11 +598,40 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     new Set(cacheIssues.map((i) => i.validator).filter(Boolean) as string[]),
   ).sort();
 
+  const issueUrlOptions = Array.from(
+    new Set(
+      cacheIssues
+        .map((i) => normalizeIssuePath(i.url || ""))
+        .filter(Boolean),
+    ),
+  ).sort();
+
   const filteredIssues = cacheIssues.filter((issue) => {
-    if (severityFilter === "errors" && issue.severity !== "error") return false;
-    if (severityFilter === "warnings" && issue.severity !== "warning") return false;
-    if (categoryFilter !== "all" && issue.category !== categoryFilter) return false;
-    if (validatorFilter !== "all" && (issue.validator || "unknown") !== validatorFilter) return false;
+    if (
+      severityFilters.length > 0 &&
+      !severityFilters.includes(issue.severity as SeverityFilter)
+    ) {
+      return false;
+    }
+    if (
+      categoryFilters.length > 0 &&
+      !categoryFilters.includes((issue.category || "unknown") as Exclude<CategoryFilter, "all">)
+    ) {
+      return false;
+    }
+    if (
+      validatorFilters.length > 0 &&
+      !validatorFilters.includes(issue.validator || "unknown")
+    ) {
+      return false;
+    }
+    if (pagePathFilter) {
+      const want = normalizeIssuePath(pagePathFilter);
+      const got = normalizeIssuePath(issue.url || "");
+      if (want && got !== want && !got.endsWith(want) && !want.endsWith(got)) {
+        return false;
+      }
+    }
     if (search) {
       const q = search.toLowerCase();
       const hay = [issue.message, issue.code, issue.url, issue.validator, issue.category]
@@ -620,8 +668,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <p className="text-foreground font-medium">How diagnostics work</p>
           <p>
             Global Health shows one shared issue store in{" "}
-            <code className="text-xs">validation-cache.json</code>. Filters narrow that store; there is no
-            separate run-results issue list. Refresh / Hard refresh / Re-run validator update the store via a{" "}
+            <code className="text-xs">validation-cache.json</code>. Filter by page (sitemap or an issue URL)
+            below; open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
+            Refresh / Hard refresh / Re-run validator update the store via a{" "}
             <strong className="text-foreground font-medium">background worker</strong>; the job panel shows
             milestones (fixed height, scrolls). Cached issues refresh when the job finishes. Delete cache
             wipes the store until the next refresh. One job runs at a time per site.
@@ -861,60 +910,236 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 data-testid="input-search-issues"
               />
             </div>
-            <div className="flex flex-wrap gap-1">
-              {(["all", "errors", "warnings"] as SeverityFilter[]).map((s) => (
-                <Button
-                  key={s}
-                  variant={severityFilter === s ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSeverityFilter(s)}
-                  className="toggle-elevate"
-                  data-testid={`button-severity-${s}`}
+            <div className="flex flex-wrap items-center gap-2 min-w-[220px]" data-testid="page-path-filter">
+              <div className="w-[220px]">
+                <SitemapSearch
+                  value={pagePathFilter}
+                  onChange={(value) => setPagePathFilter(normalizeIssuePath(value))}
+                  placeholder="Filter by page…"
+                  testId="sitemap-page-filter"
+                />
+              </div>
+              {issueUrlOptions.length > 0 && (
+                <Select
+                  value={pagePathFilter || "__all__"}
+                  onValueChange={(v) => setPagePathFilter(v === "__all__" ? "" : v)}
                 >
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                  <SelectTrigger className="w-[200px]" data-testid="select-issue-url-filter">
+                    <SelectValue placeholder="Issue URLs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All issue URLs</SelectItem>
+                    {issueUrlOptions.map((u) => (
+                      <SelectItem key={u} value={u}>
+                        {u}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {pagePathFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() => setPagePathFilter("")}
+                  data-testid="button-clear-page-filter"
+                >
+                  Clear page
                 </Button>
-              ))}
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={severityFilters.length > 0 ? "default" : "outline"}
+                    size="sm"
+                    className="toggle-elevate"
+                    data-testid="button-severity-filter"
+                  >
+                    Severity
+                    {severityFilters.length > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="ml-1.5 h-5 min-w-5 justify-center px-1.5 py-0 text-xs bg-primary-foreground text-primary"
+                      >
+                        {severityFilters.length}
+                      </Badge>
+                    )}
+                    <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Toggle severity to filter issues
+                    </p>
+                    {severityFilters.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setSeverityFilters([])}
+                        data-testid="button-severity-clear"
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5" data-testid="severity-tag-cloud">
+                    {severityOptions.map((s) => {
+                      const active = severityFilters.includes(s.key);
+                      return (
+                        <Button
+                          key={s.key}
+                          variant={active ? "default" : "outline"}
+                          size="sm"
+                          className="h-7 toggle-elevate"
+                          onClick={() => {
+                            setSeverityFilters((prev) =>
+                              prev.includes(s.key)
+                                ? prev.filter((v) => v !== s.key)
+                                : [...prev, s.key],
+                            );
+                          }}
+                          data-testid={`button-severity-${s.key}`}
+                        >
+                          {s.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={categoryFilters.length > 0 ? "default" : "outline"}
+                    size="sm"
+                    className="toggle-elevate"
+                    data-testid="button-scope-filter"
+                  >
+                    Error scope
+                    {categoryFilters.length > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="ml-1.5 h-5 min-w-5 justify-center px-1.5 py-0 text-xs bg-primary-foreground text-primary"
+                      >
+                        {categoryFilters.length}
+                      </Badge>
+                    )}
+                    <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-80 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Toggle scopes to filter issues
+                    </p>
+                    {categoryFilters.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setCategoryFilters([])}
+                        data-testid="button-scope-clear"
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5" data-testid="scope-tag-cloud">
+                    {scopeCategories.map((c) => {
+                      const active = categoryFilters.includes(c.key);
+                      return (
+                        <Button
+                          key={c.key}
+                          variant={active ? "default" : "outline"}
+                          size="sm"
+                          className="h-7 toggle-elevate"
+                          onClick={() => {
+                            setCategoryFilters((prev) =>
+                              prev.includes(c.key)
+                                ? prev.filter((v) => v !== c.key)
+                                : [...prev, c.key],
+                            );
+                          }}
+                          data-testid={`button-category-${c.key}`}
+                        >
+                          {c.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {validatorNamesInCache.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={validatorFilters.length > 0 ? "default" : "outline"}
+                      size="sm"
+                      className="toggle-elevate"
+                      data-testid="button-validator-filter"
+                    >
+                      Validators
+                      {validatorFilters.length > 0 && (
+                        <Badge
+                          variant="secondary"
+                          className="ml-1.5 h-5 min-w-5 justify-center px-1.5 py-0 text-xs bg-primary-foreground text-primary"
+                        >
+                          {validatorFilters.length}
+                        </Badge>
+                      )}
+                      <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-80 p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Toggle validators to filter issues
+                      </p>
+                      {validatorFilters.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setValidatorFilters([])}
+                          data-testid="button-validator-clear"
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5" data-testid="validator-tag-cloud">
+                      {validatorNamesInCache.map((name) => {
+                        const active = validatorFilters.includes(name);
+                        return (
+                          <Button
+                            key={name}
+                            variant={active ? "default" : "outline"}
+                            size="sm"
+                            className="h-7 toggle-elevate"
+                            onClick={() => {
+                              setValidatorFilters((prev) =>
+                                prev.includes(name)
+                                  ? prev.filter((v) => v !== name)
+                                  : [...prev, name],
+                              );
+                            }}
+                            data-testid={`button-validator-${name}`}
+                          >
+                            {name}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           </div>
-          <div className="flex flex-wrap gap-1">
-            {categories.map((c) => (
-              <Button
-                key={c.key}
-                variant={categoryFilter === c.key ? "default" : "outline"}
-                size="sm"
-                onClick={() => setCategoryFilter(c.key)}
-                className="toggle-elevate"
-                data-testid={`button-category-${c.key}`}
-              >
-                {c.label}
-              </Button>
-            ))}
-          </div>
-          {validatorNamesInCache.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              <Button
-                variant={validatorFilter === "all" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setValidatorFilter("all")}
-                className="toggle-elevate"
-                data-testid="button-validator-all"
-              >
-                All validators
-              </Button>
-              {validatorNamesInCache.map((name) => (
-                <Button
-                  key={name}
-                  variant={validatorFilter === name ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setValidatorFilter(name)}
-                  className="toggle-elevate"
-                  data-testid={`button-validator-${name}`}
-                >
-                  {name}
-                </Button>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -1046,556 +1271,102 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   );
 }
 
-function PageAnalysisTab() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+const DIAGNOSTICS_TABS = [
+  { id: "global-health", label: "Global Health", href: "/private/diagnostics" },
+  { id: "leads", label: "Leads", href: "/private/diagnostics/leads" },
+  { id: "runtime-issues", label: "Runtime", href: "/private/diagnostics/runtime-issues" },
+  { id: "seo", label: "SEO", href: "/private/diagnostics/seo" },
+  { id: "geo", label: "GEO", href: "/private/diagnostics/geo" },
+] as const;
 
-  const { data: pagesData, isLoading: pagesLoading } = useQuery<{ pages: PageSummary[]; total: number }>({
-    queryKey: ["/api/diagnostics/pages"],
-  });
+type DiagnosticsTabId = (typeof DIAGNOSTICS_TABS)[number]["id"];
 
-  const { data: pageDiag, isLoading: diagLoading } = useQuery<PageDiagnostics>({
-    queryKey: [`/api/diagnostics/page?url=${encodeURIComponent(selectedUrl || "")}`],
-    enabled: !!selectedUrl,
-  });
+function resolveDiagnosticsTab(pathname: string): DiagnosticsTabId {
+  if (pathname.endsWith("/leads")) return "leads";
+  if (pathname.endsWith("/runtime-issues")) return "runtime-issues";
+  if (pathname.endsWith("/seo")) return "seo";
+  if (pathname.endsWith("/geo")) return "geo";
+  if (pathname.endsWith("/global-health")) return "global-health";
+  return "global-health";
+}
 
-  const groupedPages = (() => {
-    if (!pagesData?.pages) return {};
-    const filtered = pagesData.pages.filter(
-      (p) =>
-        p.url.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    const groups: Record<string, PageSummary[]> = {};
-    for (const p of filtered) {
-      const key = p.contentType || "other";
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(p);
-    }
-    return groups;
-  })();
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">Select a page to analyze</label>
-        <div className="relative max-w-lg" ref={dropdownRef}>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search pages..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setDropdownOpen(true);
-              }}
-              onFocus={() => setDropdownOpen(true)}
-              className="pl-10"
-              data-testid="input-search-pages"
-            />
-          </div>
-          {dropdownOpen && pagesData && (
-            <Card
-              className="absolute z-50 top-full mt-1 w-full shadow-lg"
-              style={{ borderRadius: "0.8rem" }}
-            >
-              <ScrollArea className="max-h-72">
-                <div className="p-2">
-                  {Object.entries(groupedPages).map(([type, pages]) => (
-                    <div key={type}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase px-2 py-1.5">{type}</p>
-                      {pages.map((page) => (
-                        <button
-                          key={page.url}
-                          className="w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-center justify-between gap-2"
-                          onClick={() => {
-                            setSelectedUrl(page.url);
-                            setSearchTerm(page.title || page.url);
-                            setDropdownOpen(false);
-                          }}
-                          data-testid={`option-page-${page.url}`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="truncate text-foreground">{page.title || page.url}</p>
-                            <p className="text-xs text-muted-foreground truncate">{page.url}</p>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {page.hasMeta && <Badge variant="secondary" className="text-xs">Meta</Badge>}
-                            {page.hasSchema && <Badge variant="secondary" className="text-xs">Schema</Badge>}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                  {Object.keys(groupedPages).length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">No pages found</p>
-                  )}
-                </div>
-              </ScrollArea>
-            </Card>
-          )}
-        </div>
-      </div>
-
-      {pagesLoading && (
-        <div className="flex items-center justify-center py-16">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
-        </div>
-      )}
-
-      {diagLoading && selectedUrl && (
-        <div className="flex items-center justify-center py-16">
-          <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
-            <p className="mt-4 text-muted-foreground">Loading page diagnostics...</p>
-          </div>
-        </div>
-      )}
-
-      {pageDiag && !diagLoading && (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-lg font-semibold text-foreground" data-testid="text-page-title">{pageDiag.title}</h3>
-            <a
-              href={pageDiag.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground font-mono hover:text-primary transition-colors"
-              data-testid="link-page-url"
-            >{pageDiag.url}</a>
-          </div>
-
-          <p className="text-sm text-muted-foreground max-w-2xl">
-            One shared validation store. Global Health lists every cached issue; the page DebugBubble
-            shows issues targeting that entry (including redirects/media). Saving re-checks local rules;
-            redirect conflicts refresh when redirect config changes or you run Redirects here. Results
-            persist until that area is re-validated — there is no health score %.
-          </p>
-
-          <div className="flex flex-wrap items-center gap-4" data-testid="issue-count-dashboard">
-            <div className="rounded-lg border border-border px-4 py-3">
-              <p className="text-2xl font-bold text-destructive" data-testid="text-page-error-count">
-                {pageDiag.issues?.filter((i) => i.type === "error").length ?? 0}
-              </p>
-              <p className="text-xs text-muted-foreground">Errors</p>
-            </div>
-            <div className="rounded-lg border border-border px-4 py-3">
-              <p className="text-2xl font-bold text-chart-2" data-testid="text-page-warning-count">
-                {pageDiag.issues?.filter((i) => i.type === "warning").length ?? 0}
-              </p>
-              <p className="text-xs text-muted-foreground">Warnings</p>
-            </div>
-            {pageDiag.dirty && (
-              <Badge variant="secondary" data-testid="badge-page-dirty">May be outdated</Badge>
-            )}
-          </div>
-
-          {pageDiag.issues && pageDiag.issues.length > 0 && (
-            <Card style={{ borderRadius: "0.8rem" }} data-testid="card-page-store-issues">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Store issues for this entry</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 max-h-64 overflow-auto">
-                {pageDiag.issues.map((issue, i) => (
-                  <div key={`${issue.code}-${i}`} className="text-xs border-b border-border/60 pb-2">
-                    <span className={issue.type === "error" ? "text-destructive font-medium" : "text-chart-2 font-medium"}>
-                      {issue.type}
-                    </span>
-                    {" · "}
-                    <span className="text-muted-foreground">{issue.validator || "unknown"}</span>
-                    {" · "}
-                    <code>{issue.code}</code>
-                    <div className="text-foreground mt-0.5">{issue.message}</div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-
-          {pageDiag.schemaValidation && !pageDiag.schemaValidation.valid && (
-            <Card style={{ borderRadius: "0.8rem" }} data-testid="card-schema-validation">
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <AlertTriangle className="h-4 w-4 text-destructive" />
-                <CardTitle className="text-sm text-destructive">Schema Validation Errors</CardTitle>
-                <Badge variant="destructive" className="ml-auto text-xs">
-                  {pageDiag.schemaValidation.errors.length} {pageDiag.schemaValidation.errors.length === 1 ? "error" : "errors"}
-                </Badge>
-                <InfoPopover testId="info-schema-validation">
-                  <p>The page's raw YAML is validated against its content-type's structure definition. Errors here mean the content does not match what the renderer expects.</p>
-                  <p>Each error includes a <strong className="text-foreground">code</strong>, the offending <strong className="text-foreground">path</strong> within the YAML, and what was expected vs. what was received.</p>
-                  <p>Structural validation errors can prevent the page from rendering correctly in production.</p>
-                </InfoPopover>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-xs text-muted-foreground mb-2">These errors prevent the page from rendering. The YAML content does not match the expected schema.</p>
-                {pageDiag.schemaValidation.errors.map((err, i) => (
-                  <div key={i} className="p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm" data-testid={`schema-error-${i}`}>
-                    <div className="font-mono font-medium text-destructive text-xs">{err.code}</div>
-                    <div className="mt-1 text-foreground">
-                      {err.path && <span className="font-mono text-muted-foreground">{err.path}: </span>}
-                      {err.message}
-                    </div>
-                    {err.expected && (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Expected: <span className="font-mono">{err.expected}</span>
-                        {err.received && (<> | Received: <span className="font-mono">{err.received}</span></>)}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {pageDiag.issues && pageDiag.issues.length > 0 && (
-            <Card style={{ borderRadius: "0.8rem" }} data-testid="card-issues">
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm">Issues</CardTitle>
-                <InfoPopover testId="info-issues">
-                  <p><strong className="text-foreground">Errors</strong> (red) indicate problems that likely break something — for example a missing required field or an invalid reference.</p>
-                  <p><strong className="text-foreground">Warnings</strong> (amber) are non-blocking but should be addressed. Common codes include <code className="bg-muted px-1 rounded text-foreground">MISSING_PAGE_TITLE</code>, <code className="bg-muted px-1 rounded text-foreground">MISSING_DESCRIPTION</code>, and <code className="bg-muted px-1 rounded text-foreground">ORPHAN_PAGE</code>.</p>
-                  <p>Issues are raised by content validators that run against the merged YAML for this page.</p>
-                </InfoPopover>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {pageDiag.issues.filter(i => i.type === "error").map((issue, i) => (
-                  <div key={`e-${i}`} className="p-2 rounded-md bg-destructive/10 border border-destructive/30 text-sm" data-testid={`issue-error-${i}`}>
-                    <span className="font-mono text-xs text-destructive">{issue.code}</span>
-                    <span className="ml-2 text-foreground">{issue.message}</span>
-                  </div>
-                ))}
-                {pageDiag.issues.filter(i => i.type === "warning").map((issue, i) => (
-                  <div key={`w-${i}`} className="p-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-sm" data-testid={`issue-warning-${i}`}>
-                    <span className="font-mono text-xs text-amber-700 dark:text-amber-300">{issue.code}</span>
-                    <span className="ml-2 text-foreground">{issue.message}</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          <Card style={{ borderRadius: "0.8rem" }} data-testid="card-meta">
-            <CardHeader className="flex flex-row items-center gap-2 pb-2">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm">Meta Information</CardTitle>
-              <InfoPopover testId="info-meta">
-                <p>Reads from the <code className="bg-muted px-1 rounded text-foreground">meta:</code> block of the page's YAML.</p>
-                <p><strong className="text-foreground">page_title</strong> — shown in browser tabs and search results. Optimal: 30–60 characters (+30 pts to SEO).</p>
-                <p><strong className="text-foreground">description</strong> — the meta description shown in search snippets and social previews. Optimal: 70–160 characters (+30 pts to SEO).</p>
-                <p><strong className="text-foreground">og_image</strong> — the image displayed when this page is shared on social media (+10 pts).</p>
-                <p><strong className="text-foreground">canonical_url</strong> — tells search engines which URL is authoritative, preventing duplicate-content penalties (+10 pts).</p>
-                <p><strong className="text-foreground">robots</strong> — controls crawler directives, e.g. <code className="bg-muted px-1 rounded text-foreground">noindex</code>.</p>
-              </InfoPopover>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-muted-foreground">Page Title</span>
-                  </div>
-                  <p className="text-sm text-foreground mb-1 break-all">{pageDiag.meta.page_title || "Not set"}</p>
-                  <LengthBar value={pageDiag.meta.titleLength} max={70} optimal={60} />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-muted-foreground">Description</span>
-                  </div>
-                  <p className="text-sm text-foreground mb-1 break-all">{pageDiag.meta.description || "Not set"}</p>
-                  <LengthBar value={pageDiag.meta.descriptionLength} max={160} optimal={155} />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">OG Image</span>
-                    <p className="text-sm text-foreground break-all mt-0.5">{pageDiag.meta.og_image || "Not set"}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">Canonical URL</span>
-                    <p className="text-sm text-foreground break-all mt-0.5">{pageDiag.meta.canonical_url || "Not set"}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">Robots</span>
-                    <p className="text-sm text-foreground mt-0.5">{pageDiag.meta.robots || "Not set"}</p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card style={{ borderRadius: "0.8rem" }} data-testid="card-schema">
-            <CardHeader className="flex flex-row items-center gap-2 pb-2">
-              <Code className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm">Schema / JSON-LD</CardTitle>
-              <InfoPopover testId="info-schema">
-                <p>Schema.org structured data helps search engines and AI assistants understand page content beyond plain text.</p>
-                <p>Emission is <strong className="text-foreground">section-driven</strong>: leading <code className="bg-muted px-1 rounded text-foreground">schema_org</code> sections plus FAQ, Article, and Breadcrumb contributors. Site Organization/Website templates live in <code className="bg-muted px-1 rounded text-foreground">schema-org.yml</code>. WebSite/Organization belong on the home page as <code className="bg-muted px-1 rounded text-foreground">schema_org</code> sections; elsewhere they are page-local. Legacy <code className="bg-muted px-1 rounded text-foreground">schema.include</code> is ignored.</p>
-                <p>If the page has FAQ sections, a <code className="bg-muted px-1 rounded text-foreground">FAQPage</code> schema should also be present to unlock rich results. Any <code className="bg-muted px-1 rounded text-foreground">todo</code> placeholder in a schema field is flagged and penalises the Schema score.</p>
-                <p>The JSON-LD preview shows the fully resolved objects that will be rendered.</p>
-              </InfoPopover>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted-foreground">Configured:</span>
-                {pageDiag.schema.configured ? (
-                  <Badge variant="secondary" className="gap-1">
-                    <Check className="h-3 w-3" /> Yes
-                  </Badge>
-                ) : (
-                  <Badge variant="destructive" className="gap-1">
-                    <X className="h-3 w-3" /> No
-                  </Badge>
-                )}
-              </div>
-              {(pageDiag.schema.sources?.length ?? 0) > 0 && (
-                <div>
-                  <span className="text-xs text-muted-foreground">Section sources:</span>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {pageDiag.schema.sources!.map((src) => (
-                      <Badge key={src} variant="secondary" className="text-xs">{src}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {pageDiag.schema.includes.length > 0 && (
-                <div>
-                  <span className="text-xs text-muted-foreground">schema_org types:</span>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {pageDiag.schema.includes.map((inc) => (
-                      <Badge key={inc} variant="outline" className="text-xs">{inc}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {pageDiag.schema.renderedJsonLd.length > 0 && (
-                <div>
-                  <span className="text-xs text-muted-foreground">JSON-LD Preview:</span>
-                  <div className="mt-1 rounded-md bg-muted p-3 overflow-x-auto">
-                    <pre className="text-xs font-mono text-foreground whitespace-pre">
-                      {JSON.stringify(pageDiag.schema.renderedJsonLd, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card style={{ borderRadius: "0.8rem" }} data-testid="card-sections">
-            <CardHeader className="flex flex-row items-center gap-2 pb-2">
-              <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm">Sections</CardTitle>
-              <InfoPopover testId="info-sections">
-                <p>Content blocks defined in the YAML <code className="bg-muted px-1 rounded text-foreground">sections:</code> array. Each block is rendered as a UI component.</p>
-                <p>Every section should have a <code className="bg-muted px-1 rounded text-foreground">type</code> field (e.g. <code className="bg-muted px-1 rounded text-foreground">hero</code>, <code className="bg-muted px-1 rounded text-foreground">features_grid</code>, <code className="bg-muted px-1 rounded text-foreground">faq</code>, <code className="bg-muted px-1 rounded text-foreground">pricing</code>). Having sections earns +25 pts and all being typed earns another +20 pts toward the Content score.</p>
-                <p><strong className="text-foreground">FAQ sections</strong> are especially important: they improve AI search engine coverage and make the page eligible for a FAQPage schema, which can unlock rich results in Google and AI assistants.</p>
-              </InfoPopover>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <span className="text-muted-foreground">Count: <strong className="text-foreground">{pageDiag.sections.count}</strong></span>
-                <span className="text-muted-foreground">
-                  FAQ: {pageDiag.sections.hasFaq ? (
-                    <Badge variant="secondary" className="ml-1 text-xs"><Check className="h-3 w-3" /></Badge>
-                  ) : (
-                    <Badge variant="outline" className="ml-1 text-xs"><X className="h-3 w-3" /></Badge>
-                  )}
-                </span>
-              </div>
-              {pageDiag.sections.types.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {pageDiag.sections.types.map((t) => (
-                    <Badge key={t} variant="outline" className="text-xs">{t}</Badge>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card style={{ borderRadius: "0.8rem" }} data-testid="card-images">
-            <CardHeader className="flex flex-row items-center gap-2 pb-2">
-              <Image className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm">Images</CardTitle>
-              <InfoPopover testId="info-images">
-                <p>Scans every <code className="bg-muted px-1 rounded text-foreground">image_id</code> and <code className="bg-muted px-1 rounded text-foreground">image</code> key anywhere in the page's merged YAML content and collects the referenced IDs.</p>
-                <p><strong className="text-foreground">Green badge</strong> — image is registered in the media registry and the file exists on disk.</p>
-                <p><strong className="text-foreground">Red badge</strong> — image is either missing from the registry or the physical file cannot be found. This will produce broken images in production.</p>
-                <p>If any images are missing, <strong className="text-foreground">20 points</strong> are deducted from the Content score.</p>
-              </InfoPopover>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {pageDiag.images.referencedIds.length === 0 && (
-                <p className="text-sm text-muted-foreground">No images referenced</p>
-              )}
-              {pageDiag.images.referencedIds.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {pageDiag.images.referencedIds.map((id) => {
-                    const missingReg = pageDiag.images.missingFromRegistry.includes(id);
-                    const missingDisk = pageDiag.images.missingFromDisk.includes(id);
-                    const isMissing = missingReg || missingDisk;
-                    const badge = (
-                      <Badge
-                        key={id}
-                        variant={isMissing ? "destructive" : "secondary"}
-                        className={`text-xs font-mono gap-1${isMissing ? " cursor-pointer" : " no-default-hover-elevate"}`}
-                        data-testid={`badge-image-${id}`}
-                      >
-                        {isMissing ? <X className="h-3 w-3" /> : <Check className="h-3 w-3" />}
-                        {id}
-                      </Badge>
-                    );
-                    if (!isMissing) return badge;
-                    return (
-                      <Popover key={id}>
-                        <PopoverTrigger asChild>{badge}</PopoverTrigger>
-                        <PopoverContent align="start" className="w-64 space-y-2 p-3">
-                          <p className="text-xs font-medium text-foreground">Why is this image missing?</p>
-                          <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                            {missingReg && <li>Not found in the media registry</li>}
-                            {missingDisk && <li>File not found on disk</li>}
-                          </ul>
-                        </PopoverContent>
-                      </Popover>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card style={{ borderRadius: "0.8rem" }} data-testid="card-translations">
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <Globe className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm">Translations</CardTitle>
-                <InfoPopover testId="info-translations">
-                  <p>Detects the companion locale file for this page. 4Geeks content is published in <strong className="text-foreground">English (en)</strong> and <strong className="text-foreground">Spanish (es)</strong>.</p>
-                  <p>If a counterpart locale file exists, it is linked here so you can quickly jump to its diagnostics. Having a translation file earns <strong className="text-foreground">+20 points</strong> toward the Content score.</p>
-                  <p>Available locales are shown as badges. A page with only one locale is missing an opportunity to reach a wider audience.</p>
-                </InfoPopover>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex flex-wrap gap-2">
-                  {pageDiag.translations.availableLocales.map((loc) => (
-                    <Badge key={loc} variant="secondary" className="gap-1">
-                      <Check className="h-3 w-3" />
-                      {loc.toUpperCase()}
-                    </Badge>
-                  ))}
-                </div>
-                {pageDiag.translations.counterpartUrl && (
-                  <Link href={`/private/diagnostics?url=${encodeURIComponent(pageDiag.translations.counterpartUrl)}`}>
-                    <span className="text-sm text-primary flex items-center gap-1 cursor-pointer">
-                      <ArrowRight className="h-3.5 w-3.5" />
-                      {pageDiag.translations.counterpartUrl}
-                    </span>
-                  </Link>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card style={{ borderRadius: "0.8rem" }} data-testid="card-redirects">
-              <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                <LinkIcon className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm">Incoming Redirects</CardTitle>
-                <InfoPopover testId="info-redirects">
-                  <p>Lists all redirect rules in the repository whose destination points to this page's URL.</p>
-                  <p>These are 301/302 redirects configured in the redirects file — useful for auditing legacy URL migrations and ensuring old links still lead here.</p>
-                  <p>Having no incoming redirects is not a problem; this section is purely informational and does not affect any score.</p>
-                </InfoPopover>
-              </CardHeader>
-              <CardContent>
-                {pageDiag.redirects.incomingRedirects.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No incoming redirects</p>
-                ) : (
-                  <div className="space-y-1">
-                    {pageDiag.redirects.incomingRedirects.map((r) => (
-                      <p key={r} className="text-sm font-mono text-foreground">{r}</p>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {!selectedUrl && !pagesLoading && (
-        <Card style={{ borderRadius: "0.8rem" }}>
-          <CardContent className="p-8 text-center">
-            <Search className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">Select a page above to view its diagnostics</p>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+function tabHref(id: DiagnosticsTabId): string {
+  return DIAGNOSTICS_TABS.find((t) => t.id === id)?.href ?? "/private/diagnostics";
 }
 
 export default function DiagnosticsPage() {
-  const [activeTab, setActiveTab] = useState("global-health");
+  const [pathname, setLocation] = useLocation();
+  const isMobile = useIsMobile();
+  const activeTab = resolveDiagnosticsTab(pathname);
+
+  const onTabChange = (next: string) => {
+    const id = next as DiagnosticsTabId;
+    setLocation(tabHref(id));
+  };
+
   return (
     <MetricsAccessGate>
-    <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-3">
-              <Link href="/">
-                <Button variant="ghost" size="icon" data-testid="button-back-home">
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-              </Link>
+      <div className="min-h-screen bg-background">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <Tabs value={activeTab} onValueChange={onTabChange}>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div className="flex items-center gap-3">
+                <Link href="/">
+                  <Button variant="ghost" size="icon" data-testid="button-back-home">
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                </Link>
+                <div className="flex items-center gap-2">
+                  <Stethoscope className="h-5 w-5 text-primary" />
+                  <h1 className="text-lg font-semibold text-foreground" data-testid="text-diagnostics-title">
+                    Diagnostics
+                  </h1>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                <Stethoscope className="h-5 w-5 text-primary" />
-                <h1 className="text-lg font-semibold text-foreground" data-testid="text-diagnostics-title">
-                  Diagnostics
-                </h1>
+                {isMobile ? (
+                  <Select value={activeTab} onValueChange={onTabChange}>
+                    <SelectTrigger className="w-[200px]" data-testid="select-diagnostics-tab">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DIAGNOSTICS_TABS.map((t) => (
+                        <SelectItem key={t.id} value={t.id} data-testid={`select-tab-${t.id}`}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <TabsList data-testid="tabs-diagnostics" className="flex flex-wrap h-auto gap-1">
+                    {DIAGNOSTICS_TABS.map((t) => (
+                      <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`}>
+                        {t.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Link href="/private/diagnostics/seo-geo">
-                <Button variant="outline" size="sm" data-testid="button-seo-geo">
-                  <Crosshair className="h-3.5 w-3.5" />
-                  SEO &amp; GEO
-                </Button>
-              </Link>
-              <Link href="/private/tracking">
-                <Button variant="outline" size="sm" data-testid="button-tracking">
-                  <IconChartBar className="h-3.5 w-3.5" />
-                  Tracking
-                </Button>
-              </Link>
-              <TabsList data-testid="tabs-diagnostics">
-                <TabsTrigger value="global-health" data-testid="tab-global-health">Global Health</TabsTrigger>
-                <TabsTrigger value="page-analysis" data-testid="tab-page-analysis">Page Analysis</TabsTrigger>
-                <TabsTrigger value="leads" data-testid="tab-leads">Leads</TabsTrigger>
-              </TabsList>
-            </div>
-          </div>
-          <TabsContent value="global-health">
-            <GlobalHealthTab onOpenLeads={() => setActiveTab("leads")} />
-          </TabsContent>
-          <TabsContent value="page-analysis">
-            <PageAnalysisTab />
-          </TabsContent>
-          <TabsContent value="leads">
-            <LeadsTab />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="global-health">
+              <GlobalHealthTab onOpenLeads={() => setLocation("/private/diagnostics/leads")} />
+            </TabsContent>
+            <TabsContent value="leads">
+              <LeadsTab />
+            </TabsContent>
+            <TabsContent value="runtime-issues">
+              <RuntimeIssuesTab />
+            </TabsContent>
+            <TabsContent value="seo">
+              <DiagnosticsSeoPanel />
+            </TabsContent>
+            <TabsContent value="geo">
+              <DiagnosticsGeoPanel />
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
-    </div>
     </MetricsAccessGate>
   );
 }

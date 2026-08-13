@@ -16,6 +16,10 @@ import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from
 import { loadSitesYmlFromBucket } from "./sites-yml-store";
 import { scanEcommerceContent, startEcommerceWatcher } from "./ecommerce/ecommerce-index";
 import { loadUsersStateFromBucket } from "./user-store";
+import {
+  loadAllRuntimeIssuesFromBucket,
+  shutdownRuntimeIssues,
+} from "./runtime-issues-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
 import { addFileModifiedListener } from "./sync-state";
@@ -502,6 +506,14 @@ app.use((req, res, next) => {
     loadUsersStateFromBucket().catch((err) => {
       logger.error({ err, worker: "UserStore" }, "failed to load users state");
     });
+    loadAllRuntimeIssuesFromBucket(
+      [...getSiteContextMap().values()].map((ctx) => ({
+        site: ctx.contentRootName,
+        contentRoot: ctx.contentRoot,
+      })),
+    ).catch((err) => {
+      logger.error({ err, worker: "RuntimeIssues" }, "failed to load runtime issues");
+    });
     loadFormStateFromBucket().catch((err) => {
       logger.error({ err, worker: "FormState" }, "failed to load form state");
     });
@@ -580,6 +592,7 @@ app.use((req, res, next) => {
     try {
       await getVersioningManager().shutdown();
       await shutdownValidationCaches();
+      await shutdownRuntimeIssues();
       await gcs.flushPending();
     } catch (err) {
       logger.error({ err }, "[Shutdown] error during graceful shutdown");

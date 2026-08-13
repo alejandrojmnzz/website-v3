@@ -97,7 +97,7 @@ function LoadingSection() {
   );
 }
 
-function SeoTab({ data }: { data: SeoOverview }) {
+export function SeoTab({ data }: { data: SeoOverview }) {
   const contentTypes = Object.keys(data.intentDistribution);
 
   return (
@@ -266,7 +266,7 @@ function SeoTab({ data }: { data: SeoOverview }) {
   );
 }
 
-function GeoTab({ data, brand }: { data: SeoOverview; brand: BrandContext | null }) {
+export function GeoTab({ data, brand }: { data: SeoOverview; brand: BrandContext | null }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="geo-totals-grid">
