@@ -35,9 +35,24 @@ interface SitemapSearchProps {
   testId?: string;
   locale?: string;
   portalContainer?: HTMLElement | null;
+  /**
+   * Render only the search panel (for nesting inside a parent Popover).
+   * Calls onClose after a selection or custom save.
+   */
+  embedded?: boolean;
+  onClose?: () => void;
 }
 
-export function SitemapSearch({ value, onChange, placeholder = "/page-url", testId, locale = "", portalContainer }: SitemapSearchProps) {
+export function SitemapSearch({
+  value,
+  onChange,
+  placeholder = "/page-url",
+  testId,
+  locale = "",
+  portalContainer,
+  embedded = false,
+  onClose,
+}: SitemapSearchProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isCustomMode, setIsCustomMode] = useState(false);
@@ -70,11 +85,16 @@ export function SitemapSearch({ value, onChange, placeholder = "/page-url", test
 
   const isCurrentValueInSitemap = sitemapUrls.some((entry) => extractPath(entry.loc) === value);
 
-  const handleSelect = (url: string) => {
-    onChange(url, false);
+  const finish = () => {
     setOpen(false);
     setSearchQuery("");
     setIsCustomMode(false);
+    onClose?.();
+  };
+
+  const handleSelect = (url: string) => {
+    onChange(url, false);
+    finish();
   };
 
   const hasLocalePrefix = (url: string) => /^\/[a-z]{2}(\/|$)/i.test(url.trim());
@@ -87,9 +107,126 @@ export function SitemapSearch({ value, onChange, placeholder = "/page-url", test
     }
     setCustomError("");
     onChange(trimmed, true);
-    setOpen(false);
-    setIsCustomMode(false);
+    finish();
   };
+
+  const panel = (
+    <>
+      <div className="p-2 border-b">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setIsCustomMode(false);
+            }}
+            placeholder="Search pages..."
+            className="h-8 pl-8 text-sm"
+            autoFocus
+            data-testid={`${testId}-search`}
+          />
+        </div>
+      </div>
+
+      {isCustomMode ? (
+        <div className="p-2 space-y-2">
+          <p className="text-xs text-muted-foreground">Enter a custom URL:</p>
+          <div className="flex gap-2">
+            <Input
+              value={customUrl}
+              onChange={(e) => { setCustomUrl(e.target.value.replace(/\s+/g, "-")); setCustomError(""); }}
+              placeholder="/custom-url or https://..."
+              className="h-8 text-sm flex-1"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCustomSubmit();
+              }}
+              data-testid={`${testId}-custom-input`}
+            />
+            <Button
+              size="sm"
+              className="h-8"
+              onClick={handleCustomSubmit}
+              data-testid={`${testId}-custom-save`}
+            >
+              Save
+            </Button>
+          </div>
+          {customError && (
+            <p className="text-xs text-destructive">{customError}</p>
+          )}
+          <button
+            onClick={() => { setIsCustomMode(false); setCustomError(""); }}
+            className="text-xs text-muted-foreground hover-elevate px-1 py-0.5 rounded"
+          >
+            Back to search
+          </button>
+        </div>
+      ) : (
+        <>
+          <ScrollArea className="h-[200px]">
+            {isLoading ? (
+              <div className="p-4 text-sm text-muted-foreground text-center">
+                Loading pages...
+              </div>
+            ) : filteredUrls.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground text-center">
+                {searchQuery ? "No pages found" : "No pages available"}
+              </div>
+            ) : (
+              <div className="p-1">
+                {filteredUrls.map((entry, index) => (
+                  <button
+                    key={entry.loc}
+                    onClick={() => handleSelect(extractPath(entry.loc))}
+                    className={cn(
+                      "w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-start gap-2 group",
+                      value === extractPath(entry.loc) && "bg-primary/10"
+                    )}
+                    data-testid={`${testId}-option-${index}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-foreground truncate text-xs">
+                        {entry.label}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {extractPath(entry.loc)}
+                      </div>
+                    </div>
+                    {value === extractPath(entry.loc) && (
+                      <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+
+          <div className="p-2 border-t">
+            <button
+              onClick={() => {
+                setIsCustomMode(true);
+                setCustomUrl(value);
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover-elevate"
+              data-testid={`${testId}-custom-toggle`}
+            >
+              <ExternalLink className="h-4 w-4" />
+              <span>Use custom URL</span>
+              {!isCurrentValueInSitemap && value && (
+                <span className="ml-auto text-xs text-primary">(current)</span>
+              )}
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    return <div data-testid={testId}>{panel}</div>;
+  }
 
   const displayValue = value || placeholder;
   const isExternal = value?.startsWith("http");
@@ -123,115 +260,7 @@ export function SitemapSearch({ value, onChange, placeholder = "/page-url", test
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <div className="p-2 border-b">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setIsCustomMode(false);
-              }}
-              placeholder="Search pages..."
-              className="h-8 pl-8 text-sm"
-              autoFocus
-              data-testid={`${testId}-search`}
-            />
-          </div>
-        </div>
-
-        {isCustomMode ? (
-          <div className="p-2 space-y-2">
-            <p className="text-xs text-muted-foreground">Enter a custom URL:</p>
-            <div className="flex gap-2">
-              <Input
-                value={customUrl}
-                onChange={(e) => { setCustomUrl(e.target.value.replace(/\s+/g, "-")); setCustomError(""); }}
-                placeholder="/custom-url or https://..."
-                className="h-8 text-sm flex-1"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCustomSubmit();
-                }}
-                data-testid={`${testId}-custom-input`}
-              />
-              <Button
-                size="sm"
-                className="h-8"
-                onClick={handleCustomSubmit}
-                data-testid={`${testId}-custom-save`}
-              >
-                Save
-              </Button>
-            </div>
-            {customError && (
-              <p className="text-xs text-destructive">{customError}</p>
-            )}
-            <button
-              onClick={() => { setIsCustomMode(false); setCustomError(""); }}
-              className="text-xs text-muted-foreground hover-elevate px-1 py-0.5 rounded"
-            >
-              Back to search
-            </button>
-          </div>
-        ) : (
-          <>
-            <ScrollArea className="h-[200px]">
-              {isLoading ? (
-                <div className="p-4 text-sm text-muted-foreground text-center">
-                  Loading pages...
-                </div>
-              ) : filteredUrls.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground text-center">
-                  {searchQuery ? "No pages found" : "No pages available"}
-                </div>
-              ) : (
-                <div className="p-1">
-                  {filteredUrls.map((entry, index) => (
-                    <button
-                      key={entry.loc}
-                      onClick={() => handleSelect(extractPath(entry.loc))}
-                      className={cn(
-                        "w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-start gap-2 group",
-                        value === extractPath(entry.loc) && "bg-primary/10"
-                      )}
-                      data-testid={`${testId}-option-${index}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-foreground truncate text-xs">
-                          {entry.label}
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {extractPath(entry.loc)}
-                        </div>
-                      </div>
-                      {value === extractPath(entry.loc) && (
-                        <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-
-            <div className="p-2 border-t">
-              <button
-                onClick={() => {
-                  setIsCustomMode(true);
-                  setCustomUrl(value);
-                }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover-elevate"
-                data-testid={`${testId}-custom-toggle`}
-              >
-                <ExternalLink className="h-4 w-4" />
-                <span>Use custom URL</span>
-                {!isCurrentValueInSitemap && value && (
-                  <span className="ml-auto text-xs text-primary">(current)</span>
-                )}
-              </button>
-            </div>
-          </>
-        )}
+        {panel}
       </PopoverContent>
     </Popover>
   );

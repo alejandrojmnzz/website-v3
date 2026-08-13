@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Check, ChevronDown, Info, Loader2, Play, RefreshCw, Search, Stethoscope, Trash2, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -149,6 +150,19 @@ function normalizeIssuePath(urlOrPath: string): string {
 }
 type CategoryFilter = "all" | "seo" | "integrity" | "content" | "components" | "forms" | "performance" | "bindings";
 
+/** Tiny count pill pinned to the top-right of a filter trigger. */
+function FilterCornerBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className="pointer-events-none absolute -right-1.5 -top-1.5 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground ring-2 ring-background"
+      aria-hidden
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 function InfoPopover({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
     <Popover>
@@ -278,6 +292,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const formatSitePath = useFormatSitePath();
   const [search, setSearch] = useState("");
   const [pagePathFilter, setPagePathFilter] = useState("");
+  const [pageFilterOpen, setPageFilterOpen] = useState(false);
   const [severityFilters, setSeverityFilters] = useState<SeverityFilter[]>([]);
   const [categoryFilters, setCategoryFilters] = useState<Exclude<CategoryFilter, "all">[]>([]);
   const [validatorFilters, setValidatorFilters] = useState<string[]>([]);
@@ -598,14 +613,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     new Set(cacheIssues.map((i) => i.validator).filter(Boolean) as string[]),
   ).sort();
 
-  const issueUrlOptions = Array.from(
-    new Set(
-      cacheIssues
-        .map((i) => normalizeIssuePath(i.url || ""))
-        .filter(Boolean),
-    ),
-  ).sort();
-
   const filteredIssues = cacheIssues.filter((issue) => {
     if (
       severityFilters.length > 0 &&
@@ -628,7 +635,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     if (pagePathFilter) {
       const want = normalizeIssuePath(pagePathFilter);
       const got = normalizeIssuePath(issue.url || "");
-      if (want && got !== want && !got.endsWith(want) && !want.endsWith(got)) {
+      // Blank-URL rows (templates/overlays/site-wide) must not match any page filter.
+      // Avoid endsWith("") — every string ends with "" in JS.
+      if (!want) {
+        /* no-op */
+      } else if (!got) {
+        return false;
+      } else if (got !== want && !got.endsWith(want) && !want.endsWith(got)) {
         return false;
       }
     }
@@ -668,8 +681,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <p className="text-foreground font-medium">How diagnostics work</p>
           <p>
             Global Health shows one shared issue store in{" "}
-            <code className="text-xs">validation-cache.json</code>. Filter by page (sitemap or an issue URL)
-            below; open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
+            <code className="text-xs">validation-cache.json</code>. Use{" "}
+            <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
+            open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
             Refresh / Hard refresh / Re-run validator update the store via a{" "}
             <strong className="text-foreground font-medium">background worker</strong>; the job panel shows
             milestones (fixed height, scrolls). Cached issues refresh when the job finishes. Delete cache
@@ -910,64 +924,63 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 data-testid="input-search-issues"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2 min-w-[220px]" data-testid="page-path-filter">
-              <div className="w-[220px]">
-                <SitemapSearch
-                  value={pagePathFilter}
-                  onChange={(value) => setPagePathFilter(normalizeIssuePath(value))}
-                  placeholder="Filter by page…"
-                  testId="sitemap-page-filter"
-                />
-              </div>
-              {issueUrlOptions.length > 0 && (
-                <Select
-                  value={pagePathFilter || "__all__"}
-                  onValueChange={(v) => setPagePathFilter(v === "__all__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-[200px]" data-testid="select-issue-url-filter">
-                    <SelectValue placeholder="Issue URLs" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All issue URLs</SelectItem>
-                    {issueUrlOptions.map((u) => (
-                      <SelectItem key={u} value={u}>
-                        {u}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {pagePathFilter && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2"
-                  onClick={() => setPagePathFilter("")}
-                  data-testid="button-clear-page-filter"
-                >
-                  Clear page
-                </Button>
-              )}
+            <div className="flex flex-wrap items-center gap-1" data-testid="page-path-filter">
+              <Popover open={pageFilterOpen} onOpenChange={setPageFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="relative toggle-elevate max-w-[280px]"
+                    title={pagePathFilter || undefined}
+                    data-testid="button-page-url-filter"
+                  >
+                    <span className="truncate">Page or URL</span>
+                    <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70 shrink-0" />
+                    <FilterCornerBadge count={pagePathFilter ? 1 : 0} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-80 p-0">
+                  <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+                    <p className="text-xs font-medium text-muted-foreground truncate" title={pagePathFilter || undefined}>
+                      {pagePathFilter
+                        ? `Filtering: ${pagePathFilter}`
+                        : "Filter issues by page or custom URL"}
+                    </p>
+                    {pagePathFilter && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs shrink-0"
+                        onClick={() => setPagePathFilter("")}
+                        data-testid="button-clear-page-filter"
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <SitemapSearch
+                    embedded
+                    value={pagePathFilter}
+                    onChange={(value) => setPagePathFilter(normalizeIssuePath(value))}
+                    onClose={() => setPageFilterOpen(false)}
+                    placeholder="Filter by page…"
+                    testId="sitemap-page-filter"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="flex flex-wrap items-center gap-1">
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
-                    variant={severityFilters.length > 0 ? "default" : "outline"}
+                    variant="outline"
                     size="sm"
-                    className="toggle-elevate"
+                    className="relative toggle-elevate"
                     data-testid="button-severity-filter"
                   >
                     Severity
-                    {severityFilters.length > 0 && (
-                      <Badge
-                        variant="secondary"
-                        className="ml-1.5 h-5 min-w-5 justify-center px-1.5 py-0 text-xs bg-primary-foreground text-primary"
-                      >
-                        {severityFilters.length}
-                      </Badge>
-                    )}
                     <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                    <FilterCornerBadge count={severityFilters.length} />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-72 p-3 space-y-3">
@@ -1015,21 +1028,14 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
-                    variant={categoryFilters.length > 0 ? "default" : "outline"}
+                    variant="outline"
                     size="sm"
-                    className="toggle-elevate"
+                    className="relative toggle-elevate"
                     data-testid="button-scope-filter"
                   >
                     Error scope
-                    {categoryFilters.length > 0 && (
-                      <Badge
-                        variant="secondary"
-                        className="ml-1.5 h-5 min-w-5 justify-center px-1.5 py-0 text-xs bg-primary-foreground text-primary"
-                      >
-                        {categoryFilters.length}
-                      </Badge>
-                    )}
                     <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                    <FilterCornerBadge count={categoryFilters.length} />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-80 p-3 space-y-3">
@@ -1078,21 +1084,14 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
-                      variant={validatorFilters.length > 0 ? "default" : "outline"}
+                      variant="outline"
                       size="sm"
-                      className="toggle-elevate"
+                      className="relative toggle-elevate"
                       data-testid="button-validator-filter"
                     >
                       Validators
-                      {validatorFilters.length > 0 && (
-                        <Badge
-                          variant="secondary"
-                          className="ml-1.5 h-5 min-w-5 justify-center px-1.5 py-0 text-xs bg-primary-foreground text-primary"
-                        >
-                          {validatorFilters.length}
-                        </Badge>
-                      )}
                       <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
+                      <FilterCornerBadge count={validatorFilters.length} />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-80 p-3 space-y-3">
@@ -1272,13 +1271,18 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
 }
 
 
-const DIAGNOSTICS_TABS = [
-  { id: "global-health", label: "Global Health", href: "/private/diagnostics" },
-  { id: "leads", label: "Leads", href: "/private/diagnostics/leads" },
-  { id: "runtime-issues", label: "Runtime", href: "/private/diagnostics/runtime-issues" },
-  { id: "seo", label: "SEO", href: "/private/diagnostics/seo" },
-  { id: "geo", label: "GEO", href: "/private/diagnostics/geo" },
-] as const;
+const DIAGNOSTICS_TABS: {
+  id: "global-health" | "leads" | "runtime-issues" | "seo" | "geo";
+  label: string;
+  href: string;
+  Icon: LucideIcon;
+}[] = [
+  { id: "global-health", label: "Global", href: "/private/diagnostics", Icon: Globe },
+  { id: "leads", label: "Leads", href: "/private/diagnostics/leads", Icon: Users },
+  { id: "runtime-issues", label: "Runtime", href: "/private/diagnostics/runtime-issues", Icon: AlertTriangle },
+  { id: "seo", label: "SEO", href: "/private/diagnostics/seo", Icon: Crosshair },
+  { id: "geo", label: "GEO", href: "/private/diagnostics/geo", Icon: Brain },
+];
 
 type DiagnosticsTabId = (typeof DIAGNOSTICS_TABS)[number]["id"];
 
@@ -1333,7 +1337,10 @@ export default function DiagnosticsPage() {
                     <SelectContent>
                       {DIAGNOSTICS_TABS.map((t) => (
                         <SelectItem key={t.id} value={t.id} data-testid={`select-tab-${t.id}`}>
-                          {t.label}
+                          <span className="inline-flex items-center gap-2">
+                            <t.Icon className="h-3.5 w-3.5" />
+                            {t.label}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1341,7 +1348,8 @@ export default function DiagnosticsPage() {
                 ) : (
                   <TabsList data-testid="tabs-diagnostics" className="flex flex-wrap h-auto gap-1">
                     {DIAGNOSTICS_TABS.map((t) => (
-                      <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`}>
+                      <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="gap-1.5">
+                        <t.Icon className="h-3.5 w-3.5" />
                         {t.label}
                       </TabsTrigger>
                     ))}

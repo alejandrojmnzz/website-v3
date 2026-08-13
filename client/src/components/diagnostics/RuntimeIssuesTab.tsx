@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,9 @@ interface RuntimeIssuesResponse {
   issues: RuntimeIssueRow[];
 }
 
+type SortKey = "count" | "lastSeen";
+type SortDir = "asc" | "desc";
+
 function formatTs(ts: number) {
   return new Date(ts).toLocaleString("en-US", {
     month: "short",
@@ -46,9 +50,20 @@ function formatTs(ts: number) {
   });
 }
 
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ArrowUpDown className="inline ml-1 opacity-40" size={12} />;
+  return sortDir === "asc" ? (
+    <ArrowUp className="inline ml-1" size={12} />
+  ) : (
+    <ArrowDown className="inline ml-1" size={12} />
+  );
+}
+
 export default function RuntimeIssuesTab() {
   const [hideBots, setHideBots] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("count");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data, isLoading, refetch, isFetching } = useQuery<RuntimeIssuesResponse>({
     queryKey: ["/api/admin/runtime-issues", hideBots],
@@ -59,6 +74,28 @@ export default function RuntimeIssuesTab() {
     },
     refetchInterval: 30_000,
   });
+
+  const sortedIssues = useMemo(() => {
+    const rows = data?.issues ?? [];
+    return [...rows].sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const cmp = av - bv;
+      if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
+      // Stable secondary: higher count, then newer lastSeen
+      if (b.count !== a.count) return b.count - a.count;
+      return b.lastSeen - a.lastSeen;
+    });
+  }, [data?.issues, sortKey, sortDir]);
+
+  function toggleSort(col: SortKey) {
+    if (col === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col);
+      setSortDir("desc");
+    }
+  }
 
   return (
     <div className="space-y-6" data-testid="runtime-issues-tab">
@@ -149,14 +186,34 @@ export default function RuntimeIssuesTab() {
                 <TableRow>
                   <TableHead>Path</TableHead>
                   <TableHead>Locale</TableHead>
-                  <TableHead className="text-right">Count</TableHead>
-                  <TableHead>Last seen</TableHead>
+                  <TableHead className="text-right">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-end w-full hover:text-foreground"
+                      onClick={() => toggleSort("count")}
+                      data-testid="sort-runtime-count"
+                    >
+                      Count
+                      <SortIcon col="count" sortKey={sortKey} sortDir={sortDir} />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button
+                      type="button"
+                      className="inline-flex items-center hover:text-foreground"
+                      onClick={() => toggleSort("lastSeen")}
+                      data-testid="sort-runtime-last-seen"
+                    >
+                      Last seen
+                      <SortIcon col="lastSeen" sortKey={sortKey} sortDir={sortDir} />
+                    </button>
+                  </TableHead>
                   <TableHead>Referrer</TableHead>
                   <TableHead>UA</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.issues.map((issue) => (
+                {sortedIssues.map((issue) => (
                   <TableRow key={issue.fingerprint} data-testid={`runtime-issue-${issue.fingerprint}`}>
                     <TableCell className="font-mono text-xs max-w-[280px] truncate" title={issue.path}>
                       {issue.path}
