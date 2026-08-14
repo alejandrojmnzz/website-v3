@@ -208,7 +208,7 @@ export function registerExplainTools(mcp: McpServer): void {
       "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
-      "'lead-forms' (catalog source.content_type/database/relation, required query on ecommerce catalogs, purchasable vs actively_selling). " +
+      "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling). " +
       "Calling an unknown topic returns a clear error listing the valid options.",
     {
       topic: z
@@ -236,7 +236,7 @@ export function registerExplainTools(mcp: McpServer): void {
           "relation-fields":
             "relation editor type, authors hubs, listing deslugify vs page hydrate, delete_entries reassign",
           "lead-forms":
-            "catalog source content_type/database/relation, required query on ecommerce catalogs, purchasable vs actively_selling",
+            "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
         };
         return {
           content: [

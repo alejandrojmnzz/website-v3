@@ -24,7 +24,7 @@ describe("validateFormFieldSources", () => {
           form: {
             fields: {
               program: {
-                source: { relation: "programs" },
+                source: { related_field: "programs", value_path: "slug", label_path: "title" },
                 slugs: ["ai-engineering"],
               },
             },
@@ -43,7 +43,7 @@ describe("validateFormFieldSources", () => {
       sections: [
         {
           type: "lead_form",
-          fields: { program: { source: { relation: "programs" } } },
+          fields: { program: { source: { related_field: "programs", value_path: "slug", label_path: "title" } } },
         },
       ],
       mode: "publish",
@@ -52,7 +52,7 @@ describe("validateFormFieldSources", () => {
       true,
     );
     expect(formatFormFieldSourceErrors(issues)).toMatch(/programs/);
-    expect(issues[0]?.formPath).toContain("fields.program.source.relation");
+    expect(issues[0]?.formPath).toContain("fields.program.source.related_field");
   });
 
   it("soft-warns empty relation on draft", () => {
@@ -62,7 +62,7 @@ describe("validateFormFieldSources", () => {
       formObjects: [
         {
           form: {
-            fields: { program: { source: { relation: "programs" } } },
+            fields: { program: { source: { related_field: "programs", value_path: "slug", label_path: "title" } } },
           },
         },
       ],
@@ -81,7 +81,7 @@ describe("validateFormFieldSources", () => {
       formObjects: [
         {
           form: {
-            fields: { program: { source: { relation: "programs" } } },
+            fields: { program: { source: { related_field: "programs", value_path: "slug", label_path: "title" } } },
           },
         },
       ],
@@ -99,7 +99,7 @@ describe("validateFormFieldSources", () => {
       formObjects: [
         {
           form: {
-            fields: { program: { source: { name: "program" } } },
+            fields: { program: { source: { content_type: "program", value_path: "bc_slug", label_path: "title" } } },
           },
         },
       ],
@@ -117,7 +117,7 @@ describe("validateFormFieldSources", () => {
       formObjects: [
         {
           form: {
-            fields: { program: { source: { relation: "programs" } } },
+            fields: { program: { source: { related_field: "programs", value_path: "slug", label_path: "title" } } },
           },
         },
       ],

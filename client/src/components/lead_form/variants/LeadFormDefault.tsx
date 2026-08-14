@@ -681,11 +681,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       programSource?.content_type,
       programSource?.database,
       programSource?.query,
-      programSource?.value,
-      programSource?.label,
+      programSource?.value_path,
+      programSource?.label_path,
       locale,
     ],
-    enabled: !!programCatalogKey,
+    enabled: !!programCatalogKey && !!programSource?.value_path && !!programSource?.label_path,
     queryFn: async () => {
       if (!programCatalogKey) return { options: [] };
       const url = buildQueryOptionsUrl(programSource!, locale);
@@ -707,11 +707,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       planSource?.content_type,
       planSource?.database,
       planSource?.query,
-      planSource?.value,
-      planSource?.label,
+      planSource?.value_path,
+      planSource?.label_path,
       locale,
     ],
-    enabled: !!planCatalogKey,
+    enabled: !!planCatalogKey && !!planSource?.value_path && !!planSource?.label_path,
     queryFn: async () => {
       if (!planCatalogKey) return { options: [] };
       const url = buildQueryOptionsUrl(planSource!, locale);
@@ -733,43 +733,43 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   }, [formOptions?.programs]);
 
   const programRelationOptions = useMemo((): RelationFormFieldOption[] => {
-    if (!programSource?.relation) return [];
+    if (!programSource?.related_field) return [];
     const resolved = resolveFormFieldRelationSource({
       formFieldName: "program",
-      relationField: programSource.relation,
+      relationField: programSource.related_field,
       singleEntry: singleEntry ?? {},
-      editorHint: contentTypeConfig?.editor?.[programSource.relation],
+      editorHint: contentTypeConfig?.editor?.[programSource.related_field],
       catalogByPointer: programCatalogByPointer,
       requireCatalogHit: false,
-      valuePath: programSource.value,
-      labelPath: programSource.label,
+      valuePath: programSource.value_path,
+      labelPath: programSource.label_path,
     });
     return resolved.ok ? resolved.options : [];
   }, [
-    programSource?.relation,
-    programSource?.value,
-    programSource?.label,
+    programSource?.related_field,
+    programSource?.value_path,
+    programSource?.label_path,
     singleEntry,
     contentTypeConfig?.editor,
     programCatalogByPointer,
   ]);
 
   const planRelationOptions = useMemo((): RelationFormFieldOption[] => {
-    if (!planSource?.relation) return [];
+    if (!planSource?.related_field) return [];
     const resolved = resolveFormFieldRelationSource({
       formFieldName: "plan",
-      relationField: planSource.relation,
+      relationField: planSource.related_field,
       singleEntry: singleEntry ?? {},
-      editorHint: contentTypeConfig?.editor?.[planSource.relation],
+      editorHint: contentTypeConfig?.editor?.[planSource.related_field],
       requireCatalogHit: false,
-      valuePath: planSource.value,
-      labelPath: planSource.label,
+      valuePath: planSource.value_path,
+      labelPath: planSource.label_path,
     });
     return resolved.ok ? resolved.options : [];
   }, [
-    planSource?.relation,
-    planSource?.value,
-    planSource?.label,
+    planSource?.related_field,
+    planSource?.value_path,
+    planSource?.label_path,
     singleEntry,
     contentTypeConfig?.editor,
   ]);
@@ -835,7 +835,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       const src = parseFormFieldSource(sourceRaw);
       let options: RelationFormFieldOption[] = [];
       if (fieldName === "program") {
-        if (src.relation) options = programRelationOptions;
+        if (src.related_field) options = programRelationOptions;
         else if (catalogSourceKey(src)) {
           options = (programQueryOptions?.options ?? []).map((o) => ({
             value: o.value,
@@ -844,7 +844,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           }));
         }
       } else if (fieldName === "plan") {
-        if (src.relation) options = planRelationOptions;
+        if (src.related_field) options = planRelationOptions;
         else if (catalogSourceKey(src)) {
           options = (planQueryOptions?.options ?? []).map((o) => ({
             value: o.value,
@@ -852,9 +852,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           }));
         }
       }
-      if (src.relation || catalogSourceKey(src)) {
+      if (src.related_field || catalogSourceKey(src)) {
         const authoredDefault =
-          src.relation && baseConfig.default === "auto"
+          src.related_field && baseConfig.default === "auto"
             ? { ...baseConfig, default: "" }
             : baseConfig;
         const { mode: _mode, ...card } = applyChoiceCardinality(authoredDefault, options);
@@ -898,7 +898,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const programFieldSlugs = fields.program?.slugs;
   const visiblePrograms = (() => {
-    if (programSource?.relation) {
+    if (programSource?.related_field) {
       return programRelationOptions.map((o) => ({
         slug: o.value,
         bc_slug: o.bc_slug || o.value,
@@ -923,7 +923,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   const planFieldSlugs = fields.plan?.slugs;
   const visiblePlans = (() => {
-    if (planSource?.relation) {
+    if (planSource?.related_field) {
       return planRelationOptions.map((o) => ({ value: o.bc_slug || o.value, label: o.label }));
     }
     if (planCatalogKey) {
@@ -1046,7 +1046,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   }, [sessionLocation, utm, programContext, form, singleLandingLocation, singleLandingRegion]);
 
   useEffect(() => {
-    if (programSource?.relation || programCatalogKey) {
+    if (programSource?.related_field || programCatalogKey) {
       if (programCatalogKey && !programQueryOptions?.options) return;
       const currentValue = form.getValues("program");
       if (!currentValue) return;
@@ -1075,9 +1075,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    programSource?.relation,
+    programSource?.related_field,
     programCatalogKey,
-    planSource?.relation,
+    planSource?.related_field,
     planCatalogKey,
     programRelationOptions,
     planRelationOptions,
@@ -1088,7 +1088,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
   /** Same field defaults used for lead payload and route matching. */
   const resolveEffectiveFieldValues = (values: FormValues) => {
-    const programOpts: RelationFormFieldOption[] = programSource?.relation
+    const programOpts: RelationFormFieldOption[] = programSource?.related_field
       ? programRelationOptions
       : programCatalogKey
         ? (programQueryOptions?.options ?? []).map((o) => ({

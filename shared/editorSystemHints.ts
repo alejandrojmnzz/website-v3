@@ -23,8 +23,8 @@ export function buildRelationSystemHints(
     "Stores pointer slug(s) only (string | string[] when multiple). Never write related entry JSON.",
     `Related catalog source="${source}", value key="${valueKey}".`,
     `multiple=${multiple}; required=${required}; empty [] fails when required.`,
-    `Forms may bind options via fields.*.source.relation: "${field}" (reads this entry field / single.${field}).`,
-    "Publish: if a form uses source.relation pointing at this field, empty or unknown pointers fail live/publish.",
+    `Forms may bind options via fields.*.source.related_field: "${field}" (reads this entry field / single.${field}).`,
+    "Publish: if a form uses source.related_field pointing at this field, empty or unknown pointers fail live/publish.",
     `Write with update_fields / update_entry_field using path "${field}" (static types: _common.yml).`,
   ];
 }

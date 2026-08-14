@@ -188,10 +188,12 @@ function scanSectionsInFile(opts: {
     for (const { source } of formSources) {
       try {
         const parsed = parseFormFieldSource(
-          source as string | { name: string; query?: string; value?: string; label?: string },
+          source as string | { content_type?: string; database?: string; related_field?: string },
         );
-        if (!parsed.name) continue;
-        const hit = sourceUsesDatabase(parsed.name, dbName, contentRoot, db);
+        if (!parsed.content_type && !parsed.database) continue;
+        const sourceName = parsed.content_type || parsed.database;
+        if (!sourceName) continue;
+        const hit = sourceUsesDatabase(sourceName, dbName, contentRoot, db);
         if (!hit) continue;
         queries.push({
           kind: "form_source",

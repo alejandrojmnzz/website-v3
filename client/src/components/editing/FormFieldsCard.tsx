@@ -40,7 +40,13 @@ export interface FormFieldConfig {
   [key: string]: unknown;
 }
 
-export type FormFieldEditableKey = "visible" | "required" | "default" | "component_renderer";
+export type FormFieldEditableKey =
+  | "visible"
+  | "required"
+  | "default"
+  | "component_renderer"
+  | "source.value_path"
+  | "source.label_path";
 
 export interface FormFieldsCardProps {
   fields: Record<string, FormFieldConfig>;
@@ -79,12 +85,13 @@ function summarizeField(cfg: FormFieldConfig): string[] {
   if (typeof source === "string" && source.trim()) {
     parts.push(`source: ${source.trim()}`);
   } else if (source && typeof source === "object" && !Array.isArray(source)) {
-    const parsed = parseFormFieldSource(source as { content_type?: string; database?: string; name?: string; relation?: string; query?: string });
-    if (parsed.relation) parts.push(`relation: ${parsed.relation}`);
+    const parsed = parseFormFieldSource(source as { content_type?: string; database?: string; related_field?: string; query?: string });
+    if (parsed.related_field) parts.push(`related_field: ${parsed.related_field}`);
     else if (parsed.content_type) parts.push(`content_type: ${parsed.content_type}`);
     else if (parsed.database) parts.push(`database: ${parsed.database}`);
-    else if (parsed.name) parts.push(`catalog: ${parsed.name}`);
     if (parsed.query) parts.push(`query: ${parsed.query}`);
+    if (parsed.value_path) parts.push(`value_path: ${parsed.value_path}`);
+    if (parsed.label_path) parts.push(`label_path: ${parsed.label_path}`);
   }
   if (cfg.visible === true) parts.push("visible");
   if (cfg.visible === false) parts.push("hidden");
@@ -109,10 +116,10 @@ function catalogNeedsQuery(
   const source = cfg.source;
   if (source == null) return false;
   const parsed = parseFormFieldSource(
-    source as string | { content_type?: string; database?: string; name?: string; relation?: string; query?: string },
+    source as string | { content_type?: string; database?: string; related_field?: string; query?: string },
   );
   const key = catalogSourceKey(parsed);
-  if (!key || parsed.relation) return false;
+  if (!key || parsed.related_field) return false;
   if (parsed.query && parsed.query.trim()) return false;
   const ct = parsed.content_type || (!parsed.database ? key : undefined);
   return !!ct && ecommerceTypes.has(ct);
@@ -142,7 +149,7 @@ function FormFieldEditorRow({
   const parsedSource =
     source != null
       ? parseFormFieldSource(
-          source as string | { content_type?: string; database?: string; name?: string; relation?: string; query?: string },
+          source as string | { content_type?: string; database?: string; related_field?: string; query?: string },
         )
       : null;
 
@@ -197,17 +204,57 @@ function FormFieldEditorRow({
                 <code className="font-mono text-[10px]">purchasable=true</code>). Without it this
                 dropdown lists every entry, including discontinued products. On a non-purchasable
                 program page, bind that program with{" "}
-                <code className="font-mono text-[10px]">source.relation</code> or{" "}
+                <code className="font-mono text-[10px]">source.related_field</code> or{" "}
                 <code className="font-mono text-[10px]">query: slug=&lt;this&gt;</code> instead.
               </p>
             </div>
           )}
           {parsedSource && (
-            <div className="pt-2 grid grid-cols-1 gap-1 text-[11px] font-mono text-muted-foreground">
-              {parsedSource.content_type && <span>content_type: {parsedSource.content_type}</span>}
-              {parsedSource.database && <span>database: {parsedSource.database}</span>}
-              {parsedSource.relation && <span>relation: {parsedSource.relation}</span>}
-              {parsedSource.query && <span>query: {parsedSource.query}</span>}
+            <div className="pt-2 space-y-2">
+              <div className="grid grid-cols-1 gap-1 text-[11px] font-mono text-muted-foreground">
+                {parsedSource.content_type && <span>content_type: {parsedSource.content_type}</span>}
+                {parsedSource.database && <span>database: {parsedSource.database}</span>}
+                {parsedSource.related_field && (
+                  <span>related_field: {parsedSource.related_field}</span>
+                )}
+                {parsedSource.query && <span>query: {parsedSource.query}</span>}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor={`field-${name}-value-path`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    value_path <span className="text-red-400">*</span>
+                  </Label>
+                  <Input
+                    id={`field-${name}-value-path`}
+                    required
+                    value={parsedSource.value_path ?? ""}
+                    onChange={(e) => onFieldChange(name, "source.value_path", e.target.value)}
+                    placeholder="e.g. bc_slug or slug"
+                    className="h-8 text-xs font-mono bg-background"
+                    data-testid={`input-field-${name}-value-path`}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label
+                    htmlFor={`field-${name}-label-path`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    label_path <span className="text-red-400">*</span>
+                  </Label>
+                  <Input
+                    id={`field-${name}-label-path`}
+                    required
+                    value={parsedSource.label_path ?? ""}
+                    onChange={(e) => onFieldChange(name, "source.label_path", e.target.value)}
+                    placeholder="e.g. title"
+                    className="h-8 text-xs font-mono bg-background"
+                    data-testid={`input-field-${name}-label-path`}
+                  />
+                </div>
+              </div>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-4 pt-2">
@@ -279,7 +326,7 @@ function FormFieldEditorRow({
 
 /**
  * Conversion-tab card for form fields already present in YAML.
- * No add/remove — only edit visible / required / default / component_renderer.
+ * No add/remove — only edit visible / required / default / component_renderer / source paths.
  */
 export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
   const [editing, setEditing] = useState(false);
@@ -333,14 +380,19 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
           exactly one of{" "}
           <code className="font-mono text-[10px]">content_type</code>,{" "}
           <code className="font-mono text-[10px]">database</code>, or{" "}
-          <code className="font-mono text-[10px]">relation</code>. Catalogs (
+          <code className="font-mono text-[10px]">related_field</code>. Catalogs (
           <code className="font-mono text-[10px]">content_type</code> /{" "}
           <code className="font-mono text-[10px]">database</code>) load{" "}
           <code className="font-mono text-[10px]">/api/query-options</code>.{" "}
-          <code className="font-mono text-[10px]">relation</code> reads this entry&apos;s field (e.g.{" "}
-          <code className="font-mono text-[10px]">programs</code> on _common.yml). Ecommerce catalogs
-          must set <code className="font-mono text-[10px]">query: purchasable=true</code> unless this
-          is a non-product program page (that slug / relation only).{" "}
+          <code className="font-mono text-[10px]">related_field</code> is this entry&apos;s field
+          name (e.g. <code className="font-mono text-[10px]">programs</code> on _common.yml); that
+          field&apos;s editor describes the other type. Every source needs{" "}
+          <code className="font-mono text-[10px]">value_path</code> (property used as the option
+          value) and <code className="font-mono text-[10px]">label_path</code> (visible text) —
+          not the form field name and not{" "}
+          <code className="font-mono text-[10px]">routes[].conditions.value</code>. Ecommerce
+          catalogs must set <code className="font-mono text-[10px]">query: purchasable=true</code>{" "}
+          unless this is a non-product program page (that slug / related_field only).{" "}
           <code className="font-mono text-[10px]">purchasable</code> on the Fields tab is read-only;{" "}
           <code className="font-mono text-[10px]">actively_selling</code> lives on _ecommerce.yml
           (store pause), not the form.
@@ -384,7 +436,7 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
               <code className="font-mono">shared/resolveFormFieldRelationSource.ts</code>
             </li>
             <li>
-              Do not combine <code className="font-mono">source.relation</code> with{" "}
+              Do not combine <code className="font-mono">source.related_field</code> with{" "}
               <code className="font-mono">slugs</code> — put allowed pointers on the entry field.
             </li>
           </ul>

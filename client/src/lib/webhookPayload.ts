@@ -9,7 +9,7 @@
  * body when calling the webhook test endpoint.
  *
  * `formSettingsPath` of `""` / `"."` means settings live at the section root (lead_form).
- * When `singleEntry` is provided and the form field uses `source.relation`, resolve
+ * When `singleEntry` is provided and the form field uses `source.related_field`, resolve
  * the program value from that entry field; otherwise fall back to authored `default`.
  */
 
@@ -55,17 +55,17 @@ function resolveProgramFromFormSettings(
 
   if (sourceRaw != null && opts?.singleEntry) {
     const src = parseFormFieldSource(
-      sourceRaw as string | { name?: string; relation?: string },
+      sourceRaw as string | { related_field?: string; content_type?: string },
     );
-    if (src.relation) {
+    if (src.related_field) {
       const resolved = resolveFormFieldRelationSource({
         formFieldName: "program",
-        relationField: src.relation,
+        relationField: src.related_field,
         singleEntry: opts.singleEntry,
-        editorHint: opts.editor?.[src.relation],
+        editorHint: opts.editor?.[src.related_field],
         requireCatalogHit: false,
-        valuePath: src.value,
-        labelPath: src.label,
+        valuePath: src.value_path,
+        labelPath: src.label_path,
       });
       if (resolved.ok && resolved.options.length > 0) {
         const card = applyChoiceCardinality(

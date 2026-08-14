@@ -72,9 +72,9 @@ import {
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
 import {
-  collectMissingCatalogQueries,
-  collectMissingCatalogQueriesFromUpdates,
-  missingCatalogQueryGate,
+  collectFormSourceHitsFromNode,
+  collectFormSourceHitsFromUpdates,
+  formSourceWriteGate,
 } from "../lib/catalog-form-source-gate.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
@@ -1400,11 +1400,29 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if ("gate" in layoutGate) return layoutGate.gate;
       const layoutTarget = layoutGate.target;
 
-      const catalogGate = missingCatalogQueryGate(
-        collectMissingCatalogQueriesFromUpdates(updates),
+      const pathInfo = pathForLayoutTarget({
+        contentPath,
+        contentType: resolved.contentType,
+        config: resolved.config,
+        slug,
+        locale,
+        layoutTarget,
+        variant,
+      });
+      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      const currentDoc = fs.existsSync(pathInfo.filePath)
+        ? safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {}
+        : {};
+      const catalogGate = formSourceWriteGate(
+        collectFormSourceHitsFromUpdates(updates, currentDoc),
         {
           tool: "update_fields",
           site,
+          contentType: resolved.contentType,
+          slug,
           retryArgs: {
             slug,
             locale,
@@ -1420,18 +1438,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       );
       if (catalogGate) return catalogGate;
 
-      const pathInfo = pathForLayoutTarget({
-        contentPath,
-        contentType: resolved.contentType,
-        config: resolved.config,
-        slug,
-        locale,
-        layoutTarget,
-        variant,
-      });
-      try { assertWithinBase(pathInfo.filePath, contentPath); } catch (e) {
-        return fail((e as Error).message);
-      }
       const commonFilePath = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug, "_common.yml");
 
       const localeEntries: Array<[string, unknown]> = [];
@@ -3118,11 +3124,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
       operations.push(addOp);
 
-      const catalogGate = missingCatalogQueryGate(
-        collectMissingCatalogQueries(sectionToAdd, "section"),
+      const catalogGate = formSourceWriteGate(
+        collectFormSourceHitsFromNode(sectionToAdd, "section"),
         {
           tool: "add_section",
           site,
+          contentType: resolved.contentType,
+          slug,
           retryArgs: {
             slug,
             locale,
@@ -4765,7 +4773,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                   enabled: true,
                   system_fields: [PURCHASABLE_FIELD],
                   description:
-                    "This type has at least one product in the ecommerce index (sidecar _ecommerce.yml with purchasable: true). Catalog lead forms should set source.query to purchasable=true unless this is a non-purchasable program page (use source.relation or query slug=<this>). Confirm subsets with the user. purchasable is computed — do not write it. actively_selling on _ecommerce.yml pauses the store; it is not the form filter.",
+                    "This type has at least one product in the ecommerce index (sidecar _ecommerce.yml with purchasable: true). Catalog lead forms should set source.query to purchasable=true unless this is a non-purchasable program page (use source.related_field or query slug=<this>). Confirm subsets with the user. purchasable is computed — do not write it. actively_selling on _ecommerce.yml pauses the store; it is not the form filter. source.value_path and source.label_path are required; do not guess them.",
                 }
               : {
                   enabled: false,

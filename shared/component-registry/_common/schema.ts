@@ -70,30 +70,31 @@ export const imageWithStyleSchema = z.object({
 
 export type ImageWithStyle = z.infer<typeof imageWithStyleSchema>;
 
-/** Catalog or entry-relation options source for choice fields. Object only. */
+/** Catalog or this-entry-field options source for choice fields. Object only. */
 export const leadFormFieldSourceSchema = z
   .object({
     content_type: z.string().optional(),
     database: z.string().optional(),
-    relation: z.string().optional(),
+    related_field: z.string().optional(),
     query: z.string().optional(),
-    value: z.string().optional(),
-    label: z.string().optional(),
+    value_path: z.string().min(1),
+    label_path: z.string().min(1),
   })
+  .strict()
   .superRefine((val, ctx) => {
-    const kinds = [val.content_type, val.database, val.relation].filter(
+    const kinds = [val.content_type, val.database, val.related_field].filter(
       (s) => typeof s === "string" && s.trim().length > 0,
     );
     if (kinds.length > 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "source cannot set more than one of content_type, database, or relation",
+        message: "source cannot set more than one of content_type, database, or related_field",
       });
     }
     if (kinds.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "source must set content_type, database, or relation",
+        message: "source must set content_type, database, or related_field",
       });
     }
   });

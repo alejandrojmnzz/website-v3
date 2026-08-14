@@ -12,51 +12,69 @@ import {
 } from "./resolveFormFieldRelationSource";
 import { buildRelationSystemHints, buildEditorSystemHints } from "./editorSystemHints";
 
+const relatedProgramSource = {
+  related_field: "programs",
+  value_path: "slug",
+  label_path: "title",
+};
+
 describe("parseFormFieldSourceStrict", () => {
-  it("parses catalog string shorthand", () => {
-    expect(parseFormFieldSourceStrict("program")).toEqual({
-      ok: true,
-      config: { content_type: "program", name: "program" },
-    });
+  it("rejects catalog string shorthand", () => {
+    const r = parseFormFieldSourceStrict("program");
+    expect(r.ok).toBe(false);
   });
 
-  it("parses content_type object", () => {
+  it("parses content_type object with paths", () => {
     expect(
       parseFormFieldSourceStrict({
         content_type: "program",
         query: "purchasable=true",
+        value_path: "bc_slug",
+        label_path: "title",
       }),
     ).toEqual({
       ok: true,
       config: {
         content_type: "program",
-        name: "program",
         query: "purchasable=true",
+        value_path: "bc_slug",
+        label_path: "title",
       },
     });
   });
 
-  it("parses relation object", () => {
-    expect(
-      parseFormFieldSourceStrict({ relation: "programs", value: "slug" }),
-    ).toEqual({
+  it("parses related_field object", () => {
+    expect(parseFormFieldSourceStrict(relatedProgramSource)).toEqual({
       ok: true,
-      config: { relation: "programs", value: "slug" },
+      config: relatedProgramSource,
     });
   });
 
-  it("rejects content_type + relation", () => {
+  it("rejects legacy relation / value / label", () => {
+    expect(parseFormFieldSourceStrict({ relation: "programs" }).ok).toBe(false);
+    expect(
+      parseFormFieldSourceStrict({
+        content_type: "program",
+        value: "bc_slug",
+        label: "title",
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("rejects missing value_path / label_path", () => {
     const r = parseFormFieldSourceStrict({
       content_type: "program",
-      relation: "programs",
+      query: "purchasable=true",
     });
     expect(r.ok).toBe(false);
   });
 
-  it("rejects name + relation", () => {
+  it("rejects content_type + related_field", () => {
     const r = parseFormFieldSourceStrict({
-      name: "program",
-      relation: "programs",
+      content_type: "program",
+      related_field: "programs",
+      value_path: "slug",
+      label_path: "title",
     });
     expect(r.ok).toBe(false);
   });
@@ -70,14 +88,21 @@ describe("parseFormFieldSourceStrict", () => {
 describe("buildQueryOptionsUrl", () => {
   it("requires content_type or database", () => {
     expect(() =>
-      buildQueryOptionsUrl({ relation: "programs" }),
+      buildQueryOptionsUrl({ related_field: "programs" }),
     ).toThrow(/content_type or source.database/);
   });
 
-  it("emits content_type and keeps source for callers", () => {
+  it("emits content_type and maps value_path/label_path to HTTP params", () => {
     expect(
-      buildQueryOptionsUrl({ content_type: "program", query: "purchasable=true" }),
-    ).toBe("/api/query-options?content_type=program&source=program&purchasable=true");
+      buildQueryOptionsUrl({
+        content_type: "program",
+        query: "purchasable=true",
+        value_path: "bc_slug",
+        label_path: "title",
+      }),
+    ).toBe(
+      "/api/query-options?content_type=program&source=program&value=bc_slug&label=title&purchasable=true",
+    );
   });
 });
 
@@ -93,12 +118,13 @@ describe("extractRelationOptionItems", () => {
     }
   });
 
-  it("reads hydrated objects", () => {
+  it("reads hydrated objects using only authored paths", () => {
     const r = extractRelationOptionItems(
       [
         { slug: "ai-engineering", title: "AI Engineering", bc_slug: "aie" },
       ],
       "slug",
+      "title",
     );
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -108,6 +134,15 @@ describe("extractRelationOptionItems", () => {
         bc_slug: "aie",
       });
     }
+  });
+
+  it("does not guess value_path on hydrated objects", () => {
+    const r = extractRelationOptionItems(
+      [{ title: "AI Engineering", bc_slug: "aie" }],
+      "slug",
+      "title",
+    );
+    expect(r.ok).toBe(false);
   });
 
   it("treats empty string as empty", () => {
@@ -131,6 +166,8 @@ describe("resolveFormFieldRelationSource", () => {
       relationField: "programs",
       singleEntry: { programs: ["ai-engineering"] },
       editorHint: hint,
+      valuePath: "slug",
+      labelPath: "title",
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -145,11 +182,13 @@ describe("resolveFormFieldRelationSource", () => {
       relationField: "programs",
       singleEntry: { programs: [] },
       editorHint: hint,
+      valuePath: "slug",
+      labelPath: "title",
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe("empty");
-      expect(r.error).toContain("fields.program.source.relation");
+      expect(r.error).toContain("fields.program.source.related_field");
       expect(r.error).toContain("programs");
       expect(r.staffMessage.length).toBeGreaterThan(20);
     }
@@ -161,6 +200,8 @@ describe("resolveFormFieldRelationSource", () => {
       relationField: "programs",
       singleEntry: {},
       editorHint: undefined,
+      valuePath: "slug",
+      labelPath: "title",
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("missing_hint");
@@ -174,6 +215,8 @@ describe("resolveFormFieldRelationSource", () => {
       editorHint: hint,
       catalogByPointer: new Map([["ai-engineering", { label: "AI" }]]),
       requireCatalogHit: true,
+      valuePath: "slug",
+      labelPath: "title",
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -193,6 +236,8 @@ describe("resolveFormFieldRelationSource", () => {
         value: "slug",
         multiple: true,
       },
+      valuePath: "slug",
+      labelPath: "title",
     });
     expect(r.ok).toBe(true);
   });
@@ -244,7 +289,7 @@ describe("buildRelationSystemHints", () => {
       required: true,
     });
     expect(hints.some((h) => h.includes('"authors"'))).toBe(true);
-    expect(hints.some((h) => h.includes("source.relation: \"authors\""))).toBe(
+    expect(hints.some((h) => h.includes("source.related_field: \"authors\""))).toBe(
       true,
     );
     expect(hints.every((h) => !h.toLowerCase().includes("crm"))).toBe(true);
@@ -256,11 +301,7 @@ describe("buildRelationSystemHints", () => {
 });
 
 describe("parseFormFieldSource compat", () => {
-  it("still parses catalog strings", () => {
-    expect(parseFormFieldSource("program:slug=a")).toEqual({
-      content_type: "program",
-      name: "program",
-      query: "slug=a",
-    });
+  it("does not invent mapping from string shorthand", () => {
+    expect(parseFormFieldSource("program:slug=a")).toEqual({});
   });
 });

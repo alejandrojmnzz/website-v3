@@ -9,27 +9,44 @@ Lead-form (and nested `form:`) choice fields load options from `fields.*.source`
 source:
   content_type: program
   query: "purchasable=true"
+  value_path: bc_slug
+  label_path: title
 
 # Subset of that catalog
 source:
   content_type: program
   query: "slug=ai-fluency,ai-flex"
+  value_path: bc_slug
+  label_path: title
 
-# This entry’s relation pointers (landings / program pages that already inherit products)
+# This entry’s related-field pointers (landings / program pages that already inherit products)
 source:
-  relation: programs
+  related_field: programs
+  value_path: slug
+  label_path: title
 
 # Private database catalog
 source:
   database: some_db
   query: "status=open"
+  value_path: slug
+  label_path: title
 ```
 
-- Exactly one of `content_type` | `database` | `relation`.
-- Runtime still reads legacy `name` / string shorthand during migration; do not write them.
+- Exactly one of `content_type` | `database` | `related_field`.
+- `value_path` and `label_path` are **required** whenever `source` is set. They are dot-paths on each catalog or related item — not the form field name, not `editor.<field>.value`, and not `routes[].conditions.value`.
+- Do not write `relation`, `value`, `label`, `name`, or string shorthand.
+- Runtime does not guess mapping. Omit paths → MCP `actionRequired` (`source_value_label_path_required`). Confirm both paths with the user after `get_content_type_info` / `get_entry_content`.
 - `options[]` overlays marketing labels — **does not filter**.
 - `slugs` is ignored when `source` is set.
 - EN and ES are separate files — no locale fan-out.
+
+## Typical paths (4geeks corpus — confirm with the user)
+
+| Source kind | Typical `value_path` | Typical `label_path` | Submitted value |
+|---|---|---|---|
+| Catalog `content_type: program` | `bc_slug` | `title` | option.value (`bc_slug`) |
+| `related_field: programs` | `slug` | `title` | pointer slug; submit may remap to `bc_slug` when present |
 
 ## `purchasable` vs `actively_selling`
 
@@ -43,15 +60,16 @@ Ecommerce **on** for a content type = that type has **at least one** product in 
 ## Playbook
 
 1. `explain_site` topic `lead-forms` (this file).
-2. `get_content_type_info` → `ecommerce.enabled` + `system_fields: ["purchasable"]`.
-3. `query_options` with `content_type` XOR `database`. **Unfiltered unless `query` is passed.** Items include `purchasable` when the type has ecommerce. Confirm the subset with the user.
-4. Catalog forms on an ecommerce type **must** set `source.query`. Typical: `purchasable=true`. Exception: form **on a non-purchasable program page** → that program only (`source.relation` or `query: "slug=<this>"`), not the vendible catalog. Purchasable program pages that already inherit one product: leave relation/inherit.
-5. Writes of `source.content_type` on an ecommerce type **without** `query` return `actionRequired` (`catalog_source_query_required`) with proposed `purchasable=true` or a slug subset. Re-call `update_fields` / `add_section` with query set. Real tools only — no `validate_content`.
-6. `get_entry_fields` / `get_entry_content` show computed `purchasable` (`writable: false`). Do **not** write `single.purchasable`. Edit `_ecommerce.yml` or `get_product_funnel` / `update_product_funnel`.
+2. `get_content_type_info` → `ecommerce.enabled` + `system_fields: ["purchasable"]` + `field_mapping` / `relation_fields`.
+3. `get_entry_fields` / `get_entry_content` — this entry’s pointers (`programs: […]`), computed `purchasable`, and current form YAML.
+4. Confirm the subset with the user: vendible catalog (`query: purchasable=true`) vs slug subset vs `related_field`.
+5. Catalog forms on an ecommerce type **must** set `source.query`. Typical: `purchasable=true`. Exception: form **on a non-purchasable program page** → that program only (`source.related_field` or `query: "slug=<this>"`), not the vendible catalog. Purchasable program pages that already inherit one product: leave related_field/inherit.
+6. Writes missing `query` and/or `value_path`/`label_path` return `actionRequired`. Re-call `update_fields` / `add_section` with the merged source complete. Real tools only — no `validate_content`. Do **not** guess paths.
+7. `get_entry_fields` / `get_entry_content` show computed `purchasable` (`writable: false`). Do **not** write `single.purchasable`. Edit `_ecommerce.yml` or `get_product_funnel` / `update_product_funnel`.
 
 ## Non-effects
 
-- `/api/query-options` and `query_options` do **not** auto-filter purchasable (relation pickers need the full list).
+- `/api/query-options` is the staff/runtime catalog HTTP API (CMS pickers + LeadForm). There is **no** MCP catalog-preview tool.
 - `mergeLeadFormOptions` does not choose which programs appear.
 - `actively_selling: false` does not remove a product from a `purchasable=true` form query in this cut.
 - Navbar is not an offer catalog.

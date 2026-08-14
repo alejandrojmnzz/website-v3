@@ -275,6 +275,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useEditModeOptional, type PreviewBreakpoint } from "@/contexts/EditModeContext";
+import { getPreviewDevice, type PreviewDeviceId } from "@/lib/preview-devices";
 const DbTemplateWarningDialog = lazy(() =>
   import("@/components/editing/DbTemplateWarningDialog").then((m) => ({ default: m.DbTemplateWarningDialog }))
 );
@@ -584,11 +585,24 @@ export function renderSection(section: Section, index: number, pageContext?: Sec
 }
 
 
-// Mobile Preview using real iframe for proper media query support
-function MobilePreviewFrame({ sections }: { sections: Section[] }) {
+// Device preview using a real iframe so media queries match CSS-pixel viewports
+function MobilePreviewFrame({ sections, deviceId }: { sections: Section[]; deviceId?: PreviewDeviceId }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const device = getPreviewDevice(deviceId);
+  const [scale, setScale] = useState(1);
 
-  // Send sections to iframe
+  useEffect(() => {
+    const updateScale = () => {
+      const captionAndPadding = 96;
+      const availW = Math.max(120, window.innerWidth - 32);
+      const availH = Math.max(120, window.innerHeight - captionAndPadding);
+      setScale(Math.min(1, availW / device.width, availH / device.height));
+    };
+    updateScale();
+    window.addEventListener("resize", updateScale);
+    return () => window.removeEventListener("resize", updateScale);
+  }, [device.width, device.height]);
+
   const sendToIframe = () => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow) return;
@@ -598,7 +612,6 @@ function MobilePreviewFrame({ sections }: { sections: Section[] }) {
     iframe.contentWindow.postMessage({ type: 'theme-update', theme }, '*');
   };
 
-  // Listen for iframe ready message and send sections
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'preview-ready') {
@@ -610,31 +623,46 @@ function MobilePreviewFrame({ sections }: { sections: Section[] }) {
     return () => window.removeEventListener('message', handleMessage);
   }, [sections]);
 
-  // Re-send when sections change
   useEffect(() => {
     sendToIframe();
   }, [sections]);
 
   const handleIframeLoad = () => {
-    // Send after iframe loads
     setTimeout(sendToIframe, 100);
   };
 
+  const isTablet = device.group === "tablet";
+
   return (
-    <div className="flex justify-center bg-muted/50 min-h-screen py-8">
-      <div 
-        className="w-[375px] bg-background shadow-2xl rounded-[32px] overflow-hidden border-4 border-foreground/20 relative"
-        style={{ height: 'calc(100vh - 4rem)' }}
+    <div className="flex flex-col items-center justify-center bg-muted/50 min-h-screen py-8 px-4 gap-3">
+      <p className="text-xs text-muted-foreground tabular-nums" data-testid="preview-device-caption">
+        {device.label} · {device.width} × {device.height}
+      </p>
+      <div
+        style={{
+          width: device.width * scale,
+          height: device.height * scale,
+        }}
       >
-        {/* Phone notch */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-foreground/20 rounded-b-xl z-10" />
-        <iframe
-          ref={iframeRef}
-          onLoad={handleIframeLoad}
-          src="/preview-frame"
-          className="w-full h-full border-0"
-          title="Vista previa móvil"
-        />
+        <div
+          className={`bg-background shadow-2xl overflow-hidden outline outline-4 outline-foreground/20 origin-top-left ${
+            isTablet ? "rounded-[20px]" : "rounded-[32px]"
+          }`}
+          style={{
+            width: device.width,
+            height: device.height,
+            transform: `scale(${scale})`,
+          }}
+        >
+          <iframe
+            ref={iframeRef}
+            onLoad={handleIframeLoad}
+            src="/preview-frame"
+            className="block border-0"
+            style={{ width: device.width, height: device.height }}
+            title={`Vista previa · ${device.label}`}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1714,7 +1742,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
   if (isMobilePreview) {
     return (
-      <MobilePreviewFrame sections={sections} />
+      <MobilePreviewFrame sections={sections} deviceId={editMode?.previewDeviceId} />
     );
   }
 

@@ -4,8 +4,15 @@ import { editContent } from "@/lib/contentApi";
 import { navigate } from "wouter/use-browser-location";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { queryClient } from "@/lib/queryClient";
+import {
+  DEFAULT_PREVIEW_DEVICE_ID,
+  PREVIEW_DEVICE_KEY,
+  migrateLegacyPreviewDevice,
+  type PreviewDeviceId,
+} from "@/lib/preview-devices";
 
 export type PreviewBreakpoint = 'desktop' | 'mobile';
+export type { PreviewDeviceId };
 
 const PREVIEW_BREAKPOINT_KEY = '4geeks_preview_breakpoint';
 const EDIT_MODE_KEY = '4geeks_edit_mode';
@@ -15,6 +22,26 @@ function getStoredPreviewBreakpoint(): PreviewBreakpoint {
   const stored = localStorage.getItem(PREVIEW_BREAKPOINT_KEY);
   if (stored === 'mobile' || stored === 'desktop') return stored;
   return 'desktop';
+}
+
+function getStoredPreviewDeviceId(): PreviewDeviceId {
+  if (typeof localStorage === 'undefined') return DEFAULT_PREVIEW_DEVICE_ID;
+  return migrateLegacyPreviewDevice(
+    localStorage.getItem(PREVIEW_DEVICE_KEY),
+    localStorage.getItem(PREVIEW_BREAKPOINT_KEY),
+  );
+}
+
+function persistPreviewSelection(breakpoint: PreviewBreakpoint, deviceId: PreviewDeviceId) {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(PREVIEW_BREAKPOINT_KEY, breakpoint);
+  localStorage.setItem(PREVIEW_DEVICE_KEY, deviceId);
+}
+
+function clearPreviewSelectionStorage() {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(PREVIEW_BREAKPOINT_KEY);
+  localStorage.removeItem(PREVIEW_DEVICE_KEY);
 }
 
 function getStoredEditMode(): boolean {
@@ -74,7 +101,9 @@ interface EditModeContextValue {
   isSaving: boolean;
   saveChanges: (pageKey: string, contentType: string, slug: string, locale: string) => Promise<boolean>;
   previewBreakpoint: PreviewBreakpoint;
+  previewDeviceId: PreviewDeviceId;
   setPreviewBreakpoint: (breakpoint: PreviewBreakpoint) => void;
+  setPreviewDevice: (deviceId: PreviewDeviceId) => void;
   togglePreviewBreakpoint: () => void;
   /** Slugs that have already been prompted for first-edit this session. */
   promptedPageSlugs: Set<string>;
@@ -100,25 +129,34 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   const [pendingChanges, setPendingChanges] = useState<Map<string, EditOperation[]>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
   const [previewBreakpoint, setPreviewBreakpointState] = useState<PreviewBreakpoint>(getStoredPreviewBreakpoint);
+  const [previewDeviceId, setPreviewDeviceIdState] = useState<PreviewDeviceId>(getStoredPreviewDeviceId);
   const [promptedPageSlugs, setPromptedPageSlugs] = useState<Set<string>>(new Set());
   const contentTypesMap = useContentTypes();
   const contentTypesRef = useRef(contentTypesMap);
 
   const setPreviewBreakpoint = (breakpoint: PreviewBreakpoint) => {
     setPreviewBreakpointState(breakpoint);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(PREVIEW_BREAKPOINT_KEY, breakpoint);
-    }
+    persistPreviewSelection(breakpoint, previewDeviceId);
+  };
+
+  const setPreviewDevice = (deviceId: PreviewDeviceId) => {
+    setPreviewDeviceIdState(deviceId);
+    setPreviewBreakpointState("mobile");
+    persistPreviewSelection("mobile", deviceId);
   };
 
   const togglePreviewBreakpoint = () => {
     setPreviewBreakpointState(prev => {
       const next = prev === 'desktop' ? 'mobile' : 'desktop';
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(PREVIEW_BREAKPOINT_KEY, next);
-      }
+      persistPreviewSelection(next, previewDeviceId);
       return next;
     });
+  };
+
+  const resetPreviewOnLeaveEdit = () => {
+    setPreviewBreakpointState("desktop");
+    setPreviewDeviceIdState(DEFAULT_PREVIEW_DEVICE_ID);
+    clearPreviewSelectionStorage();
   };
 
   const persistEditMode = (value: boolean) => {
@@ -140,6 +178,7 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     setIsEditMode(false);
     persistEditMode(false);
     setSelectedSectionIndex(null);
+    resetPreviewOnLeaveEdit();
   };
 
   const toggleEditMode = () => {
@@ -148,6 +187,7 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
       persistEditMode(next);
       if (prev) {
         setSelectedSectionIndex(null);
+        resetPreviewOnLeaveEdit();
       }
       return next;
     });
@@ -261,7 +301,9 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     isSaving,
     saveChanges,
     previewBreakpoint,
+    previewDeviceId,
     setPreviewBreakpoint,
+    setPreviewDevice,
     togglePreviewBreakpoint,
     promptedPageSlugs,
     markPagePrompted,

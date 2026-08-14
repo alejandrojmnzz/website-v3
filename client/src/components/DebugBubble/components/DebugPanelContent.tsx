@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Smartphone, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Monitor, MonitorSmartphone, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Smartphone, Stethoscope, Sun, Tablet, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -11,8 +11,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { normalizeLocale } from "@/lib/locale";
 import { saveEditModeScrollPosition } from "@/lib/editModeScroll";
+import { getPreviewDevice, PREVIEW_PHONES, PREVIEW_TABLETS, type PreviewDeviceId } from "@/lib/preview-devices";
+import type { PreviewBreakpoint } from "@/contexts/EditModeContext";
 import { GitHubSyncChip } from "./GitHubSyncChip";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
 import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
@@ -39,8 +42,10 @@ import type {
 interface EditModeState {
   isEditMode: boolean;
   toggleEditMode: () => void;
-  previewBreakpoint: string;
-  setPreviewBreakpoint: (bp: string) => void;
+  previewBreakpoint: PreviewBreakpoint;
+  previewDeviceId: PreviewDeviceId;
+  setPreviewBreakpoint: (bp: PreviewBreakpoint) => void;
+  setPreviewDevice: (id: PreviewDeviceId) => void;
 }
 
 interface BreathecodeHost {
@@ -235,6 +240,113 @@ function ExpandableMenuItem({ icon: Icon, label, expanded, onToggle, testId, act
         </div>
       )}
     </div>
+  );
+}
+
+function PreviewDeviceMenu({ editMode }: { editMode: EditModeState }) {
+  const isDevicePreview = editMode.previewBreakpoint === "mobile";
+  const activeDevice = isDevicePreview ? getPreviewDevice(editMode.previewDeviceId) : null;
+  const previewTitle = activeDevice
+    ? `Preview: ${activeDevice.label} (${activeDevice.width} × ${activeDevice.height})`
+    : "Preview: Desktop";
+
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          onClick={(e) => e.stopPropagation()}
+          className="p-1.5 rounded-full bg-muted text-muted-foreground transition-colors hover-elevate"
+          data-testid="toggle-preview-breakpoint"
+          title={previewTitle}
+        >
+          <MonitorSmartphone className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="w-64 z-[10001]"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+          CSS viewport
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onClick={() => editMode.setPreviewBreakpoint("desktop")}
+          className={cn(
+            "text-xs gap-2",
+            !isDevicePreview && "bg-accent font-medium",
+          )}
+          data-testid="button-preview-desktop"
+        >
+          <Monitor className="h-3.5 w-3.5" />
+          Desktop
+          {!isDevicePreview && (
+            <Check className="h-3.5 w-3.5 ml-auto text-foreground" />
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {PREVIEW_PHONES.map((device) => {
+          const isActive = isDevicePreview && editMode.previewDeviceId === device.id;
+          return (
+            <DropdownMenuItem
+              key={device.id}
+              onClick={() => editMode.setPreviewDevice(device.id)}
+              className={cn("text-xs gap-2", isActive && "bg-accent font-medium")}
+              data-testid={`button-preview-${device.id}`}
+            >
+              <Smartphone className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{device.label}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+                {device.width} × {device.height}
+              </span>
+              {isActive && (
+                <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        {PREVIEW_TABLETS.map((device) => {
+          const isActive = isDevicePreview && editMode.previewDeviceId === device.id;
+          return (
+            <DropdownMenuItem
+              key={device.id}
+              onClick={() => editMode.setPreviewDevice(device.id)}
+              className={cn("text-xs gap-2", isActive && "bg-accent font-medium")}
+              data-testid={`button-preview-${device.id}`}
+            >
+              <Tablet className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{device.label}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+                {device.width} × {device.height}
+              </span>
+              {isActive && (
+                <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        <div
+          className="px-2 py-1.5 text-[10px] leading-snug text-muted-foreground space-y-1"
+          data-testid="preview-device-education"
+          onPointerDown={(e) => e.preventDefault()}
+        >
+          <p>
+            Named CSS viewports wrap the page in an iframe so Tailwind and media queries match a real device. Desktop is the unframed layout. Read mode clears the stored device.
+          </p>
+          <details>
+            <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
+            <ul className="mt-1 list-disc pl-3 space-y-0.5">
+              <li>Presets: <code className="bg-muted px-1 rounded">client/src/lib/preview-devices.ts</code></li>
+              <li>Storage: <code className="bg-muted px-1 rounded">4geeks_preview_device</code> in <code className="bg-muted px-1 rounded">EditModeContext.tsx</code></li>
+              <li>Iframe: <code className="bg-muted px-1 rounded">/preview-frame</code> (edit-mode only; public pages unchanged)</li>
+            </ul>
+          </details>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -531,16 +643,17 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   props.setSeoModalOpen(true);
                   props.fetchSeoPreview();
                 }}
-                className="px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground transition-colors hover-elevate"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground transition-colors hover-elevate"
                 data-testid="button-edit-seo"
                 title="Edit page SEO & meta tags"
               >
-                META
+                <Pencil className="h-3 w-3" />
+                Page Meta
               </button>
             )}
             {props.editMode && (
               <div
-                className="flex items-center bg-muted rounded-full p-0.5"
+                className="flex items-center bg-input rounded-full p-0.5"
                 data-testid="toggle-edit-mode"
               >
                 <button
@@ -565,7 +678,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                     props.editMode.isEditMode
                       ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground"
+                      : "text-foreground"
                   }`}
                   data-testid="button-edit-mode"
                 >
@@ -606,7 +719,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                     !props.editMode.isEditMode
                       ? "bg-foreground text-background shadow-sm"
-                      : "text-muted-foreground"
+                      : "text-foreground"
                   }`}
                   data-testid="button-read-mode"
                 >
@@ -615,43 +728,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </div>
             )}
             {props.editMode && props.editMode.isEditMode && (
-              <div
-                className="flex items-center bg-muted rounded-full p-0.5"
-                data-testid="toggle-preview-breakpoint"
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    props.editMode!.setPreviewBreakpoint('desktop');
-                  }}
-                  className={`p-1.5 rounded-full transition-colors ${
-                    props.editMode.previewBreakpoint === 'desktop'
-                      ? "bg-foreground text-background shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                  data-testid="button-preview-desktop"
-                  title="Preview desktop view"
-                >
-                  <Monitor className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    props.editMode!.setPreviewBreakpoint('mobile');
-                  }}
-                  className={`p-1.5 rounded-full transition-colors ${
-                    props.editMode.previewBreakpoint === 'mobile'
-                      ? "bg-foreground text-background shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                  data-testid="button-preview-mobile"
-                  title="Preview mobile view"
-                >
-                  <Smartphone className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              <PreviewDeviceMenu editMode={props.editMode} />
             )}
           </div>
         </div>

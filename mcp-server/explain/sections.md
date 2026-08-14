@@ -102,7 +102,7 @@ Lead forms (`lead_form` / embedded `form:` on hero, cta_banner, etc.) may includ
 - **Non-effects:** does not change field visibility or consents; does not add arbitrary payload keys beyond those overrides.
 - **Side effects:** changes conversion tracking, webhook event resolution, and success redirect/message for that submit only.
 - **Resolver:** `shared/resolveLeadFormRoute.ts`. Example: `site_4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml`.
-- **Next actions for agents:** add `routes` with `conditions`, ensure `value` matches submitted field values; validate with a real program `bc_slug` from form-options.
+- **Next actions for agents:** add `routes` with `conditions`, ensure `value` matches submitted field values (`source.value_path`, typically program `bc_slug`). See topic `lead-forms`.
 
 ### Lead form Fields card (Conversion tab)
 

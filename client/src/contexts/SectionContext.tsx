@@ -6,7 +6,7 @@ export interface SectionContextValue {
   contentType: string;
   slug: string;
   locale: string;
-  /** Current page entry bag (same as {{ single.* }}); used by form source.relation */
+  /** Current page entry bag (same as {{ single.* }}); used by form source.related_field */
   singleEntry?: Record<string, unknown>;
   variableFields?: Record<string, string>;
   variableKeys?: Record<string, string>;

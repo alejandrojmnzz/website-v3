@@ -32,6 +32,7 @@ import { useDebugAuth, getDebugToken, getDebugUserName, resolveAuthorName } from
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { locations } from "@/lib/locations";
 import { queryClient } from "@/lib/queryClient";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { LocaleFlag } from "./components/LocaleFlag";
 import { DebugPanelContent } from "./components/DebugPanelContent";
 import { useQuery } from "@tanstack/react-query";
@@ -64,6 +65,26 @@ import { PageErrorsModal, PER_PAGE_VALIDATORS } from "./components/PageErrorsMod
 import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
 import { SwitchSiteModal } from "./components/SwitchSiteModal";
+
+async function fetchPageDiagnostics(url: string): Promise<PageDiagnostics> {
+  const token = getDebugToken();
+  const res = await fetch(`/api/diagnostics/page?url=${encodeURIComponent(url)}`, {
+    headers: {
+      ...getSessionHeaders(),
+      ...(token ? { Authorization: `Token ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    let message = `Failed to load diagnostics (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.error === "string" && body.error) message = body.error;
+    } catch {}
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 const componentIconMap: Record<string, typeof Blocks> = {
   hero: Rocket,
   two_column: Columns2,
@@ -334,18 +355,21 @@ export function DebugBubble() {
   const [pageErrorsModalOpen, setPageErrorsModalOpen] = useState(false);
   const [pageDiagnostics, setPageDiagnostics] = useState<PageDiagnostics | null>(null);
   const [pageDiagnosticsLoading, setPageDiagnosticsLoading] = useState(false);
+  const [pageDiagnosticsError, setPageDiagnosticsError] = useState<string | null>(null);
+  const lastDiagnosticsUrlRef = useRef<string | null>(null);
 
   const refreshPageDiagnostics = async () => {
-    const url = pageDiagnostics?.url;
+    const url = pageDiagnostics?.url ?? lastDiagnosticsUrlRef.current;
     if (!url) return;
+    lastDiagnosticsUrlRef.current = url;
     setPageDiagnosticsLoading(true);
     try {
-      const res = await fetch(`/api/diagnostics/page?url=${encodeURIComponent(url)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPageDiagnostics(data);
-      }
-    } catch {}
+      const data = await fetchPageDiagnostics(url);
+      setPageDiagnostics(data);
+      setPageDiagnosticsError(null);
+    } catch (err) {
+      setPageDiagnosticsError(err instanceof Error ? err.message : "Failed to load diagnostics");
+    }
     setPageDiagnosticsLoading(false);
   };
 
@@ -443,6 +467,12 @@ export function DebugBubble() {
   useEffect(() => {
     if (!isDebugMode) {
       setPageDiagnostics(null);
+      setPageDiagnosticsError(null);
+      return;
+    }
+
+    // Production requires a staff token; wait until debug auth has applied it.
+    if (!import.meta.env.DEV && isValidated !== true) {
       return;
     }
 
@@ -457,15 +487,16 @@ export function DebugBubble() {
 
     if (!diagnosticsUrl) {
       setPageDiagnostics(null);
+      setPageDiagnosticsError(null);
       return;
     }
 
     const url = diagnosticsUrl;
-
-    const fetchDiagnostics = async (): Promise<PageDiagnostics | null> => {
-      const res = await fetch(`/api/diagnostics/page?url=${encodeURIComponent(url)}`);
-      if (!res.ok) return null;
-      return res.json();
+    lastDiagnosticsUrlRef.current = url;
+    const token = getDebugToken();
+    const authHeaders: Record<string, string> = {
+      ...getSessionHeaders(),
+      ...(token ? { Authorization: `Token ${token}` } : {}),
     };
 
     // Lazy validation: if this page has never been validated (no cache entry
@@ -478,21 +509,20 @@ export function DebugBubble() {
       try {
         await fetch("/api/validation/run-page", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify({ url, validators: PER_PAGE_VALIDATORS }),
         });
-        const refreshed = await fetchDiagnostics();
-        if (refreshed) return refreshed;
+        return await fetchPageDiagnostics(url);
       } catch {}
       return data;
     };
 
     setPageDiagnosticsLoading(true);
     setPageDiagnostics(null);
+    setPageDiagnosticsError(null);
     setPageErrorsModalOpen(false);
-    fetchDiagnostics()
+    fetchPageDiagnostics(url)
       .then(async (data) => {
-        if (!data) return;
         const finalData = await autoValidateIfNeverRun(data);
         setPageDiagnostics(finalData);
         // Auto-open from store issues (canonical truth) — not a parallel live list
@@ -504,9 +534,11 @@ export function DebugBubble() {
           setPageErrorsModalOpen(true);
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        setPageDiagnosticsError(err instanceof Error ? err.message : "Failed to load diagnostics");
+      })
       .finally(() => setPageDiagnosticsLoading(false));
-  }, [pathname, isDebugMode, contentInfo.type, contentInfo.slug, isPreviewPath]);
+  }, [pathname, isDebugMode, isValidated, contentInfo.type, contentInfo.slug, isPreviewPath]);
 
   const pageErrorCount = !pageDiagnostics ? 0 : (pageDiagnostics.issues?.filter(i => i.type === "error").length || 0);
 
@@ -1857,15 +1889,16 @@ export function DebugBubble() {
   };
 
   const handleOpenDiagnosticsForUrl = async (urlPath: string) => {
+    lastDiagnosticsUrlRef.current = urlPath;
     setPageDiagnosticsLoading(true);
     setPageDiagnostics(null);
+    setPageDiagnosticsError(null);
     setPageErrorsModalOpen(true);
     try {
-      const res = await fetch(`/api/diagnostics/page?url=${encodeURIComponent(urlPath)}`);
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await fetchPageDiagnostics(urlPath);
       setPageDiagnostics(data);
-    } catch {
+    } catch (err) {
+      setPageDiagnosticsError(err instanceof Error ? err.message : "Failed to load diagnostics");
     } finally {
       setPageDiagnosticsLoading(false);
     }
@@ -2563,6 +2596,8 @@ export function DebugBubble() {
         onOpenChange={setPageErrorsModalOpen}
         pageDiagnostics={pageDiagnostics}
         pageUrl={pageDiagnostics?.url}
+        loading={pageDiagnosticsLoading}
+        error={pageDiagnosticsError}
         onRefreshDiagnostics={refreshPageDiagnostics}
       />
       <SeoModal

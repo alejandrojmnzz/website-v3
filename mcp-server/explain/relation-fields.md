@@ -1,6 +1,6 @@
 # Relation fields + authors hubs
 
-## Forms may bind via `source.relation`
+## Forms may bind via `source.related_field`
 
 Lead-form (and other form-settings) choice fields can set:
 
@@ -8,14 +8,17 @@ Lead-form (and other form-settings) choice fields can set:
 fields:
   program:                    # payload / CRM key (unchanged)
     source:
-      relation: programs      # CT editor field name on this entry
+      related_field: programs # CT editor field name on this entry
+      value_path: slug
+      label_path: title
 ```
 
 - Reads `single.<field>` / the entry relation value (pointers on `_common.yml` for static types).
 - Do **not** hardcode `default` / `visible` / `slugs` for that list — cardinality comes from option count.
 - Mutually exclusive with `source.content_type` / `source.database` (catalog via `/api/query-options`). See topic `lead-forms`.
-- After migration: `source.relation` + `slugs` together → publish error.
+- `source.related_field` + `slugs` together → publish error.
 - Publish fails on empty / unknown pointers when a form binds that field; empty catalog does not.
+- `value_path` / `label_path` required. Typical on this corpus: `slug` / `title`. Not `editor.programs.value`. Confirm with the user.
 
 **Agent playbook**
 
@@ -23,10 +26,10 @@ fields:
 2. `get_content_type_info` → `relation_fields` + `system_hints`
 3. `get_entry_fields` → current value + `system_hints`
 4. `update_fields` path `<field>` = string[] pointers on `_common` (from hint.source catalog)
-5. Form YAML: `source.relation: <field>` (not hardcoded default/slugs)
+5. Form YAML: `source.related_field: <field>` plus `value_path` / `label_path` (not hardcoded default/slugs)
 6. Publish — gate until pointers valid/non-empty when forms bind that field
 
-**Non-effects:** Agents do not write `single.*` (derived). Filling the CT relation field is enough for all forms that share that `source.relation`.
+**Non-effects:** Agents do not write `single.*` (derived). Filling the CT relation field is enough for all forms that share that `source.related_field`. There is no MCP catalog-preview tool.
 
 ---
 

@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { getDebugToken } from "@/hooks/useDebugAuth";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
 import {
   IconAlertTriangle,
@@ -42,6 +44,8 @@ interface PageErrorsModalProps {
   onOpenChange: (open: boolean) => void;
   pageDiagnostics: PageDiagnostics | null;
   pageUrl?: string;
+  loading?: boolean;
+  error?: string | null;
   onRefreshDiagnostics?: () => Promise<void>;
 }
 
@@ -165,6 +169,8 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     onOpenChange,
     pageDiagnostics,
     pageUrl,
+    loading = false,
+    error = null,
     onRefreshDiagnostics,
   } = props;
 
@@ -204,9 +210,14 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
     try {
       const url = pageUrl ?? pageDiagnostics?.url;
       if (url) {
+        const token = getDebugToken();
         await fetch("/api/validation/run-page", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...getSessionHeaders(),
+            ...(token ? { Authorization: `Token ${token}` } : {}),
+          },
           body: JSON.stringify({
             url,
             validators: PER_PAGE_VALIDATORS,
@@ -286,9 +297,23 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                   </div>
                 )}
               </>
-            ) : "Loading diagnostics…"}
+            ) : loading ? (
+              "Loading diagnostics…"
+            ) : error ? (
+              "Could not load diagnostics"
+            ) : (
+              "No diagnostics available"
+            )}
           </DialogDescription>
         </DialogHeader>
+        {!pageDiagnostics && error && (
+          <div
+            className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+            data-testid="text-diagnostics-error"
+          >
+            {error}
+          </div>
+        )}
         {pageDiagnostics && (
           <div className="space-y-4">
             <Tabs
@@ -404,6 +429,23 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           </div>
         )}
         <DialogFooter>
+          {!pageDiagnostics && error && onRefreshDiagnostics && (
+            <Button
+              variant="default"
+              onClick={() => void onRefreshDiagnostics()}
+              disabled={loading}
+              data-testid="button-retry-diagnostics"
+            >
+              {loading ? (
+                <>
+                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                  Retrying…
+                </>
+              ) : (
+                "Retry"
+              )}
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-close-page-errors">
             Close
           </Button>

@@ -69,6 +69,7 @@ function pickString(obj: Record<string, unknown>, path: string): string | undefi
 export function extractRelationOptionItems(
   raw: unknown,
   valuePath: string,
+  labelPath?: string,
 ): {
   ok: true;
   items: Array<{ pointer: string; label?: string; bc_slug?: string }>;
@@ -79,23 +80,16 @@ export function extractRelationOptionItems(
 
   // Hydrated single object
   if (isPlainObject(raw) && !Array.isArray(raw)) {
-    const pointer =
-      pickString(raw, valuePath) ||
-      pickString(raw, "slug") ||
-      pickString(raw, "bc_slug") ||
-      pickString(raw, "id");
+    const pointer = pickString(raw, valuePath);
     if (!pointer) {
-      return { ok: false, error: "hydrated relation object is missing a slug/value" };
+      return { ok: false, error: "hydrated relation object is missing the value_path field" };
     }
     return {
       ok: true,
       items: [
         {
           pointer,
-          label:
-            pickString(raw, "title") ||
-            pickString(raw, "name") ||
-            pickString(raw, "label"),
+          label: labelPath ? pickString(raw, labelPath) : undefined,
           bc_slug: pickString(raw, "bc_slug"),
         },
       ],
@@ -130,23 +124,16 @@ export function extractRelationOptionItems(
           error: `relation array item at index ${i} must be a slug string or related object`,
         };
       }
-      const pointer =
-        pickString(el, valuePath) ||
-        pickString(el, "slug") ||
-        pickString(el, "bc_slug") ||
-        pickString(el, "id");
+      const pointer = pickString(el, valuePath);
       if (!pointer) {
         return {
           ok: false,
-          error: `relation array item at index ${i} is missing a slug/value`,
+          error: `relation array item at index ${i} is missing the value_path field`,
         };
       }
       items.push({
         pointer,
-        label:
-          pickString(el, "title") ||
-          pickString(el, "name") ||
-          pickString(el, "label"),
+        label: labelPath ? pickString(el, labelPath) : undefined,
         bc_slug: pickString(el, "bc_slug"),
       });
     }
@@ -175,7 +162,7 @@ export type ResolveFormFieldRelationSourceInput = {
   relationField: string;
   singleEntry: Record<string, unknown> | undefined | null;
   editorHint: RelationEditorHint | undefined | null;
-  /** Override value path on hydrated objects (default hint.value || slug) */
+  /** Override value path on hydrated objects (required from form source.value_path) */
   valuePath?: string;
   labelPath?: string;
   /**
@@ -192,7 +179,7 @@ export type ResolveFormFieldRelationSourceInput = {
 };
 
 /**
- * Resolve options for a form field bound with source.relation.
+ * Resolve options for a form field bound with source.related_field.
  */
 export function resolveFormFieldRelationSource(
   input: ResolveFormFieldRelationSourceInput,
@@ -207,8 +194,8 @@ export function resolveFormFieldRelationSource(
   } = input;
 
   const formPath = formFieldName
-    ? `fields.${formFieldName}.source.relation`
-    : `source.relation`;
+    ? `fields.${formFieldName}.source.related_field`
+    : `source.related_field`;
 
   if (!editorHint) {
     return {
@@ -232,10 +219,20 @@ export function resolveFormFieldRelationSource(
     };
   }
 
-  const valuePath =
-    input.valuePath || editorHint.value || "slug";
+  const valuePath = input.valuePath;
+  const labelPath = input.labelPath;
   const raw = singleEntry ? singleEntry[relationField] : undefined;
-  const extracted = extractRelationOptionItems(raw, valuePath);
+  if (!valuePath) {
+    return {
+      ok: false,
+      code: "invalid_shape",
+      relationField,
+      formFieldName,
+      error: `${formPath} requires value_path`,
+      staffMessage: `The form source for "${relationField}" is missing value_path (which property on each related item to use as the option value).`,
+    };
+  }
+  const extracted = extractRelationOptionItems(raw, valuePath, labelPath);
   if (!extracted.ok) {
     return {
       ok: false,
@@ -254,7 +251,7 @@ export function resolveFormFieldRelationSource(
       relationField,
       formFieldName,
       error: `${formPath} → entry "${relationField}" is empty (no pointers)`,
-      staffMessage: `Add at least one value to the "${relationField}" field on this entry (usually in _common.yml) before publishing. Forms that use source.relation: ${relationField} need it.`,
+      staffMessage: `Add at least one value to the "${relationField}" field on this entry (usually in _common.yml) before publishing. Forms that use source.related_field: ${relationField} need it.`,
     };
   }
 
@@ -274,9 +271,6 @@ export function resolveFormFieldRelationSource(
     }
 
     const label =
-      (input.labelPath &&
-        isPlainObject(raw) &&
-        pickString(raw as Record<string, unknown>, input.labelPath)) ||
       item.label ||
       catalog?.label ||
       deslugifyLabel(item.pointer);

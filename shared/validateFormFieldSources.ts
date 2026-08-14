@@ -20,7 +20,7 @@ export type FormFieldSourceIssue = {
     | "relation_empty"
     | "relation_broken_pointer"
     | "relation_invalid_shape";
-  /** e.g. fields.program.source.relation */
+  /** e.g. fields.program.source.related_field */
   formPath: string;
   /** CT field name when relation */
   relationField?: string;
@@ -99,7 +99,7 @@ function validateOneFormField(
 
   const formPath = `fields.${formFieldName}.source`;
   const parsed = parseFormFieldSourceStrict(
-    fieldCfg.source as string | { name?: string; relation?: string },
+    fieldCfg.source as string | { content_type?: string; database?: string; related_field?: string },
   );
   if (!parsed.ok) {
     issues.push({
@@ -109,7 +109,7 @@ function validateOneFormField(
       formFieldName,
       sectionIndex,
       message: `${formPath}: ${parsed.error}`,
-      staffMessage: `The form field "${formFieldName}" has an invalid source setting. Use exactly one of content_type, database, or relation — not more than one.`,
+      staffMessage: `The form field "${formFieldName}" has an invalid source setting. Use exactly one of content_type, database, or related_field — not more than one — plus value_path and label_path.`,
     });
     return issues;
   }
@@ -119,35 +119,35 @@ function validateOneFormField(
     Array.isArray(fieldCfg.slugs) &&
     fieldCfg.slugs.some((s) => typeof s === "string" && s.trim().length > 0);
 
-  if (config.relation && hasSlugs) {
+  if (config.related_field && hasSlugs) {
     issues.push({
       severity: "error",
       code: "relation_and_slugs",
-      formPath: `${formPath}.relation`,
-      relationField: config.relation,
+      formPath: `${formPath}.related_field`,
+      relationField: config.related_field,
       formFieldName,
       sectionIndex,
-      message: `${formPath}.relation: "${config.relation}" cannot be combined with fields.${formFieldName}.slugs — put allowed entries on the content field "${config.relation}" instead`,
-      staffMessage: `Remove the "slugs" list from form field "${formFieldName}". Allowed options should live on the entry field "${config.relation}" (usually in _common.yml).`,
+      message: `${formPath}.related_field: "${config.related_field}" cannot be combined with fields.${formFieldName}.slugs — put allowed entries on the content field "${config.related_field}" instead`,
+      staffMessage: `Remove the "slugs" list from form field "${formFieldName}". Allowed options should live on the entry field "${config.related_field}" (usually in _common.yml).`,
     });
   }
 
-  if (!config.relation) {
+  if (!config.related_field) {
     // Catalog source: empty options do not fail publish
     return issues;
   }
 
-  const relationPath = `${formPath}.relation`;
-  const catalog = opts.catalogsByRelationField?.get(config.relation);
+  const relationPath = `${formPath}.related_field`;
+  const catalog = opts.catalogsByRelationField?.get(config.related_field);
   const resolved = resolveFormFieldRelationSource({
     formFieldName,
-    relationField: config.relation,
+    relationField: config.related_field,
     singleEntry: opts.singleEntry,
-    editorHint: opts.editor?.[config.relation],
+    editorHint: opts.editor?.[config.related_field],
     catalogByPointer: catalog,
     requireCatalogHit: !!catalog && catalog.size > 0,
-    valuePath: config.value,
-    labelPath: config.label,
+    valuePath: config.value_path,
+    labelPath: config.label_path,
   });
 
   if (resolved.ok) return issues;
@@ -174,7 +174,7 @@ function validateOneFormField(
     severity: soft && !alwaysHard ? "warning" : "error",
     code: codeMap[resolved.code],
     formPath: relationPath,
-    relationField: config.relation,
+    relationField: config.related_field,
     formFieldName,
     sectionIndex,
     message: resolved.error,

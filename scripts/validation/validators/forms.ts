@@ -5,7 +5,7 @@
  * - conversion_name values that are set but not in the known conversion events list
  * - missing conversion_name when a bound form-settings object is present
  *   (absent nested forms, e.g. CTA-only heroes, are allowed)
- * - form fields.*.source.relation issues (empty/missing/broken/slugs combo)
+ * - form fields.*.source.related_field issues (empty/missing/broken/slugs combo)
  */
 
 import * as fs from "fs";
@@ -74,7 +74,7 @@ function contentTypeFromPath(filePath: string): string | null {
 export const formsValidator: Validator = {
   name: "forms",
   description:
-    "Validates form conversion_name and fields.*.source.relation (publish rules)",
+    "Validates form conversion_name and fields.*.source.related_field (publish rules)",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "forms",
