@@ -7,6 +7,7 @@ import {
   listRuntimeIssues,
   recordPublicNotFound,
   resetRuntimeIssuesForSite,
+  saveIssueProbe,
 } from "./runtime-issues-store";
 
 const CHROME =
@@ -95,5 +96,48 @@ describe("runtime-issues-store", () => {
     const empty = resetRuntimeIssuesForSite("site_test", contentRoot);
     expect(Object.keys(empty.issues)).toHaveLength(0);
     expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(0);
+  });
+
+  it("saveIssueProbe persists lastProbe and a later 404 keeps it", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/hello",
+      userAgent: CHROME,
+    });
+    const listed = listRuntimeIssues("site_test", { contentRoot });
+    const fp = listed.issues[0].fingerprint;
+    const saved = saveIssueProbe(
+      "site_test",
+      fp,
+      {
+        at: 1_700_000_000_000,
+        status: "redirect",
+        destination: "/us/page",
+        chained: false,
+        hops: ["/hello", "/us/page"],
+        httpStatus: 200,
+        matchType: "exact",
+      },
+      contentRoot,
+    );
+    expect(saved?.lastProbe?.status).toBe("redirect");
+    expect(saved?.lastProbe?.destination).toBe("/us/page");
+
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/hello",
+      userAgent: CHROME,
+      ts: Date.now(),
+    });
+    const again = listRuntimeIssues("site_test", { contentRoot }).issues[0];
+    expect(again.lastProbe?.status).toBe("redirect");
+    expect(again.lastProbe?.destination).toBe("/us/page");
+  });
+
+  it("saveIssueProbe returns null for an unknown fingerprint", () => {
+    expect(saveIssueProbe("site_test", "missing", { at: 1, status: "not_found" }, root())).toBeNull();
   });
 });

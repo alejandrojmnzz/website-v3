@@ -8,6 +8,18 @@ import type { ContentIndex } from "./content-index";
 
 export { isEmptyLocaleContent, isEmptyDetachedLocale };
 
+/**
+ * Public empty-locale 404s must not run when previewing a named variant.
+ * Draft-only detached entries have no live `{locale}.yml`; `force_variant`
+ * loads `{variant}.{locale}.yml` instead.
+ */
+export function skipEmptyLocaleGateForForceVariant(
+  forceVariant?: string | string[] | null,
+): boolean {
+  const value = Array.isArray(forceVariant) ? forceVariant[0] : forceVariant;
+  return typeof value === "string" && value.length > 0;
+}
+
 export function isEmptyDetachedLocaleEntry(opts: {
   contentType: string;
   slug: string;

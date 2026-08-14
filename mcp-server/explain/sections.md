@@ -31,12 +31,12 @@ Each section object must have a `type` field that maps to a registered React com
 To add a new section type you must:
 1. Create the React component in `client/src/components/sections/`
 2. Register the component type in `SectionRenderer`
-3. Add a schema entry in `4geeks-com/component-registry/<type>/v1/schema.yml`
-4. Add example YAML in `4geeks-com/component-registry/<type>/v1/`
+3. Add a schema entry in `shared/component-registry/<type>/v1.0/schema.yml` (platform default) or `{content_folder}/component-registry/<type>/v1.0/schema.yml` (site-only)
+4. Add example YAML next to that schema
 
 ## Component registry
 
-`4geeks-com/component-registry/` contains versioned schemas for each section component. Each component has:
+Two trees that must not share a `type` name: `shared/component-registry/` (platform defaults) and `{content_folder}/component-registry/` (site-only; folder from `sites.yml`). Resolve for a site = shared ∪ that site. Each component has:
 
 ```
 component-registry/

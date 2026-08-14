@@ -213,6 +213,23 @@ export function mergeSingleTemplate(
 }
 
 /**
+ * Live `{locale}.yml`, or `{variant}.{locale}.yml` when previewing a named variant.
+ * Used by detached shared-layout entries (draft-only has no live locale file).
+ */
+export function resolveDetachedEntryLocalePath(
+  entryDir: string,
+  locale: string,
+  entryVariant?: string,
+): string | null {
+  if (entryVariant) {
+    const variantPath = path.join(entryDir, `${entryVariant}.${locale}.yml`);
+    if (fs.existsSync(variantPath)) return variantPath;
+  }
+  const livePath = path.join(entryDir, `${locale}.yml`);
+  return fs.existsSync(livePath) ? livePath : null;
+}
+
+/**
  * True when a static shared-layout entry has a live `{slug}/{locale}.yml`.
  * Used by public delivery so missing slugs 404 instead of serving the empty
  * `single.*.yml` shell.
@@ -290,7 +307,10 @@ export async function loadDatabaseSinglePage(
   locale: string,
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
-  /** When set (attached shared-layout A/B), load `single.{variant}.{locale}.yml`. Ignored when detached. */
+  /**
+   * Attached: `single.{variant}.{locale}.yml` (template A/B).
+   * Detached: `{variant}.{locale}.yml` (entry preview, e.g. draft).
+   */
   templateVariant?: string,
 ): Promise<TemplatePage | null> {
   const resolvedRoot = contentRoot ?? getDefaultContentRoot();
@@ -307,9 +327,11 @@ export async function loadDatabaseSinglePage(
     const folder = getFolder(contentType, resolvedRoot);
     const entryDir = path.join(resolvedRoot, folder, slug);
     const commonPath = path.join(entryDir, "_common.yml");
-    const localePath = path.join(entryDir, `${locale}.yml`);
-    if (!fs.existsSync(localePath)) {
-      log.info(`[DatabaseSingle] Detached entry locale not found: ${contentType}/${slug}/${locale}.yml`);
+    const localePath = resolveDetachedEntryLocalePath(entryDir, locale, templateVariant);
+    if (!localePath) {
+      log.info(
+        `[DatabaseSingle] Detached entry locale not found: ${contentType}/${slug}/${templateVariant ? `${templateVariant}.` : ""}${locale}.yml`,
+      );
       return null;
     }
     let base: Record<string, unknown> = {};

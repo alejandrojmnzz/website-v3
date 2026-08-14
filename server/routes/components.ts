@@ -132,6 +132,12 @@ import {
   listAvailableMenus,
   getDirectory,
 } from "../content-types";
+import { isEntryDetached, isSharedLayoutType } from "../shared-layout-entry";
+import {
+  buildRawFileExplain,
+  localeFromYamlFilename,
+  rawFileRole,
+} from "../raw-file-explain";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
 import {
@@ -806,25 +812,30 @@ export function registerComponentsRoutes(app: Express): void {
         res.status(400).json({ error: `Unknown content type: ${contentType}` });
         return;
       }
-      const folder = getFolder(contentType);
+      const contentRoot = getContentRoot(res);
+      const folder = getFolder(contentType, contentRoot);
       const contentRootName = getContentRootName(res);
-      const baseDir = path.join(getContentRoot(res), folder);
+      const baseDir = path.join(contentRoot, folder);
+      const isSharedLayout = isSharedLayoutType(contentType, contentRoot);
 
       // Type-level single template: `_common.single.yml` (+ optional `single.{locale}.yml`)
       // When variantSlug is provided, load `single.{variantSlug}.{locale}.yml` instead.
       if (slug === "_common.single") {
         const variantSlug = req.query.variantSlug as string | undefined;
         const files: {
-          locale?: { path: string; content: string };
-          locales?: { path: string; content: string; locale: string }[];
-          common?: { path: string; content: string };
+          locale?: { path: string; content: string; role?: string; locale?: string };
+          locales?: { path: string; content: string; locale: string; role?: string }[];
+          common?: { path: string; content: string; role?: string };
         } = {};
+        let localeFallback = false;
+        let displayedLocale: string | null = null;
 
         const singleCommonPath = path.join(baseDir, "_common.single.yml");
         if (fs.existsSync(singleCommonPath)) {
           files.common = {
             path: `${contentRootName}/${folder}/_common.single.yml`,
             content: fs.readFileSync(singleCommonPath, "utf-8"),
+            role: rawFileRole({ isTemplate: true, isCommon: true, variantSlug }),
           };
         }
 
@@ -832,17 +843,25 @@ export function registerComponentsRoutes(app: Express): void {
           // Variant template: single.{variantSlug}.{locale}.yml
           let singleLocalePath = path.join(baseDir, `single.${variantSlug}.${locale}.yml`);
           if (!fs.existsSync(singleLocalePath)) {
-            singleLocalePath = path.join(baseDir, `single.${variantSlug}.en.yml`);
+            const fallbackPath = path.join(baseDir, `single.${variantSlug}.en.yml`);
+            if (fs.existsSync(fallbackPath)) {
+              localeFallback = true;
+              singleLocalePath = fallbackPath;
+            }
           }
           if (fs.existsSync(singleLocalePath)) {
+            const basename = path.basename(singleLocalePath);
+            displayedLocale = localeFromYamlFilename(basename);
             files.locale = {
-              path: `${contentRootName}/${folder}/${path.basename(singleLocalePath)}`,
+              path: `${contentRootName}/${folder}/${basename}`,
               content: fs.readFileSync(singleLocalePath, "utf-8"),
+              locale: displayedLocale ?? locale,
+              role: rawFileRole({ isTemplate: true, isCommon: false, variantSlug }),
             };
           }
         } else {
           // Default template: load every `single.{locale}.yml` (not variant files)
-          const localeFiles: { path: string; content: string; locale: string }[] = [];
+          const localeFiles: { path: string; content: string; locale: string; role: string }[] = [];
           if (fs.existsSync(baseDir)) {
             for (const name of fs.readdirSync(baseDir)) {
               const match = name.match(/^single\.([a-z]{2,5})\.yml$/i);
@@ -852,6 +871,7 @@ export function registerComponentsRoutes(app: Express): void {
                 path: `${contentRootName}/${folder}/${name}`,
                 content: fs.readFileSync(path.join(baseDir, name), "utf-8"),
                 locale: localeCode,
+                role: rawFileRole({ isTemplate: true, isCommon: false }),
               });
             }
           }
@@ -865,6 +885,7 @@ export function registerComponentsRoutes(app: Express): void {
           if (localeFiles.length > 0) {
             files.locales = localeFiles;
             files.locale = localeFiles[0];
+            displayedLocale = localeFiles[0].locale;
           }
         }
 
@@ -873,7 +894,23 @@ export function registerComponentsRoutes(app: Express): void {
           return;
         }
 
-        res.json({ exists: true, files, resolvedSlug: "_common.single" });
+        const hasLocaleFile = !!(files.locale || (files.locales && files.locales.length > 0));
+        const context = buildRawFileExplain({
+          contentRootName,
+          folder,
+          contentType,
+          slug: "_common.single",
+          isTemplate: true,
+          isSharedLayout,
+          detached: false,
+          requestedLocale: locale,
+          variantSlug,
+          localeFallback,
+          displayedLocale,
+          hasLocaleFile,
+        });
+
+        res.json({ exists: true, files, resolvedSlug: "_common.single", context });
         return;
       }
 
@@ -920,10 +957,11 @@ export function registerComponentsRoutes(app: Express): void {
         ? path.join(contentDir, `${variantSlug}.${locale}.yml`)
         : path.join(contentDir, `${locale}.yml`);
       const commonPath = path.join(contentDir, "_common.yml");
+      const detached = isSharedLayout ? isEntryDetached(contentType, resolvedSlug, contentRoot) : false;
 
       const files: {
-        locale?: { path: string; content: string };
-        common?: { path: string; content: string };
+        locale?: { path: string; content: string; role?: string; locale?: string };
+        common?: { path: string; content: string; role?: string };
       } = {};
 
       if (fs.existsSync(localePath)) {
@@ -932,12 +970,15 @@ export function registerComponentsRoutes(app: Express): void {
             ? `${contentRootName}/${folder}/${resolvedSlug}/${variantSlug}.${locale}.yml`
             : `${contentRootName}/${folder}/${resolvedSlug}/${locale}.yml`,
           content: fs.readFileSync(localePath, "utf-8"),
+          locale,
+          role: rawFileRole({ isTemplate: false, isCommon: false, variantSlug }),
         };
       }
       if (fs.existsSync(commonPath)) {
         files.common = {
           path: `${contentRootName}/${folder}/${resolvedSlug}/_common.yml`,
           content: fs.readFileSync(commonPath, "utf-8"),
+          role: rawFileRole({ isTemplate: false, isCommon: true, variantSlug }),
         };
       }
 
@@ -946,7 +987,22 @@ export function registerComponentsRoutes(app: Express): void {
         return;
       }
 
-      res.json({ exists: true, files, resolvedSlug });
+      const context = buildRawFileExplain({
+        contentRootName,
+        folder,
+        contentType,
+        slug: resolvedSlug,
+        isTemplate: false,
+        isSharedLayout,
+        detached,
+        requestedLocale: locale,
+        variantSlug,
+        localeFallback: false,
+        displayedLocale: files.locale ? locale : null,
+        hasLocaleFile: !!files.locale,
+      });
+
+      res.json({ exists: true, files, resolvedSlug, context });
     } catch (error) {
       log.error({ err: error }, "Error reading raw content file:");
       res.status(500).json({ error: "Failed to read content file" });

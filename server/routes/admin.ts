@@ -1254,39 +1254,19 @@ export function registerAdminRoutes(app: Express): void {
     const locale = (req.query.locale as string) || getDefaultLocale();
     const ci = getCI(res);
     const result = testRedirect(url, locale, ci);
-
-    if (result.match && result.resolvedTo) {
-      // External absolute URLs are outside this site's content index — treat as valid destinations.
-      if (/^https?:\/\//i.test(result.resolvedTo)) {
-        result.destinationExists = true;
-      } else {
-        const resolved = ci.resolveUrl(result.resolvedTo);
-        if (!resolved) {
-          result.destinationExists = false;
-        } else if (resolved.fromDatabase) {
-          try {
-            const { items } = await queryEntries(
-              { from: { contentType: resolved.contentType } },
-              {
-                db: getDB(res),
-                contentIndex: ci,
-                contentRoot: getContentRoot(res),
-              },
-            );
-            const exists = items.some(
-              (item) => String(item.slug) === resolved.slug,
-            );
-            result.destinationExists = exists;
-          } catch {
-            result.destinationExists = false;
-          }
-        } else {
-          result.destinationExists = true;
-        }
-      }
-    }
-
-    res.json(result);
+    const { enrichRedirectDestinationExists, makeQuerySlugExists } = await import(
+      "../runtime-issues-probe"
+    );
+    const enriched = await enrichRedirectDestinationExists(
+      result,
+      ci,
+      makeQuerySlugExists({
+        ci,
+        db: getDB(res),
+        contentRoot: getContentRoot(res),
+      }),
+    );
+    res.json(enriched);
   });
 
   // Update a custom regex redirect's from/to (inline editor)
@@ -3046,6 +3026,124 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "Failed to reset runtime issues:");
       res.status(500).json({ error: "Failed to reset runtime issues" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/probe", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    const fingerprint = typeof req.body?.fingerprint === "string" ? req.body.fingerprint.trim() : "";
+    if (!fingerprint) {
+      res.status(400).json({ error: "fingerprint is required" });
+      return;
+    }
+
+    try {
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const { getRuntimeIssue, saveIssueProbe } = await import("../runtime-issues-store");
+      const issue = getRuntimeIssue(siteName, fingerprint, site?.contentRoot);
+      if (!issue) {
+        res.status(404).json({ error: "Runtime issue not found" });
+        return;
+      }
+      const ci = getCI(res);
+      const {
+        probeRuntimePath,
+        makeQuerySlugExists,
+        requestOrigin,
+      } = await import("../runtime-issues-probe");
+      const probe = await probeRuntimePath({
+        path: issue.path,
+        locale: issue.locale,
+        origin: requestOrigin(req),
+        ci,
+        querySlugExists: makeQuerySlugExists({
+          ci,
+          db: getDB(res),
+          contentRoot: getContentRoot(res),
+        }),
+      });
+      const saved = saveIssueProbe(siteName, fingerprint, probe, site?.contentRoot);
+      res.json({ issue: saved });
+    } catch (err) {
+      log.error({ err }, "Failed to probe runtime issue:");
+      res.status(500).json({ error: "Failed to probe runtime issue" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/probe-bulk", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    const raw = req.body?.fingerprints;
+    if (!Array.isArray(raw)) {
+      res.status(400).json({ error: "fingerprints must be an array" });
+      return;
+    }
+    const fingerprints = Array.from(
+      new Set(raw.filter((f): f is string => typeof f === "string" && f.trim().length > 0).map((f) => f.trim())),
+    );
+
+    try {
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const { getRuntimeIssue, saveIssueProbe } = await import("../runtime-issues-store");
+      const {
+        probeRuntimePath,
+        makeQuerySlugExists,
+        requestOrigin,
+      } = await import("../runtime-issues-probe");
+      const ci = getCI(res);
+      const querySlugExists = makeQuerySlugExists({
+        ci,
+        db: getDB(res),
+        contentRoot: getContentRoot(res),
+      });
+      const origin = requestOrigin(req);
+      const concurrency = 3;
+      const updated: typeof fingerprints = [];
+      const failed: Array<{ fingerprint: string; error: string }> = [];
+      let cursor = 0;
+
+      async function worker() {
+        while (cursor < fingerprints.length) {
+          const index = cursor;
+          cursor += 1;
+          const fingerprint = fingerprints[index];
+          const issue = getRuntimeIssue(siteName, fingerprint, site?.contentRoot);
+          if (!issue) {
+            failed.push({ fingerprint, error: "not found" });
+            continue;
+          }
+          try {
+            const probe = await probeRuntimePath({
+              path: issue.path,
+              locale: issue.locale,
+              origin,
+              ci,
+              querySlugExists,
+            });
+            const saved = saveIssueProbe(siteName, fingerprint, probe, site?.contentRoot);
+            if (saved) updated.push(fingerprint);
+            else failed.push({ fingerprint, error: "save failed" });
+          } catch (err) {
+            failed.push({
+              fingerprint,
+              error: err instanceof Error ? err.message : "probe failed",
+            });
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(concurrency, Math.max(fingerprints.length, 1)) }, () => worker()),
+      );
+      res.json({ updated, failed });
+    } catch (err) {
+      log.error({ err }, "Failed to bulk-probe runtime issues:");
+      res.status(500).json({ error: "Failed to bulk-probe runtime issues" });
     }
   });
 

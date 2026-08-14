@@ -1,11 +1,25 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import { ArrowDown, ArrowUp, ArrowUpDown, Copy, ExternalLink, Link as LinkIcon, Route, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  CircleCheck,
+  Copy,
+  ExternalLink,
+  Link as LinkIcon,
+  Loader2,
+  Route,
+  TestTube,
+  X,
+} from "lucide-react";
 import { IconAlertTriangle, IconDownload, IconInfoCircle, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { AddRedirectDialog } from "@/components/editing/AddRedirectDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,8 +27,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -62,7 +78,8 @@ import {
   serializeRuntimeIssueSearch,
   type RuntimeIssueViewState,
 } from "./runtime-issues-url";
-import type { ByHour } from "@shared/runtime-issues";
+import type { ByHour, RuntimeIssueProbe } from "@shared/runtime-issues";
+import { isRuntimeIssueProbeSuccess } from "@shared/runtime-issues";
 
 interface RuntimeIssueRow {
   fingerprint: string;
@@ -79,6 +96,7 @@ interface RuntimeIssueRow {
   sources?: string[];
   byHour?: ByHour;
   count30?: number;
+  lastProbe?: RuntimeIssueProbe;
 }
 
 interface RuntimeIssuesResponse {
@@ -153,6 +171,146 @@ function useCopyToast() {
   };
 }
 
+function probeFailureToast(status: RuntimeIssueProbe["status"] | undefined): string {
+  switch (status) {
+    case "broken_redirect":
+      return "Redirect found but the destination is missing or still a 404.";
+    case "mismatch":
+      return "Redirect index and live HTTP disagree for this URL.";
+    case "loop":
+      return "Redirect cycle detected.";
+    default:
+      return "Still a 404 — no matching redirect or live page.";
+  }
+}
+
+function probeSourceLabel(probe: RuntimeIssueProbe): string {
+  if (probe.status === "page") return "It now resolves as a live page.";
+  if (probe.matchType === "canonical") {
+    return "A canonical URL match sends visitors to the destination below (not a custom YAML redirect).";
+  }
+  if (probe.destination && /^https?:\/\//i.test(probe.destination)) {
+    return "External destination (fetched):";
+  }
+  return "A redirect is implemented. Destination:";
+}
+
+function RuntimeIssueProbeControl({
+  issue,
+  hostname,
+  probing,
+  onTest,
+}: {
+  issue: RuntimeIssueRow;
+  hostname?: string;
+  probing: boolean;
+  onTest: () => void;
+}) {
+  const probe = issue.lastProbe;
+  const resolved = isRuntimeIssueProbeSuccess(probe?.status);
+  const destination = probe?.destination;
+  const destHref = destination ? publicPathHref(destination) : undefined;
+  const destFull = destHref ? fullPublicUrl(destHref, hostname) : undefined;
+
+  if (probing) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-6 px-1.5 text-xs shrink-0"
+        disabled
+        data-testid={`button-runtime-issue-testing-${issue.fingerprint}`}
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Test
+      </Button>
+    );
+  }
+
+  if (!resolved) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-6 px-1.5 text-xs shrink-0"
+        onClick={onTest}
+        data-testid={`button-runtime-issue-test-${issue.fingerprint}`}
+      >
+        <TestTube className="h-3.5 w-3.5" />
+        Test
+      </Button>
+    );
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0 shrink-0 text-status-online"
+          aria-label="Probe passed"
+          data-testid={`button-runtime-issue-resolved-${issue.fingerprint}`}
+        >
+          <CircleCheck className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-2 text-sm" data-testid={`popover-runtime-issue-resolved-${issue.fingerprint}`}>
+        <p className="font-medium text-foreground">This URL no longer 404s.</p>
+        <p className="text-muted-foreground">{probeSourceLabel(probe)}</p>
+        {destination ? (
+          <p className="font-mono text-xs break-all">
+            {destHref ? (
+              <a
+                href={destHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                {destination}
+              </a>
+            ) : (
+              destination
+            )}
+          </p>
+        ) : null}
+        {probe.chained && probe.hops && probe.hops.length > 1 ? (
+          <p className="text-xs text-muted-foreground">
+            <Badge variant="outline" className="text-[10px] mr-1">
+              Chained
+            </Badge>
+            {probe.hops.join(" → ")}
+          </p>
+        ) : null}
+        {issue.lastSeen > probe.at ? (
+          <p className="text-xs text-muted-foreground">
+            404 hits were still recorded after this test ({formatTs(issue.lastSeen)}).
+          </p>
+        ) : null}
+        {probe.at ? (
+          <p className="text-xs text-muted-foreground">Last tested {formatTs(probe.at)}</p>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7"
+          onClick={onTest}
+          data-testid={`button-runtime-issue-test-again-${issue.fingerprint}`}
+        >
+          Test again
+        </Button>
+        {destFull ? (
+          <p className="text-[10px] text-muted-foreground break-all">{destFull}</p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function RuntimeIssuePathMenu({
   path,
   hostname,
@@ -162,7 +320,7 @@ function RuntimeIssuePathMenu({
   path: string;
   hostname?: string;
   fingerprint: string;
-  onAddRedirect: (path: string) => void;
+  onAddRedirect: (path: string, fingerprint: string) => void;
 }) {
   const copy = useCopyToast();
   const relative = publicPathHref(path);
@@ -197,7 +355,7 @@ function RuntimeIssuePathMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => onAddRedirect(path)}
+          onClick={() => onAddRedirect(path, fingerprint)}
           data-testid={`menu-runtime-issue-add-redirect-${fingerprint}`}
         >
           <Route className="h-4 w-4" />
@@ -300,10 +458,14 @@ function SortIcon({
 export default function RuntimeIssuesTab() {
   const [pathname, setLocation] = useLocation();
   const searchString = useSearch();
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
-  const [redirectFrom, setRedirectFrom] = useState<string | null>(null);
+  const [redirectFrom, setRedirectFrom] = useState<{ path: string; fingerprint: string } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [probingIds, setProbingIds] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const view = useMemo(() => parseRuntimeIssueSearch(searchString), [searchString]);
   const { hideBots, filters, sortKey, sortDir } = view;
@@ -363,6 +525,93 @@ export default function RuntimeIssuesTab() {
     },
   });
 
+  function applyProbedIssue(issue: RuntimeIssueRow) {
+    queryClient.setQueryData<RuntimeIssuesResponse>(["/api/admin/runtime-issues", hideBots], (prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        issues: prev.issues.map((row) => (row.fingerprint === issue.fingerprint ? { ...row, ...issue } : row)),
+      };
+    });
+  }
+
+  const probeMutation = useMutation({
+    mutationFn: async (fingerprint: string) => {
+      const res = await apiFetch("/api/admin/runtime-issues/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint }),
+      });
+      if (!res.ok) throw new Error("Failed to test URL");
+      return res.json() as Promise<{ issue: RuntimeIssueRow }>;
+    },
+    onMutate: (fingerprint) => {
+      setProbingIds((prev) => new Set(prev).add(fingerprint));
+    },
+    onSuccess: (data) => {
+      if (data.issue) applyProbedIssue(data.issue);
+      if (!isRuntimeIssueProbeSuccess(data.issue?.lastProbe?.status)) {
+        toast({
+          title: "Still unresolved",
+          description: probeFailureToast(data.issue?.lastProbe?.status),
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (err) => {
+      toast({
+        title: "Test failed",
+        description: err instanceof Error ? err.message : "Failed to test URL",
+        variant: "destructive",
+      });
+    },
+    onSettled: (_data, _err, fingerprint) => {
+      setProbingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(fingerprint);
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+    },
+  });
+
+  const bulkProbeMutation = useMutation({
+    mutationFn: async (fingerprints: string[]) => {
+      const res = await apiFetch("/api/admin/runtime-issues/probe-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprints }),
+      });
+      if (!res.ok) throw new Error("Failed to retest selected URLs");
+      return res.json() as Promise<{ updated: string[]; failed: Array<{ fingerprint: string; error: string }> }>;
+    },
+    onMutate: (fingerprints) => {
+      setProbingIds(new Set(fingerprints));
+    },
+    onSuccess: (data) => {
+      const failedCount = data.failed?.length ?? 0;
+      toast({
+        title: "Retest finished",
+        description:
+          failedCount > 0
+            ? `${data.updated.length} updated, ${failedCount} failed.`
+            : `${data.updated.length} URL${data.updated.length === 1 ? "" : "s"} retested.`,
+      });
+      setSelected(new Set());
+    },
+    onError: (err) => {
+      toast({
+        title: "Bulk retest failed",
+        description: err instanceof Error ? err.message : "Failed to retest",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setProbingIds(new Set());
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+    },
+  });
+
   const issues = data?.issues ?? [];
   const filtersActive = isRuntimeIssueFiltersActive(filters);
 
@@ -384,6 +633,36 @@ export default function RuntimeIssuesTab() {
     () => applyRuntimeIssueView(issues, filters, sortKey, sortDir),
     [issues, filters, sortKey, sortDir],
   );
+
+  const visibleFingerprints = useMemo(
+    () => sortedIssues.map((issue) => issue.fingerprint),
+    [sortedIssues],
+  );
+  const allVisibleSelected =
+    visibleFingerprints.length > 0 && visibleFingerprints.every((fp) => selected.has(fp));
+  const someVisibleSelected = visibleFingerprints.some((fp) => selected.has(fp));
+  const bulkMode = selected.size > 0;
+
+  function toggleSelected(fingerprint: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(fingerprint);
+      else next.delete(fingerprint);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible(checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        for (const fp of visibleFingerprints) next.add(fp);
+      } else {
+        for (const fp of visibleFingerprints) next.delete(fp);
+      }
+      return next;
+    });
+  }
 
   const filteredHitCount = useMemo(
     () => sortedIssues.reduce((sum, issue) => sum + issue.count, 0),
@@ -429,63 +708,102 @@ export default function RuntimeIssuesTab() {
   return (
     <div className="space-y-6" data-testid="runtime-issues-tab">
       <Card style={{ borderRadius: "0.8rem" }} data-testid="runtime-issues-how-it-works">
-        <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
-          <p className="text-foreground font-medium flex items-center gap-2">
-            <IconInfoCircle className="h-4 w-4 shrink-0" />
-            How runtime issues work
-          </p>
-          <p>
-            Missing URLs that people, Google, LLMs, or social previews tried to open. File probes, SEO
-            scrapers, and <code className="text-xs font-mono">curl</code> are discarded. File 404s from
-            a 4Geeks referrer are kept (broken internal or old assets). Count is hits in the selected{" "}
-            <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window.
-            Badges are crawler vs SERP click vs LLM vs social on the same path (one row; tag sums can
-            exceed Count). Click a path or referrer to copy the URL or open it in a new tab (paths also
-            offer Add redirect).
-            Reset wipes the stored log including GCS.
-          </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-0 text-xs"
-            onClick={() => setShowAdvanced((v) => !v)}
-            data-testid="button-runtime-issues-read-more"
-          >
-            {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
-          </Button>
-          {showAdvanced && (
-            <ul className="list-disc pl-5 space-y-1 text-xs">
-              <li>
-                <code>shared/runtime-issues.ts</code> — classify hits, hard-drop probes/scrapers, UTC hour
-                buckets, timezone window sums
-              </li>
-              <li>
-                <code>server/runtime-issues-store.ts</code> — in-memory rollups + local/GCS flush
-              </li>
-              <li>
-                <code>server/vite.ts</code> — records public HTML 404s only (skips <code>/api</code> and{" "}
-                <code>/private</code>)
-              </li>
-              <li>
-                <code>client/src/components/diagnostics/runtime-issues-url.ts</code> — parse/serialize
-                query params (window, tz, source, pages-only)
-              </li>
-              <li>
-                <code>client/src/components/diagnostics/runtime-issues-filters.ts</code> — table and CSV
-                share one view (path contains, window, source)
-              </li>
-              <li>
-                <code>client/src/components/diagnostics/runtime-issues-csv.ts</code> — CSV from the same
-                filtered rows
-              </li>
-              <li>
-                Non-effects: does not auto-create redirects (use Add redirect on a row); not Search
-                Console; Google <code>q=</code> is stripped; does not change public 404 HTML;
-                last-write-wins can undercount across instances
-              </li>
-            </ul>
-          )}
-        </CardContent>
+        <Collapsible open={howItWorksOpen} onOpenChange={setHowItWorksOpen}>
+          <CardContent className="p-4 space-y-2 text-sm text-muted-foreground">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 text-foreground font-medium text-left"
+                aria-expanded={howItWorksOpen}
+                data-testid="button-runtime-issues-how-it-works"
+              >
+                <IconInfoCircle className="h-4 w-4 shrink-0" />
+                <span className="flex-1">How runtime issues work</span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${howItWorksOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2">
+              <p>
+                HTTP 404s from this site’s content index (the same catalog as Redirects / Test a URL) —
+                missing URLs that people, Google, LLMs, or social previews tried to open. A row is not
+                “the page failed to paint”: the SPA may still render chrome or even an article if the
+                client loaded by slug. File probes, SEO scrapers, and{" "}
+                <code className="text-xs font-mono">curl</code> are discarded. File 404s from a 4Geeks
+                referrer are kept (broken internal or old assets). Count is hits in the selected{" "}
+                <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window.
+                Badges are crawler vs SERP click vs LLM vs social on the same path (one row; tag sums can
+                exceed Count). Click a path or referrer to copy the URL or open it in a new tab (paths also
+                offer Add redirect). Test (and bulk Retest) walks this server’s redirects then HTTP-follows
+                until they stop. A green check means <code className="text-xs font-mono">status</code> is{" "}
+                <code className="text-xs font-mono">page</code> or <code className="text-xs font-mono">redirect</code> —
+                not a 404, and the final URL is a real page or a fetched external URL. CSV{" "}
+                <code className="text-xs font-mono">status</code> empty = never tested;{" "}
+                <code className="text-xs font-mono">not_found</code> = tested, still broken. This table is
+                public 404s only (not server exceptions). Reset wipes the stored log including GCS.{" "}
+                <code className="text-xs font-mono">/es/blog</code> is a <strong>page</strong> (slug{" "}
+                <code className="text-xs font-mono">blog</code>); post URLs follow the blog type{" "}
+                <code className="text-xs font-mono">url_pattern</code>.
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-0 text-xs"
+                onClick={() => setShowAdvanced((v) => !v)}
+                data-testid="button-runtime-issues-read-more"
+              >
+                {showAdvanced ? "Hide advanced" : "Read more (advanced)"}
+              </Button>
+              {showAdvanced && (
+                <ul className="list-disc pl-5 space-y-1 text-xs">
+                  <li>
+                    <code>shared/runtime-issues.ts</code> — classify hits, hard-drop probes/scrapers, UTC hour
+                    buckets, timezone window sums
+                  </li>
+                  <li>
+                    <code>server/runtime-issues-store.ts</code> — in-memory rollups + local/GCS flush
+                  </li>
+                  <li>
+                    <code>server/public-html-status.ts</code> — 200/404 from{" "}
+                    <code>res.locals.site.contentIndex</code> (not the global singleton);{" "}
+                    <code>server/vite.ts</code> records public HTML 404s only (skips <code>/api</code> and{" "}
+                    <code>/private</code>)
+                  </li>
+                  <li>
+                    <code>client/src/components/diagnostics/runtime-issues-url.ts</code> — parse/serialize
+                    query params (window, tz, source, pages-only)
+                  </li>
+                  <li>
+                    <code>client/src/components/diagnostics/runtime-issues-filters.ts</code> — table and CSV
+                    share one view (path contains, window, source)
+                  </li>
+                  <li>
+                    <code>server/runtime-issues-probe.ts</code> — index walk + HTTP follow; destination check
+                    shared with Redirects → Test a URL (<code>queryEntries</code> for DB slugs)
+                  </li>
+                  <li>
+                    <code>POST /api/admin/runtime-issues/probe</code> and{" "}
+                    <code>POST /api/admin/runtime-issues/probe-bulk</code> — save <code>lastProbe</code> on the
+                    404 row
+                  </li>
+                  <li>
+                    <code>client/src/components/diagnostics/runtime-issues-csv.ts</code> — CSV from the same
+                    filtered rows; appended <code>status</code>, <code>destination</code>, <code>chained</code>,{" "}
+                    <code>http_status</code>, <code>last_test_at</code>
+                  </li>
+                  <li>
+                    Non-effects: does not auto-create redirects (use Add redirect on a row); not Search
+                    Console; Google <code>q=</code> is stripped; does not change public 404 HTML;
+                    last-write-wins can undercount across instances and can drop a probe; existing GCS rows
+                    are not rewritten (reset or wait 30-day TTL); does not HTTP-hit{" "}
+                    <code>issue.hostname</code> / production from local; does not remove the row
+                  </li>
+                </ul>
+              )}
+            </CollapsibleContent>
+          </CardContent>
+        </Collapsible>
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -543,7 +861,39 @@ export default function RuntimeIssuesTab() {
         </div>
       </div>
 
-      {data && data.issues.length > 0 && (
+      {data && data.issues.length > 0 && bulkMode && (
+        <div className="flex flex-wrap items-center gap-3" data-testid="runtime-issues-bulk-bar">
+          <span className="text-sm" data-testid="runtime-issues-bulk-count">
+            {selected.size} selected
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => setSelected(new Set())}
+            data-testid="button-runtime-bulk-clear"
+          >
+            <X className="h-3.5 w-3.5 mr-1" />
+            Clear
+          </Button>
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={bulkProbeMutation.isPending || selected.size === 0}
+            onClick={() => bulkProbeMutation.mutate(Array.from(selected))}
+            data-testid="button-runtime-bulk-retest"
+          >
+            {bulkProbeMutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <TestTube className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            Retest for resolution
+          </Button>
+        </div>
+      )}
+
+      {data && data.issues.length > 0 && !bulkMode && (
         <div className="flex flex-wrap items-end gap-3" data-testid="runtime-issues-filters">
           <div className="space-y-1">
             <Label htmlFor="runtime-path-filter" className="text-xs text-muted-foreground">
@@ -711,6 +1061,14 @@ export default function RuntimeIssuesTab() {
               <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 pr-0">
+                    <Checkbox
+                      checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                      onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                      aria-label="Select all visible issues"
+                      data-testid="checkbox-runtime-select-all"
+                    />
+                  </TableHead>
                   <TableHead>Path</TableHead>
                   <TableHead>Locale</TableHead>
                   <TableHead className="text-right">
@@ -742,13 +1100,29 @@ export default function RuntimeIssuesTab() {
               <TableBody>
                 {sortedIssues.map((issue) => (
                   <TableRow key={issue.fingerprint} data-testid={`runtime-issue-${issue.fingerprint}`}>
+                    <TableCell className="w-10 pr-0">
+                      <Checkbox
+                        checked={selected.has(issue.fingerprint)}
+                        onCheckedChange={(checked) => toggleSelected(issue.fingerprint, checked === true)}
+                        aria-label={`Select ${issue.path}`}
+                        data-testid={`checkbox-runtime-issue-${issue.fingerprint}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-mono text-xs max-w-[320px]">
-                      <div className="min-w-0">
-                        <RuntimeIssuePathMenu
-                          path={issue.path}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="min-w-0">
+                          <RuntimeIssuePathMenu
+                            path={issue.path}
+                            hostname={issue.hostname}
+                            fingerprint={issue.fingerprint}
+                            onAddRedirect={(path, fingerprint) => setRedirectFrom({ path, fingerprint })}
+                          />
+                        </div>
+                        <RuntimeIssueProbeControl
+                          issue={issue}
                           hostname={issue.hostname}
-                          fingerprint={issue.fingerprint}
-                          onAddRedirect={setRedirectFrom}
+                          probing={probingIds.has(issue.fingerprint)}
+                          onTest={() => probeMutation.mutate(issue.fingerprint)}
                         />
                       </div>
                       <span className="flex flex-wrap gap-1 mt-1">
@@ -783,12 +1157,15 @@ export default function RuntimeIssuesTab() {
       )}
 
       <AddRedirectDialog
-        key={redirectFrom ?? "closed"}
+        key={redirectFrom?.fingerprint ?? "closed"}
         open={!!redirectFrom}
         onOpenChange={(open) => {
           if (!open) setRedirectFrom(null);
         }}
-        initialFrom={redirectFrom ?? ""}
+        initialFrom={redirectFrom?.path ?? ""}
+        onSuccess={() => {
+          if (redirectFrom) probeMutation.mutate(redirectFrom.fingerprint);
+        }}
       />
 
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>

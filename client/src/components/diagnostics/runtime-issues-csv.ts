@@ -14,7 +14,14 @@ export const RUNTIME_ISSUES_CSV_HEADERS = [
   "likely_bot",
   "hostname",
   "fingerprint",
+  "status",
+  "destination",
+  "chained",
+  "http_status",
+  "last_test_at",
 ] as const;
+
+import type { RuntimeIssueProbe } from "@shared/runtime-issues";
 
 export const CSV_BOM = "\uFEFF";
 
@@ -34,6 +41,7 @@ export interface RuntimeIssueCsvRow {
   sources?: string[];
   windowDays?: 7 | 30;
   tz?: string;
+  lastProbe?: RuntimeIssueProbe;
 }
 
 export function csvEscape(value: string | number | boolean | undefined): string {
@@ -82,6 +90,11 @@ export function buildRuntimeIssuesCsv(rows: RuntimeIssueCsvRow[], meta?: { windo
         r.likelyBot ? "true" : "false",
         r.hostname ?? "",
         r.fingerprint,
+        r.lastProbe?.status ?? "",
+        r.lastProbe?.destination ?? "",
+        r.lastProbe ? (r.lastProbe.chained ? "true" : "false") : "",
+        r.lastProbe?.httpStatus ?? "",
+        r.lastProbe ? new Date(r.lastProbe.at).toISOString() : "",
       ]
         .map(csvEscape)
         .join(","),

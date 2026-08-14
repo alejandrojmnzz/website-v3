@@ -3,7 +3,8 @@ import path from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import yaml from "js-yaml";
-import { MARKETING_CONTENT_PATH } from "../lib/content.js";
+import { resolveSiteContext } from "../lib/content.js";
+import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 
 // Use cwd so this resolves correctly both under tsx (mcp-server/…) and the
 // production bundle (dist/mcp-server.js).
@@ -25,10 +26,32 @@ const VALID_TOPICS = [
 ] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
+const TOPIC_DESC: Record<string, string> = {
+  overview: "Start here — architectural summary and guide to all topics",
+  content_system: "YAML content files, _common.yml merge, safeYamlLoad requirement",
+  routing: "URL patterns, locale prefixes (/en/, /es/), dynamic route generation",
+  images: "Image registry, UniversalImage component, image_id referencing",
+  sections: "SectionRenderer, component registry, how sections are authored",
+  semantic_search:
+    "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
+  local_databases:
+    "Local YAML private DBs; MCP item CRUD; global index; FAQ database; sync + reindex",
+  "component-behaviors": "CTA tracking, conversion_events catalog, CRM tags allowlist",
+  ecommerce: "products, funnels, product scope property paths, no CMS plans",
+  "shared-layout":
+    "single_template / shared shell, create_entry playbook, blog as example",
+  "relation-fields":
+    "relation editor type, authors hubs, listing deslugify vs page hydrate, delete_entries reassign",
+  "lead-forms":
+    "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
+};
+
+type TagResolver = (contentPath: string) => string;
+
 // ─── Dynamic tag resolvers ────────────────────────────────────────────────────
 
-function resolveContentTypes(): string {
-  const filePath = path.join(MARKETING_CONTENT_PATH, "content-types.yml");
+function resolveContentTypes(contentPath: string): string {
+  const filePath = path.join(contentPath, "content-types.yml");
   if (!fs.existsSync(filePath)) return "_content-types.yml not found_";
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -55,8 +78,8 @@ function resolveContentTypes(): string {
   }
 }
 
-function resolveActiveLocales(): string {
-  const filePath = path.join(MARKETING_CONTENT_PATH, "settings.yml");
+function resolveActiveLocales(contentPath: string): string {
+  const filePath = path.join(contentPath, "settings.yml");
   if (!fs.existsSync(filePath)) return "_settings.yml not found_";
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -78,8 +101,9 @@ function resolveActiveLocales(): string {
   }
 }
 
-function resolveImageStorage(): string {
-  const filePath = path.join(MARKETING_CONTENT_PATH, "image-registry.json");
+function resolveImageStorage(contentPath: string): string {
+  const folder = path.basename(contentPath);
+  const filePath = path.join(contentPath, "image-registry.json");
   if (!fs.existsSync(filePath)) return "_image-registry.json not found_";
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -88,11 +112,11 @@ function resolveImageStorage(): string {
     const presetNames = presets ? Object.keys(presets) : [];
 
     const lines: string[] = [
-      "**New images:** `4geeks-com/images/` (served at `/4geeks-com/images/`)",
+      `**New images:** \`${folder}/images/\` (served at \`/${folder}/images/\`)`,
       "",
       "**Legacy images:** `attached_assets/` (served at `/attached_assets/`). The `attached_assets/` folder also contains conversation screenshots which are excluded from the registry scanner.",
       "",
-      `**Available presets:** ${presetNames.map(p => `\`${p}\``).join(", ")}`,
+      `**Available presets:** ${presetNames.map((p) => `\`${p}\``).join(", ")}`,
     ];
     return lines.join("\n");
   } catch {
@@ -100,8 +124,8 @@ function resolveImageStorage(): string {
   }
 }
 
-function loadTrackingSettings(): Record<string, unknown> | null {
-  const filePath = path.join(MARKETING_CONTENT_PATH, "settings.yml");
+function loadTrackingSettings(contentPath: string): Record<string, unknown> | null {
+  const filePath = path.join(contentPath, "settings.yml");
   if (!fs.existsSync(filePath)) return null;
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -115,8 +139,8 @@ function loadTrackingSettings(): Record<string, unknown> | null {
   }
 }
 
-function resolveConversionEvents(): string {
-  const tracking = loadTrackingSettings();
+function resolveConversionEvents(contentPath: string): string {
+  const tracking = loadTrackingSettings(contentPath);
   if (!tracking) return "_settings.yml tracking not found_";
   const events = tracking.conversion_events;
   if (!Array.isArray(events) || events.length === 0) {
@@ -140,8 +164,8 @@ function resolveConversionEvents(): string {
   return lines.join("\n");
 }
 
-function resolveCrmTags(): string {
-  const tracking = loadTrackingSettings();
+function resolveCrmTags(contentPath: string): string {
+  const tracking = loadTrackingSettings(contentPath);
   if (!tracking) return "_settings.yml tracking not found_";
   const tags = tracking.leads_expected_tags;
   if (!Array.isArray(tags) || tags.length === 0) {
@@ -172,7 +196,7 @@ function resolveCrmTags(): string {
 
 // ─── Tag resolver ─────────────────────────────────────────────────────────────
 
-const TAG_RESOLVERS: Record<string, () => string> = {
+const TAG_RESOLVERS: Record<string, TagResolver> = {
   content_types: resolveContentTypes,
   active_locales: resolveActiveLocales,
   image_storage: resolveImageStorage,
@@ -180,13 +204,13 @@ const TAG_RESOLVERS: Record<string, () => string> = {
   crm_tags: resolveCrmTags,
 };
 
-export function resolveDynamicTags(content: string): string {
+export function resolveDynamicTags(content: string, contentPath: string): string {
   return content.replace(
     /<!-- @dynamic:(\w+) -->([\s\S]*?)<!-- \/dynamic -->/g,
     (_match, tag: string) => {
       const resolver = TAG_RESOLVERS[tag];
       if (!resolver) return `_unknown dynamic tag: ${tag}_`;
-      return resolver();
+      return resolver(contentPath);
     },
   );
 }
@@ -198,6 +222,7 @@ export function registerExplainTools(mcp: McpServer): void {
     "explain_site",
     "Returns architectural context about this codebase for a given topic. " +
       "Call this tool BEFORE making any structural change to the codebase — it explains how key subsystems work. " +
+      "Live catalogs (conversion_events, CRM tags, locales, content types, image presets) are loaded from that site's content folder (sites.yml content_folder, e.g. site_4geeks-com/). " +
       "Valid topics: 'overview' (start here — summary + list of all topics), 'content_system' (YAML content files, _common.yml merge, safeYamlLoad), " +
       "'routing' (URL patterns, locale prefixes, /en/ vs /es/), " +
       "'images' (image registry, UniversalImage, image_id usage), " +
@@ -209,35 +234,23 @@ export function registerExplainTools(mcp: McpServer): void {
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
       "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling). " +
-      "Calling an unknown topic returns a clear error listing the valid options.",
+      "Calling an unknown topic returns a clear error listing the valid options. " +
+      "Multi-site: always pass site. If unsure, call list_sites first.",
     {
       topic: z
         .string()
         .describe(
           "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields, lead-forms.",
         ),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ topic }) => {
+    async ({ topic, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) {
+        return siteFailResult(siteResult.error, "explain_site", { topic });
+      }
+
       if (!(VALID_TOPICS as readonly string[]).includes(topic)) {
-        const TOPIC_DESC: Record<string, string> = {
-          overview: "Start here — architectural summary and guide to all topics",
-          content_system: "YAML content files, _common.yml merge, safeYamlLoad requirement",
-          routing: "URL patterns, locale prefixes (/en/, /es/), dynamic route generation",
-          images: "Image registry, UniversalImage component, image_id referencing",
-          sections: "SectionRenderer, component registry, how sections are authored",
-          semantic_search:
-            "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
-          local_databases:
-            "Local YAML private DBs; MCP item CRUD; global index; FAQ database; sync + reindex",
-          "component-behaviors": "CTA tracking, conversion_events catalog, CRM tags allowlist",
-          ecommerce: "products, funnels, product scope property paths, no CMS plans",
-          "shared-layout":
-            "single_template / shared shell, create_entry playbook, blog as example",
-          "relation-fields":
-            "relation editor type, authors hubs, listing deslugify vs page hydrate, delete_entries reassign",
-          "lead-forms":
-            "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
-        };
         return {
           content: [
             {
@@ -274,7 +287,7 @@ export function registerExplainTools(mcp: McpServer): void {
       }
 
       const raw = fs.readFileSync(filePath, "utf-8");
-      const resolved = resolveDynamicTags(raw);
+      const resolved = resolveDynamicTags(raw, siteResult.contentPath);
       return { content: [{ type: "text", text: resolved }] };
     },
   );

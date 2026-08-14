@@ -231,6 +231,32 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   return true;
 }
 
+export function getRuntimeIssue(
+  site: string,
+  fingerprint: string,
+  contentRoot?: string,
+): RuntimeIssueRecord | null {
+  const b = ensureLoadedSync(site, contentRoot);
+  return b.state.issues[fingerprint] ?? null;
+}
+
+export function saveIssueProbe(
+  site: string,
+  fingerprint: string,
+  probe: RuntimeIssueRecord["lastProbe"],
+  contentRoot?: string,
+): RuntimeIssueRecord | null {
+  if (!probe) return getRuntimeIssue(site, fingerprint, contentRoot);
+  const b = ensureLoadedSync(site, contentRoot);
+  const existing = b.state.issues[fingerprint];
+  if (!existing) return null;
+  const next: RuntimeIssueRecord = { ...existing, lastProbe: probe };
+  b.state.issues[fingerprint] = next;
+  b.state.updatedAt = probe.at;
+  save(site);
+  return next;
+}
+
 export function listRuntimeIssues(
   site: string,
   opts?: { hideBots?: boolean; contentRoot?: string },

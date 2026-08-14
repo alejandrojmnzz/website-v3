@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isEmptyDetachedLocale, isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
+import { skipEmptyLocaleGateForForceVariant } from "./empty-locale";
 
 describe("isEmptyLocaleContent", () => {
   it("treats null/undefined as empty", () => {
@@ -47,5 +48,18 @@ describe("isEmptyDetachedLocale", () => {
         merged: { sections: [], content: "Post body" },
       }),
     ).toBe(false);
+  });
+});
+
+describe("skipEmptyLocaleGateForForceVariant", () => {
+  it("skips the public empty-locale 404 when previewing a named variant", () => {
+    expect(skipEmptyLocaleGateForForceVariant("draft")).toBe(true);
+    expect(skipEmptyLocaleGateForForceVariant("v2")).toBe(true);
+  });
+
+  it("enforces the public 404 when no variant is forced", () => {
+    expect(skipEmptyLocaleGateForForceVariant(undefined)).toBe(false);
+    expect(skipEmptyLocaleGateForForceVariant("")).toBe(false);
+    expect(skipEmptyLocaleGateForForceVariant(null)).toBe(false);
   });
 });

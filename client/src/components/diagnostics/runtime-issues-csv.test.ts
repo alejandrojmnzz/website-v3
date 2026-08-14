@@ -88,8 +88,44 @@ describe("buildRuntimeIssuesCsv", () => {
         "false",
         "4geeks.com",
         "http.not_found|site|en|/en/pricing",
+        "",
+        "",
+        "",
+        "",
+        "",
       ].join(","),
     );
+  });
+
+  it("writes probe status and destination for a successful redirect", () => {
+    const csv = buildRuntimeIssuesCsv([
+      row({
+        lastProbe: {
+          at: Date.UTC(2026, 7, 14, 12, 0, 0),
+          status: "redirect",
+          destination: "/us/hello",
+          chained: true,
+          hops: ["/en/pricing", "/mid", "/us/hello"],
+          httpStatus: 200,
+        },
+      }),
+    ]);
+    const data = csv.slice(CSV_BOM.length).split("\n")[1];
+    expect(data.endsWith(",redirect,/us/hello,true,200,2026-08-14T12:00:00.000Z")).toBe(true);
+  });
+
+  it("writes not_found with last_test_at and empty destination", () => {
+    const csv = buildRuntimeIssuesCsv([
+      row({
+        lastProbe: {
+          at: Date.UTC(2026, 7, 14, 12, 0, 0),
+          status: "not_found",
+          httpStatus: 404,
+        },
+      }),
+    ]);
+    const data = csv.slice(CSV_BOM.length).split("\n")[1];
+    expect(data.endsWith(",not_found,,false,404,2026-08-14T12:00:00.000Z")).toBe(true);
   });
 
   it("escapes a path that contains a comma", () => {

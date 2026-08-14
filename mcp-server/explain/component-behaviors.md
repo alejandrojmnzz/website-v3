@@ -35,9 +35,9 @@ For product scope (`ecommerce_products`, `programs[].id`, inherit), conversion f
 
 ## Lead conversion names (closed list)
 
-`conversion_name` on lead forms / embedded `form:` / blog `call_to_action.conversion_name` **must** match a name from `settings.yml` → `tracking.conversion_events`. Validators reject unknown names.
+`conversion_name` on lead forms / embedded `form:` / blog `call_to_action.conversion_name` **must** match a name from `{content_folder}/settings.yml` → `tracking.conversion_events` (folder from `sites.yml`; pass `site` on this tool). Validators reject unknown names.
 
-**Agents:** before setting `conversion_name`, use this live catalog. If intent is ambiguous → ask a human. Never invent event names.
+**Agents:** before setting `conversion_name`, use this live catalog. If intent is ambiguous → ask a human. Never invent event names. This topic does **not** list which forms use which name.
 
 <!-- @dynamic:conversion_events -->
 <!-- /dynamic -->

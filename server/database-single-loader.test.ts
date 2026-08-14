@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   hasStaticSharedLayoutEntryLocale,
   loadMergedSinglePage,
+  resolveDetachedEntryLocalePath,
 } from "./database-single-loader";
 import { resetRegistry } from "./content-types";
 
@@ -94,6 +95,29 @@ describe("hasStaticSharedLayoutEntryLocale", () => {
     expect(
       hasStaticSharedLayoutEntryLocale("blog", "real-post", "en", contentRoot),
     ).toBe(false);
+  });
+});
+
+describe("resolveDetachedEntryLocalePath", () => {
+  it("prefers {variant}.{locale}.yml when previewing a draft-only entry", () => {
+    const entryDir = path.join(contentRoot, "blog", "deletemenow");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(path.join(entryDir, "draft.en.yml"), "title: Draft\n", "utf-8");
+
+    expect(resolveDetachedEntryLocalePath(entryDir, "en")).toBeNull();
+    expect(resolveDetachedEntryLocalePath(entryDir, "en", "draft")).toBe(
+      path.join(entryDir, "draft.en.yml"),
+    );
+  });
+
+  it("falls back to live {locale}.yml when the variant file is missing", () => {
+    const entryDir = path.join(contentRoot, "blog", "live-post");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(path.join(entryDir, "en.yml"), "title: Live\n", "utf-8");
+
+    expect(resolveDetachedEntryLocalePath(entryDir, "en", "draft")).toBe(
+      path.join(entryDir, "en.yml"),
+    );
   });
 });
 

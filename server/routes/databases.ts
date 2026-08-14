@@ -264,8 +264,10 @@ export function registerDatabasesRoutes(app: Express): void {
       const {
         buildLocaleUnavailablePayload,
         isEmptyDetachedLocaleEntry,
+        skipEmptyLocaleGateForForceVariant,
       } = await import("../empty-locale");
       if (
+        !skipEmptyLocaleGateForForceVariant(forceVariant) &&
         isEmptyDetachedLocaleEntry({
           contentType,
           slug,
@@ -294,6 +296,8 @@ export function registerDatabasesRoutes(app: Express): void {
           forceVariant ||
           resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
           undefined;
+      } else if (forceVariant) {
+        templateVariant = forceVariant;
       }
 
       const page = await loadDatabaseSinglePage(
