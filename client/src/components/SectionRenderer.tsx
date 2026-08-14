@@ -275,7 +275,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useEditModeOptional, type PreviewBreakpoint } from "@/contexts/EditModeContext";
-import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
 const DbTemplateWarningDialog = lazy(() =>
   import("@/components/editing/DbTemplateWarningDialog").then((m) => ({ default: m.DbTemplateWarningDialog }))
 );
@@ -1329,8 +1328,6 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     setDuplicateDialog({ open: false, index: -1, isDuplicating: false });
   };
 
-  const isMobilePreview = isEditMode && previewBreakpoint === 'mobile';
-
   // Interleaved rendering items: live sections + ghost placeholders for per-entry removed sections
   const interleavedItems = (() => {
     if (!isEditMode || !singleEntry || !perEntryRemovedSections || perEntryRemovedSections.length === 0) {
@@ -1656,12 +1653,6 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       })()}
     </>
   );
-
-  if (isMobilePreview) {
-    return (
-      <DevicePreviewShell />
-    );
-  }
 
   const deleteDialogSiblings = deleteDialog.bindingGroup?.members.filter(
     m => !(m.contentType === contentType && m.slug === slug && m.sectionIndex === deleteDialog.index)

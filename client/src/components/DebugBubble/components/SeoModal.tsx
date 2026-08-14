@@ -678,7 +678,7 @@ export function SeoModal({
                     </div>
                     {previewDocs.map((doc, i) => {
                       const typeLabel = String(doc.schema["@type"] ?? "Document");
-                      const expanded = expandedSchemaDocs[i] ?? i === 0;
+                      const expanded = expandedSchemaDocs[i] ?? false;
                       return (
                         <div key={i} className="rounded-md border overflow-hidden" data-testid={`schema-document-${i}`}>
                           <button

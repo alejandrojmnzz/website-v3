@@ -6,16 +6,20 @@ import { useContentTypes } from "@/hooks/useContentTypes";
 import { queryClient } from "@/lib/queryClient";
 import {
   DEFAULT_PREVIEW_DEVICE_ID,
+  PREVIEW_BREAKPOINT_KEY,
   PREVIEW_DEVICE_KEY,
+  clearStoredPreviewSelection,
   isDeviceEmbedPreview,
   migrateLegacyPreviewDevice,
+  persistPreviewSelection,
+  notifyDeviceEmbedNavBlocked,
+  shouldAllowDeviceEmbedHref,
   type PreviewDeviceId,
 } from "@/lib/preview-devices";
 
 export type PreviewBreakpoint = 'desktop' | 'mobile';
 export type { PreviewDeviceId };
 
-const PREVIEW_BREAKPOINT_KEY = '4geeks_preview_breakpoint';
 const EDIT_MODE_KEY = '4geeks_edit_mode';
 
 function getStoredPreviewBreakpoint(): PreviewBreakpoint {
@@ -31,12 +35,6 @@ function getStoredPreviewDeviceId(): PreviewDeviceId {
     localStorage.getItem(PREVIEW_DEVICE_KEY),
     localStorage.getItem(PREVIEW_BREAKPOINT_KEY),
   );
-}
-
-function persistPreviewSelection(breakpoint: PreviewBreakpoint, deviceId: PreviewDeviceId) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(PREVIEW_BREAKPOINT_KEY, breakpoint);
-  localStorage.setItem(PREVIEW_DEVICE_KEY, deviceId);
 }
 
 function getStoredEditMode(): boolean {
@@ -132,6 +130,11 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   const contentTypesMap = useContentTypes();
   const contentTypesRef = useRef(contentTypesMap);
 
+  const exitDevicePreview = () => {
+    setPreviewBreakpointState("desktop");
+    clearStoredPreviewSelection();
+  };
+
   const setPreviewBreakpoint = (breakpoint: PreviewBreakpoint) => {
     setPreviewBreakpointState(breakpoint);
     persistPreviewSelection(breakpoint, previewDeviceId);
@@ -145,7 +148,7 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
 
   const togglePreviewBreakpoint = () => {
     setPreviewBreakpointState(prev => {
-      const next = prev === 'desktop' ? 'mobile' : 'desktop';
+      const next = prev === "desktop" ? "mobile" : "desktop";
       persistPreviewSelection(next, previewDeviceId);
       return next;
     });
@@ -172,18 +175,20 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     setIsEditMode(false);
     persistEditMode(false);
     setSelectedSectionIndex(null);
+    exitDevicePreview();
   };
 
   const toggleEditMode = () => {
     if (isDeviceEmbedPreview()) return;
-    setIsEditMode(prev => {
-      const next = !prev;
-      persistEditMode(next);
-      if (prev) {
-        setSelectedSectionIndex(null);
-      }
-      return next;
-    });
+    if (isEditMode) {
+      setIsEditMode(false);
+      persistEditMode(false);
+      setSelectedSectionIndex(null);
+      exitDevicePreview();
+      return;
+    }
+    setIsEditMode(true);
+    persistEditMode(true);
   };
 
   const addPendingChange = (pageKey: string, operation: EditOperation) => {
@@ -279,6 +284,27 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     document.addEventListener('click', handleClick, true);
     return () => document.removeEventListener('click', handleClick, true);
   }, [isEditMode]);
+
+  useEffect(() => {
+    if (!isDeviceEmbedPreview()) return;
+
+    const blockOffPageAnchor = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest("a");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || shouldAllowDeviceEmbedHref(href)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.type === "click") notifyDeviceEmbedNavBlocked();
+    };
+
+    document.addEventListener("click", blockOffPageAnchor, true);
+    document.addEventListener("auxclick", blockOffPageAnchor, true);
+    return () => {
+      document.removeEventListener("click", blockOffPageAnchor, true);
+      document.removeEventListener("auxclick", blockOffPageAnchor, true);
+    };
+  }, []);
 
   const value: EditModeContextValue = {
     isEditMode,

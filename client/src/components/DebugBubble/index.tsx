@@ -30,7 +30,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth, getDebugToken, getDebugUserName, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
-import { locations } from "@/lib/locations";
 import { queryClient } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { LocaleFlag } from "./components/LocaleFlag";
@@ -53,7 +52,6 @@ import {
 import { deslugify, detectContentInfo, getPersistedMenuView } from "./utils/debugHelpers";
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 const ContentTypesYmlEditorPanel = lazy(() => import("@/components/editing/ContentTypesYmlEditorPanel"));
-import { LocationOverrideModal } from "./components/LocationOverrideModal";
 import { SessionModal } from "./components/SessionModal";
 import { SyncModal } from "./components/SyncModal";
 import { PullConflictModal } from "./components/PullConflictModal";
@@ -213,8 +211,6 @@ export function DebugBubble() {
   });
   const prevIsValidatedRef = useRef<boolean | null>(null);
   const [redirectsList, setRedirectsList] = useState<RedirectItem[]>([]);
-  const [locationModalOpen, setLocationModalOpen] = useState(false);
-  const [selectedLocationSlug, setSelectedLocationSlug] = useState<string>("");
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
   const [siteManagerModalOpen, setSiteManagerModalOpen] = useState(false);
   const [switchSiteModalOpen, setSwitchSiteModalOpen] = useState(false);
@@ -440,11 +436,6 @@ export function DebugBubble() {
       setSlugRedirectPrompt(false);
     }
   }, [seoModalOpen, contentInfo.slug]);
-
-  // Check if location is currently overridden via query string
-  const currentLocationOverride = typeof window !== "undefined" 
-    ? new URLSearchParams(window.location.search).get("location") 
-    : null;
 
   // State for expanded folders in sitemap view
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -1985,32 +1976,6 @@ export function DebugBubble() {
   };
 
 
-  const handleLocationOverride = () => {
-    if (!selectedLocationSlug) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set("location", selectedLocationSlug);
-    window.location.href = url.toString();
-  };
-
-  const handleClearLocationOverride = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("location");
-    window.location.href = url.toString();
-  };
-
-  // Group locations by region for display
-  const locationsByRegion = locations.reduce((acc, loc) => {
-    if (!acc[loc.region]) acc[loc.region] = [];
-    acc[loc.region].push(loc);
-    return acc;
-  }, {} as Record<string, typeof locations>);
-
-  const regionLabels: Record<string, string> = {
-    "usa-canada": "USA & Canada",
-    "latam": "Latin America",
-    "europe": "Europe",
-  };
-
   const refreshVersioning = () => {
     if (!contentInfo.type || !contentInfo.slug) return;
     setVersioningLoading(true);
@@ -2251,10 +2216,6 @@ export function DebugBubble() {
     validationSummary,
     onOpenDiagnosticsForUrl: handleOpenDiagnosticsForUrl,
     contentLocale: pageDiagnostics?.locale || null,
-    session,
-    currentLocationOverride,
-    setSelectedLocationSlug,
-    setLocationModalOpen,
     currentLang,
     toggleLanguage,
     theme,
@@ -2446,17 +2407,6 @@ export function DebugBubble() {
           </SheetContent>
         </Sheet>
       )}
-      <LocationOverrideModal
-        open={locationModalOpen}
-        onOpenChange={setLocationModalOpen}
-        selectedLocationSlug={selectedLocationSlug}
-        setSelectedLocationSlug={setSelectedLocationSlug}
-        currentLocationOverride={currentLocationOverride}
-        handleLocationOverride={handleLocationOverride}
-        handleClearLocationOverride={handleClearLocationOverride}
-        locationsByRegion={locationsByRegion}
-        regionLabels={regionLabels}
-      />
       <SiteManagerModal
         open={siteManagerModalOpen}
         onOpenChange={setSiteManagerModalOpen}

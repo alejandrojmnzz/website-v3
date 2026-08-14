@@ -13,13 +13,28 @@ import { getPreviewDevice, PREVIEW_PHONES, PREVIEW_TABLETS } from "@/lib/preview
 
 type PreviewDeviceMenuTrigger = "icon" | "caption";
 
-export function PreviewDeviceMenu({ trigger = "icon" }: { trigger?: PreviewDeviceMenuTrigger }) {
+export function PreviewDeviceMenu({
+  trigger = "icon",
+  onNeedEditMode,
+}: {
+  trigger?: PreviewDeviceMenuTrigger;
+  /** Opens `/private/preview/...` when picking a phone/tablet from a public URL (Read or Edit). */
+  onNeedEditMode?: () => void;
+}) {
   const editMode = useEditMode();
-  const isDevicePreview = editMode.previewBreakpoint === "mobile";
+  const isDevicePreview = editMode.isEditMode && editMode.previewBreakpoint === "mobile";
   const activeDevice = isDevicePreview ? getPreviewDevice(editMode.previewDeviceId) : null;
   const previewTitle = activeDevice
     ? `Preview: ${activeDevice.label} (${activeDevice.width} × ${activeDevice.height})`
     : "Preview: Desktop";
+
+  const selectDevice = (deviceId: typeof editMode.previewDeviceId) => {
+    if (!editMode.isEditMode) {
+      editMode.enableEditMode();
+    }
+    onNeedEditMode?.();
+    editMode.setPreviewDevice(deviceId);
+  };
 
   return (
     <DropdownMenu modal={false}>
@@ -78,7 +93,7 @@ export function PreviewDeviceMenu({ trigger = "icon" }: { trigger?: PreviewDevic
           return (
             <DropdownMenuItem
               key={device.id}
-              onClick={() => editMode.setPreviewDevice(device.id)}
+              onClick={() => selectDevice(device.id)}
               className={cn("text-xs gap-2", isActive && "bg-accent font-medium")}
               data-testid={`button-preview-${device.id}`}
             >
@@ -99,7 +114,7 @@ export function PreviewDeviceMenu({ trigger = "icon" }: { trigger?: PreviewDevic
           return (
             <DropdownMenuItem
               key={device.id}
-              onClick={() => editMode.setPreviewDevice(device.id)}
+              onClick={() => selectDevice(device.id)}
               className={cn("text-xs gap-2", isActive && "bg-accent font-medium")}
               data-testid={`button-preview-${device.id}`}
             >
@@ -121,14 +136,14 @@ export function PreviewDeviceMenu({ trigger = "icon" }: { trigger?: PreviewDevic
           onPointerDown={(e) => e.preventDefault()}
         >
           <p>
-            Device preview iframes the same private preview URL (including locale, variant, and version). The phone is a staff shell; inside is read mode so you see that page’s real header and footer. Read mode clears the stored device.
+            Device preview always lives on <code className="bg-muted px-1 rounded">/private/preview/…</code> (locale, variant, version). Picking a phone or tablet from Read on a public URL (e.g. <code className="bg-muted px-1 rounded">/en/apply</code>) first opens that preview path, same as Edit. The phone is this page only: scroll and in-page anchors work; links do not leave (a dialog offers desktop). Inside is read mode so you see that page’s real header and footer. Desktop and Read clear the stored device so the menu does not keep a phone selected. The phone iframe does not clear storage (shared <code className="bg-muted px-1 rounded">localStorage</code>).
           </p>
           <details>
             <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
             <ul className="mt-1 list-disc pl-3 space-y-0.5">
-              <li>Presets: <code className="bg-muted px-1 rounded">client/src/lib/preview-devices.ts</code></li>
+              <li>Presets, embed href allowlist, and device storage: <code className="bg-muted px-1 rounded">client/src/lib/preview-devices.ts</code></li>
               <li>Embed flag: <code className="bg-muted px-1 rounded">device_embed=1</code> in <code className="bg-muted px-1 rounded">EditModeContext.tsx</code></li>
-              <li>Iframe src: <code className="bg-muted px-1 rounded">DevicePreviewShell.tsx</code> (unsaved in-memory edits are not shown until save; public pages unchanged)</li>
+              <li>Link lock and blocked-nav dialog: <code className="bg-muted px-1 rounded">useInternalNav.ts</code>, <code className="bg-muted px-1 rounded">DevicePreviewShell.tsx</code> (unsaved in-memory edits are not shown until save; public pages unchanged)</li>
             </ul>
           </details>
         </div>

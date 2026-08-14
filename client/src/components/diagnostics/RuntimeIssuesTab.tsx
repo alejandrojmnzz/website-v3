@@ -121,6 +121,38 @@ function fullPublicUrl(relativePath: string, hostname?: string): string {
   return relativePath;
 }
 
+function referrerRelativePath(referrer: string): string | undefined {
+  const trimmed = referrer.trim();
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const pathname = new URL(trimmed).pathname;
+      return pathname || "/";
+    }
+  } catch {
+    // fall through
+  }
+  if (trimmed.startsWith("/")) return trimmed;
+  return undefined;
+}
+
+function referrerFullUrl(referrer: string): string {
+  const trimmed = referrer.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return fullPublicUrl(publicPathHref(trimmed));
+}
+
+function useCopyToast() {
+  const { toast } = useToast();
+  return async (label: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({ title: "Copy failed", variant: "destructive" });
+    }
+  };
+}
+
 function RuntimeIssuePathMenu({
   path,
   hostname,
@@ -132,18 +164,9 @@ function RuntimeIssuePathMenu({
   fingerprint: string;
   onAddRedirect: (path: string) => void;
 }) {
-  const { toast } = useToast();
+  const copy = useCopyToast();
   const relative = publicPathHref(path);
   const full = fullPublicUrl(relative, hostname);
-
-  async function copy(label: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast({ title: `${label} copied` });
-    } catch {
-      toast({ title: "Copy failed", variant: "destructive" });
-    }
-  }
 
   return (
     <DropdownMenu modal={false}>
@@ -186,6 +209,67 @@ function RuntimeIssuePathMenu({
             target="_blank"
             rel="noopener noreferrer"
             data-testid={`menu-runtime-issue-open-${fingerprint}`}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in a new tab
+          </a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function RuntimeIssueReferrerMenu({
+  referrer,
+  fingerprint,
+}: {
+  referrer?: string;
+  fingerprint: string;
+}) {
+  const copy = useCopyToast();
+  const value = referrer?.trim();
+  if (!value) return <span>—</span>;
+
+  const relative = referrerRelativePath(value);
+  const full = referrerFullUrl(value);
+  const showRelative = Boolean(relative && relative !== "/");
+
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="truncate max-w-full text-left text-primary hover:underline"
+          title={value}
+          data-testid={`button-runtime-issue-referrer-${fingerprint}`}
+        >
+          {value}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem
+          onClick={() => void copy("Full link", full)}
+          data-testid={`menu-runtime-issue-referrer-copy-full-${fingerprint}`}
+        >
+          <Copy className="h-4 w-4" />
+          Copy full link
+        </DropdownMenuItem>
+        {showRelative && relative ? (
+          <DropdownMenuItem
+            onClick={() => void copy("Relative path", relative)}
+            data-testid={`menu-runtime-issue-referrer-copy-relative-${fingerprint}`}
+          >
+            <LinkIcon className="h-4 w-4" />
+            Copy relative path
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <a
+            href={full}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`menu-runtime-issue-referrer-open-${fingerprint}`}
           >
             <ExternalLink className="h-4 w-4" />
             Open in a new tab
@@ -356,7 +440,8 @@ export default function RuntimeIssuesTab() {
             a 4Geeks referrer are kept (broken internal or old assets). Count is hits in the selected{" "}
             <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window.
             Badges are crawler vs SERP click vs LLM vs social on the same path (one row; tag sums can
-            exceed Count). Click a path to copy the URL, add a redirect, or open the 404 in a new tab.
+            exceed Count). Click a path or referrer to copy the URL or open it in a new tab (paths also
+            offer Add redirect).
             Reset wipes the stored log including GCS.
           </p>
           <Button
@@ -679,8 +764,13 @@ export default function RuntimeIssuesTab() {
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {formatTs(issue.lastSeen)}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={issue.sampleReferrer}>
-                      {issue.sampleReferrer || "—"}
+                    <TableCell className="text-xs text-muted-foreground max-w-[180px]">
+                      <div className="min-w-0">
+                        <RuntimeIssueReferrerMenu
+                          referrer={issue.sampleReferrer}
+                          fingerprint={issue.fingerprint}
+                        />
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs">{issue.uaBucket || "—"}</TableCell>
                   </TableRow>

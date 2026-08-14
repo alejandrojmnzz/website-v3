@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, MapPin, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Brain, Check, ChevronDown, ChevronRight, Cookie, Database, Github, Home, Image, Languages, Map, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconSwitchHorizontal, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -16,8 +16,9 @@ import { saveEditModeScrollPosition } from "@/lib/editModeScroll";
 import { PreviewDeviceMenu } from "@/components/editing/PreviewDeviceMenu";
 import type { PreviewDeviceId } from "@/lib/preview-devices";
 import type { PreviewBreakpoint } from "@/contexts/EditModeContext";
-import { isVisualEditPath } from "@/lib/visual-edit-path";
+import { buildPrivatePreviewHref, isVisualEditPath } from "@/lib/visual-edit-path";
 import { GitHubSyncChip } from "./GitHubSyncChip";
+import { LocationOverrideBadge } from "./LocationOverrideBadge";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
 import { SystemAlertsPanel } from "@/components/StaffSystemAlertBanner";
 import { ComponentsView } from "./ComponentsView";
@@ -145,10 +146,6 @@ export interface DebugPanelContentProps {
   onOpenDiagnosticsForUrl: (urlPath: string) => void;
   contentLocale: string | null;
 
-  session: { location?: { slug?: string; name?: string } };
-  currentLocationOverride: string | null;
-  setSelectedLocationSlug: (v: string) => void;
-  setLocationModalOpen: (v: boolean) => void;
   currentLang: string;
   toggleLanguage: () => void;
   theme: "light" | "dark";
@@ -337,6 +334,27 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
 
   const errorLogCount = (errorLogData?.totalErrors ?? 0) + (errorLogData?.totalWarnings ?? 0);
   const showEditChrome = !!props.editMode && isVisualEditPath(props.pathname);
+
+  const enterPrivatePreview = useCallback(() => {
+    if (!props.contentInfo.type || !props.contentInfo.slug) return;
+    const previewUrl = buildPrivatePreviewHref({
+      contentType: props.contentInfo.type,
+      slug: props.contentInfo.slug,
+      pathname: props.pathname,
+      search: typeof window !== "undefined" ? window.location.search : "",
+      fallbackLocale: props.contentLocale || normalizeLocale(i18n.language),
+    });
+    if (!previewUrl) return;
+    saveEditModeScrollPosition();
+    props.navigate(previewUrl);
+  }, [
+    props.contentInfo.type,
+    props.contentInfo.slug,
+    props.pathname,
+    props.contentLocale,
+    props.navigate,
+    i18n.language,
+  ]);
 
   if (props.noTokenDetected) {
     return (
@@ -557,17 +575,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     e.preventDefault();
                     if (!props.editMode!.isEditMode) {
                       props.editMode!.toggleEditMode();
-                      if (props.contentInfo.type && props.contentInfo.slug && !props.pathname.startsWith('/private/preview/')) {
-                        const pathSegments = props.pathname.split('/').filter(Boolean);
-                        const urlLocale = pathSegments[0];
-                        const hasPathLocale = /^[a-z]{2}$/.test(urlLocale);
-                        const resolvedLocale = hasPathLocale ? normalizeLocale(urlLocale) : (props.contentLocale || normalizeLocale(i18n.language));
-                        const _cp = new URLSearchParams(window.location.search);
-                        const _activeVariant = _cp.get("variant") || _cp.get("force_variant");
-                        const previewUrl = `/private/preview/${props.contentInfo.type}/${props.contentInfo.slug}?locale=${resolvedLocale}${_activeVariant ? `&variant=${encodeURIComponent(_activeVariant)}` : ""}`;
-                        saveEditModeScrollPosition();
-                        props.navigate(previewUrl);
-                      }
+                      enterPrivatePreview();
                     }
                   }}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
@@ -623,7 +631,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               </div>
             )}
             {showEditChrome && (
-              <PreviewDeviceMenu />
+              <PreviewDeviceMenu onNeedEditMode={enterPrivatePreview} />
             )}
           </div>
         </div>
@@ -1056,18 +1064,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    className={cn(badgeVariants({ variant: "outline" }), "cursor-pointer text-xs gap-1 no-default-active-elevate")}
-                    onClick={() => {
-                      props.setSelectedLocationSlug(props.session.location?.slug || "");
-                      props.setLocationModalOpen(true);
-                    }}
-                    data-testid="button-location-override"
-                    title={props.currentLocationOverride ? `Location override: ${props.currentLocationOverride}` : 'Click to override location'}
-                  >
-                    <MapPin className="h-3 w-3" />
-                    <span className="max-w-[80px] truncate">{props.session.location?.name || 'Detecting...'}</span>
-                  </button>
+                  <LocationOverrideBadge />
                   <button
                     className={cn(badgeVariants({ variant: "outline" }), "cursor-pointer text-xs gap-1 no-default-active-elevate")}
                     onClick={props.toggleLanguage}

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { usePageSections } from "@/contexts/PageSectionsContext";
+import { isDeviceEmbedPreview, notifyDeviceEmbedNavBlocked, shouldAllowDeviceEmbedHref } from "@/lib/preview-devices";
 
 function isInternalHref(href: string): boolean {
   return href.startsWith("/") && !href.startsWith("//");
@@ -169,6 +170,10 @@ export function useInternalNav(
       if (!anchor) return;
       const raw = anchor.getAttribute("href");
       if (!raw) return;
+      if (isDeviceEmbedPreview()) {
+        if (!shouldAllowDeviceEmbedHref(raw)) e.preventDefault();
+        return;
+      }
       const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(raw)));
       if (resolved === raw) return;
       e.preventDefault();
@@ -190,6 +195,12 @@ export function useInternalNav(
         appendCallback ? getCallbackLabels?.() : undefined,
       ),
     );
+
+    if (isDeviceEmbedPreview() && !shouldAllowDeviceEmbedHref(href)) {
+      e.preventDefault();
+      notifyDeviceEmbedNavBlocked();
+      return;
+    }
 
     // Ctrl/Cmd/Shift+click: resolve {qs:}/callback then open in new tab (browser would use raw href).
     if (e.metaKey || e.ctrlKey || e.shiftKey) {
@@ -267,6 +278,11 @@ export function useInternalNav(
 
     const resolved = withUtmParams(resolveQsTokens(resolveGlobalTemplate(url)));
 
+    if (isDeviceEmbedPreview() && !shouldAllowDeviceEmbedHref(resolved)) {
+      notifyDeviceEmbedNavBlocked();
+      return null;
+    }
+
     if (resolved.startsWith("inline#")) {
       const sectionId = resolved.slice(7);
       return pageSections[sectionId] ?? null;
@@ -328,6 +344,7 @@ export function useInternalNav(
    *  the resolved URL, then restore. */
   const handleMouseDown = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 1) return; // only middle-click
+    if (isDeviceEmbedPreview()) return;
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
