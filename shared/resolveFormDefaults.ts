@@ -17,6 +17,7 @@ export interface ConsentDefaults {
   show_terms?: boolean;
   terms_url?: string;
   privacy_url?: string;
+  [key: string]: boolean | string | undefined;
 }
 
 export interface ConversionEventDefaults {
@@ -126,20 +127,12 @@ export function resolveFormDefaults(
 
   if (conversionEvent.consent) {
     const consentDefaults = conversionEvent.consent;
-    const consentFields: Array<keyof ConsentDefaults> = [
-      "marketing",
-      "sms",
-      "whatsapp",
-      "sms_usa_only",
-      "marketing_text",
-      "sms_text",
-    ];
-    for (const field of consentFields) {
-      if (consentDefaults[field] !== undefined) {
-        const existing = get(result, fp(`consent.${field}`));
-        if (existing === undefined || existing === null) {
-          result = set(result, fp(`consent.${field}`), consentDefaults[field]);
-        }
+    const topLevelConsentKeys = new Set(["show_terms", "terms_url", "privacy_url"]);
+    for (const [field, value] of Object.entries(consentDefaults)) {
+      if (value === undefined || topLevelConsentKeys.has(field)) continue;
+      const existing = get(result, fp(`consent.${field}`));
+      if (existing === undefined || existing === null) {
+        result = set(result, fp(`consent.${field}`), value);
       }
     }
     if (consentDefaults.show_terms !== undefined) {

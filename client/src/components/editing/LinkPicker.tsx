@@ -635,7 +635,7 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
 
   return (
     <>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={setOpen} modal={false}>
         <PopoverTrigger asChild>
           <button
             className={cn(
@@ -651,7 +651,13 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
             {!compact && <span className="truncate">{displayValue}</span>}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-96 p-0 z-[10001]" align="start" container={portalContainer}>
+        <PopoverContent
+          className="w-96 p-0 z-[10001] pointer-events-auto"
+          align="start"
+          container={portalContainer}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <div className="flex border-b">
             {typeOptions.map((opt) => {
               const Icon = opt.icon;

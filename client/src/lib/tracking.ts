@@ -207,6 +207,7 @@ export interface ConsentDefaults {
   show_terms?: boolean;
   terms_url?: string;
   privacy_url?: string;
+  [key: string]: boolean | string | undefined;
 }
 
 export interface SuccessDefaults {
@@ -463,6 +464,7 @@ export type FormSubmissionTrackingData = {
   formentry_id?: string | number;
   attribution_id?: string;
   referral_key?: string;
+  [key: string]: string | number | boolean | undefined;
 };
 
 /**
@@ -496,14 +498,10 @@ export async function trackFormSubmission(
   if (formData.formentry_id !== undefined && formData.formentry_id !== "") {
     payload.formentry_id = formData.formentry_id;
   }
-  if (typeof formData.consent_email === "boolean") {
-    payload.consent_email = formData.consent_email;
-  }
-  if (typeof formData.consent_sms === "boolean") {
-    payload.consent_sms = formData.consent_sms;
-  }
-  if (typeof formData.consent_whatsapp === "boolean") {
-    payload.consent_whatsapp = formData.consent_whatsapp;
+  for (const [key, value] of Object.entries(formData)) {
+    if (key.startsWith("consent_") && typeof value === "boolean") {
+      payload[key] = value;
+    }
   }
 
   // Plaintext email for GTM; hash kept under email_hash for legacy DLVs

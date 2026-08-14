@@ -157,7 +157,7 @@ export const leadFormDataSchema = z.object({
     marketing_text: z.string().optional(),
     sms_text: z.string().optional(),
     sms_usa_only: z.boolean().optional(),
-  }).optional(),
+  }).catchall(z.boolean()).optional(),
   show_terms: z.boolean().optional(),
   className: z.string().optional(),
   button_className: z.string().optional(),

@@ -913,7 +913,7 @@ export function RichTextArea({
           />
         </div>
 
-        <Popover open={colorOpen} onOpenChange={handleColorPopoverOpen}>
+        <Popover open={colorOpen} onOpenChange={handleColorPopoverOpen} modal={false}>
           <PopoverTrigger asChild>
             <Button
               type="button"
@@ -927,7 +927,7 @@ export function RichTextArea({
               <Palette className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-2 z-[10000]" align="start">
+          <PopoverContent className="w-auto p-2 z-[10001] pointer-events-auto" align="start">
             {themeLoading ? (
               <div className="flex items-center justify-center h-12 w-32">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -958,7 +958,7 @@ export function RichTextArea({
           </PopoverContent>
         </Popover>
 
-        <Popover open={fontSizeOpen} onOpenChange={(open) => { setFontSizeOpen(open); if (open) detectActiveFontSize(); else { setCustomFontSizeMode(false); setCustomFontSizeVal(""); } }}>
+        <Popover open={fontSizeOpen} onOpenChange={(open) => { setFontSizeOpen(open); if (open) detectActiveFontSize(); else { setCustomFontSizeMode(false); setCustomFontSizeVal(""); } }} modal={false}>
           <PopoverTrigger asChild>
             <Button
               type="button"
@@ -972,7 +972,7 @@ export function RichTextArea({
               <Type className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-1 z-[10000]" align="start" onFocusOutside={(e) => e.preventDefault()}>
+          <PopoverContent className="w-auto p-1 z-[10001] pointer-events-auto" align="start" onFocusOutside={(e) => e.preventDefault()}>
             {themeLoading ? (
               <div className="flex items-center justify-center h-12 w-32">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1023,7 +1023,7 @@ export function RichTextArea({
           </PopoverContent>
         </Popover>
 
-        <Popover open={lineHeightOpen} onOpenChange={(open) => { setLineHeightOpen(open); if (open) detectActiveLineHeight(); else { setCustomLineHeightMode(false); setCustomLineHeightVal(""); } }}>
+        <Popover open={lineHeightOpen} onOpenChange={(open) => { setLineHeightOpen(open); if (open) detectActiveLineHeight(); else { setCustomLineHeightMode(false); setCustomLineHeightVal(""); } }} modal={false}>
           <PopoverTrigger asChild>
             <Button
               type="button"
@@ -1037,7 +1037,7 @@ export function RichTextArea({
               <AlignJustify className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-1 z-[10000]" align="start" onFocusOutside={(e) => e.preventDefault()}>
+          <PopoverContent className="w-auto p-1 z-[10001] pointer-events-auto" align="start" onFocusOutside={(e) => e.preventDefault()}>
             {themeLoading ? (
               <div className="flex items-center justify-center h-12 w-32">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1087,7 +1087,7 @@ export function RichTextArea({
           </PopoverContent>
         </Popover>
 
-        <Popover open={fontWeightOpen} onOpenChange={(open) => { setFontWeightOpen(open); if (open) detectActiveFontWeight(); else { setCustomFontWeightMode(false); setCustomFontWeightVal(""); } }}>
+        <Popover open={fontWeightOpen} onOpenChange={(open) => { setFontWeightOpen(open); if (open) detectActiveFontWeight(); else { setCustomFontWeightMode(false); setCustomFontWeightVal(""); } }} modal={false}>
           <PopoverTrigger asChild>
             <Button
               type="button"
@@ -1101,7 +1101,7 @@ export function RichTextArea({
               <CaseUpper className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-1 z-[10000]" align="start" onFocusOutside={(e) => e.preventDefault()}>
+          <PopoverContent className="w-auto p-1 z-[10001] pointer-events-auto" align="start" onFocusOutside={(e) => e.preventDefault()}>
             {themeLoading ? (
               <div className="flex items-center justify-center h-12 w-32">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1152,7 +1152,7 @@ export function RichTextArea({
           </PopoverContent>
         </Popover>
 
-        <Popover open={letterSpacingOpen} onOpenChange={(open) => { setLetterSpacingOpen(open); if (open) detectActiveLetterSpacing(); else { setCustomLetterSpacingMode(false); setCustomLetterSpacingVal(""); } }}>
+        <Popover open={letterSpacingOpen} onOpenChange={(open) => { setLetterSpacingOpen(open); if (open) detectActiveLetterSpacing(); else { setCustomLetterSpacingMode(false); setCustomLetterSpacingVal(""); } }} modal={false}>
           <PopoverTrigger asChild>
             <Button
               type="button"
@@ -1166,7 +1166,7 @@ export function RichTextArea({
               <Space className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-1 z-[10000]" align="start" onFocusOutside={(e) => e.preventDefault()}>
+          <PopoverContent className="w-auto p-1 z-[10001] pointer-events-auto" align="start" onFocusOutside={(e) => e.preventDefault()}>
             {themeLoading ? (
               <div className="flex items-center justify-center h-12 w-32">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

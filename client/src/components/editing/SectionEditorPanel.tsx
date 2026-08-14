@@ -114,6 +114,7 @@ import {
   normalizeFormSettingsPath,
 } from "@shared/joinFormSettingsPath";
 import type { TrackingSettingsResponse } from "@/lib/tracking";
+import { collectExtraConsentYamlFields } from "@shared/consent-settings";
 
 function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
@@ -1954,6 +1955,10 @@ export function SectionEditorPanel({
 
   const { data: trackingSettings } = useQuery<TrackingSettingsResponse>({
     queryKey: ["/api/settings/tracking"],
+  });
+
+  const { data: consentSettings } = useQuery<Record<string, unknown>>({
+    queryKey: ["/api/settings/consent"],
   });
 
   const { data: formOptions, isLoading: formOptionsLoading } = useQuery<{
@@ -7774,13 +7779,22 @@ export function SectionEditorPanel({
                     ? trackingSettings?.conversion_events?.find((e) => e.name === convName)
                     : undefined;
 
+                  const rawConsent = getValueAtFieldPath(parsedSection, formProp("consent"));
+                  const extraConsentFields = collectExtraConsentYamlFields(
+                    Object.keys(consentSettings ?? {}),
+                    rawConsent && typeof rawConsent === "object"
+                      ? (rawConsent as Record<string, unknown>)
+                      : undefined,
+                    convEvent?.consent,
+                  );
+
                   const rawMarketing   = getValueAtFieldPath(parsedSection, formProp("consent.marketing"));
                   const rawSms         = getValueAtFieldPath(parsedSection, formProp("consent.sms"));
                   const rawWhatsapp    = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp"));
                   const rawSmsUsaOnly  = getValueAtFieldPath(parsedSection, formProp("consent.sms_usa_only"));
                   const rawShowTerms   = getValueAtFieldPath(parsedSection, formProp("show_terms"));
 
-                  const specificFields = {
+                  const specificFields: Partial<Record<string, boolean>> = {
                     marketing:  rawMarketing  !== null && rawMarketing  !== undefined,
                     sms:        rawSms        !== null && rawSms        !== undefined,
                     whatsapp:   rawWhatsapp   !== null && rawWhatsapp   !== undefined,
@@ -7789,6 +7803,20 @@ export function SectionEditorPanel({
                     termsUrl:   false,
                     privacyUrl: false,
                   };
+                  for (const field of extraConsentFields) {
+                    const raw = getValueAtFieldPath(parsedSection, formProp(`consent.${field}`));
+                    specificFields[field] = raw !== null && raw !== undefined;
+                  }
+
+                  const extraValues = Object.fromEntries(
+                    extraConsentFields.map((field) => [
+                      field,
+                      !!getValueAtFieldPath(resolvedParsedSection, formProp(`consent.${field}`)),
+                    ]),
+                  );
+                  const extraInherited = Object.fromEntries(
+                    extraConsentFields.map((field) => [field, !!convEvent?.consent?.[field]]),
+                  );
 
                   const inheritedValues: Partial<ConsentValues> | undefined = convEvent
                     ? {
@@ -7799,6 +7827,7 @@ export function SectionEditorPanel({
                         showTerms:  !!convEvent.consent?.show_terms,
                         termsUrl:   convEvent.consent?.terms_url ?? "",
                         privacyUrl: convEvent.consent?.privacy_url ?? "",
+                        ...extraInherited,
                       }
                     : undefined;
 
@@ -7813,12 +7842,13 @@ export function SectionEditorPanel({
                         showTerms: !!getValueAtFieldPath(resolvedParsedSection, formProp("show_terms")),
                         termsUrl: String(getValueAtFieldPath(resolvedParsedSection, formProp("terms_url")) ?? ""),
                         privacyUrl: String(getValueAtFieldPath(resolvedParsedSection, formProp("privacy_url")) ?? ""),
+                        ...extraValues,
                       }}
                       inheritedValues={inheritedValues}
                       specificFields={specificFields}
                       isOverridden={isConsentOverridden}
                       onChange={(field, value) => {
-                        const pathMap: Record<keyof ConsentValues, string> = {
+                        const pathMap: Record<string, string> = {
                           marketing: formProp("consent.marketing"),
                           sms: formProp("consent.sms"),
                           whatsapp: formProp("consent.whatsapp"),
@@ -7827,10 +7857,11 @@ export function SectionEditorPanel({
                           termsUrl: formProp("terms_url"),
                           privacyUrl: formProp("privacy_url"),
                         };
+                        const path = pathMap[field] ?? formProp(`consent.${field}`);
                         if (typeof value === "boolean") {
-                          updatePropertyWithValue(pathMap[field], value);
+                          updatePropertyWithValue(path, value);
                         } else {
-                          updateProperty(pathMap[field], value as string);
+                          updateProperty(path, value);
                         }
                       }}
                       onOverrideChange={(override) => {
@@ -7855,12 +7886,18 @@ export function SectionEditorPanel({
                             setProp(formProp("consent.whatsapp"),     !!eff(formProp("consent.whatsapp")));
                             setProp(formProp("consent.sms_usa_only"), !!eff(formProp("consent.sms_usa_only")));
                             setProp(formProp("show_terms"),           !!eff(formProp("show_terms")));
+                            for (const field of extraConsentFields) {
+                              setProp(formProp(`consent.${field}`), !!eff(formProp(`consent.${field}`)));
+                            }
                           } else {
                             setProp(formProp("consent.marketing"),    undefined);
                             setProp(formProp("consent.sms"),          undefined);
                             setProp(formProp("consent.whatsapp"),     undefined);
                             setProp(formProp("consent.sms_usa_only"), undefined);
                             setProp(formProp("show_terms"),           undefined);
+                            for (const field of extraConsentFields) {
+                              setProp(formProp(`consent.${field}`), undefined);
+                            }
                           }
                           setYamlContent(safeYamlDump(parsed, { lineWidth: -1, noRefs: true, quotingType: '"' }));
                           setHasChanges(true);

@@ -108,6 +108,7 @@ export function buildWebhookSamplePayload(
     const consentEmail = getValueAtPath(sectionSource, fp("consent.marketing")) as boolean | undefined;
     const consentSms = getValueAtPath(sectionSource, fp("consent.sms")) as boolean | undefined;
     const consentWhatsapp = getValueAtPath(sectionSource, fp("consent.whatsapp")) as boolean | undefined;
+    const consentObj = getValueAtPath(sectionSource, fp("consent"));
 
     if (program) formSettingsOverrides.program = program;
     if (currentDownload) formSettingsOverrides.current_download = currentDownload;
@@ -116,6 +117,15 @@ export function buildWebhookSamplePayload(
     if (consentEmail != null) formSettingsOverrides.consent_email = consentEmail;
     if (consentSms != null) formSettingsOverrides.sms_consent = consentSms;
     if (consentWhatsapp != null) formSettingsOverrides.consent_whatsapp = consentWhatsapp;
+    if (consentObj && typeof consentObj === "object") {
+      for (const [key, value] of Object.entries(consentObj as Record<string, unknown>)) {
+        if (typeof value !== "boolean") continue;
+        if (key === "marketing" || key === "sms" || key === "whatsapp" || key === "email" || key === "sms_usa_only") {
+          continue;
+        }
+        formSettingsOverrides[`consent_${key}`] = value;
+      }
+    }
   }
 
   const sessionOverrides: Partial<Record<string, unknown>> = {};

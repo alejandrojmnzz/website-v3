@@ -23,6 +23,8 @@ import { apiRequest, apiFetch } from "@/lib/queryClient";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
+import { resolveConsentCopy, consentObjectHasVisibleChannel, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml } from "@shared/consent-settings";
+import { RichTextContent } from "@/components/ui/rich-text-content";
 import {
   applyLeadFormRouteOutcome,
   normalizeLeadFormTags,
@@ -225,6 +227,7 @@ export interface LeadFormData {
     marketing_text?: string;
     sms_text?: string;
     sms_usa_only?: boolean;
+    [key: string]: boolean | string | undefined;
   };
   show_terms?: boolean;
   terms_url?: string;
@@ -265,6 +268,7 @@ interface FormValues {
   consent_email: boolean;
   consent_sms: boolean;
   consent_whatsapp: boolean;
+  [key: string]: string | boolean;
 }
 
 interface ConsentSectionProps {
@@ -273,7 +277,21 @@ interface ConsentSectionProps {
   locale: string;
   formOptions?: FormOptions;
   sessionLocation: { slug: string; region: string; country?: string } | null;
-  consentSettings?: Record<string, string>;
+  consentSettings?: Record<string, Record<string, string> | string>;
+}
+
+const CONSENT_COPY_CLASS =
+  "text-xs text-muted-foreground max-w-none prose-p:my-0 prose-p:leading-snug [&_p]:m-0 [&_a]:underline [&_a]:text-inherit hover:[&_a]:text-foreground";
+
+function ConsentMessage({ html, testId }: { html: string; testId?: string }) {
+  if (!html?.trim()) return null;
+  return (
+    <RichTextContent
+      html={html}
+      className={CONSENT_COPY_CLASS}
+      data-testid={testId}
+    />
+  );
 }
 
 function ConsentSection({ consent, form, locale, formOptions, sessionLocation, consentSettings }: ConsentSectionProps) {
@@ -307,21 +325,10 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
 
   const showSmsConsent = consent.sms && (!consent.sms_usa_only || isUSALocation());
 
-  const defaultMarketingText = consentSettings?.consent_general || (locale === "es"
-    ? "Acepto recibir información a través de correo electrónico, WhatsApp y/u otros canales sobre talleres, eventos, cursos y otros materiales de marketing. Nunca compartiremos tu información de contacto y puedes cancelar fácilmente en cualquier momento."
-    : "I agree to receive information through email, WhatsApp and/or other channels about workshops, events, courses, and other marketing materials. We'll never share your contact information, and you can easily opt out at any moment.");
-
-  const defaultSmsText = consentSettings?.consent_sms || (locale === "es"
-    ? "Acepto recibir mensajes SMS/texto sobre talleres, eventos, cursos y otros materiales de marketing. Pueden aplicarse tarifas de mensajes y datos. Responde STOP para cancelar, HELP para ayuda. Puedes recibir hasta 4-6 mensajes de texto por mes. Nunca compartiremos tu información de contacto y puedes cancelar fácilmente en cualquier momento."
-    : "I agree to receive SMS/text messages about workshops, events, courses, and other marketing materials. Message and data rates may apply. Reply STOP to unsubscribe, HELP for help. You may receive up to 4–6 text messages per month. We will never share your contact information, and you can easily opt out at any moment.");
-
-  const defaultEmailText = consentSettings?.consent_email || (locale === "es"
-    ? "Acepto recibir información por correo electrónico sobre talleres, eventos, cursos y otros materiales de marketing. Nunca compartiremos tu información de contacto y puedes cancelar fácilmente en cualquier momento."
-    : "I agree to receive information via email about workshops, events, courses, and other marketing materials. We'll never share your contact information, and you can easily opt out at any moment.");
-
-  const defaultWhatsappText = consentSettings?.consent_whatsapp || (locale === "es"
-    ? "Acepto recibir información a través de WhatsApp sobre talleres, eventos, cursos y otros materiales de marketing. Nunca compartiremos tu información de contacto y puedes cancelar fácilmente en cualquier momento."
-    : "I agree to receive information via WhatsApp about workshops, events, courses, and other marketing materials. We'll never share your contact information, and you can easily opt out at any moment.");
+  const defaultMarketingText = resolveConsentCopy("consent_general", consentSettings?.consent_general, locale);
+  const defaultSmsText = resolveConsentCopy("consent_sms", consentSettings?.consent_sms, locale);
+  const defaultEmailText = resolveConsentCopy("consent_email", consentSettings?.consent_email, locale);
+  const defaultWhatsappText = resolveConsentCopy("consent_whatsapp", consentSettings?.consent_whatsapp, locale);
 
   return (
     <div className="space-y-4">
@@ -336,7 +343,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
           }}
           render={({ field, fieldState }) => (
             <FormItem className="flex flex-col space-y-2">
-              <label className="flex flex-row items-start space-x-3 cursor-pointer">
+              <div className="flex flex-row items-start space-x-3">
                 <FormControl>
                   <Checkbox
                     checked={field.value}
@@ -344,12 +351,16 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
                     data-testid="checkbox-consent-marketing"
                   />
                 </FormControl>
-                <div className="space-y-1 leading-none">
-                  <span className="text-xs text-muted-foreground cursor-pointer">
-                    {consent.marketing_text || defaultMarketingText}
-                  </span>
+                <div
+                  className="min-w-0 cursor-pointer leading-none"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a")) return;
+                    field.onChange(!field.value);
+                  }}
+                >
+                  <ConsentMessage html={consent.marketing_text || defaultMarketingText} />
                 </div>
-              </label>
+              </div>
               {fieldState.error && (
                 <p className="text-sm text-destructive" data-testid="text-consent-error">
                   {fieldState.error.message}
@@ -366,20 +377,22 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
           name="consent_email"
           render={({ field }) => (
             <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-              <label className="flex flex-row items-start space-x-3 cursor-pointer">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    data-testid="checkbox-consent-email"
-                  />
-                </FormControl>
-                <div className="space-y-1 leading-none">
-                  <span className="text-xs text-muted-foreground cursor-pointer">
-                    {defaultEmailText}
-                  </span>
-                </div>
-              </label>
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  data-testid="checkbox-consent-email"
+                />
+              </FormControl>
+              <div
+                className="min-w-0 cursor-pointer leading-none"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("a")) return;
+                  field.onChange(!field.value);
+                }}
+              >
+                <ConsentMessage html={defaultEmailText} />
+              </div>
             </FormItem>
           )}
         />
@@ -391,20 +404,22 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
           name="consent_sms"
           render={({ field }) => (
             <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-              <label className="flex flex-row items-start space-x-3 cursor-pointer">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    data-testid="checkbox-consent-sms"
-                  />
-                </FormControl>
-                <div className="space-y-1 leading-none">
-                  <span className="text-xs text-muted-foreground cursor-pointer">
-                    {consent.sms_text || defaultSmsText}
-                  </span>
-                </div>
-              </label>
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  data-testid="checkbox-consent-sms"
+                />
+              </FormControl>
+              <div
+                className="min-w-0 cursor-pointer leading-none"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("a")) return;
+                  field.onChange(!field.value);
+                }}
+              >
+                <ConsentMessage html={consent.sms_text || defaultSmsText} />
+              </div>
             </FormItem>
           )}
         />
@@ -416,24 +431,74 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
           name="consent_whatsapp"
           render={({ field }) => (
             <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-              <label className="flex flex-row items-start space-x-3 cursor-pointer">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    data-testid="checkbox-consent-whatsapp"
-                  />
-                </FormControl>
-                <div className="space-y-1 leading-none">
-                  <span className="text-xs text-muted-foreground cursor-pointer">
-                    {defaultWhatsappText}
-                  </span>
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  data-testid="checkbox-consent-whatsapp"
+                />
+              </FormControl>
+              <div
+                className="min-w-0 cursor-pointer leading-none"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("a")) return;
+                  field.onChange(!field.value);
+                }}
+              >
+                <ConsentMessage html={defaultWhatsappText} />
               </div>
-            </label>
             </FormItem>
           )}
         />
       )}
+
+      {extraConsentYamlFieldsFromObject(consent).map((yamlField) => {
+        const settingsKey = consentKeyFromYamlField(yamlField);
+        if (consent[yamlField] !== true) return null;
+        const text = resolveConsentCopy(settingsKey, consentSettings?.[settingsKey], locale);
+        if (isBlankConsentHtml(text)) return null;
+        return (
+          <FormField
+            key={yamlField}
+            control={form.control}
+            name={`consent_${yamlField}`}
+            rules={{
+              validate: (value) =>
+                value === true ||
+                (locale === "es"
+                  ? "Por favor marca esta casilla para continuar"
+                  : "Please check this box to continue"),
+            }}
+            render={({ field, fieldState }) => (
+              <FormItem className="flex flex-col space-y-2">
+                <div className="flex flex-row items-start space-x-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={!!field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid={`checkbox-consent-${yamlField}`}
+                    />
+                  </FormControl>
+                  <div
+                    className="min-w-0 cursor-pointer leading-none"
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("a")) return;
+                      field.onChange(!field.value);
+                    }}
+                  >
+                    <ConsentMessage html={text} />
+                  </div>
+                </div>
+                {fieldState.error && (
+                  <p className="text-sm text-destructive" data-testid={`text-consent-${yamlField}-error`}>
+                    {fieldState.error.message}
+                  </p>
+                )}
+              </FormItem>
+            )}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -547,7 +612,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: consentSettings } = useQuery<Record<string, string>>({
+  const { data: consentSettings } = useQuery<Record<string, Record<string, string>>>({
     queryKey: ["/api/settings/consent"],
     staleTime: 5 * 60 * 1000,
   });
@@ -641,6 +706,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   })();
 
   const consent: NonNullable<LeadFormData["consent"]> = resolvedData.consent ?? {};
+  const extraConsentFields = extraConsentYamlFieldsFromObject(consent);
   const showTerms = resolvedData.show_terms ?? true;
   // Effective terms/privacy URLs: form YAML wins; event default fills gap; legal settings fallback
   const effectiveTermsUrl = resolvedData.terms_url || null;
@@ -951,8 +1017,20 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       consent_email: false,
       consent_sms: false,
       consent_whatsapp: false,
+      ...Object.fromEntries(extraConsentFields.map((field) => [`consent_${field}`, false])),
     },
   });
+
+  useEffect(() => {
+    for (const field of extraConsentFields) {
+      const name = `consent_${field}`;
+      if (form.getValues(name) === undefined) {
+        form.setValue(name, false);
+      }
+    }
+    // extraConsentFields is derived from YAML; join() is the stable dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraConsentFields.join(","), form]);
 
   // Prefill identity fields from the logged-in profile (signup mode). The values
   // stay in the form state so hidden fields are still included in the payload.
@@ -1284,6 +1362,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             consent_email: variables.consent_email,
             consent_sms: variables.consent_sms,
             consent_whatsapp: variables.consent_whatsapp,
+            ...Object.fromEntries(
+              extraConsentFields.map((field) => [
+                `consent_${field}`,
+                Boolean(variables[`consent_${field}`]),
+              ]),
+            ),
           }
         );
 
@@ -2234,7 +2318,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             />
           )}
 
-          {showLegalAndConsent && allRequiredFieldsFilled && (consent.email || consent.sms || consent.whatsapp || consent.marketing) && (
+          {showLegalAndConsent && allRequiredFieldsFilled && consentObjectHasVisibleChannel(consent) && (
             <ConsentSection 
               consent={consent}
               form={form}

@@ -236,6 +236,16 @@ function getContentRootName(res: Response): string {
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
 }
 
+function persistTrackingSettings(
+  input: Parameters<typeof updateTrackingSettings>[0],
+  res: Response,
+  author?: string | null,
+): void {
+  const contentRoot = getContentRoot(res);
+  updateTrackingSettings(input, contentRoot);
+  markFileAsModified("settings.yml", author ?? undefined, undefined, contentRoot);
+}
+
 export function registerSettingsRoutes(app: Express): void {
   app.get("/api/version", (_req, res) => {
     try {
@@ -648,7 +658,8 @@ export function registerSettingsRoutes(app: Express): void {
 
   app.get("/api/settings/consent", (_req, res) => {
     try {
-      res.json(getVM(res).getConsentSettings());
+      const defaultLocale = getDefaultLocale(getContentRoot(res));
+      res.json(getVM(res).getConsentSettings(defaultLocale));
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to load consent settings" });
     }
@@ -657,21 +668,16 @@ export function registerSettingsRoutes(app: Express): void {
   app.put("/api/settings/consent", (req, res) => {
     try {
       const schema = z.object({
-        consent_whatsapp: z.string().optional(),
-        consent_sms: z.string().optional(),
-        consent_email: z.string().optional(),
-        consent_general: z.string().optional(),
+        key: z.string().regex(/^consent_[a-z][a-z0-9_]*$/, "Invalid consent key"),
+        locales: z.record(z.string(), z.string()),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request body" });
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
       }
-      const { consent_whatsapp, consent_sms, consent_email, consent_general } = parsed.data;
-      if (consent_whatsapp !== undefined) getVM(res).updateConsentSetting("consent_whatsapp", consent_whatsapp);
-      if (consent_sms !== undefined) getVM(res).updateConsentSetting("consent_sms", consent_sms);
-      if (consent_email !== undefined) getVM(res).updateConsentSetting("consent_email", consent_email);
-      if (consent_general !== undefined) getVM(res).updateConsentSetting("consent_general", consent_general);
-      res.json({ success: true, ...getVM(res).getConsentSettings() });
+      const defaultLocale = getDefaultLocale(getContentRoot(res));
+      getVM(res).updateConsentSetting(parsed.data.key, parsed.data.locales, defaultLocale);
+      res.json({ success: true, ...getVM(res).getConsentSettings(defaultLocale) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to save consent settings" });
     }
@@ -976,12 +982,12 @@ export function registerSettingsRoutes(app: Express): void {
       if (leads_expected_tags !== undefined && !Array.isArray(leads_expected_tags)) {
         return res.status(400).json({ error: "leads_expected_tags must be an array of strings" });
       }
-      updateTrackingSettings({
+      persistTrackingSettings({
         ...(conversion_events !== undefined ? { conversion_events } : {}),
         ...(webhook !== undefined ? { webhook } : {}),
         ...(leads_expected_conversion_names !== undefined ? { leads_expected_conversion_names } : {}),
         ...(leads_expected_tags !== undefined ? { leads_expected_tags } : {}),
-      }, getContentRoot(res));
+      }, res, auth.author);
       res.json({ success: true, ...getTrackingSettings(getContentRoot(res)) });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -1009,7 +1015,7 @@ export function registerSettingsRoutes(app: Express): void {
       const updated = current.conversion_events.map((e) =>
         e.name === name ? { ...e, name: trimmed } : e
       );
-      updateTrackingSettings({ conversion_events: updated }, getContentRoot(res));
+      persistTrackingSettings({ conversion_events: updated }, res, auth.author);
       const filesChanged = bulkReplaceConversionName(name, trimmed);
       res.json({ success: true, filesChanged });
     } catch (err: any) {
@@ -1032,7 +1038,7 @@ export function registerSettingsRoutes(app: Express): void {
       }
       const filesChanged = bulkReplaceConversionName(name, mergeInto);
       const filtered = current.conversion_events.filter((e) => e.name !== name);
-      updateTrackingSettings({ conversion_events: filtered }, getContentRoot(res));
+      persistTrackingSettings({ conversion_events: filtered }, res, auth.author);
       res.json({ success: true, filesChanged });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -1223,7 +1229,7 @@ export function registerSettingsRoutes(app: Express): void {
       const { name } = req.params;
       const current = getTrackingSettings(getContentRoot(res));
       const filtered = current.conversion_events.filter((e) => e.name !== name);
-      updateTrackingSettings({ conversion_events: filtered }, getContentRoot(res));
+      persistTrackingSettings({ conversion_events: filtered }, res, auth.author);
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -1250,7 +1256,7 @@ export function registerSettingsRoutes(app: Express): void {
       const updated = current.conversion_events.map((e) =>
         e.name === name ? { ...e, name: trimmed } : e
       );
-      updateTrackingSettings({ conversion_events: updated }, getContentRoot(res));
+      persistTrackingSettings({ conversion_events: updated }, res, auth.author);
       const filesChanged = bulkReplaceConversionName(name, trimmed);
       res.json({ success: true, filesChanged });
     } catch (err: any) {
@@ -1273,7 +1279,7 @@ export function registerSettingsRoutes(app: Express): void {
       }
       const filesChanged = bulkReplaceConversionName(name, mergeInto);
       const filtered = current.conversion_events.filter((e) => e.name !== name);
-      updateTrackingSettings({ conversion_events: filtered }, getContentRoot(res));
+      persistTrackingSettings({ conversion_events: filtered }, res, auth.author);
       res.json({ success: true, filesChanged });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });

@@ -70,6 +70,7 @@ export interface ConsentDefaults {
   show_terms?: boolean;
   terms_url?: string;
   privacy_url?: string;
+  [key: string]: boolean | string | undefined;
 }
 
 export interface SuccessDefaults {
@@ -514,15 +515,14 @@ function loadSettings(contentRoot?: string): SiteSettings {
     };
     const parseConsent = (raw: Record<string, unknown>): ConsentDefaults => {
       const result: ConsentDefaults = {};
-      if (typeof raw.marketing === "boolean") result.marketing = raw.marketing;
-      if (typeof raw.sms === "boolean") result.sms = raw.sms;
-      if (typeof raw.whatsapp === "boolean") result.whatsapp = raw.whatsapp;
-      if (typeof raw.sms_usa_only === "boolean") result.sms_usa_only = raw.sms_usa_only;
-      if (typeof raw.marketing_text === "string" && raw.marketing_text) result.marketing_text = raw.marketing_text;
-      if (typeof raw.sms_text === "string" && raw.sms_text) result.sms_text = raw.sms_text;
-      if (typeof raw.show_terms === "boolean") result.show_terms = raw.show_terms;
-      if (typeof raw.terms_url === "string" && raw.terms_url) result.terms_url = raw.terms_url;
-      if (typeof raw.privacy_url === "string" && raw.privacy_url) result.privacy_url = raw.privacy_url;
+      const textKeys = new Set(["marketing_text", "sms_text", "terms_url", "privacy_url"]);
+      for (const [key, value] of Object.entries(raw)) {
+        if (typeof value === "boolean") {
+          result[key] = value;
+        } else if (typeof value === "string" && value && textKeys.has(key)) {
+          result[key] = value;
+        }
+      }
       return result;
     };
     const tracking: TrackingSettings = {
