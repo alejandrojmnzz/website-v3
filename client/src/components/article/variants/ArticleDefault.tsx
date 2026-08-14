@@ -275,10 +275,10 @@ function TocLink({
       href={`#${item.id}`}
       onClick={(e) => onNavigate(e, item.id)}
       className={cn(
-        "block border-l-2 py-1 text-sm transition-colors",
+        "relative block py-1 text-sm transition-colors before:absolute before:-left-2 before:top-1 before:bottom-1 before:w-0.5 before:rounded-full before:content-['']",
         isActive
-          ? "border-primary text-foreground font-medium"
-          : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/50",
+          ? "font-medium text-foreground before:bg-primary"
+          : "text-muted-foreground before:bg-transparent hover:text-foreground hover:before:bg-muted-foreground/50",
         className,
       )}
       style={style}
@@ -336,7 +336,7 @@ function CollapsibleTocNav({
       >
         {isSide ? "On this page" : "Table of Contents"}
       </p>
-      <ul className={cn("space-y-0.5", isSide && "border-l border-border")}>
+      <ul className="space-y-0.5">
         {tree.map((branch) => {
           if (branch.kind === "heading") {
             return (
@@ -345,12 +345,12 @@ function CollapsibleTocNav({
                   item={branch.item}
                   isActive={activeId === branch.item.id}
                   onNavigate={scrollTo}
-                  style={{
-                    paddingLeft: isSide
-                      ? `${8 + (branch.item.level - 1) * 12}px`
-                      : `${(branch.item.level - 1) * 16}px`,
-                  }}
-                  className={!isSide ? "border-l-0" : undefined}
+                  style={
+                    isSide
+                      ? undefined
+                      : { paddingLeft: `${(branch.item.level - 1) * 16}px` }
+                  }
+                  className={!isSide ? "before:hidden" : undefined}
                 />
               </li>
             );
@@ -363,41 +363,33 @@ function CollapsibleTocNav({
           const h2Active = activeId === item.id || childActive;
 
           return (
-            <li key={item.id}>
-              <div className="flex items-start gap-0.5">
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    aria-expanded={isExpanded}
-                    aria-controls={`toc-children-${item.id}`}
-                    onClick={() => toggleH2(item.id)}
+            <li key={item.id} className="relative">
+              {hasChildren ? (
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-controls={`toc-children-${item.id}`}
+                  onClick={() => toggleH2(item.id)}
+                  className={cn(
+                    "absolute -left-5 top-1 flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground",
+                    h2Active && "text-foreground",
+                  )}
+                  data-testid={`toc-expand-${item.id}`}
+                >
+                  <ChevronRight
                     className={cn(
-                      "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground",
-                      isSide ? "ml-0.5" : "ml-0",
-                      h2Active && "text-foreground",
+                      "h-3.5 w-3.5 transition-transform duration-200",
+                      isExpanded && "rotate-90",
                     )}
-                    data-testid={`toc-expand-${item.id}`}
-                  >
-                    <ChevronRight
-                      className={cn(
-                        "h-3.5 w-3.5 transition-transform duration-200",
-                        isExpanded && "rotate-90",
-                      )}
-                    />
-                  </button>
-                ) : (
-                  <span className="w-5 shrink-0" aria-hidden />
-                )}
-                <TocLink
-                  item={item}
-                  isActive={h2Active}
-                  onNavigate={handleH2Navigate}
-                  className={cn("min-w-0 flex-1", !isSide && "border-l-0")}
-                  style={{
-                    paddingLeft: isSide ? "4px" : undefined,
-                  }}
-                />
-              </div>
+                  />
+                </button>
+              ) : null}
+              <TocLink
+                item={item}
+                isActive={h2Active}
+                onNavigate={handleH2Navigate}
+                className={cn("min-w-0", !isSide && "before:hidden")}
+              />
               {hasChildren && isExpanded && (
                 <ul
                   id={`toc-children-${item.id}`}
@@ -410,9 +402,9 @@ function CollapsibleTocNav({
                         item={child}
                         isActive={activeId === child.id}
                         onNavigate={scrollTo}
-                        className={!isSide ? "border-l-0" : undefined}
+                        className={!isSide ? "before:hidden" : undefined}
                         style={{
-                          paddingLeft: isSide ? "28px" : "32px",
+                          paddingLeft: isSide ? "16px" : "32px",
                         }}
                       />
                     </li>
