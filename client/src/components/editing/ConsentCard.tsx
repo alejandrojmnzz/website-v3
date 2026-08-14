@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { IconAlertCircle, IconInfoCircle, IconPencil, IconShieldCheck, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -6,22 +7,22 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  collectExtraConsentYamlFields,
+  consentCardChannels,
+  consentKeyFromYamlField,
+  consentLabelFromKey,
+  type ConsentCardValues,
+  type ConsentChannelDef,
+} from "@shared/consent-settings";
 
-export interface ConsentValues {
-  marketing: boolean;
-  sms: boolean;
-  whatsapp: boolean;
-  smsUsaOnly: boolean;
-  showTerms: boolean;
-  termsUrl: string;
-  privacyUrl: string;
-}
+export type ConsentValues = ConsentCardValues;
 
 interface ConsentCardProps {
   values: ConsentValues;
-  onChange: (field: keyof ConsentValues, value: boolean | string) => void;
+  onChange: (field: string, value: boolean | string) => void;
   inheritedValues?: Partial<ConsentValues>;
-  specificFields?: Partial<Record<keyof ConsentValues, boolean>>;
+  specificFields?: Partial<Record<string, boolean>>;
   isOverridden?: boolean;
   onOverrideChange?: (v: boolean) => void;
 }
@@ -67,6 +68,11 @@ function ConsentVariableInfo({ variable }: { variable: string }) {
   );
 }
 
+function channelOn(values: Partial<ConsentValues> | undefined, yamlField: string): boolean {
+  if (!values) return false;
+  return !!(values as Record<string, unknown>)[yamlField];
+}
+
 export function ConsentCard({
   values,
   onChange,
@@ -76,22 +82,46 @@ export function ConsentCard({
   onOverrideChange,
 }: ConsentCardProps) {
   const [editing, setEditing] = useState(false);
+  const { data: consentSettings } = useQuery<Record<string, unknown>>({
+    queryKey: ["/api/settings/consent"],
+  });
 
-  const isSpecific = (field: keyof ConsentValues) => specificFields?.[field] === true;
-  const isInherited = (field: keyof ConsentValues) => !isSpecific(field) && inheritedValues !== undefined;
+  const channelDefs: ConsentChannelDef[] = useMemo(() => {
+    const fromSettings = consentCardChannels(Object.keys(consentSettings ?? {}));
+    const extras = collectExtraConsentYamlFields(
+      Object.keys(consentSettings ?? {}),
+      values,
+      inheritedValues,
+    );
+    const known = new Set(fromSettings.map((c) => c.yamlField));
+    const extraOnly = extras
+      .filter((field) => !known.has(field))
+      .map((yamlField) => {
+        const settingsKey = consentKeyFromYamlField(yamlField);
+        return {
+          yamlField,
+          settingsKey,
+          label: consentLabelFromKey(settingsKey),
+        };
+      });
+    return [...fromSettings, ...extraOnly];
+  }, [consentSettings, values, inheritedValues]);
+
+  // Conversions (no inheritance): treat enabled channels as authored so badges show.
+  const eventAuthored = specificFields === undefined;
+  const isSpecific = (field: string) => eventAuthored || specificFields?.[field] === true;
+  const isInherited = (field: string) => !isSpecific(field) && inheritedValues !== undefined;
   const hasInheritanceSource = inheritedValues !== undefined;
 
-  type Channel = { key: "marketing" | "sms" | "whatsapp"; label: string };
-  const channelDefs: Channel[] = [
-    { key: "marketing", label: "Marketing" },
-    { key: "sms", label: "SMS" },
-    { key: "whatsapp", label: "WhatsApp" },
-  ];
-
-  const specificChannels = channelDefs.filter(({ key }) => isSpecific(key) && values[key]);
-  const inheritedChannels = channelDefs.filter(({ key }) => isInherited(key) && values[key]);
+  const specificChannels = channelDefs.filter(
+    ({ yamlField }) => isSpecific(yamlField) && channelOn(values, yamlField),
+  );
+  const inheritedChannels = channelDefs.filter(
+    ({ yamlField }) => isInherited(yamlField) && channelOn(values, yamlField),
+  );
   const hasAnyChannel = specificChannels.length > 0 || inheritedChannels.length > 0;
-  const channelsMissing = !hasAnyChannel && !hasInheritanceSource && !channelDefs.some(({ key }) => values[key]);
+  const channelsMissing =
+    !hasAnyChannel && !hasInheritanceSource && !channelDefs.some(({ yamlField }) => channelOn(values, yamlField));
 
   const showTermsSpecific = isSpecific("showTerms");
   const showTermsInherited = isInherited("showTerms");
@@ -120,7 +150,6 @@ export function ConsentCard({
 
       {!editing ? (
         <div className="space-y-1.5">
-          {/* Channels */}
           <div className="flex items-start gap-2">
             <span className="text-xs text-muted-foreground w-20 flex-shrink-0 pt-0.5">Channels</span>
             {channelsMissing ? (
@@ -130,13 +159,13 @@ export function ConsentCard({
               </span>
             ) : hasAnyChannel ? (
               <div className="flex flex-wrap gap-1 items-center">
-                {specificChannels.map(({ key, label }) => (
-                  <Badge key={key} variant="secondary" className="text-[11px] px-1.5 py-0 leading-4 font-normal">
+                {specificChannels.map(({ yamlField, label }) => (
+                  <Badge key={yamlField} variant="secondary" className="text-[11px] px-1.5 py-0 leading-4 font-normal">
                     {label}
                   </Badge>
                 ))}
-                {inheritedChannels.map(({ key, label }) => (
-                  <Badge key={key} variant="secondary" className="text-[11px] px-1.5 py-0 leading-4 font-normal">
+                {inheritedChannels.map(({ yamlField, label }) => (
+                  <Badge key={yamlField} variant="secondary" className="text-[11px] px-1.5 py-0 leading-4 font-normal">
                     {label}
                   </Badge>
                 ))}
@@ -145,7 +174,7 @@ export function ConsentCard({
                 )}
                 {inheritedChannels.length > 0 && specificChannels.length > 0 && (
                   <span className="text-[10px] text-muted-foreground italic">
-                    ({inheritedChannels.map(c => c.label).join(", ")} inherited)
+                    ({inheritedChannels.map((c) => c.label).join(", ")} inherited)
                   </span>
                 )}
               </div>
@@ -158,7 +187,6 @@ export function ConsentCard({
             )}
           </div>
 
-          {/* Terms */}
           <div className="flex items-start gap-2">
             <span className="text-xs text-muted-foreground w-20 flex-shrink-0 pt-0.5">Terms</span>
             {termsMissing ? (
@@ -183,7 +211,6 @@ export function ConsentCard({
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Override toggle — only shown when there is an event to inherit from */}
           {hasInheritanceSource && onOverrideChange && (
             <div className="flex items-center justify-between gap-2 pb-2 border-b">
               <span className="text-xs text-muted-foreground">Customize for this form</span>
@@ -196,20 +223,13 @@ export function ConsentCard({
           )}
 
           {!isOverridden && hasInheritanceSource ? (
-            /* Not overriding — show inherited values as disabled preview */
             <div className="space-y-3 opacity-60 pointer-events-none select-none">
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs">Marketing</Label>
-                <Switch checked={inheritedValues?.marketing ?? false} disabled />
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs">SMS</Label>
-                <Switch checked={inheritedValues?.sms ?? false} disabled />
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs">WhatsApp</Label>
-                <Switch checked={inheritedValues?.whatsapp ?? false} disabled />
-              </div>
+              {channelDefs.map(({ yamlField, label }) => (
+                <div key={yamlField} className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">{label}</Label>
+                  <Switch checked={channelOn(inheritedValues, yamlField)} disabled />
+                </div>
+              ))}
               <div className="space-y-2 pt-1 border-t">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs">Show terms &amp; privacy</Label>
@@ -221,67 +241,41 @@ export function ConsentCard({
               </p>
             </div>
           ) : (
-            /* Overriding (or no inherited source) — show editable controls */
             <>
-              {/* Marketing */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1">
-                  <Label className="text-xs">Marketing</Label>
-                  {values.marketing && (
-                    <ConsentVariableInfo variable="reserved.consent_general" />
-                  )}
-                </div>
-                <Switch
-                  checked={values.marketing}
-                  onCheckedChange={(v) => onChange("marketing", v)}
-                  data-testid="switch-consent-marketing"
-                />
-              </div>
-
-              {/* SMS */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    <Label className="text-xs">SMS</Label>
-                    {values.sms && (
-                      <ConsentVariableInfo variable="reserved.consent_sms" />
-                    )}
-                  </div>
-                  <Switch
-                    checked={values.sms}
-                    onCheckedChange={(v) => onChange("sms", v)}
-                    data-testid="switch-consent-sms"
-                  />
-                </div>
-                {values.sms && (
+              {channelDefs.map(({ yamlField, label, settingsKey }) => (
+                <div key={yamlField} className={yamlField === "sms" ? "space-y-2" : undefined}>
                   <div className="flex items-center justify-between gap-2">
-                    <Label className="text-xs text-muted-foreground">US-only</Label>
-                    <Checkbox
-                      checked={values.smsUsaOnly}
-                      onCheckedChange={(v) => onChange("smsUsaOnly", !!v)}
-                      data-testid="checkbox-consent-sms-usa-only"
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs">{label}</Label>
+                      {channelOn(values, yamlField) && (
+                        <ConsentVariableInfo variable={`reserved.${settingsKey}`} />
+                      )}
+                    </div>
+                    <Switch
+                      checked={channelOn(values, yamlField)}
+                      onCheckedChange={(v) => onChange(yamlField, !!v)}
+                      data-testid={`switch-consent-${yamlField}`}
                     />
                   </div>
-                )}
-              </div>
+                  {yamlField === "sms" && values.sms && (
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs text-muted-foreground">US-only</Label>
+                      <Checkbox
+                        checked={values.smsUsaOnly}
+                        onCheckedChange={(v) => onChange("smsUsaOnly", !!v)}
+                        data-testid="checkbox-consent-sms-usa-only"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
 
-              {/* WhatsApp */}
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs">WhatsApp</Label>
-                <Switch
-                  checked={values.whatsapp}
-                  onCheckedChange={(v) => onChange("whatsapp", v)}
-                  data-testid="switch-consent-whatsapp"
-                />
-              </div>
-
-              {/* Terms */}
               <div className="space-y-2 pt-1 border-t">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs">Show terms &amp; privacy</Label>
                   <Switch
                     checked={values.showTerms}
-                    onCheckedChange={(v) => onChange("showTerms", v)}
+                    onCheckedChange={(v) => onChange("showTerms", !!v)}
                     data-testid="switch-consent-show-terms"
                   />
                 </div>

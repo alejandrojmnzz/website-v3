@@ -70,8 +70,20 @@ export function buildLeadPayload(
     token: leadData.token || null,
   };
 
+  const extraConsent: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(leadData)) {
+    if (
+      key.startsWith("consent_") &&
+      key !== "consent_whatsapp" &&
+      key !== "consent_email" &&
+      typeof value === "boolean"
+    ) {
+      extraConsent[key] = value;
+    }
+  }
+
   return Object.fromEntries(
-    Object.entries(payload).filter(
+    Object.entries({ ...payload, ...extraConsent }).filter(
       ([_, value]) => value !== null && value !== undefined && value !== "",
     ),
   );

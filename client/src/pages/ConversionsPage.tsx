@@ -60,6 +60,13 @@ import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { type TrackingSettingsResponse, type ConversionEventEntry } from "@/lib/tracking";
+import {
+  cardValuesToEventConsent,
+  consentKeyFromYamlField,
+  consentLabelFromKey,
+  eventConsentToCardValues,
+  extraConsentYamlFieldsFromObject,
+} from "@shared/consent-settings";
 import { buildWebhookSamplePayload } from "@/lib/webhookPayload";
 import { useSession } from "@/contexts/SessionContext";
 
@@ -86,15 +93,7 @@ function makeEditingState(entry: ConversionEventEntry): EditingEventState {
     name: entry.name,
     automations: entry.automations ?? "",
     tags: entry.tags ?? [],
-    consent: {
-      marketing: entry.consent?.marketing ?? false,
-      sms: entry.consent?.sms ?? false,
-      whatsapp: entry.consent?.whatsapp ?? false,
-      smsUsaOnly: entry.consent?.sms_usa_only ?? false,
-      showTerms: entry.consent?.show_terms ?? false,
-      termsUrl: entry.consent?.terms_url ?? "",
-      privacyUrl: entry.consent?.privacy_url ?? "",
-    },
+    consent: eventConsentToCardValues(entry.consent),
     successMessage: entry.success?.message ?? "",
     successUrl: entry.success?.url ?? "",
     successEditing: false,
@@ -531,17 +530,10 @@ function ConversionsPageInner() {
       const updatedEvents: ConversionEventEntry[] = (current?.conversion_events ?? conversionEventEntries).map(
         (entry) => {
           if (entry.name === event.originalName) {
-            const consent = {
-              ...(entry.consent?.marketing_text ? { marketing_text: entry.consent.marketing_text } : {}),
-              ...(entry.consent?.sms_text ? { sms_text: entry.consent.sms_text } : {}),
-              ...(event.consent.marketing !== undefined ? { marketing: event.consent.marketing } : {}),
-              ...(event.consent.sms !== undefined ? { sms: event.consent.sms } : {}),
-              ...(event.consent.whatsapp !== undefined ? { whatsapp: event.consent.whatsapp } : {}),
-              ...(event.consent.smsUsaOnly !== undefined ? { sms_usa_only: event.consent.smsUsaOnly } : {}),
-              ...(event.consent.showTerms !== undefined ? { show_terms: event.consent.showTerms } : {}),
-              ...(event.consent.termsUrl ? { terms_url: event.consent.termsUrl } : {}),
-              ...(event.consent.privacyUrl ? { privacy_url: event.consent.privacyUrl } : {}),
-            };
+            const consent = cardValuesToEventConsent(event.consent, {
+              marketing_text: entry.consent?.marketing_text,
+              sms_text: entry.consent?.sms_text,
+            });
             const updated: ConversionEventEntry = {
               name: effectiveName,
               ...(entry.description ? { description: entry.description } : {}),
@@ -1027,6 +1019,13 @@ function ConversionsPageInner() {
                                         {entry?.consent?.marketing && <div className="text-muted-foreground">Marketing consent enabled</div>}
                                         {entry?.consent?.sms && <div className="text-muted-foreground">SMS consent enabled{entry.consent.sms_usa_only ? " (US only)" : ""}</div>}
                                         {entry?.consent?.whatsapp && <div className="text-muted-foreground">WhatsApp consent enabled</div>}
+                                        {extraConsentYamlFieldsFromObject(entry?.consent).map((field) =>
+                                          entry?.consent?.[field] ? (
+                                            <div key={field} className="text-muted-foreground">
+                                              {consentLabelFromKey(consentKeyFromYamlField(field))} consent enabled
+                                            </div>
+                                          ) : null,
+                                        )}
                                         {entry?.consent?.show_terms && <div className="text-muted-foreground">Terms &amp; privacy shown</div>}
                                       </div>
                                     </PopoverContent>
@@ -1551,12 +1550,13 @@ function ConversionsPageInner() {
               {editingEvent && (
                 <ConsentCard
                   values={editingEvent.consent}
-                  onChange={(field, value) =>
-                    setEditingEvent({
-                      ...editingEvent,
-                      consent: { ...editingEvent.consent, [field]: value },
-                    })
-                  }
+                  onChange={(field, value) => {
+                    setEditingEvent((prev) =>
+                      prev
+                        ? { ...prev, consent: { ...prev.consent, [field]: value } }
+                        : prev,
+                    );
+                  }}
                 />
               )}
 

@@ -9,6 +9,13 @@ import {
 } from "./template-parser";
 import { markFileAsModified } from "./sync-state";
 import { child } from "./logger";
+import {
+  BUILTIN_CONSENT_KEYS,
+  consentDefinitionToLocales,
+  isBuiltinConsentKey,
+  isValidConsentKey,
+  localesToConsentDefinition,
+} from "@shared/consent-settings";
 const log = child({ module: "variable-manager" });
 
 export const BRAND_VAR_KEYS = ["brand.title", "brand.logo", "brand.logo_dark"] as const;
@@ -500,30 +507,48 @@ class VariableManager {
     };
   }
 
-  getConsentSettings(): Record<string, string> {
+  listConsentKeys(): string[] {
     this.ensureInitialized();
-    return {
-      consent_whatsapp: this.variables["reserved.consent_whatsapp"]?.default ?? "",
-      consent_sms: this.variables["reserved.consent_sms"]?.default ?? "",
-      consent_email: this.variables["reserved.consent_email"]?.default ?? "",
-      consent_general: this.variables["reserved.consent_general"]?.default ?? "",
-    };
+    const extras = Object.keys(this.variables)
+      .filter((k) => k.startsWith("reserved.consent_"))
+      .map((k) => k.slice("reserved.".length))
+      .filter((k) => !isBuiltinConsentKey(k))
+      .sort();
+    return [...BUILTIN_CONSENT_KEYS, ...extras];
   }
 
-  updateConsentSetting(key: "consent_whatsapp" | "consent_sms" | "consent_email" | "consent_general", value: string): void {
+  getConsentSettings(defaultLocale: string): Record<string, Record<string, string>> {
     this.ensureInitialized();
+    const result: Record<string, Record<string, string>> = {};
+    for (const key of this.listConsentKeys()) {
+      result[key] = consentDefinitionToLocales(
+        this.variables[`reserved.${key}`],
+        defaultLocale,
+      );
+    }
+    return result;
+  }
+
+  updateConsentSetting(
+    key: string,
+    locales: Record<string, string>,
+    defaultLocale: string,
+  ): void {
+    this.ensureInitialized();
+    if (!isValidConsentKey(key)) {
+      throw new Error(`Invalid consent key "${key}"`);
+    }
     const reservedKey = `reserved.${key}`;
     const globalKey = `global.${key}`;
-    if (!this.variables[reservedKey]) {
-      this.variables[reservedKey] = {};
-    }
-    this.variables[reservedKey].default = value;
-    this.variables[reservedKey].isReserved = true;
-    if (!this.variables[globalKey]) {
-      this.variables[globalKey] = {};
-    }
-    this.variables[globalKey].default = value;
-    this.variables[globalKey].isReserved = true;
+    const shape = localesToConsentDefinition(locales, defaultLocale);
+    this.variables[reservedKey] = {
+      ...shape,
+      isReserved: true,
+    };
+    this.variables[globalKey] = {
+      ...shape,
+      isReserved: true,
+    };
     this.save();
   }
 
