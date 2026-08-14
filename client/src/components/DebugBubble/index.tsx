@@ -2367,7 +2367,13 @@ export function DebugBubble() {
                 }
               >
                 <AlertTriangle className="h-3 w-3" />
-                <span>{pageDiagnostics?.dirty && pageErrorCount === 0 ? "Stale" : "Page errors"}</span>
+                <span>
+                  {pageDiagnostics?.dirty && pageErrorCount === 0 && pageWarningCount === 0
+                    ? "Stale"
+                    : pageErrorCount === 0 && pageWarningCount > 0
+                      ? "Page Warnings"
+                      : "Page errors"}
+                </span>
               </button>
             )}
           </div>
