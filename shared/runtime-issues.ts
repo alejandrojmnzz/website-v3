@@ -407,6 +407,41 @@ export function unionSources(existing: string[] | undefined, tags: readonly stri
 
 export const hourCountsSchema = z.record(z.string(), z.number());
 
+export const RUNTIME_ISSUE_PROBE_STATUSES = [
+  "page",
+  "redirect",
+  "not_found",
+  "broken_redirect",
+  "mismatch",
+  "loop",
+] as const;
+export type RuntimeIssueProbeStatus = (typeof RUNTIME_ISSUE_PROBE_STATUSES)[number];
+
+export const runtimeIssueProbeStatusSchema = z.enum(RUNTIME_ISSUE_PROBE_STATUSES);
+
+export const runtimeIssueProbeSchema = z.object({
+  at: z.number(),
+  status: runtimeIssueProbeStatusSchema,
+  destination: z.string().optional(),
+  chained: z.boolean().optional(),
+  hops: z.array(z.string()).optional(),
+  httpStatus: z.number().optional(),
+  matchType: z.enum(["exact", "regex", "canonical"]).optional(),
+  entry: z
+    .object({
+      contentType: z.string(),
+      slug: z.string(),
+    })
+    .optional(),
+});
+
+export type RuntimeIssueProbe = z.infer<typeof runtimeIssueProbeSchema>;
+
+/** Green check: Test found a live page or redirect. */
+export function isRuntimeIssueProbeSuccess(status: RuntimeIssueProbeStatus | undefined): boolean {
+  return status === "page" || status === "redirect";
+}
+
 export const runtimeIssueRecordSchema = z.object({
   fingerprint: z.string(),
   kind: runtimeIssueKindSchema,
@@ -421,6 +456,7 @@ export const runtimeIssueRecordSchema = z.object({
   likelyBot: z.boolean().optional(),
   sources: z.array(z.string()).optional(),
   byHour: z.record(z.string(), hourCountsSchema).optional(),
+  lastProbe: runtimeIssueProbeSchema.optional(),
 });
 
 export type RuntimeIssueRecord = z.infer<typeof runtimeIssueRecordSchema>;

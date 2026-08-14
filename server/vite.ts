@@ -27,8 +27,8 @@ import path from "path";
 import { createServer as createViteServer, createLogger, type ViteDevServer } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
-import { contentIndex } from "./content-index";
 import { resolveInitialData, resolvePreloadHints, injectSsrMetaTags, type PreloadHint, type InitialDataPayload } from "./initial-data-middleware";
+import { resolvePublicHtmlStatus } from "./public-html-status";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { getEntryAssets, buildEntryPreloadTags, buildEntryLinkHeader } from "./utils/vite-manifest";
 import {
@@ -111,33 +111,9 @@ function injectPreloadTags(html: string, preloadTags: string): string {
 
 const viteLogger = createLogger();
 
-const STATIC_ROUTES = new Set([
-  "/",
-  "/en",
-  "/en/",
-  "/es",
-  "/es/",
-  "/en/apply",
-  "/es/aplica",
-  "/terms-conditions",
-  "/terminos-condiciones",
-  "/privacy-policy",
-  "/politica-privacidad",
-  "/preview-frame",
-]);
-
-const STATIC_PREFIXES = ["/private/", "/api/"];
-
-function isKnownRoute(url: string): boolean {
-  const cleanUrl = url.split("?")[0].split("#")[0];
-  if (STATIC_ROUTES.has(cleanUrl)) return true;
-  for (const prefix of STATIC_PREFIXES) {
-    if (cleanUrl.startsWith(prefix)) return true;
-  }
-  try {
-    if (contentIndex.isKnownUrl(cleanUrl)) return true;
-  } catch {}
-  return false;
+function siteContentIndex(res: Response): { isKnownUrl(url: string): boolean } | undefined {
+  return (res.locals as { site?: { contentIndex?: { isKnownUrl(url: string): boolean } } }).site
+    ?.contentIndex;
 }
 
 export function log(message: string, source = "express") {
@@ -272,7 +248,11 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
         typeof (initialDataPayload as { httpStatus?: number }).httpStatus === "number"
           ? (initialDataPayload as { httpStatus: number }).httpStatus
           : undefined;
-      const status = payloadStatus ?? (isKnownRoute(url) ? 200 : 404);
+      const status = resolvePublicHtmlStatus({
+        url,
+        httpStatus: payloadStatus,
+        contentIndex: siteContentIndex(res),
+      });
       maybeRecordPublicNotFound(req, res, status);
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
@@ -348,7 +328,10 @@ export function serveStatic(app: Express) {
     }
 
     const url = _req.originalUrl;
-    let status = isKnownRoute(url) ? 200 : 404;
+    let status = resolvePublicHtmlStatus({
+      url,
+      contentIndex: siteContentIndex(res),
+    });
     const ssrSchemaHtml = _req.ssrSchemaHtml;
 
     const cleanUrlForSsr = url.split("?")[0].split("#")[0];
@@ -377,12 +360,15 @@ export function serveStatic(app: Express) {
       if (render) {
         const indexHtml = await fs.promises.readFile(indexHtmlPath, "utf-8");
         const initialDataPayload = await getInitialDataForRequest(url, res);
-        if (
-          initialDataPayload &&
-          typeof (initialDataPayload as { httpStatus?: number }).httpStatus === "number"
-        ) {
-          status = (initialDataPayload as { httpStatus: number }).httpStatus;
-        }
+        status = resolvePublicHtmlStatus({
+          url,
+          httpStatus:
+            initialDataPayload &&
+            typeof (initialDataPayload as { httpStatus?: number }).httpStatus === "number"
+              ? (initialDataPayload as { httpStatus: number }).httpStatus
+              : undefined,
+          contentIndex: siteContentIndex(res),
+        });
         const appHtml = await render(url, initialDataPayload);
 
         let html = indexHtml.replace(

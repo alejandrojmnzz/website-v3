@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, File, Loader2, Save, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, File, Loader2, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  rawFileCaption,
+  type RawFileExplainContext,
+  type RawFileRole,
+} from "@/lib/rawFileCaption";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +40,35 @@ interface TabFile {
   path: string;
   originalContent: string;
   content: string;
+  role?: RawFileRole;
+  locale?: string;
+}
+
+function InlineCodeText({
+  text,
+  className,
+  testId,
+  as: Tag = "span",
+}: {
+  text: string;
+  className?: string;
+  testId?: string;
+  as?: "p" | "span";
+}) {
+  const parts = text.split(/`([^`]+)`/);
+  return (
+    <Tag className={className} data-testid={testId}>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <code key={i} className="text-[11px] font-mono bg-muted px-1 py-0.5 rounded">
+            {part}
+          </code>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </Tag>
+  );
 }
 
 interface PendingSave {
@@ -51,6 +85,8 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
   const [hasChanges, setHasChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
+  const [explainContext, setExplainContext] = useState<RawFileExplainContext | null>(null);
+  const [showExplainAdvanced, setShowExplainAdvanced] = useState(false);
 
   useEffect(() => {
     const fetchFiles = async () => {
@@ -69,7 +105,7 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
         }
 
         const nextFiles: TabFile[] = [];
-        const localeEntries: { path: string; content: string }[] =
+        const localeEntries: { path: string; content: string; role?: RawFileRole; locale?: string }[] =
           Array.isArray(data.files.locales) && data.files.locales.length > 0
             ? data.files.locales
             : data.files.locale
@@ -82,6 +118,8 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
             path: entry.path,
             originalContent: entry.content,
             content: entry.content,
+            role: entry.role,
+            locale: entry.locale,
           });
         }
         if (data.files.common) {
@@ -90,8 +128,16 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
             path: data.files.common.path,
             originalContent: data.files.common.content,
             content: data.files.common.content,
+            role: data.files.common.role,
           });
         }
+
+        if (data.context) {
+          setExplainContext(data.context as RawFileExplainContext);
+        } else {
+          setExplainContext(null);
+        }
+        setShowExplainAdvanced(false);
 
         if (nextFiles.length === 0) {
           setError("No YAML files found for this content");
@@ -207,24 +253,74 @@ export default function RawFileEditorPanel({ contentType, slug, locale, variantS
   };
 
   const currentFile = files.find((file) => file.id === activeFileId) ?? null;
+  const caption =
+    currentFile && explainContext && currentFile.role
+      ? rawFileCaption({
+          role: currentFile.role,
+          path: currentFile.path,
+          fileLocale: currentFile.locale,
+          context: explainContext,
+        })
+      : null;
 
   return (
     <>
       <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[520px] bg-background border-l shadow-xl z-[9999] flex flex-col" data-testid="raw-file-editor-panel">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="min-w-0 flex-1">
-            <h2 className="font-semibold" data-testid="text-editor-title">
-              {readOnly ? "View Raw YAML" : "Edit Raw YAML"}
-            </h2>
-            {currentFile && (
-              <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-file-path">
-                {currentFile.path}
-              </p>
-            )}
+        <div className="p-4 border-b space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold" data-testid="text-editor-title">
+                {readOnly ? "View Raw YAML" : "Edit Raw YAML"}
+              </h2>
+              {currentFile && (
+                <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-file-path">
+                  {currentFile.path}
+                </p>
+              )}
+            </div>
+            <Button size="icon" variant="ghost" onClick={handleClose} data-testid="button-close-raw-editor">
+              <X className="h-4 w-4" />
+            </Button>
           </div>
-          <Button size="icon" variant="ghost" onClick={handleClose} data-testid="button-close-raw-editor">
-            <X className="h-4 w-4" />
-          </Button>
+          {caption && (
+            <div className="space-y-1.5">
+              <InlineCodeText
+                as="p"
+                text={caption.visible}
+                className="text-xs text-muted-foreground leading-relaxed"
+                testId="text-file-explain"
+              />
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+                onClick={() => setShowExplainAdvanced((v) => !v)}
+                data-testid="button-toggle-yaml-explain-advanced"
+              >
+                {showExplainAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${showExplainAdvanced ? "rotate-180" : ""}`}
+                />
+              </button>
+              {showExplainAdvanced && (
+                <div
+                  className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs text-muted-foreground"
+                  data-testid="yaml-explain-advanced"
+                >
+                  <ul className="space-y-1.5">
+                    {caption.advanced.map((item) => (
+                      <li key={item.label}>
+                        <span className="font-medium text-foreground">{item.label}: </span>
+                        <InlineCodeText
+                          text={item.text}
+                          className="inline text-xs text-muted-foreground"
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {files.length > 1 && (

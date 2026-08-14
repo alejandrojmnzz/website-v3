@@ -1,11 +1,11 @@
 # Content System
 
-All marketing content lives under `4geeks-com/`. Pages are YAML files grouped by content type directory.
+All marketing content lives under the site folder from `sites.yml` (`content_folder`, e.g. `site_4geeks-com/`). Pages are YAML files grouped by content type directory. Live tables below are loaded from that folder.
 
 ## Directory layout
 
 ```
-4geeks-com/
+{content_folder}/
   content-types.yml       # single source of truth for all content types
   settings.yml            # site-wide settings (locales, optimization.tagmanager web_container_id + sGTM proxy,
                           # optimization.ip_normalization egress proxy at fixed /ipn/{id}/*, etc.)
@@ -59,7 +59,7 @@ On the MCP server side, use the `safeLoad()` helper from `mcp-server/lib/content
 
 Types are declared in `content-types.yml`. Each entry specifies:
 
-- `directory` — subfolder inside `4geeks-com/`
+- `directory` — subfolder inside `{content_folder}/`
 - `url_pattern` — per-locale URL templates with `:slug` placeholder
 - `field_mapping` — content-type **schema** keys. Non-underscore keys are available as `{{ single.* }}` and in the Fields tab (content-type fields, not SEO). Values are auto-fill sources: identity (same YAML/DB name); `{ source, default }` with required default (may be `null`); DB remap (column → schema key); `function:` computed. Mapping remaps are for **DB-attached types** and calculated fields — static YAML uses identity (schema key = YAML parent key). System identity is auto-exposed as `single.slug` / `single.locale` / `single.image` / `single.updated_at` and underscore aliases (`_slug`, `_locale`, `_image`, `_updated_at`). `_hreflangs` is routing-only (not a template var). `_updated_at` is DB-mappable; on static types it is inject-only from content-hash-gated sync-state (`getFileLastmod` / SHA change). **`published_at`** is reserved **editorial** go-live (authored in `_common.yml`, always ensured in mapping): stamped once on go-live (shared-layout/blog create; draft-first on `publish_draft` / first promote); omit on draft create (missing OK, never `""`); duplicates strip source date then re-stamp if live; static Fields edits write `_common.yml` (not locale root / FO); cannot clear to empty; not tied to YAML `status`; distinct from `_updated_at`. Do not declare regular keys `slug` or `image`. **Fields writes:** static types → **top-level root keys** on the active layer file (`{locale}.yml` or `{variant}.{locale}.yml`); DB-backed types → YAML `field_overrides` bag. API path stays `.../field-overrides` (historical name). MCP `update_entry_field` / `reset_entry_field` return `storage: "root_key" | "field_overrides"` plus concrete path in `side_effects`. Optional `variant` must exist (no live fallback); all-draft with no variant auto-resolves to `draft.{locale}.yml`. Live SEO/required gate skips draft/variant layers.
 - `database.slug` — if present, the type is DB-backed; MCP `create_entry` cannot create those rows (use the DB/admin path). Do **not** confuse with `single_template: true` (e.g. static `blog`), which is YAML + shared `single.{locale}.yml` and **is** creatable via `create_entry`.

@@ -10,6 +10,10 @@ import {
   prefetchRemainingSectionsFromInitialData,
 } from "@/components/sectionRegistry";
 import { injectDevSite, resumePendingDomainNavigation } from "./lib/devSite";
+import {
+  inferPublicPageChunk,
+  type ContentTypeRouteInput,
+} from "./lib/content-type-routes";
 
 // ─── Global fetch interceptor ────────────────────────────────────────────────
 // Injects ?__site=<domain> into every relative /api/ fetch call so that direct
@@ -100,6 +104,23 @@ const rootEl = document.getElementById("root")!;
       return null;
     };
 
+    const contentTypesFromInitialData = (): ContentTypeRouteInput[] | undefined => {
+      const queries = initialDataPayload?.queries;
+      if (!queries?.length) return undefined;
+      for (const { queryKey, data } of queries) {
+        if (Array.isArray(queryKey) && queryKey[0] === "/api/content-types" && Array.isArray(data)) {
+          return data as ContentTypeRouteInput[];
+        }
+      }
+      return undefined;
+    };
+
+    const chunkFromRouteKind = (kind: ReturnType<typeof inferPublicPageChunk>) => {
+      if (kind === "database-single") return import("@/pages/DatabaseSinglePage");
+      if (kind === "content-type-detail") return import("@/pages/ContentTypeDetail");
+      return import("@/pages/page");
+    };
+
     if (path === "/private" || path.startsWith("/private/")) {
       chunkLoads = [import("@/pages/PrivateRouter")];
     } else if (path === "/preview-frame") {
@@ -116,27 +137,9 @@ const rootEl = document.getElementById("root")!;
       chunkLoads = [import("@/pages/PrivacyPage")];
     } else {
       const fromData = pageChunkFromInitialData();
-      if (fromData) {
-        chunkLoads = [fromData];
-      } else if (
-        /\/blog\//.test(path) ||
-        /\/how-to\//.test(path) ||
-        /\/lessons?\//.test(path)
-      ) {
-        // Common DB-backed URL shapes when initial data is missing (client nav).
-        chunkLoads = [import("@/pages/DatabaseSinglePage")];
-      } else if (
-        /\/career-programs\//.test(path) ||
-        /\/programas-de-carrera\//.test(path) ||
-        /\/location\//.test(path) ||
-        /\/ubicacion\//.test(path)
-      ) {
-        chunkLoads = [import("@/pages/ContentTypeDetail")];
-      } else {
-        // Template pages (home, listing, generic /:locale/:slug). Fallback to
-        // TemplatePage only — dynamic routes hydrate after /api/content-types.
-        chunkLoads = [import("@/pages/page")];
-      }
+      chunkLoads = [
+        fromData ?? chunkFromRouteKind(inferPublicPageChunk(path, contentTypesFromInitialData())),
+      ];
     }
 
     // Await only eager/above-fold section chunks so hydrateRoot can start sooner.

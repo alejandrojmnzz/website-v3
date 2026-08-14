@@ -10,6 +10,10 @@ import { DebugAuthProvider, isDebugModeActive, useDebugAuth } from "@/hooks/useD
 import { ImagePickerProvider } from "@/contexts/ImagePickerContext";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import type { ContentTypeApiItem } from "@/hooks/useContentTypes";
+import {
+  buildContentTypeRoutes,
+  REGIONAL_LOCALE_RE,
+} from "@/lib/content-type-routes";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import "./i18n";
 
@@ -148,78 +152,17 @@ function LoadingFallback() {
   );
 }
 
-const STATIC_ROUTE_TYPES = new Set(["page", "program", "location", "blog"]);
-
-function useDynamicRoutes() {
+function useContentTypeRoutes() {
   const { data: contentTypes, isLoading } = useQuery<ContentTypeApiItem[]>({
     queryKey: ["/api/content-types"],
     staleTime: Infinity,
   });
 
-  const routes = (() => {
-    if (!contentTypes) return [];
-
-    const routes: Array<{
-      path: string;
-      type: string;
-      locale: string;
-      urlPattern: Record<string, string>;
-      isDb: boolean;
-      slugParam: string;
-      isListingPrefix: boolean;
-    }> = [];
-
-    for (const ct of contentTypes) {
-      if (STATIC_ROUTE_TYPES.has(ct.name)) continue;
-
-      for (const [locale, pattern] of Object.entries(ct.url_pattern)) {
-
-        const slugParam = "slug";
-
-        if (ct.has_database) {
-          const listingPrefix = pattern.replace(/\/:[^/]+.*$/, "");
-          if (listingPrefix && listingPrefix !== pattern) {
-            routes.push({
-              path: listingPrefix,
-              type: ct.name,
-              locale,
-              urlPattern: ct.url_pattern,
-              isDb: true,
-              slugParam,
-              isListingPrefix: true,
-            });
-          }
-          routes.push({
-            path: pattern.replace(":slug", "*"),
-            type: ct.name,
-            locale,
-            urlPattern: ct.url_pattern,
-            isDb: true,
-            slugParam,
-            isListingPrefix: false,
-          });
-        } else {
-          routes.push({
-            path: pattern,
-            type: ct.name,
-            locale,
-            urlPattern: ct.url_pattern,
-            isDb: false,
-            slugParam,
-            isListingPrefix: false,
-          });
-        }
-      }
-    }
-
-    return routes;
-  })();
-
-  return { routes, isLoading };
+  return { routes: buildContentTypeRoutes(contentTypes), isLoading };
 }
 
 function Router() {
-  const { routes: dynamicRoutes, isLoading: dynamicRoutesLoading } = useDynamicRoutes();
+  const { routes, isLoading } = useContentTypeRoutes();
 
   return (
     <Suspense fallback={null}>
@@ -227,78 +170,35 @@ function Router() {
         <Route path="/" component={TemplatePage} />
         <Route path="/en/" component={TemplatePage} />
         <Route path="/es/" component={TemplatePage} />
-        <Route path="/en/career-programs/:slug">
-          {(params) => <ContentTypeDetail type="program" slug={params.slug} locale="en" />}
-        </Route>
-        <Route path="/es/programas-de-carrera/:slug">
-          {(params) => <ContentTypeDetail type="program" slug={params.slug} locale="es" />}
-        </Route>
-        <Route path="/en/location/:slug">
-          {(params) => <ContentTypeDetail type="location" slug={params.slug} locale="en" />}
-        </Route>
-        <Route path="/es/ubicacion/:slug">
-          {(params) => <ContentTypeDetail type="location" slug={params.slug} locale="es" />}
-        </Route>
-        <Route path="/en/blog">
-          {() => <TemplatePage />}
-        </Route>
-        <Route path="/es/blog">
-          {() => <TemplatePage />}
-        </Route>
-        <Route path="/en/blog/:category/:slug">
-          {() => <DatabaseSinglePage contentType="blog" />}
-        </Route>
-        <Route path="/es/blog/:category/:slug">
-          {() => <DatabaseSinglePage contentType="blog" />}
-        </Route>
-        {dynamicRoutes.map((r) => {
-          if (r.isDb && r.isListingPrefix) {
-            return (
-              <Route key={`listing-${r.type}-${r.locale}`} path={r.path}>
-                {() => <TemplatePage />}
-              </Route>
-            );
-          }
-          if (r.isDb) {
-            return (
-              <Route key={`db-${r.type}-${r.locale}`} path={r.path}>
-                {() => <DatabaseSinglePage contentType={r.type} />}
-              </Route>
-            );
-          }
+        <Route path="/preview-frame" component={PreviewFrame} />
+        <Route path="/private/*" component={PrivateRouter} />
+        {routes.map((r) => {
+          const key = `${r.path}-${r.type}-${r.locale}-${r.isListingPrefix ? "listing" : r.kind}`;
           return (
-            <Route key={`ct-${r.type}-${r.locale}`} path={r.path}>
-              {(params) => (
-                <ContentTypeDetail
-                  type={r.type}
-                  slug={params.slug || ""}
-                  locale={r.locale}
-                  urlPattern={r.urlPattern}
-                />
-              )}
+            <Route key={key} path={r.path}>
+              {(params) => {
+                if (r.regional && !REGIONAL_LOCALE_RE.test(params.locale || "")) {
+                  return <NotFound />;
+                }
+                if (r.kind === "template") {
+                  return <TemplatePage />;
+                }
+                if (r.kind === "database-single") {
+                  return <DatabaseSinglePage contentType={r.type} />;
+                }
+                return (
+                  <ContentTypeDetail
+                    type={r.type}
+                    slug={params.slug || ""}
+                    locale={r.regional ? params.locale || "" : r.locale}
+                    urlPattern={r.urlPattern}
+                  />
+                );
+              }}
             </Route>
           );
         })}
-        <Route path="/preview-frame" component={PreviewFrame} />
-        <Route path="/private/*" component={PrivateRouter} />
-        <Route path="/en/:slug" component={TemplatePage} />
-        <Route path="/es/:slug" component={TemplatePage} />
-        <Route path="/:locale/programas-de-carrera/:slug">
-          {(params) => /^[a-z]{2}-[a-z]{2}$/.test(params.locale || "") ? (
-            <ContentTypeDetail type="program" slug={params.slug || ""} locale={params.locale || ""} />
-          ) : <NotFound />}
-        </Route>
-        <Route path="/:locale/career-programs/:slug">
-          {(params) => /^[a-z]{2}-[a-z]{2}$/.test(params.locale || "") ? (
-            <ContentTypeDetail type="program" slug={params.slug || ""} locale={params.locale || ""} />
-          ) : <NotFound />}
-        </Route>
-        <Route path="/:locale/:slug">
-          {(params) => /^[a-z]{2}-[a-z]{2}$/.test(params.locale || "") ? (
-            <TemplatePage />
-          ) : <NotFound />}
-        </Route>
-        {dynamicRoutesLoading ? (
+        {isLoading ? (
           <Route>{() => <LoadingFallback />}</Route>
         ) : (
           <Route component={NotFound} />

@@ -4,7 +4,7 @@ All image content on the site goes through a centralized registry and a single `
 
 ## The image registry
 
-`4geeks-com/image-registry.json` is the single source of truth for all images. Every image has a unique ID and metadata including:
+`{content_folder}/image-registry.json` (from `sites.yml`) is the single source of truth for all images. Every image has a unique ID and metadata including:
 
 - `src` — path relative to the project root
 - `alt` — accessibility description
@@ -58,7 +58,7 @@ Images are tagged for semantic categorization. Tags include: `hero`, `logo`, `av
 
 ## Adding a new image
 
-1. Copy the file to `4geeks-com/images/` (new images) or `attached_assets/` (legacy only)
+1. Copy the file to `{content_folder}/images/` (new images) or `attached_assets/` (legacy only)
 2. Add an entry to `image-registry.json` with a unique ID, `src`, `alt`, and appropriate tags
 3. Reference the ID via `image_id` in YAML content files
 

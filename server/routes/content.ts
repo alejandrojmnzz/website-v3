@@ -325,14 +325,16 @@ import {
 import { RESERVED_IMAGE_FIELD, IMAGE_ALIAS_FIELD } from "../content-types";
 import { buildPreviewPropResolveContext } from "../entry-preview-resolve";
 import {
+  hasEntryLevelVersioning,
   isEntryDetached,
   isSharedLayoutType,
-  versioningContentSlug,
+  resolveVersioningReadSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
 import {
   buildLocaleUnavailablePayload,
   isEmptyDetachedLocaleEntry,
+  skipEmptyLocaleGateForForceVariant,
 } from "../empty-locale";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
@@ -888,6 +890,7 @@ export function registerContentRoutes(app: Express): void {
 
     const emptyRoot = getContentRoot(res);
     if (
+      !skipEmptyLocaleGateForForceVariant(forceVariant) &&
       isEmptyDetachedLocaleEntry({
         contentType,
         slug,
@@ -917,6 +920,8 @@ export function registerContentRoutes(app: Express): void {
           forceVariant ||
           resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
           undefined;
+      } else if (forceVariant) {
+        templateVariant = forceVariant;
       }
       const page = await loadDatabaseSinglePage(
         contentType,
@@ -987,85 +992,98 @@ export function registerContentRoutes(app: Express): void {
     // Attached shared-layout: apply template variant via mergeSingleTemplate
     // Require the entry locale file (same gate as loadMergedSinglePage) so a
     // missing slug cannot return the empty single.*.yml shell.
-    if (sharedAttached) {
-      if (!hasStaticSharedLayoutEntryLocale(contentType, slug, locale, root)) {
+    // Entry-level drafts (translate_entry / convert-to-draft) skip this path
+    // so force_variant can load `{variant}.{locale}.yml` from the entry folder.
+    const entryLevelForceVariant =
+      !!forceVariant && hasEntryLevelVersioning(contentType, slug, root);
+    const hasLiveLocale = hasStaticSharedLayoutEntryLocale(
+      contentType,
+      slug,
+      locale,
+      root,
+    );
+
+    if (sharedAttached && !entryLevelForceVariant) {
+      if (!hasLiveLocale && !forceVariant) {
         res.status(404).json({ error: `${contentType} entry not found` });
         return;
       }
-      const templateVariant =
-        forceVariant ||
-        resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
-        undefined;
-      const merged = mergeSingleTemplate(
-        contentType,
-        locale,
-        slug,
-        undefined,
-        root,
-        templateVariant,
-      );
-      if (merged) {
-        const variantLayout = resolveLayout(contentType, merged, root);
-        let singleEntry = buildSingleEntryFromContent(contentType, merged, {
-          slug,
+      if (hasLiveLocale) {
+        const templateVariant =
+          forceVariant ||
+          resolveAssignedVariantSlug(req, res, contentType, slug, locale) ||
+          undefined;
+        const merged = mergeSingleTemplate(
+          contentType,
           locale,
-          contentRoot: root,
-        });
-        if (singleEntry) {
-          singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
-            contentRoot: root,
+          slug,
+          undefined,
+          root,
+          templateVariant,
+        );
+        if (merged) {
+          const variantLayout = resolveLayout(contentType, merged, root);
+          let singleEntry = buildSingleEntryFromContent(contentType, merged, {
+            slug,
             locale,
-            contentIndex: getCI(res),
-            db: getDB(res),
-          });
-        }
-        if (merged.sections && Array.isArray(merged.sections)) {
-          attachVariableFieldsToSections(merged.sections as unknown[]);
-          merged.sections = (await resolveDynamicEntries(
-            merged.sections as unknown[],
-            locale,
-            {
-              ...dynamicEntriesOptions(res),
-              singleEntry: singleEntry || undefined,
-            },
-          )) as any;
-          applyComponentImageSizes(merged.sections as unknown[]);
-        }
-        const param = contentParamBag(req, res, contentType, slug, locale, merged);
-        if (singleEntry) {
-          merged.singleEntry = singleEntry;
-          await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
-            contentType,
-            entry: singleEntry,
-            previewConfig: getPreviewConfig(contentType, root),
-            pageData: merged,
-          });
-          const resolved = resolveAllTemplateVars(merged, {
-            singleEntry,
-            param,
             contentRoot: root,
-            context: { locale },
-          }) as Record<string, unknown>;
-          Object.assign(merged, resolved);
-        } else {
-          const resolved = resolveAllTemplateVars(merged, {
+          });
+          if (singleEntry) {
+            singleEntry = await resolveRelationsOnEntry(contentType, singleEntry, {
+              contentRoot: root,
+              locale,
+              contentIndex: getCI(res),
+              db: getDB(res),
+            });
+          }
+          if (merged.sections && Array.isArray(merged.sections)) {
+            attachVariableFieldsToSections(merged.sections as unknown[]);
+            merged.sections = (await resolveDynamicEntries(
+              merged.sections as unknown[],
+              locale,
+              {
+                ...dynamicEntriesOptions(res),
+                singleEntry: singleEntry || undefined,
+              },
+            )) as any;
+            applyComponentImageSizes(merged.sections as unknown[]);
+          }
+          const param = contentParamBag(req, res, contentType, slug, locale, merged);
+          if (singleEntry) {
+            merged.singleEntry = singleEntry;
+            await applyEntryPreviewOgImage(getEntryPreviewManager(res), {
+              contentType,
+              entry: singleEntry,
+              previewConfig: getPreviewConfig(contentType, root),
+              pageData: merged,
+            });
+            const resolved = resolveAllTemplateVars(merged, {
+              singleEntry,
+              param,
+              contentRoot: root,
+              context: { locale },
+            }) as Record<string, unknown>;
+            Object.assign(merged, resolved);
+          } else {
+            const resolved = resolveAllTemplateVars(merged, {
+              param,
+              contentRoot: root,
+              context: { locale },
+            }) as Record<string, unknown>;
+            Object.assign(merged, resolved);
+          }
+          const { enhanceArticleSectionsInPage: enhanceAttached } = await import("../markdown-enhance");
+          await enhanceAttached(merged);
+          injectCanonicalIfMissing(merged, contentType, locale);
+          const { layout: _strip, ...rest } = merged;
+          res.json({
+            ...rest,
             param,
-            contentRoot: root,
-            context: { locale },
-          }) as Record<string, unknown>;
-          Object.assign(merged, resolved);
+            layout: variantLayout,
+            detached: false,
+          });
+          return;
         }
-        const { enhanceArticleSectionsInPage: enhanceAttached } = await import("../markdown-enhance");
-        await enhanceAttached(merged);
-        injectCanonicalIfMissing(merged, contentType, locale);
-        const { layout: _strip, ...rest } = merged;
-        res.json({
-          ...rest,
-          param,
-          layout: variantLayout,
-          detached: false,
-        });
-        return;
       }
     }
 
@@ -1073,7 +1091,7 @@ export function registerContentRoutes(app: Express): void {
 
     if (forceVariant) {
       const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
-      const versioningSlug = versioningContentSlug(contentType, slug, root);
+      const versioningSlug = resolveVersioningReadSlug(contentType, slug, root);
       const forcedContent = versioningManager.getVariantContent(contentType, versioningSlug, forceVariant, locale);
       if (forcedContent) {
         variantPage = forcedContent as Record<string, unknown>;
@@ -1101,7 +1119,12 @@ export function registerContentRoutes(app: Express): void {
         })) as any;
         applyComponentImageSizes((variantPage as any).sections as unknown[]);
       }
-      const variantRaw = getCI(res).loadMergedContent(contentType, slug, locale);
+      const variantRaw = getCI(res).loadMergedContent(
+        contentType,
+        slug,
+        locale,
+        forceVariant,
+      );
       const variantLayout = resolveLayout(contentType, variantRaw.data || {}, getContentRoot(res));
       if (variantSingleEntry) {
         const resolved = resolveAllTemplateVars(variantPage, {

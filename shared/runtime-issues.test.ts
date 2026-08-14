@@ -7,6 +7,7 @@ import {
   is4geeksReferrerHost,
   isAssetPath,
   isRootViteHashAsset,
+  isRuntimeIssueProbeSuccess,
   localeFromPath,
   localYmd,
   normalizeRuntimePath,
@@ -14,6 +15,7 @@ import {
   shouldHardDropNotFound,
   stripReferrerQuery,
   emptyRuntimeIssuesState,
+  runtimeIssueRecordSchema,
   utcHourKey,
   windowHitCount,
   MAX_ISSUES_PER_SITE,
@@ -257,5 +259,46 @@ describe("pruneRuntimeIssuesState", () => {
     const pruned = pruneRuntimeIssuesState(state, now);
     expect(Object.keys(pruned.issues[fp]?.byHour ?? {})).toHaveLength(1);
     expect(pruned.issues[fp]?.count).toBe(1);
+  });
+});
+
+describe("lastProbe schema", () => {
+  it("parses optional lastProbe and treats page/redirect as success", () => {
+    const parsed = runtimeIssueRecordSchema.parse({
+      fingerprint: "http.not_found|s|en|/hello",
+      kind: "http.not_found",
+      path: "/hello",
+      locale: "en",
+      count: 1,
+      firstSeen: 1,
+      lastSeen: 2,
+      lastProbe: {
+        at: 3,
+        status: "redirect",
+        destination: "/us/page",
+        chained: true,
+        hops: ["/hello", "/mid", "/us/page"],
+        httpStatus: 200,
+        matchType: "exact",
+        entry: { contentType: "page", slug: "page" },
+      },
+    });
+    expect(parsed.lastProbe?.status).toBe("redirect");
+    expect(isRuntimeIssueProbeSuccess(parsed.lastProbe?.status)).toBe(true);
+    expect(isRuntimeIssueProbeSuccess("not_found")).toBe(false);
+    expect(isRuntimeIssueProbeSuccess(undefined)).toBe(false);
+  });
+
+  it("allows records without lastProbe", () => {
+    const parsed = runtimeIssueRecordSchema.parse({
+      fingerprint: "http.not_found|s|en|/hello",
+      kind: "http.not_found",
+      path: "/hello",
+      locale: "en",
+      count: 1,
+      firstSeen: 1,
+      lastSeen: 2,
+    });
+    expect(parsed.lastProbe).toBeUndefined();
   });
 });

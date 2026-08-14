@@ -29,6 +29,7 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | Tool | Description |
 |---|---|
 | `list_sites` | Configured domains + content folders (`sites.yml`) |
+| `explain_site` | Architecture playbooks + live per-site catalogs (conversion_events, CRM tags, locales). Pass `site`. |
 | `list_entries` | List YAML (non-DB) entries with slug, content type, locales, title, urls |
 | `get_content_type_info` | Type contract: db_backed, single_template, mapping, editor, observed URL-param values, create_via |
 | `get_entry_content` | Merged entry content without meta/SEO |

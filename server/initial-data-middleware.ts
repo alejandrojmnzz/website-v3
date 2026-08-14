@@ -5,8 +5,7 @@ import * as yaml from "js-yaml";
 import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
-import { queryEntries } from "./query-entries";
-import { resolveLayout, getAllConfigs, getLabel, getLayout, getLocaleKey, getContentTypeConfig, getPreviewConfig, finalizeSingleEntryForTemplates } from "./content-types";
+import { resolveLayout, getAllConfigs, getLabel, getLayout, getPreviewConfig, finalizeSingleEntryForTemplates } from "./content-types";
 import {
   applyComponentSectionDefaults,
   applyComponentImageSizes,
@@ -77,79 +76,6 @@ export interface InitialDataPayload {
   locale?: string;
   /** When set, SSR HTML response should use this status (e.g. empty detached locale). */
   httpStatus?: number;
-}
-
-async function fetchBlogListingPage(
-  locale: string,
-  page: number,
-  category: string,
-  dbm: DatabaseManager = databaseManager,
-  contentRoot?: string,
-  ci: ContentIndex = contentIndex,
-): Promise<Record<string, unknown> | null> {
-  try {
-    const filters =
-      category && category !== "all"
-        ? [{ field: "category", value: category }]
-        : undefined;
-    const { items: posts } = await queryEntries(
-      {
-        from: { contentType: "blog" },
-        locale: normalizeLocale(locale),
-        filters,
-        sort: "-published_at",
-      },
-      { db: dbm, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
-    );
-    const { items: allLocalePosts } = await queryEntries(
-      {
-        from: { contentType: "blog" },
-        locale: normalizeLocale(locale),
-      },
-      { db: dbm, contentIndex: ci, contentRoot: contentRoot ?? ci.contentRoot },
-    );
-    const categories = Array.from(
-      new Set(
-        allLocalePosts
-          .map((p: any) => p.category?.slug || "")
-          .filter(Boolean),
-      ),
-    ).sort();
-    const limit = 12;
-    const total = posts.length;
-    const stripped = posts.map((p: any) => {
-      const { content, readme, ...rest } = p;
-      return rest;
-    });
-    const totalPages = Math.ceil(total / limit);
-    const start = (page - 1) * limit;
-    const paginated = stripped.slice(start, start + limit);
-    return {
-      count: paginated.length,
-      total,
-      page,
-      totalPages,
-      hasNext: page < totalPages,
-      hasPrev: page > 1,
-      categories,
-      results: paginated,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function resolveBlogConfigQuery(contentRoot?: string): SingleQuery | null {
-  try {
-    const config = getContentTypeConfig("blog", contentRoot);
-    if (!config) return null;
-    return {
-      queryKey: ["/api/blog/config"],
-      data: config,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export async function resolvePageQuery(
@@ -851,11 +777,6 @@ export async function resolveInitialData(
   site?: SiteContext,
 ): Promise<InitialDataPayload | null> {
   const cleanUrl = url.split("?")[0].split("#")[0];
-  const isBlogListing =
-    cleanUrl === "/en/blog" ||
-    cleanUrl === "/en/blog/" ||
-    cleanUrl === "/es/blog" ||
-    cleanUrl === "/es/blog/";
 
   const pageQuery = await resolvePageQuery(url, ci, dbm, site);
   const parsedUrl = ci.parseContentUrl(cleanUrl);
@@ -897,19 +818,6 @@ export async function resolveInitialData(
         }
       }
     }
-  }
-
-  if (isBlogListing) {
-    const locale = cleanUrl.startsWith("/es") ? "es" : "en";
-    const posts = await fetchBlogListingPage(locale, 1, "all", dbm, ci.contentRoot);
-    if (posts) {
-      queries.push({
-        queryKey: ["/api/blog/posts", locale, 1, ""],
-        data: posts,
-      });
-    }
-    const blogConfigQuery = resolveBlogConfigQuery(ci.contentRoot);
-    if (blogConfigQuery) queries.push(blogConfigQuery);
   }
 
   let resolvedLocale: string | undefined;
