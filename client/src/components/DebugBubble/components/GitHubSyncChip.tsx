@@ -68,11 +68,9 @@ function StatusErrorModal({
 
 function GitHubStatusBadge({
   status,
-  aheadBy,
   error,
 }: {
   status: GitHubSyncStatus["status"];
-  aheadBy?: number;
   error?: string;
 }) {
   if (status === "in-sync") {
@@ -80,13 +78,6 @@ function GitHubStatusBadge({
       <span className="text-[10px] text-chart-3 flex items-center gap-0.5 truncate">
         <Check className="h-3 w-3 shrink-0" />
         In sync
-      </span>
-    );
-  }
-  if (status === "ahead") {
-    return (
-      <span className="text-[10px] text-primary flex items-center gap-0.5 truncate">
-        {aheadBy} ahead
       </span>
     );
   }
@@ -242,7 +233,6 @@ export function GitHubSyncChip({
             ) : githubSyncStatus ? (
               <GitHubStatusBadge
                 status={githubSyncStatus.status}
-                aheadBy={githubSyncStatus.aheadBy}
                 error={githubSyncStatus.error}
               />
             ) : (
@@ -262,7 +252,6 @@ export function GitHubSyncChip({
             ) : githubSyncStatus ? (
               <GitHubStatusBadge
                 status={githubSyncStatus.status}
-                aheadBy={githubSyncStatus.aheadBy}
                 error={githubSyncStatus.error}
               />
             ) : (

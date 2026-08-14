@@ -1,10 +1,19 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import { ArrowDown, ArrowUp, ArrowUpDown, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy, ExternalLink, Link as LinkIcon, Route, X } from "lucide-react";
 import { IconAlertTriangle, IconDownload, IconInfoCircle, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { AddRedirectDialog } from "@/components/editing/AddRedirectDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -89,6 +98,104 @@ function formatTs(ts: number) {
   });
 }
 
+function publicPathHref(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "/";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function isLocalHost(host: string): boolean {
+  const hostname = host.replace(/^https?:\/\//i, "").split("/")[0].split(":")[0];
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1";
+}
+
+function fullPublicUrl(relativePath: string, hostname?: string): string {
+  if (/^https?:\/\//i.test(relativePath)) return relativePath;
+  const host = hostname?.trim();
+  if (host && !isLocalHost(host)) {
+    const origin = host.includes("://") ? host.replace(/\/$/, "") : `https://${host.replace(/\/$/, "")}`;
+    return `${origin}${relativePath}`;
+  }
+  if (typeof window !== "undefined") return `${window.location.origin}${relativePath}`;
+  return relativePath;
+}
+
+function RuntimeIssuePathMenu({
+  path,
+  hostname,
+  fingerprint,
+  onAddRedirect,
+}: {
+  path: string;
+  hostname?: string;
+  fingerprint: string;
+  onAddRedirect: (path: string) => void;
+}) {
+  const { toast } = useToast();
+  const relative = publicPathHref(path);
+  const full = fullPublicUrl(relative, hostname);
+
+  async function copy(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({ title: "Copy failed", variant: "destructive" });
+    }
+  }
+
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="truncate max-w-full text-left text-primary hover:underline"
+          title={path}
+          data-testid={`button-runtime-issue-path-${fingerprint}`}
+        >
+          {path}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem
+          onClick={() => void copy("Full link", full)}
+          data-testid={`menu-runtime-issue-copy-full-${fingerprint}`}
+        >
+          <Copy className="h-4 w-4" />
+          Copy full link
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => void copy("Relative path", relative)}
+          data-testid={`menu-runtime-issue-copy-relative-${fingerprint}`}
+        >
+          <LinkIcon className="h-4 w-4" />
+          Copy relative path
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => onAddRedirect(path)}
+          data-testid={`menu-runtime-issue-add-redirect-${fingerprint}`}
+        >
+          <Route className="h-4 w-4" />
+          Add redirect
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <a
+            href={relative}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`menu-runtime-issue-open-${fingerprint}`}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in a new tab
+          </a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function SortIcon({
   col,
   sortKey,
@@ -111,6 +218,7 @@ export default function RuntimeIssuesTab() {
   const searchString = useSearch();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [redirectFrom, setRedirectFrom] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const view = useMemo(() => parseRuntimeIssueSearch(searchString), [searchString]);
@@ -248,7 +356,8 @@ export default function RuntimeIssuesTab() {
             a 4Geeks referrer are kept (broken internal or old assets). Count is hits in the selected{" "}
             <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window.
             Badges are crawler vs SERP click vs LLM vs social on the same path (one row; tag sums can
-            exceed Count). Reset wipes the stored log including GCS.
+            exceed Count). Click a path to copy the URL, add a redirect, or open the 404 in a new tab.
+            Reset wipes the stored log including GCS.
           </p>
           <Button
             variant="ghost"
@@ -285,9 +394,9 @@ export default function RuntimeIssuesTab() {
                 filtered rows
               </li>
               <li>
-                Non-effects: does not add redirects; not Search Console; Google <code>q=</code> is
-                stripped; does not change public 404 HTML; last-write-wins can undercount across
-                instances
+                Non-effects: does not auto-create redirects (use Add redirect on a row); not Search
+                Console; Google <code>q=</code> is stripped; does not change public 404 HTML;
+                last-write-wins can undercount across instances
               </li>
             </ul>
           )}
@@ -548,8 +657,15 @@ export default function RuntimeIssuesTab() {
               <TableBody>
                 {sortedIssues.map((issue) => (
                   <TableRow key={issue.fingerprint} data-testid={`runtime-issue-${issue.fingerprint}`}>
-                    <TableCell className="font-mono text-xs max-w-[320px]" title={issue.path}>
-                      <span className="truncate block">{issue.path}</span>
+                    <TableCell className="font-mono text-xs max-w-[320px]">
+                      <div className="min-w-0">
+                        <RuntimeIssuePathMenu
+                          path={issue.path}
+                          hostname={issue.hostname}
+                          fingerprint={issue.fingerprint}
+                          onAddRedirect={setRedirectFrom}
+                        />
+                      </div>
                       <span className="flex flex-wrap gap-1 mt-1">
                         {windowedSourceTags(issue, filters).map((tag) => (
                           <Badge key={tag} variant="outline" className="text-[10px]">
@@ -575,6 +691,15 @@ export default function RuntimeIssuesTab() {
           </CardContent>
         </Card>
       )}
+
+      <AddRedirectDialog
+        key={redirectFrom ?? "closed"}
+        open={!!redirectFrom}
+        onOpenChange={(open) => {
+          if (!open) setRedirectFrom(null);
+        }}
+        initialFrom={redirectFrom ?? ""}
+      />
 
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
         <AlertDialogContent data-testid="dialog-reset-runtime-issues">
