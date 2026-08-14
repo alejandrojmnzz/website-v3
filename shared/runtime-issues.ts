@@ -5,6 +5,37 @@ export type RuntimeIssueKind = (typeof RUNTIME_ISSUE_KINDS)[number];
 
 export const runtimeIssueKindSchema = z.enum(RUNTIME_ISSUE_KINDS);
 
+export const RUNTIME_SOURCE_TAGS = [
+  "search_crawler",
+  "llm_crawler",
+  "social_preview",
+  "search_referrer",
+  "llm_referrer",
+  "internal",
+  "human",
+  "scraper",
+] as const;
+export type RuntimeSourceTag = (typeof RUNTIME_SOURCE_TAGS)[number];
+
+export const SOURCE_LABELS: Record<RuntimeSourceTag, string> = {
+  search_crawler: "Search crawler",
+  llm_crawler: "LLM crawler",
+  social_preview: "Social preview",
+  search_referrer: "Google / Bing SERP",
+  llm_referrer: "LLM click",
+  internal: "Internal",
+  human: "Human",
+  scraper: "Scraper",
+};
+
+const SEO_SAMPLE_TAGS = new Set<string>([
+  "search_crawler",
+  "llm_crawler",
+  "social_preview",
+  "search_referrer",
+  "llm_referrer",
+]);
+
 /** Hard-drop probe paths (prefix or exact). */
 const HARD_DROP_PATH_PREFIXES = [
   "/.env",
@@ -18,18 +49,45 @@ const HARD_DROP_PATH_PREFIXES = [
   "/vendor/phpunit",
   "/actuator",
   "/cgi-bin",
+  "/.well-known",
+  "/.vite",
+  "/dist",
+  "/build",
+  "/graphql",
+  "/v1/graphql",
 ];
 
 const HARD_DROP_PATH_EXACT = new Set([
   "/favicon.ico",
-  "/robots.txt", // often probed; skip noise (real robots is usually 200)
+  "/robots.txt",
+  "/apple-touch-icon.png",
+  "/apple-touch-icon-precomposed.png",
+  "/graphql",
+  "/v1/graphql",
 ]);
 
-const HARD_BOT_UA_RE =
-  /bot|crawler|spider|slurp|bingpreview|facebookexternalhit|bytespider|semrush|ahrefs|mj12bot|dotbot|petalbot|gptbot|claudebot|scrapy|curl\/|wget\/|python-requests|go-http-client|java\/|libwww|httpclient|headlesschrome/i;
+const SEARCH_CRAWLER_UA_RE =
+  /googlebot|google-inspectiontool|adsbot-google|bingbot|bingpreview|duckduckbot|applebot|yandex(?:bot)?|baiduspider|\bslurp\b/i;
 
-/** Soft-flag only (still recorded; UI can hide). */
-const SOFT_BOT_UA_RE = /preview|monitor|uptime|pingdom|statuscake|synthetic/i;
+const LLM_CRAWLER_UA_RE =
+  /gptbot|chatgpt-user|claudebot|perplexitybot|google-extended|bytespider|amazonbot|anthropic-ai|claude-web/i;
+
+const SOCIAL_PREVIEW_UA_RE =
+  /facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|whatsapp|discordbot/i;
+
+const SCRAPER_UA_RE =
+  /ahrefs|semrush|mj12bot|dotbot|petalbot|scrapy|curl\/|wget\/|python-requests|go-http-client|\bjava\/|libwww|httpclient|headlesschrome/i;
+
+const UPTIME_UA_RE = /monitor|uptime|pingdom|statuscake|synthetic/i;
+
+const SEARCH_REFERRER_HOST_RE = /(^|\.)google(\.[a-z]{2,})+$|(^|\.)bing\.com$/i;
+const LLM_REFERRER_HOST_RE =
+  /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$|(^|\.)perplexity\.ai$|(^|\.)copilot\.microsoft\.com$|(^|\.)claude\.ai$/i;
+
+const ROOT_VITE_HASH_ASSET_RE = /^\/[^/]+-[A-Za-z0-9_-]{7,14}\.(?:js|mjs|cjs|css)$/i;
+
+const ASSET_EXT_RE =
+  /\.(?:js|mjs|cjs|css|map|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|wav|pdf|json|xml|txt|csv|zip|gz|tgz|tar|rar|7z|php|asp|aspx|jsp|cgi|env|bak|md|yml|yaml|wasm)(?:\.(?:map|gz|br))?$/i;
 
 export function stripQueryAndHash(urlOrPath: string): string {
   const noHash = urlOrPath.split("#")[0] ?? urlOrPath;
@@ -48,7 +106,6 @@ export function normalizeRuntimePath(urlOrPath: string): string {
     // keep raw
   }
   if (!raw.startsWith("/")) raw = `/${raw}`;
-  // decode once for fingerprint stability
   try {
     raw = decodeURIComponent(raw);
   } catch {
@@ -60,7 +117,17 @@ export function normalizeRuntimePath(urlOrPath: string): string {
   return raw || "/";
 }
 
-/** Best-effort locale from path (`/es/...`, `/en/...`); default `en`. */
+/** Last path segment looks like a static file (.js, images, fonts, maps, …). */
+export function isAssetPath(path: string): boolean {
+  const trimmed = stripQueryAndHash(path);
+  const last = trimmed.split("/").filter(Boolean).pop() ?? trimmed;
+  return ASSET_EXT_RE.test(last);
+}
+
+export function isRootViteHashAsset(path: string): boolean {
+  return ROOT_VITE_HASH_ASSET_RE.test(normalizeRuntimePath(path));
+}
+
 export function localeFromPath(pathname: string): string {
   const path = normalizeRuntimePath(pathname);
   const m = path.match(/^\/([a-z]{2})(?:\/|$)/i);
@@ -81,35 +148,138 @@ export function stripReferrerQuery(referrer: string | undefined | null): string 
   return stripQueryAndHash(referrer.trim()) || undefined;
 }
 
+export function referrerHostname(referrer: string | undefined | null): string | undefined {
+  if (!referrer || !referrer.trim()) return undefined;
+  try {
+    if (/^https?:\/\//i.test(referrer)) {
+      return new URL(referrer).hostname.toLowerCase();
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+export function is4geeksReferrerHost(referrer: string | undefined | null): boolean {
+  const host = referrerHostname(referrer);
+  if (!host) return false;
+  return (
+    host === "4geeks.com" ||
+    host.endsWith(".4geeks.com") ||
+    host === "4geeksacademy.com" ||
+    host.endsWith(".4geeksacademy.com")
+  );
+}
+
+function isSearchReferrerHost(host: string): boolean {
+  const h = host.replace(/^www\./, "");
+  return SEARCH_REFERRER_HOST_RE.test(h);
+}
+
+function isLlmReferrerHost(host: string): boolean {
+  const h = host.replace(/^www\./, "");
+  return LLM_REFERRER_HOST_RE.test(h);
+}
+
 export type UaBucket =
-  | "bot"
+  | "search_crawler"
+  | "llm_crawler"
+  | "social_preview"
+  | "scraper"
   | "likely_bot"
   | "mobile"
   | "desktop"
-  | "unknown";
+  | "unknown"
+  | "bot";
 
-export function bucketUserAgent(ua: string | undefined | null): UaBucket {
-  if (!ua || !ua.trim()) return "unknown";
-  if (HARD_BOT_UA_RE.test(ua)) return "bot";
-  if (SOFT_BOT_UA_RE.test(ua)) return "likely_bot";
-  if (/mobile|android|iphone|ipad/i.test(ua)) return "mobile";
-  if (/mozilla|chrome|safari|firefox|edg\//i.test(ua)) return "desktop";
-  return "unknown";
+export type HourCounts = Record<string, number>;
+export type ByHour = Record<string, HourCounts>;
+
+export interface ClassifyRuntimeHitResult {
+  tags: RuntimeSourceTag[];
+  uaBucket: UaBucket;
+  likelyBot: boolean;
 }
 
-export function shouldHardDropNotFound(path: string, ua: string | undefined | null): boolean {
-  const p = normalizeRuntimePath(path).toLowerCase();
-  if (HARD_DROP_PATH_EXACT.has(p)) return true;
-  for (const prefix of HARD_DROP_PATH_PREFIXES) {
-    if (p === prefix || p.startsWith(prefix + "/") || p.startsWith(prefix)) return true;
+export function classifyRuntimeHit(
+  path: string,
+  ua: string | undefined | null,
+  referrer: string | undefined | null,
+): ClassifyRuntimeHitResult {
+  const tags = new Set<RuntimeSourceTag>();
+  const agent = ua?.trim() ?? "";
+  let uaBucket: UaBucket = "unknown";
+  let likelyBot = false;
+
+  if (agent) {
+    if (SEARCH_CRAWLER_UA_RE.test(agent)) {
+      tags.add("search_crawler");
+      uaBucket = "search_crawler";
+    } else if (LLM_CRAWLER_UA_RE.test(agent)) {
+      tags.add("llm_crawler");
+      uaBucket = "llm_crawler";
+    } else if (SOCIAL_PREVIEW_UA_RE.test(agent)) {
+      tags.add("social_preview");
+      uaBucket = "social_preview";
+    } else if (SCRAPER_UA_RE.test(agent)) {
+      tags.add("scraper");
+      uaBucket = "scraper";
+      likelyBot = true;
+    } else if (UPTIME_UA_RE.test(agent)) {
+      tags.add("scraper");
+      uaBucket = "likely_bot";
+      likelyBot = true;
+    } else if (/mobile|android|iphone|ipad/i.test(agent)) {
+      tags.add("human");
+      uaBucket = "mobile";
+    } else if (/mozilla|chrome|safari|firefox|edg\//i.test(agent)) {
+      tags.add("human");
+      uaBucket = "desktop";
+    }
   }
-  if (ua && HARD_BOT_UA_RE.test(ua)) return true;
-  return false;
+
+  const host = referrerHostname(referrer);
+  if (host) {
+    if (is4geeksReferrerHost(referrer)) tags.add("internal");
+    if (uaBucket === "mobile" || uaBucket === "desktop" || uaBucket === "unknown") {
+      if (isSearchReferrerHost(host)) tags.add("search_referrer");
+      if (isLlmReferrerHost(host)) tags.add("llm_referrer");
+    }
+  }
+
+  return { tags: Array.from(tags), uaBucket, likelyBot };
+}
+
+export function bucketUserAgent(ua: string | undefined | null): UaBucket {
+  return classifyRuntimeHit("/", ua, undefined).uaBucket;
 }
 
 export function isLikelyBotUa(ua: string | undefined | null): boolean {
   if (!ua) return false;
-  return HARD_BOT_UA_RE.test(ua) || SOFT_BOT_UA_RE.test(ua);
+  return classifyRuntimeHit("/", ua, undefined).likelyBot;
+}
+
+export function hitHasSeoSignal(tags: readonly string[]): boolean {
+  return tags.some((t) => SEO_SAMPLE_TAGS.has(t));
+}
+
+export function shouldHardDropNotFound(
+  path: string,
+  ua: string | undefined | null,
+  referrer?: string | null,
+): boolean {
+  const p = normalizeRuntimePath(path).toLowerCase();
+  if (HARD_DROP_PATH_EXACT.has(p)) return true;
+  for (const prefix of HARD_DROP_PATH_PREFIXES) {
+    if (p === prefix || p.startsWith(prefix + "/")) return true;
+  }
+  if (isRootViteHashAsset(p)) return true;
+
+  const classified = classifyRuntimeHit(p, ua, referrer);
+  if (classified.tags.includes("scraper") && classified.uaBucket === "scraper") return true;
+
+  if (isAssetPath(p) && !is4geeksReferrerHost(referrer)) return true;
+  return false;
 }
 
 export function fingerprintNotFound(site: string, locale: string, path: string): string {
@@ -117,6 +287,125 @@ export function fingerprintNotFound(site: string, locale: string, path: string):
   const loc = (locale || localeFromPath(normalized)).toLowerCase();
   return `http.not_found|${site}|${loc}|${normalized}`;
 }
+
+export function utcHourKey(ts: number): string {
+  const d = new Date(ts);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const h = String(d.getUTCHours()).padStart(2, "0");
+  return `${y}-${m}-${day}T${h}`;
+}
+
+export function utcHourKeyToMs(key: string): number {
+  const m = key.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})$/);
+  if (!m) return NaN;
+  return Date.parse(`${m[1]}T${m[2]}:00:00.000Z`);
+}
+
+export function incrementByHour(
+  byHour: ByHour | undefined,
+  ts: number,
+  tags: readonly string[],
+): ByHour {
+  const key = utcHourKey(ts);
+  const next: ByHour = { ...(byHour ?? {}) };
+  const prev = next[key] ?? { total: 0 };
+  const bucket: HourCounts = { ...prev };
+  bucket.total = (bucket.total ?? 0) + 1;
+  for (const tag of tags) {
+    if (!tag || tag === "total") continue;
+    bucket[tag] = (bucket[tag] ?? 0) + 1;
+  }
+  next[key] = bucket;
+  return next;
+}
+
+export function sumByHourTotals(byHour: ByHour | undefined): number {
+  if (!byHour) return 0;
+  let sum = 0;
+  for (const bucket of Object.values(byHour)) {
+    sum += bucket.total ?? 0;
+  }
+  return sum;
+}
+
+export function localYmd(ts: number, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(ts));
+  } catch {
+    return new Date(ts).toISOString().slice(0, 10);
+  }
+}
+
+function addCivilDays(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, (d ?? 1) + delta));
+  return dt.toISOString().slice(0, 10);
+}
+
+export function localDateKeysInWindow(now: number, timeZone: string, windowDays: number): Set<string> {
+  const today = localYmd(now, timeZone);
+  const keys = new Set<string>();
+  const days = Math.max(1, windowDays);
+  for (let i = 0; i < days; i++) {
+    keys.add(addCivilDays(today, -i));
+  }
+  return keys;
+}
+
+export function windowHitCount(
+  issue: { byHour?: ByHour; count: number; lastSeen: number },
+  windowDays: number,
+  timeZone: string,
+  now = Date.now(),
+  tag?: string,
+): number {
+  const days = localDateKeysInWindow(now, timeZone, windowDays);
+  const byHour = issue.byHour;
+  if (!byHour || Object.keys(byHour).length === 0) {
+    if (tag && tag !== "total") return 0;
+    return days.has(localYmd(issue.lastSeen, timeZone)) ? issue.count : 0;
+  }
+  let sum = 0;
+  for (const [hourKey, bucket] of Object.entries(byHour)) {
+    const ts = utcHourKeyToMs(hourKey);
+    if (Number.isNaN(ts)) continue;
+    if (!days.has(localYmd(ts, timeZone))) continue;
+    if (!tag || tag === "total") sum += bucket.total ?? 0;
+    else sum += bucket[tag] ?? 0;
+  }
+  return sum;
+}
+
+export function pruneIssueHours(
+  issue: RuntimeIssueRecord,
+  now = Date.now(),
+): RuntimeIssueRecord {
+  if (!issue.byHour) return issue;
+  const cutoff = now - ISSUE_TTL_MS;
+  const next: ByHour = {};
+  for (const [key, bucket] of Object.entries(issue.byHour)) {
+    const ts = utcHourKeyToMs(key);
+    if (!Number.isNaN(ts) && ts >= cutoff) next[key] = bucket;
+  }
+  return {
+    ...issue,
+    byHour: next,
+    count: sumByHourTotals(next) || issue.count,
+  };
+}
+
+export function unionSources(existing: string[] | undefined, tags: readonly string[]): string[] {
+  return Array.from(new Set([...(existing ?? []), ...tags]));
+}
+
+export const hourCountsSchema = z.record(z.string(), z.number());
 
 export const runtimeIssueRecordSchema = z.object({
   fingerprint: z.string(),
@@ -130,6 +419,8 @@ export const runtimeIssueRecordSchema = z.object({
   uaBucket: z.string().optional(),
   hostname: z.string().optional(),
   likelyBot: z.boolean().optional(),
+  sources: z.array(z.string()).optional(),
+  byHour: z.record(z.string(), hourCountsSchema).optional(),
 });
 
 export type RuntimeIssueRecord = z.infer<typeof runtimeIssueRecordSchema>;
@@ -164,7 +455,10 @@ export function pruneRuntimeIssuesState(
   now = Date.now(),
 ): RuntimeIssuesState {
   const cutoff = now - ISSUE_TTL_MS;
-  const entries = Object.values(state.issues).filter((i) => i.lastSeen >= cutoff);
+  const entries = Object.values(state.issues)
+    .map((issue) => pruneIssueHours(issue, now))
+    .filter((i) => i.lastSeen >= cutoff)
+    .filter((i) => !shouldHardDropNotFound(i.path, undefined, i.sampleReferrer));
   entries.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     return b.lastSeen - a.lastSeen;

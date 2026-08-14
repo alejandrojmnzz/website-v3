@@ -5,6 +5,7 @@ import { TypewriterAnnouncement } from "@/components/menus/TypewriterAnnouncemen
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 interface HeaderProps {
   menuId?: string;
@@ -13,6 +14,7 @@ interface HeaderProps {
 }
 
 export default function Header({ menuId = "main-navbar", menuConfig: injectedMenuConfig, isLoading: injectedIsLoading }: HeaderProps) {
+  const editMode = useEditModeOptional();
   const { i18n } = useTranslation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isPastThreshold, setIsPastThreshold] = useState(false);
@@ -61,6 +63,10 @@ export default function Header({ menuId = "main-navbar", menuConfig: injectedMen
     ? new URLSearchParams(window.location.search)
     : new URLSearchParams();
   if (urlParams.get('navbar') === 'false') {
+    return null;
+  }
+
+  if (editMode?.isEditMode && editMode.previewBreakpoint === "mobile") {
     return null;
   }
 

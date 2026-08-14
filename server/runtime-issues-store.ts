@@ -18,8 +18,11 @@ import {
   pruneRuntimeIssuesState,
   shouldHardDropNotFound,
   stripReferrerQuery,
-  bucketUserAgent,
-  isLikelyBotUa,
+  classifyRuntimeHit,
+  hitHasSeoSignal,
+  incrementByHour,
+  sumByHourTotals,
+  unionSources,
   MAX_RECENT,
   type RuntimeIssuesState,
   type RuntimeIssueRecord,
@@ -175,27 +178,33 @@ export interface RecordNotFoundInput {
 export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   const pathNorm = normalizeRuntimePath(input.path);
   if (pathNorm.startsWith("/api/") || pathNorm.startsWith("/private/")) return false;
-  if (shouldHardDropNotFound(pathNorm, input.userAgent)) return false;
+  if (shouldHardDropNotFound(pathNorm, input.userAgent, input.referrer)) return false;
 
   const locale = (input.locale || localeFromPath(pathNorm)).toLowerCase();
   const site = input.site || "default";
   const ts = input.ts ?? Date.now();
   const fingerprint = fingerprintNotFound(site, locale, pathNorm);
   const sampleReferrer = stripReferrerQuery(input.referrer);
-  const uaBucket = bucketUserAgent(input.userAgent);
-  const likelyBot = isLikelyBotUa(input.userAgent) || uaBucket === "bot" || uaBucket === "likely_bot";
+  const classified = classifyRuntimeHit(pathNorm, input.userAgent, input.referrer);
+  const seoHit = hitHasSeoSignal(classified.tags);
 
   const b = ensureLoadedSync(site, input.contentRoot);
   const existing = b.state.issues[fingerprint];
+  const byHour = incrementByHour(existing?.byHour, ts, classified.tags);
+  const sources = unionSources(existing?.sources, classified.tags);
   const next: RuntimeIssueRecord = existing
     ? {
         ...existing,
-        count: existing.count + 1,
+        count: sumByHourTotals(byHour),
         lastSeen: ts,
-        sampleReferrer: sampleReferrer ?? existing.sampleReferrer,
-        uaBucket: uaBucket || existing.uaBucket,
+        sampleReferrer: seoHit
+          ? (sampleReferrer ?? existing.sampleReferrer)
+          : (existing.sampleReferrer ?? sampleReferrer),
+        uaBucket: seoHit ? classified.uaBucket : (existing.uaBucket || classified.uaBucket),
         hostname: input.hostname || existing.hostname,
-        likelyBot: existing.likelyBot || likelyBot,
+        likelyBot: existing.likelyBot || classified.likelyBot,
+        sources,
+        byHour,
       }
     : {
         fingerprint,
@@ -206,9 +215,11 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
         firstSeen: ts,
         lastSeen: ts,
         sampleReferrer,
-        uaBucket,
+        uaBucket: classified.uaBucket,
         hostname: input.hostname,
-        likelyBot,
+        likelyBot: classified.likelyBot,
+        sources,
+        byHour,
       };
 
   b.state.issues[fingerprint] = next;
@@ -232,7 +243,9 @@ export function listRuntimeIssues(
   const b = ensureLoadedSync(site, opts?.contentRoot);
   let issues = Object.values(b.state.issues);
   if (opts?.hideBots !== false) {
-    issues = issues.filter((i) => !i.likelyBot);
+    issues = issues.filter(
+      (i) => !i.likelyBot && !(i.sources ?? []).includes("scraper") && i.uaBucket !== "scraper",
+    );
   }
   issues.sort((a, b2) => {
     if (b2.count !== a.count) return b2.count - a.count;
@@ -248,12 +261,12 @@ export function listRuntimeIssues(
 }
 
 export async function shutdownRuntimeIssues(): Promise<void> {
-  for (const site of bySite.keys()) {
+  for (const site of Array.from(bySite.keys())) {
     saveLocal(site);
   }
   if (!IS_PRODUCTION || !gcs.available) return;
   await gcs.flushPending();
-  for (const [site, b] of bySite.entries()) {
+  for (const [site, b] of Array.from(bySite.entries())) {
     try {
       const content = JSON.stringify(b.state, null, 2);
       await gcs.upload(gcsKey(site), Buffer.from(content, "utf-8"), "application/json");
@@ -317,6 +330,32 @@ export async function reuploadRuntimeIssuesToBucket(
 
 export function getRuntimeIssuesLocalPath(site: string, contentRoot?: string): string {
   return localPathForSite(site, contentRoot);
+}
+
+/** Wipe in-memory + local state for a site, then attempt GCS upload (prod). */
+export function resetRuntimeIssuesForSite(site: string, contentRoot?: string): RuntimeIssuesState {
+  const b = ensureLoadedSync(site, contentRoot);
+  b.state = emptyRuntimeIssuesState();
+  b.state.updatedAt = Date.now();
+  save(site);
+  return b.state;
+}
+
+export async function resetAndUploadRuntimeIssues(
+  site: string,
+  contentRoot?: string,
+): Promise<ReuploadRuntimeIssuesResult> {
+  resetRuntimeIssuesForSite(site, contentRoot);
+  const uploaded = await reuploadRuntimeIssuesToBucket(site, contentRoot);
+  if (!uploaded.success) {
+    return {
+      success: true,
+      uploaded: false,
+      gcsKey: uploaded.gcsKey,
+      reason: uploaded.reason,
+    };
+  }
+  return uploaded;
 }
 
 /** Test helper */

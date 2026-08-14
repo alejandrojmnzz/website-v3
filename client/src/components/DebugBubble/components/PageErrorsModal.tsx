@@ -348,17 +348,19 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                     size="sm"
                     onClick={handleRunValidation}
                     disabled={isRunningValidation}
+                    title={isRunningValidation ? "Running…" : "Run validation"}
+                    aria-label={isRunningValidation ? "Running…" : "Run validation"}
                     data-testid="button-run-validation"
                   >
                     {isRunningValidation ? (
                       <>
-                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                        Running…
+                        <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                        <span className="hidden sm:inline">Running…</span>
                       </>
                     ) : (
                       <>
-                        <IconRefresh className="h-3.5 w-3.5" />
-                        Run validation
+                        <IconRefresh className="h-3.5 w-3.5 shrink-0" />
+                        <span className="hidden sm:inline">Run validation</span>
                       </>
                     )}
                   </Button>

@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense, useRef } from "react";
-import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, Link2, MessageSquare, PanelBottom, Pencil, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, GitBranch, HelpCircle, Image, Link2, MessageSquare, PanelBottom, Pencil, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
 import { subscribeToContentUpdates, subscribeToVariantCreated, subscribeToVariantDeleted, subscribeToVariantPromoted } from "@/lib/contentEvents";
 
 import { useTranslation } from "react-i18next";
@@ -136,6 +136,7 @@ export function DebugBubble() {
   // Check if we should hide the debug bubble (via URL param or in preview-frame route)
   const shouldHide = typeof window !== "undefined" && (
     new URLSearchParams(window.location.search).get("hide_debug") === "true" ||
+    new URLSearchParams(window.location.search).get("device_embed") === "1" ||
     window.location.pathname === "/preview-frame" ||
     window.location.pathname.startsWith("/private/entry-preview-frame/")
   );
@@ -2317,16 +2318,19 @@ export function DebugBubble() {
             <Pencil className="h-4 w-4" />
           </Button>
           <span
-            className="absolute -top-1 -right-1 flex items-center justify-center h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold leading-none pointer-events-none"
+            className="absolute top-[-14px] right-[-14px] z-10 flex items-center justify-center gap-px h-4 min-w-4 px-1 rounded-full text-primary-foreground text-[10px] font-bold leading-none pointer-events-none shadow-sm ring-1 ring-background"
+            style={{ backgroundColor: "color-mix(in srgb, hsl(var(--primary)) 58%, black)" }}
             data-testid="badge-fork-variant-count"
           >
+            <GitBranch className="h-3 w-3 shrink-0" strokeWidth={2.5} />
             {forkVariantCount}
           </span>
           {activeVariantLabel && (
             <span
-              className="-ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-background text-foreground border border-primary shadow whitespace-nowrap pointer-events-none"
+              className="-ml-2 pl-3 pr-2 py-0.5 rounded-full text-xs font-medium bg-background text-foreground border border-primary shadow whitespace-nowrap pointer-events-none flex items-center gap-1"
               data-testid="badge-active-variant"
             >
+              <GitBranch className="h-3 w-3 shrink-0" strokeWidth={2.5} />
               {activeVariantLabel}
             </span>
           )}

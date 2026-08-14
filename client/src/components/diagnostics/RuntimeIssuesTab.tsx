@@ -1,12 +1,21 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { IconAlertTriangle, IconInfoCircle, IconRefresh } from "@tabler/icons-react";
+import { useCallback, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
+import { ArrowDown, ArrowUp, ArrowUpDown, X } from "lucide-react";
+import { IconAlertTriangle, IconDownload, IconInfoCircle, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -15,7 +24,36 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiFetch } from "@/lib/queryClient";
+import {
+  FILTER_ALL,
+  SOURCE_FILTER_TAGS,
+  applyRuntimeIssueView,
+  deviceLabel,
+  isRuntimeIssueFiltersActive,
+  sortDevices,
+  sourceLabel,
+  uniqueSorted,
+  windowedSourceTags,
+  type RuntimeIssueFilters,
+} from "./runtime-issues-filters";
+import { downloadRuntimeIssuesCsv } from "./runtime-issues-csv";
+import {
+  parseRuntimeIssueSearch,
+  serializeRuntimeIssueSearch,
+  type RuntimeIssueViewState,
+} from "./runtime-issues-url";
+import type { ByHour } from "@shared/runtime-issues";
 
 interface RuntimeIssueRow {
   fingerprint: string;
@@ -29,6 +67,9 @@ interface RuntimeIssueRow {
   uaBucket?: string;
   hostname?: string;
   likelyBot?: boolean;
+  sources?: string[];
+  byHour?: ByHour;
+  count30?: number;
 }
 
 interface RuntimeIssuesResponse {
@@ -37,9 +78,6 @@ interface RuntimeIssuesResponse {
   totalCount: number;
   issues: RuntimeIssueRow[];
 }
-
-type SortKey = "count" | "lastSeen";
-type SortDir = "asc" | "desc";
 
 function formatTs(ts: number) {
   return new Date(ts).toLocaleString("en-US", {
@@ -51,7 +89,15 @@ function formatTs(ts: number) {
   });
 }
 
-function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+function SortIcon({
+  col,
+  sortKey,
+  sortDir,
+}: {
+  col: RuntimeIssueViewState["sortKey"];
+  sortKey: RuntimeIssueViewState["sortKey"];
+  sortDir: RuntimeIssueViewState["sortDir"];
+}) {
   if (col !== sortKey) return <ArrowUpDown className="inline ml-1 opacity-40" size={12} />;
   return sortDir === "asc" ? (
     <ArrowUp className="inline ml-1" size={12} />
@@ -61,10 +107,47 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
 }
 
 export default function RuntimeIssuesTab() {
-  const [hideBots, setHideBots] = useState(true);
+  const [pathname, setLocation] = useLocation();
+  const searchString = useSearch();
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("count");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [resetOpen, setResetOpen] = useState(false);
+  const queryClient = useQueryClient();
+
+  const view = useMemo(() => parseRuntimeIssueSearch(searchString), [searchString]);
+  const { hideBots, filters, sortKey, sortDir } = view;
+  const {
+    pathQuery,
+    referrerQuery,
+    locale: localeFilter,
+    device: deviceFilter,
+    pagesOnly,
+    windowDays,
+    tz,
+    source: sourceFilter,
+  } = filters;
+
+  const writeView = useCallback(
+    (next: RuntimeIssueViewState) => {
+      const qs = serializeRuntimeIssueSearch(next, searchString);
+      const pathOnly = pathname.split("?")[0];
+      setLocation(qs ? `${pathOnly}?${qs}` : pathOnly, { replace: true });
+    },
+    [pathname, searchString, setLocation],
+  );
+
+  const patchView = useCallback(
+    (patch: Partial<Pick<RuntimeIssueViewState, "hideBots" | "sortKey" | "sortDir">>) => {
+      writeView({ ...view, ...patch });
+    },
+    [view, writeView],
+  );
+
+  const patchFilters = useCallback(
+    (patch: Partial<RuntimeIssueFilters>) => {
+      writeView({ ...view, filters: { ...view.filters, ...patch } });
+    },
+    [view, writeView],
+  );
 
   const { data, isLoading, refetch, isFetching, isError, error } = useQuery<RuntimeIssuesResponse>({
     queryKey: ["/api/admin/runtime-issues", hideBots],
@@ -76,26 +159,79 @@ export default function RuntimeIssuesTab() {
     refetchInterval: 30_000,
   });
 
-  const sortedIssues = useMemo(() => {
-    const rows = data?.issues ?? [];
-    return [...rows].sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      const cmp = av - bv;
-      if (cmp !== 0) return sortDir === "asc" ? cmp : -cmp;
-      // Stable secondary: higher count, then newer lastSeen
-      if (b.count !== a.count) return b.count - a.count;
-      return b.lastSeen - a.lastSeen;
-    });
-  }, [data?.issues, sortKey, sortDir]);
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/admin/runtime-issues/reset", { method: "POST" });
+      if (!res.ok) throw new Error("Failed to reset 404 log");
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+      setResetOpen(false);
+    },
+  });
 
-  function toggleSort(col: SortKey) {
-    if (col === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(col);
-      setSortDir("desc");
+  const issues = data?.issues ?? [];
+  const filtersActive = isRuntimeIssueFiltersActive(filters);
+
+  const locales = useMemo(() => {
+    const set = uniqueSorted(issues.map((i) => i.locale));
+    if (localeFilter !== FILTER_ALL && !set.includes(localeFilter)) set.push(localeFilter);
+    return set;
+  }, [issues, localeFilter]);
+
+  const devices = useMemo(() => {
+    const set = sortDevices(issues.map((i) => i.uaBucket || "unknown"));
+    if (deviceFilter !== FILTER_ALL && !set.includes(deviceFilter) && ["desktop", "mobile", "unknown"].includes(deviceFilter)) {
+      set.push(deviceFilter);
     }
+    return set;
+  }, [issues, deviceFilter]);
+
+  const sortedIssues = useMemo(
+    () => applyRuntimeIssueView(issues, filters, sortKey, sortDir),
+    [issues, filters, sortKey, sortDir],
+  );
+
+  const filteredHitCount = useMemo(
+    () => sortedIssues.reduce((sum, issue) => sum + issue.count, 0),
+    [sortedIssues],
+  );
+
+  const badgeUsesFilteredCounts =
+    filtersActive || (pagesOnly && sortedIssues.length !== issues.length);
+
+  function clearFilters() {
+    patchFilters({
+      pathQuery: "",
+      referrerQuery: "",
+      locale: FILTER_ALL,
+      device: FILTER_ALL,
+      source: FILTER_ALL,
+      windowDays: 30,
+    });
+  }
+
+  function toggleSort(col: RuntimeIssueViewState["sortKey"]) {
+    if (col === sortKey) {
+      patchView({ sortDir: sortDir === "asc" ? "desc" : "asc" });
+    } else {
+      writeView({ ...view, sortKey: col, sortDir: "desc" });
+    }
+  }
+
+  function downloadCsv() {
+    if (!data) return;
+    const fromUrl = parseRuntimeIssueSearch(searchString);
+    downloadRuntimeIssuesCsv(
+      data.site,
+      applyRuntimeIssueView(data.issues, fromUrl.filters, fromUrl.sortKey, fromUrl.sortDir).map((row) => ({
+        ...row,
+        windowDays: fromUrl.filters.windowDays,
+        tz: fromUrl.filters.tz,
+      })),
+      { windowDays: fromUrl.filters.windowDays, tz: fromUrl.filters.tz },
+    );
   }
 
   return (
@@ -107,9 +243,12 @@ export default function RuntimeIssuesTab() {
             How runtime issues work
           </p>
           <p>
-            Visitor-facing signals for this site (v1: public HTML 404s). Counts survive deploys via GCS
-            (<code className="text-xs font-mono">{"{site}/sync/runtime-issues-state.json"}</code>). This is
-            not the process Error Log and not Global Health content validation.
+            Missing URLs that people, Google, LLMs, or social previews tried to open. File probes, SEO
+            scrapers, and <code className="text-xs font-mono">curl</code> are discarded. File 404s from
+            a 4Geeks referrer are kept (broken internal or old assets). Count is hits in the selected{" "}
+            <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window.
+            Badges are crawler vs SERP click vs LLM vs social on the same path (one row; tag sums can
+            exceed Count). Reset wipes the stored log including GCS.
           </p>
           <Button
             variant="ghost"
@@ -123,16 +262,33 @@ export default function RuntimeIssuesTab() {
           {showAdvanced && (
             <ul className="list-disc pl-5 space-y-1 text-xs">
               <li>
-                <code>server/runtime-issues-store.ts</code> — in-memory rollups + local/GCS flush
+                <code>shared/runtime-issues.ts</code> — classify hits, hard-drop probes/scrapers, UTC hour
+                buckets, timezone window sums
               </li>
               <li>
-                <code>shared/gcsKeys.ts</code> — <code>runtime-issues-state.json</code> site sync key
+                <code>server/runtime-issues-store.ts</code> — in-memory rollups + local/GCS flush
               </li>
               <li>
                 <code>server/vite.ts</code> — records public HTML 404s only (skips <code>/api</code> and{" "}
                 <code>/private</code>)
               </li>
-              <li>Non-effects: does not change redirects; does not replace diagnostics validators</li>
+              <li>
+                <code>client/src/components/diagnostics/runtime-issues-url.ts</code> — parse/serialize
+                query params (window, tz, source, pages-only)
+              </li>
+              <li>
+                <code>client/src/components/diagnostics/runtime-issues-filters.ts</code> — table and CSV
+                share one view (path contains, window, source)
+              </li>
+              <li>
+                <code>client/src/components/diagnostics/runtime-issues-csv.ts</code> — CSV from the same
+                filtered rows
+              </li>
+              <li>
+                Non-effects: does not add redirects; not Search Console; Google <code>q=</code> is
+                stripped; does not change public 404 HTML; last-write-wins can undercount across
+                instances
+              </li>
             </ul>
           )}
         </CardContent>
@@ -141,28 +297,187 @@ export default function RuntimeIssuesTab() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2" data-testid="toggle-hide-bots">
-            <Switch id="hide-bots" checked={hideBots} onCheckedChange={setHideBots} />
+            <Switch id="hide-bots" checked={hideBots} onCheckedChange={(checked) => patchView({ hideBots: checked })} />
             <Label htmlFor="hide-bots" className="text-sm">
-              Hide likely bots
+              Hide scrapers
+            </Label>
+          </div>
+          <div className="flex items-center gap-2" data-testid="toggle-pages-only">
+            <Switch id="pages-only" checked={pagesOnly} onCheckedChange={(checked) => patchFilters({ pagesOnly: checked })} />
+            <Label htmlFor="pages-only" className="text-sm">
+              Pages only
             </Label>
           </div>
           {data && (
             <Badge variant="secondary" data-testid="badge-runtime-total">
-              {data.issues.length} paths · {data.totalCount} hits
+              {badgeUsesFilteredCounts
+                ? `${sortedIssues.length} of ${issues.length} paths · ${filteredHitCount} hits`
+                : `${data.issues.length} paths · ${filteredHitCount} hits`}
             </Badge>
           )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-runtime-issues"
-        >
-          <IconRefresh className={`h-4 w-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={downloadCsv}
+            disabled={sortedIssues.length === 0}
+            data-testid="button-download-runtime-issues-csv"
+          >
+            <IconDownload className="h-4 w-4 mr-1.5" />
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-runtime-issues"
+          >
+            <IconRefresh className={`h-4 w-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setResetOpen(true)}
+            data-testid="button-reset-runtime-issues"
+          >
+            <IconTrash className="h-4 w-4 mr-1.5" />
+            Reset 404 log
+          </Button>
+        </div>
       </div>
+
+      {data && data.issues.length > 0 && (
+        <div className="flex flex-wrap items-end gap-3" data-testid="runtime-issues-filters">
+          <div className="space-y-1">
+            <Label htmlFor="runtime-path-filter" className="text-xs text-muted-foreground">
+              Path
+            </Label>
+            <Input
+              id="runtime-path-filter"
+              value={pathQuery}
+              onChange={(e) => patchFilters({ pathQuery: e.target.value })}
+              placeholder="Contains…"
+              className="h-8 w-48 text-sm"
+              data-testid="input-runtime-path-filter"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="runtime-window-filter" className="text-xs text-muted-foreground">
+              Window ({tz})
+            </Label>
+            <Select
+              value={String(windowDays)}
+              onValueChange={(value) => patchFilters({ windowDays: value === "7" ? 7 : 30 })}
+            >
+              <SelectTrigger
+                id="runtime-window-filter"
+                className="h-8 w-44 text-sm"
+                data-testid="select-runtime-window-filter"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Last 7 days</SelectItem>
+                <SelectItem value="30">Last 30 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="runtime-source-filter" className="text-xs text-muted-foreground">
+              Source
+            </Label>
+            <Select value={sourceFilter} onValueChange={(source) => patchFilters({ source })}>
+              <SelectTrigger
+                id="runtime-source-filter"
+                className="h-8 w-48 text-sm"
+                data-testid="select-runtime-source-filter"
+              >
+                <SelectValue placeholder="All sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={FILTER_ALL}>All sources</SelectItem>
+                {SOURCE_FILTER_TAGS.map((tag) => (
+                  <SelectItem key={tag} value={tag} data-testid={`option-runtime-source-${tag}`}>
+                    {sourceLabel(tag)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="runtime-referrer-filter" className="text-xs text-muted-foreground">
+              Referrer
+            </Label>
+            <Input
+              id="runtime-referrer-filter"
+              value={referrerQuery}
+              onChange={(e) => patchFilters({ referrerQuery: e.target.value })}
+              placeholder="Contains…"
+              className="h-8 w-48 text-sm"
+              data-testid="input-runtime-referrer-filter"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="runtime-locale-filter" className="text-xs text-muted-foreground">
+              Locale
+            </Label>
+            <Select value={localeFilter} onValueChange={(locale) => patchFilters({ locale })}>
+              <SelectTrigger
+                id="runtime-locale-filter"
+                className="h-8 w-36 text-sm"
+                data-testid="select-runtime-locale-filter"
+              >
+                <SelectValue placeholder="All locales" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={FILTER_ALL}>All locales</SelectItem>
+                {locales.map((locale) => (
+                  <SelectItem key={locale} value={locale} data-testid={`option-runtime-locale-${locale}`}>
+                    {locale}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="runtime-device-filter" className="text-xs text-muted-foreground">
+              Device
+            </Label>
+            <Select value={deviceFilter} onValueChange={(device) => patchFilters({ device })}>
+              <SelectTrigger
+                id="runtime-device-filter"
+                className="h-8 w-40 text-sm"
+                data-testid="select-runtime-device-filter"
+              >
+                <SelectValue placeholder="All devices" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={FILTER_ALL}>All devices</SelectItem>
+                {devices.map((device) => (
+                  <SelectItem key={device} value={device} data-testid={`option-runtime-device-${device}`}>
+                    {deviceLabel(device)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {filtersActive && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              onClick={clearFilters}
+              data-testid="button-clear-runtime-filters"
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
 
       {isLoading && (
         <div className="flex justify-center py-16">
@@ -191,7 +506,15 @@ export default function RuntimeIssuesTab() {
       {!isError && data && data.issues.length > 0 && (
         <Card style={{ borderRadius: "0.8rem" }}>
           <CardContent className="p-0 overflow-x-auto">
-            <Table>
+            {sortedIssues.length === 0 ? (
+              <div
+                className="p-8 text-center text-muted-foreground text-sm"
+                data-testid="runtime-issues-empty-filters"
+              >
+                No runtime issues match the current filters.
+              </div>
+            ) : (
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Path</TableHead>
@@ -225,13 +548,15 @@ export default function RuntimeIssuesTab() {
               <TableBody>
                 {sortedIssues.map((issue) => (
                   <TableRow key={issue.fingerprint} data-testid={`runtime-issue-${issue.fingerprint}`}>
-                    <TableCell className="font-mono text-xs max-w-[280px] truncate" title={issue.path}>
-                      {issue.path}
-                      {issue.likelyBot && (
-                        <Badge variant="outline" className="ml-2 text-[10px]">
-                          bot?
-                        </Badge>
-                      )}
+                    <TableCell className="font-mono text-xs max-w-[320px]" title={issue.path}>
+                      <span className="truncate block">{issue.path}</span>
+                      <span className="flex flex-wrap gap-1 mt-1">
+                        {windowedSourceTags(issue, filters).map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-[10px]">
+                            {sourceLabel(tag)}
+                          </Badge>
+                        ))}
+                      </span>
                     </TableCell>
                     <TableCell className="text-xs">{issue.locale}</TableCell>
                     <TableCell className="text-right font-medium">{issue.count}</TableCell>
@@ -246,9 +571,33 @@ export default function RuntimeIssuesTab() {
                 ))}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent data-testid="dialog-reset-runtime-issues">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset 404 log?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deletes all stored 404s for this site, including GCS. Not undoable.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-reset-runtime-issues">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                resetMutation.mutate();
+              }}
+              data-testid="button-confirm-reset-runtime-issues"
+            >
+              {resetMutation.isPending ? "Resetting…" : "Reset"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

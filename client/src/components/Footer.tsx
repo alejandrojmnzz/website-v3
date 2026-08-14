@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useInternalNav } from "@/hooks/useInternalNav";
 
 import { useImageRegistry } from "@/components/UniversalImage";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 const LOGO_ID = "4geeks-devs-logo-1763162063433";
 
@@ -46,6 +47,7 @@ interface FooterProps {
 
 export default function Footer({ menuId = "main-footer" }: FooterProps) {
   const handleLinkClick = useInternalNav();
+  const editMode = useEditModeOptional();
   const { i18n } = useTranslation();
   const locale = i18n.language || "en";
   const { registry } = useImageRegistry();
@@ -76,6 +78,7 @@ export default function Footer({ menuId = "main-footer" }: FooterProps) {
 
   const config = menuResponse?.data?.footer;
   if (!config) return null;
+  if (editMode?.isEditMode && editMode.previewBreakpoint === "mobile") return null;
 
   const currentYear = new Date().getFullYear();
   const rawCopyright = (config.copyright_text || "4Geeks Academy").replace(

@@ -7,6 +7,7 @@ import { queryClient } from "@/lib/queryClient";
 import {
   DEFAULT_PREVIEW_DEVICE_ID,
   PREVIEW_DEVICE_KEY,
+  isDeviceEmbedPreview,
   migrateLegacyPreviewDevice,
   type PreviewDeviceId,
 } from "@/lib/preview-devices";
@@ -38,15 +39,11 @@ function persistPreviewSelection(breakpoint: PreviewBreakpoint, deviceId: Previe
   localStorage.setItem(PREVIEW_DEVICE_KEY, deviceId);
 }
 
-function clearPreviewSelectionStorage() {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem(PREVIEW_BREAKPOINT_KEY);
-  localStorage.removeItem(PREVIEW_DEVICE_KEY);
-}
-
 function getStoredEditMode(): boolean {
   if (typeof localStorage === 'undefined') return false;
-  if (!window.location.pathname.startsWith('/private/')) return false;
+  if (isDeviceEmbedPreview()) return false;
+  // Persist only on the visual preview route — not settings, diagnostics, or other admin pages.
+  if (!window.location.pathname.startsWith('/private/preview/')) return false;
   return localStorage.getItem(EDIT_MODE_KEY) === 'true';
 }
 
@@ -119,6 +116,7 @@ interface EditModeProviderProps {
 
 // Check if edit_mode=true or edit=1 is in URL params
 function shouldAutoEnableEditMode(): boolean {
+  if (isDeviceEmbedPreview()) return false;
   const urlParams = new URLSearchParams(window.location.search);
   return urlParams.get('edit_mode') === 'true' || urlParams.get('edit') === '1';
 }
@@ -153,12 +151,6 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     });
   };
 
-  const resetPreviewOnLeaveEdit = () => {
-    setPreviewBreakpointState("desktop");
-    setPreviewDeviceIdState(DEFAULT_PREVIEW_DEVICE_ID);
-    clearPreviewSelectionStorage();
-  };
-
   const persistEditMode = (value: boolean) => {
     if (typeof localStorage !== 'undefined') {
       if (value) {
@@ -170,24 +162,25 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   };
 
   const enableEditMode = () => {
+    if (isDeviceEmbedPreview()) return;
     setIsEditMode(true);
     persistEditMode(true);
   };
 
   const disableEditMode = () => {
+    if (isDeviceEmbedPreview()) return;
     setIsEditMode(false);
     persistEditMode(false);
     setSelectedSectionIndex(null);
-    resetPreviewOnLeaveEdit();
   };
 
   const toggleEditMode = () => {
+    if (isDeviceEmbedPreview()) return;
     setIsEditMode(prev => {
       const next = !prev;
       persistEditMode(next);
       if (prev) {
         setSelectedSectionIndex(null);
-        resetPreviewOnLeaveEdit();
       }
       return next;
     });

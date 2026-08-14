@@ -194,6 +194,7 @@ export default function MenuSlotPlaceholder({
   };
 
   if (!editMode?.isEditMode) return null;
+  if (editMode.previewBreakpoint === "mobile") return null;
 
   const detachDialog = (
     <Dialog

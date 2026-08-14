@@ -3028,6 +3028,27 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/admin/runtime-issues/reset", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    try {
+      const { resetAndUploadRuntimeIssues } = await import("../runtime-issues-store");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const result = await resetAndUploadRuntimeIssues(siteName, site?.contentRoot);
+      res.json({
+        success: result.success,
+        uploaded: result.uploaded,
+        gcsKey: result.gcsKey,
+        reason: result.reason,
+      });
+    } catch (err) {
+      log.error({ err }, "Failed to reset runtime issues:");
+      res.status(500).json({ error: "Failed to reset runtime issues" });
+    }
+  });
+
   // ============================================================
   // Site Manager — create new site scaffold
   // ============================================================

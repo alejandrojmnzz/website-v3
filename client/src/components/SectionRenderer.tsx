@@ -275,7 +275,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useEditModeOptional, type PreviewBreakpoint } from "@/contexts/EditModeContext";
-import { getPreviewDevice, type PreviewDeviceId } from "@/lib/preview-devices";
+import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
 const DbTemplateWarningDialog = lazy(() =>
   import("@/components/editing/DbTemplateWarningDialog").then((m) => ({ default: m.DbTemplateWarningDialog }))
 );
@@ -584,89 +584,6 @@ export function renderSection(section: Section, index: number, pageContext?: Sec
   return <LazySection key={index} section={sectionProps as Section} index={index} />;
 }
 
-
-// Device preview using a real iframe so media queries match CSS-pixel viewports
-function MobilePreviewFrame({ sections, deviceId }: { sections: Section[]; deviceId?: PreviewDeviceId }) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const device = getPreviewDevice(deviceId);
-  const [scale, setScale] = useState(1);
-
-  useEffect(() => {
-    const updateScale = () => {
-      const captionAndPadding = 96;
-      const availW = Math.max(120, window.innerWidth - 32);
-      const availH = Math.max(120, window.innerHeight - captionAndPadding);
-      setScale(Math.min(1, availW / device.width, availH / device.height));
-    };
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, [device.width, device.height]);
-
-  const sendToIframe = () => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-
-    const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-    iframe.contentWindow.postMessage({ type: 'preview-update', sections }, '*');
-    iframe.contentWindow.postMessage({ type: 'theme-update', theme }, '*');
-  };
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'preview-ready') {
-        sendToIframe();
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [sections]);
-
-  useEffect(() => {
-    sendToIframe();
-  }, [sections]);
-
-  const handleIframeLoad = () => {
-    setTimeout(sendToIframe, 100);
-  };
-
-  const isTablet = device.group === "tablet";
-
-  return (
-    <div className="flex flex-col items-center justify-center bg-muted/50 min-h-screen py-8 px-4 gap-3">
-      <p className="text-xs text-muted-foreground tabular-nums" data-testid="preview-device-caption">
-        {device.label} · {device.width} × {device.height}
-      </p>
-      <div
-        style={{
-          width: device.width * scale,
-          height: device.height * scale,
-        }}
-      >
-        <div
-          className={`bg-background shadow-2xl overflow-hidden outline outline-4 outline-foreground/20 origin-top-left ${
-            isTablet ? "rounded-[20px]" : "rounded-[32px]"
-          }`}
-          style={{
-            width: device.width,
-            height: device.height,
-            transform: `scale(${scale})`,
-          }}
-        >
-          <iframe
-            ref={iframeRef}
-            onLoad={handleIframeLoad}
-            src="/preview-frame"
-            className="block border-0"
-            style={{ width: device.width, height: device.height }}
-            title={`Vista previa · ${device.label}`}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function setAtDotPath(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
   const parts = dotPath.split(".");
@@ -1742,7 +1659,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
 
   if (isMobilePreview) {
     return (
-      <MobilePreviewFrame sections={sections} deviceId={editMode?.previewDeviceId} />
+      <DevicePreviewShell />
     );
   }
 

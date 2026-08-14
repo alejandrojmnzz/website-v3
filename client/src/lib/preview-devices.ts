@@ -48,3 +48,20 @@ export function migrateLegacyPreviewDevice(storedDevice: string | null, storedBr
   if (storedBreakpoint === "mobile") return DEFAULT_PREVIEW_DEVICE_ID;
   return DEFAULT_PREVIEW_DEVICE_ID;
 }
+
+/** Inner iframe of device preview — same private preview URL, read mode. */
+export function isDeviceEmbedPreview(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("device_embed") === "1";
+}
+
+/** Current private-preview path + query, with embed flags for the phone iframe. */
+export function buildDeviceEmbedSrc(pathname?: string, search?: string): string {
+  const path = pathname ?? (typeof window !== "undefined" ? window.location.pathname : "/");
+  const params = new URLSearchParams(
+    search ?? (typeof window !== "undefined" ? window.location.search : ""),
+  );
+  params.set("device_embed", "1");
+  params.set("hide_debug", "true");
+  return `${path}?${params.toString()}`;
+}

@@ -1,0 +1,106 @@
+export const RUNTIME_ISSUES_CSV_HEADERS = [
+  "path",
+  "locale",
+  "count",
+  "count_30",
+  "window",
+  "tz",
+  "last_seen",
+  "first_seen",
+  "referrer",
+  "ua",
+  "sources",
+  "kind",
+  "likely_bot",
+  "hostname",
+  "fingerprint",
+] as const;
+
+export const CSV_BOM = "\uFEFF";
+
+export interface RuntimeIssueCsvRow {
+  fingerprint: string;
+  kind: string;
+  path: string;
+  locale: string;
+  count: number;
+  count30?: number;
+  firstSeen: number;
+  lastSeen: number;
+  sampleReferrer?: string;
+  uaBucket?: string;
+  hostname?: string;
+  likelyBot?: boolean;
+  sources?: string[];
+  windowDays?: 7 | 30;
+  tz?: string;
+}
+
+export function csvEscape(value: string | number | boolean | undefined): string {
+  const s = value == null ? "" : String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function sanitizeTzForFilename(tz: string): string {
+  return tz.replace(/[^A-Za-z0-9_+-]+/g, "-") || "UTC";
+}
+
+export function runtimeIssuesCsvFilename(
+  site: string,
+  now = new Date(),
+  opts?: { windowDays?: 7 | 30; tz?: string },
+): string {
+  const day = now.toISOString().slice(0, 10);
+  const windowDays = opts?.windowDays ?? 30;
+  const tzPart = sanitizeTzForFilename(opts?.tz || "UTC");
+  if (windowDays === 7) {
+    return `runtime-issues-${site}-${day}-${tzPart}-7d.csv`;
+  }
+  return `runtime-issues-${site}-${day}-${tzPart}.csv`;
+}
+
+export function buildRuntimeIssuesCsv(rows: RuntimeIssueCsvRow[], meta?: { windowDays?: 7 | 30; tz?: string }): string {
+  const windowDays = meta?.windowDays ?? rows[0]?.windowDays ?? 30;
+  const tz = meta?.tz ?? rows[0]?.tz ?? "";
+  const lines = [
+    RUNTIME_ISSUES_CSV_HEADERS.join(","),
+    ...rows.map((r) =>
+      [
+        r.path,
+        r.locale,
+        r.count,
+        r.count30 ?? r.count,
+        r.windowDays ?? windowDays,
+        r.tz ?? tz,
+        new Date(r.lastSeen).toISOString(),
+        new Date(r.firstSeen).toISOString(),
+        r.sampleReferrer ?? "",
+        r.uaBucket ?? "",
+        (r.sources ?? []).join("|"),
+        r.kind,
+        r.likelyBot ? "true" : "false",
+        r.hostname ?? "",
+        r.fingerprint,
+      ]
+        .map(csvEscape)
+        .join(","),
+    ),
+  ];
+  return CSV_BOM + lines.join("\n");
+}
+
+export function downloadRuntimeIssuesCsv(
+  site: string,
+  rows: RuntimeIssueCsvRow[],
+  meta?: { windowDays?: 7 | 30; tz?: string },
+): void {
+  const csv = buildRuntimeIssuesCsv(rows, meta);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = runtimeIssuesCsvFilename(site, new Date(), meta);
+  a.click();
+  URL.revokeObjectURL(url);
+}

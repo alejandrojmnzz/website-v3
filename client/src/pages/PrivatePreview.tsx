@@ -19,6 +19,8 @@ import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -92,6 +94,9 @@ export default function PrivatePreview() {
 
   const [showRawEditor, setShowRawEditor] = useState(false);
 
+  const editMode = useEditModeOptional();
+  const isDeviceShell = !!editMode?.isEditMode && editMode.previewBreakpoint === "mobile";
+
   const { data: content, isLoading, error, refetch } = useQuery<ContentData>({
     queryKey: ["/api/preview", normalizedType, slug, variant, version, locale],
     queryFn: async ({ signal }) => {
@@ -126,11 +131,11 @@ export default function PrivatePreview() {
         signal?.removeEventListener("abort", onAbort);
       }
     },
-    enabled: !!slug && isValidContentType && !typesLoading,
+    enabled: !!slug && isValidContentType && !typesLoading && !isDeviceShell,
   });
 
   const contentMissing = !!error || !content;
-  const recoveryEnabled = !!slug && isValidContentType && !typesLoading && !isLoading && contentMissing;
+  const recoveryEnabled = !!slug && isValidContentType && !typesLoading && !isLoading && contentMissing && !isDeviceShell;
 
   const { data: rawFileCheck } = useQuery<{ exists: boolean }>({
     queryKey: ["/api/content/raw-file", normalizedType, slug, locale],
@@ -266,6 +271,10 @@ export default function PrivatePreview() {
     sectionBackgroundOverlapsMenu,
   } = useMenuConfig({ layout: (content as any)?.layout as { menu?: { top?: string | null; bottom?: string | null } } | undefined, locale });
   const topChromeHeights = getMenuChromeHeights(topMenuConfig);
+
+  if (isDeviceShell) {
+    return <DevicePreviewShell />;
+  }
 
   if (typesLoading) {
     return (
