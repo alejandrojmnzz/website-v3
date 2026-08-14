@@ -163,6 +163,8 @@ export interface ContentFile {
   /** Resolved public path including url_pattern params (e.g. :category). */
   url?: string;
   variant?: string;
+  /** Unpublished entry (no live locale files). Variant overlays of live pages are not drafts. */
+  isDraft?: boolean;
   version?: number;
   /** Merged entry bag for required-field checks (subset of YAML). */
   entryFields?: Record<string, unknown>;

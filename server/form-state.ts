@@ -400,6 +400,105 @@ export async function loadFormStateFromBucket(): Promise<void> {
   buildFormState();
 }
 
+export interface ReuploadFormStateResult {
+  success: boolean;
+  uploaded: boolean;
+  gcsKey: string;
+  reason?: string;
+}
+
+/** Reload one site's form state from GCS (or local) into memory. */
+export async function loadFormStateForSiteFromBucket(
+  contentFolder: string,
+): Promise<"gcs" | "local"> {
+  const siteConfigs = getSiteConfigs();
+  const defaultSite = siteConfigs[0]?.contentFolder ?? null;
+  const isDefault = contentFolder === defaultSite;
+
+  if (IS_PRODUCTION) {
+    if (!gcs.available) gcs.initBootstrapFromEnv();
+    if (gcs.available) {
+      try {
+        const result = await gcs.downloadFirstExisting(
+          formStateReadKeys(contentFolder, isDefault),
+        );
+        if (result) {
+          stateBySite.set(contentFolder, JSON.parse(result.data.toString("utf-8")) as FormState);
+          saveSiteLocal(contentFolder);
+          log.info(`[FormState] Reloaded form state from GCS for ${contentFolder}`);
+          return "gcs";
+        }
+      } catch (err) {
+        log.error({ err }, `[FormState] Error reloading from GCS for ${contentFolder}:`);
+      }
+    }
+  }
+
+  const localPath = getSiteLocalPath(contentFolder);
+  if (fs.existsSync(localPath)) {
+    try {
+      stateBySite.set(contentFolder, JSON.parse(fs.readFileSync(localPath, "utf-8")) as FormState);
+    } catch {
+      getOrCreateSiteState(contentFolder);
+    }
+  } else {
+    getOrCreateSiteState(contentFolder);
+  }
+  return "local";
+}
+
+/** Force-upload one site's form-state JSON to GCS immediately. */
+export async function reuploadFormStateToBucket(
+  contentFolder: string,
+): Promise<ReuploadFormStateResult> {
+  const gcsKey = getSiteGcsKey(contentFolder);
+
+  if (!IS_PRODUCTION) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS sync only runs in production (NODE_ENV=production).",
+    };
+  }
+
+  if (!gcs.available) {
+    gcs.initBootstrapFromEnv();
+  }
+  if (!gcs.available) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+    };
+  }
+
+  const localPath = getSiteLocalPath(contentFolder);
+  let content: string;
+  if (stateBySite.has(contentFolder)) {
+    saveSiteLocal(contentFolder);
+    content = JSON.stringify(stateBySite.get(contentFolder), null, 2);
+  } else if (fs.existsSync(localPath)) {
+    content = fs.readFileSync(localPath, "utf-8");
+  } else {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "No local form-state file found to upload.",
+    };
+  }
+
+  await gcs.upload(gcsKey, Buffer.from(content, "utf-8"), "application/json");
+  log.info(`[FormState] Re-uploaded form state to GCS for ${contentFolder}`);
+  return { success: true, uploaded: true, gcsKey };
+}
+
+export function getFormStateLocalPath(contentFolder: string): string {
+  return getSiteLocalPath(contentFolder);
+}
+
 export function getConversionNameUsages(name: string): FormStateEntry[] {
   return getAllForms().filter((e) => e.conversion_name === name);
 }

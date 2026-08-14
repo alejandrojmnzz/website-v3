@@ -10,6 +10,7 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { validateRequiredMeta } from "../../../shared/validateRequiredMeta";
 import { resolveSingleVars } from "../../../server/single-resolver";
+import { skipLiveVariantOverlay } from "../shared/draftFiles";
 
 const VALID_CHANGE_FREQUENCIES = [
   "always",
@@ -22,12 +23,6 @@ const VALID_CHANGE_FREQUENCIES = [
 ];
 
 const TEMPLATE_RE = /\{\{[\s\S]*?\}\}/;
-
-function looksLikeDraftPath(filePath: string): boolean {
-  const base = filePath.split(/[/\\]/).pop() || "";
-  // draft.en.yml / v2.en.yml style — not plain en.yml
-  return /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) && !/^single\./i.test(base);
-}
 
 export const metaValidator: Validator = {
   name: "meta",
@@ -42,7 +37,7 @@ export const metaValidator: Validator = {
     const warnings: ValidationIssue[] = [];
 
     for (const file of context.contentFiles) {
-      if (looksLikeDraftPath(file.filePath)) continue;
+      if (skipLiveVariantOverlay(file)) continue;
 
       const rawMeta = file.meta || {};
       // Resolve {{ single.* }} against file data when possible so template-only meta fails if empty

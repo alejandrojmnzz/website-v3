@@ -9,3 +9,4 @@ export * from "./contentLoader";
 export * from "./canonicalUrls";
 export * from "./schemaRegistry";
 export * from "./fieldMappingValidator";
+export * from "./draftFiles";

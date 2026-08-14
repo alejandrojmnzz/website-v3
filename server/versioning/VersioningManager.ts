@@ -276,6 +276,80 @@ export class VersioningManager {
     }
   }
 
+  /** Reload assignment state from GCS (prod) or keep/reload local. Admin Cloud Sync. */
+  public async reloadStateFromBucket(): Promise<"gcs" | "local"> {
+    if (IS_PRODUCTION) {
+      if (!gcs.available) gcs.initBootstrapFromEnv();
+      if (gcs.available) {
+        try {
+          const result = await gcs.downloadFirstExisting(this.gcsStateReadKeys());
+          if (result) {
+            const loaded = JSON.parse(result.data.toString("utf-8"));
+            this.applyLoadedState(loaded);
+            this.saveStateLocal();
+            log.info("[Versioning] Reloaded state from GCS via admin action");
+            return "gcs";
+          }
+        } catch (error) {
+          log.error({ err: error }, "[Versioning] Error reloading from bucket:");
+        }
+      }
+    }
+    this.loadState();
+    return "local";
+  }
+
+  /** Force-upload versioning state to GCS immediately. Admin Cloud Sync. */
+  public async forceUploadStateToBucket(): Promise<{
+    success: boolean;
+    uploaded: boolean;
+    gcsKey: string;
+    reason?: string;
+  }> {
+    const gcsKey = this.gcsStateKey();
+    if (!IS_PRODUCTION) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS sync only runs in production (NODE_ENV=production).",
+      };
+    }
+    if (!gcs.available) {
+      gcs.initBootstrapFromEnv();
+    }
+    if (!gcs.available) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+      };
+    }
+    const statePath = this.stateFile();
+    if (!fs.existsSync(statePath) && Object.keys(this.state.counts).length === 0) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "No local versioning-state file found to upload.",
+      };
+    }
+    this.saveStateLocal();
+    const content = JSON.stringify(this.state, null, 2);
+    await gcs.upload(gcsKey, Buffer.from(content, "utf-8"), "application/json");
+    log.info("[Versioning] Re-uploaded state to GCS via admin action");
+    return { success: true, uploaded: true, gcsKey };
+  }
+
+  public getStateLocalPath(): string {
+    return this.stateFile();
+  }
+
+  public getStateGcsKey(): string {
+    return this.gcsStateKey();
+  }
+
   private loadVersioningConfig(contentType: string, slug: string): VersioningFile | null {
     const cacheKey = `${contentType}:${slug}`;
 

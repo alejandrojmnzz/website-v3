@@ -3,6 +3,8 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
 import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layout-entry";
+import { contentIndex } from "../../../server/content-index";
+import { createPublicUrlResolver } from "../../../server/redirects";
 
 const CRITICAL_FIELDS = new Set(["title", "heading", "description", "subtitle", "tagline"]);
 
@@ -69,6 +71,8 @@ export const contentQualityValidator: Validator = {
     let missingTypes = 0;
     let emptyFields = 0;
     let brokenLinks = 0;
+
+    const publicUrls = createPublicUrlResolver(contentIndex);
 
     for (const file of context.contentFiles) {
       pagesChecked++;
@@ -153,15 +157,16 @@ export const contentQualityValidator: Validator = {
 
       const internalLinks: string[] = [];
       findInternalLinks(parsed, internalLinks);
+      const locale = file.locale === "_common" ? "en" : file.locale;
       for (const link of internalLinks) {
-        if (!context.validUrls.has(link)) {
+        if (!publicUrls.isLive(link, locale)) {
           brokenLinks++;
           errors.push({
             type: "error",
             code: "BROKEN_INTERNAL_LINK",
             message: `Broken internal link: "${link}"`,
             file: file.filePath,
-            suggestion: "Fix the URL or remove the broken link",
+            suggestion: "Fix the URL or remove the broken link. Confirm with Redirects → Test a URL.",
           });
         }
       }

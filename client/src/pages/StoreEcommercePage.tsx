@@ -43,7 +43,8 @@ interface ProductRow {
   name: string;
   content_type: string;
   content_slug: string;
-  active: boolean;
+  actively_selling?: boolean;
+  active?: boolean;
 }
 
 /** Illustrative visitor-context sample (setVisitorContext). UTMs vary per visit. */

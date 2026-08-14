@@ -28,31 +28,61 @@ class EcommerceManager {
   }
 
   getAllProducts(): EcommerceProduct[] {
-    return Array.from(productMap.values()).filter((p) => p.active);
+    return Array.from(productMap.values()).filter((p) => p.actively_selling);
   }
 
-  findProductByCmsEntry(contentType: string, slug: string): EcommerceProduct | undefined {
+  /** True when this content type has at least one purchasable product in the index. */
+  contentTypeHasEcommerce(contentType: string): boolean {
+    for (const product of productMap.values()) {
+      if (product.content_type === contentType) return true;
+    }
+    return false;
+  }
+
+  /** True when the entry is in the product map (purchasable: true), regardless of actively_selling. */
+  isEntryPurchasable(contentType: string, slug: string): boolean {
+    return !!this.findProductByCmsEntry(contentType, slug, { includePaused: true });
+  }
+
+  listPurchasableSlugs(contentType: string): string[] {
+    const slugs: string[] = [];
+    const seen = new Set<string>();
+    for (const product of productMap.values()) {
+      if (product.content_type !== contentType) continue;
+      if (seen.has(product.content_slug)) continue;
+      seen.add(product.content_slug);
+      slugs.push(product.content_slug);
+    }
+    return slugs;
+  }
+
+  findProductByCmsEntry(
+    contentType: string,
+    slug: string,
+    opts?: { includePaused?: boolean },
+  ): EcommerceProduct | undefined {
+    const includePaused = opts?.includePaused === true;
     const derivedKey = `${contentType}-${slug}`;
     const byKey = productMap.get(derivedKey);
-    if (byKey) return byKey;
+    if (byKey && (includePaused || byKey.actively_selling)) return byKey;
 
     // Legacy slash form
     const slashKey = `${contentType}/${slug}`;
     const bySlash = productMap.get(slashKey);
-    if (bySlash) return bySlash;
+    if (bySlash && (includePaused || bySlash.actively_selling)) return bySlash;
 
     for (const product of productMap.values()) {
-      if (product.active && product.content_type === contentType && product.content_slug === slug) {
-        return product;
-      }
+      if (product.content_type !== contentType || product.content_slug !== slug) continue;
+      if (!includePaused && !product.actively_selling) continue;
+      return product;
     }
     return undefined;
   }
 
-  /** Resolve program/content slug to an active product (by content_slug or product_id). */
+  /** Resolve program/content slug to an actively-selling product (by content_slug or product_id). */
   findProductByProgramId(programId: string): EcommerceProduct | undefined {
     for (const product of productMap.values()) {
-      if (!product.active) continue;
+      if (!product.actively_selling) continue;
       if (product.content_slug === programId || product.product_id === programId) {
         return product;
       }
@@ -86,3 +116,18 @@ class EcommerceManager {
 }
 
 export const ecommerceManager = EcommerceManager.getInstance();
+
+/** Template / listing key. Computed; never authored in YAML. */
+export const PURCHASABLE_FIELD = "purchasable";
+
+export function applyPurchasableToRecord(
+  record: Record<string, unknown>,
+  contentType: string,
+  slug?: string,
+): void {
+  if (!ecommerceManager.contentTypeHasEcommerce(contentType)) return;
+  const s = (slug || String(record.slug ?? "")).trim();
+  record[PURCHASABLE_FIELD] = s
+    ? ecommerceManager.isEntryPurchasable(contentType, s)
+    : false;
+}

@@ -318,6 +318,58 @@ export function saveSyncState(state: SyncState, contentRoot?: string): void {
   });
 }
 
+export interface ReuploadSyncStateResult {
+  success: boolean;
+  uploaded: boolean;
+  gcsKey: string;
+  reason?: string;
+}
+
+/** Force-upload local sync-state JSON to GCS immediately (admin Cloud Sync). */
+export async function reuploadSyncStateToBucket(contentRoot?: string): Promise<ReuploadSyncStateResult> {
+  const gcsKey = getGcsSyncStateKey(contentRoot);
+
+  if (!IS_PRODUCTION) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS sync only runs in production (NODE_ENV=production).",
+    };
+  }
+
+  if (!gcs.available) {
+    gcs.initBootstrapFromEnv();
+  }
+  if (!gcs.available) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+    };
+  }
+
+  const statePath = getSyncStatePath(contentRoot);
+  if (!fs.existsSync(statePath)) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "No local sync-state file found to upload.",
+    };
+  }
+
+  const content = fs.readFileSync(statePath, "utf-8");
+  await gcs.upload(gcsKey, Buffer.from(content, "utf-8"), "application/json");
+  log.info({ gcsKey }, "[SyncState] Re-uploaded sync state to GCS via admin action");
+  return { success: true, uploaded: true, gcsKey };
+}
+
+export function getSyncStateLocalPath(contentRoot?: string): string {
+  return getSyncStatePath(contentRoot);
+}
+
 let autoCommitCallback: ((filePath: string, author?: string, allowedExceptions?: Set<string>) => void) | null = null;
 
 /**

@@ -4,6 +4,7 @@ import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconSh
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BindingConfirmDialog } from "./BindingConfirmDialog";
 import { getIcon } from "@/lib/icons";
+import { isActivelySelling } from "@/lib/ecommerceProductMap";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -2016,7 +2017,13 @@ export function SectionEditorPanel({
   );
 
   const { data: ecommerceProductsData } = useQuery<{
-    products: Array<{ product_id: string; name: string; content_slug: string; active: boolean }>;
+    products: Array<{
+      product_id: string;
+      name: string;
+      content_slug: string;
+      actively_selling?: boolean;
+      active?: boolean;
+    }>;
   }>({
     queryKey: ["/api/ecommerce/products"],
     staleTime: 60000,
@@ -8131,7 +8138,7 @@ export function SectionEditorPanel({
                       ? "all"
                       : "list";
                 const productOptions = (ecommerceProductsData?.products ?? [])
-                  .filter((p) => p.active)
+                  .filter((p) => isActivelySelling(p))
                   .map((p) => ({
                     value: p.content_slug || p.product_id,
                     label: p.name || p.content_slug || p.product_id,

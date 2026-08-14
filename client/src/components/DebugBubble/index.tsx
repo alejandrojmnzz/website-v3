@@ -1,6 +1,5 @@
 import { useState, useEffect, lazy, Suspense, useRef } from "react";
-import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, Link2, MessageSquare, PanelBottom, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
-import { IconGitFork } from "@tabler/icons-react";
+import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, HelpCircle, Image, Link2, MessageSquare, PanelBottom, Pencil, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
 import { subscribeToContentUpdates, subscribeToVariantCreated, subscribeToVariantDeleted, subscribeToVariantPromoted } from "@/lib/contentEvents";
 
 import { useTranslation } from "react-i18next";
@@ -278,7 +277,12 @@ export function DebugBubble() {
   
   // Delete page state
   const [deletePageModalOpen, setDeletePageModalOpen] = useState(false);
-  const [deletingPage, setDeletingPage] = useState<{ slug: string; contentType: string; locale: string } | null>(null);
+  const [deletingPage, setDeletingPage] = useState<{
+    slug: string;
+    contentType: string;
+    locale: string;
+    availableLocales?: string[];
+  } | null>(null);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [isDeletingPage, setIsDeletingPage] = useState(false);
   
@@ -445,12 +449,8 @@ export function DebugBubble() {
     let diagnosticsUrl: string | null = null;
 
     if (isPreviewPath && contentInfo.type && contentInfo.slug) {
-      // Wait for server-resolved public URL so :category / other params are filled
-      if (!resolvedPublicPageUrl) {
-        setPageDiagnostics(null);
-        return;
-      }
-      diagnosticsUrl = resolvedPublicPageUrl;
+      const search = typeof window !== "undefined" ? window.location.search : "";
+      diagnosticsUrl = `${pathname}${search}`;
     } else if (!pathname.startsWith('/private/')) {
       diagnosticsUrl = pathname;
     }
@@ -506,7 +506,7 @@ export function DebugBubble() {
       })
       .catch(() => {})
       .finally(() => setPageDiagnosticsLoading(false));
-  }, [pathname, isDebugMode, contentInfo.type, contentInfo.slug, isPreviewPath, resolvedPublicPageUrl]);
+  }, [pathname, isDebugMode, contentInfo.type, contentInfo.slug, isPreviewPath]);
 
   const pageErrorCount = !pageDiagnostics ? 0 : (pageDiagnostics.issues?.filter(i => i.type === "error").length || 0);
 
@@ -2064,6 +2064,8 @@ export function DebugBubble() {
     retryValidation,
     clearToken,
     githubSyncStatus,
+    pendingChanges,
+    pendingChangesLoading,
     syncStatusLoading,
     refreshSyncStatus,
     fetchPendingChanges,
@@ -2118,6 +2120,33 @@ export function DebugBubble() {
           : contentInfo.slug;
       setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale, variantSlug });
       setShowYamlEditor(true);
+    },
+    onEditDefaultYaml: (locale: string) => {
+      if (!contentInfo.type || !contentInfo.slug) return;
+      const isPreview = pathname.startsWith("/private/preview/");
+      const currentVariant = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("variant")
+        : null;
+      if (!isPreview || currentVariant) {
+        navigate(`/private/preview/${contentInfo.type}/${contentInfo.slug}?locale=${locale}`);
+      }
+      const editorSlug =
+        versioningData?.isSharedLayout && !versioningData?.detached
+          ? "_common.single"
+          : contentInfo.slug;
+      setYamlEditorInfo({ contentType: contentInfo.type, slug: editorSlug, locale });
+      setShowYamlEditor(true);
+    },
+    onRequestDeletePage: ({ locale, liveLocales }: { locale: string; liveLocales: string[] }) => {
+      if (!contentInfo.type || !contentInfo.slug) return;
+      setDeletingPage({
+        slug: contentInfo.slug,
+        contentType: contentInfo.type,
+        locale,
+        availableLocales: liveLocales,
+      });
+      setDeleteConfirmInput("");
+      setDeletePageModalOpen(true);
     },
     onOpenTemplateYaml: async () => {
       if (!contentInfo.type) return;
@@ -2252,7 +2281,7 @@ export function DebugBubble() {
               setMenuView("versioning");
             }}
           >
-            <IconGitFork className="h-4 w-4" />
+            <Pencil className="h-4 w-4" />
           </Button>
           <span
             className="absolute -top-1 -right-1 flex items-center justify-center h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold leading-none pointer-events-none"
@@ -2490,6 +2519,7 @@ export function DebugBubble() {
         isDeletingPage={isDeletingPage}
         onConfirm={confirmDeletePage}
         currentLocale={deletingPage?.locale}
+        availableLocales={deletingPage?.availableLocales}
       />
       <CreateContentModal
         open={createContentModalOpen}

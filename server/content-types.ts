@@ -406,7 +406,7 @@ export const UPDATED_AT_ALIAS_FIELD = "updated_at";
  */
 export const RESERVED_PUBLISHED_AT_FIELD = "published_at";
 
-const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD]);
+const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD, "purchasable"]);
 
 export function isSystemSpecialField(key: string): boolean {
   return (KNOWN_SPECIAL_FIELDS as readonly string[]).includes(key);

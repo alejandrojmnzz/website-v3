@@ -70,35 +70,33 @@ export const imageWithStyleSchema = z.object({
 
 export type ImageWithStyle = z.infer<typeof imageWithStyleSchema>;
 
-/** Catalog or entry-relation options source for choice fields. */
-export const leadFormFieldSourceSchema = z.union([
-  z.string(),
-  z
-    .object({
-      name: z.string().optional(),
-      relation: z.string().optional(),
-      query: z.string().optional(),
-      value: z.string().optional(),
-      label: z.string().optional(),
-    })
-    .superRefine((val, ctx) => {
-      const hasName = typeof val.name === "string" && val.name.trim().length > 0;
-      const hasRelation =
-        typeof val.relation === "string" && val.relation.trim().length > 0;
-      if (hasName && hasRelation) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "source cannot set both name (catalog) and relation (entry field)",
-        });
-      }
-      if (!hasName && !hasRelation) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "source must set either name (catalog) or relation (entry field)",
-        });
-      }
-    }),
-]);
+/** Catalog or entry-relation options source for choice fields. Object only. */
+export const leadFormFieldSourceSchema = z
+  .object({
+    content_type: z.string().optional(),
+    database: z.string().optional(),
+    relation: z.string().optional(),
+    query: z.string().optional(),
+    value: z.string().optional(),
+    label: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    const kinds = [val.content_type, val.database, val.relation].filter(
+      (s) => typeof s === "string" && s.trim().length > 0,
+    );
+    if (kinds.length > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "source cannot set more than one of content_type, database, or relation",
+      });
+    }
+    if (kinds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "source must set content_type, database, or relation",
+      });
+    }
+  });
 
 // Lead Form field config
 export const leadFormFieldConfigSchema = z.object({

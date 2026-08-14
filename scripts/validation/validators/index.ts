@@ -37,6 +37,9 @@ import { requiredFieldsValidator } from "./required-fields";
 import { schemaOrgCompanionsValidator } from "./schema-org-companions";
 import { staticFieldOverridesValidator } from "./static-field-overrides";
 import { sourceNameCollisionsValidator } from "./source-name-collisions";
+import { editorFieldTypesValidator } from "./editor-field-types";
+import { unknownKeysValidator } from "./unknown-keys";
+import { relationTargetsValidator } from "./relation-targets";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -62,6 +65,9 @@ export const validators: Validator[] = [
   heroImageTagsValidator,
   imageTagsValidator,
   fieldMappingsValidator,
+  editorFieldTypesValidator,
+  unknownKeysValidator,
+  relationTargetsValidator,
   staticFieldOverridesValidator,
   orphanedFilesValidator,
   formsValidator,
@@ -138,4 +144,7 @@ export {
   brokenAnchorsValidator,
   requiredFieldsValidator,
   schemaOrgCompanionsValidator,
+  editorFieldTypesValidator,
+  unknownKeysValidator,
+  relationTargetsValidator,
 };

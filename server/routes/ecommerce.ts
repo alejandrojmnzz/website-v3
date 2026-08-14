@@ -472,7 +472,8 @@ export function registerEcommerceRoutes(app: Express): void {
         name: p.name,
         content_type: p.content_type,
         content_slug: p.content_slug,
-        active: p.active,
+        actively_selling: p.actively_selling,
+        active: p.actively_selling,
       }));
       res.json({ products });
     } catch (err) {

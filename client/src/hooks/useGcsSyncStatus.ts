@@ -74,6 +74,15 @@ export interface SyncInventoryRow {
   status: SyncInventoryStatus;
   lastSyncedAt: string | null;
   lastSyncedSource: "gcs" | "local" | null;
+  artifactKind?:
+    | "sync-state"
+    | "sync-log"
+    | "versioning-state"
+    | "form-state"
+    | "validation-cache"
+    | "runtime-issues"
+    | "sites-yml"
+    | "user-store";
 }
 
 export interface GcsSyncStatusDetail extends GcsSyncStatus {

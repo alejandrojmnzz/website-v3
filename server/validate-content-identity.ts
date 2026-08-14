@@ -12,12 +12,12 @@ function makeProductResolver() {
   return (programId: string) => {
     const byCms = ecommerceManager.findProductByCmsEntry("program", programId);
     if (byCms) {
-      return { product_id: byCms.product_id, active: byCms.active };
+      return { product_id: byCms.product_id, active: byCms.actively_selling };
     }
     const bySlug = ecommerceManager.findProductByProgramId(programId);
-    if (bySlug) return { product_id: bySlug.product_id, active: bySlug.active };
+    if (bySlug) return { product_id: bySlug.product_id, active: bySlug.actively_selling };
     const byId = ecommerceManager.getProduct(programId);
-    if (byId) return { product_id: byId.product_id, active: byId.active };
+    if (byId) return { product_id: byId.product_id, active: byId.actively_selling };
     return undefined;
   };
 }

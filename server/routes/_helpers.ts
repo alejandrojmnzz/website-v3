@@ -791,7 +791,6 @@ export function listCareerPrograms(
     const program = loadCareerProgram(slug, locale, ci);
     if (program) {
       const commonData = ci.loadCommonData("program", slug);
-      if (commonData?.valid_lead_form_option === false) continue;
       const bcSlug = (commonData?.bc_slug as string) || slug;
       programs.push({
         slug: program.slug,

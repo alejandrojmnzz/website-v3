@@ -8,6 +8,8 @@ export interface SitemapUrl {
   loc: string;
   label: string;
   locale?: string;
+  content_type?: string;
+  slug?: string;
   /** When false, page exists but is excluded from /sitemap.xml. Missing treated as true. */
   inSitemap?: boolean;
   excludeReason?: string;

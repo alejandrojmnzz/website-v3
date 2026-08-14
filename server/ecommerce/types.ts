@@ -23,7 +23,8 @@ export interface EcommerceProduct {
   name: string;
   content_type: string;
   content_slug: string;
-  active: boolean;
+  /** Pause switch for store/tracking. Default true. Not a lead-form filter. */
+  actively_selling: boolean;
   description?: string;
   /**
    * Authored conversion path after the locked product entry (not including auto `all` pages),

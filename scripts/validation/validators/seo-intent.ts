@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { contentIndex } from "../../../server/content-index";
+import { createPublicUrlResolver } from "../../../server/redirects";
 
 interface SeoConfig {
   intents: Record<string, { label: string; description: string }>;
@@ -53,6 +55,7 @@ export const seoIntentValidator: Validator = {
 
     const validIntents = new Set(Object.keys(config.intents));
     const validFeatures = new Set(Object.keys(config.focus_features));
+    const publicUrls = createPublicUrlResolver(contentIndex);
 
     const seen = new Set<string>();
     const pillarRefs = new Map<string, string[]>();
@@ -102,7 +105,8 @@ export const seoIntentValidator: Validator = {
       }
 
       if (seo.pillar) {
-        if (!context.validUrls.has(seo.pillar)) {
+        const pillarLocale = file.locale === "_common" ? "en" : file.locale;
+        if (!publicUrls.isLive(seo.pillar, pillarLocale)) {
           errors.push({
             type: "error",
             code: "INVALID_PILLAR",

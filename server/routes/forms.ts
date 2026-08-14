@@ -437,8 +437,14 @@ export function registerFormsRoutes(app: Express): void {
   app.get("/api/query-options", async (req, res) => {
     try {
       const parsed = parseFilterQueryParams(req.query as Record<string, unknown>);
-      if (!parsed.source) {
-        res.status(400).json({ error: "source query parameter is required" });
+      if (parsed.content_type && parsed.database) {
+        res.status(400).json({ error: "Pass either content_type or database, not both" });
+        return;
+      }
+      if (!parsed.content_type && !parsed.database && !parsed.source) {
+        res.status(400).json({
+          error: "content_type, database, or source query parameter is required",
+        });
         return;
       }
 
@@ -449,6 +455,8 @@ export function registerFormsRoutes(app: Express): void {
       const result = await fetchQueryOptions(
         {
           source: parsed.source,
+          contentType: parsed.content_type,
+          database: parsed.database,
           filters: parsed.filters,
           sort: parsed.sort,
           limit: parsed.limit,

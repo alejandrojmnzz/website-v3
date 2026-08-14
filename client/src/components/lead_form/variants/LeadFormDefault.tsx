@@ -43,6 +43,7 @@ import {
 import {
   parseFormFieldSource,
   buildQueryOptionsUrl,
+  catalogSourceKey,
   type FormFieldSourceInput,
 } from "@shared/parseFormFieldSource";
 import {
@@ -665,25 +666,29 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const programSource = programSourceRaw
     ? parseFormFieldSource(programSourceRaw)
     : null;
+  const programCatalogKey = programSource ? catalogSourceKey(programSource) : undefined;
 
   const planSourceRaw = fields.plan?.source;
   const planSource = planSourceRaw ? parseFormFieldSource(planSourceRaw) : null;
+  const planCatalogKey = planSource ? catalogSourceKey(planSource) : undefined;
 
   const { data: programQueryOptions } = useQuery<{
     options: Array<{ value: string; label: string }>;
   }>({
     queryKey: [
       "/api/query-options",
-      programSource?.name,
+      programCatalogKey,
+      programSource?.content_type,
+      programSource?.database,
       programSource?.query,
       programSource?.value,
       programSource?.label,
       locale,
     ],
-    enabled: !!programSource?.name,
+    enabled: !!programCatalogKey,
     queryFn: async () => {
-      if (!programSource?.name) return { options: [] };
-      const url = buildQueryOptionsUrl(programSource, locale);
+      if (!programCatalogKey) return { options: [] };
+      const url = buildQueryOptionsUrl(programSource!, locale);
       const res = await apiFetch(url);
       if (!res.ok) {
         throw new Error(`${res.status}: ${await res.text()}`);
@@ -698,16 +703,18 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     queryKey: [
       "/api/query-options",
       "plan",
-      planSource?.name,
+      planCatalogKey,
+      planSource?.content_type,
+      planSource?.database,
       planSource?.query,
       planSource?.value,
       planSource?.label,
       locale,
     ],
-    enabled: !!planSource?.name,
+    enabled: !!planCatalogKey,
     queryFn: async () => {
-      if (!planSource?.name) return { options: [] };
-      const url = buildQueryOptionsUrl(planSource, locale);
+      if (!planCatalogKey) return { options: [] };
+      const url = buildQueryOptionsUrl(planSource!, locale);
       const res = await apiFetch(url);
       if (!res.ok) {
         throw new Error(`${res.status}: ${await res.text()}`);
@@ -829,7 +836,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       let options: RelationFormFieldOption[] = [];
       if (fieldName === "program") {
         if (src.relation) options = programRelationOptions;
-        else if (src.name) {
+        else if (catalogSourceKey(src)) {
           options = (programQueryOptions?.options ?? []).map((o) => ({
             value: o.value,
             label: o.label,
@@ -838,14 +845,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         }
       } else if (fieldName === "plan") {
         if (src.relation) options = planRelationOptions;
-        else if (src.name) {
+        else if (catalogSourceKey(src)) {
           options = (planQueryOptions?.options ?? []).map((o) => ({
             value: o.value,
             label: o.label,
           }));
         }
       }
-      if (src.relation || src.name) {
+      if (src.relation || catalogSourceKey(src)) {
         const authoredDefault =
           src.relation && baseConfig.default === "auto"
             ? { ...baseConfig, default: "" }
@@ -898,7 +905,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         title: o.label,
       }));
     }
-    if (programSource?.name) {
+    if (programCatalogKey) {
       return (programQueryOptions?.options ?? []).map((o) => ({
         slug: o.value,
         bc_slug: o.value,
@@ -919,7 +926,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (planSource?.relation) {
       return planRelationOptions.map((o) => ({ value: o.bc_slug || o.value, label: o.label }));
     }
-    if (planSource?.name) {
+    if (planCatalogKey) {
       return planQueryOptions?.options ?? [];
     }
     if (planFieldSlugs && planFieldSlugs.length > 0) {
@@ -1039,8 +1046,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   }, [sessionLocation, utm, programContext, form, singleLandingLocation, singleLandingRegion]);
 
   useEffect(() => {
-    if (programSource?.relation || programSource?.name) {
-      if (programSource.name && !programQueryOptions?.options) return;
+    if (programSource?.relation || programCatalogKey) {
+      if (programCatalogKey && !programQueryOptions?.options) return;
       const currentValue = form.getValues("program");
       if (!currentValue) return;
       const isValid = visiblePrograms.some(p => (p.bc_slug || p.slug) === currentValue);
@@ -1069,9 +1076,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     programSource?.relation,
-    programSource?.name,
+    programCatalogKey,
     planSource?.relation,
-    planSource?.name,
+    planCatalogKey,
     programRelationOptions,
     planRelationOptions,
     programQueryOptions?.options,
@@ -1083,7 +1090,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const resolveEffectiveFieldValues = (values: FormValues) => {
     const programOpts: RelationFormFieldOption[] = programSource?.relation
       ? programRelationOptions
-      : programSource?.name
+      : programCatalogKey
         ? (programQueryOptions?.options ?? []).map((o) => ({
             value: o.value,
             label: o.label,

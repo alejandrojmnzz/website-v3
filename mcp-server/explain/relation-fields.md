@@ -13,7 +13,7 @@ fields:
 
 - Reads `single.<field>` / the entry relation value (pointers on `_common.yml` for static types).
 - Do **not** hardcode `default` / `visible` / `slugs` for that list — cardinality comes from option count.
-- Mutually exclusive with `source.name` (catalog via `/api/query-options`).
+- Mutually exclusive with `source.content_type` / `source.database` (catalog via `/api/query-options`). See topic `lead-forms`.
 - After migration: `source.relation` + `slugs` together → publish error.
 - Publish fails on empty / unknown pointers when a form binds that field; empty catalog does not.
 

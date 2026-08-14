@@ -109,7 +109,7 @@ function validateOneFormField(
       formFieldName,
       sectionIndex,
       message: `${formPath}: ${parsed.error}`,
-      staffMessage: `The form field "${formFieldName}" has an invalid source setting. Use either a catalog name or an entry relation field — not both.`,
+      staffMessage: `The form field "${formFieldName}" has an invalid source setting. Use exactly one of content_type, database, or relation — not more than one.`,
     });
     return issues;
   }

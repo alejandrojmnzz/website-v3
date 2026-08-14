@@ -11,6 +11,7 @@ import { registerUserTools } from "./tools/user.js";
 import { registerExplainTools } from "./tools/explain.js";
 import { registerEcommerceTools } from "./tools/ecommerce.js";
 import { registerDatabaseTools } from "./tools/databases.js";
+import { registerQueryOptionsTools } from "./tools/query-options.js";
 import {
   registerClient,
   lookupClient,
@@ -166,6 +167,7 @@ function createMcpServer(mcpAuthor?: string, mcpToken?: string): McpServer {
   registerExplainTools(mcp);
   registerEcommerceTools(mcp, mcpToken);
   registerDatabaseTools(mcp, mcpToken);
+  registerQueryOptionsTools(mcp);
   return mcp;
 }
 

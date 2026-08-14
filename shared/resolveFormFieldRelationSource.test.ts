@@ -16,7 +16,23 @@ describe("parseFormFieldSourceStrict", () => {
   it("parses catalog string shorthand", () => {
     expect(parseFormFieldSourceStrict("program")).toEqual({
       ok: true,
-      config: { name: "program" },
+      config: { content_type: "program", name: "program" },
+    });
+  });
+
+  it("parses content_type object", () => {
+    expect(
+      parseFormFieldSourceStrict({
+        content_type: "program",
+        query: "purchasable=true",
+      }),
+    ).toEqual({
+      ok: true,
+      config: {
+        content_type: "program",
+        name: "program",
+        query: "purchasable=true",
+      },
     });
   });
 
@@ -27,6 +43,14 @@ describe("parseFormFieldSourceStrict", () => {
       ok: true,
       config: { relation: "programs", value: "slug" },
     });
+  });
+
+  it("rejects content_type + relation", () => {
+    const r = parseFormFieldSourceStrict({
+      content_type: "program",
+      relation: "programs",
+    });
+    expect(r.ok).toBe(false);
   });
 
   it("rejects name + relation", () => {
@@ -44,10 +68,16 @@ describe("parseFormFieldSourceStrict", () => {
 });
 
 describe("buildQueryOptionsUrl", () => {
-  it("requires name", () => {
+  it("requires content_type or database", () => {
     expect(() =>
       buildQueryOptionsUrl({ relation: "programs" }),
-    ).toThrow(/source.name/);
+    ).toThrow(/content_type or source.database/);
+  });
+
+  it("emits content_type and keeps source for callers", () => {
+    expect(
+      buildQueryOptionsUrl({ content_type: "program", query: "purchasable=true" }),
+    ).toBe("/api/query-options?content_type=program&source=program&purchasable=true");
   });
 });
 
@@ -228,6 +258,7 @@ describe("buildRelationSystemHints", () => {
 describe("parseFormFieldSource compat", () => {
   it("still parses catalog strings", () => {
     expect(parseFormFieldSource("program:slug=a")).toEqual({
+      content_type: "program",
       name: "program",
       query: "slug=a",
     });

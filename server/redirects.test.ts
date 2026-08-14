@@ -23,7 +23,7 @@ vi.mock("./content-types", async (importOriginal) => {
   };
 });
 
-import { findCanonicalSoftMatch, testRedirect } from "./redirects";
+import { findCanonicalSoftMatch, isLivePublicUrl, testRedirect } from "./redirects";
 import type { contentIndex as ContentIndexType } from "./content-index";
 
 function makeCi(opts: {
@@ -112,5 +112,25 @@ describe("testRedirect includes canonical soft-match", () => {
     expect(result.matchType).toBe("canonical");
     expect(result.status).toBe(301);
     expect(result.resolvedTo).toBe("/es/blog/herramientas-ia/real-post");
+    expect(result.destinationExists).toBe(true);
+    expect(isLivePublicUrl(result)).toBe(true);
+  });
+});
+
+describe("isLivePublicUrl matches Test a URL", () => {
+  it("treats a known page with query string as live", () => {
+    const ci = makeCi({
+      knownSlugs: { apply: { en: "/en/apply" } },
+    });
+    const result = testRedirect("/en/apply?program=ai-fluency", "en", ci);
+    expect(result.match).toBe(false);
+    expect(result.pageExists).toBe(true);
+    expect(isLivePublicUrl(result)).toBe(true);
+  });
+
+  it("treats an unknown path as not live", () => {
+    const ci = makeCi({ knownSlugs: {} });
+    const result = testRedirect("/en/missing-page", "en", ci);
+    expect(isLivePublicUrl(result)).toBe(false);
   });
 });

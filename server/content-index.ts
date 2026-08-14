@@ -1288,7 +1288,11 @@ export class ContentIndex {
 
   parseContentUrl(url: string): { contentType: string; slug: string; locale: string; params?: Record<string, string> } | null {
     this.ensureInitialized();
-    const cleanUrl = url.split("?")[0].split("#")[0];
+    const qIndex = url.indexOf("?");
+    const hashIndex = url.indexOf("#");
+    const cleanUrl = url.slice(0, qIndex >= 0 ? qIndex : hashIndex >= 0 ? hashIndex : undefined).split("#")[0];
+    const query = qIndex >= 0 ? url.slice(qIndex + 1, hashIndex >= 0 ? hashIndex : undefined) : "";
+    const queryLocale = query ? new URLSearchParams(query).get("locale") : null;
 
     const allTypes = Object.keys(this.contentTypeConfigs);
     const allFolders = allTypes.map(t => this.contentTypeConfigs[t]?.directory || t);
@@ -1297,7 +1301,11 @@ export class ContentIndex {
     const previewRegex = new RegExp(`^\\/private\\/preview\\/(${allAccepted.join("|")})\\/([^/?]+)`);
     const previewMatch = cleanUrl.match(previewRegex);
     if (previewMatch) {
-      return { contentType: this.normalizeType(previewMatch[1]), slug: previewMatch[2], locale: "en" };
+      return {
+        contentType: this.normalizeType(previewMatch[1]),
+        slug: previewMatch[2],
+        locale: queryLocale || "en",
+      };
     }
 
     for (const [contentType, config] of Object.entries(this.contentTypeConfigs)) {

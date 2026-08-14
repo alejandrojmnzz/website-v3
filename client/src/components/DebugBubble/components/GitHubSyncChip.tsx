@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { AlertTriangle, Check, CloudDownload, Github, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, CloudDownload, Github, GitMerge, RefreshCw } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
@@ -9,11 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { GitHubSyncStatus } from "../types";
+import type { GitHubSyncStatus, PendingChange } from "../types";
 
 export interface GitHubSyncChipProps {
   className?: string;
   githubSyncStatus: GitHubSyncStatus | null;
+  pendingChanges: PendingChange[];
+  pendingChangesLoading: boolean;
   syncStatusLoading: boolean;
   refreshSyncStatus: () => void;
   fetchPendingChanges: () => void;
@@ -66,12 +68,10 @@ function StatusErrorModal({
 
 function GitHubStatusBadge({
   status,
-  behindBy,
   aheadBy,
   error,
 }: {
   status: GitHubSyncStatus["status"];
-  behindBy?: number;
   aheadBy?: number;
   error?: string;
 }) {
@@ -80,14 +80,6 @@ function GitHubStatusBadge({
       <span className="text-[10px] text-chart-3 flex items-center gap-0.5 truncate">
         <Check className="h-3 w-3 shrink-0" />
         In sync
-      </span>
-    );
-  }
-  if (status === "behind") {
-    return (
-      <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5 truncate">
-        <CloudDownload className="h-3 w-3 shrink-0" />
-        {behindBy} behind
       </span>
     );
   }
@@ -142,9 +134,73 @@ function GitHubStatusBadge({
   return null;
 }
 
+function TypingDots() {
+  const [count, setCount] = useState(1);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCount((n) => (n % 3) + 1);
+    }, 350);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span
+      className="inline-block w-[1.8em] text-[10px] leading-none text-muted-foreground"
+      aria-hidden
+      data-testid="badge-file-change-counts-loading"
+    >
+      {".".repeat(count)}
+    </span>
+  );
+}
+
+function FileChangeCounts({
+  pendingChanges,
+  loading,
+}: {
+  pendingChanges: PendingChange[];
+  loading: boolean;
+}) {
+  const local = pendingChanges.filter((c) => c.source === "local").length;
+  const incoming = pendingChanges.filter((c) => c.source === "incoming").length;
+  const conflict = pendingChanges.filter((c) => c.source === "conflict").length;
+  if (loading && local + incoming + conflict === 0) return <TypingDots />;
+  if (local + incoming + conflict === 0) return null;
+
+  return (
+    <span
+      className="inline-flex items-center text-[10px] tabular-nums leading-none"
+      aria-label={`${local} local, ${incoming} remote, ${conflict} conflict`}
+      data-testid="badge-file-change-counts"
+    >
+      {local > 0 && (
+        <span className="inline-flex items-center text-amber-600 dark:text-amber-400">
+          <ArrowUp className="size-2.5 shrink-0" strokeWidth={2.5} />
+          {local}
+        </span>
+      )}
+      {incoming > 0 && (
+        <span className="inline-flex items-center text-primary">
+          <ArrowDown className="size-2.5 shrink-0" strokeWidth={2.5} />
+          {incoming}
+        </span>
+      )}
+      {conflict > 0 && (
+        <span className="inline-flex items-center text-destructive">
+          <GitMerge className="size-2.5 shrink-0" strokeWidth={2.5} />
+          {conflict}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function GitHubSyncChip({
   className,
   githubSyncStatus,
+  pendingChanges,
+  pendingChangesLoading,
   syncStatusLoading,
   refreshSyncStatus,
   fetchPendingChanges,
@@ -166,11 +222,12 @@ export function GitHubSyncChip({
       <button
         type="button"
         onClick={() => navigate("/private/repository-sync")}
-        className="flex items-center gap-1.5 min-w-0 flex-1 text-left"
+        className="flex items-center gap-1 min-w-0 flex-1 text-left"
         title="Open repository sync log"
         data-testid="link-repository-sync"
       >
         <Github className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <FileChangeCounts pendingChanges={pendingChanges} loading={pendingChangesLoading} />
         {githubSyncStatus && !githubSyncStatus.syncEnabled && (
           <span className="text-[10px] px-1 py-0 rounded bg-muted text-muted-foreground font-medium shrink-0">
             Off
@@ -185,7 +242,6 @@ export function GitHubSyncChip({
             ) : githubSyncStatus ? (
               <GitHubStatusBadge
                 status={githubSyncStatus.status}
-                behindBy={githubSyncStatus.behindBy}
                 aheadBy={githubSyncStatus.aheadBy}
                 error={githubSyncStatus.error}
               />
@@ -206,7 +262,6 @@ export function GitHubSyncChip({
             ) : githubSyncStatus ? (
               <GitHubStatusBadge
                 status={githubSyncStatus.status}
-                behindBy={githubSyncStatus.behindBy}
                 aheadBy={githubSyncStatus.aheadBy}
                 error={githubSyncStatus.error}
               />

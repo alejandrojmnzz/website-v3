@@ -22,6 +22,7 @@ const RUN_CLASS_BY_NAME: Record<string, ValidatorRunClass> = {
   sitemap: "cross-entry",
   "orphaned-files": "cross-entry",
   "source-name-collisions": "cross-entry",
+  "relation-targets": "cross-entry",
   images: "media",
   "image-tags": "media",
   "image-optimization": "media",
@@ -72,6 +73,8 @@ export function scopesForValidator(name: string): ValidationScope[] {
 export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "meta",
   "required-fields",
+  "editor-field-types",
+  "unknown-keys",
   "seo-depth",
   "seo-intent",
   "schema-completeness",

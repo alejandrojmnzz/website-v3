@@ -29,6 +29,7 @@ import type {
   MenuView,
   ContentInfo,
   GitHubSyncStatus,
+  PendingChange,
   SitemapUrl,
   ComponentItem,
   MenuItemProps,
@@ -61,6 +62,8 @@ export interface DebugPanelContentProps {
   clearToken: () => void;
 
   githubSyncStatus: GitHubSyncStatus | null;
+  pendingChanges: PendingChange[];
+  pendingChangesLoading: boolean;
   syncStatusLoading: boolean;
   refreshSyncStatus: () => void;
   fetchPendingChanges: () => void;
@@ -107,6 +110,8 @@ export interface DebugPanelContentProps {
   onDetachEntry?: () => void | Promise<void>;
   onReattachEntry?: () => void | Promise<void>;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
+  onEditDefaultYaml?: (locale: string) => void;
+  onRequestDeletePage?: (opts: { locale: string; liveLocales: string[] }) => void;
   onOpenTemplateYaml?: () => void;
   handleLinkClick: (href: string) => void;
 
@@ -1038,6 +1043,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               <GitHubSyncChip
                 className="flex-1 min-w-0"
                 githubSyncStatus={props.githubSyncStatus}
+                pendingChanges={props.pendingChanges}
+                pendingChangesLoading={props.pendingChangesLoading}
                 syncStatusLoading={props.syncStatusLoading}
                 refreshSyncStatus={props.refreshSyncStatus}
                 fetchPendingChanges={props.fetchPendingChanges}
@@ -1167,6 +1174,8 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           pathname={props.pathname}
           onVersioningDataUpdate={props.onVersioningDataUpdate as any}
           onEditVariantYaml={props.onEditVariantYaml}
+          onEditDefaultYaml={props.onEditDefaultYaml}
+          onRequestDeletePage={props.onRequestDeletePage}
           onOpenTemplateYaml={props.onOpenTemplateYaml}
           detachBusy={props.detachBusy}
           onRequestDetach={openDetachConfirm}

@@ -375,6 +375,106 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/admin/gcs-sync-artifact/upload", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const { kind, siteFolder } = req.body as { kind?: string; siteFolder?: string | null };
+      const {
+        isSyncArtifactKind,
+        uploadSyncArtifact,
+      } = await import("../gcs-sync-artifacts");
+      if (!kind || !isSyncArtifactKind(kind)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or missing artifact kind.",
+        });
+      }
+      const result = await uploadSyncArtifact(kind, siteFolder ?? null);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "[CloudSync] Failed to upload sync artifact:");
+      res.status(500).json({
+        success: false,
+        message: err instanceof Error ? err.message : "Failed to upload sync artifact.",
+      });
+    }
+  });
+
+  app.post("/api/admin/gcs-sync-artifact/download", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const { kind, siteFolder } = req.body as { kind?: string; siteFolder?: string | null };
+      const {
+        isSyncArtifactKind,
+        downloadSyncArtifact,
+      } = await import("../gcs-sync-artifacts");
+      if (!kind || !isSyncArtifactKind(kind)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or missing artifact kind.",
+        });
+      }
+      const result = await downloadSyncArtifact(kind, siteFolder ?? null);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "[CloudSync] Failed to download sync artifact:");
+      res.status(500).json({
+        success: false,
+        message: err instanceof Error ? err.message : "Failed to download sync artifact.",
+      });
+    }
+  });
+
+  app.get("/api/admin/gcs-sync-artifact/content", async (req, res) => {
+    const auth = await requireStaffSession(req, res);
+    if (!auth.authorized) return;
+
+    try {
+      const kind = typeof req.query.kind === "string" ? req.query.kind : "";
+      const siteFolder =
+        typeof req.query.siteFolder === "string" && req.query.siteFolder.length > 0
+          ? req.query.siteFolder
+          : null;
+      const {
+        isSyncArtifactKind,
+        readSyncArtifactContent,
+      } = await import("../gcs-sync-artifacts");
+      if (!kind || !isSyncArtifactKind(kind)) {
+        return res.status(400).json({
+          success: false,
+          exists: false,
+          path: "",
+          content: null,
+          error: "Invalid or missing artifact kind.",
+        });
+      }
+      const result = readSyncArtifactContent(kind, siteFolder);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "[CloudSync] Failed to read sync artifact content:");
+      res.status(500).json({
+        success: false,
+        exists: false,
+        path: "",
+        content: null,
+        error: err instanceof Error ? err.message : "Failed to read sync artifact.",
+      });
+    }
+  });
+
   app.get("/api/admin/system-alerts", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;

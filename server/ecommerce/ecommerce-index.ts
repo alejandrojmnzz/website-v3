@@ -169,12 +169,19 @@ export function scanEcommerceContent(): void {
           ? merged.product_id
           : `${canonicalKey}-${slug}`;
 
+      const activelySelling =
+        typeof merged.actively_selling === "boolean"
+          ? merged.actively_selling
+          : typeof merged.active === "boolean"
+            ? merged.active
+            : true;
+
       const product: EcommerceProduct = {
         product_id: productId,
         name: typeof merged.name === "string" ? merged.name : slug,
         content_type: canonicalKey,
         content_slug: slug,
-        active: typeof merged.active === "boolean" ? merged.active : true,
+        actively_selling: activelySelling,
         description: typeof merged.description === "string" ? merged.description : undefined,
         funnel: {
           steps: parseFunnelSteps(merged),

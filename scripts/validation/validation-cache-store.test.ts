@@ -224,4 +224,21 @@ describe("validation issue store v5", () => {
 
     expect(cache.getAllIssues().filter((i) => i.validator === "redirects")).toHaveLength(0);
   });
+
+  it("getAllByEntryKey includes entries that only have run meta", () => {
+    const fileA = makeFile({
+      type: "program",
+      slug: "draft-only",
+      locale: "es",
+      filePath: "/tmp/programs/draft-only/draft.es.yml",
+      url: "/es/draft-only",
+      isDraft: true,
+    });
+    cache.applyValidatorResults([metaResult(fileA, true)], {
+      contentFiles: [fileA],
+      entryKeys: [buildEntryKey("program", "draft-only", "es")],
+    });
+    const byEntry = cache.getAllByEntryKey();
+    expect(byEntry.get("program/draft-only/es")?.errors.length).toBe(1);
+  });
 });

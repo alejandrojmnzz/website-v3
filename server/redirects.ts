@@ -502,6 +502,111 @@ function makeResult(entry: RedirectEntry, locale: string, matchType: "exact" | "
   };
 }
 
+export function toPublicUrlPath(rawInput: string): string {
+  let urlPath = rawInput;
+  try {
+    if (/^https?:\/\//i.test(urlPath)) {
+      urlPath = new URL(urlPath).pathname;
+    }
+  } catch {}
+  urlPath = urlPath.split("?")[0].split("#")[0];
+  if (!urlPath.startsWith("/")) urlPath = "/" + urlPath;
+  return urlPath;
+}
+
+function withDestinationExists(
+  result: RedirectTestResult,
+  ci: typeof contentIndex,
+): RedirectTestResult {
+  if (!result.match || !result.resolvedTo) return result;
+  if (/^https?:\/\//i.test(result.resolvedTo)) {
+    return { ...result, destinationExists: true };
+  }
+  const dest = toPublicUrlPath(result.resolvedTo);
+  return { ...result, destinationExists: ci.isKnownUrl(dest) };
+}
+
+function evaluatePublicUrl(
+  rawInput: string,
+  locale: string,
+  ci: typeof contentIndex,
+  maps: RedirectMaps,
+): RedirectTestResult {
+  const urlPath = toPublicUrlPath(rawInput);
+  const normalized = normalizePath(urlPath);
+
+  const exact = maps.map.get(normalized);
+  if (exact) return withDestinationExists(makeResult(exact, locale, "exact"), ci);
+
+  for (const { regex, entry } of maps.regexBefore) {
+    const m = urlPath.match(regex);
+    if (m) return withDestinationExists(makeResult(entry, locale, "regex", undefined, m.slice(1)), ci);
+  }
+
+  const fbNc = maps.fallbackNonCustomMap.get(normalized);
+  if (fbNc) return withDestinationExists(makeResult(fbNc, locale, "exact", "fallback"), ci);
+
+  for (const { regex, entry } of maps.regexFallbackNonCustom) {
+    const m = urlPath.match(regex);
+    if (m) return withDestinationExists(makeResult(entry, locale, "regex", "fallback", m.slice(1)), ci);
+  }
+
+  const soft = findCanonicalSoftMatch(urlPath, ci);
+  if (soft) {
+    return withDestinationExists(
+      {
+        match: true,
+        from: urlPath,
+        to: soft.canonicalUrl,
+        resolvedTo: soft.canonicalUrl,
+        status: 301,
+        priority: "fallback",
+        source: `canonical:${soft.typeName}`,
+        matchType: "canonical",
+        pageExists: false,
+      },
+      ci,
+    );
+  }
+
+  const isKnown = ci.isKnownUrl(urlPath);
+
+  if (!isKnown) {
+    const fb = maps.fallbackMap.get(normalized);
+    if (fb) return withDestinationExists(makeResult(fb, locale, "exact", "fallback"), ci);
+
+    for (const { regex, entry } of maps.regexFallback) {
+      const m = urlPath.match(regex);
+      if (m) return withDestinationExists(makeResult(entry, locale, "regex", "fallback", m.slice(1)), ci);
+    }
+  }
+
+  return { match: false, pageExists: isKnown };
+}
+
+/** Same answer as Redirects → Test a URL: existing page, or redirect to a live destination. */
+export function isLivePublicUrl(result: RedirectTestResult): boolean {
+  if (result.pageExists) return true;
+  return result.match === true && result.destinationExists === true;
+}
+
+export function createPublicUrlResolver(
+  ci: typeof contentIndex = contentIndex,
+  opts?: { freshRedirects?: boolean },
+) {
+  const maps = _buildMapsFromEntries(
+    opts?.freshRedirects === false ? ci.getRedirects() : getFreshRedirectEntries(ci),
+  );
+  return {
+    test(rawInput: string, locale: string = "en"): RedirectTestResult {
+      return evaluatePublicUrl(rawInput, locale, ci, maps);
+    },
+    isLive(rawInput: string, locale: string = "en"): boolean {
+      return isLivePublicUrl(evaluatePublicUrl(rawInput, locale, ci, maps));
+    },
+  };
+}
+
 /**
  * Fresh redirect entries for debug tools.
  * Re-reads custom redirects from disk when the index is already complete; otherwise
@@ -525,66 +630,9 @@ export function testRedirect(
   /** Active site's content index — must match live middleware / add-redirect checks. */
   ci: typeof contentIndex = contentIndex,
 ): RedirectTestResult {
-  let urlPath = rawInput;
-  try {
-    if (/^https?:\/\//i.test(urlPath)) {
-      urlPath = new URL(urlPath).pathname;
-    }
-  } catch {}
-  urlPath = urlPath.split("?")[0].split("#")[0];
-  if (!urlPath.startsWith("/")) urlPath = "/" + urlPath;
-
   // Debug tester prioritizes correctness over speed: always re-read from disk and
   // build maps from scratch (never the live request cache).
-  const maps = _buildMapsFromEntries(getFreshRedirectEntries(ci));
-  const normalized = normalizePath(urlPath);
-
-  const exact = maps.map.get(normalized);
-  if (exact) return makeResult(exact, locale, "exact");
-
-  for (const { regex, entry } of maps.regexBefore) {
-    const m = urlPath.match(regex);
-    if (m) return makeResult(entry, locale, "regex", undefined, m.slice(1));
-  }
-
-  const fbNc = maps.fallbackNonCustomMap.get(normalized);
-  if (fbNc) return makeResult(fbNc, locale, "exact", "fallback");
-
-  for (const { regex, entry } of maps.regexFallbackNonCustom) {
-    const m = urlPath.match(regex);
-    if (m) return makeResult(entry, locale, "regex", "fallback", m.slice(1));
-  }
-
-  // Match live fallbackRedirectMiddleware: canonical soft-match before isKnownUrl.
-  const soft = findCanonicalSoftMatch(urlPath, ci);
-  if (soft) {
-    return {
-      match: true,
-      from: urlPath,
-      to: soft.canonicalUrl,
-      resolvedTo: soft.canonicalUrl,
-      status: 301,
-      priority: "fallback",
-      source: `canonical:${soft.typeName}`,
-      matchType: "canonical",
-      pageExists: false,
-      destinationExists: ci.isKnownUrl(soft.canonicalUrl),
-    };
-  }
-
-  const isKnown = ci.isKnownUrl(urlPath);
-
-  if (!isKnown) {
-    const fb = maps.fallbackMap.get(normalized);
-    if (fb) return makeResult(fb, locale, "exact", "fallback");
-
-    for (const { regex, entry } of maps.regexFallback) {
-      const m = urlPath.match(regex);
-      if (m) return makeResult(entry, locale, "regex", "fallback", m.slice(1));
-    }
-  }
-
-  return { match: false, pageExists: isKnown };
+  return createPublicUrlResolver(ci, { freshRedirects: true }).test(rawInput, locale);
 }
 
 export function clearRedirectCache(): void {

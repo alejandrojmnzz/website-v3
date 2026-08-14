@@ -5,13 +5,15 @@ import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isActivelySelling } from "@/lib/ecommerceProductMap";
 
 interface EcommerceProduct {
   product_id: string;
   name: string;
   content_type: string;
   content_slug: string;
-  active: boolean;
+  actively_selling?: boolean;
+  active?: boolean;
   description?: string;
 }
 
@@ -127,18 +129,18 @@ export default function StoreProductsPage() {
                         </p>
                       </div>
                       <Badge
-                        variant={product.active ? "default" : "secondary"}
+                        variant={isActivelySelling(product) ? "default" : "secondary"}
                         data-testid={`badge-product-active-${product.product_id}`}
                       >
-                        {product.active ? (
+                        {isActivelySelling(product) ? (
                           <>
                             <IconCheck className="h-3 w-3 mr-1" />
-                            Active
+                            Selling
                           </>
                         ) : (
                           <>
                             <IconX className="h-3 w-3 mr-1" />
-                            Inactive
+                            Paused
                           </>
                         )}
                       </Badge>

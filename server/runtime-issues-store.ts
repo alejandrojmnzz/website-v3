@@ -263,6 +263,62 @@ export async function shutdownRuntimeIssues(): Promise<void> {
   }
 }
 
+export interface ReuploadRuntimeIssuesResult {
+  success: boolean;
+  uploaded: boolean;
+  gcsKey: string;
+  reason?: string;
+}
+
+/** Force-upload one site's runtime issues to GCS immediately (admin Cloud Sync). */
+export async function reuploadRuntimeIssuesToBucket(
+  site: string,
+  contentRoot?: string,
+): Promise<ReuploadRuntimeIssuesResult> {
+  const key = gcsKey(site);
+
+  if (!IS_PRODUCTION) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey: key,
+      reason: "GCS sync only runs in production (NODE_ENV=production).",
+    };
+  }
+
+  if (!gcs.available) {
+    gcs.initBootstrapFromEnv();
+  }
+  if (!gcs.available) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey: key,
+      reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+    };
+  }
+
+  const b = ensureLoadedSync(site, contentRoot);
+  const file = localPathForSite(site, b.contentRoot);
+  if (!fs.existsSync(file) && Object.keys(b.state.issues).length === 0) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey: key,
+      reason: "No local runtime-issues file found to upload.",
+    };
+  }
+
+  saveLocal(site);
+  await gcs.upload(key, Buffer.from(JSON.stringify(b.state, null, 2), "utf-8"), "application/json");
+  log.info({ site }, "re-uploaded runtime-issues to GCS via admin action");
+  return { success: true, uploaded: true, gcsKey: key };
+}
+
+export function getRuntimeIssuesLocalPath(site: string, contentRoot?: string): string {
+  return localPathForSite(site, contentRoot);
+}
+
 /** Test helper */
 export function _resetRuntimeIssuesForTests(): void {
   bySite.clear();

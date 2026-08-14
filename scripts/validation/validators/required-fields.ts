@@ -8,11 +8,7 @@ import {
   listRequiredEditorFields,
   isEmptyRequiredValue,
 } from "../../../shared/validateRequiredFields";
-
-function looksLikeDraftPath(filePath: string): boolean {
-  const base = filePath.split(/[/\\]/).pop() || "";
-  return /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) && !/^single\./i.test(base);
-}
+import { isVariantLayerFile } from "../shared/draftFiles";
 
 export const requiredFieldsValidator: Validator = {
   name: "required-fields",
@@ -27,7 +23,7 @@ export const requiredFieldsValidator: Validator = {
     const warnings: ValidationIssue[] = [];
 
     for (const file of context.contentFiles) {
-      if (looksLikeDraftPath(file.filePath)) continue;
+      if (isVariantLayerFile(file.filePath)) continue;
       const contentType = file.type;
       if (!contentType) continue;
 

@@ -12,6 +12,7 @@ const MUTATING_TOOLS = [
   "update_meta_fields",
   "create_variant",
   "promote_variant",
+  "convert_to_draft",
   "publish_draft",
   "create_entry",
   "add_section",

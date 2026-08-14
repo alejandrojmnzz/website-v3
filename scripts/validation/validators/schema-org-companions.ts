@@ -9,11 +9,7 @@ import {
   getSchemaOrgRequirementGaps,
   validateHeroCourseCompanions,
 } from "../../../server/schema-org-requirements";
-
-function looksLikeDraftPath(filePath: string): boolean {
-  const base = filePath.split(/[/\\]/).pop() || "";
-  return /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) && !/^single\./i.test(base);
-}
+import { skipLiveVariantOverlay } from "../shared/draftFiles";
 
 export const schemaOrgCompanionsValidator: Validator = {
   name: "schema-org-companions",
@@ -32,7 +28,7 @@ export const schemaOrgCompanionsValidator: Validator = {
     let ctChecked = 0;
 
     for (const file of context.contentFiles) {
-      if (looksLikeDraftPath(file.filePath)) continue;
+      if (skipLiveVariantOverlay(file)) continue;
       const contentType = file.type;
       if (!contentType) continue;
 

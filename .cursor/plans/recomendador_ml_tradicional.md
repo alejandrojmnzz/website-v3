@@ -576,7 +576,7 @@ Los productos **cambian**: nuevos `program`, cambios de navbar, landings de vent
 
 **Descubrimiento (`build_product_catalog` → `product_index_vN`):**
 
-1. Entradas `program` con `valid_lead_form_option !== false` (mismo criterio que lead forms / `GET /api/career-programs`).
+1. Entradas `program` con `purchasable === true` (computed from `_ecommerce.yml` / ecommerce index — same as lead-form `source.query: purchasable=true`).
 2. Items del dropdown Programas en el navbar (pueden incluir cursos aún no seleccionables en form).
 3. Landings cuyo `lead_form` / secciones declaren `program`/`bc_slug` → superficie de oferta del mismo `product_id` (no clase nueva). Landings sin product_id resoluble → warning del job, no entran como clase.
 4. **ID canónico:** `bc_slug` si existe, si no `slug` del program.

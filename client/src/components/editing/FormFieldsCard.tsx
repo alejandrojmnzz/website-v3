@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { IconChevronDown, IconForms, IconPencil, IconX } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { IconAlertTriangle, IconChevronDown, IconForms, IconPencil, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { catalogSourceKey, parseFormFieldSource } from "@shared/parseFormFieldSource";
 
 /** Same rich layouts as menu dropdowns, plus text/phone/textarea/select for forms. */
 const COMPONENT_RENDERERS = [
@@ -77,10 +79,12 @@ function summarizeField(cfg: FormFieldConfig): string[] {
   if (typeof source === "string" && source.trim()) {
     parts.push(`source: ${source.trim()}`);
   } else if (source && typeof source === "object" && !Array.isArray(source)) {
-    const rel = (source as { relation?: string }).relation;
-    const name = (source as { name?: string }).name;
-    if (typeof rel === "string" && rel.trim()) parts.push(`relation: ${rel.trim()}`);
-    else if (typeof name === "string" && name.trim()) parts.push(`catalog: ${name.trim()}`);
+    const parsed = parseFormFieldSource(source as { content_type?: string; database?: string; name?: string; relation?: string; query?: string });
+    if (parsed.relation) parts.push(`relation: ${parsed.relation}`);
+    else if (parsed.content_type) parts.push(`content_type: ${parsed.content_type}`);
+    else if (parsed.database) parts.push(`database: ${parsed.database}`);
+    else if (parsed.name) parts.push(`catalog: ${parsed.name}`);
+    if (parsed.query) parts.push(`query: ${parsed.query}`);
   }
   if (cfg.visible === true) parts.push("visible");
   if (cfg.visible === false) parts.push("hidden");
@@ -98,14 +102,32 @@ function summarizeField(cfg: FormFieldConfig): string[] {
   return parts;
 }
 
+function catalogNeedsQuery(
+  cfg: FormFieldConfig,
+  ecommerceTypes: Set<string>,
+): boolean {
+  const source = cfg.source;
+  if (source == null) return false;
+  const parsed = parseFormFieldSource(
+    source as string | { content_type?: string; database?: string; name?: string; relation?: string; query?: string },
+  );
+  const key = catalogSourceKey(parsed);
+  if (!key || parsed.relation) return false;
+  if (parsed.query && parsed.query.trim()) return false;
+  const ct = parsed.content_type || (!parsed.database ? key : undefined);
+  return !!ct && ecommerceTypes.has(ct);
+}
+
 function FormFieldEditorRow({
   name,
   cfg,
   onFieldChange,
+  ecommerceTypes,
 }: {
   name: string;
   cfg: FormFieldConfig;
   onFieldChange: FormFieldsCardProps["onFieldChange"];
+  ecommerceTypes: Set<string>;
 }) {
   const [open, setOpen] = useState(false);
   const visible = cfg.visible === true;
@@ -115,6 +137,14 @@ function FormFieldEditorRow({
     typeof cfg.component_renderer === "string" && cfg.component_renderer.trim();
   const renderer = hasRenderer ? cfg.component_renderer!.trim() : undefined;
   const summary = summarizeField(cfg);
+  const missingQuery = catalogNeedsQuery(cfg, ecommerceTypes);
+  const source = cfg.source;
+  const parsedSource =
+    source != null
+      ? parseFormFieldSource(
+          source as string | { content_type?: string; database?: string; name?: string; relation?: string; query?: string },
+        )
+      : null;
 
   return (
     <Collapsible
@@ -155,6 +185,31 @@ function FormFieldEditorRow({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="space-y-2 px-2.5 pb-2.5 pt-0 border-t border-border/60">
+          {missingQuery && (
+            <div
+              className="mt-2 flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-100"
+              data-testid={`banner-missing-catalog-query-${name}`}
+            >
+              <IconAlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <p>
+                Ecommerce catalogs need an explicit{" "}
+                <code className="font-mono text-[10px]">source.query</code> (typically{" "}
+                <code className="font-mono text-[10px]">purchasable=true</code>). Without it this
+                dropdown lists every entry, including discontinued products. On a non-purchasable
+                program page, bind that program with{" "}
+                <code className="font-mono text-[10px]">source.relation</code> or{" "}
+                <code className="font-mono text-[10px]">query: slug=&lt;this&gt;</code> instead.
+              </p>
+            </div>
+          )}
+          {parsedSource && (
+            <div className="pt-2 grid grid-cols-1 gap-1 text-[11px] font-mono text-muted-foreground">
+              {parsedSource.content_type && <span>content_type: {parsedSource.content_type}</span>}
+              {parsedSource.database && <span>database: {parsedSource.database}</span>}
+              {parsedSource.relation && <span>relation: {parsedSource.relation}</span>}
+              {parsedSource.query && <span>query: {parsedSource.query}</span>}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-4 pt-2">
             <div className="flex items-center gap-1.5">
               <Switch
@@ -229,6 +284,21 @@ function FormFieldEditorRow({
 export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
   const [editing, setEditing] = useState(false);
   const names = sortFieldNames(Object.keys(fields));
+  const { data: productMap } = useQuery<{ products?: Array<{ content_type?: string }> }>({
+    queryKey: ["/api/ecommerce/product-map"],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch("/api/ecommerce/product-map");
+      if (!res.ok) return { products: [] };
+      return res.json();
+    },
+  });
+  const ecommerceTypes = new Set(
+    (productMap?.products ?? [])
+      .map((p) => p.content_type)
+      .filter((t): t is string => typeof t === "string" && t.length > 0),
+  );
+  const anyMissingQuery = names.some((n) => catalogNeedsQuery(fields[n] ?? {}, ecommerceTypes));
 
   return (
     <div
@@ -259,33 +329,59 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
         data-testid="form-fields-source-education"
       >
         <p>
-          Choice options can come from a <span className="font-medium text-foreground">source</span>:{" "}
-          <code className="font-mono text-[10px]">source.relation</code> reads an entry relation field
-          (e.g. <code className="font-mono text-[10px]">programs</code> on _common.yml), or{" "}
-          <code className="font-mono text-[10px]">source.name</code> loads a catalog. When source is set,
-          option count controls visibility (0 hidden + fallback default, 1 hidden + autofill, 2+ shown
-          required). Empty relation blocks publish; empty catalog does not.
+          Choice options come from <span className="font-medium text-foreground">source</span> — set
+          exactly one of{" "}
+          <code className="font-mono text-[10px]">content_type</code>,{" "}
+          <code className="font-mono text-[10px]">database</code>, or{" "}
+          <code className="font-mono text-[10px]">relation</code>. Catalogs (
+          <code className="font-mono text-[10px]">content_type</code> /{" "}
+          <code className="font-mono text-[10px]">database</code>) load{" "}
+          <code className="font-mono text-[10px]">/api/query-options</code>.{" "}
+          <code className="font-mono text-[10px]">relation</code> reads this entry&apos;s field (e.g.{" "}
+          <code className="font-mono text-[10px]">programs</code> on _common.yml). Ecommerce catalogs
+          must set <code className="font-mono text-[10px]">query: purchasable=true</code> unless this
+          is a non-product program page (that slug / relation only).{" "}
+          <code className="font-mono text-[10px]">purchasable</code> on the Fields tab is read-only;{" "}
+          <code className="font-mono text-[10px]">actively_selling</code> lives on _ecommerce.yml
+          (store pause), not the form.
         </p>
         <p>
-          The form field name (e.g. <code className="font-mono text-[10px]">program</code>) is still the
-          submit key — it is not the same as the content-type relation field name. Multiple forms on a
-          page that share the same <code className="font-mono text-[10px]">source.relation</code> share
-          that one entry field.
+          The form field name (e.g. <code className="font-mono text-[10px]">program</code>) is still
+          the submit key. <code className="font-mono text-[10px]">options[]</code> only overlays
+          labels — it does not filter. <code className="font-mono text-[10px]">slugs</code> is ignored
+          when source is set.
         </p>
+        {anyMissingQuery && (
+          <div
+            className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-amber-100"
+            data-testid="banner-form-catalog-query-missing"
+          >
+            <IconAlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <p>
+              At least one catalog source is missing{" "}
+              <code className="font-mono text-[10px]">query</code>. Add{" "}
+              <code className="font-mono text-[10px]">purchasable=true</code> in YAML (or a slug
+              subset) so discontinued products stay out of the dropdown.
+            </p>
+          </div>
+        )}
         <details className="text-[10px]">
           <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
             Read more (advanced)
           </summary>
           <ul className="mt-1 list-disc pl-4 space-y-0.5">
             <li>
-              Resolver: <code className="font-mono">shared/resolveFormFieldRelationSource.ts</code>
-            </li>
-            <li>
               Parse: <code className="font-mono">shared/parseFormFieldSource.ts</code>
             </li>
             <li>
-              Live gate: <code className="font-mono">server/live-entry-seo-gate.ts</code> +{" "}
-              <code className="font-mono">shared/validateFormFieldSources.ts</code>
+              Catalog API: <code className="font-mono">server/query-options.ts</code>
+            </li>
+            <li>
+              Product index: <code className="font-mono">server/ecommerce/ecommerce-index.ts</code>
+            </li>
+            <li>
+              Relation resolver:{" "}
+              <code className="font-mono">shared/resolveFormFieldRelationSource.ts</code>
             </li>
             <li>
               Do not combine <code className="font-mono">source.relation</code> with{" "}
@@ -337,6 +433,7 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
               name={name}
               cfg={fields[name] ?? {}}
               onFieldChange={onFieldChange}
+              ecommerceTypes={ecommerceTypes}
             />
           ))}
         </div>

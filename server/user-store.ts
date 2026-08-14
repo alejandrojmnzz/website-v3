@@ -235,6 +235,60 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   loaded = true;
 }
 
+export interface ReuploadUsersStateResult {
+  success: boolean;
+  uploaded: boolean;
+  gcsKey: string;
+  reason?: string;
+}
+
+/** Force-upload local/in-memory user store to GCS immediately (admin Cloud Sync). */
+export async function reuploadUsersStateToBucket(): Promise<ReuploadUsersStateResult> {
+  const gcsKey = GCS_KEY;
+
+  if (!IS_PRODUCTION) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS sync only runs in production (NODE_ENV=production).",
+    };
+  }
+
+  if (!gcs.available) {
+    gcs.initBootstrapFromEnv();
+  }
+  if (!gcs.available) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+    };
+  }
+
+  ensureLoaded();
+  const localPath = getLocalPath();
+  if (!fs.existsSync(localPath) && Object.keys(state.users).length === 0) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "No local user store found to upload.",
+    };
+  }
+
+  saveLocal();
+  await gcs.upload(gcsKey, Buffer.from(JSON.stringify(state, null, 2), "utf-8"), "application/json");
+  log.info("[UserStore] Re-uploaded users state to GCS via admin action");
+  return { success: true, uploaded: true, gcsKey };
+}
+
+/** Local path for admin View / inventory (platform file). */
+export function getUsersStateLocalPath(): string {
+  return getLocalPath();
+}
+
 function ensureLoaded(): void {
   if (!loaded) {
     state = loadLocal();

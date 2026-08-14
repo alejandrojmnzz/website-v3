@@ -324,6 +324,83 @@ export class SyncLog {
     await this.saveToBucket();
   }
 
+  /**
+   * Force-reload log entries from GCS (prod) or local file, overwriting memory.
+   */
+  async reloadFromBucket(): Promise<"gcs" | "local"> {
+    this.loaded = false;
+    if (IS_PRODUCTION) {
+      if (!gcs.available) gcs.initBootstrapFromEnv();
+      if (gcs.available) {
+        try {
+          const result = await gcs.downloadFirstExisting(this.readKeys);
+          if (result) {
+            this.logEntries = this.parseLogLines(result.data.toString("utf-8"));
+            this.loaded = true;
+            this.saveLocal();
+            return "gcs";
+          }
+        } catch (error) {
+          syncLogLogger.error({ err: error }, "error reloading from bucket");
+        }
+      }
+    }
+    this.loadLocal();
+    return "local";
+  }
+
+  /**
+   * Force-upload current log to GCS immediately (no debounce). Admin Cloud Sync.
+   */
+  async forceUploadToBucket(): Promise<{
+    success: boolean;
+    uploaded: boolean;
+    gcsKey: string;
+    reason?: string;
+  }> {
+    const gcsKey = this.gcsKey;
+    if (!IS_PRODUCTION) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS sync only runs in production (NODE_ENV=production).",
+      };
+    }
+    if (!gcs.available) {
+      gcs.initBootstrapFromEnv();
+    }
+    if (!gcs.available) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+      };
+    }
+    if (!this.loaded) this.loadLocal();
+    if (!fs.existsSync(this.syncLogPath) && this.logEntries.length === 0) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "No local sync-log file found to upload.",
+      };
+    }
+    this.saveLocal();
+    const content = this.logEntries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    await gcs.upload(gcsKey, Buffer.from(content, "utf-8"), "text/plain");
+    return { success: true, uploaded: true, gcsKey };
+  }
+
+  getLocalPath(): string {
+    return this.syncLogPath;
+  }
+
+  getGcsKey(): string {
+    return this.gcsKey;
+  }
+
   async clear(): Promise<void> {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);

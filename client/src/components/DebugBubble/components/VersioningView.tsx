@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSearch } from "wouter";
 import { deslugify } from "../utils/debugHelpers";
-import { IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconArrowBackUp, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy } from "@tabler/icons-react";
+import { IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconArrowBackUp, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,110 @@ interface VersioningViewProps {
   pathname: string;
   onVersioningDataUpdate?: (data: VersioningResponse) => void;
   onEditVariantYaml: (locale: string, variantSlug: string) => void;
+  onEditDefaultYaml?: (locale: string) => void;
+  onRequestDeletePage?: (opts: { locale: string; liveLocales: string[] }) => void;
   onOpenTemplateYaml?: () => void;
   detachBusy?: boolean;
   onRequestDetach?: () => void;
   onRequestReattach?: () => void;
+}
+
+function DefaultLiveRowActions({
+  locale,
+  allocation,
+  isTemplateVersioning,
+  onShare,
+  onConvert,
+  onEditYaml,
+  onDelete,
+}: {
+  locale: string;
+  allocation: number;
+  isTemplateVersioning: boolean;
+  onShare: () => void;
+  onConvert: () => void;
+  onEditYaml?: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 flex-shrink-0">
+      <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+        {allocation}%
+      </span>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5 shrink-0"
+              onClick={onShare}
+              data-testid={`button-share-variant-${locale}-default`}
+            >
+              <IconShare className="h-3 w-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>Share live URL</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5 shrink-0"
+              onClick={onConvert}
+              data-testid={`button-convert-to-draft-${locale}`}
+            >
+              <IconEyeOff className="h-3 w-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>{isTemplateVersioning ? "Detach first to convert this entry to draft" : "Convert to draft"}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      {(onEditYaml || onDelete) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5 shrink-0"
+              data-testid={`button-variant-menu-${locale}-default`}
+            >
+              <IconDots className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            {onEditYaml && (
+              <DropdownMenuItem
+                onClick={onEditYaml}
+                className="text-[13px]"
+                data-testid={`menu-edit-yaml-variant-${locale}-default`}
+              >
+                <IconCode className="h-3.5 w-3.5 mr-2" />
+                Edit YAML
+              </DropdownMenuItem>
+            )}
+            {onDelete && (
+              <DropdownMenuItem
+                onClick={onDelete}
+                className="text-[13px] text-destructive"
+                data-testid={`menu-delete-${locale}-default`}
+              >
+                <IconTrash className="h-3.5 w-3.5 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  );
 }
 
 export function VersioningView({
@@ -42,6 +142,8 @@ export function VersioningView({
   pathname,
   onVersioningDataUpdate,
   onEditVariantYaml,
+  onEditDefaultYaml,
+  onRequestDeletePage,
   onOpenTemplateYaml,
   detachBusy,
   onRequestDetach,
@@ -69,6 +171,19 @@ export function VersioningView({
   const versionsTitle = isTemplateVersioning ? "Template Versions" : "Page Versions";
   const contentTypeLabel = contentInfo.label || contentInfo.type || "entries";
   const isDraftEntry = !!versioningData?.isDraft || versioningData?.hasLiveDefault === false;
+  const liveLocales = (() => {
+    const byLocale = versioningData?.liveByLocale;
+    if (byLocale) {
+      const live = Object.entries(byLocale)
+        .filter(([, isLive]) => isLive)
+        .map(([loc]) => loc);
+      if (live.length > 0) return live;
+    }
+    if (versioningData?.hasLiveDefault) {
+      return versioningData.availableLocales ?? [];
+    }
+    return [] as string[];
+  })();
 
   const searchString = useSearch();
   const activeVariant = new URLSearchParams(searchString).get("variant") ?? null;
@@ -83,13 +198,17 @@ export function VersioningView({
   const [createVersionLocale, setCreateVersionLocale] = useState("en");
   const [isCreatingVersion, setIsCreatingVersion] = useState(false);
 
-  const [shareTarget, setShareTarget] = useState<{ locale: string; slug: string } | null>(null);
+  const [shareTarget, setShareTarget] = useState<{ locale: string; slug: string | null } | null>(null);
 
   const [promoteTarget, setPromoteTarget] = useState<{ locale: string; slug: string } | null>(null);
   const [isPromoting, setIsPromoting] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<{ locale: string; slug: string; allocation: number } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const [convertTarget, setConvertTarget] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
+  const [showDetachForConvert, setShowDetachForConvert] = useState(false);
 
   const [showRestorePanel, setShowRestorePanel] = useState(false);
   const [restoreHistory, setRestoreHistory] = useState<Array<{ sha: string; date: string; author: string; subject: string }>>([]);
@@ -298,6 +417,68 @@ export function VersioningView({
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const requestConvertToDraft = (locale: string) => {
+    if (isTemplateVersioning) {
+      setShowDetachForConvert(true);
+      return;
+    }
+    setConvertTarget(locale);
+  };
+
+  const handleConvertToDraft = async () => {
+    if (!convertTarget || !contentInfo.type || !contentInfo.slug || !versioningWriteSlug) return;
+    setIsConverting(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(
+        `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${convertTarget}/convert-to-draft`,
+        { method: "POST", headers },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.error || "Failed to convert to draft", variant: "destructive" });
+        return;
+      }
+      toast({
+        title: `Live ${convertTarget.toUpperCase()} converted to draft`,
+        description: data.lastLiveLocale
+          ? "This page is unpublished until you publish a draft."
+          : "This locale is unpublished. Other live locales are unchanged.",
+      });
+      emitVariantCreated({
+        contentType: contentInfo.type,
+        slug: contentInfo.slug,
+        locale: convertTarget,
+        variantSlug: data.variantSlug || "draft",
+      });
+      const convertedLocale = convertTarget;
+      const variantSlug = (data.variantSlug as string) || "draft";
+      setConvertTarget(null);
+      if (onVersioningDataUpdate) {
+        fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
+          .then((r) => r.json())
+          .then(onVersioningDataUpdate)
+          .catch(() => {});
+      }
+      persistOpenStateForNavigation();
+      navigate(
+        `/private/preview/${contentInfo.type}/${contentInfo.slug}?variant=${encodeURIComponent(variantSlug)}&locale=${convertedLocale}`,
+      );
+    } catch {
+      toast({ title: "Failed to convert to draft", variant: "destructive" });
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
+  const defaultShareUrl = (locale: string, variantSlug: string | null) => {
+    if (!contentInfo.type || !contentInfo.slug) return "";
+    const base = `${window.location.origin}${buildPublicPath(contentInfo.type, contentInfo.slug, locale)}`;
+    return variantSlug ? `${base}?force_variant=${encodeURIComponent(variantSlug)}` : base;
   };
 
   const openEditAllocations = (locale: string) => {
@@ -657,23 +838,119 @@ export function VersioningView({
               <IconRefresh className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : !versioningData?.hasVersioningFile ? (
-            <div className="text-center py-8 px-4">
-              <IconGitBranch className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              {isTemplateVersioning ? (
-                <>
-                  <p className="text-sm text-muted-foreground mb-2">No template variants yet</p>
-                  <p className="text-xs text-muted-foreground">
-                    Click <strong>New</strong> to create a draft variant of <code className="bg-muted px-1 rounded">single.en.yml</code>
-                  </p>
-                </>
+            <div className="space-y-2">
+              {liveLocales.length > 0 ? (
+                liveLocales.map((locale) => {
+                  const isDefaultActive = activeVariant === null;
+                  return (
+                    <div key={locale} className="px-2 py-2">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <span className="text-xs text-muted-foreground">
+                          {isTemplateVersioning ? "Live template for" : "Live version for"}
+                        </span>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
+                          {locale.toUpperCase()}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">locale</span>
+                      </div>
+                      <div className={isDefaultActive ? "rounded-md bg-primary/10 px-2 py-1 -mx-2" : ""}>
+                        <div className="flex items-center justify-between text-sm gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {isDefaultActive && (
+                              <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" data-testid={`dot-active-variant-${locale}-default`} />
+                            )}
+                            <button
+                              onClick={() => handleEditDefault(locale)}
+                              title="Edit live version"
+                              className={`truncate text-left hover:underline ${isDefaultActive ? "font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                              data-testid={`button-edit-variant-${locale}-default`}
+                            >
+                              Default
+                            </button>
+                            {isDefaultActive && (
+                              <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0" data-testid={`badge-active-variant-${locale}`}>
+                                active
+                              </Badge>
+                            )}
+                          </div>
+                          <DefaultLiveRowActions
+                            locale={locale}
+                            allocation={100}
+                            isTemplateVersioning={isTemplateVersioning}
+                            onShare={() => setShareTarget({ locale, slug: null })}
+                            onConvert={() => requestConvertToDraft(locale)}
+                            onEditYaml={onEditDefaultYaml ? () => onEditDefaultYaml(locale) : undefined}
+                            onDelete={
+                              onRequestDeletePage
+                                ? () => onRequestDeletePage({ locale, liveLocales })
+                                : undefined
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
               ) : (
-                <>
-                  <p className="text-sm text-muted-foreground mb-2">No versioning file found</p>
+                <div className="text-center py-6 px-4">
+                  <IconGitBranch className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-foreground mb-1">Not published yet</p>
                   <p className="text-xs text-muted-foreground">
-                    Create <code className="bg-muted px-1 rounded">versioning.yml</code> in the content folder
+                    Visitors cannot see this page. Click <strong>New</strong> to create a version, then publish when it is ready.
                   </p>
-                </>
+                </div>
               )}
+              <div
+                className="mx-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground space-y-1.5"
+                data-testid="banner-live-only-versions"
+              >
+                {liveLocales.length > 0 ? (
+                  <>
+                    <p className="font-medium">
+                      {isTemplateVersioning
+                        ? "This shared template only has the live version"
+                        : "This page only has the live version"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {isTemplateVersioning
+                        ? "Attached entries already use this template. Extra versions let you try a change without putting it in front of every live page."
+                        : "Visitors already see this version. Extra versions let you try a change without putting it in front of everyone."}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Use them for a new headline or CTA, a layout experiment, or a stakeholder preview.
+                      They start at <strong>0% traffic</strong>; promote later if it wins.
+                      Click <strong>New</strong> to add one — a versioning file is created automatically then. You do not create it by hand.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Extra versions start at <strong>0% traffic</strong> and stay private until you publish.
+                    Click <strong>New</strong> to add one.
+                  </p>
+                )}
+                <details className="text-muted-foreground">
+                  <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
+                  <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                    <li>
+                      Live:{" "}
+                      <code className="bg-muted px-1 rounded">
+                        {isTemplateVersioning ? "single.{locale}.yml" : "{locale}.yml"}
+                      </code>
+                    </li>
+                    <li>
+                      Extra version:{" "}
+                      <code className="bg-muted px-1 rounded">
+                        {isTemplateVersioning ? "single.{variant}.{locale}.yml" : "{variant}.{locale}.yml"}
+                      </code>
+                    </li>
+                    <li>
+                      Config: <code className="bg-muted px-1 rounded">versioning.yml</code>{" "}
+                      (created on the first extra version)
+                    </li>
+                    <li>Non-effect: live YAML is not renamed until you promote.</li>
+                  </ul>
+                </details>
+              </div>
             </div>
           ) : locales.length === 0 ? (
             <div className="text-center py-8 px-4">
@@ -786,9 +1063,19 @@ export function VersioningView({
                             </div>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               {!isEditing && (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-                                  {defaultAllocation}%
-                                </span>
+                                <DefaultLiveRowActions
+                                  locale={locale}
+                                  allocation={defaultAllocation}
+                                  isTemplateVersioning={isTemplateVersioning}
+                                  onShare={() => setShareTarget({ locale, slug: null })}
+                                  onConvert={() => requestConvertToDraft(locale)}
+                                  onEditYaml={onEditDefaultYaml ? () => onEditDefaultYaml(locale) : undefined}
+                                  onDelete={
+                                    onRequestDeletePage
+                                      ? () => onRequestDeletePage({ locale, liveLocales })
+                                      : undefined
+                                  }
+                                />
                               )}
                             </div>
                           </div>
@@ -1161,18 +1448,24 @@ export function VersioningView({
       <Dialog open={shareTarget !== null} onOpenChange={(open) => { if (!open) setShareTarget(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Share this variant</DialogTitle>
+            <DialogTitle>{shareTarget?.slug ? "Share this variant" : "Share the live page"}</DialogTitle>
             <DialogDescription>
-              Anyone with this link will see the{" "}
-              <code className="text-xs bg-muted px-1 py-0.5 rounded">{shareTarget?.slug}</code>{" "}
-              variant regardless of traffic allocation. Use it to share a preview with stakeholders or clients without changing any live traffic split.
+              {shareTarget?.slug ? (
+                <>
+                  Anyone with this link will see the{" "}
+                  <code className="text-xs bg-muted px-1 py-0.5 rounded">{shareTarget.slug}</code>{" "}
+                  variant regardless of traffic allocation. Use it to share a preview with stakeholders or clients without changing any live traffic split.
+                </>
+              ) : (
+                <>This is the public URL visitors already see. No variant override is applied.</>
+              )}
             </DialogDescription>
           </DialogHeader>
           {shareTarget && contentInfo.type && contentInfo.slug && (
             <div className="flex items-center gap-2">
               <Input
                 readOnly
-                value={`${window.location.origin}${buildPublicPath(contentInfo.type, contentInfo.slug, shareTarget.locale)}?force_variant=${encodeURIComponent(shareTarget.slug)}`}
+                value={defaultShareUrl(shareTarget.locale, shareTarget.slug)}
                 className="font-mono text-xs"
                 data-testid="input-share-variant-url"
               />
@@ -1180,9 +1473,9 @@ export function VersioningView({
                 size="icon"
                 variant="ghost"
                 onClick={() => {
-                  const url = `${window.location.origin}${buildPublicPath(contentInfo.type!, contentInfo.slug!, shareTarget.locale)}?force_variant=${encodeURIComponent(shareTarget.slug)}`;
+                  const url = defaultShareUrl(shareTarget.locale, shareTarget.slug);
                   navigator.clipboard.writeText(url).then(() => {
-                    toast({ title: "Copied!", description: "Variant link copied to clipboard." });
+                    toast({ title: "Copied!", description: "Link copied to clipboard." });
                   });
                 }}
                 data-testid="button-copy-share-url"
@@ -1194,6 +1487,82 @@ export function VersioningView({
           <DialogFooter>
             <Button variant="outline" onClick={() => setShareTarget(null)} data-testid="button-close-share-modal">
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={convertTarget !== null} onOpenChange={(open) => { if (!open && !isConverting) setConvertTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Convert live {convertTarget?.toUpperCase()} to draft?</DialogTitle>
+            <DialogDescription className="space-y-2">
+              <span className="block">
+                This locale will stop being public (404, not in the sitemap) until you publish a draft.
+                Other live locales are unchanged.
+              </span>
+              <span className="block">
+                The live file is renamed to{" "}
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">draft.{convertTarget}.yml</code>{" "}
+                at 0% traffic. A versioning file is created automatically if needed. You do not need to click New.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              variant="destructive"
+              onClick={handleConvertToDraft}
+              disabled={isConverting}
+              className="w-full"
+              data-testid="button-confirm-convert-to-draft"
+            >
+              {isConverting ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconEyeOff className="h-4 w-4" />}
+              Yes, convert to draft
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setConvertTarget(null)}
+              disabled={isConverting}
+              className="w-full"
+              data-testid="button-cancel-convert-to-draft"
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDetachForConvert} onOpenChange={setShowDetachForConvert}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Detach first</DialogTitle>
+            <DialogDescription>
+              Convert to draft is blocked on the shared template — that would unpublish every attached entry.
+              Detach this entry first, then convert this entry only.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            {onRequestDetach && (
+              <Button
+                onClick={() => {
+                  setShowDetachForConvert(false);
+                  onRequestDetach();
+                }}
+                disabled={detachBusy}
+                className="w-full"
+                data-testid="button-detach-before-convert"
+              >
+                {detachBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+                Detach this entry
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => setShowDetachForConvert(false)}
+              className="w-full"
+              data-testid="button-cancel-detach-for-convert"
+            >
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>

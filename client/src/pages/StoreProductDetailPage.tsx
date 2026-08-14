@@ -13,6 +13,7 @@ import {
 import { Link, useParams } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { isActivelySelling } from "@/lib/ecommerceProductMap";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -97,7 +98,8 @@ interface FunnelResponse {
     name: string;
     content_type: string;
     content_slug: string;
-    active: boolean;
+  actively_selling?: boolean;
+  active?: boolean;
     description?: string;
   };
   funnel: {
@@ -758,8 +760,8 @@ export default function StoreProductDetailPage() {
                 <p>
                   {data.product.content_type}/{data.product.content_slug}
                 </p>
-                <Badge variant={data.product.active ? "default" : "outline"}>
-                  {data.product.active ? "active" : "inactive"}
+                <Badge variant={isActivelySelling(data.product) ? "default" : "outline"}>
+                  {isActivelySelling(data.product) ? "selling" : "paused"}
                 </Badge>
               </CardContent>
             </Card>

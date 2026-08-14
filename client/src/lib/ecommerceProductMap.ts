@@ -12,7 +12,18 @@ export interface EcommerceProductMapEntry {
   name: string;
   content_type: string;
   content_slug: string;
-  active: boolean;
+  actively_selling?: boolean;
+  /** @deprecated use actively_selling */
+  active?: boolean;
+}
+
+export function isActivelySelling(p: {
+  actively_selling?: boolean;
+  active?: boolean;
+}): boolean {
+  if (typeof p.actively_selling === "boolean") return p.actively_selling;
+  if (typeof p.active === "boolean") return p.active;
+  return true;
 }
 
 let cachedMap: Map<string, EcommerceProductMapEntry> | null = null;
@@ -22,10 +33,10 @@ function buildLookup(map: Map<string, EcommerceProductMapEntry>): ProductLookup 
   return (programId: string) => {
     const bySlug = map.get(programId);
     if (bySlug) {
-      return {
+        return {
         product_id: bySlug.product_id,
         name: bySlug.name,
-        active: bySlug.active,
+        active: isActivelySelling(bySlug),
         content_type: bySlug.content_type,
       };
     }
@@ -35,7 +46,7 @@ function buildLookup(map: Map<string, EcommerceProductMapEntry>): ProductLookup 
         return {
           product_id: entry.product_id,
           name: entry.name,
-          active: entry.active,
+          active: isActivelySelling(entry),
           content_type: entry.content_type,
         };
       }

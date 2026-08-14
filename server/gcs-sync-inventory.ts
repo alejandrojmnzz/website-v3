@@ -34,6 +34,16 @@ export type SyncInventoryStatus =
   | "local_only"
   | "blocked";
 
+export type SyncInventoryArtifactKind =
+  | "sync-state"
+  | "sync-log"
+  | "versioning-state"
+  | "form-state"
+  | "validation-cache"
+  | "runtime-issues"
+  | "sites-yml"
+  | "user-store";
+
 export interface SyncInventoryRow {
   id: string;
   label: string;
@@ -43,6 +53,8 @@ export interface SyncInventoryRow {
   status: SyncInventoryStatus;
   lastSyncedAt: string | null;
   lastSyncedSource: "gcs" | "local" | null;
+  /** Present for single-file sync artifacts that support the Cloud Sync ⋮ menu. */
+  artifactKind?: SyncInventoryArtifactKind;
 }
 
 function localMtime(filePath: string): string | null {
@@ -66,11 +78,12 @@ async function resolveRow(options: {
   localPath: string | null;
   writesBlocked?: boolean;
   siteFolder?: string | null;
+  artifactKind?: SyncInventoryArtifactKind;
 }): Promise<SyncInventoryRow> {
-  const { id, label, gcsKey, localPath, writesBlocked, siteFolder = null } = options;
+  const { id, label, gcsKey, localPath, writesBlocked, siteFolder = null, artifactKind } = options;
   const readKeys = options.readKeys ?? [gcsKey];
   const localDate = localPath ? localMtime(localPath) : null;
-  const base = { id, label, siteFolder, gcsKey, localPath };
+  const base = { id, label, siteFolder, gcsKey, localPath, ...(artifactKind ? { artifactKind } : {}) };
 
   if (readKeys.some((k) => gcs.isPendingUpload(k))) {
     return { ...base, status: "pending", lastSyncedAt: null, lastSyncedSource: null };
@@ -149,6 +162,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         readKeys: syncStateReadKeys(safeFolder),
         localPath: path.join(root, ".sync-state.json"),
         writesBlocked: true,
+        artifactKind: "sync-state",
       }),
       await resolveRow({
         id: `sync-log-${safeFolder}`,
@@ -158,6 +172,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         readKeys: syncLogReadKeys(safeFolder),
         localPath: path.join(root, ".sync-log-state.txt"),
         writesBlocked: true,
+        artifactKind: "sync-log",
       }),
       await resolveRow({
         id: `versioning-${safeFolder}`,
@@ -167,6 +182,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         readKeys: versioningStateReadKeys(safeFolder),
         localPath: path.join(root, ".versioning-state.json"),
         writesBlocked: true,
+        artifactKind: "versioning-state",
       }),
       await resolveRow({
         id: `form-state-${safeFolder}`,
@@ -176,6 +192,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         readKeys: formStateReadKeys(safeFolder, safeFolder === defaultSite),
         localPath: path.join(root, ".form-state.json"),
         writesBlocked: true,
+        artifactKind: "form-state",
       }),
       await resolveRow({
         id: `validation-cache-${safeFolder}`,
@@ -185,6 +202,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         readKeys: validationCacheReadKeys(safeFolder),
         localPath: path.join(root, "validation-cache.json"),
         writesBlocked: true,
+        artifactKind: "validation-cache",
       }),
       await resolveRow({
         id: `runtime-issues-${safeFolder}`,
@@ -194,6 +212,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         readKeys: runtimeIssuesStateReadKeys(safeFolder),
         localPath: path.join(root, `.${SYNC_FILENAMES.runtimeIssuesState}`),
         writesBlocked: true,
+        artifactKind: "runtime-issues",
       }),
     );
 
@@ -273,6 +292,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
       readKeys: platformSitesYmlReadKeys(),
       localPath: path.join(process.cwd(), platformSitesYmlLocalFilename()),
       writesBlocked: true,
+      artifactKind: "sites-yml",
     }),
     await resolveRow({
       id: "multisite-user-store",
@@ -282,6 +302,7 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
       readKeys: userStoreReadKeys(),
       localPath: path.join(process.cwd(), platformUserStoreLocalFilename()),
       writesBlocked: true,
+      artifactKind: "user-store",
     }),
   );
 

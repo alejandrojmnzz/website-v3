@@ -17,6 +17,7 @@ import {
   applyUpdatedAtAliasToEntry,
 } from "./content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
+import { applyPurchasableToRecord } from "./ecommerce/ecommerce-manager";
 import {
   getStaticListingCache,
   invalidateStaticListingCache,
@@ -520,6 +521,14 @@ export async function queryEntries(
       total: 0,
       meta: { source: "content_type", key: "" },
     };
+  }
+
+  if (contentType) {
+    items = items.map((item) => {
+      const next = { ...item };
+      applyPurchasableToRecord(next, contentType, String(item.slug ?? ""));
+      return next;
+    });
   }
 
   items = applyFilters(items, query.filters);

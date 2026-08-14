@@ -860,6 +860,72 @@ export function registerVersioningRoutes(app: Express): void {
     }
   });
 
+  // Convert live locale to draft (inverse of per-locale promote). Blocked on shared templates.
+  app.post(
+    "/api/versioning/:contentType/:contentSlug/:locale/convert-to-draft",
+    async (req, res) => {
+      const { contentType, contentSlug, locale } = req.params;
+
+      if (!isValidType(contentType)) {
+        res.status(400).json({ error: "Invalid content type", validTypes: getAllFolders() });
+        return;
+      }
+
+      const auth = await requireCapability(req, res, "content_promote_variant", contentType);
+      if (!auth.authorized) return;
+
+      if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
+        res.status(400).json({ error: "locale must be a valid language code (e.g. en, es, pt-BR)" });
+        return;
+      }
+
+      const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+      if (!resolved.ok) {
+        res.status(resolved.status).json({ error: resolved.error });
+        return;
+      }
+
+      if (resolved.templateMode) {
+        res.status(400).json({
+          error:
+            "Convert to draft is blocked on the shared template. Detach this entry first, then convert this entry only.",
+        });
+        return;
+      }
+
+      const root = getContentRoot(res);
+      const { convertLiveLocaleToDraft } = await import("../convert-live-locale-to-draft");
+      const result = convertLiveLocaleToDraft({
+        contentType,
+        slug: resolved.slug,
+        locale,
+        contentRoot: root,
+        author: auth.author || "api",
+      });
+
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error });
+        return;
+      }
+
+      getCI(res).invalidateCommonFields(contentType);
+      clearSsrSchemaCache();
+      invalidateContentCaches(contentType, getCI(res));
+      getCI(res).refresh();
+      refreshSitemapEntriesForContentKey(contentType, resolved.slug, [locale]);
+
+      res.json({
+        success: true,
+        variantSlug: result.variantSlug,
+        locale,
+        lastLiveLocale: result.lastLiveLocale,
+        liveRelPath: result.liveRelPath,
+        draftRelPath: result.draftRelPath,
+        versioningRelPath: result.versioningRelPath,
+      });
+    },
+  );
+
   // Delete a variant: remove its YML file and strip its entry from versioning.yml
   app.delete("/api/versioning/:contentType/:contentSlug/:locale/:variantSlug", async (req, res) => {
     const { contentType, contentSlug, locale, variantSlug } = req.params;

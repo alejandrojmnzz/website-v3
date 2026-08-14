@@ -71,9 +71,9 @@ export const ctaTrackingValidator: Validator = {
     const allFieldEditors = loadAllFieldEditors();
     const resolveProduct = (programId: string) => {
       const byCms = ecommerceManager.findProductByCmsEntry("program", programId);
-      if (byCms) return { product_id: byCms.product_id, active: byCms.active };
+      if (byCms) return { product_id: byCms.product_id, active: byCms.actively_selling };
       const byId = ecommerceManager.getProduct(programId);
-      if (byId) return { product_id: byId.product_id, active: byId.active };
+      if (byId) return { product_id: byId.product_id, active: byId.actively_selling };
       return undefined;
     };
 

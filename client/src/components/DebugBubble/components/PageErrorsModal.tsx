@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,15 +8,28 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
-import { IconAlertTriangle, IconRefresh, IconLoader2, IconClock } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import {
+  IconAlertTriangle,
+  IconArrowRight,
+  IconChevronDown,
+  IconClock,
+  IconExternalLink,
+  IconLoader2,
+  IconRefresh,
+} from "@tabler/icons-react";
 import * as Flags from "country-flag-icons/react/3x2";
 
 /** Validators that make sense for a single page (entry-local only). */
 export const PER_PAGE_VALIDATORS = [
   "meta",
   "required-fields",
+  "editor-field-types",
+  "unknown-keys",
   "seo-depth",
   "seo-intent",
   "schema-completeness",
@@ -31,6 +44,8 @@ interface PageErrorsModalProps {
   pageUrl?: string;
   onRefreshDiagnostics?: () => Promise<void>;
 }
+
+type PageIssue = NonNullable<PageDiagnostics["issues"]>[number];
 
 function formatStaleness(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
@@ -48,6 +63,102 @@ function LocaleFlag({ locale }: { locale: string }) {
   return <FlagComponent className="h-3.5 w-auto rounded-sm" title={locale === "es" ? "Spanish" : "English"} />;
 }
 
+function IssueCard({
+  issue,
+  index,
+  variant,
+  formatSitePath,
+}: {
+  issue: PageIssue;
+  index: number;
+  variant: "error" | "warning";
+  formatSitePath: (path: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const isError = variant === "error";
+  const cacheBuiltAt = (issue as { validationCacheBuiltAt?: string }).validationCacheBuiltAt;
+  const hasDetails = Boolean(
+    issue.details?.expected || issue.suggestion || issue.file || cacheBuiltAt,
+  );
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div
+        className={
+          isError
+            ? "rounded-md bg-destructive/10 border border-destructive/30 text-sm"
+            : "rounded-md bg-amber-500/10 border border-amber-500/30 text-sm"
+        }
+        data-testid={`modal-${variant}-${index}`}
+      >
+        <CollapsibleTrigger asChild disabled={!hasDetails}>
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-start gap-2 p-3 text-left",
+              hasDetails ? "cursor-pointer" : "cursor-default",
+            )}
+            data-testid={`modal-${variant}-${index}-toggle`}
+            aria-expanded={open}
+          >
+            <div className="min-w-0 flex-1">
+              <div
+                className={
+                  isError
+                    ? "font-mono font-medium text-destructive text-xs"
+                    : "font-mono font-medium text-amber-700 dark:text-amber-300 text-xs"
+                }
+              >
+                {issue.code}
+              </div>
+              <div className="mt-1 text-foreground">{issue.message}</div>
+            </div>
+            {hasDetails && (
+              <IconChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 mt-0.5 text-muted-foreground transition-transform",
+                  open && "rotate-180",
+                )}
+              />
+            )}
+          </button>
+        </CollapsibleTrigger>
+        {hasDetails && (
+          <CollapsibleContent>
+            <div className="px-3 pb-3 space-y-1">
+              {issue.details?.expected && (
+                <div className="text-xs text-muted-foreground">
+                  Expected: <span className="font-mono">{issue.details.expected}</span>
+                  {issue.details.received && (
+                    <>
+                      {" "}
+                      | Received: <span className="font-mono">{issue.details.received}</span>
+                    </>
+                  )}
+                </div>
+              )}
+              {issue.suggestion && (
+                <div className="text-xs text-muted-foreground">{issue.suggestion}</div>
+              )}
+              {issue.file && (
+                <div className="text-xs text-muted-foreground font-mono" title={issue.file}>
+                  {formatSitePath(issue.file)}
+                </div>
+              )}
+              {cacheBuiltAt && (
+                <div className="text-xs text-muted-foreground flex items-center gap-1">
+                  <IconClock className="h-3 w-3" />
+                  Cache built at {new Date(cacheBuiltAt).toLocaleString()}
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        )}
+      </div>
+    </Collapsible>
+  );
+}
+
 export function PageErrorsModal(props: PageErrorsModalProps) {
   const {
     open,
@@ -58,7 +169,34 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   } = props;
 
   const [isRunningValidation, setIsRunningValidation] = useState(false);
+  const [activeTab, setActiveTab] = useState<"errors" | "warnings">("errors");
+  const [openPageMenuOpen, setOpenPageMenuOpen] = useState(false);
+  const openPageMenuRef = useRef<HTMLDivElement>(null);
   const formatSitePath = useFormatSitePath();
+
+  const errors = pageDiagnostics?.issues?.filter((i) => i.type === "error") ?? [];
+  const warnings = pageDiagnostics?.issues?.filter((i) => i.type === "warning") ?? [];
+  const openPageUrl = pageUrl ?? pageDiagnostics?.url;
+
+  useEffect(() => {
+    if (!open) setOpenPageMenuOpen(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!openPageMenuOpen) return;
+    function onDown(e: MouseEvent) {
+      if (openPageMenuRef.current && !openPageMenuRef.current.contains(e.target as Node)) {
+        setOpenPageMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [openPageMenuOpen]);
+
+  useEffect(() => {
+    if (!open || !pageDiagnostics) return;
+    setActiveTab(errors.length > 0 ? "errors" : "warnings");
+  }, [open, pageDiagnostics?.url, pageDiagnostics?.entryKey, errors.length, warnings.length]);
 
   async function handleRunValidation() {
     if (isRunningValidation) return;
@@ -97,169 +235,171 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
               <>
                 <span>{pageDiagnostics.url}</span>
                 <LocaleFlag locale={pageDiagnostics.locale} />
+                {openPageUrl && (
+                  <div ref={openPageMenuRef} className="relative">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 text-muted-foreground"
+                      aria-label="Open page"
+                      aria-haspopup="menu"
+                      aria-expanded={openPageMenuOpen}
+                      onClick={() => setOpenPageMenuOpen((prev) => !prev)}
+                      data-testid="button-open-page"
+                    >
+                      <IconExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                    {openPageMenuOpen && (
+                      <div
+                        role="menu"
+                        className="absolute left-0 z-50 mt-1 w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
+                          onClick={() => {
+                            setOpenPageMenuOpen(false);
+                            window.location.href = openPageUrl;
+                          }}
+                          data-testid="menu-open-page-same-tab"
+                        >
+                          <IconArrowRight className="h-3.5 w-3.5" />
+                          Same tab
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
+                          onClick={() => {
+                            setOpenPageMenuOpen(false);
+                            window.open(openPageUrl, "_blank", "noopener,noreferrer");
+                          }}
+                          data-testid="menu-open-page-new-tab"
+                        >
+                          <IconExternalLink className="h-3.5 w-3.5" />
+                          New tab
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : "Loading diagnostics…"}
           </DialogDescription>
         </DialogHeader>
         {pageDiagnostics && (
           <div className="space-y-4">
-            {(() => {
-              const errors = pageDiagnostics.issues?.filter(i => i.type === "error") || [];
-              const warnings = pageDiagnostics.issues?.filter(i => i.type === "warning") || [];
-              const infos = pageDiagnostics.issues?.filter(i => i.type === "info") || [];
-              if (errors.length === 0 && warnings.length === 0 && infos.length === 0) return null;
-              return (
-                <>
-                  {errors.length > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium text-destructive">Errors</h3>
-                      {errors.map((issue, i) => (
-                        <div key={i} className="p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm" data-testid={`modal-error-${i}`}>
-                          <div className="font-mono font-medium text-destructive text-xs">{issue.code}</div>
-                          <div className="mt-1 text-foreground">{issue.message}</div>
-                          {issue.details?.expected && (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Expected: <span className="font-mono">{issue.details.expected}</span>
-                              {issue.details.received && (
-                                <> | Received: <span className="font-mono">{issue.details.received}</span></>
-                              )}
-                            </div>
-                          )}
-                          {issue.suggestion && (
-                            <div className="mt-1 text-xs text-muted-foreground">{issue.suggestion}</div>
-                          )}
-                          {(issue as { validationCacheBuiltAt?: string }).validationCacheBuiltAt && (
-                            <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
-                              <IconClock className="h-3 w-3" />
-                              Cache built at{" "}
-                              {new Date(
-                                (issue as { validationCacheBuiltAt: string }).validationCacheBuiltAt,
-                              ).toLocaleString()}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {warnings.length > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium text-amber-600 dark:text-amber-400">Warnings</h3>
-                      {warnings.map((issue, i) => (
-                        <div key={i} className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-sm" data-testid={`modal-warning-${i}`}>
-                          <div className="font-mono font-medium text-amber-700 dark:text-amber-300 text-xs">{issue.code}</div>
-                          <div className="mt-1 text-foreground">{issue.message}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {infos.length > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium text-muted-foreground">Info</h3>
-                      {infos.map((issue, i) => (
-                        <div key={i} className="p-3 rounded-md bg-muted/50 border border-border text-sm" data-testid={`modal-info-${i}`}>
-                          <div className="font-mono font-medium text-muted-foreground text-xs">{issue.code}</div>
-                          <div className="mt-1 text-foreground">{issue.message}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-
-            {/* Cached validation results */}
-            <div className="border-t border-border pt-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <IconClock className="h-3.5 w-3.5" />
-                  Last validation run
+            <Tabs
+              value={activeTab}
+              onValueChange={(v) => setActiveTab(v as "errors" | "warnings")}
+              className="w-full"
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <TabsList className="h-9" data-testid="tabs-page-errors">
+                  <TabsTrigger value="errors" data-testid="tab-errors" className="gap-1.5">
+                    Errors
+                    <span
+                      className="rounded-sm bg-destructive/15 text-destructive px-1.5 py-0 text-[10px] font-semibold tabular-nums"
+                      data-testid="text-modal-error-count"
+                    >
+                      {errors.length}
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger value="warnings" data-testid="tab-warnings" className="gap-1.5">
+                    Warnings
+                    <span
+                      className="rounded-sm bg-amber-500/15 text-amber-700 dark:text-amber-300 px-1.5 py-0 text-[10px] font-semibold tabular-nums"
+                      data-testid="text-modal-warning-count"
+                    >
+                      {warnings.length}
+                    </span>
+                  </TabsTrigger>
+                </TabsList>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRunValidation}
+                    disabled={isRunningValidation}
+                    data-testid="button-run-validation"
+                  >
+                    {isRunningValidation ? (
+                      <>
+                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                        Running…
+                      </>
+                    ) : (
+                      <>
+                        <IconRefresh className="h-3.5 w-3.5" />
+                        Run validation
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRunValidation}
-                  disabled={isRunningValidation}
-                  data-testid="button-run-validation"
-                >
-                  {isRunningValidation ? (
-                    <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                      Running…
-                    </>
-                  ) : (
-                    <>
-                      <IconRefresh className="h-3.5 w-3.5" />
-                      Run validation
-                    </>
-                  )}
-                </Button>
               </div>
-              {pageDiagnostics.cached ? (
-                <>
-                  <p className="text-xs text-muted-foreground" data-testid="text-cached-staleness">
-                    Validated {formatStaleness(pageDiagnostics.cached.lastRunAt)}
-                  </p>
-                  {pageDiagnostics.cached.errors.length === 0 && pageDiagnostics.cached.warnings.length === 0 ? (
-                    <div className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground" data-testid="cached-no-issues">
-                      No issues found in last run.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {pageDiagnostics.cached.errors.map((issue, i) => (
-                        <div key={i} className="p-3 rounded-md bg-destructive/10 border border-destructive/30 text-sm" data-testid={`cached-error-${i}`}>
-                          <div className="font-mono font-medium text-destructive text-xs">{issue.code}</div>
-                          <div className="mt-1 text-foreground">{issue.message}</div>
-                          {issue.file && (
-                            <div className="mt-1 text-xs text-muted-foreground font-mono" title={issue.file}>
-                              {formatSitePath(issue.file)}{issue.line ? `:${issue.line}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      {pageDiagnostics.cached.warnings.map((issue, i) => (
-                        <div key={i} className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-sm" data-testid={`cached-warning-${i}`}>
-                          <div className="font-mono font-medium text-amber-700 dark:text-amber-300 text-xs">{issue.code}</div>
-                          <div className="mt-1 text-foreground">{issue.message}</div>
-                          {issue.file && (
-                            <div className="mt-1 text-xs text-muted-foreground font-mono" title={issue.file}>
-                              {formatSitePath(issue.file)}{issue.line ? `:${issue.line}` : ""}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground" data-testid="cached-not-yet-validated">
-                  Not yet validated — click "Run validation" to populate this section.
-                </div>
-              )}
-            </div>
 
-            <div className="p-3 rounded-md bg-muted/50 border border-border text-sm space-y-1">
+              {pageDiagnostics.cached ? (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2" data-testid="text-cached-staleness">
+                  <IconClock className="h-3.5 w-3.5" />
+                  Validated {formatStaleness(pageDiagnostics.cached.lastRunAt)}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-2" data-testid="cached-not-yet-validated">
+                  Not yet validated — click &quot;Run validation&quot; to refresh this list.
+                </p>
+              )}
+
+              <TabsContent value="errors" className="mt-3 space-y-2">
+                {errors.length === 0 ? (
+                  <div
+                    className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
+                    data-testid="modal-errors-empty"
+                  >
+                    No errors for this entry.
+                  </div>
+                ) : (
+                  errors.map((issue, i) => (
+                    <IssueCard
+                      key={`${issue.code}-${i}`}
+                      issue={issue}
+                      index={i}
+                      variant="error"
+                      formatSitePath={formatSitePath}
+                    />
+                  ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="warnings" className="mt-3 space-y-2">
+                {warnings.length === 0 ? (
+                  <div
+                    className="p-3 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground"
+                    data-testid="modal-warnings-empty"
+                  >
+                    No warnings for this entry.
+                  </div>
+                ) : (
+                  warnings.map((issue, i) => (
+                    <IssueCard
+                      key={`${issue.code}-${i}`}
+                      issue={issue}
+                      index={i}
+                      variant="warning"
+                      formatSitePath={formatSitePath}
+                    />
+                  ))
+                )}
+              </TabsContent>
+            </Tabs>
+
+            <div className="p-3 rounded-md bg-muted/50 border border-border text-sm">
               <p className="text-muted-foreground text-xs">
                 Validation uses one shared store. This list shows issues that target this entry
                 (including redirects/media that touch it). Saving re-checks local rules; redirect
                 conflicts refresh when redirect config changes or via Redirects / Global Health.
               </p>
-              {(!pageDiagnostics.issues || pageDiagnostics.issues.length === 0) && (
-                <p className="text-sm text-muted-foreground" data-testid="text-no-cached-issues">
-                  No cached issues for this entry.
-                </p>
-              )}
-            </div>
-
-            <div className="p-3 rounded-md bg-muted/50 border border-border text-sm">
-              <div className="text-muted-foreground mb-1">Issue counts</div>
-              <div className="flex items-center gap-3 flex-wrap text-sm">
-                <span data-testid="text-modal-error-count">
-                  Errors: <strong>{pageDiagnostics.issues?.filter((i) => i.type === "error").length ?? 0}</strong>
-                </span>
-                <span data-testid="text-modal-warning-count">
-                  Warnings: <strong>{pageDiagnostics.issues?.filter((i) => i.type === "warning").length ?? 0}</strong>
-                </span>
-              </div>
             </div>
           </div>
         )}

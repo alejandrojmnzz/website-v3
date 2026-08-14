@@ -3,7 +3,7 @@ import { getDefaultContentRoot } from "../site-config";
 import * as fs from "fs";
 import * as path from "path";
 import { ValidationService } from "../../scripts/validation/service";
-import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
+import { getCanonicalUrl, matchContentFilesForUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { getValidationCacheService } from "../services/validationCacheService";
 import { applyValidationRunToCache } from "../services/validationCachePostProcess";
 import {
@@ -188,12 +188,9 @@ export function registerValidationRoutes(app: Express): void {
         return res.status(500).json({ error: "Failed to build validation context" });
       }
 
-      const normalizedTarget = url.toLowerCase().replace(/\/$/, "") || "/";
       const allContentFiles = context.contentFiles;
-      const filteredFiles = allContentFiles.filter((file) => {
-        const fileUrl = getCanonicalUrl(file).toLowerCase().replace(/\/$/, "") || "/";
-        return fileUrl === normalizedTarget;
-      });
+      const parsed = getCI(res).parseContentUrl(url);
+      const filteredFiles = matchContentFilesForUrl(allContentFiles, url, parsed);
 
       context.contentFiles = filteredFiles;
 
@@ -559,13 +556,18 @@ export function registerValidationRoutes(app: Express): void {
 
   app.get("/api/validation/cache-summary", (_req, res) => {
     const cache = getValidationCache(res);
-    const all = cache.getAll();
     const summary: Record<string, { errorCount: number; warningCount: number }> = {};
-    for (const [url, entry] of all) {
-      summary[url] = {
+    const add = (key: string, entry: { errors: unknown[]; warnings: unknown[] }) => {
+      summary[key] = {
         errorCount: entry.errors.length,
         warningCount: entry.warnings.length,
       };
+    };
+    for (const [url, entry] of cache.getAll()) {
+      add(url, entry);
+    }
+    for (const [entryKey, entry] of cache.getAllByEntryKey()) {
+      add(entryKey, entry);
     }
     res.json(summary);
   });
@@ -720,14 +722,15 @@ export function registerValidationRoutes(app: Express): void {
       const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
 
-      const matchingFiles = context.contentFiles.filter(
-        (f: any) => getCanonicalUrl(f) === url,
+      const parsed = getCI(res).parseContentUrl(url);
+      const matchingFiles = matchContentFilesForUrl(
+        context.contentFiles,
+        url,
+        parsed,
       );
-      const urlLocale = url.startsWith("/es/")
-        ? "es"
-        : url.startsWith("/en/")
-          ? "en"
-          : null;
+      const urlLocale =
+        parsed?.locale ||
+        (url.startsWith("/es/") ? "es" : url.startsWith("/en/") ? "en" : null);
       const file =
         (urlLocale && matchingFiles.find((f: any) => f.locale === urlLocale)) ||
         matchingFiles.find((f: any) => f.locale !== "_common") ||

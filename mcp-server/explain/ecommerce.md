@@ -6,7 +6,8 @@ Call this topic before changing purchasable products, conversion funnels, or eco
 
 | Concept | Meaning | Where |
 |---------|---------|--------|
-| **Product** | Purchasable CMS entry | `programs/{slug}/_ecommerce.yml` with `purchasable: true` |
+| **Product** | Purchasable CMS entry | `programs/{slug}/_ecommerce.yml` with `purchasable: true`. Computed `single.purchasable` — do not author it on `_common.yml`. |
+| **Actively selling** | Store/vitrine pause | `_ecommerce.yml` `actively_selling` (default true). Not the lead-form filter — see topic `lead-forms`. |
 | **Funnel** | Ordered conversion path | Effective = locked product page + authored `funnel.steps` + **auto** pages |
 | **Traffic sources** | Top-of-funnel inbound content types | `funnel.traffic_sources` — documentation only (type + role), not URL steps |
 | **Product scope** | Which product(s) a section is about | Section data binds (below) — not URL guessing |

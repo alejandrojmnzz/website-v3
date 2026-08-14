@@ -11,6 +11,8 @@ const log = child({ module: "query-options" });
 
 const RESERVED_QUERY_KEYS = new Set([
   "source",
+  "content_type",
+  "database",
   "value",
   "label",
   "sort",
@@ -27,6 +29,8 @@ export type ResolvedSource =
 export interface QueryOption {
   value: string;
   label: string;
+  /** Present when the source content type has ecommerce products. Not used as an implicit filter. */
+  purchasable?: boolean;
 }
 
 /** Exact-name collisions between content-type keys and database slugs. */
@@ -102,9 +106,17 @@ export function parseFilterQueryParams(
   valuePath?: string;
   labelPath?: string;
   source?: string;
+  content_type?: string;
+  database?: string;
 } {
   const source =
     typeof query.source === "string" && query.source ? query.source : undefined;
+  const content_type =
+    typeof query.content_type === "string" && query.content_type
+      ? query.content_type
+      : undefined;
+  const database =
+    typeof query.database === "string" && query.database ? query.database : undefined;
   const valuePath =
     typeof query.value === "string" && query.value ? query.value : undefined;
   const labelPath =
@@ -132,7 +144,7 @@ export function parseFilterQueryParams(
     filters.push({ field: key, value });
   }
 
-  return { filters, sort, limit, locale, valuePath, labelPath, source };
+  return { filters, sort, limit, locale, valuePath, labelPath, source, content_type, database };
 }
 
 function pickField(
@@ -164,12 +176,18 @@ export function mapItemToOption(
   const value = rawValue == null || rawValue === "" ? "" : String(rawValue);
   const label = rawLabel == null || rawLabel === "" ? "" : String(rawLabel);
   if (!value) return null;
-  return { value, label: label || value };
+  const option: QueryOption = { value, label: label || value };
+  if (typeof item.purchasable === "boolean") {
+    option.purchasable = item.purchasable;
+  }
+  return option;
 }
 
 export async function fetchQueryOptions(
   input: {
-    source: string;
+    source?: string;
+    contentType?: string;
+    database?: string;
     filters?: QueryFilter[];
     sort?: string;
     limit?: number;
@@ -184,29 +202,77 @@ export async function fetchQueryOptions(
 > {
   const contentRoot = options.contentRoot;
   const db = options.db ?? databaseManager;
-  const resolved = resolveSourceName(input.source, contentRoot, db);
+  const explicitType = input.contentType?.trim();
+  const explicitDb = input.database?.trim();
 
-  if (resolved.kind === "collision") {
+  if (explicitType && explicitDb) {
     return {
       ok: false,
-      status: 409,
-      error: `Source name "${input.source}" matches both a content type and a database — rename one to remove the collision`,
+      status: 400,
+      error: "Pass either content_type or database, not both",
     };
   }
-  if (resolved.kind === "not_found") {
+
+  let from: { contentType: string } | { database: string };
+  let kind: string;
+  let sourceName: string;
+
+  if (explicitType) {
+    if (!getContentTypeConfig(explicitType, contentRoot)) {
+      return {
+        ok: false,
+        status: 404,
+        error: `Content type "${explicitType}" not found`,
+      };
+    }
+    from = { contentType: explicitType };
+    kind = "contentType";
+    sourceName = explicitType;
+  } else if (explicitDb) {
+    if (!db.exists(explicitDb)) {
+      return {
+        ok: false,
+        status: 404,
+        error: `Database "${explicitDb}" not found`,
+      };
+    }
+    from = { database: explicitDb };
+    kind = "database";
+    sourceName = explicitDb;
+  } else if (input.source) {
+    const resolved = resolveSourceName(input.source, contentRoot, db);
+
+    if (resolved.kind === "collision") {
+      return {
+        ok: false,
+        status: 409,
+        error: `Source name "${input.source}" matches both a content type and a database — rename one to remove the collision`,
+      };
+    }
+    if (resolved.kind === "not_found") {
+      return {
+        ok: false,
+        status: 404,
+        error: `Source "${input.source}" not found as a content type or database`,
+      };
+    }
+    from =
+      resolved.kind === "contentType"
+        ? { contentType: resolved.name }
+        : { database: resolved.name };
+    kind = resolved.kind;
+    sourceName = resolved.name;
+  } else {
     return {
       ok: false,
-      status: 404,
-      error: `Source "${input.source}" not found as a content type or database`,
+      status: 400,
+      error: "content_type, database, or source is required",
     };
   }
 
   const { items, meta } = await queryEntries(
     {
-      from:
-        resolved.kind === "contentType"
-          ? { contentType: resolved.name }
-          : { database: resolved.name },
+      from,
       locale: input.locale,
       filters: input.filters?.length ? input.filters : undefined,
       sort: input.sort,
@@ -227,6 +293,6 @@ export async function fetchQueryOptions(
   return {
     ok: true,
     options: mapped,
-    meta: { source: meta.key, kind: resolved.kind },
+    meta: { source: meta.key || sourceName, kind },
   };
 }

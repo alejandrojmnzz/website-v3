@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import type { MenuView, SitemapUrl } from "../types";
 import { StatusCountBadge } from "./StatusCountBadge";
 import type { RobotsSettingsResponse } from "@/components/settings/RobotsTab";
+import { lookupValidationSummary } from "../validationSummaryLookup";
 
 export interface SitemapFolder {
   name: string;
@@ -41,23 +42,33 @@ interface SitemapViewProps {
 }
 
 function ValidationBadge({
-  urlPath,
+  url,
+  path,
+  pathOnly,
   validationSummary,
   onOpenDiagnosticsForUrl,
 }: {
-  urlPath: string;
+  url: SitemapUrl;
+  path: string;
+  pathOnly: string;
   validationSummary: Record<string, { errorCount: number; warningCount: number }>;
   onOpenDiagnosticsForUrl: (urlPath: string) => void;
 }) {
-  const entry = validationSummary[urlPath];
+  const entry = lookupValidationSummary(validationSummary, {
+    contentType: url.content_type,
+    slug: url.slug,
+    locale: url.locale,
+    path,
+    pathOnly,
+  });
   if (!entry) return null;
 
   return (
     <StatusCountBadge
       errorCount={entry.errorCount}
       warningCount={entry.warningCount}
-      onClick={() => onOpenDiagnosticsForUrl(urlPath)}
-      testId={`badge-validation-${urlPath.replace(/\//g, "-")}`}
+      onClick={() => onOpenDiagnosticsForUrl(path)}
+      testId={`badge-validation-${url.slug ?? pathOnly.replace(/\//g, "-")}`}
     />
   );
 }
@@ -354,6 +365,7 @@ export function SitemapView({
                           <span className="text-foreground/80">no sitemap</span> means the page exists but is
                           excluded from /sitemap.xml (usually robots: noindex).{" "}
                           <span className="text-foreground/80">Draft</span> means unpublished (preview only).
+                          Drafts still show error/warning badges after diagnostics have run — same store as live pages.
                         </p>
                       </PopoverContent>
                     </Popover>
@@ -500,7 +512,9 @@ export function SitemapView({
                             </a>
                             <RowStatusBadges url={url} />
                             <ValidationBadge
-                              urlPath={pathOnly}
+                              url={url}
+                              path={path}
+                              pathOnly={pathOnly}
                               validationSummary={validationSummary}
                               onOpenDiagnosticsForUrl={onOpenDiagnosticsForUrl}
                             />
@@ -540,7 +554,9 @@ export function SitemapView({
                     </a>
                     <RowStatusBadges url={url} />
                     <ValidationBadge
-                      urlPath={pathOnly}
+                      url={url}
+                      path={path}
+                      pathOnly={pathOnly}
                       validationSummary={validationSummary}
                       onOpenDiagnosticsForUrl={onOpenDiagnosticsForUrl}
                     />

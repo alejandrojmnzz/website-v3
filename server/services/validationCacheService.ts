@@ -571,6 +571,19 @@ export class ValidationCacheService {
     return map;
   }
 
+  getAllByEntryKey(): Map<string, PageCacheEntry> {
+    const map = new Map<string, PageCacheEntry>();
+    const keys = new Set([
+      ...Object.keys(this.indexes.byEntry),
+      ...Object.keys(this.runMetaByEntry),
+    ]);
+    for (const ek of keys) {
+      const entry = this.getByEntryKey(ek);
+      if (entry) map.set(ek, entry);
+    }
+    return map;
+  }
+
   getByDatabase(name: string): DatabaseCacheEntry | undefined {
     return this.dbMap.get(name);
   }
@@ -676,6 +689,56 @@ export class ValidationCacheService {
     } catch (err) {
       log.error({ err }, "[ValidationCache] Error saving to bucket on shutdown");
     }
+  }
+
+  /** Force-upload validation cache to GCS immediately. Admin Cloud Sync. */
+  async forceUploadToBucket(): Promise<{
+    success: boolean;
+    uploaded: boolean;
+    gcsKey: string;
+    reason?: string;
+  }> {
+    const gcsKey = this.gcsKey();
+    if (!IS_PRODUCTION) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS sync only runs in production (NODE_ENV=production).",
+      };
+    }
+    if (!gcs.available) {
+      gcs.initBootstrapFromEnv();
+    }
+    if (!gcs.available) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+      };
+    }
+    if (!fs.existsSync(this.cacheFile) && Object.keys(this.issues).length === 0) {
+      return {
+        success: false,
+        uploaded: false,
+        gcsKey,
+        reason: "No local validation-cache file found to upload.",
+      };
+    }
+    this.writeLocalFile();
+    const content = JSON.stringify(this.buildCacheFile(), null, 2) + "\n";
+    await gcs.upload(gcsKey, Buffer.from(content, "utf-8"), "application/json");
+    log.info("[ValidationCache] Re-uploaded cache to GCS via admin action");
+    return { success: true, uploaded: true, gcsKey };
+  }
+
+  getLocalPath(): string {
+    return this.cacheFile;
+  }
+
+  getGcsObjectKey(): string {
+    return this.gcsKey();
   }
 }
 

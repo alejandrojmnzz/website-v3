@@ -28,6 +28,7 @@ import { contentIndex } from "./content-index";
 import { markFileAsModified } from "./sync-state";
 import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
+import { ecommerceManager, PURCHASABLE_FIELD } from "./ecommerce/ecommerce-manager";
 import { isPublishedAtEmpty, setPublishedAt } from "./published-at";
 import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 import {
@@ -63,7 +64,8 @@ export type FieldOverrideSource =
   | "original"
   | "db_override"
   | "ct_override"
-  | "entry_default";
+  | "entry_default"
+  | "system";
 
 export type FieldProvenance = {
   field: string;
@@ -72,7 +74,9 @@ export type FieldProvenance = {
   baseline?: unknown;
   db_value?: unknown;
   ct_value?: unknown;
-  calculated?: boolean;
+      calculated?: boolean;
+  /** False for computed system fields (e.g. purchasable). */
+  writable?: boolean;
   /** True when the field key exists as a root key (or leftover FO) on the layer file. */
   layer_has_key?: boolean;
 };
@@ -391,6 +395,14 @@ export function writeMappedFields(
   const config = getContentTypeConfig(contentType, contentRoot);
   if (!config) {
     return { success: false, error: `Content type "${contentType}" not found`, statusCode: 404 };
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, PURCHASABLE_FIELD)) {
+    return {
+      success: false,
+      error:
+        "purchasable is a computed system field (from _ecommerce.yml). Do not write it on the entry. Edit programs/{slug}/_ecommerce.yml or use get_product_funnel / update_product_funnel.",
+      statusCode: 400,
+    };
   }
   const isStatic = !config.database?.slug;
 
@@ -870,6 +882,16 @@ export async function buildFieldProvenance(opts: {
     if (hasDb) row.db_value = dbValue;
     if (hasCt) row.ct_value = ctValue;
     fields.push(row);
+  }
+
+  if (ecommerceManager.contentTypeHasEcommerce(contentType)) {
+    fields.push({
+      field: PURCHASABLE_FIELD,
+      effective: ecommerceManager.isEntryPurchasable(contentType, slug),
+      source: "system",
+      calculated: true,
+      writable: false,
+    });
   }
 
   return {

@@ -1,6 +1,6 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, DownloadCloud, FileText, Info, Loader2, RefreshCw, UploadCloud } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, AlertTriangle, Check, ChevronDown, Cloud, Copy, Info, Loader2, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,6 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import { getSessionHeaders } from "@/lib/sessionHeaders";
-import { useToast } from "@/hooks/use-toast";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import {
@@ -32,8 +30,7 @@ import {
   type GcsSyncStatusValue,
   type SyncInventoryStatus,
 } from "@/hooks/useGcsSyncStatus";
-
-const SitesYmlViewerPanel = lazy(() => import("@/components/editing/SitesYmlViewerPanel"));
+import SyncArtifactMenu from "@/components/cloud-sync/SyncArtifactMenu";
 
 interface SiteRegistryEntry {
   domain: string;
@@ -445,145 +442,6 @@ function OldLayoutPendingDeletionWarning({
   );
 }
 
-const SITES_YML_ROW_ID = "multisite-platform-sites-yml";
-
-interface ReuploadSitesYmlResponse {
-  success: boolean;
-  uploaded: boolean;
-  gcsKey: string;
-  message: string;
-}
-
-interface RefreshSitesYmlResponse {
-  success: boolean;
-  source: "gcs" | "local";
-  sites: Array<{ domain: string; contentFolder: string; githubRepoUrl?: string }>;
-  message: string;
-  error?: string;
-}
-
-function SitesYmlSyncButtons() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [showViewer, setShowViewer] = useState(false);
-
-  const invalidateSitesYmlQueries = () => {
-    void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-inventory"] });
-    void queryClient.invalidateQueries({ queryKey: ["/api/admin/gcs-sync-status", "detail"] });
-    void queryClient.invalidateQueries({ queryKey: ["/api/site/info"] });
-    void queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
-  };
-
-  const downloadMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/admin/sites/refresh-config", {
-        method: "POST",
-        headers: getSessionHeaders(),
-      });
-      const body = (await res.json()) as RefreshSitesYmlResponse;
-      if (!res.ok || !body.success) {
-        throw new Error(body.error || body.message || "Failed to download site registry.");
-      }
-      return body;
-    },
-    onSuccess: (body) => {
-      const siteList = body.sites.map((s) => s.domain).join(", ");
-      toast({
-        title: "Site registry downloaded",
-        description: `${body.message} (${body.sites.length} site${body.sites.length === 1 ? "" : "s"}: ${siteList})`,
-      });
-      invalidateSitesYmlQueries();
-    },
-    onError: (err) => {
-      toast({
-        variant: "destructive",
-        title: "Download failed",
-        description: err instanceof Error ? err.message : "Failed to download site registry.",
-      });
-    },
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/admin/gcs-reupload-sites-yml", {
-        method: "POST",
-        headers: getSessionHeaders(),
-      });
-      const body = (await res.json()) as ReuploadSitesYmlResponse;
-      if (!res.ok || !body.success) {
-        throw new Error(body.message || "Failed to upload site registry.");
-      }
-      return body;
-    },
-    onSuccess: (body) => {
-      toast({ title: "Site registry uploaded", description: body.message });
-      invalidateSitesYmlQueries();
-    },
-    onError: (err) => {
-      toast({
-        variant: "destructive",
-        title: "Upload failed",
-        description: err instanceof Error ? err.message : "Failed to upload site registry.",
-      });
-    },
-  });
-
-  const busy = downloadMutation.isPending || uploadMutation.isPending;
-
-  return (
-    <>
-      <div className="flex items-center gap-1">
-      <Button
-        variant="outline"
-        size="icon"
-        className="h-7 w-7"
-        title="View sites.yml"
-        onClick={() => setShowViewer(true)}
-        disabled={busy}
-        data-testid="button-view-sites-yml"
-      >
-        <FileText className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        variant="outline"
-        size="icon"
-        className="h-7 w-7"
-        title="Download from GCS"
-        onClick={() => downloadMutation.mutate()}
-        disabled={busy}
-        data-testid="button-download-sites-yml"
-      >
-        {downloadMutation.isPending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <DownloadCloud className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      <Button
-        variant="outline"
-        size="icon"
-        className="h-7 w-7"
-        title="Upload to GCS"
-        onClick={() => uploadMutation.mutate()}
-        disabled={busy}
-        data-testid="button-reupload-sites-yml"
-      >
-        {uploadMutation.isPending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <UploadCloud className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      </div>
-      {showViewer && (
-        <Suspense fallback={null}>
-          <SitesYmlViewerPanel onClose={() => setShowViewer(false)} />
-        </Suspense>
-      )}
-    </>
-  );
-}
-
 export default function CloudSyncPage() {
   const queryClient = useQueryClient();
   const { data: status, isLoading, isFetching, refetch, dataUpdatedAt: statusUpdatedAt } = useGcsSyncStatus({
@@ -603,6 +461,7 @@ export default function CloudSyncPage() {
   const { recheckGcsMigration, recheckingGcs, recheckMessage } = useSystemAlerts();
   const formatSitePath = useFormatSitePath();
   const [siteFilter, setSiteFilter] = useState<string>("all");
+  const [showInventoryAdvanced, setShowInventoryAdvanced] = useState(false);
 
   const inventorySiteFolders = useMemo(() => {
     const folders = new Set<string>();
@@ -790,10 +649,45 @@ export default function CloudSyncPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Sync inventory</CardTitle>
-          <CardDescription>
-            Tracks sync state, media, and other shared files between this instance and the GCS bucket.
-            Use the status column to spot items that are synced, pending upload, or local-only — click
-            &ldquo;Local only&rdquo; for details. Refresh above to re-check after uploads or deployments.
+          <CardDescription className="space-y-2">
+            <p>
+              Tracks sync state, media, and other shared files between this instance and the GCS bucket.
+              Use the status column to spot items that are synced, pending upload, or local-only — click
+              &ldquo;Local only&rdquo; for details. Refresh above to re-check after uploads or deployments.
+            </p>
+            <p>
+              Single-file rows (sync state, form registry, validation cache, runtime issues, sites.yml,
+              and similar) show a ⋮ menu: <span className="font-medium text-foreground">View</span> local
+              content, <span className="font-medium text-foreground">Download from GCS</span> (overwrite
+              local and reload memory), or <span className="font-medium text-foreground">Upload to GCS</span>{" "}
+              (overwrite cloud). Last-write-wins. Upload only works in production with GCS configured.
+              Sync state and sync log ask for confirmation because they can affect GitHub sync.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-0 text-xs"
+              onClick={() => setShowInventoryAdvanced((v) => !v)}
+              data-testid="button-inventory-read-more"
+            >
+              {showInventoryAdvanced ? "Hide advanced" : "Read more (advanced)"}
+            </Button>
+            {showInventoryAdvanced && (
+              <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+                <li>
+                  <code>server/gcs-sync-artifacts.ts</code> — registry of View / Download / Upload actions
+                </li>
+                <li>
+                  <code>server/gcs-sync-inventory.ts</code> — inventory rows and <code>artifactKind</code>
+                </li>
+                <li>
+                  <code>client/src/pages/CloudSyncPage.tsx</code> — inventory table + education copy
+                </li>
+                <li>
+                  <code>shared/gcsKeys.ts</code> — canonical local filenames and GCS keys
+                </li>
+              </ul>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -897,12 +791,20 @@ export default function CloudSyncPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1.5 items-start">
-                        <InventoryStatusBadge
-                          status={row.status}
-                          isProduction={status?.isProduction}
-                          testId={`badge-inventory-${row.id}`}
-                        />
-                        {row.id === SITES_YML_ROW_ID && <SitesYmlSyncButtons />}
+                        <div className="flex items-center gap-1">
+                          <InventoryStatusBadge
+                            status={row.status}
+                            isProduction={status?.isProduction}
+                            testId={`badge-inventory-${row.id}`}
+                          />
+                          {row.artifactKind && (
+                            <SyncArtifactMenu
+                              kind={row.artifactKind}
+                              siteFolder={row.siteFolder}
+                              label={row.label}
+                            />
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`inventory-last-synced-${row.id}`}>
                           {row.status === "pending" ? (
                             "—"

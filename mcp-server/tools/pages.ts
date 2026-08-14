@@ -70,6 +70,12 @@ import {
   draftMissingRequiredWarnings,
   listLiveLocaleFiles,
 } from "../lib/translate-entry.js";
+import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
+import {
+  collectMissingCatalogQueries,
+  collectMissingCatalogQueriesFromUpdates,
+  missingCatalogQueryGate,
+} from "../lib/catalog-form-source-gate.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
@@ -670,20 +676,24 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return { content: [{ type: "text", text: `Variant '${variant}' not found for page '${slug}' locale '${locale}' (file: ${variant}.${locale}.yml)` }], isError: true };
         }
         const { meta: _meta, ...dataWithoutMeta } = result.data;
-        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...dataWithoutMeta, validation_issues: [] }, null, 2) }] };
+        const merged = { ...dataWithoutMeta } as Record<string, unknown>;
+        applyPurchasableToRecord(merged, resolved.contentType, slug);
+        return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...merged, validation_issues: [] }, null, 2) }] };
       }
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
 
       const { meta: _meta, ...dataWithoutMeta } = payload.data;
+      const merged = { ...dataWithoutMeta } as Record<string, unknown>;
+      applyPurchasableToRecord(merged, payload.contentType, payload.slug);
       const envelope = { contentType: payload.contentType, slug: payload.slug, locale: payload.locale, locales: payload.locales, ...(payload.urls ? { urls: payload.urls } : {}) };
 
       // Inject cached validation issues (all categories) for this page's URL
       const pageUrl = payload.urls?.[locale];
       const validation_issues = pageUrl ? getCachedValidationIssues(pageUrl, undefined, contentPath) : [];
 
-      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...dataWithoutMeta, validation_issues }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ...envelope, ...merged, validation_issues }, null, 2) }] };
     }
   );
 
@@ -1390,6 +1400,26 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if ("gate" in layoutGate) return layoutGate.gate;
       const layoutTarget = layoutGate.target;
 
+      const catalogGate = missingCatalogQueryGate(
+        collectMissingCatalogQueriesFromUpdates(updates),
+        {
+          tool: "update_fields",
+          site,
+          retryArgs: {
+            slug,
+            locale,
+            contentType: resolved.contentType,
+            updates,
+            confirm_live_edit,
+            variant,
+            layout_target,
+            confirm_layout_target,
+            site,
+          },
+        },
+      );
+      if (catalogGate) return catalogGate;
+
       const pathInfo = pathForLayoutTarget({
         contentPath,
         contentType: resolved.contentType,
@@ -1730,6 +1760,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}`);
       }
+      if (field === PURCHASABLE_FIELD) {
+        return fail(
+          "purchasable is a computed system field (from _ecommerce.yml). Do not write it. Edit the sidecar or use get_product_funnel / update_product_funnel.",
+        );
+      }
       if (mcpToken && !(await checkCap(mcpToken, "seo_edit"))) {
         return denyResponse("seo_edit");
       }
@@ -1901,11 +1936,22 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           const configs = loadContentTypes(siteResult.contentPath);
           const cfg = configs[resolved.contentType];
           const ed = cfg ? getEditorConfig(cfg) : undefined;
-          if (Array.isArray(fieldsOut) && ed) {
+          if (Array.isArray(fieldsOut)) {
             fieldsOut = fieldsOut.map((f) => {
               const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
               if (!name) return f;
-              const hint = ed[name];
+              if (name === PURCHASABLE_FIELD || f.source === "system") {
+                return {
+                  ...f,
+                  writable: false,
+                  system_hints: [
+                    "Computed from _ecommerce.yml (slug is in the product index).",
+                    "Do not write via update_fields / update_entry_field. Edit _ecommerce.yml or use get_product_funnel / update_product_funnel.",
+                    "Lead-form catalogs filter with source.query purchasable=true — not actively_selling.",
+                  ],
+                };
+              }
+              const hint = ed?.[name];
               const system_hints = buildEditorSystemHints(name, hint as Parameters<typeof buildEditorSystemHints>[1]);
               if (!system_hints) return f;
               return { ...f, system_hints };
@@ -2058,8 +2104,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   // list_variants
   mcp.tool(
     "list_variants",
-    "List all draft variants for a page, including their slug, traffic allocation percentage, and available locales. " +
-    "Returns an empty list if the page has no versioning.yml. Use this to check what variants exist before deciding whether to create a new one or edit an existing draft.",
+    "List extra versions (drafts/A-B variants) for a page: slug, traffic allocation, locale. " +
+    "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
+    "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
+    "Use before create_variant or editing an existing draft.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
@@ -2073,7 +2121,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         assertSafeSegment(contentType, "contentType");
         assertSafeSegment(slug, "slug");
       } catch (e) {
-        return { content: [{ type: "text", text: (e as Error).message }], isError: true };
+        return fail((e as Error).message);
       }
 
       try {
@@ -2082,18 +2130,76 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const res = await fetch(url, { headers: internalHeaders(mcpToken) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
-          return { content: [{ type: "text", text: (data.error as string) || `Server error: ${res.status}` }], isError: true };
+          return fail((data.error as string) || `Server error: ${res.status}`);
         }
+        const liveByLocale = (data.liveByLocale as Record<string, boolean> | undefined) ?? {};
+        const live_locales = Object.entries(liveByLocale)
+          .filter(([, isLive]) => isLive)
+          .map(([loc]) => loc);
+        const hasLiveDefault = data.hasLiveDefault === true;
         if (!data.hasVersioningFile || !data.versioning) {
-          return { content: [{ type: "text", text: JSON.stringify({ contentType, slug, versioningSlug, hasVersioning: false, variants: [] }, null, 2) }] };
+          const unpublished = !hasLiveDefault;
+          return ok(
+            {
+              message: unpublished
+                ? "No extra versions and no live locale (unpublished)."
+                : "Live-only: no extra versions. Visitors see live_locales.",
+              contentType,
+              slug,
+              versioningSlug,
+              hasVersioning: false,
+              hasLiveDefault,
+              live_locales,
+              variants: [],
+            },
+            {
+              warnings: unpublished
+                ? [
+                    {
+                      code: "unpublished",
+                      message: "No live locale and no versioning.yml. ContentIndex skips it (public 404 / no sitemap). create_variant seeds a draft; publish_draft to go live.",
+                    },
+                    {
+                      code: "versioning_yml_on_create",
+                      message: "versioning.yml is created by create_variant, not by hand.",
+                    },
+                  ]
+                : [
+                    {
+                      code: "live_only",
+                      message: "hasVersioning false means no extra versions, not unpublished. Live locales exist in live_locales.",
+                    },
+                    {
+                      code: "versioning_yml_on_create",
+                      message: "versioning.yml is created by create_variant, not by hand.",
+                    },
+                    {
+                      code: "zero_traffic_on_create",
+                      message: "Extra versions start at 0% traffic. Live YAML is unchanged until promote_variant.",
+                    },
+                  ],
+              next_actions: [],
+            },
+          );
         }
         const versioning = data.versioning as Record<string, { variants?: Array<{ slug: string; allocation: number }> }>;
         const variants = Object.entries(versioning).flatMap(([locale, localeData]) =>
           (localeData.variants || []).map(v => ({ locale, slug: v.slug, allocation: v.allocation }))
         );
-        return { content: [{ type: "text", text: JSON.stringify({ contentType, slug, hasVersioning: true, variants }, null, 2) }] };
+        return ok(
+          {
+            message: `Found ${variants.length} extra version(s).`,
+            contentType,
+            slug,
+            hasVersioning: true,
+            hasLiveDefault,
+            live_locales,
+            variants,
+          },
+          { warnings: [], next_actions: [] },
+        );
       } catch (e) {
-        return { content: [{ type: "text", text: `Failed to list variants: ${(e as Error).message}` }], isError: true };
+        return fail(`Failed to list variants: ${(e as Error).message}`);
       }
     }
   );
@@ -2368,6 +2474,156 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail(`Failed to promote variant: ${(e as Error).message}`);
       }
     }
+  );
+
+  mcp.tool(
+    "convert_to_draft",
+    "Unpublish ONE live locale: rename {locale}.yml to draft.{locale}.yml and register it in versioning.yml at 0% traffic. " +
+    "Inverse of promote_variant (not of publish_draft). Other live locales stay public. Extra variants are unchanged. published_at is not cleared. " +
+    "Blocked on the shared template (slug \"single\" or attached shared-layout) — detach the entry first, then retry on the entry slug. " +
+    "Confirm with the user before calling. Cap: content_promote_variant.",
+    {
+      contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
+      slug: z.string().describe("Page slug (not \"single\")"),
+      locale: z.string().default("en").describe("Live locale to convert, e.g. 'en' or 'es'"),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, slug, locale, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error);
+      const { contentPath, domain } = siteResult;
+      try {
+        assertSafeSegment(contentType, "contentType");
+        assertSafeSegment(slug, "slug");
+        assertSafeLocale(locale);
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+
+      if (mcpToken) {
+        if (!await checkCap(mcpToken, "content_promote_variant", contentType)) {
+          return denyResponse("content_promote_variant", contentType);
+        }
+      }
+
+      const configs = loadContentTypes(contentPath);
+      const config = configs[contentType];
+      const sharedLayout = config ? isSharedLayoutConfig(config) : false;
+      const { isEntryDetached } = await import("../../server/shared-layout-entry.js");
+      const detached = sharedLayout && slug !== "single"
+        ? isEntryDetached(contentType, slug, contentPath)
+        : false;
+      const templateBlocked = slug === "single" || (sharedLayout && !detached);
+
+      if (templateBlocked) {
+        const next_actions: NextAction[] = slug === "single"
+          ? []
+          : [
+              {
+                tool: "set_entry_attachment",
+                priority: "required",
+                reason: "Detach this entry so it owns its own live locale files, then retry convert_to_draft on the entry slug.",
+                args_hint: { contentType, slug, action: "detach", confirm: true, ...(site ? { site } : {}) },
+              },
+              {
+                tool: "convert_to_draft",
+                priority: "recommended",
+                reason: "After detach, convert this entry's live locale (not the shared template).",
+                args_hint: { contentType, slug, locale, ...(site ? { site } : {}) },
+              },
+            ];
+        return fail(
+          "Convert to draft is blocked on the shared template. Detach this entry first, then convert this entry only. Do not convert slug \"single\".",
+          {
+            code: "template_blocked",
+            contentType,
+            slug,
+            locale,
+            warnings: [{
+              code: "template_blast_radius",
+              message: "Converting single.{locale}.yml would unpublish that template locale for every attached entry. This tool does not convert the shared template.",
+            }],
+            next_actions,
+          },
+        );
+      }
+
+      try {
+        const url = `http://localhost:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/convert-to-draft${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
+        const data = await res.json() as Record<string, unknown>;
+        if (!res.ok) {
+          return fail((data.error as string) || `Server error: ${res.status}`, {
+            contentType,
+            slug,
+            locale,
+            next_actions: [],
+          });
+        }
+
+        const lastLiveLocale = data.lastLiveLocale === true;
+        const liveRelPath = (data.liveRelPath as string) || `${contentType}/${slug}/${locale}.yml`;
+        const draftRelPath = (data.draftRelPath as string) || `${contentType}/${slug}/draft.${locale}.yml`;
+        const versioningRelPath = (data.versioningRelPath as string) || `${contentType}/${slug}/versioning.yml`;
+
+        return ok(
+          {
+            message: lastLiveLocale
+              ? `Converted live ${locale} to draft. Entry is unpublished (no live locales).`
+              : `Converted live ${locale} to draft. Other live locales unchanged.`,
+            contentType,
+            slug,
+            locale,
+            variantSlug: data.variantSlug || "draft",
+            lastLiveLocale,
+            liveRelPath,
+            draftRelPath,
+            versioningRelPath,
+          },
+          {
+            warnings: [
+              {
+                code: "locale_unpublished",
+                message: `This locale 404s publicly and is not in the sitemap until publish_draft. Live file was renamed (${liveRelPath} → ${draftRelPath}), not deleted.`,
+              },
+              {
+                code: "other_locales_unchanged",
+                message: "Other live locales were not converted.",
+              },
+              {
+                code: "extra_variants_unchanged",
+                message: "Existing extra versions keep their files and allocations.",
+              },
+              {
+                code: "published_at_kept",
+                message: "published_at is not cleared.",
+              },
+            ],
+            side_effects: [
+              {
+                kind: "live_renamed_to_draft",
+                summary: `Renamed ${liveRelPath} → ${draftRelPath}; registered draft at 0% in ${versioningRelPath}`,
+              },
+            ],
+            next_actions: lastLiveLocale
+              ? [{
+                  tool: "publish_draft",
+                  priority: "optional",
+                  reason: "Entry has no live locale. Publish draft.{locale}.yml when ready to go live again (confirm with the user).",
+                  args_hint: { contentType, slug, variantSlug: data.variantSlug || "draft", ...(site ? { site } : {}) },
+                }]
+              : [{
+                  tool: "list_variants",
+                  priority: "optional",
+                  reason: "Re-read live_locales and variants after converting this locale.",
+                  args_hint: { contentType, slug, ...(site ? { site } : {}) },
+                }],
+          },
+        );
+      } catch (e) {
+        return fail(`Failed to convert to draft: ${(e as Error).message}`);
+      }
+    },
   );
 
   // create_entry
@@ -2861,6 +3117,27 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         addOp.index = index;
       }
       operations.push(addOp);
+
+      const catalogGate = missingCatalogQueryGate(
+        collectMissingCatalogQueries(sectionToAdd, "section"),
+        {
+          tool: "add_section",
+          site,
+          retryArgs: {
+            slug,
+            locale,
+            contentType: resolved.contentType,
+            section: sectionToAdd,
+            index,
+            confirm_live_edit,
+            variant,
+            layout_target,
+            confirm_layout_target,
+            site,
+          },
+        },
+      );
+      if (catalogGate) return catalogGate;
 
       const apiResult = await callEditSectionsApi(
         {
@@ -4483,6 +4760,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               ? "Use create_entry (YAML). Shared-layout: one locale, sections []."
               : "Database-backed — create_entry cannot create rows; use DB/admin path.",
             body_model: bodyModelForConfig(config),
+            ecommerce: ecommerceManager.contentTypeHasEcommerce(contentType)
+              ? {
+                  enabled: true,
+                  system_fields: [PURCHASABLE_FIELD],
+                  description:
+                    "This type has at least one product in the ecommerce index (sidecar _ecommerce.yml with purchasable: true). Catalog lead forms should set source.query to purchasable=true unless this is a non-purchasable program page (use source.relation or query slug=<this>). Confirm subsets with the user. purchasable is computed — do not write it. actively_selling on _ecommerce.yml pauses the store; it is not the form filter.",
+                }
+              : {
+                  enabled: false,
+                  system_fields: [] as string[],
+                },
             schema_org_requirements,
             coverage: schema_org_coverage[0]
               ? {

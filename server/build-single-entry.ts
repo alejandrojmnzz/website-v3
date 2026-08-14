@@ -22,6 +22,7 @@ import {
   finalizeSingleEntryForTemplates,
   resolveEntryUpdatedAt,
 } from "./content-types";
+import { applyPurchasableToRecord } from "./ecommerce/ecommerce-manager";
 import { resolveFieldValue } from "./transform";
 import {
   applyFieldOverridesToItem,
@@ -120,10 +121,18 @@ export function buildSingleEntryFromContent(
     applyUpdatedAtAliasToEntry(merged, iso);
   }
 
-  return finalizeSingleEntryForTemplates(merged, {
+  const finalized = finalizeSingleEntryForTemplates(merged, {
     slug: opts?.slug,
     locale: opts?.locale,
   });
+  if (finalized) {
+    applyPurchasableToRecord(
+      finalized,
+      contentType,
+      opts?.slug || (typeof finalized.slug === "string" ? finalized.slug : undefined),
+    );
+  }
+  return finalized;
 }
 
 /**
