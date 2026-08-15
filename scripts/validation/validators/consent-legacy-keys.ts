@@ -5,7 +5,7 @@
  * or `sms_text:` under a `consent:` key.
  *
  * These keys are obsolete — the lead form always resolves consent text through
- * `reserved.consent_general` / `reserved.consent_sms` and silently ignores
+ * `reserved.consent_marketing` / `reserved.consent_sms` and silently ignores
  * per-entry overrides. Re-introducing them would confuse editors and create
  * dead configuration.
  *
@@ -77,7 +77,7 @@ export const consentLegacyKeysValidator: Validator = {
           message:
             `Obsolete consent key(s) ${keyList} found at ${hit.breadcrumb || "(root)"} in ${relativePath}. ` +
             `These keys are silently ignored — the lead form always falls back to ` +
-            `\`reserved.consent_general\` / \`reserved.consent_sms\`. Remove them.`,
+            `\`reserved.consent_marketing\` / \`reserved.consent_sms\`. Remove them.`,
           file: relativePath,
           suggestion:
             "Remove the obsolete key(s) from the consent: block, or run: " +

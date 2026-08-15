@@ -164,6 +164,7 @@ export interface ConversionPayload {
   consent_email?: boolean;
   consent_sms?: boolean;
   consent_whatsapp?: boolean;
+  consent_general?: boolean;
   [key: string]: string | number | boolean | undefined;
 }
 
@@ -461,6 +462,7 @@ export type FormSubmissionTrackingData = {
   consent_email?: boolean;
   consent_sms?: boolean;
   consent_whatsapp?: boolean;
+  consent_general?: boolean;
   formentry_id?: string | number;
   attribution_id?: string;
   referral_key?: string;

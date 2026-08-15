@@ -5,19 +5,21 @@
  */
 
 export const BUILTIN_CONSENT_KEYS = [
+  "consent_general",
+  "consent_marketing",
   "consent_whatsapp",
   "consent_sms",
   "consent_email",
-  "consent_general",
 ] as const;
 
 export type BuiltinConsentKey = (typeof BUILTIN_CONSENT_KEYS)[number];
 
 const BUILTIN_LABELS: Record<BuiltinConsentKey, string> = {
+  consent_general: "General",
+  consent_marketing: "Marketing",
   consent_whatsapp: "WhatsApp",
   consent_sms: "SMS",
   consent_email: "Email",
-  consent_general: "General",
 };
 
 export const CONSENT_KEY_RE = /^consent_[a-z][a-z0-9_]*$/;
@@ -39,6 +41,10 @@ export function isBuiltinConsentKey(key: string): key is BuiltinConsentKey {
 /** Hardcoded form copy when reserved.consent_* is empty. */
 export const BUILTIN_CONSENT_FALLBACKS: Record<BuiltinConsentKey, Record<string, string>> = {
   consent_general: {
+    en: "I agree to be contacted about this request. We'll never share your contact information, and you can easily opt out at any moment.",
+    es: "Acepto que me contacten sobre esta solicitud. Nunca compartiremos tu información de contacto y puedes cancelar fácilmente en cualquier momento.",
+  },
+  consent_marketing: {
     en: "I agree to receive information through email, WhatsApp and/or other channels about workshops, events, courses, and other marketing materials. We'll never share your contact information, and you can easily opt out at any moment.",
     es: "Acepto recibir información a través de correo electrónico, WhatsApp y/u otros canales sobre talleres, eventos, cursos y otros materiales de marketing. Nunca compartiremos tu información de contacto y puedes cancelar fácilmente en cualquier momento.",
   },
@@ -115,6 +121,14 @@ const NON_CHANNEL_CONSENT_KEYS = new Set([
   "privacyUrl",
 ]);
 
+/** Dedicated form checkboxes — not listed as ConsentCard "extras". */
+const FORM_EXPLICIT_YAML = new Set(["marketing", "sms", "whatsapp", "email"]);
+
+/** Builtin YAML fields ConsentCard shows from Settings (not custom extras). */
+const CARD_BUILTIN_YAML = new Set(["marketing", "sms", "whatsapp", "email", "general"]);
+
+const CARD_CHANNEL_ORDER = ["marketing", "sms", "whatsapp", "email", "general"] as const;
+
 const CONSENT_CARD_UI_META = new Set([
   "smsUsaOnly",
   "showTerms",
@@ -142,6 +156,7 @@ export function eventConsentToCardValues(
     marketing: !!consent?.marketing,
     sms: !!consent?.sms,
     whatsapp: !!consent?.whatsapp,
+    ...(consent?.email ? { email: true } : {}),
     smsUsaOnly: !!consent?.sms_usa_only,
     showTerms: !!consent?.show_terms,
     termsUrl: typeof consent?.terms_url === "string" ? consent.terms_url : "",
@@ -167,38 +182,33 @@ export function cardValuesToEventConsent(
   if (privacyUrl) out.privacy_url = privacyUrl;
   if (preserve?.marketing_text) out.marketing_text = preserve.marketing_text;
   if (preserve?.sms_text) out.sms_text = preserve.sms_text;
+  if (values.email) out.email = true;
   for (const [k, v] of Object.entries(values)) {
-    if (k === "marketing" || k === "sms" || k === "whatsapp") continue;
+    if (k === "marketing" || k === "sms" || k === "whatsapp" || k === "email") continue;
     if (CONSENT_CARD_UI_META.has(k)) continue;
     if (typeof v === "boolean") out[k] = v;
   }
   return out;
 }
 
-const BUILTIN_YAML_SKIP = new Set<string>([
-  ...CONSENT_CARD_BUILTIN_YAML,
-  "email",
-]);
-
-/** reserved.consent_general → marketing; consent_sms → sms; consent_foo → foo */
+/** reserved.consent_marketing → marketing; consent_general → general. */
 export function yamlFieldFromConsentKey(key: string): string | null {
   if (!isValidConsentKey(key)) return null;
-  if (key === "consent_general") return "marketing";
   return key.slice("consent_".length);
 }
 
 export function consentKeyFromYamlField(field: string): string {
-  if (field === "marketing") return "consent_general";
+  if (field === "marketing") return "consent_marketing";
   return `consent_${field}`;
 }
 
-/** Extra YAML channel fields from Settings keys (not Marketing/SMS/WhatsApp/Email). */
+/** Extra YAML channel fields from Settings keys (not Marketing/SMS/WhatsApp/Email/General). */
 export function extraConsentYamlFields(settingsKeys: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const key of settingsKeys) {
     const field = yamlFieldFromConsentKey(key);
-    if (!field || BUILTIN_YAML_SKIP.has(field) || NON_CHANNEL_CONSENT_KEYS.has(field)) continue;
+    if (!field || CARD_BUILTIN_YAML.has(field) || NON_CHANNEL_CONSENT_KEYS.has(field)) continue;
     if (seen.has(field)) continue;
     seen.add(field);
     out.push(field);
@@ -214,7 +224,7 @@ export function extraConsentYamlFieldsFromObject(
   const record = consent as Record<string, unknown>;
   return Object.keys(record).filter(
     (k) =>
-      !BUILTIN_YAML_SKIP.has(k) &&
+      !FORM_EXPLICIT_YAML.has(k) &&
       !NON_CHANNEL_CONSENT_KEYS.has(k) &&
       typeof record[k] === "boolean",
   );
@@ -247,27 +257,97 @@ export function consentObjectHasVisibleChannel(
   return extraConsentYamlFieldsFromObject(consent).some((field) => consent[field] === true);
 }
 
+/** `settings.yml` → `consent.fallback`. Empty / invalid → no fallback checkbox. */
+export function normalizeConsentFallbackKey(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed || !isValidConsentKey(trimmed)) return null;
+  return trimmed;
+}
+
+/**
+ * True when the form should show the Settings fallback checkbox:
+ * a fallback key is set AND no channel toggles are on.
+ */
+export function shouldShowFallbackConsent(
+  consent: Record<string, unknown> | null | undefined,
+  fallbackKey: string | null | undefined,
+): boolean {
+  if (!normalizeConsentFallbackKey(fallbackKey)) return false;
+  return !consentObjectHasVisibleChannel(consent);
+}
+
+export type ConsentSettingsApiResponse = {
+  fallback: string | null;
+  messages: Record<string, Record<string, string>>;
+};
+
+/** GET /api/settings/consent — wrapped `{ fallback, messages }` or legacy messages-only. */
+export function parseConsentSettingsResponse(data: unknown): ConsentSettingsApiResponse {
+  if (!data || typeof data !== "object") {
+    return { fallback: null, messages: {} };
+  }
+  const rec = data as Record<string, unknown>;
+  const wrapped = rec.messages;
+  if (wrapped && typeof wrapped === "object" && !Array.isArray(wrapped)) {
+    return {
+      fallback: normalizeConsentFallbackKey(rec.fallback),
+      messages: wrapped as Record<string, Record<string, string>>,
+    };
+  }
+  const messages: Record<string, Record<string, string>> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    if (k === "fallback" || k === "success" || k === "error") continue;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      messages[k] = v as Record<string, string>;
+    }
+  }
+  return {
+    fallback: normalizeConsentFallbackKey(rec.fallback),
+    messages,
+  };
+}
+
 export type ConsentChannelDef = {
   yamlField: string;
   settingsKey: string;
   label: string;
 };
 
-export function consentCardChannels(settingsKeys: string[]): ConsentChannelDef[] {
-  const builtins: ConsentChannelDef[] = [
-    { yamlField: "marketing", settingsKey: "consent_general", label: "Marketing" },
-    { yamlField: "sms", settingsKey: "consent_sms", label: "SMS" },
-    { yamlField: "whatsapp", settingsKey: "consent_whatsapp", label: "WhatsApp" },
-  ];
-  const extras = extraConsentYamlFields(settingsKeys).map((yamlField) => {
-    const settingsKey = consentKeyFromYamlField(yamlField);
-    return {
+/**
+ * Channel switches for ConsentCard: every Settings consent except Default
+ * (`consent.fallback`). Builtins always appear (unless they are the fallback);
+ * custom keys come from `settingsKeys`.
+ */
+export function consentCardChannels(
+  settingsKeys: string[],
+  fallbackKey?: string | null,
+): ConsentChannelDef[] {
+  const skip = normalizeConsentFallbackKey(fallbackKey);
+  const seen = new Set<string>();
+  const defs: ConsentChannelDef[] = [];
+  const add = (settingsKey: string) => {
+    if (skip === settingsKey) return;
+    const yamlField = yamlFieldFromConsentKey(settingsKey);
+    if (!yamlField || NON_CHANNEL_CONSENT_KEYS.has(yamlField) || seen.has(yamlField)) return;
+    seen.add(yamlField);
+    defs.push({
       yamlField,
       settingsKey,
       label: consentLabelFromKey(settingsKey),
-    };
+    });
+  };
+  for (const key of BUILTIN_CONSENT_KEYS) add(key);
+  for (const key of settingsKeys) add(key);
+  defs.sort((a, b) => {
+    const ia = (CARD_CHANNEL_ORDER as readonly string[]).indexOf(a.yamlField);
+    const ib = (CARD_CHANNEL_ORDER as readonly string[]).indexOf(b.yamlField);
+    if (ia === -1 && ib === -1) return a.label.localeCompare(b.label);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
   });
-  return [...builtins, ...extras];
+  return defs;
 }
 
 export function localesToConsentDefinition(

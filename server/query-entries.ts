@@ -338,6 +338,12 @@ function loadStaticContentTypeItems(
           isDb: false,
         }),
       );
+      // Locale YAML may overwrite slug (URL). Ecommerce identity is _common.yml.
+      const commonSlug =
+        typeof common.slug === "string" && common.slug.trim()
+          ? common.slug.trim()
+          : slug;
+      applyPurchasableToRecord(item, contentType, commonSlug);
       items.push(item);
     }
   }
@@ -523,7 +529,7 @@ export async function queryEntries(
     };
   }
 
-  if (contentType) {
+  if (contentType && source === "database") {
     items = items.map((item) => {
       const next = { ...item };
       applyPurchasableToRecord(next, contentType, String(item.slug ?? ""));

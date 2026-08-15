@@ -67,6 +67,6 @@ export function getConsentKeyError(obj: unknown): string | null {
   return (
     `Obsolete consent keys detected: ${listed} ` +
     `are no longer used — remove them or use ` +
-    `\`reserved.consent_general\` / \`reserved.consent_sms\`.`
+    `\`reserved.consent_marketing\` / \`reserved.consent_sms\`.`
   );
 }

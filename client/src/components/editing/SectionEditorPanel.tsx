@@ -114,7 +114,7 @@ import {
   normalizeFormSettingsPath,
 } from "@shared/joinFormSettingsPath";
 import type { TrackingSettingsResponse } from "@/lib/tracking";
-import { collectExtraConsentYamlFields } from "@shared/consent-settings";
+import { collectExtraConsentYamlFields, consentCardChannels, consentKeyFromYamlField, parseConsentSettingsResponse } from "@shared/consent-settings";
 
 function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
@@ -1957,9 +1957,10 @@ export function SectionEditorPanel({
     queryKey: ["/api/settings/tracking"],
   });
 
-  const { data: consentSettings } = useQuery<Record<string, unknown>>({
+  const { data: consentSettingsRaw } = useQuery({
     queryKey: ["/api/settings/consent"],
   });
+  const { fallback: consentFallback, messages: consentSettings } = parseConsentSettingsResponse(consentSettingsRaw);
 
   const { data: formOptions, isLoading: formOptionsLoading } = useQuery<{
     locations: Array<{ slug: string; name: string; city: string; country: string; region: string }>;
@@ -7780,13 +7781,20 @@ export function SectionEditorPanel({
                     : undefined;
 
                   const rawConsent = getValueAtFieldPath(parsedSection, formProp("consent"));
-                  const extraConsentFields = collectExtraConsentYamlFields(
-                    Object.keys(consentSettings ?? {}),
-                    rawConsent && typeof rawConsent === "object"
-                      ? (rawConsent as Record<string, unknown>)
-                      : undefined,
-                    convEvent?.consent,
-                  );
+                  const extraConsentFields = [
+                    ...new Set([
+                      ...consentCardChannels(Object.keys(consentSettings ?? {}), consentFallback)
+                        .map((c) => c.yamlField)
+                        .filter((f) => f !== "marketing" && f !== "sms" && f !== "whatsapp"),
+                      ...collectExtraConsentYamlFields(
+                        Object.keys(consentSettings ?? {}),
+                        rawConsent && typeof rawConsent === "object"
+                          ? (rawConsent as Record<string, unknown>)
+                          : undefined,
+                        convEvent?.consent,
+                      ).filter((f) => consentKeyFromYamlField(f) !== consentFallback),
+                    ]),
+                  ];
 
                   const rawMarketing   = getValueAtFieldPath(parsedSection, formProp("consent.marketing"));
                   const rawSms         = getValueAtFieldPath(parsedSection, formProp("consent.sms"));

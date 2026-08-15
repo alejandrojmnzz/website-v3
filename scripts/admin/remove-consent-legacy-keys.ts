@@ -7,7 +7,7 @@
  * files under 4geeks-com/.
  *
  * These keys are silently ignored by the lead form's three-level priority
- * resolution (which always falls back to `reserved.consent_general` /
+ * resolution (which always falls back to `reserved.consent_marketing` /
  * `reserved.consent_sms`), but they create noise in the content files and
  * could confuse future editors.
  *

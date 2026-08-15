@@ -148,6 +148,8 @@ import {
   getEntryPreviewSettings,
   updateEntryPreviewSettings,
   DEFAULT_ENTRY_PREVIEW_SETTINGS,
+  getConsentFallback,
+  updateConsentFallback,
 } from "../settings";
 import { clearIpnRecentCalls, getIpnRecentCalls, IPN_RECENT_CALLS_LIMIT, resolveIpnSecret } from "../ipn-proxy";
 import { getVM } from "../site-manager";
@@ -659,10 +661,37 @@ export function registerSettingsRoutes(app: Express): void {
 
   app.get("/api/settings/consent", (_req, res) => {
     try {
-      const defaultLocale = getDefaultLocale(getContentRoot(res));
-      res.json(getVM(res).getConsentSettings(defaultLocale));
+      const contentRoot = getContentRoot(res);
+      const defaultLocale = getDefaultLocale(contentRoot);
+      res.json({
+        fallback: getConsentFallback(contentRoot),
+        messages: getVM(res).getConsentSettings(defaultLocale),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to load consent settings" });
+    }
+  });
+
+  app.put("/api/settings/consent/fallback", (req, res) => {
+    try {
+      const schema = z.object({
+        fallback: z.union([z.string(), z.null()]),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+      }
+      const contentRoot = getContentRoot(res);
+      const fallback = updateConsentFallback(parsed.data.fallback, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      const defaultLocale = getDefaultLocale(contentRoot);
+      res.json({
+        success: true,
+        fallback,
+        messages: getVM(res).getConsentSettings(defaultLocale),
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || "Failed to save consent fallback" });
     }
   });
 
@@ -676,9 +705,14 @@ export function registerSettingsRoutes(app: Express): void {
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
       }
-      const defaultLocale = getDefaultLocale(getContentRoot(res));
+      const contentRoot = getContentRoot(res);
+      const defaultLocale = getDefaultLocale(contentRoot);
       getVM(res).updateConsentSetting(parsed.data.key, parsed.data.locales, defaultLocale);
-      res.json({ success: true, ...getVM(res).getConsentSettings(defaultLocale) });
+      res.json({
+        success: true,
+        fallback: getConsentFallback(contentRoot),
+        messages: getVM(res).getConsentSettings(defaultLocale),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to save consent settings" });
     }
