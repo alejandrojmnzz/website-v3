@@ -23,6 +23,8 @@ import { getMenuChromeHeights } from "@/lib/menuChrome";
 import LocaleUnavailable, {
   type LocaleUnavailableInfo,
 } from "@/components/LocaleUnavailable";
+import Staff404Recovery from "@/components/editing/Staff404Recovery";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 interface DatabaseSinglePageProps {
   contentType: string;
@@ -40,6 +42,9 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
 
   const { data: contentTypesData } = useContentTypesRaw();
   const contentTypeInfo = contentTypesData?.find((ct) => ct.name === contentType);
+  const typeLabel = contentTypeInfo?.label || contentType.charAt(0).toUpperCase() + contentType.slice(1);
+  const editMode = useEditModeOptional();
+  const isStaff = !!editMode?.isEditMode;
   // Default to database-backed until content types load (matches historical behavior);
   // once loaded, static types are fetched from the content-pages endpoint instead.
   const isDbBacked = contentTypeInfo ? contentTypeInfo.has_database : true;
@@ -149,15 +154,23 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
       <div data-testid="error-database-single">
         <Header menuConfig={defaultHeaderMenuConfig} isLoading={isDefaultHeaderLoading} />
         <div className="min-h-screen flex items-center justify-center">
-          <div className="text-center">
+          <div className="text-center w-full max-w-lg px-4">
             <h1 className="text-2xl font-bold text-foreground mb-2">
               {locale === "es" ? "Página no encontrada" : "Page not found"}
             </h1>
-            <p className="text-muted-foreground">
-              {locale === "es"
-                ? "La página que buscas no existe."
-                : "The page you're looking for doesn't exist."}
-            </p>
+            {!isStaff && (
+              <p className="text-muted-foreground">
+                {locale === "es"
+                  ? "La página que buscas no existe."
+                  : "The page you're looking for doesn't exist."}
+              </p>
+            )}
+            <Staff404Recovery
+              surface="databaseSingle"
+              typeLabel={typeLabel}
+              slug={slug}
+              contentType={contentType}
+            />
           </div>
         </div>
       </div>

@@ -93,42 +93,48 @@ function DefaultLiveRowActions({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      {(onEditYaml || onDelete) && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-5 w-5 shrink-0"
-              data-testid={`button-variant-menu-${locale}-default`}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-5 w-5 shrink-0"
+            data-testid={`button-variant-menu-${locale}-default`}
+          >
+            <IconDots className="h-3 w-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          {onEditYaml && (
+            <DropdownMenuItem
+              onClick={onEditYaml}
+              className="text-[13px]"
+              data-testid={`menu-edit-yaml-variant-${locale}-default`}
             >
-              <IconDots className="h-3 w-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            {onEditYaml && (
-              <DropdownMenuItem
-                onClick={onEditYaml}
-                className="text-[13px]"
-                data-testid={`menu-edit-yaml-variant-${locale}-default`}
-              >
-                <IconCode className="h-3.5 w-3.5 mr-2" />
-                Edit YAML
-              </DropdownMenuItem>
-            )}
-            {onDelete && (
-              <DropdownMenuItem
-                onClick={onDelete}
-                className="text-[13px] text-destructive"
-                data-testid={`menu-delete-${locale}-default`}
-              >
-                <IconTrash className="h-3.5 w-3.5 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+              <IconCode className="h-3.5 w-3.5 mr-2" />
+              Edit YAML
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onClick={onConvert}
+            className="text-[13px]"
+            data-testid={`menu-convert-to-draft-${locale}-default`}
+          >
+            <IconEyeOff className="h-3.5 w-3.5 mr-2" />
+            Convert to draft
+          </DropdownMenuItem>
+          {onDelete && (
+            <DropdownMenuItem
+              onClick={onDelete}
+              className="text-[13px] text-destructive"
+              data-testid={`menu-delete-${locale}-default`}
+            >
+              <IconTrash className="h-3.5 w-3.5 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

@@ -315,6 +315,8 @@ async function callEditCommonApi(
 /**
  * Call the main server's /api/content/refresh-cache endpoint to flush
  * the in-memory content index after a direct FS write.
+ * Side effect: also clears the sitemap cache. Does not refetch remote databases;
+ * known URLs rebuild from the current SQLite snapshot only.
  */
 async function callRefreshCacheApi(contentType?: string, domain?: string): Promise<void> {
   try {

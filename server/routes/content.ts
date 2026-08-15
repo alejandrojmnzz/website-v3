@@ -328,6 +328,7 @@ import {
   hasEntryLevelVersioning,
   isEntryDetached,
   isSharedLayoutType,
+  isTemplateVersioningSlug,
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
@@ -911,7 +912,10 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
-    if (hasDatabaseSingle(contentType, getContentRoot(res))) {
+    const templateShell =
+      isTemplateVersioningSlug(slug) && isSharedLayoutType(contentType, getContentRoot(res));
+
+    if (hasDatabaseSingle(contentType, getContentRoot(res)) && !templateShell) {
       const root = getContentRoot(res);
       const detached = isEntryDetached(contentType, slug, root);
       let templateVariant: string | undefined;
@@ -996,12 +1000,14 @@ export function registerContentRoutes(app: Express): void {
     // so force_variant can load `{variant}.{locale}.yml` from the entry folder.
     const entryLevelForceVariant =
       !!forceVariant && hasEntryLevelVersioning(contentType, slug, root);
-    const hasLiveLocale = hasStaticSharedLayoutEntryLocale(
-      contentType,
-      slug,
-      locale,
-      root,
-    );
+    const hasLiveLocale =
+      templateShell ||
+      hasStaticSharedLayoutEntryLocale(
+        contentType,
+        slug,
+        locale,
+        root,
+      );
 
     if (sharedAttached && !entryLevelForceVariant) {
       if (!hasLiveLocale && !forceVariant) {
@@ -1016,7 +1022,7 @@ export function registerContentRoutes(app: Express): void {
         const merged = mergeSingleTemplate(
           contentType,
           locale,
-          slug,
+          templateShell ? undefined : slug,
           undefined,
           root,
           templateVariant,

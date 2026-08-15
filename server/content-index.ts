@@ -1500,6 +1500,11 @@ export class ContentIndex {
     return { total: this.entries.length, byType };
   }
 
+  getKnownUrlCount(): number {
+    this.ensureInitialized();
+    return this.byUrl.size;
+  }
+
   isDatabaseBacked(contentType: string): boolean {
     const config = this.getContentTypeConfig(contentType);
     return !!config?.database?.slug;

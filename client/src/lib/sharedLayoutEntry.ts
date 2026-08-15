@@ -32,3 +32,12 @@ export function allowEntryStructuralOverrides(opts: {
   if (!opts.isSharedLayout) return true;
   return opts.isDetached;
 }
+
+/** PrivatePreview 404 picker is listing the type shell (`single`), not this entry. */
+export function isPreviewListingSharedTemplate(info: {
+  isSharedLayout?: boolean;
+  detached?: boolean;
+  versioningSlug?: string;
+} | null | undefined): boolean {
+  return !!info?.isSharedLayout && !info.detached && info.versioningSlug === TEMPLATE_VERSIONING_SLUG;
+}

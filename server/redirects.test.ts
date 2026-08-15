@@ -24,6 +24,14 @@ vi.mock("./content-types", async (importOriginal) => {
 });
 
 import { findCanonicalSoftMatch, isLivePublicUrl, testRedirect } from "./redirects";
+import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
+import {
+  REDIRECT_TRACE_COOKIE_NAME,
+  REDIRECT_TRACE_MAX_HOPS,
+  appendRedirectTraceHop,
+  parseRedirectTraceCookie,
+  type RedirectTraceHop,
+} from "@shared/redirect-trace";
 import type { contentIndex as ContentIndexType } from "./content-index";
 
 function makeCi(opts: {
@@ -132,5 +140,44 @@ describe("isLivePublicUrl matches Test a URL", () => {
     const ci = makeCi({ knownSlugs: {} });
     const result = testRedirect("/en/missing-page", "en", ci);
     expect(isLivePublicUrl(result)).toBe(false);
+  });
+});
+
+describe("redirect trace cookie", () => {
+  it("appends hops and caps at REDIRECT_TRACE_MAX_HOPS", () => {
+    let hops: RedirectTraceHop[] = [];
+    for (let i = 0; i < REDIRECT_TRACE_MAX_HOPS + 2; i++) {
+      hops = appendRedirectTraceHop(hops, {
+        from: `/from-${i}`,
+        to: `/to-${i}`,
+        status: 301,
+        matchType: "fallback",
+        source: "site_4geeks-com/custom-redirects.yml",
+      });
+    }
+    expect(hops).toHaveLength(REDIRECT_TRACE_MAX_HOPS);
+    expect(hops[0]?.from).toBe("/from-0");
+  });
+
+  it("applyRedirectTraceCookie writes a parseable cookie", () => {
+    const cookies: Record<string, string> = {};
+    const req = { cookies: {}, hostname: "localhost" } as any;
+    const res = {
+      cookie: (name: string, value: string) => {
+        cookies[name] = value;
+      },
+    } as any;
+    applyRedirectTraceCookie(req, res, {
+      from: "/es/interactive-exercise/foo",
+      to: "/es/blog/interactive-exercise/foo",
+      status: 301,
+      matchType: "fallback",
+      priority: "fallback",
+      source: "site_4geeks-com/custom-redirects.yml",
+    });
+    const parsed = parseRedirectTraceCookie(cookies[REDIRECT_TRACE_COOKIE_NAME]);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.from).toBe("/es/interactive-exercise/foo");
+    expect(parsed[0]?.matchType).toBe("fallback");
   });
 });

@@ -10,6 +10,8 @@ import {
   resolveUrlPatternWithMapping,
 } from "./content-types";
 import { child } from "./logger";
+import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
+import type { RedirectTraceMatchType } from "@shared/redirect-trace";
 const log = child({ module: "redirects" });
 
 // ============================================================================
@@ -159,6 +161,31 @@ function getQueryString(req: Request): string {
   return qIndex >= 0 ? url.slice(qIndex) : '';
 }
 
+function sendRedirect(
+  req: Request,
+  res: Response,
+  opts: {
+    from: string;
+    to: string;
+    status: number;
+    matchType: RedirectTraceMatchType;
+    priority?: string;
+    source?: string;
+    logLabel?: string;
+  },
+): void {
+  applyRedirectTraceCookie(req, res, {
+    from: opts.from,
+    to: opts.to,
+    status: opts.status,
+    matchType: opts.matchType,
+    priority: opts.priority,
+    source: opts.source,
+  });
+  log.info(`[Redirects] ${opts.status}${opts.logLabel ? ` ${opts.logLabel}` : ""}: ${opts.from} -> ${opts.to}`);
+  res.redirect(opts.status, opts.to);
+}
+
 export function redirectMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (
     req.path.startsWith("/api/") ||
@@ -179,10 +206,15 @@ export function redirectMiddleware(req: Request, res: Response, next: NextFuncti
   const entry = map.get(normalizedPath);
   if (entry) {
     const status = entry.status || 301;
-    const target = resolveRedirectTarget(entry, req);
-    const qs = getQueryString(req);
-    log.info(`[Redirects] ${status}: ${req.path} -> ${target}${qs}`);
-    res.redirect(status, target + qs);
+    const target = resolveRedirectTarget(entry, req) + getQueryString(req);
+    sendRedirect(req, res, {
+      from: req.path,
+      to: target,
+      status,
+      matchType: "exact",
+      priority: entry.priority,
+      source: entry.source,
+    });
     return;
   }
 
@@ -191,10 +223,16 @@ export function redirectMiddleware(req: Request, res: Response, next: NextFuncti
     if (match) {
       const captureGroups = match.slice(1);
       const status = regexEntry.status || 301;
-      const target = resolveRedirectTarget(regexEntry, req, captureGroups);
-      const qs = getQueryString(req);
-      log.info(`[Redirects] ${status} (regex): ${req.path} -> ${target}${qs}`);
-      res.redirect(status, target + qs);
+      const target = resolveRedirectTarget(regexEntry, req, captureGroups) + getQueryString(req);
+      sendRedirect(req, res, {
+        from: req.path,
+        to: target,
+        status,
+        matchType: "regex",
+        priority: regexEntry.priority,
+        source: regexEntry.source,
+        logLabel: "(regex)",
+      });
       return;
     }
   }
@@ -231,10 +269,16 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     const entry = activeFallbackNonCustomMap.get(normalizedPath);
     if (entry) {
       const status = entry.status || 301;
-      const target = resolveRedirectTarget(entry, req);
-      const qs = getQueryString(req);
-      log.info(`[Redirects] ${status} (fallback non-custom): ${req.path} -> ${target}${qs}`);
-      res.redirect(status, target + qs);
+      const target = resolveRedirectTarget(entry, req) + getQueryString(req);
+      sendRedirect(req, res, {
+        from: req.path,
+        to: target,
+        status,
+        matchType: "fallback",
+        priority: entry.priority || "fallback",
+        source: entry.source,
+        logLabel: "(fallback non-custom)",
+      });
       return;
     }
   }
@@ -245,10 +289,16 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
       if (match) {
         const captureGroups = match.slice(1);
         const status = regexEntry.status || 301;
-        const target = resolveRedirectTarget(regexEntry, req, captureGroups);
-        const qs = getQueryString(req);
-        log.info(`[Redirects] ${status} (fallback non-custom regex): ${req.path} -> ${target}${qs}`);
-        res.redirect(status, target + qs);
+        const target = resolveRedirectTarget(regexEntry, req, captureGroups) + getQueryString(req);
+        sendRedirect(req, res, {
+          from: req.path,
+          to: target,
+          status,
+          matchType: "fallback",
+          priority: regexEntry.priority || "fallback",
+          source: regexEntry.source,
+          logLabel: "(fallback non-custom regex)",
+        });
         return;
       }
     }
@@ -261,9 +311,16 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
   try {
     const soft = findCanonicalSoftMatch(cleanUrl, activeCi);
     if (soft) {
-      const qs = getQueryString(req);
-      log.info(`[Redirects] 301 (canonical ${soft.typeName}): ${cleanUrl} -> ${soft.canonicalUrl}${qs}`);
-      res.redirect(301, soft.canonicalUrl + qs);
+      const target = soft.canonicalUrl + getQueryString(req);
+      sendRedirect(req, res, {
+        from: cleanUrl,
+        to: target,
+        status: 301,
+        matchType: "canonical",
+        priority: "fallback",
+        source: `canonical:${soft.typeName}`,
+        logLabel: `(canonical ${soft.typeName})`,
+      });
       return;
     }
   } catch {}
@@ -280,10 +337,16 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     const entry = activeFallbackMap.get(normalizedPath);
     if (entry) {
       const status = entry.status || 301;
-      const target = resolveRedirectTarget(entry, req);
-      const qs = getQueryString(req);
-      log.info(`[Redirects] ${status} (fallback): ${req.path} -> ${target}${qs}`);
-      res.redirect(status, target + qs);
+      const target = resolveRedirectTarget(entry, req) + getQueryString(req);
+      sendRedirect(req, res, {
+        from: req.path,
+        to: target,
+        status,
+        matchType: "fallback",
+        priority: entry.priority || "fallback",
+        source: entry.source,
+        logLabel: "(fallback)",
+      });
       return;
     }
   }
@@ -294,10 +357,16 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
       if (match) {
         const captureGroups = match.slice(1);
         const status = regexEntry.status || 301;
-        const target = resolveRedirectTarget(regexEntry, req, captureGroups);
-        const qs = getQueryString(req);
-        log.info(`[Redirects] ${status} (fallback regex): ${req.path} -> ${target}${qs}`);
-        res.redirect(status, target + qs);
+        const target = resolveRedirectTarget(regexEntry, req, captureGroups) + getQueryString(req);
+        sendRedirect(req, res, {
+          from: req.path,
+          to: target,
+          status,
+          matchType: "fallback",
+          priority: regexEntry.priority || "fallback",
+          source: regexEntry.source,
+          logLabel: "(fallback regex)",
+        });
         return;
       }
     }

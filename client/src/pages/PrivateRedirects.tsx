@@ -25,7 +25,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { isDebugModeActive } from "@/hooks/useDebugAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AddRedirectDialog, getApiErrorMessage, hasRegexChars } from "@/components/editing/AddRedirectDialog";
@@ -233,7 +233,9 @@ export default function PrivateRedirects() {
   const [showValidation, setShowValidation] = useState(false);
   const [validationExpanded, setValidationExpanded] = useState(false);
 
-  const [testRedirectUrl, setTestRedirectUrl] = useState("");
+  const searchString = useSearch();
+  const urlFromQuery = new URLSearchParams(searchString).get("url")?.trim() ?? "";
+  const [testRedirectUrl, setTestRedirectUrl] = useState(urlFromQuery);
   const [testRedirectResult, setTestRedirectResult] = useState<{
     match: boolean;
     from?: string;

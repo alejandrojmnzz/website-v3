@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Code, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { IS_SERVER } from "@/lib/initialData";
 import { useParams, useLocation, useSearch } from "wouter";
@@ -15,10 +15,11 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
-import { Button } from "@/components/ui/button";
+import Staff404Recovery from "@/components/editing/Staff404Recovery";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
+import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -41,6 +42,8 @@ export default function Page() {
   const slug = params.slug || slugFromPath || homeSlug;
 
   const [showRawEditor, setShowRawEditor] = useState(false);
+  const editMode = useEditModeOptional();
+  const isStaff = !!editMode?.isEditMode;
 
   useEffect(() => {
     if (i18n.language !== i18nLocale) {
@@ -126,21 +129,21 @@ export default function Page() {
           className="min-h-screen flex items-center justify-center"
           data-testid="error-page"
         >
-          <div className="text-center">
+          <div className="text-center w-full max-w-lg px-4">
             <h1 className="text-2xl font-bold text-foreground mb-2">
               {locale === "es" ? "Página no encontrada" : "Page not found"}
             </h1>
-            <p className="text-muted-foreground mb-4">
-              {locale === "es" 
-                ? "La página que buscas no existe." 
-                : "The page you're looking for doesn't exist."}
-            </p>
-            {rawFileCheck?.exists && (
-              <Button variant="outline" onClick={() => setShowRawEditor(true)} data-testid="button-edit-yaml">
-                <Code className="w-4 h-4 mr-2" />
-                Edit YAML
-              </Button>
+            {!isStaff && (
+              <p className="text-muted-foreground mb-4">
+                {locale === "es" 
+                  ? "La página que buscas no existe." 
+                  : "The page you're looking for doesn't exist."}
+              </p>
             )}
+            <Staff404Recovery
+              yamlExists={!!rawFileCheck?.exists}
+              onEditYaml={() => setShowRawEditor(true)}
+            />
           </div>
         </div>
         {showRawEditor && (

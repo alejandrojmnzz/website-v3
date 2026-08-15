@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense, useMemo } from "react";
-import { AlertTriangle, ArrowLeft, Code, FilePenLine, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearch, useLocation } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
@@ -11,8 +11,6 @@ import { useSchemaOrg } from "@/hooks/useSchemaOrg";
 import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import LazyRender from "@/components/LazyRender";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
@@ -21,6 +19,10 @@ import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
+import Staff404Layout from "@/components/editing/Staff404Layout";
+import Staff404VariantModal, { type Staff404VariantOption } from "@/components/editing/Staff404VariantModal";
+import { isPreviewListingSharedTemplate, isSharedLayoutType } from "@/lib/sharedLayoutEntry";
+import { staff404PreviewHref } from "@/lib/staff404";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -48,6 +50,8 @@ type VersioningApiResponse = {
   versioningSlug?: string;
   liveByLocale?: Record<string, boolean>;
   versioning?: Record<string, VersioningLocaleData> | null;
+  isSharedLayout?: boolean;
+  detached?: boolean;
 };
 
 type PreviewVariantRow = PreviewVariantOption & {
@@ -93,6 +97,7 @@ export default function PrivatePreview() {
   const typeLabel = typeInfo?.label || normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
 
   const [showRawEditor, setShowRawEditor] = useState(false);
+  const [variantModal, setVariantModal] = useState<"templates" | "entry" | null>(null);
 
   const editMode = useEditModeOptional();
   const isDeviceShell = !!editMode?.isEditMode && editMode.previewBreakpoint === "mobile";
@@ -209,15 +214,24 @@ export default function PrivatePreview() {
     !!versioningInfo?.isDraft ||
     versioningInfo?.hasLiveDefault === false ||
     (availableVariants.length > 0 && !availableVariants.some((v) => v.isPromoted));
+  const listingSharedTemplate =
+    isPreviewListingSharedTemplate(versioningInfo) ||
+    (recoveryEnabled && versioningInfo === undefined && isSharedLayoutType(typeInfo));
 
-  const openVariantPreview = (option: PreviewVariantRow) => {
-    const qs = new URLSearchParams();
-    qs.set("locale", option.locale || locale);
-    if (!option.isPromoted && option.variantSlug && option.variantSlug !== "promoted") {
-      qs.set("variant", option.variantSlug);
-      if (option.version != null) qs.set("version", String(option.version));
-    }
-    navigate(`/private/preview/${normalizedType}/${slug}?${qs.toString()}`);
+  const openVariantPreview = (option: Staff404VariantOption) => {
+    navigate(
+      staff404PreviewHref({
+        contentType: normalizedType,
+        slug: slug!,
+        listingSharedTemplate,
+        option: {
+          locale: option.locale || locale,
+          isPromoted: option.isPromoted,
+          variantSlug: option.variantSlug,
+          version: option.version,
+        },
+      }),
+    );
   };
 
   usePageMeta(content?.meta, locale);
@@ -289,13 +303,15 @@ export default function PrivatePreview() {
 
   if (!isValidContentType) {
     return (
-      <div className="min-h-screen flex items-center justify-center" data-testid="error-invalid-type">
-        <div className="text-center">
-          <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-foreground mb-2">Invalid Content Type</h1>
-          <p className="text-muted-foreground mb-4">
-            Content type "{contentType}" is not valid.
-          </p>
+      <div className="min-h-screen flex items-center justify-center bg-background px-4" data-testid="error-invalid-type">
+        <div className="w-full max-w-lg">
+          <Staff404Layout
+            surface="privatePreview"
+            typeLabel={typeLabel}
+            contentType={contentType}
+            isValidType={false}
+            staffOrEditMode
+          />
         </div>
       </div>
     );
@@ -321,110 +337,48 @@ export default function PrivatePreview() {
       !availableVariants.some(
         (v) => !v.isPromoted && v.variantSlug === variant && v.locale === locale,
       );
-    const title = isDraftOnly
-      ? `No published ${typeLabel.toLowerCase()} yet`
-      : `${typeLabel} not found`;
-    const description = (() => {
-      if (isDraftOnly && availableVariants.length > 0) {
-        return variant
-          ? `Could not load variant “${variant}” for locale ${locale.toUpperCase()}. Available versions are listed below — open one to preview and edit.`
-          : "This page has no published (live) version. Available versions are listed below — open one to preview and edit.";
-      }
-      if (isDraftOnly) {
-        return "This page has no published (live) version yet.";
-      }
-      if (availableVariants.length > 0) {
-        return variant
-          ? `Could not load variant “${variant}” for locale ${locale.toUpperCase()}. Try another version below.`
-          : "Could not load the requested content. Try a draft or variant below.";
-      }
-      if (variant) {
-        return `Could not load variant “${variant}” for locale ${locale.toUpperCase()}.`;
-      }
-      return "Could not load the requested content variant.";
-    })();
+    const variantsPending = variantsLoading || (recoveryEnabled && versioningInfo === undefined);
 
     return (
       <>
         <div className="min-h-screen flex items-center justify-center bg-background px-4" data-testid="error-preview">
-          <div className="w-full max-w-lg text-center">
-            <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-foreground mb-2">{title}</h1>
-            <p className="text-muted-foreground mb-6">{description}</p>
-
-            {(variantsLoading || (recoveryEnabled && versioningInfo === undefined)) && (
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-6" data-testid="loading-preview-variants">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Looking for variants…
-              </div>
-            )}
-
-            {availableVariants.length > 0 && (
-              <div className="mb-6 text-left rounded-md border border-border bg-card p-4" data-testid="preview-variant-picker">
-                <p className="text-sm font-medium text-foreground mb-3">
-                  {requestedVariantMissing
-                    ? "Available versions"
-                    : "Open a draft or variant?"}
-                </p>
-                <ul className="space-y-2">
-                  {availableVariants.map((option) => {
-                    const name = option.isPromoted ? "Live" : option.variantSlug;
-                    return (
-                      <li
-                        key={`${option.variantSlug}:${option.locale}:${option.version ?? ""}`}
-                        className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {name}
-                            </p>
-                            {option.allocation != null && (
-                              <Badge
-                                variant={option.allocation > 0 ? "default" : "secondary"}
-                                className="text-[10px] shrink-0"
-                                data-testid={`badge-allocation-${option.variantSlug}-${option.locale}`}
-                              >
-                                {option.allocation}% traffic allocated
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {option.locale.toUpperCase()}
-                            {option.version != null ? ` · v${option.version}` : ""}
-                            {option.isPromoted ? " · published" : " · variant"}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          className="shrink-0"
-                          onClick={() => openVariantPreview(option)}
-                          data-testid={`button-edit-variant-${option.variantSlug}-${option.locale}`}
-                        >
-                          <FilePenLine className="w-4 h-4 mr-2" />
-                          {option.isPromoted ? "Edit live" : "Edit this variant"}
-                        </Button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-
-            <div className="flex items-center justify-center gap-2 flex-wrap">
-              <Button variant="outline" onClick={() => window.history.back()} data-testid="button-go-back">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Go Back
-              </Button>
-              {rawFileCheck?.exists && (
-                <Button variant="outline" onClick={() => setShowRawEditor(true)} data-testid="button-edit-yaml">
-                  <Code className="w-4 h-4 mr-2" />
-                  Edit YAML
-                </Button>
-              )}
-            </div>
+          <div className="w-full max-w-lg">
+            <Staff404Layout
+              surface="privatePreview"
+              typeLabel={typeLabel}
+              slug={slug}
+              contentType={normalizedType}
+              isValidType
+              listingSharedTemplate={listingSharedTemplate}
+              isDraftOnly={isDraftOnly}
+              hasEntryVariants={!listingSharedTemplate && availableVariants.length > 0}
+              variantsLoading={variantsPending}
+              hasTemplateVariants={listingSharedTemplate && availableVariants.length > 0}
+              requestedVariantMissing={requestedVariantMissing}
+              requestedVariant={variant}
+              locale={locale}
+              yamlExists={!!rawFileCheck?.exists}
+              staffOrEditMode
+              onEditYaml={() => setShowRawEditor(true)}
+              onEditTemplates={() => setVariantModal("templates")}
+              onOpenDraft={() => setVariantModal("entry")}
+            />
           </div>
         </div>
+        <Staff404VariantModal
+          open={variantModal !== null}
+          onOpenChange={(open) => {
+            if (!open) setVariantModal(null);
+          }}
+          mode={variantModal === "templates" ? "templates" : "entry"}
+          typeLabel={typeLabel}
+          typeDirectory={typeInfo?.directory || normalizedType}
+          variants={availableVariants}
+          onSelect={(option) => {
+            setVariantModal(null);
+            openVariantPreview(option);
+          }}
+        />
         {showRawEditor && (
           <Suspense fallback={null}>
             <RawFileEditorPanel

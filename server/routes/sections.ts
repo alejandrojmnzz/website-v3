@@ -1232,11 +1232,13 @@ export function registerSectionsRoutes(app: Express): void {
       if (!authorized) return;
 
       const { contentType } = req.body as { contentType?: string };
-      getCI(res).refresh();
+      const ci = getCI(res);
+      ci.refresh();
+      clearSitemapCache();
       if (contentType && typeof contentType === "string") {
         invalidateContentCaches(contentType);
       }
-      res.json({ ok: true });
+      res.json({ ok: true, knownUrlCount: ci.getKnownUrlCount() });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
     }
