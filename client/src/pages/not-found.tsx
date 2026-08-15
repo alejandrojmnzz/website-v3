@@ -1,6 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
-import Staff404Recovery from "@/components/editing/Staff404Recovery";
+import Staff404Recovery, { Staff404SwitchToEditHint } from "@/components/editing/Staff404Recovery";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 export default function NotFound() {
@@ -18,9 +18,12 @@ export default function NotFound() {
             </div>
 
             {!isStaff && (
-              <p className="mt-4 text-sm text-muted-foreground" data-testid="text-404-description">
-                The page you're looking for doesn't exist or couldn't be loaded.
-              </p>
+              <div className="mt-4" data-testid="text-404-description">
+                <p className="text-sm text-muted-foreground">
+                  The page you're looking for doesn't exist or couldn't be loaded.
+                </p>
+                <Staff404SwitchToEditHint />
+              </div>
             )}
             <Staff404Recovery />
           </CardContent>

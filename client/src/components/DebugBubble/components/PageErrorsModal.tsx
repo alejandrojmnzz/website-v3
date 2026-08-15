@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   Dialog,
   DialogContent,
@@ -8,16 +10,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
-import { getDebugToken } from "@/hooks/useDebugAuth";
+import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
 import {
+  gscHeadline,
+  gscCrawlerErrorCount,
+  type GscInspectionGetResponse,
+} from "@/lib/gscInspection";
+import {
   IconAlertTriangle,
   IconArrowRight,
+  IconBrandGoogle,
   IconChevronDown,
   IconClock,
   IconExternalLink,
@@ -175,14 +184,67 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
   } = props;
 
   const [isRunningValidation, setIsRunningValidation] = useState(false);
-  const [activeTab, setActiveTab] = useState<"errors" | "warnings">("errors");
+  const [activeTab, setActiveTab] = useState<"errors" | "warnings" | "crawlers">("errors");
   const [openPageMenuOpen, setOpenPageMenuOpen] = useState(false);
   const openPageMenuRef = useRef<HTMLDivElement>(null);
   const formatSitePath = useFormatSitePath();
+  const queryClient = useQueryClient();
+  const { hasCapability } = useDebugAuth();
+  const canInspect = hasCapability("seo_edit");
 
   const errors = pageDiagnostics?.issues?.filter((i) => i.type === "error") ?? [];
   const warnings = pageDiagnostics?.issues?.filter((i) => i.type === "warning") ?? [];
   const openPageUrl = pageUrl ?? pageDiagnostics?.url;
+  const inspectLookupUrl = openPageUrl || "";
+
+  const gscQuery = useQuery<GscInspectionGetResponse>({
+    queryKey: ["/api/debug/gsc-inspection", inspectLookupUrl],
+    enabled: open && Boolean(inspectLookupUrl),
+    queryFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch(
+        `/api/debug/gsc-inspection?url=${encodeURIComponent(inspectLookupUrl)}`,
+        {
+          headers: {
+            ...getSessionHeaders(),
+            ...(token ? { Authorization: `Token ${token}` } : {}),
+          },
+        },
+      );
+      if (!res.ok) throw new Error("Failed to load Search Console cache");
+      return res.json() as Promise<GscInspectionGetResponse>;
+    },
+  });
+
+  const crawlerErrors = gscCrawlerErrorCount({
+    configured: gscQuery.data?.configured,
+    record: gscQuery.data?.record,
+    resolved: gscQuery.data?.resolved,
+    loadError: gscQuery.isError,
+  });
+
+  const inspectMutation = useMutation({
+    mutationFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch("/api/debug/gsc-inspection", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ urls: [inspectLookupUrl], force: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Inspect failed");
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection"] });
+    },
+  });
 
   useEffect(() => {
     if (!open) setOpenPageMenuOpen(false);
@@ -318,7 +380,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
           <div className="space-y-4">
             <Tabs
               value={activeTab}
-              onValueChange={(v) => setActiveTab(v as "errors" | "warnings")}
+              onValueChange={(v) => setActiveTab(v as "errors" | "warnings" | "crawlers")}
               className="w-full"
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -341,33 +403,76 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                       {warnings.length}
                     </span>
                   </TabsTrigger>
+                  <TabsTrigger value="crawlers" data-testid="tab-crawlers" className="gap-1.5">
+                    Crawlers
+                    <span
+                      className="rounded-sm bg-destructive/15 text-destructive px-1.5 py-0 text-[10px] font-semibold tabular-nums"
+                      data-testid="text-modal-crawler-error-count"
+                    >
+                      {crawlerErrors}
+                    </span>
+                  </TabsTrigger>
                 </TabsList>
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRunValidation}
-                    disabled={isRunningValidation}
-                    title={isRunningValidation ? "Running…" : "Run validation"}
-                    aria-label={isRunningValidation ? "Running…" : "Run validation"}
-                    data-testid="button-run-validation"
-                  >
-                    {isRunningValidation ? (
-                      <>
-                        <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                        <span className="hidden sm:inline">Running…</span>
-                      </>
-                    ) : (
-                      <>
-                        <IconRefresh className="h-3.5 w-3.5 shrink-0" />
-                        <span className="hidden sm:inline">Run validation</span>
-                      </>
-                    )}
-                  </Button>
+                  {activeTab === "crawlers" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => inspectMutation.mutate()}
+                      disabled={
+                        inspectMutation.isPending ||
+                        !canInspect ||
+                        !gscQuery.data?.configured ||
+                        !!gscQuery.data?.resolved?.isDraft
+                      }
+                      title={
+                        !gscQuery.data?.configured
+                          ? "Search Console is not configured"
+                          : gscQuery.data?.resolved?.isDraft
+                            ? "Draft pages are not sent to Google"
+                            : "Check Google"
+                      }
+                      data-testid="button-check-google"
+                    >
+                      {inspectMutation.isPending ? (
+                        <>
+                          <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                          <span className="hidden sm:inline">Checking…</span>
+                        </>
+                      ) : (
+                        <>
+                          <IconBrandGoogle className="h-3.5 w-3.5 shrink-0" />
+                          <span className="hidden sm:inline">Check Google</span>
+                        </>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRunValidation}
+                      disabled={isRunningValidation}
+                      title={isRunningValidation ? "Running…" : "Run validation"}
+                      aria-label={isRunningValidation ? "Running…" : "Run validation"}
+                      data-testid="button-run-validation"
+                    >
+                      {isRunningValidation ? (
+                        <>
+                          <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                          <span className="hidden sm:inline">Running…</span>
+                        </>
+                      ) : (
+                        <>
+                          <IconRefresh className="h-3.5 w-3.5 shrink-0" />
+                          <span className="hidden sm:inline">Run validation</span>
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
 
-              {pageDiagnostics.cached ? (
+              {activeTab !== "crawlers" && (pageDiagnostics.cached ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2" data-testid="text-cached-staleness">
                   <IconClock className="h-3.5 w-3.5" />
                   Validated {formatStaleness(pageDiagnostics.cached.lastRunAt)}
@@ -376,7 +481,7 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                 <p className="text-xs text-muted-foreground mt-2" data-testid="cached-not-yet-validated">
                   Not yet validated — click &quot;Run validation&quot; to refresh this list.
                 </p>
-              )}
+              ))}
 
               <TabsContent value="errors" className="mt-3 space-y-2">
                 {errors.length === 0 ? (
@@ -419,13 +524,78 @@ export function PageErrorsModal(props: PageErrorsModalProps) {
                   ))
                 )}
               </TabsContent>
+
+              <TabsContent value="crawlers" className="mt-3 space-y-3">
+                <p className="text-xs text-muted-foreground" data-testid="text-crawlers-education">
+                  Cached Search Console inspection for this URL — not live Google, not a re-index,
+                  and not local validation. Check Google spends daily quota.
+                </p>
+                <Card data-testid="card-google-indexing-kpi">
+                  <CardContent className="pt-4 pb-3 space-y-1">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <IconBrandGoogle className="h-3.5 w-3.5" />
+                      <span>Google</span>
+                    </div>
+                    {gscQuery.isLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading cache…</p>
+                    ) : !gscQuery.data?.configured ? (
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">Not configured</p>
+                        <Link
+                          href="/private/settings/seo/search-console"
+                          className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                          data-testid="link-gsc-settings-from-modal"
+                          onClick={() => onOpenChange(false)}
+                        >
+                          Set up Search Console
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm font-medium text-foreground" data-testid="text-google-index-status">
+                          {gscHeadline(gscQuery.data.record, gscQuery.data.resolved)}
+                        </p>
+                        {gscQuery.data.resolved?.loc && (
+                          <p className="text-[11px] font-mono text-muted-foreground truncate" title={gscQuery.data.resolved.loc}>
+                            {gscQuery.data.resolved.loc}
+                          </p>
+                        )}
+                        {gscQuery.data.resolved && !gscQuery.data.resolved.inSitemap && !gscQuery.data.resolved.isDraft && (
+                          <p className="text-xs text-chart-2">This URL is excluded from /sitemap.xml.</p>
+                        )}
+                        {gscQuery.data.record?.lastCrawlTime && (
+                          <p className="text-xs text-muted-foreground">
+                            Last crawl {formatStaleness(gscQuery.data.record.lastCrawlTime)}
+                          </p>
+                        )}
+                        {gscQuery.data.record?.inspectedAt && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <IconClock className="h-3 w-3" />
+                            Checked {formatStaleness(gscQuery.data.record.inspectedAt)}
+                          </p>
+                        )}
+                        {gscQuery.data.record?.error && (
+                          <p className="text-xs text-destructive">{gscQuery.data.record.error}</p>
+                        )}
+                        {inspectMutation.isError && (
+                          <p className="text-xs text-destructive">
+                            {inspectMutation.error instanceof Error
+                              ? inspectMutation.error.message
+                              : "Inspect failed"}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
             </Tabs>
 
             <div className="p-3 rounded-md bg-muted/50 border border-border text-sm">
               <p className="text-muted-foreground text-xs">
-                Validation uses one shared store. This list shows issues that target this entry
-                (including redirects/media that touch it). Saving re-checks local rules; redirect
-                conflicts refresh when redirect config changes or via Redirects / Global Health.
+                {activeTab === "crawlers"
+                  ? "Crawlers read a disk cache of Search Console URL Inspection results. Restarts do not call Google. Configure the service account under SEO/GEO → Search Console."
+                  : "Validation uses one shared store. This list shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or via Redirects / Global Health."}
               </p>
             </div>
           </div>

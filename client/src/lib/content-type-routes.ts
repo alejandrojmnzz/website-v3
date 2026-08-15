@@ -30,7 +30,7 @@ function wouterPath(pattern: string, splatSlug: boolean): string {
   return pattern;
 }
 
-function listingPrefix(pattern: string): string | null {
+export function listingPrefix(pattern: string): string | null {
   const prefix = pattern.replace(/\/:[^/]+.*$/, "");
   if (!prefix || prefix === pattern) return null;
   return prefix;
@@ -183,4 +183,81 @@ export function inferPublicPageChunk(
 ): ContentRouteKind {
   const match = matchContentTypeRoute(pathname, buildContentTypeRoutes(contentTypes));
   return match?.kind ?? "template";
+}
+
+const SITEMAP_LOCALE_PREFIXES = new Set(["en", "es", "us"]);
+
+export type SitemapFolderContentTypes = Record<
+  string,
+  { directory: string; url_pattern: Record<string, string> }
+>;
+
+function normalizeFolderPath(folderPath: string): string {
+  const withSlash = folderPath.startsWith("/") ? folderPath : `/${folderPath}`;
+  return withSlash.length > 1 ? withSlash.replace(/\/$/, "") : withSlash;
+}
+
+function isLocaleOnlyPrefix(prefix: string): boolean {
+  const segs = prefix.split("/").filter(Boolean);
+  return segs.length === 1 && SITEMAP_LOCALE_PREFIXES.has(segs[0]);
+}
+
+/** Shared content_type across folder URLs, or null when missing/mixed. */
+export function consensusSitemapContentType(
+  urls: Array<{ content_type?: string }>,
+): string | null {
+  let type: string | null = null;
+  for (const url of urls) {
+    if (!url.content_type) return null;
+    if (type === null) type = url.content_type;
+    else if (url.content_type !== type) return null;
+  }
+  return type;
+}
+
+/**
+ * Content type dashboard target for a Content URLs folder, or null when the
+ * folder is a locale bucket, category path, mixed types, or types are unloaded.
+ */
+export function contentTypeForSitemapFolder(
+  folderPath: string,
+  contentTypes: SitemapFolderContentTypes | null | undefined,
+  consensusType?: string | null,
+): string | null {
+  if (!contentTypes || !consensusType || !contentTypes[consensusType]) return null;
+  const path = normalizeFolderPath(folderPath);
+
+  const previewMatch = path.match(/^\/private\/preview\/([^/]+)$/);
+  if (previewMatch) {
+    const name = previewMatch[1];
+    if (name === consensusType) return consensusType;
+    if (contentTypes[consensusType].directory === name) return consensusType;
+    return null;
+  }
+
+  let bestLen = -1;
+  let matched = false;
+  for (const pattern of Object.values(contentTypes[consensusType].url_pattern ?? {})) {
+    const prefix = listingPrefix(pattern);
+    if (!prefix || isLocaleOnlyPrefix(prefix)) continue;
+
+    if (path === prefix) {
+      matched = true;
+      if (prefix.length > bestLen) bestLen = prefix.length;
+      continue;
+    }
+
+    const alias = regionalAlias(prefix);
+    if (!alias) continue;
+    const segs = path.split("/").filter(Boolean);
+    if (segs.length < 2 || !REGIONAL_LOCALE_RE.test(segs[0])) continue;
+    const rest = `/${segs.slice(1).join("/")}`;
+    const aliasRest = alias.replace(/^\/:locale/, "") || "/";
+    if (rest === aliasRest) {
+      matched = true;
+      if (prefix.length > bestLen) bestLen = prefix.length;
+    }
+  }
+
+  return matched ? consensusType : null;
 }

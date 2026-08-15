@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   IconArrowLeft,
+  IconBrandGoogle,
   IconPhoto,
   IconCode,
   IconSearch,
@@ -10,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { OgImageTab } from "@/components/settings/OgImageTab";
 import { SchemaOrgTab } from "@/components/settings/SchemaOrgTab";
+import { SearchConsoleTab } from "@/components/settings/SearchConsoleTab";
 
-type SeoGeoTab = "og" | "schema";
+type SeoGeoTab = "og" | "schema" | "search-console";
 
 const SEO_TABS: {
   id: SeoGeoTab;
@@ -21,11 +23,13 @@ const SEO_TABS: {
 }[] = [
   { id: "og", href: "/private/settings/seo/og", label: "OG Image", Icon: IconPhoto },
   { id: "schema", href: "/private/settings/seo/schema", label: "Schema org", Icon: IconCode },
+  { id: "search-console", href: "/private/settings/seo/search-console", label: "Search Console", Icon: IconBrandGoogle },
 ];
 
 function resolveSeoTab(pathname: string): SeoGeoTab | null {
   if (pathname === "/private/settings/seo/og") return "og";
   if (pathname === "/private/settings/seo/schema") return "schema";
+  if (pathname === "/private/settings/seo/search-console") return "search-console";
   return null;
 }
 
@@ -64,8 +68,8 @@ export default function SeoGeoSettingsPage() {
               </h1>
             </div>
             <p className="text-sm text-muted-foreground">
-              Open Graph capture credentials and Schema.org site definitions. Brand logos, social links, and the
-              default social image stay under{" "}
+              Open Graph capture credentials, Schema.org site definitions, and Search Console inspection.
+              Brand logos, social links, and the default social image stay under{" "}
               <Link href="/private/settings?tab=brand" className="underline underline-offset-2 hover:text-foreground">
                 General → Brand
               </Link>
@@ -104,7 +108,13 @@ export default function SeoGeoSettingsPage() {
         </div>
 
         <div role="tabpanel">
-          {activeTab === "og" ? <OgImageTab /> : <SchemaOrgTab />}
+          {activeTab === "og" ? (
+            <OgImageTab />
+          ) : activeTab === "schema" ? (
+            <SchemaOrgTab />
+          ) : (
+            <SearchConsoleTab />
+          )}
         </div>
       </div>
     </div>

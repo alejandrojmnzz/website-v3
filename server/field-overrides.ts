@@ -22,6 +22,9 @@ import {
   SLUG_ALIAS_FIELD,
   KNOWN_SPECIAL_FIELDS,
   RESERVED_PUBLISHED_AT_FIELD,
+  KNOWN_SEO_FIELDS,
+  isKnownSeoFieldPath,
+  seoFieldFromPath,
 } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { contentIndex } from "./content-index";
@@ -31,6 +34,8 @@ import type { DatabaseManager } from "./database";
 import { ecommerceManager, PURCHASABLE_FIELD } from "./ecommerce/ecommerce-manager";
 import { isPublishedAtEmpty, setPublishedAt } from "./published-at";
 import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
+import { writeSeoFields } from "./seo-index";
+import { readSeoBlockFromYamlText } from "./seo-fields";
 import {
   DEFAULT_DRAFT_VARIANT,
   getEntryContentDir,
@@ -79,6 +84,8 @@ export type FieldProvenance = {
   writable?: boolean;
   /** True when the field key exists as a root key (or leftover FO) on the layer file. */
   layer_has_key?: boolean;
+  /** Platform SEO fields (locale `seo:`), not field_mapping. */
+  group?: "seo";
 };
 
 function contentRootPath(contentRoot?: string): string {
@@ -426,6 +433,42 @@ export function writeMappedFields(
   const filePath = layer.filePath;
   const pendingUpdates: Record<string, unknown | null> = { ...updates };
 
+  const seoUpdates: Record<string, unknown> = {};
+  for (const key of Object.keys(pendingUpdates)) {
+    if (!isKnownSeoFieldPath(key) && key !== "seo.pillar") continue;
+    const field = key === "seo.pillar" ? "pillar_path" : seoFieldFromPath(key);
+    if (field) seoUpdates[field] = pendingUpdates[key];
+    delete pendingUpdates[key];
+  }
+  if (Object.keys(seoUpdates).length > 0) {
+    const seoResult = writeSeoFields({
+      contentType,
+      slug,
+      locale,
+      updates: seoUpdates,
+      author,
+      contentRoot,
+      variant: opts?.variant,
+    });
+    if (!seoResult.success) {
+      return {
+        success: false,
+        error: seoResult.error,
+        statusCode: seoResult.statusCode || 400,
+        isVariantLayer: seoResult.statusCode === 404 ? undefined : layer.isVariantLayer,
+      };
+    }
+    if (Object.keys(pendingUpdates).length === 0) {
+      return {
+        success: true,
+        storage: "root_key",
+        relativePath: seoResult.relativePath,
+        filePath: seoResult.filePath,
+        isVariantLayer: seoResult.isVariantLayer,
+      };
+    }
+  }
+
   // Relation fields (and other common-only keys) always land on `_common.yml` for static types.
   const commonOnlyUpdates: Record<string, unknown | null> = {};
   if (isStatic && config.editor) {
@@ -743,6 +786,9 @@ export async function buildFieldProvenance(opts: {
   layerFileName?: string;
   isVariantLayer?: boolean;
   resolvedVariant?: string | null;
+  canonicalPath?: string | null;
+  indexRebuilt?: boolean;
+  seoFileMissing?: boolean;
 }> {
   const { contentType, slug, locale, contentRoot, db, variant } = opts;
   const config = getContentTypeConfig(contentType, contentRoot);
@@ -894,11 +940,51 @@ export async function buildFieldProvenance(opts: {
     });
   }
 
+  const localeAbs = layer.filePath;
+  const seoFileMissing = !localeAbs || !fs.existsSync(localeAbs);
+  let seoBlock: Record<string, unknown> = {};
+  if (!seoFileMissing && localeAbs) {
+    try {
+      seoBlock = readSeoBlockFromYamlText(fs.readFileSync(localeAbs, "utf-8")) as Record<string, unknown>;
+    } catch {
+      seoBlock = {};
+    }
+  }
+  const canonicalPath =
+    contentIndex.getAlternateUrls(slug, contentType)[locale] ||
+    contentIndex.getAlternateUrls(slug, contentType).en ||
+    null;
+
+  for (const key of KNOWN_SEO_FIELDS) {
+    const fieldPath = `seo.${key}`;
+    const raw = seoBlock[key];
+    fields.push({
+      field: fieldPath,
+      effective: raw === undefined ? (key === "is_pillar" ? false : null) : raw,
+      source: "entry_default",
+      group: "seo",
+      writable: !seoFileMissing,
+      layer_has_key:
+        !seoFileMissing && Object.prototype.hasOwnProperty.call(seoBlock, key) ? true : undefined,
+    });
+  }
+
+  let indexRebuilt = false;
+  try {
+    const { loadSeoIndex } = await import("./seo-index");
+    indexRebuilt = !!loadSeoIndex(contentRoot).rebuilt;
+  } catch {
+    indexRebuilt = false;
+  }
+
   return {
     hasDatabase,
     fields,
     layerFileName: layer.fileName || undefined,
     isVariantLayer: layer.isVariantLayer,
     resolvedVariant: layer.resolvedVariant,
+    canonicalPath: canonicalPath ? String(canonicalPath) : null,
+    indexRebuilt,
+    seoFileMissing,
   };
 }

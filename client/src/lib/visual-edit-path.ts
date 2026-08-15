@@ -1,3 +1,4 @@
+import { saveEditModeScrollPosition } from "@/lib/editModeScroll";
 import { normalizeLocale } from "@/lib/locale";
 
 /** Public content pages and `/private/preview/*` can use Edit/Read + device chrome. Admin `/private/*` cannot. */
@@ -34,4 +35,41 @@ export function buildPrivatePreviewHref(opts: {
   qs.set("locale", locale);
   if (variant) qs.set("variant", variant);
   return `/private/preview/${opts.contentType}/${opts.slug}?${qs.toString()}`;
+}
+
+/**
+ * Turn on edit mode and, when type+slug are known, open `/private/preview/...`.
+ * Stays on the current URL when type/slug cannot be inferred or the page is already preview.
+ */
+export function enterVisualEditMode(opts: {
+  enableEditMode: () => void;
+  navigate: (href: string) => void;
+  pathname: string;
+  search?: string;
+  contentType?: string | null;
+  slug?: string | null;
+  fallbackLocale?: string;
+}): { navigated: boolean; href: string | null } {
+  opts.enableEditMode();
+
+  const contentType = opts.contentType?.trim() || "";
+  const slug = opts.slug?.trim() || "";
+  if (!contentType || !slug) {
+    return { navigated: false, href: null };
+  }
+
+  const href = buildPrivatePreviewHref({
+    contentType,
+    slug,
+    pathname: opts.pathname,
+    search: opts.search,
+    fallbackLocale: opts.fallbackLocale,
+  });
+  if (!href) {
+    return { navigated: false, href: null };
+  }
+
+  saveEditModeScrollPosition();
+  opts.navigate(href);
+  return { navigated: true, href };
 }

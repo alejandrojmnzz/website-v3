@@ -8,12 +8,13 @@ import { useInternalNav } from "@/hooks/useInternalNav";
 import { useSession } from "@/contexts/SessionContext";
 import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
 import { useContentTypes, getFolderFromType, useContentTypesRaw } from "@/hooks/useContentTypes";
+import { consensusSitemapContentType, contentTypeForSitemapFolder } from "@/lib/content-type-routes";
 import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import {
   restoreEditModeScrollPosition,
-  saveEditModeScrollPosition,
 } from "@/lib/editModeScroll";
+import { useEnterVisualEditMode } from "@/hooks/useEnterVisualEditMode";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSyncOptional } from "@/contexts/SyncContext";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   STORAGE_KEY,
   OPEN_STORAGE_KEY,
+  OPEN_DEBUG_BUBBLE_EVENT,
   type MenuView,
   type SitemapUrl,
   type RedirectItem,
@@ -145,6 +147,7 @@ export function DebugBubble() {
   const { data: contentTypesRaw } = useContentTypesRaw();
   const { session } = useSession();
   const editMode = useEditModeOptional();
+  const enterVisualEdit = useEnterVisualEditMode();
   const syncContext = useSyncOptional();
   const { i18n } = useTranslation();
   const { toast } = useToast();
@@ -460,6 +463,7 @@ export function DebugBubble() {
     if (!isDebugMode) {
       setPageDiagnostics(null);
       setPageDiagnosticsError(null);
+      setPageErrorsModalOpen(false);
       return;
     }
 
@@ -480,6 +484,7 @@ export function DebugBubble() {
     if (!diagnosticsUrl) {
       setPageDiagnostics(null);
       setPageDiagnosticsError(null);
+      setPageErrorsModalOpen(false);
       return;
     }
 
@@ -546,23 +551,15 @@ export function DebugBubble() {
       setPendingAutoEditMode(false);
       setTokenInput("");
       
-      // Enable edit mode and navigate to preview
+      // Enable edit mode and navigate to preview when type+slug are known
       if (editMode && !editMode.isEditMode) {
-        editMode.toggleEditMode();
-        
-        // Navigate to preview route if on a content page
-        if (contentInfo.type && contentInfo.slug && !pathname.startsWith('/private/preview/')) {
-          const pathSegments = pathname.split('/').filter(Boolean);
-          const urlLocale = pathSegments[0];
-          const hasPathLocale = /^[a-z]{2}$/.test(urlLocale);
-          const resolvedLocale = hasPathLocale ? normalizeLocale(urlLocale) : (pageDiagnostics?.locale || normalizeLocale(i18n.language));
-          const previewUrl = `/private/preview/${contentInfo.type}/${contentInfo.slug}?locale=${resolvedLocale}`;
-          saveEditModeScrollPosition();
-          navigate(previewUrl);
-        }
+        enterVisualEdit({
+          contentType: contentInfo.type ?? undefined,
+          slug: contentInfo.slug ?? undefined,
+        });
       }
     }
-  }, [isValidated, isLoading, pendingAutoEditMode, editMode, contentInfo, pathname, i18n.language, navigate, pageDiagnostics?.locale]);
+  }, [isValidated, isLoading, pendingAutoEditMode, editMode, contentInfo, enterVisualEdit]);
 
   // Restore scroll after Edit ↔ Read navigations (public ↔ /private/preview)
   useEffect(() => {
@@ -755,6 +752,18 @@ export function DebugBubble() {
     window.addEventListener("open-sync-modal", handleOpenSyncModal);
     return () => {
       window.removeEventListener("open-sync-modal", handleOpenSyncModal);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleOpenDebugBubble = (event: Event) => {
+      const view = (event as CustomEvent<{ view?: MenuView }>).detail?.view;
+      setOpen(true);
+      if (view) setMenuView(view);
+    };
+    window.addEventListener(OPEN_DEBUG_BUBBLE_EVENT, handleOpenDebugBubble);
+    return () => {
+      window.removeEventListener(OPEN_DEBUG_BUBBLE_EVENT, handleOpenDebugBubble);
     };
   }, []);
 
@@ -1619,6 +1628,7 @@ export function DebugBubble() {
     path: string; // Full path to this folder level
     urls: SitemapUrl[]; // URLs that terminate at this folder level
     subfolders: SitemapFolder[];
+    contentType?: string;
   }
 
   const groupedSitemapUrls = (): { folders: SitemapFolder[]; rootUrls: SitemapUrl[] } => {
@@ -1662,6 +1672,12 @@ export function DebugBubble() {
     const folders = Array.from(folderMap.values()).sort((a, b) => 
       a.path.localeCompare(b.path)
     );
+
+    for (const folder of folders) {
+      const consensus = consensusSitemapContentType(folder.urls);
+      const type = contentTypeForSitemapFolder(folder.path, contentTypesMap, consensus);
+      if (type) folder.contentType = type;
+    }
 
     return { folders, rootUrls };
   };

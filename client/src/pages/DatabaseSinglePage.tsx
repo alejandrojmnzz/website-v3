@@ -23,7 +23,7 @@ import { getMenuChromeHeights } from "@/lib/menuChrome";
 import LocaleUnavailable, {
   type LocaleUnavailableInfo,
 } from "@/components/LocaleUnavailable";
-import Staff404Recovery from "@/components/editing/Staff404Recovery";
+import Staff404Recovery, { Staff404SwitchToEditHint } from "@/components/editing/Staff404Recovery";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 interface DatabaseSinglePageProps {
@@ -159,11 +159,14 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
               {locale === "es" ? "Página no encontrada" : "Page not found"}
             </h1>
             {!isStaff && (
-              <p className="text-muted-foreground">
-                {locale === "es"
-                  ? "La página que buscas no existe."
-                  : "The page you're looking for doesn't exist."}
-              </p>
+              <div data-testid="text-404-description">
+                <p className="text-muted-foreground">
+                  {locale === "es"
+                    ? "La página que buscas no existe."
+                    : "The page you're looking for doesn't exist."}
+                </p>
+                <Staff404SwitchToEditHint locale={locale} contentType={contentType} slug={slug} />
+              </div>
             )}
             <Staff404Recovery
               surface="databaseSingle"

@@ -16,6 +16,7 @@ interface SeoOverview {
     withFocusFeatures: number;
     withFaq: number;
     withSchema: number;
+    withKeyword?: number;
   };
 }
 

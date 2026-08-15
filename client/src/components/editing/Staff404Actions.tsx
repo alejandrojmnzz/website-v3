@@ -1,5 +1,14 @@
 import type { ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  FileCode,
+  FilePenLine,
+  LayoutDashboard,
+  LayoutTemplate,
+  Loader2,
+  RefreshCw,
+  Route,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   staff404ActionCopy,
@@ -54,6 +63,28 @@ export default function Staff404Actions({
   );
 }
 
+function ActionIcon({ id, busy }: { id: Staff404ActionId; busy?: boolean }) {
+  if (id === "rebuild" && busy) {
+    return <Loader2 className="animate-spin" />;
+  }
+  switch (id) {
+    case "goBack":
+      return <ArrowLeft />;
+    case "dashboard":
+      return <LayoutDashboard />;
+    case "editTemplates":
+      return <LayoutTemplate />;
+    case "openDraft":
+      return <FilePenLine />;
+    case "rebuild":
+      return <RefreshCw />;
+    case "editYaml":
+      return <FileCode />;
+    case "openRedirects":
+      return <Route />;
+  }
+}
+
 function ActionButton({
   id,
   label,
@@ -67,6 +98,7 @@ function ActionButton({
     return (
       <Button size="sm" className="shrink-0" asChild>
         <a href={handlers.dashboardHref} data-testid="button-visit-type-dashboard">
+          <ActionIcon id={id} />
           {label}
         </a>
       </Button>
@@ -76,6 +108,7 @@ function ActionButton({
     return (
       <Button size="sm" className="shrink-0" asChild>
         <a href={handlers.redirectsHref} data-testid="link-open-in-redirects">
+          <ActionIcon id={id} />
           {label}
         </a>
       </Button>
@@ -116,9 +149,7 @@ function ActionButton({
       onClick={onClick}
       data-testid={testId}
     >
-      {id === "rebuild" && handlers.rebuildBusy ? (
-        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-      ) : null}
+      <ActionIcon id={id} busy={handlers.rebuildBusy} />
       {label}
     </Button>
   );

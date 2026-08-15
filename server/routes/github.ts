@@ -1123,66 +1123,36 @@ export function registerGithubRoutes(app: Express): void {
           ? author.trim()
           : undefined;
 
-      // Queue mode: route through markFileAsModified → auto-commit queue.
-      // Used by MCP commits so they respect sequencing, attribution, and conflict handling.
+      // Queue mode: markFileAsModified then auto-commit queue, or one tree commit
+      // when auto-commit is off. Used by MCP so multi-file writes never parallel
+      // Contents API PUTs (GitHub 409). DebugBubble per-file still uses commit-file.
       if (queue === true) {
-        const { markFileAsModified, detectPendingChanges } = await import(
-          "../sync-state"
-        );
         const { getSyncLogForResponse } = await import("../sync-log");
-        const { isAutoCommitEnabled } = await import("../auto-commit");
-
-        if (!isAutoCommitEnabled()) {
-          // Auto-commit disabled — fall through to direct commit below
-          const finalMsg = authorName
-            ? `[Author: ${authorName}] ${message.trim()}`
-            : message.trim();
-          const { commitAndPush } = await import("../github");
-          const site = res.locals.site as any;
-          const result = await commitAndPush(finalMsg, {
-            force: !!force,
-            files: Array.isArray(files) ? files : undefined,
-            repoUrl: site?.config?.githubRepoUrl,
-            contentRoot: site?.contentRootName,
-          });
-          if (result.success) {
-            res.json({ success: true, commitHash: result.commitHash });
-          } else {
-            res.status(400).json({ success: false, error: result.error });
-          }
-          return;
-        }
-
-        // Determine which files to queue
+        const { queueOrCommitFiles } = await import("../github-commit-queue");
         const site = res.locals.site as {
           contentRootName?: string;
           config?: { githubRepoUrl?: string };
         } | undefined;
-        let filesToQueue: string[];
-        if (Array.isArray(files) && files.length > 0) {
-          filesToQueue = files as string[];
-        } else {
-          const pending = detectPendingChanges(site?.contentRootName);
-          filesToQueue = pending.map((c) => c.file);
-        }
-
-        if (filesToQueue.length === 0) {
-          res
-            .status(400)
-            .json({ error: "No pending changes found to queue" });
+        const result = await queueOrCommitFiles({
+          files: Array.isArray(files) ? files : undefined,
+          message: message.trim(),
+          author: authorName,
+          force: !!force,
+          contentRoot: site?.contentRootName,
+          repoUrl: site?.config?.githubRepoUrl,
+          logEdit: (shortPath, author) => {
+            getSyncLogForResponse(res).log("EDIT", `MCP queued edit: ${shortPath}`, author);
+          },
+        });
+        if (result.status === 202) {
+          res.status(202).json({ queued: true, files: result.files, author: result.author });
           return;
         }
-
-        const effectiveAuthor = authorName || "MCP";
-        for (const filePath of filesToQueue) {
-          markFileAsModified(filePath, effectiveAuthor, undefined, site?.contentRootName);
-          const shortPath = filePath.split('/').slice(1).join('/') || filePath;
-          getSyncLogForResponse(res).log("EDIT", `MCP queued edit: ${shortPath}`, effectiveAuthor);
+        if (result.status === 200) {
+          res.json({ success: true, commitHash: result.commitHash });
+          return;
         }
-
-        res
-          .status(202)
-          .json({ queued: true, files: filesToQueue, author: effectiveAuthor });
+        res.status(400).json({ success: false, error: result.error });
         return;
       }
 

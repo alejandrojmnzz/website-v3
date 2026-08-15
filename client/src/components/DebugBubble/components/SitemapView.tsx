@@ -1,9 +1,11 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ArrowLeft, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, Folder, History, Home, Info, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, FileText, Folder, History, Home, Info, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { staff404DashboardHref } from "@/lib/staff404";
 import type { MenuView, SitemapUrl } from "../types";
 import { StatusCountBadge } from "./StatusCountBadge";
 import type { RobotsSettingsResponse } from "@/components/settings/RobotsTab";
@@ -14,6 +16,7 @@ export interface SitemapFolder {
   path: string;
   urls: SitemapUrl[];
   subfolders: SitemapFolder[];
+  contentType?: string;
 }
 
 interface SitemapViewProps {
@@ -39,6 +42,44 @@ interface SitemapViewProps {
   handleRefreshCache: (url: SitemapUrl) => void;
   validationSummary: Record<string, { errorCount: number; warningCount: number }>;
   onOpenDiagnosticsForUrl: (urlPath: string) => void;
+}
+
+function FolderContentTypeHint({ contentType }: { contentType: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="p-0.5 rounded-md text-muted-foreground hover-elevate flex-shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          data-testid={`button-folder-content-type-${contentType}`}
+        >
+          <FileText className="h-4 w-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-72 space-y-3"
+        align="end"
+        onClick={(e) => e.stopPropagation()}
+        data-testid={`popover-folder-content-type-${contentType}`}
+      >
+        <p className="text-xs text-muted-foreground leading-snug">
+          This is a content type. You can manage all the{" "}
+          <span className="font-medium text-foreground">{contentType}</span>
+          {" "}on the content type dashboard.
+        </p>
+        <Button size="sm" variant="secondary" className="w-full" asChild>
+          <a
+            href={staff404DashboardHref(contentType)}
+            data-testid={`link-folder-dashboard-${contentType}`}
+          >
+            Take me to the {contentType} dashboard
+            <ArrowRight className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function ValidationBadge({
@@ -366,6 +407,9 @@ export function SitemapView({
                           excluded from /sitemap.xml (usually robots: noindex).{" "}
                           <span className="text-foreground/80">Draft</span> means unpublished (preview only).
                           Drafts still show error/warning badges after diagnostics have run — same store as live pages.
+                          Folders that match a content type (public URL prefix, regional locale prefix, or{" "}
+                          <span className="text-foreground/80">/private/preview/{"{type}"}</span>) show a dashboard
+                          control to <span className="text-foreground/80">/private/type/{"{type}"}</span>.
                         </p>
                       </PopoverContent>
                     </Popover>
@@ -477,22 +521,28 @@ export function SitemapView({
                 <>
               {folders.map((folder) => (
                 <div key={folder.name} className="mb-1">
-                  <button
-                    onClick={() => toggleFolder(folder.name)}
-                    className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-left hover-elevate cursor-pointer"
-                    data-testid={`button-folder-${folder.name.toLowerCase()}`}
-                  >
-                    {expandedFolders.has(folder.name) ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div className="flex items-center gap-2 w-full px-3 py-2 rounded-md hover-elevate">
+                    <button
+                      type="button"
+                      onClick={() => toggleFolder(folder.name)}
+                      className="flex items-center gap-2 flex-1 min-w-0 text-sm text-left cursor-pointer"
+                      data-testid={`button-folder-${folder.name.toLowerCase()}`}
+                    >
+                      {expandedFolders.has(folder.name) ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      )}
+                      <Folder className="h-4 w-4 text-primary flex-shrink-0" />
+                      <span className="font-medium min-w-0 truncate">{folder.name}</span>
+                    </button>
+                    {folder.contentType && (
+                      <FolderContentTypeHint contentType={folder.contentType} />
                     )}
-                    <Folder className="h-4 w-4 text-primary flex-shrink-0" />
-                    <span className="font-medium flex-1 min-w-0 truncate">{folder.name}</span>
-                    <span className="text-xs text-muted-foreground ml-auto">
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
                       {folder.urls.length}
                     </span>
-                  </button>
+                  </div>
                   {expandedFolders.has(folder.name) && (
                     <div className="ml-4 border-l pl-2 space-y-1 mt-1">
                       {folder.urls.map((url, urlIndex) => {

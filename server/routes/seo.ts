@@ -220,6 +220,21 @@ import {
   FixerItemStatus,
 } from "./_helpers";
 import { child } from "../logger";
+import {
+  assertInspectBatch,
+  buildSummary,
+  getGscConfig,
+  getRecord,
+  gscPropertyAccessFromRecords,
+  hasMainSeoKeyword,
+  homepageLocFromDebug,
+  inspectAndStore,
+  isPreviewLoc,
+  loadStore,
+  resolvePublicInspectLoc,
+  sitemapHostMatchesGsc,
+  suggestedGscSiteUrl,
+} from "../gsc-url-inspection";
 const log = child({ module: "routes/seo" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -330,6 +345,94 @@ export function registerSeoRoutes(app: Express): void {
   app.get("/api/debug/sitemap-urls", (req, res) => {
     const urls = getDebugSitemapUrls(getSiteSitemapCtx(res));
     res.json(urls);
+  });
+
+  app.get("/api/debug/gsc-inspection", (req, res) => {
+    const contentRootName = getContentRootName(res);
+    const siteCtx = getSiteSitemapCtx(res);
+    const debugUrls = getDebugSitemapUrls(siteCtx);
+    const contentRoot = getContentRoot(res);
+    const cfg = getGscConfig(contentRoot);
+    const store = loadStore(contentRootName);
+    const summary = buildSummary(store.records, debugUrls);
+    const sampleLoc = homepageLocFromDebug(debugUrls);
+    const siteUrlMatch = sitemapHostMatchesGsc(sampleLoc ?? undefined, cfg.siteUrl);
+    const urlParam = typeof req.query.url === "string" ? req.query.url.trim() : "";
+    const includeRecords = req.query.include === "records";
+    const site = res.locals.site as SiteContext | undefined;
+
+    const payload: Record<string, unknown> = {
+      configured: cfg.configured,
+      siteUrl: cfg.siteUrl,
+      suggestedSiteUrl: suggestedGscSiteUrl(site?.config?.domain),
+      credentialsConfigured: cfg.credentialsConfigured,
+      credentialsSource: cfg.credentialsSource,
+      credentialsEnvVar: cfg.credentialsEnvVar,
+      serviceAccountEmail: cfg.serviceAccountEmail,
+      propertyAccess: gscPropertyAccessFromRecords(store.records),
+      siteUrlMatch,
+      homepageLoc: sampleLoc,
+      summary,
+    };
+
+    if (urlParam) {
+      const resolved = resolvePublicInspectLoc(urlParam, debugUrls);
+      payload.resolved = {
+        requested: urlParam,
+        loc: resolved.loc,
+        inSitemap: resolved.inSitemap,
+        isDraft: resolved.isDraft,
+        isPreview: isPreviewLoc(urlParam),
+      };
+      payload.record = resolved.loc ? getRecord(contentRootName, resolved.loc) ?? null : null;
+    } else if (includeRecords) {
+      payload.records = store.records;
+    }
+
+    res.json(payload);
+  });
+
+  app.post("/api/debug/gsc-inspection", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const contentRoot = getContentRoot(res);
+      const cfg = getGscConfig(contentRoot);
+      if (!cfg.configured) {
+        res.status(503).json({
+          error:
+            "Search Console is not configured. Save a property in SEO/GEO → Search Console and set GCS_CREDENTIALS_JSON or GCS_KEY_FILENAME.",
+        });
+        return;
+      }
+
+      const urls = req.body?.urls as unknown;
+      const force = Boolean(req.body?.force);
+      const batchError = assertInspectBatch(urls);
+      if (batchError) {
+        res.status(400).json({ error: batchError });
+        return;
+      }
+
+      const contentRootName = getContentRootName(res);
+      const debugUrls = getDebugSitemapUrls(getSiteSitemapCtx(res));
+      const results = await inspectAndStore({
+        contentRootName,
+        contentRoot,
+        urls: (urls as string[]).map((u) => u.trim()),
+        force,
+        debugUrls,
+      });
+      const store = loadStore(contentRootName);
+      res.json({
+        results,
+        summary: buildSummary(store.records, debugUrls),
+      });
+    } catch (err) {
+      log.error({ err }, "GSC inspect failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Inspect failed" });
+    }
   });
 
   // Public sitemap URLs endpoint for menu editor
@@ -452,26 +555,21 @@ export function registerSeoRoutes(app: Express): void {
   // ============================================================================
   // Blog API routes
   // ============================================================================
-  app.get("/api/seo/overview", (req, res) => {
+  app.get("/api/seo/overview", async (req, res) => {
     try {
       const entries = getCI(res).listAll();
-      const seoEntries = getCI(res).getAllSeoEntries();
 
       const intentDistribution: Record<string, Record<string, number>> = {};
-      const clusterMap = new Map<string, string[]>();
-      const orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[] = [];
       const featureCoverage: Record<string, number> = {};
       const faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[] = [];
       const schemaCoverage: Record<string, number> = {};
 
       let totalPages = 0;
-      let withPillar = 0;
       let withIntent = 0;
       let withFocusFeatures = 0;
       let withFaq = 0;
       let withSchema = 0;
-
-      const highPriorityTypes = new Set([getFolder("program"), getFolder("landing")]);
+      let withKeyword = 0;
 
       for (const entry of entries) {
         const ct = entry.contentType;
@@ -487,7 +585,6 @@ export function registerSeoRoutes(app: Express): void {
           const sections = data.sections as { type?: string }[] | undefined;
 
           const intent = (seo?.intent as string) || "unknown";
-          const pillar = typeof seo?.pillar === "string" && seo.pillar ? seo.pillar : undefined;
           const focusFeatures = Array.isArray(seo?.focus_features)
             ? (seo!.focus_features as string[]).filter((f) => typeof f === "string")
             : [];
@@ -496,20 +593,7 @@ export function registerSeoRoutes(app: Express): void {
           intentDistribution[ct][intent] = (intentDistribution[ct][intent] || 0) + 1;
 
           if (seo?.intent) withIntent++;
-
-          if (pillar) {
-            withPillar++;
-            const cluster = clusterMap.get(pillar) || [];
-            if (!cluster.includes(entry.slug)) cluster.push(entry.slug);
-            clusterMap.set(pillar, cluster);
-          } else if (highPriorityTypes.has(ct)) {
-            orphanPages.push({
-              slug: entry.slug,
-              contentType: ct,
-              intent,
-              filePath: merged.filePath,
-            });
-          }
+          if (hasMainSeoKeyword(data)) withKeyword++;
 
           if (focusFeatures.length > 0) {
             withFocusFeatures++;
@@ -552,15 +636,29 @@ export function registerSeoRoutes(app: Express): void {
         }
       }
 
-      const clusters = Array.from(clusterMap.entries()).map(([pillarUrl, clusterSlugs]) => ({
-        pillarUrl,
-        clusterSlugs,
-        clusterCount: clusterSlugs.length,
+      const { loadSeoIndex } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(getContentRoot(res));
+      const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => ({
+        hubId,
+        pillarUrl: cluster.path,
+        clusterSlugs: cluster.members.map((id) => id.split("/")[1] || id),
+        memberIds: cluster.members,
+        clusterCount: cluster.members.length,
       }));
-
-      const uniqueOrphans = orphanPages.filter(
-        (o, i, arr) => arr.findIndex((x) => x.slug === o.slug && x.contentType === o.contentType) === i,
-      );
+      const uniqueOrphans = seoIndex.orphans.map((id) => {
+        const row = seoIndex.entries[id];
+        const parts = id.split("/");
+        return {
+          slug: row?.slug || parts[1] || id,
+          contentType: row?.content_type || parts[0] || "",
+          intent: "unknown",
+          filePath: row?.file || "",
+          locale: row?.locale || parts[2],
+        };
+      });
+      const withPillar = Object.values(seoIndex.entries).filter(
+        (e) => e.is_pillar || (typeof e.pillar_path === "string" && e.pillar_path.trim()),
+      ).length;
 
       res.json({
         intentDistribution,
@@ -569,9 +667,12 @@ export function registerSeoRoutes(app: Express): void {
         featureCoverage,
         faqCoverage,
         schemaCoverage,
+        indexRebuilt: !!seoIndex.rebuilt,
+        indexWarnings: seoIndex.warnings || [],
         totals: {
           totalPages,
           withPillar,
+          withKeyword,
           withIntent,
           withFocusFeatures,
           withFaq,

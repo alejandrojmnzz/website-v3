@@ -40,6 +40,9 @@ export interface Staff404Model {
   actions: Staff404ActionId[];
 }
 
+export const STAFF_404_UNKNOWN_PUBLIC_PAGE =
+  "This URL is not a known page on our Content URLs.";
+
 export function hasRebuiltQueryParam(search: string): boolean {
   const raw = search.startsWith("?") ? search.slice(1) : search;
   return new URLSearchParams(raw).get("rebuilt") === "1";
@@ -102,7 +105,7 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
   if (!facts.isValidType && facts.surface === "privatePreview") {
     happened.push(`\`${facts.contentType ?? ""}\` is not a valid content type.`);
   } else if (facts.surface === "public") {
-    happened.push("This URL is not a known page.");
+    happened.push(STAFF_404_UNKNOWN_PUBLIC_PAGE);
   } else if (facts.listingSharedTemplate) {
     if (facts.requestedVariantMissing && facts.requestedVariant) {
       happened.push(
@@ -216,7 +219,7 @@ export function staff404ActionCopy(
       };
     case "rebuild":
       return {
-        title: "Rebuild the URLs",
+        title: "If you think this is a mistake",
         description: "Rescan local snapshot + clear sitemap; does not fetch remote DB",
         buttonLabel: "Rebuild URLs",
       };

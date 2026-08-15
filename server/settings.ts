@@ -298,6 +298,70 @@ export const DEFAULT_ROBOTS_SETTINGS: RobotsSettings = {
   ],
 };
 
+/** Search Console URL Inspection property (not credentials — those stay env-only). */
+export interface SearchConsoleSettings {
+  site_url: string | null;
+}
+
+export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
+  site_url: null,
+};
+
+function isLocalGscHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1") return true;
+  if (host === "::1" || host === "0.0.0.0") return true;
+  return false;
+}
+
+/**
+ * Normalize a Search Console property string for settings.yml.
+ * Accepts `https://example.com/` (trailing slash added) or `sc-domain:example.com`.
+ */
+export function normalizeSearchConsoleSiteUrl(raw: unknown): string {
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("Search Console property is required");
+  }
+  const trimmed = raw.trim();
+  if (trimmed.toLowerCase().startsWith("sc-domain:")) {
+    const host = trimmed.slice("sc-domain:".length).trim().toLowerCase().replace(/\.$/, "");
+    if (!host) {
+      throw new Error("sc-domain property needs a hostname");
+    }
+    if (isLocalGscHostname(host)) {
+      throw new Error("Search Console property cannot be localhost");
+    }
+    if (host.includes("://") || host.includes("/") || /\s/.test(host)) {
+      throw new Error("Invalid sc-domain hostname");
+    }
+    return `sc-domain:${host}`;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error("Search Console property must be https://example.com/ or sc-domain:example.com");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("URL-prefix property must use https://");
+  }
+  if (isLocalGscHostname(url.hostname)) {
+    throw new Error("Search Console property cannot be localhost");
+  }
+  const pathname = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
+  return `${url.origin}${pathname}`;
+}
+
+export function parseSearchConsoleSettings(raw: unknown): SearchConsoleSettings {
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const siteUrl = typeof obj.site_url === "string" && obj.site_url.trim() ? obj.site_url.trim() : null;
+  return { site_url: siteUrl };
+}
+
 /**
  * Non-secret Browser Run pacing for OG / entry-preview captures.
  * Credentials stay env-only; these rate fields live in settings.yml → entry_preview.
@@ -356,6 +420,7 @@ interface SiteSettings {
   optimization: OptimizationSettings;
   tracking: TrackingSettings;
   robots: RobotsSettings;
+  search_console: SearchConsoleSettings;
   auth: AuthSettings;
   entry_preview: EntryPreviewSettings;
 }
@@ -436,6 +501,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       conversion_events: [],
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
+    search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
     auth: {},
     entry_preview: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
   };
@@ -608,6 +674,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       optimization,
       tracking,
       robots,
+      search_console: parseSearchConsoleSettings(parsed.search_console),
       auth,
       entry_preview: parseEntryPreviewSettings(parsed.entry_preview),
     };
@@ -832,6 +899,10 @@ export function getTrackingSettings(contentRoot?: string): TrackingSettings {
 
 export function getRobotsSettings(contentRoot?: string): RobotsSettings {
   return loadSettings(contentRoot).robots;
+}
+
+export function getSearchConsoleSettings(contentRoot?: string): SearchConsoleSettings {
+  return loadSettings(contentRoot).search_console;
 }
 
 export function getEntryPreviewSettings(contentRoot?: string): EntryPreviewSettings {
@@ -1155,6 +1226,30 @@ export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot
   log.info(
     `[Settings] Updated robots: block_indexing=${updated.block_indexing}, include_sitemap=${updated.include_sitemap}, disallow_paths=${updated.disallow_paths.length}, ai_bots=${updated.ai_bots.length}`
   );
+  return updated;
+}
+
+export function updateSearchConsoleSettings(
+  input: { site_url: string },
+  contentRoot?: string,
+): SearchConsoleSettings {
+  const siteUrl = normalizeSearchConsoleSiteUrl(input.site_url);
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const updated: SearchConsoleSettings = { site_url: siteUrl };
+  existing.search_console = { site_url: siteUrl };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(`[Settings] Updated search_console.site_url=${siteUrl}`);
   return updated;
 }
 

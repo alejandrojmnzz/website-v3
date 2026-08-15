@@ -70,6 +70,14 @@ describe("resolveAllTemplateVars", () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
+  it("resolves {{ seo.main_keyword }} from the nested seo bag", () => {
+    const result = resolveAllTemplateVars(
+      { heading: "Learn {{ seo.main_keyword }}" },
+      { seo: { main_keyword: "javascript" } },
+    );
+    expect(result).toEqual({ heading: "Learn javascript" });
+  });
+
   it("resolves single → meta → param; leaves site vars for the client by default", () => {
     const data = {
       meta: {

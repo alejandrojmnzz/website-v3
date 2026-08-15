@@ -1,4 +1,4 @@
-import { ContentInfo, MenuView, STORAGE_KEY } from "../types";
+import { ContentInfo, MenuView, OPEN_DEBUG_BUBBLE_EVENT, STORAGE_KEY } from "../types";
 
 export function deslugify(slug: string): string {
   return slug
@@ -118,3 +118,7 @@ export const getPersistedMenuView = (): MenuView => {
   }
   return "main";
 };
+
+export function openDebugBubble(view?: MenuView): void {
+  window.dispatchEvent(new CustomEvent(OPEN_DEBUG_BUBBLE_EVENT, { detail: { view } }));
+}

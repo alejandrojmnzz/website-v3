@@ -57,6 +57,36 @@ import {
   cleanSectionIdFromEntryOverlays,
   isAllowlistedSectionFieldPath,
 } from "./shared-layout-sync";
+import { extractSeoUpdatesFromOps } from "./seo-fields";
+import { writeSeoFields } from "./seo-index";
+
+function applySeoUpdatesAfterWrite<T extends { success: boolean; error?: string }>(
+  result: T,
+  seoUpdates: Record<string, unknown>,
+  opts: {
+    contentType: string;
+    slug: string;
+    locale: string;
+    author?: string;
+    contentRoot?: string;
+    variant?: string;
+    ci?: ContentIndex;
+  },
+): T | { success: false; error: string } {
+  if (!result.success || Object.keys(seoUpdates).length === 0) return result;
+  const seoResult = writeSeoFields({
+    contentType: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    updates: seoUpdates,
+    author: opts.author,
+    contentRoot: opts.contentRoot,
+    variant: opts.variant,
+    ci: opts.ci,
+  });
+  if (!seoResult.success) return { success: false, error: seoResult.error };
+  return result;
+}
 
 /**
  * Draft/variant section saves: only identity-check touched section indexes.
@@ -447,7 +477,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
   updatedSections?: unknown[];
   clearedFields?: ClearedField[];
 }> {
-  const { contentType, slug, locale: rawLocale, operations, variant, version, contentRoot } = request;
+  const { contentType, slug, locale: rawLocale, operations: requestOperations, variant, version, contentRoot } = request;
   // Use per-site ContentIndex when provided (avoids resolving files against default site)
   const ci = request.ci ?? contentIndex;
   
@@ -470,6 +500,36 @@ export async function editContent(request: ContentEditRequest): Promise<{
   });
   if (!draftWriteGate.ok) {
     return { success: false, error: draftWriteGate.error };
+  }
+
+  const seoExtract = extractSeoUpdatesFromOps(
+    requestOperations as Array<{ action?: string; path?: string; value?: unknown }>,
+  );
+  if (seoExtract.commonSeo) {
+    return {
+      success: false,
+      error:
+        "Unknown seo.* field. Known: seo.main_keyword, seo.pillar_path, seo.is_pillar. seo.* always writes the locale file (not _common.yml).",
+    };
+  }
+  const seoUpdates = seoExtract.seoUpdates;
+  const operations =
+    Object.keys(seoUpdates).length > 0 ? (seoExtract.rest as typeof requestOperations) : requestOperations;
+  if (Object.keys(seoUpdates).length > 0 && operations.length === 0) {
+    const seoResult = writeSeoFields({
+      contentType,
+      slug,
+      locale,
+      updates: seoUpdates,
+      author: request.author,
+      contentRoot,
+      variant: hasVariant ? variant : undefined,
+      ci,
+    });
+    if (!seoResult.success) {
+      return { success: false, error: seoResult.error };
+    }
+    return { success: true, updatedSections: [] };
   }
   
   try {
@@ -551,7 +611,8 @@ export async function editContent(request: ContentEditRequest): Promise<{
       }
       const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
       const templateLocaleData = (ci.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
-      return handleSharedTemplateEdit({
+      return applySeoUpdatesAfterWrite(
+        handleSharedTemplateEdit({
         contentType,
         slug,
         locale,
@@ -565,7 +626,18 @@ export async function editContent(request: ContentEditRequest): Promise<{
         // Draft template variants must not fan out onto live sibling singles
         skipSharedLayoutFanOut: hasVariant || request.skipSharedLayoutFanOut,
         isDraftOrVariantWrite: hasVariant,
-      });
+      }),
+        seoUpdates,
+        {
+          contentType,
+          slug,
+          locale,
+          author: request.author,
+          contentRoot,
+          variant: hasVariant ? variant : undefined,
+          ci,
+        },
+      );
     }
 
     const { data: localeData, filePath, error: loadError, isSharedTemplate } = ci.loadLocaleData(contentType, slug, locale, variant, version);
@@ -585,22 +657,46 @@ export async function editContent(request: ContentEditRequest): Promise<{
         op => op.action === "update_field" && !op.path.startsWith("sections.")
       );
       if (allTopLevelFields) {
-        return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot });
+        return applySeoUpdatesAfterWrite(
+          writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot }),
+          seoUpdates,
+          {
+            contentType,
+            slug,
+            locale,
+            author: request.author,
+            contentRoot,
+            variant: hasVariant ? variant : undefined,
+            ci,
+          },
+        );
       }
-      return handleSharedTemplateEdit({
-        contentType,
-        slug,
-        locale,
-        operations,
-        localeData,
-        filePath,
-        author: request.author,
-        contentRoot,
-        database: request.database,
-        ci,
-        skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
-        isDraftOrVariantWrite: hasVariant,
-      });
+      return applySeoUpdatesAfterWrite(
+        handleSharedTemplateEdit({
+          contentType,
+          slug,
+          locale,
+          operations,
+          localeData,
+          filePath,
+          author: request.author,
+          contentRoot,
+          database: request.database,
+          ci,
+          skipSharedLayoutFanOut: request.skipSharedLayoutFanOut,
+          isDraftOrVariantWrite: hasVariant,
+        }),
+        seoUpdates,
+        {
+          contentType,
+          slug,
+          locale,
+          author: request.author,
+          contentRoot,
+          variant: hasVariant ? variant : undefined,
+          ci,
+        },
+      );
     }
 
     // layoutTarget "entry" while load resolved to shared template: create/write per-entry file
@@ -630,18 +726,42 @@ export async function editContent(request: ContentEditRequest): Promise<{
         op => op.action === "update_field" && !op.path.startsWith("sections.")
       );
       if (allTopLevelFields) {
-        return writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot });
+        return applySeoUpdatesAfterWrite(
+          writeTopLevelFieldsToPerEntryFile({ contentType, slug, locale, operations, author: request.author, contentRoot }),
+          seoUpdates,
+          {
+            contentType,
+            slug,
+            locale,
+            author: request.author,
+            contentRoot,
+            variant: hasVariant ? variant : undefined,
+            ci,
+          },
+        );
       }
       // Section ops on entry overlay — writeTopLevel style for sections via per-entry path
-      return writeEntryOverlayOps({
-        contentType,
-        slug,
-        locale,
-        operations,
-        author: request.author,
-        contentRoot,
-        ci,
-      });
+      return applySeoUpdatesAfterWrite(
+        writeEntryOverlayOps({
+          contentType,
+          slug,
+          locale,
+          operations,
+          author: request.author,
+          contentRoot,
+          ci,
+        }),
+        seoUpdates,
+        {
+          contentType,
+          slug,
+          locale,
+          author: request.author,
+          contentRoot,
+          variant: hasVariant ? variant : undefined,
+          ci,
+        },
+      );
     }
 
     // For attached shared-template entries that have their own per-entry file
@@ -1122,6 +1242,22 @@ export async function editContent(request: ContentEditRequest): Promise<{
     // markFileAsModified fires fileModifiedListeners, which includes the
     // VersioningManager listener that invalidates the variant content cache.
     markFileAsModified(filePath, request.author, undefined, contentRoot);
+
+    if (Object.keys(seoUpdates).length > 0) {
+      const seoResult = writeSeoFields({
+        contentType,
+        slug,
+        locale,
+        updates: seoUpdates,
+        author: request.author,
+        contentRoot,
+        variant: hasVariant ? variant : undefined,
+        ci,
+      });
+      if (!seoResult.success) {
+        return { success: false, error: seoResult.error };
+      }
+    }
     
     // Note: GitHub commits are now handled manually via /api/github/commit endpoint
     // Changes are saved locally and users commit when ready
@@ -1895,6 +2031,13 @@ export function editCommonContent(request: CommonEditRequest): {
     for (const op of operations) {
       if (op.action !== "update_field") {
         return { success: false, error: `Unsupported operation: ${op.action}` };
+      }
+      const p = op.path || "";
+      if (p === "seo" || p.startsWith("seo.")) {
+        return {
+          success: false,
+          error: "seo.* must live on the locale YAML file, not _common.yml.",
+        };
       }
       if (op.path === RESERVED_PUBLISHED_AT_FIELD || op.path.startsWith(`${RESERVED_PUBLISHED_AT_FIELD}.`)) {
         if (op.value === undefined || isPublishedAtEmpty(op.value)) {

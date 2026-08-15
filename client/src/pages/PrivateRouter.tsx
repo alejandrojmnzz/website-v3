@@ -102,6 +102,7 @@ export default function PrivateRouter() {
         <Route path="/private/settings/ai" component={AISettingsPage} />
         <Route path="/private/settings/seo/og" component={SeoGeoSettingsPage} />
         <Route path="/private/settings/seo/schema" component={SeoGeoSettingsPage} />
+        <Route path="/private/settings/seo/search-console" component={SeoGeoSettingsPage} />
         <Route path="/private/settings/seo" component={SeoGeoSettingsPage} />
         <Route path="/private/settings" component={SettingsPage} />
         <Route path="/private/sync-log" component={SyncLogRedirect} />

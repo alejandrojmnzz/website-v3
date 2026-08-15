@@ -1,0 +1,20 @@
+---
+description: Before locking a plan, present missing edge cases in chat (problem, options, recommendation) and wait for the user's decision
+alwaysApply: true
+---
+
+# Edge cases in plans
+
+When creating or updating a plan (Plan mode / CreatePlan), present missing edge cases **in the conversation first**. Do not bury them only inside the plan file. The user must be able to pick an option or propose a new one before the plan is treated as decided.
+
+For each non-obvious gap (failure modes, empty states, locales, permissions, dual write paths, migrations, rollback, staff vs public, MCP vs UI):
+
+1. **Problem** — what can go wrong or what we have not specified
+2. **Options** — 2–3 concrete choices
+3. **Recommendation** — pick one and why
+
+Ask the user to choose, reject, or add an option. Wait for that reply before locking the related part of the plan.
+
+After they decide, record the choice in the plan as a decided constraint — not as an open question. If they have not answered yet, keep it in chat; do not assume the recommendation.
+
+Skip trivia. Do not invent fake edge cases for typo/CSS/dependency plans. Prefer a few high-leverage cases over a long laundry list.

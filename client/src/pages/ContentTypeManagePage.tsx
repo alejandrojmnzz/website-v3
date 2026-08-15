@@ -3746,7 +3746,9 @@ function FieldMappingDialog({
                 when added here. New fields require a default (including <code className="font-mono text-xs">null</code>).
                 SEO head keys use the Meta tab and{" "}
                 <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ meta.* }}"}</code>.
-                URL / query values use{" "}
+                Cluster strategy fields are in the SEO fields block below (
+                <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ seo.main_keyword }}"}</code>
+                ) — not field mapping. URL / query values use{" "}
                 <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ param.* }}"}</code>.
               </p>
               {contentType === "authors" && (
@@ -3912,6 +3914,82 @@ function FieldMappingDialog({
                 })}
               </div>
             )}
+
+            <div className="space-y-2" data-testid="seo-fields-schema-block">
+              <Label className="text-xs text-muted-foreground">SEO fields</Label>
+              <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2 text-sm text-muted-foreground">
+                <p>
+                  <span className="font-medium text-foreground">Main keyword</span> (
+                  <code className="font-mono text-xs">{"{{ seo.main_keyword }}"}</code>) is this page&apos;s
+                  own query. <span className="font-medium text-foreground">Is pillar</span> marks this page
+                  as the hub — save fills <span className="font-medium text-foreground">Pillar path</span>{" "}
+                  with this page&apos;s URL. Supporting pages set Pillar path to that hub URL (same locale
+                  prefix). Empty path means the page is not in a cluster.
+                </p>
+                <p>
+                  These three fields live on the locale YAML <code className="font-mono text-xs">seo:</code>{" "}
+                  block, not field mapping. They cannot be deleted or remapped here. Rejected on{" "}
+                  <code className="font-mono text-xs">_common.yml</code>.
+                </p>
+                {contentType === "blog" && (
+                  <p>
+                    Blog <code className="font-mono text-xs">cluster_keyword</code> /{" "}
+                    <code className="font-mono text-xs">cluster_url</code> below are temporary holding
+                    columns — not the hub.
+                  </p>
+                )}
+                <div className="space-y-1 pt-1">
+                  {(
+                    [
+                      ["seo.main_keyword", "Main keyword", "{{ seo.main_keyword }}"],
+                      ["seo.is_pillar", "Is pillar", "{{ seo.is_pillar }}"],
+                      ["seo.pillar_path", "Pillar path", "{{ seo.pillar_path }}"],
+                    ] as const
+                  ).map(([key, labelText, tmpl]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="text-xs font-mono w-36 flex-shrink-0 text-right text-muted-foreground">
+                        {key}
+                      </span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                      <span className="text-xs text-foreground">{labelText}</span>
+                      <code className="text-[11px] font-mono text-muted-foreground">{tmpl}</code>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+                  onClick={() => setShowFillFromAdvanced((v) => !v)}
+                  data-testid="button-toggle-seo-fields-advanced"
+                >
+                  {showFillFromAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+                  <IconChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${showFillFromAdvanced ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {showFillFromAdvanced && (
+                  <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
+                    <p>
+                      Stored as nested <code className="font-mono">seo:</code> on{" "}
+                      <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code>. Cluster graph:{" "}
+                      <code className="font-mono">{"{contentRoot}/seo-index.json"}</code> (content GitHub,
+                      like image-registry — not GCS <code className="font-mono">sync/</code>). Writer:{" "}
+                      <code className="font-mono">server/seo-fields.ts</code> /{" "}
+                      <code className="font-mono">server/seo-index.ts</code>. Constants:{" "}
+                      <code className="font-mono">KNOWN_SEO_FIELDS</code> in{" "}
+                      <code className="font-mono">server/content-types.ts</code>. Not{" "}
+                      <code className="font-mono">field_mapping</code> —{" "}
+                      <code className="font-mono">writeMappedFields</code> would write a literal{" "}
+                      <code className="font-mono">seo.main_keyword:</code> key.{" "}
+                      <code className="font-mono">markFileAsModified</code> runs after disk; auto-commit
+                      throttle already batches YAML + JSON when they share an author. Duplicate pillars:
+                      warning only, not auto-cleared. Variant edits stay off the live cluster map until
+                      promote.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Fields</Label>

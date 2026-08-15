@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { buildPrivatePreviewHref, isPrivatePreviewPath, isVisualEditPath } from "./visual-edit-path";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { buildPrivatePreviewHref, enterVisualEditMode, isPrivatePreviewPath, isVisualEditPath } from "./visual-edit-path";
+import { saveEditModeScrollPosition } from "./editModeScroll";
+
+vi.mock("./editModeScroll", () => ({
+  saveEditModeScrollPosition: vi.fn(),
+}));
 
 describe("isVisualEditPath", () => {
   it("allows public content pages", () => {
@@ -86,5 +91,60 @@ describe("buildPrivatePreviewHref", () => {
         fallbackLocale: "es",
       }),
     ).toBe("/private/preview/page/home?locale=es");
+  });
+});
+
+describe("enterVisualEditMode", () => {
+  beforeEach(() => {
+    vi.mocked(saveEditModeScrollPosition).mockClear();
+  });
+
+  it("enables edit mode and navigates when type+slug are known", () => {
+    const enableEditMode = vi.fn();
+    const navigate = vi.fn();
+    const result = enterVisualEditMode({
+      enableEditMode,
+      navigate,
+      pathname: "/en/apply",
+      contentType: "page",
+      slug: "apply",
+    });
+    expect(enableEditMode).toHaveBeenCalledOnce();
+    expect(saveEditModeScrollPosition).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith("/private/preview/page/apply?locale=en");
+    expect(result).toEqual({
+      navigated: true,
+      href: "/private/preview/page/apply?locale=en",
+    });
+  });
+
+  it("enables edit mode and stays put when type+slug are missing", () => {
+    const enableEditMode = vi.fn();
+    const navigate = vi.fn();
+    const result = enterVisualEditMode({
+      enableEditMode,
+      navigate,
+      pathname: "/totally/unknown/path",
+    });
+    expect(enableEditMode).toHaveBeenCalledOnce();
+    expect(saveEditModeScrollPosition).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result).toEqual({ navigated: false, href: null });
+  });
+
+  it("enables edit mode and does not navigate when already on private preview", () => {
+    const enableEditMode = vi.fn();
+    const navigate = vi.fn();
+    const result = enterVisualEditMode({
+      enableEditMode,
+      navigate,
+      pathname: "/private/preview/page/apply",
+      contentType: "page",
+      slug: "apply",
+    });
+    expect(enableEditMode).toHaveBeenCalledOnce();
+    expect(saveEditModeScrollPosition).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(result).toEqual({ navigated: false, href: null });
   });
 });

@@ -140,6 +140,7 @@ import {
   updateTrackingSettings,
   getRobotsSettings,
   updateRobotsSettings,
+  updateSearchConsoleSettings,
   buildRobotsTxtContent,
   getAuthSettings,
   updateAuthSettings,
@@ -1525,6 +1526,26 @@ export function registerSettingsRoutes(app: Express): void {
       }
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Test screenshot failed" });
+    }
+  });
+
+  app.put("/api/settings/search-console", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+    try {
+      const schema = z.object({
+        site_url: z.string().min(1),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+      }
+      const contentRoot = getContentRoot(res);
+      const searchConsole = updateSearchConsoleSettings(parsed.data, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      res.json({ success: true, site_url: searchConsole.site_url });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
     }
   });
 

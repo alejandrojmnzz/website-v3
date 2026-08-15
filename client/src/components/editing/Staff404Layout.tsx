@@ -11,13 +11,15 @@ import {
   hasRebuiltQueryParam,
   staff404DashboardHref,
   staff404RedirectsHref,
+  STAFF_404_UNKNOWN_PUBLIC_PAGE,
   type Staff404Surface,
 } from "@/lib/staff404";
 import Staff404Actions from "@/components/editing/Staff404Actions";
 import {
-  RebuildUrlsAdvancedDetails,
+  RebuildUrlsConfirmDialog,
   useRebuildContentUrls,
 } from "@/components/editing/RebuildContentUrlsHint";
+import { openDebugBubble } from "@/components/DebugBubble/utils/debugHelpers";
 
 function sourceFile(source?: string): string {
   if (!source) return "";
@@ -76,7 +78,7 @@ export default function Staff404Layout({
   onOpenDraft?: () => void;
 }) {
   const hops = useRedirectTraceHops();
-  const { busy, rebuild } = useRebuildContentUrls();
+  const { busy, rebuild, confirmOpen, setConfirmOpen, requestRebuild } = useRebuildContentUrls();
   const [hopsExpanded, setHopsExpanded] = useState(false);
   const [historyLength, setHistoryLength] = useState(1);
   const searchString = useSearch();
@@ -147,11 +149,26 @@ export default function Staff404Layout({
       <section className="mb-6" data-testid="staff-404-what-happened">
         <h2 className="text-sm font-medium text-foreground mb-2">What happened</h2>
         <div className="space-y-2">
-          {model.happened.map((sentence) => (
-            <p key={sentence} className="text-sm text-muted-foreground">
-              {sentence}
-            </p>
-          ))}
+          {model.happened.map((sentence) =>
+            sentence === STAFF_404_UNKNOWN_PUBLIC_PAGE ? (
+              <p key={sentence} className="text-sm text-muted-foreground">
+                This URL is not a known page on our{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-2 text-foreground hover:text-primary"
+                  onClick={() => openDebugBubble("sitemap")}
+                  data-testid="link-open-content-urls"
+                >
+                  Content URLs
+                </button>
+                .
+              </p>
+            ) : (
+              <p key={sentence} className="text-sm text-muted-foreground">
+                {sentence}
+              </p>
+            ),
+          )}
         </div>
         {hops.length > 0 && lastHop && (
           <div className="mt-3 rounded-md border border-border bg-card p-3">
@@ -206,12 +223,17 @@ export default function Staff404Layout({
             onEditTemplates,
             templatesDisabled: variantsLoading && !hasTemplateVariants,
             onOpenDraft,
-            onRebuild: () => void rebuild(),
+            onRebuild: requestRebuild,
             rebuildBusy: busy,
-            rebuildExtra: <RebuildUrlsAdvancedDetails />,
             onEditYaml,
             redirectsHref: hops.length ? staff404RedirectsHref(hops) : undefined,
           }}
+        />
+        <RebuildUrlsConfirmDialog
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          busy={busy}
+          onConfirm={() => void rebuild()}
         />
       </section>
     </div>

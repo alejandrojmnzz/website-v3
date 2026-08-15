@@ -3,6 +3,7 @@ export type MenuView = "main" | "components" | "sitemap" | "versioning" | "menus
 
 export const STORAGE_KEY = "debug-bubble-menu-view";
 export const OPEN_STORAGE_KEY = "debug-bubble-open";
+export const OPEN_DEBUG_BUBBLE_EVENT = "open-debug-bubble";
 
 export interface SitemapUrl {
   loc: string;

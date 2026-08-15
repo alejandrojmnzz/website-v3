@@ -413,6 +413,28 @@ async function retryIndividualFiles(
       updateSyncStateAfterCommit(result.commitSha, [file.path], fileContentRoot);
       log.info(`[AutoCommit] Individual commit succeeded: ${fileName}`);
     } else {
+      const { getSiteConfigs } = await import('./site-config');
+      const fileContentRoot =
+        getSiteConfigs().find((site) => {
+          const prefix = site.contentFolder.replace(/\/$/, '') + '/';
+          return file.path.startsWith(prefix);
+        })?.contentFolder ?? contentRootForLog;
+      const { isSeoIndexRelPath, healSeoIndexOnRemoteOverlap, seoIndexPath } = await import("./seo-index");
+      if (isSeoIndexRelPath(file.path, fileContentRoot)) {
+        healSeoIndexOnRemoteOverlap({
+          contentRoot: fileContentRoot,
+          remoteChangedFiles: [file.path],
+        });
+        const rebuiltPath = seoIndexPath(fileContentRoot);
+        const rebuilt = fs.existsSync(rebuiltPath) ? fs.readFileSync(rebuiltPath, "utf-8") : file.content;
+        const retry = await commitSingleFileViaContentsAPI(config, file.path, rebuilt, message);
+        if (retry.success && retry.commitSha) {
+          recordLastCommitSha(retry.commitSha);
+          updateSyncStateAfterCommit(retry.commitSha, [file.path], fileContentRoot);
+          log.info(`[AutoCommit] seo-index.json rebuilt and committed after overlap`);
+          continue;
+        }
+      }
       conflictedFiles.add(file.path);
       lastError = `Conflict on ${fileName}: ${result.error}`;
       log.warn(`[AutoCommit] Conflict on ${fileName}, marked as conflicted`);

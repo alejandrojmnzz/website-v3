@@ -16,7 +16,8 @@ import { saveEditModeScrollPosition } from "@/lib/editModeScroll";
 import { PreviewDeviceMenu } from "@/components/editing/PreviewDeviceMenu";
 import type { PreviewDeviceId } from "@/lib/preview-devices";
 import type { PreviewBreakpoint } from "@/contexts/EditModeContext";
-import { buildPrivatePreviewHref, isVisualEditPath } from "@/lib/visual-edit-path";
+import { isVisualEditPath } from "@/lib/visual-edit-path";
+import { useEnterVisualEditMode } from "@/hooks/useEnterVisualEditMode";
 import { GitHubSyncChip } from "./GitHubSyncChip";
 import { LocationOverrideBadge } from "./LocationOverrideBadge";
 import { GcsBucketSyncChip } from "./GcsBucketSyncChip";
@@ -243,6 +244,7 @@ function ExpandableMenuItem({ icon: Icon, label, expanded, onToggle, testId, act
 
 export function DebugPanelContent(props: DebugPanelContentProps) {
   const { i18n } = useTranslation();
+  const enterVisualEdit = useEnterVisualEditMode();
   const [reattachConfirmOpen, setReattachConfirmOpen] = useState(false);
   const [reattachPreviewLoading, setReattachPreviewLoading] = useState(false);
   const [sectionsThatWillBeLost, setSectionsThatWillBeLost] = useState<
@@ -336,25 +338,11 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
   const showEditChrome = !!props.editMode && isVisualEditPath(props.pathname);
 
   const enterPrivatePreview = useCallback(() => {
-    if (!props.contentInfo.type || !props.contentInfo.slug) return;
-    const previewUrl = buildPrivatePreviewHref({
-      contentType: props.contentInfo.type,
-      slug: props.contentInfo.slug,
-      pathname: props.pathname,
-      search: typeof window !== "undefined" ? window.location.search : "",
-      fallbackLocale: props.contentLocale || normalizeLocale(i18n.language),
+    enterVisualEdit({
+      contentType: props.contentInfo.type ?? undefined,
+      slug: props.contentInfo.slug ?? undefined,
     });
-    if (!previewUrl) return;
-    saveEditModeScrollPosition();
-    props.navigate(previewUrl);
-  }, [
-    props.contentInfo.type,
-    props.contentInfo.slug,
-    props.pathname,
-    props.contentLocale,
-    props.navigate,
-    i18n.language,
-  ]);
+  }, [enterVisualEdit, props.contentInfo.type, props.contentInfo.slug]);
 
   if (props.noTokenDetected) {
     return (
@@ -574,8 +562,10 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
                     e.stopPropagation();
                     e.preventDefault();
                     if (!props.editMode!.isEditMode) {
-                      props.editMode!.toggleEditMode();
-                      enterPrivatePreview();
+                      enterVisualEdit({
+                        contentType: props.contentInfo.type ?? undefined,
+                        slug: props.contentInfo.slug ?? undefined,
+                      });
                     }
                   }}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${

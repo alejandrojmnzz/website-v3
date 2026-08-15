@@ -309,7 +309,7 @@ export function SyncModal({
             GitHub Sync
           </DialogTitle>
           <DialogDescription>
-            Auto-push keeps your local content changes pushed to GitHub.
+            Auto-push keeps your local content changes pushed to GitHub. MCP create, translate, detach, and reattach writes appear as pending here, then auto-commit (or one batched push when auto-push is off).
           </DialogDescription>
         </DialogHeader>
         
@@ -365,6 +365,8 @@ export function SyncModal({
               {autoPushExpanded && !autoCommitStatus?.enabled && (
                 <p className="text-[11px] text-muted-foreground">
                   Set <span className="font-mono">GITHUB_AUTO_COMMIT_ENABLED=true</span> to enable automatic pushes on a timed interval.
+                  MCP writes still batch into one GitHub commit via <span className="font-mono">queue: true</span> on{" "}
+                  <span className="font-mono">server/routes/github.ts</span>.
                 </p>
               )}
               {autoPushExpanded && autoCommitStatus?.enabled && (() => {
@@ -386,6 +388,11 @@ export function SyncModal({
                 return (
                   <div className="space-y-2">
                     <p className="text-[11px] text-muted-foreground">{statusText}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      MCP create/translate/detach/reattach join this queue (same as CMS saves). Read more:{" "}
+                      <span className="font-mono">server/routes/github.ts</span> (<span className="font-mono">queue: true</span>),{" "}
+                      <span className="font-mono">server/auto-commit.ts</span>.
+                    </p>
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                         {autoCommitStatus.commitIntervalSeconds && (

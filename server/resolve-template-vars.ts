@@ -1,6 +1,6 @@
 /**
  * Multi-bag template resolution for public content delivery.
- * Order: {{ single.* }} → {{ meta.* }} → {{ param.* }} → optional site vars (brand.* / global.* / reserved.*).
+ * Order: {{ single.* }} → {{ meta.* }} → {{ seo.* }} → {{ param.* }} → optional site vars (brand.* / global.* / reserved.*).
  *
  * Site vars default to skipped (`skipSiteVars: true`) so React `SectionRenderer`
  * can resolve them (and preserve `{{ }}` in edit mode). Pass `skipSiteVars: false`
@@ -171,6 +171,8 @@ export interface ResolveAllTemplateVarsOptions {
   singleEntry?: Record<string, unknown>;
   /** Raw page meta (may still contain {{ single.* }}). Prefer omitting when `data` is page-shaped and already includes meta. */
   meta?: Record<string, unknown>;
+  /** Nested locale `seo:` block for {{ seo.* }} templates. */
+  seo?: Record<string, unknown>;
   /** Unified URL path + querystring params (path wins). */
   param?: Record<string, unknown>;
   contentRoot?: string;
@@ -217,6 +219,19 @@ export function resolveAllTemplateVars(
 
   if (resolvedMeta) {
     result = resolveBagVars(result, "meta", resolvedMeta);
+  }
+
+  let resolvedSeo: Record<string, unknown> | undefined;
+  if (opts.seo) {
+    resolvedSeo = opts.seo;
+  } else if (result !== null && typeof result === "object" && !Array.isArray(result)) {
+    const s = (result as Record<string, unknown>).seo;
+    if (s !== null && typeof s === "object" && !Array.isArray(s)) {
+      resolvedSeo = s as Record<string, unknown>;
+    }
+  }
+  if (resolvedSeo) {
+    result = resolveBagVars(result, "seo", resolvedSeo);
   }
 
   const paramBag = opts.param;

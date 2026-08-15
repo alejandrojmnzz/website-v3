@@ -1,6 +1,14 @@
 import { useState } from "react";
-import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
+import { ChevronDown, Clock, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiRequestWithAuth } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { applyRebuiltQueryToUrl } from "@/lib/staff404";
@@ -12,6 +20,9 @@ export function assignLocationWithRebuiltFlag(): void {
 export function useRebuildContentUrls() {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const requestRebuild = () => setConfirmOpen(true);
 
   const rebuild = async () => {
     setBusy(true);
@@ -36,7 +47,99 @@ export function useRebuildContentUrls() {
     }
   };
 
-  return { busy, rebuild };
+  return { busy, rebuild, confirmOpen, setConfirmOpen, requestRebuild };
+}
+
+export function RebuildUrlsConfirmDialog({
+  open,
+  onOpenChange,
+  busy,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  busy: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!busy) onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-[520px]" data-testid="dialog-rebuild-urls-confirm">
+        <DialogHeader>
+          <DialogTitle>Rebuild URLs?</DialogTitle>
+          <DialogDescription>
+            Rescan the local URL index and clear the sitemap cache. This does not fetch the remote
+            database or create a missing page.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm text-muted-foreground">
+          <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+            <p className="font-medium text-foreground inline-flex items-center gap-2">
+              <Clock className="h-4 w-4 shrink-0" />
+              How long it takes
+            </p>
+            <p>
+              Usually a few seconds (typically under 10s). This page reloads when it finishes so
+              the new index is used immediately.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">What this will do</p>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li>Walk YAML folders on disk and re-register known slugs</li>
+              <li>Rebuild URLs from the current local database snapshot</li>
+              <li>Clear the sitemap cache so the next sitemap uses the new map</li>
+              <li>Reload this page</li>
+            </ul>
+          </div>
+          <div>
+            <p className="font-medium text-foreground mb-1">What this will not do</p>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li>Fetch or update the remote database</li>
+              <li>Change redirects or publish drafts</li>
+              <li>Create content that is not already on disk or in the local snapshot</li>
+            </ul>
+          </div>
+          <p>
+            If this URL is still unknown after reload, refetch the database from the type dashboard
+            (Clear Cache) first — rebuild cannot invent a URL that is missing from SQLite.
+          </p>
+          <RebuildUrlsAdvancedDetails />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+            data-testid="button-cancel-rebuild-urls"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={busy}
+            data-testid="button-confirm-rebuild-urls"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Rebuilding…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4" />
+                Rebuild URLs
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function RebuildUrlsAdvancedDetails() {
@@ -104,7 +207,7 @@ export function RebuildUrlsAdvancedDetails() {
 
 /** Standalone card kept for any remaining call sites; prefer Staff404Layout. */
 export default function RebuildContentUrlsHint() {
-  const { busy, rebuild } = useRebuildContentUrls();
+  const { busy, rebuild, confirmOpen, setConfirmOpen, requestRebuild } = useRebuildContentUrls();
 
   return (
     <div
@@ -118,14 +221,19 @@ export default function RebuildContentUrlsHint() {
       </p>
       <Button
         type="button"
-        onClick={() => void rebuild()}
+        onClick={requestRebuild}
         disabled={busy}
         data-testid="button-rebuild-urls"
       >
         {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
         Rebuild URLs
       </Button>
-      <RebuildUrlsAdvancedDetails />
+      <RebuildUrlsConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        busy={busy}
+        onConfirm={() => void rebuild()}
+      />
     </div>
   );
 }

@@ -636,10 +636,21 @@ export async function commitAndPush(
         shouldTrackFile(f, undefined, options?.contentRoot),
       );
       if (siteRemoteChanges.length > 0) {
-        return {
-          success: false,
-          error: "Remote has new commits. Please sync before committing, or use force commit.",
-        };
+        const { isSeoIndexRelPath, healSeoIndexOnRemoteOverlap } = await import("./seo-index");
+        const indexHits = siteRemoteChanges.filter((f) => isSeoIndexRelPath(f, options?.contentRoot));
+        if (indexHits.length > 0) {
+          healSeoIndexOnRemoteOverlap({
+            contentRoot: options?.contentRoot,
+            remoteChangedFiles: siteRemoteChanges,
+          });
+        }
+        const remaining = siteRemoteChanges.filter((f) => !isSeoIndexRelPath(f, options?.contentRoot));
+        if (remaining.length > 0) {
+          return {
+            success: false,
+            error: "Remote has new commits. Please sync before committing, or use force commit.",
+          };
+        }
       }
       // No files for this site in the remote range — advance lastSynced and continue.
       updateSyncStateAfterCommit(currentHeadSha, [], options?.contentRoot);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, Brain, Check, Crosshair, Globe, Info, Network, Star } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -9,14 +9,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { GscInspectionGetResponse, GscInspectionSummary } from "@/lib/gscInspection";
+import { getSessionHeaders } from "@/lib/sessionHeaders";
+import { getDebugToken } from "@/hooks/useDebugAuth";
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
-  clusters: { pillarUrl: string; clusterSlugs: string[]; clusterCount: number }[];
+  clusters: { pillarUrl: string; clusterSlugs: string[]; clusterCount: number; hubId?: string }[];
   orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[];
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;
+  indexRebuilt?: boolean;
   totals: {
     totalPages: number;
     withPillar: number;
@@ -24,6 +28,7 @@ interface SeoOverview {
     withFocusFeatures: number;
     withFaq: number;
     withSchema: number;
+    withKeyword?: number;
   };
 }
 
@@ -65,15 +70,56 @@ const ALL_FEATURES: Record<string, string> = {
   multilingual: "Multilingual",
 };
 
-function StatCard({ label, value, total, icon }: { label: string; value: number; total?: number; icon?: React.ReactNode }) {
-  const pct = total ? Math.round((value / total) * 100) : null;
+function StatCard({
+  label,
+  value,
+  total,
+  icon,
+  warning,
+  notice,
+  subline,
+  testId,
+  dual = false,
+}: {
+  label: string;
+  value: number;
+  total?: number;
+  icon?: ReactNode;
+  warning?: string;
+  notice?: string;
+  subline?: string;
+  testId?: string;
+  dual?: boolean;
+}) {
+  const pct = total && total > 0 ? Math.round((value / total) * 100) : null;
+  const slug = testId ?? `stat-card-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
-    <Card data-testid={`stat-card-${label.toLowerCase().replace(/\s+/g, "-")}`}>
+    <Card data-testid={slug}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-2xl font-bold text-foreground">{value}</p>
+          <div className="min-w-0">
+            {dual && total != null ? (
+              <p className="text-2xl font-bold text-foreground tabular-nums">
+                {value}
+                <span className="text-muted-foreground font-medium text-lg"> / {total}</span>
+              </p>
+            ) : (
+              <p className="text-2xl font-bold text-foreground tabular-nums">{value}</p>
+            )}
             <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+            {warning ? (
+              <Badge variant="destructive" className="mt-1 text-[10px]" data-testid={`${slug}-warning`}>
+                {warning}
+              </Badge>
+            ) : null}
+            {notice ? (
+              <Badge variant="secondary" className="mt-1 text-[10px]" data-testid={`${slug}-notice`}>
+                {notice}
+              </Badge>
+            ) : null}
+            {subline ? (
+              <p className="text-[11px] text-muted-foreground mt-1">{subline}</p>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-1">
             {icon && <span className="text-muted-foreground">{icon}</span>}
@@ -97,17 +143,174 @@ function LoadingSection() {
   );
 }
 
+function SearchConsoleCoverageCard({
+  configured,
+  summary,
+}: {
+  configured?: boolean;
+  summary?: GscInspectionSummary;
+}) {
+  const [openList, setOpenList] = useState<string | undefined>(undefined);
+  const types = summary ? Object.keys(summary.byContentType).sort() : [];
+  const inspected = summary?.inspected ?? 0;
+
+  return (
+    <Card data-testid="card-search-console-coverage">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Globe className="h-4 w-4" />
+          Search Console coverage
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Cached Search Console inspections (not a live crawl, not a re-index).{" "}
+          <Link href="/private/settings/seo/search-console" className="underline underline-offset-2 hover:text-foreground">
+            SEO/GEO → Search Console
+          </Link>
+        </p>
+        {configured === false ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-gsc-unconfigured">
+            Search Console is not configured. Save a property in SEO/GEO → Search Console, set GCS_CREDENTIALS_JSON, and add that service account on the Search Console property.
+          </p>
+        ) : !summary || inspected === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-gsc-empty-sidecar">
+            No URLs inspected yet. Check a page from diagnostics, or Test connection in settings.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 text-xs" data-testid="gsc-funnel">
+              <Badge variant="secondary">In sitemap {summary.sitemapCount}</Badge>
+              <Badge variant="secondary">Inspected {summary.inspected}</Badge>
+              <Badge variant="secondary">Indexed {summary.indexed}</Badge>
+              <Badge variant="secondary">Not indexed {summary.notIndexed}</Badge>
+              <Badge variant="secondary">Errors {summary.errors}</Badge>
+              <Badge variant="outline">Never checked {summary.neverChecked}</Badge>
+            </div>
+            {types.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="gsc-coverage-table">
+                  <thead>
+                    <tr>
+                      <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Content Type</th>
+                      <th className="text-center py-2 px-2 text-muted-foreground font-medium">In sitemap</th>
+                      <th className="text-center py-2 px-2 text-muted-foreground font-medium">Inspected</th>
+                      <th className="text-center py-2 px-2 text-muted-foreground font-medium">Indexed</th>
+                      <th className="text-center py-2 px-2 text-muted-foreground font-medium">Not indexed</th>
+                      <th className="text-center py-2 px-2 text-muted-foreground font-medium">Never checked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {types.map((ct) => {
+                      const row = summary.byContentType[ct];
+                      return (
+                        <tr key={ct} className="border-t border-border">
+                          <td className="py-2 pr-4 font-medium text-foreground capitalize">{ct}</td>
+                          <td className="py-2 px-2 text-center tabular-nums">{row.inSitemap}</td>
+                          <td className="py-2 px-2 text-center tabular-nums">{row.inspected}</td>
+                          <td className="py-2 px-2 text-center tabular-nums">{row.indexed}</td>
+                          <td className="py-2 px-2 text-center tabular-nums">{row.notIndexed}</td>
+                          <td className="py-2 px-2 text-center tabular-nums">{row.neverChecked}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {(summary.exceptions.notIndexed.length > 0 || summary.exceptions.canonicalMismatch.length > 0) && (
+              <Accordion type="single" collapsible value={openList} onValueChange={setOpenList}>
+                {summary.exceptions.notIndexed.length > 0 && (
+                  <AccordionItem value="not-indexed">
+                    <AccordionTrigger className="text-xs">Not indexed ({summary.exceptions.notIndexed.length})</AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="space-y-1">
+                        {summary.exceptions.notIndexed.map((row) => (
+                          <li key={row.loc} className="text-xs font-mono truncate text-muted-foreground" title={row.loc}>
+                            {row.loc}
+                            {row.coverageState ? ` — ${row.coverageState}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                )}
+                {summary.exceptions.canonicalMismatch.length > 0 && (
+                  <AccordionItem value="canonical">
+                    <AccordionTrigger className="text-xs">
+                      Canonical mismatch ({summary.exceptions.canonicalMismatch.length})
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="space-y-1">
+                        {summary.exceptions.canonicalMismatch.map((row) => (
+                          <li key={row.loc} className="text-xs font-mono truncate text-muted-foreground" title={row.loc}>
+                            {row.loc} → {row.googleCanonical}
+                          </li>
+                        ))}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                )}
+              </Accordion>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SeoTab({ data }: { data: SeoOverview }) {
   const contentTypes = Object.keys(data.intentDistribution);
+  const { data: gsc } = useQuery<GscInspectionGetResponse>({
+    queryKey: ["/api/debug/gsc-inspection"],
+    queryFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch("/api/debug/gsc-inspection", {
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to load Search Console summary");
+      return res.json() as Promise<GscInspectionGetResponse>;
+    },
+  });
+  const summary = gsc?.summary;
+  const withKeyword = data.totals.withKeyword ?? 0;
+  const keywordedNotClustered = Math.max(0, withKeyword - data.totals.withPillar);
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="seo-totals-grid">
-        <StatCard label="Total Pages" value={data.totals.totalPages} icon={<Network className="h-4 w-4" />} />
+        <StatCard
+          label="Total vs Indexed pages"
+          value={summary?.indexed ?? 0}
+          total={data.totals.totalPages}
+          dual
+          icon={<Network className="h-4 w-4" />}
+          warning={summary && summary.notOnSitemap > 0 ? `${summary.notOnSitemap} not on sitemap` : undefined}
+          subline={
+            summary
+              ? `${summary.indexed} indexed · ${summary.notIndexed} not indexed · ${summary.neverChecked} never checked`
+              : undefined
+          }
+          testId="stat-card-total-vs-indexed-pages"
+        />
         <StatCard label="With Intent" value={data.totals.withIntent} total={data.totals.totalPages} icon={<Crosshair className="h-4 w-4" />} />
-        <StatCard label="Clustered" value={data.totals.withPillar} total={data.totals.totalPages} icon={<Network className="h-4 w-4" />} />
+        <StatCard
+          label="Keyworded vs Clustered"
+          value={data.totals.withPillar}
+          total={withKeyword}
+          dual
+          icon={<Network className="h-4 w-4" />}
+          notice={keywordedNotClustered > 0 ? `${keywordedNotClustered} keyworded, not clustered` : undefined}
+          testId="stat-card-keyworded-vs-clustered"
+        />
         <StatCard label="Focus Features" value={data.totals.withFocusFeatures} total={data.totals.totalPages} icon={<Star className="h-4 w-4" />} />
       </div>
+
+      <SearchConsoleCoverageCard configured={gsc?.configured} summary={summary} />
 
       <Card>
         <CardHeader className="pb-3">
@@ -169,11 +372,22 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {data.indexRebuilt && (
+            <p
+              className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
+              data-testid="banner-cluster-index-rebuilt"
+            >
+              Cluster index rebuilt from page SEO fields.
+            </p>
+          )}
           {data.clusters.length === 0 ? (
             <div className="text-center py-8" data-testid="clusters-empty">
               <Network className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
               <p className="text-sm text-muted-foreground">No pillar pages defined yet</p>
-              <p className="text-xs text-muted-foreground mt-1">Set <code className="bg-muted px-1 rounded">seo.pillar</code> on pages to build topic clusters</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Set <code className="bg-muted px-1 rounded">seo.is_pillar</code> on the hub and{" "}
+                <code className="bg-muted px-1 rounded">seo.pillar_path</code> on supporting pages
+              </p>
             </div>
           ) : (
             <Accordion type="multiple">

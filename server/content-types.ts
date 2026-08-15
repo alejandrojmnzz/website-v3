@@ -406,6 +406,26 @@ export const UPDATED_AT_ALIAS_FIELD = "updated_at";
  */
 export const RESERVED_PUBLISHED_AT_FIELD = "published_at";
 
+/**
+ * Platform SEO strategy fields — nested under locale YAML `seo:`, not field_mapping.
+ * Templates: {{ seo.main_keyword }} etc.
+ */
+export const KNOWN_SEO_FIELDS = ["main_keyword", "pillar_path", "is_pillar"] as const;
+export type KnownSeoField = (typeof KNOWN_SEO_FIELDS)[number];
+export const SEO_YAML_KEY = "seo";
+export const LEGACY_SEO_PILLAR_KEY = "pillar";
+export const LEGACY_MAIN_SEO_KEYWORD_KEY = "main_seo_keyword";
+
+export function isKnownSeoFieldPath(fieldPath: string): boolean {
+  return (KNOWN_SEO_FIELDS as readonly string[]).some((k) => fieldPath === `${SEO_YAML_KEY}.${k}`);
+}
+
+export function seoFieldFromPath(fieldPath: string): KnownSeoField | null {
+  if (!fieldPath.startsWith(`${SEO_YAML_KEY}.`)) return null;
+  const key = fieldPath.slice(SEO_YAML_KEY.length + 1);
+  return (KNOWN_SEO_FIELDS as readonly string[]).includes(key) ? (key as KnownSeoField) : null;
+}
+
 const FORBIDDEN_SCHEMA_KEYS = new Set<string>([IMAGE_ALIAS_FIELD, SLUG_ALIAS_FIELD, "purchasable"]);
 
 export function isSystemSpecialField(key: string): boolean {

@@ -198,7 +198,7 @@ describe("buildStaff404Model", () => {
       }),
     );
     expect(model.happened[0]).toContain("You opened /es/old");
-    expect(model.happened).toContain("This URL is not a known page.");
+    expect(model.happened).toContain("This URL is not a known page on our Content URLs.");
     expect(model.actions).toEqual(["goBack", "rebuild", "openRedirects"]);
     expect(model.actions).not.toContain("dashboard");
     expect(model.actions).not.toContain("editTemplates");

@@ -595,7 +595,10 @@ export class ContentIndex {
     if (!seo || typeof seo !== "object") return;
 
     const intent = typeof seo.intent === "string" ? seo.intent : undefined;
-    const pillar = typeof seo.pillar === "string" && seo.pillar ? seo.pillar : undefined;
+    const pillarPath =
+      (typeof seo.pillar_path === "string" && seo.pillar_path) ||
+      (typeof seo.pillar === "string" && seo.pillar) ||
+      undefined;
     const focusFeatures = Array.isArray(seo.focus_features)
       ? (seo.focus_features as unknown[]).filter((f): f is string => typeof f === "string")
       : undefined;
@@ -606,19 +609,11 @@ export class ContentIndex {
       slug,
       contentType,
       intent: intent ?? existing?.intent,
-      pillar: pillar ?? existing?.pillar,
+      pillar: pillarPath ?? existing?.pillar,
       focusFeatures: focusFeatures ?? existing?.focusFeatures,
       file: filePath,
     };
     this.seoIndex.set(key, entry);
-
-    if (pillar) {
-      const cluster = this.clusterIndex.get(pillar) || [];
-      if (!cluster.includes(slug)) {
-        cluster.push(slug);
-        this.clusterIndex.set(pillar, cluster);
-      }
-    }
   }
 
   getSeoEntry(slug: string, contentType: string): SeoEntry | undefined {
@@ -627,6 +622,13 @@ export class ContentIndex {
   }
 
   getCluster(pillarUrl: string): string[] {
+    try {
+      const { getClusterFromIndex } = require("./seo-index") as typeof import("./seo-index");
+      const cluster = getClusterFromIndex(pillarUrl);
+      if (cluster) return cluster.members;
+    } catch {
+      /* YAML clusterIndex is not the live API */
+    }
     this.ensureInitialized();
     return this.clusterIndex.get(pillarUrl) || [];
   }

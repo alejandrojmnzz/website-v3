@@ -15,7 +15,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
-import Staff404Recovery from "@/components/editing/Staff404Recovery";
+import Staff404Recovery, { Staff404SwitchToEditHint } from "@/components/editing/Staff404Recovery";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
@@ -134,11 +134,14 @@ export default function Page() {
               {locale === "es" ? "Página no encontrada" : "Page not found"}
             </h1>
             {!isStaff && (
-              <p className="text-muted-foreground mb-4">
-                {locale === "es" 
-                  ? "La página que buscas no existe." 
-                  : "The page you're looking for doesn't exist."}
-              </p>
+              <div className="mb-4" data-testid="text-404-description">
+                <p className="text-muted-foreground">
+                  {locale === "es" 
+                    ? "La página que buscas no existe." 
+                    : "The page you're looking for doesn't exist."}
+                </p>
+                <Staff404SwitchToEditHint locale={locale} contentType="page" slug={slug} />
+              </div>
             )}
             <Staff404Recovery
               yamlExists={!!rawFileCheck?.exists}

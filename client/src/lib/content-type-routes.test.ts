@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildContentTypeRoutes,
+  consensusSitemapContentType,
+  contentTypeForSitemapFolder,
   inferPublicPageChunk,
+  listingPrefix,
   matchContentTypeRoute,
   type ContentTypeRouteInput,
+  type SitemapFolderContentTypes,
 } from "./content-type-routes";
 
 const FAKE_TYPES: ContentTypeRouteInput[] = [
@@ -149,5 +153,89 @@ describe("matchContentTypeRoute / inferPublicPageChunk", () => {
 
   it("falls back to template when content types are missing", () => {
     expect(inferPublicPageChunk("/en/about")).toBe("template");
+  });
+});
+
+const FOLDER_TYPES: SitemapFolderContentTypes = {
+  authors: {
+    directory: "authors",
+    url_pattern: { en: "/en/authors/:slug", es: "/es/autores/:slug" },
+  },
+  blog: {
+    directory: "blog",
+    url_pattern: { en: "/en/blog/:category/:slug", es: "/es/blog/:category/:slug" },
+  },
+  page: {
+    directory: "pages",
+    url_pattern: { en: "/en/:slug", es: "/es/:slug" },
+  },
+  program: {
+    directory: "programs",
+    url_pattern: { en: "/en/career-programs/:slug", es: "/es/programas-de-carrera/:slug" },
+  },
+};
+
+describe("listingPrefix", () => {
+  it("strips trailing param segments including category+slug", () => {
+    expect(listingPrefix("/en/authors/:slug")).toBe("/en/authors");
+    expect(listingPrefix("/en/blog/:category/:slug")).toBe("/en/blog");
+    expect(listingPrefix("/en/:slug")).toBe("/en");
+  });
+});
+
+describe("consensusSitemapContentType", () => {
+  it("returns the shared type or null when missing/mixed", () => {
+    expect(consensusSitemapContentType([{ content_type: "authors" }, { content_type: "authors" }])).toBe(
+      "authors",
+    );
+    expect(consensusSitemapContentType([{ content_type: "authors" }, { content_type: "blog" }])).toBeNull();
+    expect(consensusSitemapContentType([{ content_type: "authors" }, {}])).toBeNull();
+    expect(consensusSitemapContentType([])).toBeNull();
+  });
+});
+
+describe("contentTypeForSitemapFolder", () => {
+  it("matches public listing prefixes and translated es paths", () => {
+    expect(contentTypeForSitemapFolder("/en/authors", FOLDER_TYPES, "authors")).toBe("authors");
+    expect(contentTypeForSitemapFolder("/es/autores", FOLDER_TYPES, "authors")).toBe("authors");
+    expect(contentTypeForSitemapFolder("/en/career-programs", FOLDER_TYPES, "program")).toBe("program");
+  });
+
+  it("skips locale buckets and category folders", () => {
+    expect(contentTypeForSitemapFolder("/en", FOLDER_TYPES, "page")).toBeNull();
+    expect(contentTypeForSitemapFolder("/en/blog/ai", FOLDER_TYPES, "blog")).toBeNull();
+    expect(contentTypeForSitemapFolder("/en/blog", FOLDER_TYPES, "blog")).toBe("blog");
+  });
+
+  it("matches regional xx-yy prefixes", () => {
+    expect(contentTypeForSitemapFolder("/us-en/authors", FOLDER_TYPES, "authors")).toBe("authors");
+    expect(contentTypeForSitemapFolder("/es-mx/career-programs", FOLDER_TYPES, "program")).toBe(
+      "program",
+    );
+    expect(contentTypeForSitemapFolder("/us-en/blog/ai", FOLDER_TYPES, "blog")).toBeNull();
+  });
+
+  it("matches /private/preview/{type} and {directory}", () => {
+    expect(contentTypeForSitemapFolder("/private/preview/authors", FOLDER_TYPES, "authors")).toBe(
+      "authors",
+    );
+    expect(contentTypeForSitemapFolder("/private/preview/pages", FOLDER_TYPES, "page")).toBe("page");
+    expect(contentTypeForSitemapFolder("/private/preview/page", FOLDER_TYPES, "page")).toBe("page");
+    expect(contentTypeForSitemapFolder("/private/preview/programs", FOLDER_TYPES, "program")).toBe(
+      "program",
+    );
+  });
+
+  it("returns null when types are unloaded, consensus is missing, or mixed", () => {
+    expect(contentTypeForSitemapFolder("/en/authors", null, "authors")).toBeNull();
+    expect(contentTypeForSitemapFolder("/en/authors", FOLDER_TYPES, null)).toBeNull();
+    expect(
+      contentTypeForSitemapFolder(
+        "/en/authors",
+        FOLDER_TYPES,
+        consensusSitemapContentType([{ content_type: "authors" }, { content_type: "blog" }]),
+      ),
+    ).toBeNull();
+    expect(contentTypeForSitemapFolder("/en/authors", FOLDER_TYPES, "blog")).toBeNull();
   });
 });

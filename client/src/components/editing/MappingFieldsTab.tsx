@@ -4,6 +4,9 @@ import { Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +42,8 @@ type FieldProvenance = {
   ct_value?: unknown;
   calculated?: boolean;
   layer_has_key?: boolean;
+  writable?: boolean;
+  group?: "seo";
 };
 
 type ProvenanceResponse = {
@@ -47,6 +52,9 @@ type ProvenanceResponse = {
   layerFileName?: string;
   isVariantLayer?: boolean;
   resolvedVariant?: string | null;
+  canonicalPath?: string | null;
+  indexRebuilt?: boolean;
+  seoFileMissing?: boolean;
 };
 
 type ContentTypeConfig = {
@@ -106,7 +114,9 @@ function FieldsEducationBlock({
             <p>
               Fields are the content-type schema (Manage → Fields). Custom fields appear here and as{" "}
               <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ single.fieldName }}`}</code>.
-              They are not SEO fields — use the SEO Meta tab for SEO head keys (
+              They are not SEO strategy fields — those live in the SEO fields block (
+              <code className="text-xs font-mono">{`{{ seo.main_keyword }}`}</code>
+              ). Use the SEO Meta tab for head keys (
               <code className="text-xs font-mono">{`{{ meta.* }}`}</code>). System identity is auto-available as{" "}
               <code className="text-xs font-mono">{`{{ single.slug }}`}</code> /{" "}
               <code className="text-xs font-mono">{`{{ single.locale }}`}</code> /{" "}
@@ -248,6 +258,185 @@ function FieldsEducationBlock({
   );
 }
 
+function SeoFieldsEditor({
+  rows,
+  disabled,
+  canonicalPath,
+  indexRebuilt,
+  isVariantLayer,
+  layerFileName,
+  locale,
+  directory,
+  slug,
+  contentType,
+  onSave,
+}: {
+  rows: FieldProvenance[];
+  disabled: boolean;
+  canonicalPath?: string | null;
+  indexRebuilt?: boolean;
+  isVariantLayer: boolean;
+  layerFileName?: string;
+  locale: string;
+  directory: string;
+  slug: string;
+  contentType: string;
+  onSave: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const kwRow = rows.find((r) => r.field === "seo.main_keyword");
+  const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
+  const hubRow = rows.find((r) => r.field === "seo.is_pillar");
+  const [mainKeyword, setMainKeyword] = useState(
+    kwRow?.effective == null ? "" : String(kwRow.effective),
+  );
+  const [pillarPath, setPillarPath] = useState(
+    pillarRow?.effective == null ? "" : String(pillarRow.effective),
+  );
+  const [isPillar, setIsPillar] = useState(hubRow?.effective === true || hubRow?.effective === "true");
+
+  const handleTogglePillar = (checked: boolean) => {
+    setIsPillar(checked);
+    if (checked && canonicalPath) setPillarPath(canonicalPath);
+  };
+
+  return (
+    <div className="space-y-3" data-testid="seo-fields-block">
+      {indexRebuilt && (
+        <p
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
+          data-testid="banner-cluster-index-rebuilt"
+        >
+          Cluster index rebuilt from page SEO fields.
+        </p>
+      )}
+      {isVariantLayer && (
+        <p
+          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
+          data-testid="banner-seo-variant-not-indexed"
+        >
+          Variant SEO stays on {layerFileName || `{variant}.${locale}.yml`} until promote — the live cluster
+          map is unchanged.
+        </p>
+      )}
+      {disabled && (
+        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          SEO fields need a locale YAML file. Create {locale}.yml before editing.
+        </p>
+      )}
+      <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">SEO fields</p>
+        <p>
+          <span className="font-medium text-foreground">Main keyword</span> is this page&apos;s query.{" "}
+          <span className="font-medium text-foreground">Is pillar</span> means this page is the hub — save
+          fills <span className="font-medium text-foreground">Pillar path</span> with this page&apos;s URL.
+          Supporting pages set Pillar path to that hub URL (same locale prefix). Empty path = not in a
+          cluster. Duplicate pillars warn only; they are not auto-cleared.
+        </p>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
+          onClick={() => setShowAdvanced((v) => !v)}
+          data-testid="button-toggle-seo-fields-advanced"
+        >
+          {showAdvanced ? "Hide advanced details" : "Read more (advanced)"}
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
+        </button>
+        {showAdvanced && (
+          <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
+            <p>
+              Nested <code className="font-mono">seo:</code> on{" "}
+              <code className="font-mono">
+                {directory}/{slug}/{layerFileName || `${locale}.yml`}
+              </code>
+              . Index: <code className="font-mono">{"{contentRoot}/seo-index.json"}</code> (content GitHub,
+              like image-registry, not GCS <code className="font-mono">sync/</code>). Constants in{" "}
+              <code className="font-mono">server/content-types.ts</code>. Not{" "}
+              <code className="font-mono">field_mapping</code>. Rejected on{" "}
+              <code className="font-mono">_common.yml</code>.{" "}
+              <code className="font-mono">markFileAsModified</code> after disk; auto-commit throttle
+              batches YAML + JSON with the same author.
+            </p>
+          </div>
+        )}
+        <div className="space-y-3 pt-1">
+          <div className="space-y-1">
+            <Label htmlFor="seo-main-keyword" className="text-xs text-foreground">
+              Main keyword
+            </Label>
+            <Input
+              id="seo-main-keyword"
+              className="bg-background"
+              value={mainKeyword}
+              disabled={disabled || saving}
+              onChange={(e) => setMainKeyword(e.target.value)}
+              data-testid="input-seo-main-keyword"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="seo-is-pillar"
+              checked={isPillar}
+              disabled={disabled || saving}
+              onCheckedChange={(v) => handleTogglePillar(v === true)}
+              data-testid="checkbox-seo-is-pillar"
+            />
+            <Label htmlFor="seo-is-pillar" className="text-xs text-foreground">
+              Is pillar
+            </Label>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="seo-pillar-path" className="text-xs text-foreground">
+              Pillar path
+            </Label>
+            <Input
+              id="seo-pillar-path"
+              className="bg-background font-mono text-xs"
+              value={pillarPath}
+              disabled={disabled || saving}
+              onChange={(e) => setPillarPath(e.target.value)}
+              data-testid="input-seo-pillar-path"
+            />
+          </div>
+          <Button
+            size="sm"
+            disabled={disabled || saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave({
+                  "seo.main_keyword": mainKeyword,
+                  "seo.pillar_path": pillarPath,
+                  "seo.is_pillar": isPillar,
+                });
+              } catch (err) {
+                toast({
+                  title: "SEO save failed",
+                  description: err instanceof Error ? err.message : String(err),
+                  variant: "destructive",
+                });
+              } finally {
+                setSaving(false);
+              }
+            }}
+            data-testid="button-save-seo-fields"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+            Save SEO fields
+          </Button>
+        </div>
+        {contentType === "blog" ? (
+          <p className="text-xs">
+            Cluster keyword/URL on blog Fields below are temporary holding columns — not the hub.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 const VALUE_PREVIEW_MAX = 100;
 
 function formatDisplayValue(value: unknown, maxLength?: number): string {
@@ -361,12 +550,15 @@ export function MappingFieldsTab({
   }, [ctConfig?.editor, dbEditor]);
 
   const fields = provenance?.fields ?? [];
+  const seoRows = fields.filter((f) => f.group === "seo");
+  const mappedFields = fields.filter((f) => f.group !== "seo");
   const hasDatabase = !!provenance?.hasDatabase;
-  const hasMappings = fields.length > 0;
+  const hasMappings = mappedFields.length > 0;
   const directory = ctConfig?.directory || contentType;
   const databaseSlug = ctConfig?.database?.slug;
   const layerFileName = provenance?.layerFileName;
   const isVariantLayer = !!provenance?.isVariantLayer || !!variantParam;
+  const seoDisabled = !!provenance?.seoFileMissing;
 
   const variantWarning =
     isVariantLayer && layerFileName ? (
@@ -411,7 +603,7 @@ export function MappingFieldsTab({
   };
 
   const openPencil = (row: FieldProvenance) => {
-    if (row.calculated || isSystemSpecialField(row.field)) return;
+    if (row.calculated || isSystemSpecialField(row.field) || row.group === "seo") return;
     if (row.source === "ct_override" || (!hasDatabase && row.source === "entry_default")) {
       setEditing({ field: row.field, level: "content_type", value: row.effective });
       return;
@@ -490,6 +682,60 @@ export function MappingFieldsTab({
     }
   };
 
+  const saveSeoFields = async (built: Record<string, unknown>) => {
+    const ok = await confirmVariantSaveIfNeeded();
+    if (!ok) throw new Error("Save cancelled — no changes written.");
+    const headers = await authHeaders();
+    const author = await resolveAuthorName();
+    const res = await fetch(
+      `/api/content-types/${encodeURIComponent(contentType)}/field-overrides/${encodeURIComponent(slug)}`,
+      {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          locale,
+          variant: variantParam,
+          fields: built,
+          author: author || undefined,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { error?: string }).error || "Failed to save SEO fields");
+    }
+    toast({ title: "SEO fields saved" });
+    invalidate();
+  };
+
+  const seoBlock = (
+    <SeoFieldsEditor
+      rows={seoRows}
+      disabled={seoDisabled}
+      canonicalPath={provenance?.canonicalPath}
+      indexRebuilt={provenance?.indexRebuilt}
+      isVariantLayer={isVariantLayer}
+      layerFileName={layerFileName}
+      locale={locale}
+      directory={directory}
+      slug={slug}
+      contentType={contentType}
+      onSave={saveSeoFields}
+    />
+  );
+
+  const holdingBanner =
+    contentType === "blog" && mappedFields.some((f) => f.field === "cluster_keyword" || f.field === "cluster_url") ? (
+      <p
+        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+        data-testid="banner-cluster-holding-columns"
+      >
+        <code className="font-mono text-xs">cluster_keyword</code> and{" "}
+        <code className="font-mono text-xs">cluster_url</code> are temporary holding fields — not the hub.
+        Hub fields are in the SEO block above.
+      </p>
+    ) : null;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
@@ -504,6 +750,7 @@ export function MappingFieldsTab({
     return (
       <div className="space-y-3 pt-4" data-testid="fields-tab-empty">
         {variantWarning}
+        {seoBlock}
         {education}
         <p className="text-sm text-muted-foreground">
           {label} entries don&apos;t have any fields declared yet. Declare fields on the content type
@@ -523,7 +770,9 @@ export function MappingFieldsTab({
   return (
     <div className="space-y-3 pt-4" data-testid="fields-tab-table">
       {variantWarning}
+      {seoBlock}
       {education}
+      {holdingBanner}
       <div className="rounded-md border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -535,7 +784,7 @@ export function MappingFieldsTab({
             </tr>
           </thead>
           <tbody>
-            {fields.map((row) => {
+            {mappedFields.map((row) => {
               const badge = sourceBadge(row.source);
               const special = isSystemSpecialField(row.field);
               const localeEmptyNote =
@@ -558,7 +807,6 @@ export function MappingFieldsTab({
                       {row.calculated && (
                         <Calculator
                           className="h-3 w-3 text-muted-foreground"
-                          title="Calculated (function) field"
                         />
                       )}
                     </span>

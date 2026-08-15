@@ -71,6 +71,8 @@ import {
   listLiveLocaleFiles,
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
+import { isKnownSeoFieldPath, SEO_YAML_KEY } from "../../server/content-types.js";
+import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
 import {
   collectFormSourceHitsFromNode,
   collectFormSourceHitsFromUpdates,
@@ -331,33 +333,64 @@ async function callRefreshCacheApi(contentType?: string, domain?: string): Promi
   }
 }
 
+/** MCP GitHub: local YAML is already written; missing commitSha is not a write failure. */
+const GITHUB_COMMIT_TOOL_BLURB =
+  "GitHub: local YAML is written first; push is queued for auto-commit (or one batched commit if auto-commit is off). " +
+  "Missing commitSha is not a write failure — do not retry this mutate.";
+
 /**
- * Call the main server's /api/github/commit-file endpoint to immediately
- * commit a file to GitHub after a direct FS write.
- * Returns the commit SHA on success, or a warning string on failure.
+ * Queue (or batch-commit) files via POST /api/github/commit { queue: true, files }.
+ * One request per tool call — never parallel Contents API PUTs (GitHub 409).
  */
-async function callCommitFileApi(
-  relativePath: string,
+async function callCommitFilesApi(
+  files: string[],
   message: string,
   mcpToken?: string,
   domain?: string
-): Promise<{ commitSha?: string; warning?: string }> {
+): Promise<{ commitSha?: string; queued?: boolean; warning?: string }> {
+  if (files.length === 0) return {};
   try {
-    const url = `http://localhost:${MAIN_SERVER_PORT}/api/github/commit-file${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://localhost:${MAIN_SERVER_PORT}/api/github/commit${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
     const author = mcpToken ? getTokenUsername(mcpToken) : undefined;
     const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(mcpToken),
-      body: JSON.stringify({ filePath: relativePath, message, ...(author ? { author } : {}) }),
+      body: JSON.stringify({
+        queue: true,
+        files,
+        message,
+        ...(author ? { author } : {}),
+      }),
     });
     const data = await res.json() as Record<string, unknown>;
-    if (res.ok && data.success) {
-      return { commitSha: data.commitSha as string | undefined };
+    if (res.status === 202 || data.queued) {
+      return { queued: true };
+    }
+    if (res.ok && (data.success || data.commitHash)) {
+      return { commitSha: (data.commitHash || data.commitSha) as string | undefined };
     }
     return { warning: `File written to disk but GitHub commit failed: ${(data.error as string) || `HTTP ${res.status}`}` };
   } catch (e) {
     return { warning: `File written to disk but GitHub commit failed: ${(e as Error).message}` };
   }
+}
+
+function githubCommitWarning(result: {
+  queued?: boolean;
+  warning?: string;
+}): McpWarning | undefined {
+  if (result.queued) {
+    return {
+      code: "github_commit_queued",
+      message:
+        "Local YAML is written. GitHub push is queued for auto-commit (not on GitHub yet). " +
+        "Missing commitSha is not a write failure — do not retry this mutate.",
+    };
+  }
+  if (result.warning) {
+    return { code: "github_commit_failed", message: result.warning };
+  }
+  return undefined;
 }
 
 /**
@@ -703,7 +736,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Returns meta, validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent), and a rich schema_org block: " +
+    "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), index (live seo-index.json row; omitted for variants), " +
+    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent), and a rich schema_org block: " +
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
@@ -804,8 +838,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                   locale,
                   variant,
                   meta: result.data.meta,
+                  seo: result.data.seo || {},
+                  index: null,
                   schema_org,
                   validation_issues: [],
+                  warnings: [
+                    {
+                      code: "variant_seo_not_indexed",
+                      message: "Variant seo: is not in seo-index.json until promote.",
+                    },
+                  ],
                 },
                 null,
                 2,
@@ -836,6 +878,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         locales: payload.locales,
         ...(payload.urls ? { urls: payload.urls } : {}),
         meta: payload.data.meta,
+        seo: payload.data.seo || {},
+        index: getSeoIndexEntry(payload.contentType, payload.slug, payload.locale, contentPath) || null,
         schema_org,
         validation_issues,
       };
@@ -1264,7 +1308,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
-    "field_path routing: sections.* and safe top-level → locale; meta.robots/priority/change_frequency → _common.yml; " +
+    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); meta.robots/priority/change_frequency → _common.yml; " +
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
@@ -1275,7 +1319,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
-        field_path: z.string().describe("Dot path: sections.0.title, meta.description, description, title, …"),
+        field_path: z.string().describe("Dot path: sections.0.title, meta.description, seo.main_keyword, title, …"),
         value: z.unknown().describe("New value"),
         meta_target: z.enum(["locale", "common"]).optional().describe(
           "Required for unknown meta.* keys. Known meta auto-routes.",
@@ -1350,14 +1394,18 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       const safeTop = safeTopLevelFieldsForConfig(resolved.config);
+      const isSeoPath = (p: string) => isKnownSeoFieldPath(p) || p === `${SEO_YAML_KEY}.pillar`;
       for (const u of updates) {
         const p = u.field_path;
-        if (p.startsWith("sections.") || p.startsWith("meta.") || safeTop.has(p)) continue;
+        if (p.startsWith("sections.") || p.startsWith("meta.") || isSeoPath(p) || safeTop.has(p)) continue;
         return fail(
-          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', or be one of: ${[...safeTop].join(", ")}.`,
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.pillar_path|seo.is_pillar', or be one of: ${[...safeTop].join(", ")}.`,
         );
       }
       for (const u of updates) {
+        if (isSeoPath(u.field_path) && u.meta_target) {
+          return fail("seo.* always writes the locale file; do not pass meta_target.");
+        }
         if (!u.field_path.startsWith("meta.")) continue;
         const key = u.field_path.slice(5).split(".")[0];
         if (!ALL_KNOWN_META_FIELDS.has(key) && !u.meta_target) {
@@ -1365,8 +1413,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         }
       }
 
-      const needsSeo = updates.some((u) => u.field_path.startsWith("meta."));
-      const needsContent = updates.some((u) => !u.field_path.startsWith("meta."));
+      const needsSeo = updates.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
+      const needsContent = updates.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
       if (mcpToken) {
         if (needsSeo && !(await checkCap(mcpToken, "seo_edit"))) {
           return denyResponse("seo_edit");
@@ -1546,8 +1594,38 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         results.push(`${commonEntries.length} field(s) → _common.yml`);
       }
 
-      const side_effects = bindingPropagateSideEffects(boundUpdates);
+      const side_effects: McpSideEffect[] = [...(bindingPropagateSideEffects(boundUpdates) || [])];
       const next_actions: NextAction[] = [];
+      const seoWrote = updates.some((u) => isSeoPath(u.field_path));
+      if (seoWrote) {
+        side_effects.push({
+          kind: "locale_yaml",
+          summary: `Wrote seo.* on ${pathInfo.relativeHint} (locale only; not _common.yml).`,
+        });
+        if (!variant) {
+          side_effects.push({
+            kind: "seo_index",
+            summary: `Patched ${contentFolder}/${SEO_INDEX_FILENAME} after disk write (same author as YAML).`,
+          });
+        }
+        warnings.push({
+          code: "seo_non_effects",
+          message:
+            "Does not change meta.redirects, in-body links, sitemap priority, GCS sync/, or auto-commit internals. Duplicate is_pillar flags are not stripped.",
+        });
+        if (variant) {
+          warnings.push({
+            code: "variant_seo_not_indexed",
+            message: "Variant seo: is not written to seo-index.json until promote.",
+          });
+        }
+        next_actions.push({
+          tool: "get_entry_seo",
+          priority: "recommended",
+          reason: "Confirm locale seo: plus the live index row.",
+          args_hint: { slug, locale, contentType: resolved.contentType, ...(variant ? { variant } : {}) },
+        });
+      }
 
       return ok(
         {
@@ -1561,7 +1639,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             slug,
           }),
         },
-        { warnings, next_actions, side_effects },
+        { warnings, next_actions, side_effects: side_effects.length ? side_effects : undefined },
       );
     }
   );
@@ -1948,6 +2026,26 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             fieldsOut = fieldsOut.map((f) => {
               const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
               if (!name) return f;
+              if (name === "cluster_keyword" || name === "cluster_url") {
+                return {
+                  ...f,
+                  system_hints: [
+                    "Blog holding column until hubs are resolved — not the cluster hub.",
+                    "Hub fields are seo.main_keyword / seo.is_pillar / seo.pillar_path (update_fields, locale YAML).",
+                    "Do not copy cluster_keyword onto seo.main_keyword. Do not invent pillar_path.",
+                  ],
+                };
+              }
+              if (typeof name === "string" && name.startsWith("seo.")) {
+                return {
+                  ...f,
+                  system_hints: [
+                    "Locale YAML seo: only — never _common.yml, never field_mapping / writeMappedFields.",
+                    "Live write patches seo-index.json after disk with the same author. Variants are not indexed.",
+                    "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path.",
+                  ],
+                };
+              }
               if (name === PURCHASABLE_FIELD || f.source === "system") {
                 return {
                   ...f,
@@ -2647,7 +2745,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "locales map: locale → { meta?, sections?, …field_mapping keys }. Shared-layout: exactly one locale key.\n" +
     "New URL-param/select values not seen on peers require confirm_new_values: true after principal (human or orchestrator) approval.\n\n" +
-    "Possible errors: unknown/DB-backed contentType, slug exists, shared-layout multi-locale, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.",
+    "Possible errors: unknown/DB-backed contentType, slug exists, shared-layout multi-locale, missing editor.required fields, sections on shared-layout create, unconfirmed new param values.\n" +
+    GITHUB_COMMIT_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type from content-types.yml without database.slug, e.g. 'blog', 'program', 'page', 'landing'."),
       slug: z.string().describe("URL-safe slug for the new entry. Must not already exist for this content type."),
@@ -2913,15 +3012,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const commitMsg = draftFirst
         ? `Create draft entry ${contentType}/${slug}`
         : `Create entry ${contentType}/${slug}`;
-      const [commitResults] = await Promise.all([
-        Promise.all(relPaths.map(p => callCommitFileApi(p, commitMsg, mcpToken, domain))),
+      const [commitResult] = await Promise.all([
+        callCommitFilesApi(relPaths, commitMsg, mcpToken, domain),
         callRefreshCacheApi(contentType, domain),
       ]);
 
-      const commitShas = commitResults.map(r => r.commitSha).filter(Boolean) as string[];
-      const commitWarnings = commitResults.map(r => r.warning).filter(Boolean) as string[];
-
-      const warnings: McpWarning[] = commitWarnings.map(w => ({ code: "github_commit_failed", message: w }));
+      const warnings: McpWarning[] = [];
+      const ghWarning = githubCommitWarning(commitResult);
+      if (ghWarning) warnings.push(ghWarning);
       const side_effects: McpSideEffect[] = [];
       const next_actions: NextAction[] = [];
       const primaryLocale = createdLocales[0] ?? "en";
@@ -3002,7 +3100,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           status: draftFirst ? "draft" : "published",
           ...(draftFirst ? { draftVariant, previewPath: `/private/preview/${contentType}/${slug}?variant=${draftVariant}&locale=${primaryLocale}` } : {}),
           ...(title ? { title } : {}),
-          ...(commitShas.length > 0 ? { commitShas } : {}),
+          ...(commitResult.queued ? { queued: true } : {}),
+          ...(commitResult.commitSha
+            ? { commitSha: commitResult.commitSha, commitShas: [commitResult.commitSha] }
+            : {}),
         },
         { warnings, next_actions, ...(side_effects.length > 0 ? { side_effects } : {}) },
       );
@@ -3748,7 +3849,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Empty detached live stub: auto-converts to draft then writes. " +
     "Existing non-empty live: merges fields/meta (preserves unrelated keys); live SEO/required gates apply.\n" +
     "Custom shell ownership: set_entry_attachment (not this tool). Tiny field tweaks on existing locales: update_fields is fine.\n" +
-    "Go live with promote_variant or publish_draft (confirm with the user first).",
+    "Go live with promote_variant or publish_draft (confirm with the user first).\n" +
+    GITHUB_COMMIT_TOOL_BLURB,
     {
       slug: z.string().describe("Page slug of the page to translate"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program', 'authors'). Omit to auto-detect from slug."),
@@ -3993,13 +4095,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         ? `Draft translate ${resolved.contentType}/${slug} to ${target_locale}`
         : `Translate ${resolved.contentType}/${slug} to ${target_locale}`;
       const [commitResult] = await Promise.all([
-        callCommitFileApi(targetRelPath, commitMsg, mcpToken, domain),
+        callCommitFilesApi([targetRelPath], commitMsg, mcpToken, domain),
         callRefreshCacheApi(resolved.contentType, domain),
       ]);
 
-      if (commitResult.warning) {
-        warnings.push({ code: "github_commit_failed", message: commitResult.warning });
-      }
+      const ghWarning = githubCommitWarning(commitResult);
+      if (ghWarning) warnings.push(ghWarning);
       if (mode === "attached_fields") {
         warnings.push({
           code: "attached_shell_unchanged",
@@ -4087,6 +4188,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           metaKeys: localeData.meta && typeof localeData.meta === "object"
             ? Object.keys(localeData.meta as object)
             : [],
+          ...(commitResult.queued ? { queued: true } : {}),
           ...(commitResult.commitSha ? { commitSha: commitResult.commitSha } : {}),
           ...wrotePayload({
             layer: writeAsDraft ? "variant" : "entry_locale",
@@ -4122,7 +4224,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "or local section overlays (layout_target: entry).\n\n" +
     'action "reattach": strip entry sections/layout, clear detached, delete entry versioning/variants (lossy). ' +
     "Field data kept.\n\n" +
-    "confirm omitted or false → preview only (action_required). confirm: true → execute. Cap: content_edit_structure.",
+    "confirm omitted or false → preview only (action_required). confirm: true → execute. Cap: content_edit_structure.\n" +
+    GITHUB_COMMIT_TOOL_BLURB,
     {
       contentType: z.string().describe("Shared-layout content type, e.g. 'blog' or 'authors'"),
       slug: z.string().describe("Entry slug"),
@@ -4243,10 +4346,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             return `${contentFolder}/${path.relative(contentPath, abs).replace(/\\/g, "/")}`;
           });
           const commitMsg = `Detach ${contentType}/${slug} from shared layout`;
-          const commitResults = await Promise.all(
-            relPaths.map((p) => callCommitFileApi(p, commitMsg, mcpToken, domain)),
-          );
-          await callRefreshCacheApi(contentType, domain);
+          const [commitResult] = await Promise.all([
+            callCommitFilesApi(relPaths, commitMsg, mcpToken, domain),
+            callRefreshCacheApi(contentType, domain),
+          ]);
           const warnings: McpWarning[] = [
             {
               code: "detach_no_invent_locales",
@@ -4259,10 +4362,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                 "translate_entry uses detached_sections mode. Section overlays previously used layout_target: entry — prefer entry-owned section tools now.",
             },
           ];
-          for (const r of commitResults) {
-            if (r.warning) warnings.push({ code: "github_commit_failed", message: r.warning });
-          }
-          const commitShas = commitResults.map((r) => r.commitSha).filter(Boolean) as string[];
+          const ghWarning = githubCommitWarning(commitResult);
+          if (ghWarning) warnings.push(ghWarning);
           return ok(
             {
               message: `Detached ${contentType}/${slug}`,
@@ -4272,7 +4373,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               detached: true,
               locales: result.locales,
               paths: relPaths,
-              ...(commitShas.length ? { commitShas } : {}),
+              ...(commitResult.queued ? { queued: true } : {}),
+              ...(commitResult.commitSha
+                ? { commitSha: commitResult.commitSha, commitShas: [commitResult.commitSha] }
+                : {}),
             },
             {
               warnings,
@@ -4374,10 +4478,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           return `${contentFolder}/${path.relative(contentPath, abs).replace(/\\/g, "/")}`;
         });
         const commitMsg = `Reattach ${contentType}/${slug} to shared layout`;
-        const commitResults = await Promise.all(
-          relPaths.map((p) => callCommitFileApi(p, commitMsg, mcpToken, domain)),
-        );
-        await callRefreshCacheApi(contentType, domain);
+        const [commitResult] = await Promise.all([
+          callCommitFilesApi(relPaths, commitMsg, mcpToken, domain),
+          callRefreshCacheApi(contentType, domain),
+        ]);
         const warnings: McpWarning[] = [
           {
             code: "reattach_shell_shared",
@@ -4391,10 +4495,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             message: "Entry had traffic-allocated variants that were removed on reattach.",
           });
         }
-        for (const r of commitResults) {
-          if (r.warning) warnings.push({ code: "github_commit_failed", message: r.warning });
-        }
-        const commitShas = commitResults.map((r) => r.commitSha).filter(Boolean) as string[];
+        const ghWarning = githubCommitWarning(commitResult);
+        if (ghWarning) warnings.push(ghWarning);
         return ok(
           {
             message: `Reattached ${contentType}/${slug}`,
@@ -4404,7 +4506,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             detached: false,
             hadTrafficVariants: result.hadTrafficVariants,
             paths: relPaths,
-            ...(commitShas.length ? { commitShas } : {}),
+            ...(commitResult.queued ? { queued: true } : {}),
+            ...(commitResult.commitSha
+              ? { commitSha: commitResult.commitSha, commitShas: [commitResult.commitSha] }
+              : {}),
           },
           {
             warnings,
