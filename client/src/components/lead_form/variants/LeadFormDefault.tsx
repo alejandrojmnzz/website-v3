@@ -23,7 +23,7 @@ import { apiRequest, apiFetch } from "@/lib/queryClient";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, resolveWebhook, hashEmail, type ConversionName, type TrackingSettingsResponse } from "@/lib/tracking";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
-import { resolveConsentCopy, consentObjectHasVisibleChannel, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml } from "@shared/consent-settings";
+import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, shouldShowFallbackConsent } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import {
   applyLeadFormRouteOutcome,
@@ -268,6 +268,7 @@ interface FormValues {
   consent_email: boolean;
   consent_sms: boolean;
   consent_whatsapp: boolean;
+  consent_general: boolean;
   [key: string]: string | boolean;
 }
 
@@ -278,6 +279,7 @@ interface ConsentSectionProps {
   formOptions?: FormOptions;
   sessionLocation: { slug: string; region: string; country?: string } | null;
   consentSettings?: Record<string, Record<string, string> | string>;
+  fallbackKey?: string | null;
 }
 
 const CONSENT_COPY_CLASS =
@@ -294,7 +296,60 @@ function ConsentMessage({ html, testId }: { html: string; testId?: string }) {
   );
 }
 
-function ConsentSection({ consent, form, locale, formOptions, sessionLocation, consentSettings }: ConsentSectionProps) {
+function FallbackConsentField({
+  form,
+  locale,
+  fallbackKey,
+  html,
+  className,
+}: {
+  form: ReturnType<typeof useForm<FormValues>>;
+  locale: string;
+  fallbackKey: string;
+  html: string;
+  className?: string;
+}) {
+  return (
+    <FormField
+      control={form.control}
+      name={fallbackKey}
+      rules={{
+        validate: (value) => value === true || (locale === "es"
+          ? "Por favor marca esta casilla para continuar"
+          : "Please check this box to continue")
+      }}
+      render={({ field, fieldState }) => (
+        <FormItem className={className ?? "flex flex-col space-y-2"}>
+          <div className="flex flex-row items-start space-x-3">
+            <FormControl>
+              <Checkbox
+                checked={!!field.value}
+                onCheckedChange={field.onChange}
+                data-testid={fallbackKey === "consent_general" ? "checkbox-consent-general" : "checkbox-consent-fallback"}
+              />
+            </FormControl>
+            <div
+              className="min-w-0 cursor-pointer leading-none"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest("a")) return;
+                field.onChange(!field.value);
+              }}
+            >
+              <ConsentMessage html={html} />
+            </div>
+          </div>
+          {fieldState.error && (
+            <p className="text-sm text-destructive" data-testid="text-consent-general-error">
+              {fieldState.error.message}
+            </p>
+          )}
+        </FormItem>
+      )}
+    />
+  );
+}
+
+function ConsentSection({ consent, form, locale, formOptions, sessionLocation, consentSettings, fallbackKey }: ConsentSectionProps) {
   const selectedLocationSlug = form.watch("location");
   
   const isUSALocation = (): boolean => {
@@ -325,13 +380,26 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, c
 
   const showSmsConsent = consent.sms && (!consent.sms_usa_only || isUSALocation());
 
-  const defaultMarketingText = resolveConsentCopy("consent_general", consentSettings?.consent_general, locale);
+  const defaultMarketingText = resolveConsentCopy("consent_marketing", consentSettings?.consent_marketing, locale);
   const defaultSmsText = resolveConsentCopy("consent_sms", consentSettings?.consent_sms, locale);
   const defaultEmailText = resolveConsentCopy("consent_email", consentSettings?.consent_email, locale);
   const defaultWhatsappText = resolveConsentCopy("consent_whatsapp", consentSettings?.consent_whatsapp, locale);
+  const showFallback = shouldShowFallbackConsent(consent, fallbackKey);
+  const fallbackCopy = fallbackKey
+    ? resolveConsentCopy(fallbackKey, consentSettings?.[fallbackKey], locale)
+    : "";
 
   return (
     <div className="space-y-4">
+      {showFallback && fallbackKey && (
+        <FallbackConsentField
+          form={form}
+          locale={locale}
+          fallbackKey={fallbackKey}
+          html={fallbackCopy}
+        />
+      )}
+
       {consent.marketing && (
         <FormField
           control={form.control}
@@ -612,10 +680,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: consentSettings } = useQuery<Record<string, Record<string, string>>>({
+  const { data: consentSettingsRaw } = useQuery({
     queryKey: ["/api/settings/consent"],
     staleTime: 5 * 60 * 1000,
   });
+  const { fallback: consentFallbackKey, messages: consentSettings } = parseConsentSettingsResponse(consentSettingsRaw);
 
   // Signup mode (is_signup): active only when site auth settings are configured,
   // so a stale YAML flag can never break submissions.
@@ -1017,6 +1086,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       consent_email: false,
       consent_sms: false,
       consent_whatsapp: false,
+      consent_general: false,
       ...Object.fromEntries(extraConsentFields.map((field) => [`consent_${field}`, false])),
     },
   });
@@ -1028,9 +1098,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         form.setValue(name, false);
       }
     }
+    if (consentFallbackKey && form.getValues(consentFallbackKey) === undefined) {
+      form.setValue(consentFallbackKey, false);
+    }
     // extraConsentFields is derived from YAML; join() is the stable dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraConsentFields.join(","), form]);
+  }, [extraConsentFields.join(","), consentFallbackKey, form]);
 
   // Prefill identity fields from the logged-in profile (signup mode). The values
   // stay in the form state so hidden fields are still included in the payload.
@@ -1362,6 +1435,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             consent_email: variables.consent_email,
             consent_sms: variables.consent_sms,
             consent_whatsapp: variables.consent_whatsapp,
+            consent_general: variables.consent_general,
             ...Object.fromEntries(
               extraConsentFields.map((field) => [
                 `consent_${field}`,
@@ -1897,6 +1971,15 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                 {emailConfig.helper_text}
               </p>
             )}
+            {showLegalAndConsent && allRequiredFieldsFilled && shouldShowFallbackConsent(consent, consentFallbackKey) && consentFallbackKey && (
+              <FallbackConsentField
+                form={form}
+                locale={locale}
+                fallbackKey={consentFallbackKey}
+                html={resolveConsentCopy(consentFallbackKey, consentSettings?.[consentFallbackKey], locale)}
+                className="flex flex-col space-y-2 mt-3"
+              />
+            )}
             {showLegalAndConsent && allRequiredFieldsFilled && consent.email && (
               <FormField
                 control={form.control}
@@ -2318,7 +2401,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             />
           )}
 
-          {showLegalAndConsent && allRequiredFieldsFilled && consentObjectHasVisibleChannel(consent) && (
+          {showLegalAndConsent && allRequiredFieldsFilled && (
             <ConsentSection 
               consent={consent}
               form={form}
@@ -2326,6 +2409,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               formOptions={formOptions}
               sessionLocation={sessionLocation}
               consentSettings={consentSettings}
+              fallbackKey={consentFallbackKey}
             />
           )}
 

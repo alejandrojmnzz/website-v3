@@ -3,6 +3,7 @@ import { getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { child } from "./logger";
+import { normalizeConsentFallbackKey } from "@shared/consent-settings";
 const log = child({ module: "settings" });
 
 
@@ -350,6 +351,11 @@ export function parseEntryPreviewSettings(raw: unknown): EntryPreviewSettings {
   };
 }
 
+/** Lead-form consent pointer in settings.yml (`consent.fallback`). */
+export interface SiteConsentSettings {
+  fallback: string | null;
+}
+
 interface SiteSettings {
   i18n: I18nSettings;
   home_page: HomePageSettings;
@@ -358,6 +364,13 @@ interface SiteSettings {
   robots: RobotsSettings;
   auth: AuthSettings;
   entry_preview: EntryPreviewSettings;
+  consent: SiteConsentSettings;
+}
+
+function parseSiteConsentSettings(raw: unknown): SiteConsentSettings {
+  if (!raw || typeof raw !== "object") return { fallback: null };
+  const rec = raw as Record<string, unknown>;
+  return { fallback: normalizeConsentFallbackKey(rec.fallback) };
 }
 
 /** Build robots.txt body from settings. `baseUrl` is used for the Sitemap line when included. */
@@ -438,6 +451,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     auth: {},
     entry_preview: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
+    consent: { fallback: null },
   };
 
   if (!fs.existsSync(settingsPath)) {
@@ -610,6 +624,7 @@ function loadSettings(contentRoot?: string): SiteSettings {
       robots,
       auth,
       entry_preview: parseEntryPreviewSettings(parsed.entry_preview),
+      consent: parseSiteConsentSettings(parsed.consent),
     };
     settingsCache.set(key, result);
     log.info(
@@ -646,6 +661,48 @@ export function getLocaleEntries(contentRoot?: string): LocaleEntry[] {
 
 export function getHomePage(contentRoot?: string): HomePageSettings {
   return loadSettings(contentRoot).home_page;
+}
+
+export function getConsentFallback(contentRoot?: string): string | null {
+  return loadSettings(contentRoot).consent.fallback;
+}
+
+/**
+ * Persist `consent.fallback` by patching settings.yml (preserves unrelated keys).
+ * Pass null / empty to clear — forms then show no extra checkbox when channels are off.
+ */
+export function updateConsentFallback(fallback: string | null, contentRoot?: string): string | null {
+  const normalized = fallback === null || fallback === "" ? null : normalizeConsentFallbackKey(fallback);
+  if (fallback && fallback.trim() && !normalized) {
+    throw new Error(`Invalid consent.fallback "${fallback}" — use a consent_* key`);
+  }
+
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const prev =
+    existing.consent && typeof existing.consent === "object"
+      ? { ...(existing.consent as Record<string, unknown>) }
+      : {};
+  if (normalized) {
+    existing.consent = { ...prev, fallback: normalized };
+  } else {
+    delete prev.fallback;
+    if (Object.keys(prev).length > 0) existing.consent = prev;
+    else delete existing.consent;
+  }
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(`[Settings] Updated consent.fallback=${normalized ?? "(none)"}`);
+  return normalized;
 }
 
 export function normalizeLocale(locale: string | undefined | null, contentRoot?: string): string {

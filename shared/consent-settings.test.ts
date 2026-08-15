@@ -10,11 +10,16 @@ import {
   getBuiltinConsentFallback,
   isBlankConsentHtml,
   localesToConsentDefinition,
+  normalizeConsentFallbackKey,
+  parseConsentSettingsResponse,
   resolveConsentCopy,
   resolveConsentLocaleText,
+  shouldShowFallbackConsent,
   slugifyConsentKey,
   stripConsentHtml,
   yamlFieldFromConsentKey,
+  consentKeyFromYamlField,
+  consentCardChannels,
 } from "./consent-settings";
 import { leadFormDataSchema } from "./component-registry/_common/schema";
 import { resolveFormDefaults } from "./resolveFormDefaults";
@@ -34,6 +39,7 @@ describe("slugifyConsentKey", () => {
 describe("consentLabelFromKey", () => {
   it("uses builtin labels", () => {
     expect(consentLabelFromKey("consent_general")).toBe("General");
+    expect(consentLabelFromKey("consent_marketing")).toBe("Marketing");
     expect(consentLabelFromKey("consent_sms")).toBe("SMS");
   });
 
@@ -73,10 +79,12 @@ describe("localesToConsentDefinition / consentDefinitionToLocales", () => {
 
 describe("yamlFieldFromConsentKey / extraConsentYamlFields", () => {
   it("maps builtin settings keys to YAML fields", () => {
-    expect(yamlFieldFromConsentKey("consent_general")).toBe("marketing");
+    expect(yamlFieldFromConsentKey("consent_marketing")).toBe("marketing");
+    expect(yamlFieldFromConsentKey("consent_general")).toBe("general");
     expect(yamlFieldFromConsentKey("consent_sms")).toBe("sms");
     expect(yamlFieldFromConsentKey("consent_whatsapp")).toBe("whatsapp");
     expect(yamlFieldFromConsentKey("consent_foo")).toBe("foo");
+    expect(consentKeyFromYamlField("marketing")).toBe("consent_marketing");
   });
 
   it("lists only extra channels from settings keys", () => {
@@ -86,6 +94,7 @@ describe("yamlFieldFromConsentKey / extraConsentYamlFields", () => {
         "consent_sms",
         "consent_email",
         "consent_general",
+        "consent_marketing",
         "consent_terms",
       ]),
     ).toEqual(["terms"]);
@@ -109,8 +118,40 @@ describe("yamlFieldFromConsentKey / extraConsentYamlFields", () => {
         showTerms: true,
         termsUrl: "/t",
         privacyUrl: "/p",
+        general: true,
       }),
-    ).toEqual(["test"]);
+    ).toEqual(["test", "general"]);
+  });
+});
+
+describe("consentCardChannels", () => {
+  const keys = [
+    "consent_whatsapp",
+    "consent_sms",
+    "consent_email",
+    "consent_general",
+    "consent_marketing",
+    "consent_ghfdsffdsa",
+  ];
+
+  it("lists every Settings consent except the Default", () => {
+    expect(consentCardChannels(keys, "consent_sms").map((c) => c.yamlField)).toEqual([
+      "marketing",
+      "whatsapp",
+      "email",
+      "general",
+      "ghfdsffdsa",
+    ]);
+  });
+
+  it("omits General when it is the Default", () => {
+    expect(consentCardChannels(keys, "consent_general").map((c) => c.yamlField)).toEqual([
+      "marketing",
+      "sms",
+      "whatsapp",
+      "email",
+      "ghfdsffdsa",
+    ]);
   });
 });
 
@@ -164,6 +205,8 @@ describe("builtin consent fallbacks", () => {
   it("returns the hardcoded EN/ES copy", () => {
     expect(getBuiltinConsentFallback("consent_email", "en")).toMatch(/email/i);
     expect(getBuiltinConsentFallback("consent_email", "es")).toMatch(/correo/i);
+    expect(getBuiltinConsentFallback("consent_marketing", "en")).toMatch(/marketing materials/i);
+    expect(getBuiltinConsentFallback("consent_general", "en")).toMatch(/this request/i);
     expect(getBuiltinConsentFallback("consent_foo", "en")).toBe("");
   });
 
@@ -180,6 +223,60 @@ describe("builtin consent fallbacks", () => {
   it("does not invent copy for extra channels without a variable", () => {
     expect(resolveConsentCopy("consent_test", undefined, "en")).toBe("");
     expect(resolveConsentCopy("consent_test", { en: "" }, "es")).toBe("");
+  });
+});
+
+describe("shouldShowFallbackConsent", () => {
+  it("is true when a fallback key is set and no channel toggles are on", () => {
+    expect(shouldShowFallbackConsent({}, "consent_general")).toBe(true);
+    expect(shouldShowFallbackConsent({ marketing: false, sms: false }, "consent_general")).toBe(true);
+    expect(shouldShowFallbackConsent({ show_terms: true }, "consent_general")).toBe(true);
+  });
+
+  it("is false when any channel is on, even with a fallback key", () => {
+    expect(shouldShowFallbackConsent({ marketing: true }, "consent_general")).toBe(false);
+    expect(shouldShowFallbackConsent({ sms: true }, "consent_general")).toBe(false);
+    expect(shouldShowFallbackConsent({ terms: true }, "consent_general")).toBe(false);
+    expect(shouldShowFallbackConsent({ general: true }, "consent_sms")).toBe(false);
+  });
+
+  it("is false when no fallback key is set", () => {
+    expect(shouldShowFallbackConsent({}, null)).toBe(false);
+    expect(shouldShowFallbackConsent({}, "")).toBe(false);
+    expect(shouldShowFallbackConsent({}, "not-a-consent-key")).toBe(false);
+  });
+});
+
+describe("normalizeConsentFallbackKey / parseConsentSettingsResponse", () => {
+  it("accepts valid consent_* keys and rejects others", () => {
+    expect(normalizeConsentFallbackKey("consent_general")).toBe("consent_general");
+    expect(normalizeConsentFallbackKey(" consent_marketing ")).toBe("consent_marketing");
+    expect(normalizeConsentFallbackKey("")).toBeNull();
+    expect(normalizeConsentFallbackKey("general")).toBeNull();
+  });
+
+  it("reads wrapped GET payloads", () => {
+    expect(
+      parseConsentSettingsResponse({
+        fallback: "consent_general",
+        messages: { consent_general: { en: "Hi" } },
+      }),
+    ).toEqual({
+      fallback: "consent_general",
+      messages: { consent_general: { en: "Hi" } },
+    });
+  });
+
+  it("reads legacy messages-only payloads", () => {
+    expect(
+      parseConsentSettingsResponse({
+        consent_general: { en: "Hi" },
+        fallback: "consent_general",
+      }),
+    ).toEqual({
+      fallback: "consent_general",
+      messages: { consent_general: { en: "Hi" } },
+    });
   });
 });
 

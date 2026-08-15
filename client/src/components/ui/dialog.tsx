@@ -32,6 +32,11 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 interface DialogContentProps extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
   hideClose?: boolean;
   overlayClassName?: string;
+  /**
+   * Radix Overlay is omitted when Dialog `modal={false}`. Set this to keep the
+   * dimmer without the modal focus/pointer trap (needed for nested popovers).
+   */
+  forceOverlay?: boolean;
 }
 
 function restorePointerEvents() {
@@ -46,9 +51,18 @@ function restorePointerEvents() {
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, hideClose, onCloseAutoFocus, overlayClassName, ...props }, ref) => (
+>(({ className, children, hideClose, onCloseAutoFocus, overlayClassName, forceOverlay, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay className={overlayClassName} />
+    {forceOverlay ? (
+      <div
+        aria-hidden
+        className={cn(
+          "fixed inset-0 z-[10000] bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200",
+          overlayClassName
+        )}
+      />
+    ) : null}
     <DialogPrimitive.Content
       ref={ref}
       className={cn(

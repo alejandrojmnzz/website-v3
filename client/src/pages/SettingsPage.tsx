@@ -41,6 +41,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { RichTextArea } from "@/components/editing/RichTextArea";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ServerTab } from "@/components/settings/ServerTab";
 import { RobotsTab } from "@/components/settings/RobotsTab";
@@ -49,6 +50,7 @@ import {
   getBuiltinConsentFallback,
   isBlankConsentHtml,
   isBuiltinConsentKey,
+  parseConsentSettingsResponse,
   slugifyConsentKey,
   stripConsentHtml,
 } from "@shared/consent-settings";
@@ -192,9 +194,10 @@ export default function SettingsPage() {
   const [legalPrivacyUrl, setLegalPrivacyUrl] = useState("");
   const [legalSaving, setLegalSaving] = useState<string | null>(null);
 
-  const { data: consentData, refetch: refetchConsent } = useQuery<Record<string, Record<string, string>>>({
+  const { data: consentDataRaw, refetch: refetchConsent } = useQuery({
     queryKey: ["/api/settings/consent"],
   });
+  const { fallback: consentFallback, messages: consentData } = parseConsentSettingsResponse(consentDataRaw);
 
   const supportedLocalesForConsent = data?.supported_locales?.length
     ? data.supported_locales
@@ -210,6 +213,7 @@ export default function SettingsPage() {
     locales: Record<string, string>;
   } | null>(null);
   const [consentSaving, setConsentSaving] = useState(false);
+  const [fallbackSaving, setFallbackSaving] = useState(false);
   const ignoreConsentDialogCloseRef = useRef(false);
 
   function markConsentPopoverInteract() {
@@ -283,6 +287,28 @@ export default function SettingsPage() {
       toast({ title: "Failed to save", description: err.message || String(err), variant: "destructive" });
     } finally {
       setConsentSaving(false);
+    }
+  }
+
+  async function handleConsentFallbackToggle(key: string, on: boolean) {
+    setFallbackSaving(true);
+    try {
+      const res = await apiRequest("PUT", "/api/settings/consent/fallback", {
+        fallback: on ? key : null,
+      });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      await refetchConsent();
+      toast({
+        title: "Saved",
+        description: on
+          ? `${consentLabelFromKey(key)} is the form default when no channels are on.`
+          : "No form default — forms with no channels will not show an extra checkbox.",
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to save", description: err.message || String(err), variant: "destructive" });
+    } finally {
+      setFallbackSaving(false);
     }
   }
 
@@ -1232,9 +1258,28 @@ export default function SettingsPage() {
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   Site-wide checkbox copy for lead forms, stored as <code className="font-mono">reserved.consent_*</code> variables.
+                  Turn on <span className="font-medium text-foreground">Default</span> in a consent&apos;s Edit dialog — that copy is the extra checkbox when a form has no channel (Marketing, SMS, WhatsApp, …) on.
+                  Only one can be Default; others stay off until you turn the current one off.
+                  Stored in <code className="font-mono">settings.yml</code> as <code className="font-mono">consent.fallback</code>. Off means no extra checkbox.
+                  <span className="font-medium text-foreground"> Marketing</span> is the copy for the Marketing switch.
                   The default locale is <code className="font-mono">default</code>; other locales are <code className="font-mono">conditions</code> with <code className="font-mono">query.locale</code>.
                   Empty builtins show the form&apos;s built-in copy so you can edit from it. Links and formatting use the rich-text editor.
                 </p>
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer select-none">Read more (advanced)</summary>
+                  <p className="mt-1 leading-snug">
+                    Default writes <code className="font-mono">consent.fallback</code> in{" "}
+                    <code className="font-mono">site_*/settings.yml</code> via{" "}
+                    <code className="font-mono">PUT /api/settings/consent/fallback</code>
+                    {" "}(<code className="font-mono">server/settings.ts</code>).
+                    The form reads it in{" "}
+                    <code className="font-mono">client/src/components/lead_form/variants/LeadFormDefault.tsx</code>
+                    {" "}(<code className="font-mono">shouldShowFallbackConsent</code>).
+                    Default is not a YAML channel toggle — ConsentCard still uses{" "}
+                    <code className="font-mono">consent.marketing</code> / SMS / WhatsApp.
+                    General fallback does not set CRM <code className="font-mono">has_marketing_consent</code>.
+                  </p>
+                </details>
                 <div className="divide-y">
                   {consentKeys.map((key) => {
                     const stored = consentData?.[key] ?? {};
@@ -1265,6 +1310,11 @@ export default function SettingsPage() {
                             <Badge variant="secondary" className="font-mono text-xs">
                               reserved.{key}
                             </Badge>
+                            {consentFallback === key ? (
+                              <Badge data-testid={`badge-consent-fallback-${key}`}>
+                                Default
+                              </Badge>
+                            ) : null}
                           </div>
                           {localePreviews.length > 0 ? (
                             <div className="space-y-1">
@@ -1314,22 +1364,26 @@ export default function SettingsPage() {
               }}
             >
               <DialogContent
+                forceOverlay
                 className="sm:max-w-2xl max-h-[85vh] overflow-y-auto"
                 onPointerDownOutside={(e) => {
                   const target = e.target as HTMLElement;
                   if (target.closest("[data-radix-popper-content-wrapper]")) {
+                    e.preventDefault();
                     markConsentPopoverInteract();
                   }
                 }}
                 onFocusOutside={(e) => {
                   const target = e.target as HTMLElement;
                   if (target.closest("[data-radix-popper-content-wrapper]")) {
+                    e.preventDefault();
                     markConsentPopoverInteract();
                   }
                 }}
                 onInteractOutside={(e) => {
                   const target = e.target as HTMLElement;
                   if (target.closest("[data-radix-popper-content-wrapper]")) {
+                    e.preventDefault();
                     markConsentPopoverInteract();
                   }
                 }}
@@ -1360,6 +1414,33 @@ export default function SettingsPage() {
                       {isBuiltinConsentKey(editingConsent?.key ?? "") ? " — empty locales start from the form's built-in copy." : null}
                     </p>
                   )}
+                  {editingConsent?.mode === "edit" && editingConsentKey ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="consent-fallback-modal"
+                          checked={consentFallback === editingConsentKey}
+                          disabled={
+                            fallbackSaving
+                            || (!!consentFallback && consentFallback !== editingConsentKey)
+                          }
+                          onCheckedChange={(on) => handleConsentFallbackToggle(editingConsentKey, on)}
+                          data-testid="switch-consent-fallback"
+                        />
+                        <Label
+                          htmlFor="consent-fallback-modal"
+                          className="text-sm font-medium cursor-pointer"
+                        >
+                          Default
+                        </Label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {consentFallback && consentFallback !== editingConsentKey
+                          ? `Already set to ${consentLabelFromKey(consentFallback)}. Turn that one off first.`
+                          : "When a form has no channel checkboxes on, show this copy. Off means no extra checkbox."}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="space-y-3">
                     <p className="text-xs font-medium text-muted-foreground">
                       Message per locale

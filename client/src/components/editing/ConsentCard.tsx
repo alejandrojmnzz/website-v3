@@ -12,6 +12,7 @@ import {
   consentCardChannels,
   consentKeyFromYamlField,
   consentLabelFromKey,
+  parseConsentSettingsResponse,
   type ConsentCardValues,
   type ConsentChannelDef,
 } from "@shared/consent-settings";
@@ -73,6 +74,18 @@ function channelOn(values: Partial<ConsentValues> | undefined, yamlField: string
   return !!(values as Record<string, unknown>)[yamlField];
 }
 
+function FallbackBadge({ settingsKey }: { settingsKey: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] px-1.5 py-0 leading-4 font-normal"
+      data-testid={`badge-consent-fallback-${settingsKey}`}
+    >
+      Fallback
+    </Badge>
+  );
+}
+
 export function ConsentCard({
   values,
   onChange,
@@ -82,12 +95,13 @@ export function ConsentCard({
   onOverrideChange,
 }: ConsentCardProps) {
   const [editing, setEditing] = useState(false);
-  const { data: consentSettings } = useQuery<Record<string, unknown>>({
+  const { data: consentSettingsRaw } = useQuery({
     queryKey: ["/api/settings/consent"],
   });
+  const { fallback: consentFallback, messages: consentSettings } = parseConsentSettingsResponse(consentSettingsRaw);
 
   const channelDefs: ConsentChannelDef[] = useMemo(() => {
-    const fromSettings = consentCardChannels(Object.keys(consentSettings ?? {}));
+    const fromSettings = consentCardChannels(Object.keys(consentSettings ?? {}), consentFallback);
     const extras = collectExtraConsentYamlFields(
       Object.keys(consentSettings ?? {}),
       values,
@@ -95,7 +109,11 @@ export function ConsentCard({
     );
     const known = new Set(fromSettings.map((c) => c.yamlField));
     const extraOnly = extras
-      .filter((field) => !known.has(field))
+      .filter((field) => {
+        const settingsKey = consentKeyFromYamlField(field);
+        if (consentFallback && settingsKey === consentFallback) return false;
+        return !known.has(field);
+      })
       .map((yamlField) => {
         const settingsKey = consentKeyFromYamlField(yamlField);
         return {
@@ -105,7 +123,7 @@ export function ConsentCard({
         };
       });
     return [...fromSettings, ...extraOnly];
-  }, [consentSettings, values, inheritedValues]);
+  }, [consentSettings, consentFallback, values, inheritedValues]);
 
   // Conversions (no inheritance): treat enabled channels as authored so badges show.
   const eventAuthored = specificFields === undefined;
@@ -120,8 +138,6 @@ export function ConsentCard({
     ({ yamlField }) => isInherited(yamlField) && channelOn(values, yamlField),
   );
   const hasAnyChannel = specificChannels.length > 0 || inheritedChannels.length > 0;
-  const channelsMissing =
-    !hasAnyChannel && !hasInheritanceSource && !channelDefs.some(({ yamlField }) => channelOn(values, yamlField));
 
   const showTermsSpecific = isSpecific("showTerms");
   const showTermsInherited = isInherited("showTerms");
@@ -148,16 +164,40 @@ export function ConsentCard({
         </Button>
       </div>
 
+      <p className="text-[11px] text-muted-foreground leading-snug" data-testid="text-consent-how-it-works">
+        Channel switches choose which checkboxes appear on the form. If none are on, the form shows the{" "}
+        <span className="font-medium text-foreground">Default</span> consent from Settings
+        {consentFallback ? (
+          <>
+            {" "}(<code className="font-mono text-[10px] bg-muted px-1 rounded">reserved.{consentFallback}</code>)
+          </>
+        ) : (
+          <> — none is set, so no extra checkbox</>
+        )}
+        . Marketing copy lives in{" "}
+        <code className="font-mono text-[10px] bg-muted px-1 rounded">reserved.consent_marketing</code>.
+      </p>
+      <details className="text-[11px] text-muted-foreground">
+        <summary className="cursor-pointer select-none">Read more (advanced)</summary>
+        <p className="mt-1 leading-snug">
+          Switches are every Settings consent except Default (
+          <code className="font-mono text-[10px] bg-muted px-1 rounded">settings.yml</code>
+          {" "}→ <code className="font-mono text-[10px]">consent.fallback</code>
+          ). If none are on, the form shows that Default checkbox. Form YAML uses{" "}
+          <code className="font-mono text-[10px] bg-muted px-1 rounded">consent.marketing</code>,{" "}
+          <code className="font-mono text-[10px] bg-muted px-1 rounded">consent.general</code>, etc. (
+          <code className="font-mono text-[10px] bg-muted px-1 rounded">shared/consent-settings.ts</code>
+          {" "}<code className="font-mono text-[10px]">consentCardChannels</code>). Checkboxes:{" "}
+          <code className="font-mono text-[10px] bg-muted px-1 rounded">client/src/components/lead_form/variants/LeadFormDefault.tsx</code>.
+          The fallback checkbox does not set CRM <code className="font-mono text-[10px]">has_marketing_consent</code> unless Marketing is on.
+        </p>
+      </details>
+
       {!editing ? (
         <div className="space-y-1.5">
           <div className="flex items-start gap-2">
             <span className="text-xs text-muted-foreground w-20 flex-shrink-0 pt-0.5">Channels</span>
-            {channelsMissing ? (
-              <span className="flex items-center gap-1 text-xs text-destructive" data-testid="error-no-channels">
-                <IconAlertCircle className="h-3 w-3 shrink-0" />
-                No inherited or specific value found
-              </span>
-            ) : hasAnyChannel ? (
+            {hasAnyChannel ? (
               <div className="flex flex-wrap gap-1 items-center">
                 {specificChannels.map(({ yamlField, label }) => (
                   <Badge key={yamlField} variant="secondary" className="text-[11px] px-1.5 py-0 leading-4 font-normal">
@@ -178,12 +218,20 @@ export function ConsentCard({
                   </span>
                 )}
               </div>
-            ) : isOverridden && hasInheritedSource ? (
-              <span className="text-xs text-muted-foreground italic" data-testid="text-channels-overridden-empty">
-                none (overriding inherited)
-              </span>
             ) : (
-              <span className="text-xs text-muted-foreground italic">none enabled</span>
+              <span className="flex flex-wrap items-center gap-1" data-testid="text-channels-general-fallback">
+                <Badge variant="secondary" className="text-[11px] px-1.5 py-0 leading-4 font-normal">
+                  {consentFallback ? consentLabelFromKey(consentFallback) : "No default"}
+                </Badge>
+                {consentFallback ? <FallbackBadge settingsKey={consentFallback} /> : null}
+                <span className="text-[10px] text-muted-foreground italic">
+                  {isOverridden && hasInheritedSource
+                    ? "(no channels on — overriding inherited)"
+                    : inheritedChannels.length === 0 && hasInheritanceSource
+                      ? "(no channels on — inherited)"
+                      : "(no channels on)"}
+                </span>
+              </span>
             )}
           </div>
 
