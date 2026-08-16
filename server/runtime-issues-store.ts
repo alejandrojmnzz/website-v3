@@ -23,12 +23,22 @@ import {
   incrementByHour,
   sumByHourTotals,
   unionSources,
+  resolvedDropScrapers,
   MAX_RECENT,
   type RuntimeIssuesState,
   type RuntimeIssueRecord,
 } from "@shared/runtime-issues";
+import { pathMatchesAnyIgnoreRule, type IgnoreRule, type IgnoreRuleInput } from "@shared/runtime-issues-ignore";
 import { gcs } from "./gcs";
 import { child } from "./logger";
+import {
+  _resetRuntimeIssuesIgnoreForTests,
+  addIgnoreRules as addIgnoreRulesToStore,
+  isPathIgnored,
+  listIgnoreRules,
+  loadRuntimeIssuesIgnoreForSite,
+  removeIgnoreRules as removeIgnoreRulesFromStore,
+} from "./runtime-issues-ignore-store";
 
 const log = child({ module: "runtime-issues" });
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -112,6 +122,10 @@ function loadLocalInto(site: string, contentRoot?: string): RuntimeIssuesState {
   return emptyRuntimeIssuesState();
 }
 
+function applyLoadedState(b: SiteBucket, state: RuntimeIssuesState): void {
+  b.state = pruneRuntimeIssuesState(state);
+}
+
 /**
  * Load one site's runtime issues from GCS (prod) or local file.
  */
@@ -120,9 +134,10 @@ export async function loadRuntimeIssuesForSite(
   contentRoot?: string,
 ): Promise<void> {
   const b = ensureBucket(site, contentRoot);
+  await loadRuntimeIssuesIgnoreForSite(site, contentRoot);
 
   if (!IS_PRODUCTION || !gcs.available) {
-    b.state = loadLocalInto(site, contentRoot);
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
     b.loaded = true;
     return;
   }
@@ -131,16 +146,16 @@ export async function loadRuntimeIssuesForSite(
     const result = await gcs.downloadFirstExisting(runtimeIssuesStateReadKeys(site));
     if (result) {
       const parsed = JSON.parse(result.data.toString("utf-8")) as RuntimeIssuesState;
-      b.state = pruneRuntimeIssuesState(parsed);
+      applyLoadedState(b, parsed);
       saveLocal(site);
       log.info({ site }, "loaded runtime-issues from GCS");
     } else {
-      b.state = loadLocalInto(site, contentRoot);
+      applyLoadedState(b, loadLocalInto(site, contentRoot));
       log.info({ site }, "no runtime-issues in GCS — using local");
     }
   } catch (err) {
     log.error({ err, site }, "GCS load failed for runtime-issues");
-    b.state = loadLocalInto(site, contentRoot);
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
   }
   b.loaded = true;
 }
@@ -154,7 +169,7 @@ export async function loadAllRuntimeIssuesFromBucket(
 function ensureLoadedSync(site: string, contentRoot?: string): SiteBucket {
   const b = ensureBucket(site, contentRoot);
   if (!b.loaded) {
-    b.state = loadLocalInto(site, contentRoot);
+    applyLoadedState(b, loadLocalInto(site, contentRoot));
     b.loaded = true;
   }
   return b;
@@ -178,17 +193,18 @@ export interface RecordNotFoundInput {
 export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   const pathNorm = normalizeRuntimePath(input.path);
   if (pathNorm.startsWith("/api/") || pathNorm.startsWith("/private/")) return false;
-  if (shouldHardDropNotFound(pathNorm, input.userAgent, input.referrer)) return false;
-
-  const locale = (input.locale || localeFromPath(pathNorm)).toLowerCase();
   const site = input.site || "default";
+  const b = ensureLoadedSync(site, input.contentRoot);
+  const dropScrapers = resolvedDropScrapers(b.state);
+  if (shouldHardDropNotFound(pathNorm, input.userAgent, input.referrer, dropScrapers)) return false;
+  if (isPathIgnored(site, pathNorm, input.contentRoot)) return false;
+  const locale = (input.locale || localeFromPath(pathNorm)).toLowerCase();
   const ts = input.ts ?? Date.now();
   const fingerprint = fingerprintNotFound(site, locale, pathNorm);
   const sampleReferrer = stripReferrerQuery(input.referrer);
   const classified = classifyRuntimeHit(pathNorm, input.userAgent, input.referrer);
   const seoHit = hitHasSeoSignal(classified.tags);
 
-  const b = ensureLoadedSync(site, input.contentRoot);
   const existing = b.state.issues[fingerprint];
   const byHour = incrementByHour(existing?.byHour, ts, classified.tags);
   const sources = unionSources(existing?.sources, classified.tags);
@@ -259,20 +275,17 @@ export function saveIssueProbe(
 
 export function listRuntimeIssues(
   site: string,
-  opts?: { hideBots?: boolean; contentRoot?: string },
+  opts?: { contentRoot?: string },
 ): {
   site: string;
   updatedAt: number;
   totalCount: number;
   issues: RuntimeIssueRecord[];
+  ignored: IgnoreRule[];
+  dropScrapers: boolean;
 } {
   const b = ensureLoadedSync(site, opts?.contentRoot);
-  let issues = Object.values(b.state.issues);
-  if (opts?.hideBots !== false) {
-    issues = issues.filter(
-      (i) => !i.likelyBot && !(i.sources ?? []).includes("scraper") && i.uaBucket !== "scraper",
-    );
-  }
+  const issues = Object.values(b.state.issues);
   issues.sort((a, b2) => {
     if (b2.count !== a.count) return b2.count - a.count;
     return b2.lastSeen - a.lastSeen;
@@ -283,6 +296,8 @@ export function listRuntimeIssues(
     updatedAt: b.state.updatedAt,
     totalCount,
     issues,
+    ignored: listIgnoreRules(site, opts?.contentRoot),
+    dropScrapers: resolvedDropScrapers(b.state),
   };
 }
 
@@ -354,17 +369,151 @@ export async function reuploadRuntimeIssuesToBucket(
   return { success: true, uploaded: true, gcsKey: key };
 }
 
+export interface PullRuntimeIssuesResult {
+  success: boolean;
+  pulled: boolean;
+  gcsKey: string;
+  issueCount: number;
+  reason?: string;
+}
+
+/**
+ * Replace this process's runtime-issues log with the GCS (production) snapshot.
+ * Writes local JSON only — never uploads. Development ingest continues afterward.
+ */
+export async function pullRuntimeIssuesFromGcs(
+  site: string,
+  contentRoot?: string,
+): Promise<PullRuntimeIssuesResult> {
+  const key = gcsKey(site);
+  const currentCount = () => Object.keys(ensureLoadedSync(site, contentRoot).state.issues).length;
+
+  if (IS_PRODUCTION) {
+    return {
+      success: false,
+      pulled: false,
+      gcsKey: key,
+      issueCount: currentCount(),
+      reason: "Pull production is only available in development. This host already records production 404s.",
+    };
+  }
+
+  if (!gcs.available) {
+    gcs.initBootstrapFromEnv();
+  }
+  if (!gcs.available) {
+    return {
+      success: false,
+      pulled: false,
+      gcsKey: key,
+      issueCount: currentCount(),
+      reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+    };
+  }
+
+  try {
+    const result = await gcs.downloadFirstExisting(runtimeIssuesStateReadKeys(site));
+    if (!result) {
+      return {
+        success: false,
+        pulled: false,
+        gcsKey: key,
+        issueCount: currentCount(),
+        reason: "No runtime-issues file found in GCS.",
+      };
+    }
+
+    const parsed = JSON.parse(result.data.toString("utf-8")) as RuntimeIssuesState;
+    if (!parsed || parsed.version !== 1 || !parsed.issues) {
+      return {
+        success: false,
+        pulled: false,
+        gcsKey: result.key,
+        issueCount: currentCount(),
+        reason: "GCS runtime-issues file is invalid.",
+      };
+    }
+
+    const b = ensureBucket(site, contentRoot);
+    applyLoadedState(b, parsed);
+    b.loaded = true;
+    saveLocal(site);
+    const issueCount = Object.keys(b.state.issues).length;
+    log.info(
+      { site, gcsKey: result.key, issueCount },
+      "pulled runtime-issues from GCS (local snapshot; ingest continues locally)",
+    );
+    return { success: true, pulled: true, gcsKey: result.key, issueCount };
+  } catch (err) {
+    log.error({ err, site }, "failed to pull runtime-issues from GCS");
+    return {
+      success: false,
+      pulled: false,
+      gcsKey: key,
+      issueCount: currentCount(),
+      reason: err instanceof Error ? err.message : "Failed to pull runtime issues from GCS.",
+    };
+  }
+}
+
 export function getRuntimeIssuesLocalPath(site: string, contentRoot?: string): string {
   return localPathForSite(site, contentRoot);
 }
 
-/** Wipe in-memory + local state for a site, then attempt GCS upload (prod). */
+/** Wipe in-memory + local issues for a site, then attempt GCS upload (prod). Keeps ingest settings. */
 export function resetRuntimeIssuesForSite(site: string, contentRoot?: string): RuntimeIssuesState {
   const b = ensureLoadedSync(site, contentRoot);
+  const dropScrapers = resolvedDropScrapers(b.state);
   b.state = emptyRuntimeIssuesState();
+  b.state.dropScrapers = dropScrapers;
   b.state.updatedAt = Date.now();
   save(site);
   return b.state;
+}
+
+export function setDropScrapers(
+  site: string,
+  enabled: boolean,
+  contentRoot?: string,
+): { dropScrapers: boolean } {
+  const b = ensureLoadedSync(site, contentRoot);
+  b.state.dropScrapers = Boolean(enabled);
+  b.state.updatedAt = Date.now();
+  save(site);
+  return { dropScrapers: resolvedDropScrapers(b.state) };
+}
+
+export function addIgnoreRules(
+  site: string,
+  rules: IgnoreRuleInput[],
+  opts?: { contentRoot?: string; seedPaths?: string[] },
+): { ignored: IgnoreRule[]; removed: number } {
+  const { ignored, added } = addIgnoreRulesToStore(site, rules, opts);
+  let removed = 0;
+  if (added.length) {
+    const b = ensureLoadedSync(site, opts?.contentRoot);
+    const nextIssues: Record<string, RuntimeIssueRecord> = {};
+    for (const [fp, issue] of Object.entries(b.state.issues)) {
+      if (pathMatchesAnyIgnoreRule(issue.path, added)) {
+        removed += 1;
+        continue;
+      }
+      nextIssues[fp] = issue;
+    }
+    b.state.issues = nextIssues;
+    b.state.recent = (b.state.recent ?? []).filter((r) => nextIssues[r.fingerprint]);
+    b.state.updatedAt = Date.now();
+    save(site);
+  }
+  return { ignored, removed };
+}
+
+export function removeIgnoreRules(
+  site: string,
+  ids: string[],
+  contentRoot?: string,
+): { ignored: IgnoreRule[] } {
+  return removeIgnoreRulesFromStore(site, ids, contentRoot);
 }
 
 export async function resetAndUploadRuntimeIssues(
@@ -387,4 +536,5 @@ export async function resetAndUploadRuntimeIssues(
 /** Test helper */
 export function _resetRuntimeIssuesForTests(): void {
   bySite.clear();
+  _resetRuntimeIssuesIgnoreForTests();
 }

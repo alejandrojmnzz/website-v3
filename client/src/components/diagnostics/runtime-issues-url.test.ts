@@ -12,10 +12,10 @@ describe("parseRuntimeIssueSearch", () => {
     expect(parseRuntimeIssueSearch("?")).toEqual(RUNTIME_ISSUE_VIEW_DEFAULTS);
   });
 
-  it("parses hideBots=0 and pagesOnly=0", () => {
+  it("parses pagesOnly=0 and ignores leftover hideBots", () => {
     const view = parseRuntimeIssueSearch("hideBots=0&pagesOnly=0");
-    expect(view.hideBots).toBe(false);
     expect(view.filters.pagesOnly).toBe(false);
+    expect("hideBots" in view).toBe(false);
   });
 
   it("parses path, referrer, locale, device, sort, dir", () => {
@@ -43,7 +43,6 @@ describe("serializeRuntimeIssueSearch", () => {
   it("writes only non-default keys", () => {
     const qs = serializeRuntimeIssueSearch({
       ...RUNTIME_ISSUE_VIEW_DEFAULTS,
-      hideBots: false,
       filters: {
         ...RUNTIME_ISSUE_VIEW_DEFAULTS.filters,
         pathQuery: "/es/blog",
@@ -54,7 +53,6 @@ describe("serializeRuntimeIssueSearch", () => {
       sortKey: "lastSeen",
     });
     const params = new URLSearchParams(qs);
-    expect(params.get("hideBots")).toBe("0");
     expect(params.get("pagesOnly")).toBe("1");
     expect(params.get("window")).toBe("7");
     expect(params.get("path")).toBe("/es/blog");
@@ -71,9 +69,16 @@ describe("serializeRuntimeIssueSearch", () => {
     expect(params.has("path")).toBe(false);
   });
 
+  it("strips leftover hideBots from the URL", () => {
+    const qs = serializeRuntimeIssueSearch(RUNTIME_ISSUE_VIEW_DEFAULTS, "hideBots=0&token=abc");
+    const params = new URLSearchParams(qs);
+    expect(params.get("token")).toBe("abc");
+    expect(params.has("hideBots")).toBe(false);
+  });
+
   it("round-trips a fully customized view", () => {
     const view = parseRuntimeIssueSearch(
-      "hideBots=0&pagesOnly=1&path=/en&referrer=press&locale=en&device=desktop&window=7&tz=America/Bogota&source=search_crawler&sort=lastSeen&dir=asc",
+      "pagesOnly=1&path=/en&referrer=press&locale=en&device=desktop&window=7&tz=America/Bogota&source=search_crawler&sort=lastSeen&dir=asc",
     );
     expect(parseRuntimeIssueSearch(serializeRuntimeIssueSearch(view))).toEqual(view);
   });

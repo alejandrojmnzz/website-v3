@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { gscHeadline, gscCrawlerErrorCount, isGscPropertyAccessDenied } from "./gscInspection";
+import { gscHeadline, gscCrawlerErrorCount, gscPermissionLabel, isGscPropertyAccessDenied } from "./gscInspection";
 
 describe("gscHeadline", () => {
   it("labels drafts, never-checked, indexed, and errors", () => {
@@ -39,5 +39,13 @@ describe("isGscPropertyAccessDenied", () => {
   it("detects Search Console permission errors", () => {
     expect(isGscPropertyAccessDenied("Search Console inspect failed (403): PERMISSION_DENIED")).toBe(true);
     expect(isGscPropertyAccessDenied("quota exceeded")).toBe(false);
+  });
+});
+
+describe("gscPermissionLabel", () => {
+  it("maps Search Console permission levels", () => {
+    expect(gscPermissionLabel("siteOwner")).toBe("Owner");
+    expect(gscPermissionLabel("siteRestrictedUser")).toBe("Restricted user");
+    expect(gscPermissionLabel("")).toBe("Unknown");
   });
 });

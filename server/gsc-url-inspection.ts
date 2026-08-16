@@ -14,6 +14,7 @@ export const EXCEPTION_CAP = 25;
 const FILENAME = "gsc-url-inspection.json";
 const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 const INSPECT_ENDPOINT = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect";
+const SITES_ENDPOINT = "https://www.googleapis.com/webmasters/v3/sites";
 
 export interface GscInspectionRecord {
   inspectedAt: string;
@@ -67,6 +68,11 @@ export type GscCredentialsEnvVar =
   | "GSC_CREDENTIALS_JSON"
   | "GSC_KEY_FILENAME";
 export type GscPropertyAccess = "ok" | "denied" | "unknown";
+
+export interface GscSiteEntry {
+  siteUrl: string;
+  permissionLevel: string;
+}
 
 export interface GscEnvConfig {
   configured: boolean;
@@ -522,11 +528,48 @@ export function buildSummary(
 }
 
 export type GoogleInspectFn = (inspectionUrl: string, siteUrl: string) => Promise<InspectApiSuccess>;
+export type GoogleListSitesFn = () => Promise<unknown>;
 
-async function defaultGoogleInspect(inspectionUrl: string, siteUrl: string): Promise<InspectApiSuccess> {
+export function mapGscSitesListPayload(json: unknown): GscSiteEntry[] {
+  if (!json || typeof json !== "object") return [];
+  const entry = (json as { siteEntry?: unknown }).siteEntry;
+  if (!Array.isArray(entry)) return [];
+  const out: GscSiteEntry[] = [];
+  for (const row of entry) {
+    if (!row || typeof row !== "object") continue;
+    const siteUrl = (row as { siteUrl?: unknown }).siteUrl;
+    if (typeof siteUrl !== "string" || !siteUrl.trim()) continue;
+    const rawLevel = (row as { permissionLevel?: unknown }).permissionLevel;
+    out.push({
+      siteUrl: siteUrl.trim(),
+      permissionLevel: typeof rawLevel === "string" ? rawLevel : "",
+    });
+  }
+  return out;
+}
+
+export function gscPermissionLabel(level: string): string {
+  switch (level) {
+    case "siteOwner":
+      return "Owner";
+    case "siteFullUser":
+      return "Full user";
+    case "siteRestrictedUser":
+      return "Restricted user";
+    case "siteUnverifiedUser":
+      return "Unverified";
+    default:
+      return level || "Unknown";
+  }
+}
+
+async function getGscAccessToken(): Promise<string> {
   const creds = resolveGscCredentials();
   const jsonEnv = creds.json;
   const keyFile = creds.keyFile || "";
+  if (!jsonEnv && !keyFile) {
+    throw new Error("Search Console credentials are not configured");
+  }
   const auth = jsonEnv
     ? new GoogleAuth({
         credentials: JSON.parse(jsonEnv) as JWTInput,
@@ -540,6 +583,28 @@ async function defaultGoogleInspect(inspectionUrl: string, siteUrl: string): Pro
   const tokenRes = await client.getAccessToken();
   const token = typeof tokenRes === "string" ? tokenRes : tokenRes?.token;
   if (!token) throw new Error("Failed to obtain Google access token");
+  return token;
+}
+
+async function defaultGoogleListSites(): Promise<unknown> {
+  const token = await getGscAccessToken();
+  const res = await fetch(SITES_ENDPOINT, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const bodyText = await res.text();
+  if (!res.ok) {
+    throw new Error(`Search Console sites.list failed (${res.status}): ${bodyText.slice(0, 400)}`);
+  }
+  return JSON.parse(bodyText) as unknown;
+}
+
+export async function listGscSites(opts?: { listFn?: GoogleListSitesFn }): Promise<GscSiteEntry[]> {
+  const json = opts?.listFn ? await opts.listFn() : await defaultGoogleListSites();
+  return mapGscSitesListPayload(json);
+}
+
+async function defaultGoogleInspect(inspectionUrl: string, siteUrl: string): Promise<InspectApiSuccess> {
+  const token = await getGscAccessToken();
   const res = await fetch(INSPECT_ENDPOINT, {
     method: "POST",
     headers: {

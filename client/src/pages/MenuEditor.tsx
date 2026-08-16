@@ -2,7 +2,7 @@ import { useParams, useLocation } from "wouter";
 import { ArrowLeft, Braces, Check, ChevronDown, ChevronRight, Code, ExternalLink, FileCode, GripVertical, Info, Link as LinkIcon, Megaphone, Menu, Pencil, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import type { ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import yaml from "js-yaml";
 import { escapeTemplateVars, escapeObjectVars, unescapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
@@ -37,6 +37,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { filterSitemapEntries, sitemapPathname } from "@/lib/sitemapSearch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VariableDetailModal } from "@/components/editing/VariableDetailModal";
@@ -820,16 +821,10 @@ function PagePickerPopover({
     },
   });
 
-  const filtered = (() => {
-    const q = search.toLowerCase();
-    return q
-      ? sitemapUrls.filter((e) => e.loc.toLowerCase().includes(q) || e.label.toLowerCase().includes(q))
-      : sitemapUrls;
-  })();
-
-  const extractPath = (loc: string) => {
-    try { return new URL(loc).pathname; } catch { return loc; }
-  };
+  const filtered = useMemo(
+    () => filterSitemapEntries(sitemapUrls, search),
+    [sitemapUrls, search],
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -864,10 +859,10 @@ function PagePickerPopover({
           ) : (
             <div className="p-1">
               {filtered.map((entry) => {
-                const path = extractPath(entry.loc);
+                const path = sitemapPathname(entry.loc);
                 return (
                   <button
-                    key={entry.loc}
+                    key={path}
                     onClick={() => { onChange(path); setOpen(false); setSearch(""); }}
                     className={cn(
                       "w-full text-left px-2 py-1.5 rounded-md hover-elevate flex items-start gap-2",

@@ -14,6 +14,8 @@ import {
   Route,
   TestTube,
   X,
+  EyeOff,
+  Filter,
 } from "lucide-react";
 import { IconAlertTriangle, IconDownload, IconInfoCircle, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { AddRedirectDialog } from "@/components/editing/AddRedirectDialog";
@@ -29,18 +31,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -62,12 +55,10 @@ import {
 import { apiFetch } from "@/lib/queryClient";
 import {
   FILTER_ALL,
-  SOURCE_FILTER_TAGS,
   applyRuntimeIssueView,
-  deviceLabel,
+  countActiveListFilters,
   isRuntimeIssueFiltersActive,
   sortDevices,
-  sourceLabel,
   uniqueSorted,
   windowedSourceTags,
   type RuntimeIssueFilters,
@@ -78,8 +69,16 @@ import {
   serializeRuntimeIssueSearch,
   type RuntimeIssueViewState,
 } from "./runtime-issues-url";
+import { RuntimeIssueSourceBadge } from "./RuntimeIssueSourceBadge";
+import { RuntimeIssueListFiltersDialog } from "./RuntimeIssueListFiltersDialog";
+import { RuntimeIssueIngestionFiltersDialog } from "./RuntimeIssueIngestionFiltersDialog";
+import { RuntimeIssueIgnoreRulesDialog } from "./RuntimeIssueIgnoreRulesDialog";
+import { RuntimeIssueIgnoreSuggestDialog } from "./RuntimeIssueIgnoreSuggestDialog";
 import type { ByHour, RuntimeIssueProbe } from "@shared/runtime-issues";
-import { isRuntimeIssueProbeSuccess } from "@shared/runtime-issues";
+import type { IgnoreRule, IgnoreRuleInput } from "@shared/runtime-issues-ignore";
+import { isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
+import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 
 interface RuntimeIssueRow {
   fingerprint: string;
@@ -104,6 +103,8 @@ interface RuntimeIssuesResponse {
   updatedAt: number;
   totalCount: number;
   issues: RuntimeIssueRow[];
+  ignored?: IgnoreRule[];
+  dropScrapers?: boolean;
 }
 
 function formatTs(ts: number) {
@@ -316,26 +317,38 @@ function RuntimeIssuePathMenu({
   hostname,
   fingerprint,
   onAddRedirect,
+  onIgnore,
 }: {
   path: string;
   hostname?: string;
   fingerprint: string;
   onAddRedirect: (path: string, fingerprint: string) => void;
+  onIgnore?: (fingerprint: string) => void;
 }) {
   const copy = useCopyToast();
   const relative = publicPathHref(path);
   const full = fullPublicUrl(relative, hostname);
+  const pathLocale = localePrefixFromPath(path);
 
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="truncate max-w-full text-left text-primary hover:underline"
-          title={path}
+          className="inline-flex items-center gap-1.5 min-w-0 max-w-full text-left text-primary hover:underline"
+          title={pathLocale ? `${pathLocale} ${path}` : path}
           data-testid={`button-runtime-issue-path-${fingerprint}`}
         >
-          {path}
+          {pathLocale ? (
+            <span
+              className="shrink-0 inline-flex"
+              title={pathLocale}
+              data-testid={`flag-runtime-issue-locale-${fingerprint}`}
+            >
+              <LocaleFlag locale={pathLocale} className="w-3.5 h-2.5 rounded-sm" />
+            </span>
+          ) : null}
+          <span className="truncate">{path}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
@@ -361,6 +374,15 @@ function RuntimeIssuePathMenu({
           <Route className="h-4 w-4" />
           Add redirect
         </DropdownMenuItem>
+        {onIgnore ? (
+          <DropdownMenuItem
+            onClick={() => onIgnore(fingerprint)}
+            data-testid={`menu-runtime-issue-ignore-${fingerprint}`}
+          >
+            <EyeOff className="h-4 w-4" />
+            Ignore from 404 log
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem asChild>
           <a
             href={relative}
@@ -374,6 +396,63 @@ function RuntimeIssuePathMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function UaColumnInfo() {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  return (
+    <span className="inline-flex items-center gap-1">
+      UA
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex text-muted-foreground hover:text-foreground"
+            aria-label="What is UA?"
+            data-testid="button-runtime-ua-info"
+          >
+            <IconInfoCircle className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-80 space-y-2 text-sm"
+          data-testid="popover-runtime-ua-info"
+        >
+          <p className="font-medium text-foreground">How to use UA</p>
+          <p className="text-muted-foreground">
+            UA tells you <span className="text-foreground">who</span> hit the missing URL, so you know
+            whether to fix it. Desktop or mobile is usually a person — add a redirect. Search crawler or
+            LLM crawler is Google or an AI bot; a missing URL there is an SEO issue. Social preview is a
+            share unfurl. Scraper or likely bot is noise (Hide scrapers already drops most of those). Use
+            the Device list filter to look at one kind at a time.
+          </p>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="button-runtime-ua-read-more"
+              >
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+                />
+                Read more (advanced)
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2 space-y-1.5 text-xs text-muted-foreground">
+              <p>
+                UA is a coarse group from the request’s User-Agent string — not the full User-Agent.
+                Typical values: desktop, mobile, search crawler, LLM crawler, social preview, scraper,
+                likely bot, or unknown (missing or unrecognized). Same buckets as the Device list filter.
+              </p>
+              <p className="font-mono">shared/runtime-issues.ts — classifyRuntimeHit / uaBucket</p>
+            </CollapsibleContent>
+          </Collapsible>
+        </PopoverContent>
+      </Popover>
+    </span>
   );
 }
 
@@ -455,30 +534,40 @@ function SortIcon({
   );
 }
 
+function CornerCountBadge({ count, testId }: { count: number; testId: string }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className="pointer-events-none absolute -right-1.5 -top-1.5 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-secondary px-1 text-[10px] font-semibold leading-none text-secondary-foreground"
+      data-testid={testId}
+    >
+      {count}
+    </span>
+  );
+}
+
 export default function RuntimeIssuesTab() {
   const [pathname, setLocation] = useLocation();
   const searchString = useSearch();
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [pullOpen, setPullOpen] = useState(false);
+  const [listFiltersOpen, setListFiltersOpen] = useState(false);
+  const [ingestionOpen, setIngestionOpen] = useState(false);
+  const [ignoreRulesOpen, setIgnoreRulesOpen] = useState(false);
+  const [ignoreFingerprints, setIgnoreFingerprints] = useState<string[]>([]);
   const [redirectFrom, setRedirectFrom] = useState<{ path: string; fingerprint: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [probingIds, setProbingIds] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const canIgnore = hasCapability("seo_edit");
 
   const view = useMemo(() => parseRuntimeIssueSearch(searchString), [searchString]);
-  const { hideBots, filters, sortKey, sortDir } = view;
-  const {
-    pathQuery,
-    referrerQuery,
-    locale: localeFilter,
-    device: deviceFilter,
-    pagesOnly,
-    windowDays,
-    tz,
-    source: sourceFilter,
-  } = filters;
+  const { filters, sortKey, sortDir } = view;
+  const { locale: localeFilter, device: deviceFilter, tz } = filters;
 
   const writeView = useCallback(
     (next: RuntimeIssueViewState) => {
@@ -490,7 +579,7 @@ export default function RuntimeIssuesTab() {
   );
 
   const patchView = useCallback(
-    (patch: Partial<Pick<RuntimeIssueViewState, "hideBots" | "sortKey" | "sortDir">>) => {
+    (patch: Partial<Pick<RuntimeIssueViewState, "sortKey" | "sortDir">>) => {
       writeView({ ...view, ...patch });
     },
     [view, writeView],
@@ -504,9 +593,9 @@ export default function RuntimeIssuesTab() {
   );
 
   const { data, isLoading, refetch, isFetching, isError, error } = useQuery<RuntimeIssuesResponse>({
-    queryKey: ["/api/admin/runtime-issues", hideBots],
+    queryKey: ["/api/admin/runtime-issues"],
     queryFn: async () => {
-      const res = await apiFetch(`/api/admin/runtime-issues?hideBots=${hideBots ? "1" : "0"}`);
+      const res = await apiFetch("/api/admin/runtime-issues");
       if (!res.ok) throw new Error("Failed to fetch runtime issues");
       return res.json();
     },
@@ -525,8 +614,39 @@ export default function RuntimeIssuesTab() {
     },
   });
 
+  const pullMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/admin/runtime-issues/pull-production", { method: "POST" });
+      const body = (await res.json()) as {
+        success?: boolean;
+        reason?: string;
+        error?: string;
+        issueCount?: number;
+      };
+      if (!res.ok || !body.success) {
+        throw new Error(body.reason || body.error || "Failed to pull production 404 log");
+      }
+      return body;
+    },
+    onSuccess: (body) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+      setPullOpen(false);
+      toast({
+        title: "Pulled production 404 log",
+        description: `Replaced this machine’s log with ${body.issueCount ?? 0} production issues. Local 404s will keep being recorded.`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        variant: "destructive",
+        title: "Pull failed",
+        description: err instanceof Error ? err.message : "Failed to pull production 404 log",
+      });
+    },
+  });
+
   function applyProbedIssue(issue: RuntimeIssueRow) {
-    queryClient.setQueryData<RuntimeIssuesResponse>(["/api/admin/runtime-issues", hideBots], (prev) => {
+    queryClient.setQueryData<RuntimeIssuesResponse>(["/api/admin/runtime-issues"], (prev) => {
       if (!prev) return prev;
       return {
         ...prev,
@@ -612,6 +732,83 @@ export default function RuntimeIssuesTab() {
     },
   });
 
+  const dropScrapersMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiFetch("/api/admin/runtime-issues/drop-scrapers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error("Failed to update hide scrapers");
+      return res.json() as Promise<{ dropScrapers: boolean }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not update hide scrapers",
+        description: err instanceof Error ? err.message : "Failed to update",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const ignoreMutation = useMutation({
+    mutationFn: async (payload: {
+      rules: IgnoreRuleInput[];
+      seedPaths: string[];
+    }) => {
+      const res = await apiFetch("/api/admin/runtime-issues/ignore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to ignore paths");
+      return body as { ignored: IgnoreRule[]; removed: number };
+    },
+    onSuccess: (body) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+      setIgnoreFingerprints([]);
+      setSelected(new Set());
+      toast({
+        title: "Ignore rule saved",
+        description: `${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`,
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Ignore failed",
+        description: err instanceof Error ? err.message : "Failed to ignore",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unignoreMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiFetch("/api/admin/runtime-issues/unignore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+      if (!res.ok) throw new Error("Failed to remove ignore rule");
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
+      toast({ title: "Ignore rule removed" });
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not remove rule",
+        description: err instanceof Error ? err.message : "Failed to remove",
+        variant: "destructive",
+      });
+    },
+  });
+
   const issues = data?.issues ?? [];
   const filtersActive = isRuntimeIssueFiltersActive(filters);
 
@@ -669,8 +866,10 @@ export default function RuntimeIssuesTab() {
     [sortedIssues],
   );
 
-  const badgeUsesFilteredCounts =
-    filtersActive || (pagesOnly && sortedIssues.length !== issues.length);
+  const listFilterCount = countActiveListFilters(filters);
+  const dropScrapers = data?.dropScrapers !== false;
+  const ignored = data?.ignored ?? [];
+  const ingestFilterCount = dropScrapers === false ? 1 : 0;
 
   function clearFilters() {
     patchFilters({
@@ -680,6 +879,7 @@ export default function RuntimeIssuesTab() {
       device: FILTER_ALL,
       source: FILTER_ALL,
       windowDays: 30,
+      pagesOnly: false,
     });
   }
 
@@ -724,27 +924,66 @@ export default function RuntimeIssuesTab() {
                 />
               </button>
             </CollapsibleTrigger>
+            {import.meta.env.DEV && !howItWorksOpen && (
+              <p
+                className="flex items-start gap-2 text-xs text-foreground"
+                data-testid="runtime-issues-local-only-strip"
+              >
+                <IconAlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  This table is this machine only. Open Runtime issues on production to see live traffic.
+                </span>
+              </p>
+            )}
             <CollapsibleContent className="space-y-2">
+              {import.meta.env.DEV && (
+                <Alert data-testid="alert-runtime-issues-local-only">
+                  <IconAlertTriangle className="h-4 w-4" />
+                  <AlertTitle>This table is this machine only</AlertTitle>
+                  <AlertDescription className="space-y-3">
+                    <p>
+                      Local 404s are stored in{" "}
+                      <code className="text-xs font-mono">.runtime-issues-state.json</code> and are not
+                      loaded from or uploaded to GCS. Rows here include hits from{" "}
+                      <code className="text-xs font-mono">/private</code> (your Test column and localhost
+                      referrers). Open Runtime issues on production to see live traffic. Reset here does
+                      not wipe production.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPullOpen(true)}
+                      data-testid="button-pull-production-runtime-issues"
+                    >
+                      <IconDownload className="h-4 w-4 mr-1.5" />
+                      Pull production once
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
               <p>
                 HTTP 404s from this site’s content index (the same catalog as Redirects / Test a URL) —
                 missing URLs that people, Google, LLMs, or social previews tried to open. A row is not
                 “the page failed to paint”: the SPA may still render chrome or even an article if the
-                client loaded by slug. File probes, SEO scrapers, and{" "}
-                <code className="text-xs font-mono">curl</code> are discarded. File 404s from a 4Geeks
-                referrer are kept (broken internal or old assets). Count is hits in the selected{" "}
-                <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window.
-                Badges are crawler vs SERP click vs LLM vs social on the same path (one row; tag sums can
-                exceed Count). Click a path or referrer to copy the URL or open it in a new tab (paths also
-                offer Add redirect). Test (and bulk Retest) walks this server’s redirects then HTTP-follows
-                until they stop. A green check means <code className="text-xs font-mono">status</code> is{" "}
-                <code className="text-xs font-mono">page</code> or <code className="text-xs font-mono">redirect</code> —
-                not a 404, and the final URL is a real page or a fetched external URL. CSV{" "}
-                <code className="text-xs font-mono">status</code> empty = never tested;{" "}
-                <code className="text-xs font-mono">not_found</code> = tested, still broken. This table is
-                public 404s only (not server exceptions). Reset wipes the stored log including GCS.{" "}
-                <code className="text-xs font-mono">/es/blog</code> is a <strong>page</strong> (slug{" "}
-                <code className="text-xs font-mono">blog</code>); post URLs follow the blog type{" "}
-                <code className="text-xs font-mono">url_pattern</code>.
+                client loaded by slug. <strong>List filters</strong> only change the table, CSV, and
+                totals chip. Pages only hides file URLs (including Internal).{" "}
+                <strong>Ingestion Filters</strong> skip future digestion for scrapers.{" "}
+                <strong>Ignore rules</strong> mute matching URLs from this log going forward (exact path,
+                both locales, or selected slugs — not a freeform regex). They survive Reset 404 log. Not a
+                redirect. Built-in scraper/probe drops are separate. Needs SEO edit to mute; Metrics Viewer
+                is read-only here. Hide scrapers is on by default; turning it off starts recording
+                Ahrefs/<code className="text-xs font-mono">curl</code>/etc. and adds 1 to the ingest badge;
+                turning it on again does not wipe old rows. File 404s from a 4Geeks referrer are still
+                recorded (broken internal or old assets). Count is hits in the selected{" "}
+                <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window. Click
+                a source badge for what it means (tag sums can exceed Count). Click a path or referrer to
+                copy the URL or open it in a new tab (paths also offer Add redirect and Ignore from 404
+                log). Test (and bulk Retest) walks this server’s redirects then HTTP-follows until they
+                stop. A green check means <code className="text-xs font-mono">status</code> is{" "}
+                <code className="text-xs font-mono">page</code> or{" "}
+                <code className="text-xs font-mono">redirect</code>. This table is public 404s only (not
+                server exceptions). Reset wipes the stored log including GCS but keeps ingest settings.
               </p>
               <Button
                 variant="ghost"
@@ -758,46 +997,37 @@ export default function RuntimeIssuesTab() {
               {showAdvanced && (
                 <ul className="list-disc pl-5 space-y-1 text-xs">
                   <li>
-                    <code>shared/runtime-issues.ts</code> — classify hits, hard-drop probes/scrapers, UTC hour
-                    buckets, timezone window sums
+                    Ignore file: <code>{`{contentRoot}/.runtime-issues-ignore.json`}</code> and GCS{" "}
+                    <code>…/sync/runtime-issues-ignore.json</code> (not the 404 counts file)
                   </li>
                   <li>
-                    <code>server/runtime-issues-store.ts</code> — in-memory rollups + local/GCS flush
+                    <code>shared/runtime-issues-ignore.ts</code> — exact / locales / slug_list matchers
                   </li>
                   <li>
-                    <code>server/public-html-status.ts</code> — 200/404 from{" "}
-                    <code>res.locals.site.contentIndex</code> (not the global singleton);{" "}
-                    <code>server/vite.ts</code> records public HTML 404s only (skips <code>/api</code> and{" "}
-                    <code>/private</code>)
+                    <code>server/runtime-issues-ignore-store.ts</code> — load/save; digest reads memory only
                   </li>
                   <li>
-                    <code>client/src/components/diagnostics/runtime-issues-url.ts</code> — parse/serialize
-                    query params (window, tz, source, pages-only)
+                    <code>shared/runtime-issues.ts</code> — <code>dropScrapers</code>,{" "}
+                    <code>shouldHardDropNotFound</code>, <code>SOURCE_EXPLANATIONS</code>
                   </li>
                   <li>
-                    <code>client/src/components/diagnostics/runtime-issues-filters.ts</code> — table and CSV
-                    share one view (path contains, window, source)
+                    <code>POST /api/admin/runtime-issues/drop-scrapers</code>,{" "}
+                    <code>…/ignore-suggest</code> (no write), <code>…/ignore</code> and{" "}
+                    <code>…/unignore</code> (<code>seo_edit</code>)
                   </li>
                   <li>
                     <code>server/runtime-issues-probe.ts</code> — index walk + HTTP follow; destination check
-                    shared with Redirects → Test a URL (<code>queryEntries</code> for DB slugs)
+                    shared with Redirects → Test a URL
                   </li>
                   <li>
-                    <code>POST /api/admin/runtime-issues/probe</code> and{" "}
-                    <code>POST /api/admin/runtime-issues/probe-bulk</code> — save <code>lastProbe</code> on the
-                    404 row
+                    <code>POST /api/admin/runtime-issues/pull-production</code> — development only;
+                    replaces this machine’s log with GCS then continues local ingest (does not upload)
                   </li>
                   <li>
-                    <code>client/src/components/diagnostics/runtime-issues-csv.ts</code> — CSV from the same
-                    filtered rows; appended <code>status</code>, <code>destination</code>, <code>chained</code>,{" "}
-                    <code>http_status</code>, <code>last_test_at</code>
-                  </li>
-                  <li>
-                    Non-effects: does not auto-create redirects (use Add redirect on a row); not Search
-                    Console; Google <code>q=</code> is stripped; does not change public 404 HTML;
-                    last-write-wins can undercount across instances and can drop a probe; existing GCS rows
-                    are not rewritten (reset or wait 30-day TTL); does not HTTP-hit{" "}
-                    <code>issue.hostname</code> / production from local; does not remove the row
+                    Non-effects: no public 404 HTML change; not Search Console; not auto-redirect; 404 log
+                    last-write-wins does not apply to ignore rules; LLM down still allows exact ignore;
+                    unignore does not restore old counts; Hide scrapers does not prune; Pages only does not
+                    change ingest; pull production does not merge (replace then local ingest)
                   </li>
                 </ul>
               )}
@@ -806,23 +1036,34 @@ export default function RuntimeIssuesTab() {
         </Collapsible>
       </Card>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2" data-testid="toggle-hide-bots">
-            <Switch id="hide-bots" checked={hideBots} onCheckedChange={(checked) => patchView({ hideBots: checked })} />
-            <Label htmlFor="hide-bots" className="text-sm">
-              Hide scrapers
-            </Label>
+      <div className="flex flex-wrap items-center justify-between gap-3 overflow-visible">
+        <div className="flex items-center gap-3 overflow-visible">
+          <div className="relative overflow-visible">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setListFiltersOpen(true)}
+              data-testid="button-runtime-list-filters"
+            >
+              <Filter className="h-4 w-4 mr-1.5" />
+              List filters
+            </Button>
+            <CornerCountBadge count={listFilterCount} testId="badge-list-filters-count" />
           </div>
-          <div className="flex items-center gap-2" data-testid="toggle-pages-only">
-            <Switch id="pages-only" checked={pagesOnly} onCheckedChange={(checked) => patchFilters({ pagesOnly: checked })} />
-            <Label htmlFor="pages-only" className="text-sm">
-              Pages only
-            </Label>
+          <div className="relative overflow-visible">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIngestionOpen(true)}
+              data-testid="button-runtime-ingestion-filters"
+            >
+              Ingestion Filters
+            </Button>
+            <CornerCountBadge count={ingestFilterCount} testId="badge-ingestion-filters-count" />
           </div>
           {data && (
             <Badge variant="secondary" data-testid="badge-runtime-total">
-              {badgeUsesFilteredCounts
+              {filtersActive
                 ? `${sortedIssues.length} of ${issues.length} paths · ${filteredHitCount} hits`
                 : `${data.issues.length} paths · ${filteredHitCount} hits`}
             </Badge>
@@ -849,6 +1090,17 @@ export default function RuntimeIssuesTab() {
             <IconRefresh className={`h-4 w-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
             Refresh
           </Button>
+          <div className="relative overflow-visible">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIgnoreRulesOpen(true)}
+              data-testid="button-runtime-ignore-rules"
+            >
+              Ignore rules
+            </Button>
+            <CornerCountBadge count={ignored.length} testId="badge-ignore-rules-count" />
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -890,136 +1142,18 @@ export default function RuntimeIssuesTab() {
             )}
             Retest for resolution
           </Button>
-        </div>
-      )}
-
-      {data && data.issues.length > 0 && !bulkMode && (
-        <div className="flex flex-wrap items-end gap-3" data-testid="runtime-issues-filters">
-          <div className="space-y-1">
-            <Label htmlFor="runtime-path-filter" className="text-xs text-muted-foreground">
-              Path
-            </Label>
-            <Input
-              id="runtime-path-filter"
-              value={pathQuery}
-              onChange={(e) => patchFilters({ pathQuery: e.target.value })}
-              placeholder="Contains…"
-              className="h-8 w-48 text-sm"
-              data-testid="input-runtime-path-filter"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="runtime-window-filter" className="text-xs text-muted-foreground">
-              Window ({tz})
-            </Label>
-            <Select
-              value={String(windowDays)}
-              onValueChange={(value) => patchFilters({ windowDays: value === "7" ? 7 : 30 })}
-            >
-              <SelectTrigger
-                id="runtime-window-filter"
-                className="h-8 w-44 text-sm"
-                data-testid="select-runtime-window-filter"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7">Last 7 days</SelectItem>
-                <SelectItem value="30">Last 30 days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="runtime-source-filter" className="text-xs text-muted-foreground">
-              Source
-            </Label>
-            <Select value={sourceFilter} onValueChange={(source) => patchFilters({ source })}>
-              <SelectTrigger
-                id="runtime-source-filter"
-                className="h-8 w-48 text-sm"
-                data-testid="select-runtime-source-filter"
-              >
-                <SelectValue placeholder="All sources" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={FILTER_ALL}>All sources</SelectItem>
-                {SOURCE_FILTER_TAGS.map((tag) => (
-                  <SelectItem key={tag} value={tag} data-testid={`option-runtime-source-${tag}`}>
-                    {sourceLabel(tag)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="runtime-referrer-filter" className="text-xs text-muted-foreground">
-              Referrer
-            </Label>
-            <Input
-              id="runtime-referrer-filter"
-              value={referrerQuery}
-              onChange={(e) => patchFilters({ referrerQuery: e.target.value })}
-              placeholder="Contains…"
-              className="h-8 w-48 text-sm"
-              data-testid="input-runtime-referrer-filter"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="runtime-locale-filter" className="text-xs text-muted-foreground">
-              Locale
-            </Label>
-            <Select value={localeFilter} onValueChange={(locale) => patchFilters({ locale })}>
-              <SelectTrigger
-                id="runtime-locale-filter"
-                className="h-8 w-36 text-sm"
-                data-testid="select-runtime-locale-filter"
-              >
-                <SelectValue placeholder="All locales" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={FILTER_ALL}>All locales</SelectItem>
-                {locales.map((locale) => (
-                  <SelectItem key={locale} value={locale} data-testid={`option-runtime-locale-${locale}`}>
-                    {locale}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="runtime-device-filter" className="text-xs text-muted-foreground">
-              Device
-            </Label>
-            <Select value={deviceFilter} onValueChange={(device) => patchFilters({ device })}>
-              <SelectTrigger
-                id="runtime-device-filter"
-                className="h-8 w-40 text-sm"
-                data-testid="select-runtime-device-filter"
-              >
-                <SelectValue placeholder="All devices" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={FILTER_ALL}>All devices</SelectItem>
-                {devices.map((device) => (
-                  <SelectItem key={device} value={device} data-testid={`option-runtime-device-${device}`}>
-                    {deviceLabel(device)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {filtersActive && (
+          {canIgnore ? (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="h-8"
-              onClick={clearFilters}
-              data-testid="button-clear-runtime-filters"
+              onClick={() => setIgnoreFingerprints(Array.from(selected))}
+              data-testid="button-runtime-bulk-ignore"
             >
-              <X className="h-3.5 w-3.5 mr-1" />
-              Clear
+              <EyeOff className="h-3.5 w-3.5 mr-1.5" />
+              Ignore selected
             </Button>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -1070,7 +1204,6 @@ export default function RuntimeIssuesTab() {
                     />
                   </TableHead>
                   <TableHead>Path</TableHead>
-                  <TableHead>Locale</TableHead>
                   <TableHead className="text-right">
                     <button
                       type="button"
@@ -1094,7 +1227,9 @@ export default function RuntimeIssuesTab() {
                     </button>
                   </TableHead>
                   <TableHead>Referrer</TableHead>
-                  <TableHead>UA</TableHead>
+                  <TableHead>
+                    <UaColumnInfo />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1116,6 +1251,11 @@ export default function RuntimeIssuesTab() {
                             hostname={issue.hostname}
                             fingerprint={issue.fingerprint}
                             onAddRedirect={(path, fingerprint) => setRedirectFrom({ path, fingerprint })}
+                            onIgnore={
+                              canIgnore
+                                ? (fingerprint) => setIgnoreFingerprints([fingerprint])
+                                : undefined
+                            }
                           />
                         </div>
                         <RuntimeIssueProbeControl
@@ -1127,13 +1267,10 @@ export default function RuntimeIssuesTab() {
                       </div>
                       <span className="flex flex-wrap gap-1 mt-1">
                         {windowedSourceTags(issue, filters).map((tag) => (
-                          <Badge key={tag} variant="outline" className="text-[10px]">
-                            {sourceLabel(tag)}
-                          </Badge>
+                          <RuntimeIssueSourceBadge key={tag} tag={tag} fingerprint={issue.fingerprint} />
                         ))}
                       </span>
                     </TableCell>
-                    <TableCell className="text-xs">{issue.locale}</TableCell>
                     <TableCell className="text-right font-medium">{issue.count}</TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {formatTs(issue.lastSeen)}
@@ -1173,7 +1310,8 @@ export default function RuntimeIssuesTab() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reset 404 log?</AlertDialogTitle>
             <AlertDialogDescription>
-              Deletes all stored 404s for this site, including GCS. Not undoable.
+              Deletes all stored 404s for this site, including GCS. Ignore rules and Hide scrapers are
+              kept. Not undoable.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1190,6 +1328,70 @@ export default function RuntimeIssuesTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={pullOpen} onOpenChange={setPullOpen}>
+        <AlertDialogContent data-testid="dialog-pull-production-runtime-issues">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace local 404 log with production?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the issues recorded on this machine and downloads production’s log once.
+              After that, this process keeps ingesting local 404s (including{" "}
+              <code className="text-xs font-mono">/private</code>). It does not upload anything back to
+              GCS. Not undoable.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-pull-production-runtime-issues">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                pullMutation.mutate();
+              }}
+              disabled={pullMutation.isPending}
+              data-testid="button-confirm-pull-production-runtime-issues"
+            >
+              {pullMutation.isPending ? "Pulling…" : "Pull production once"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <RuntimeIssueListFiltersDialog
+        open={listFiltersOpen}
+        onOpenChange={setListFiltersOpen}
+        filters={filters}
+        locales={locales}
+        devices={devices}
+        onPatch={patchFilters}
+        onClear={clearFilters}
+      />
+      <RuntimeIssueIngestionFiltersDialog
+        open={ingestionOpen}
+        onOpenChange={setIngestionOpen}
+        dropScrapers={dropScrapers}
+        dropScrapersPending={dropScrapersMutation.isPending}
+        onDropScrapersChange={(enabled) => dropScrapersMutation.mutate(enabled)}
+      />
+      <RuntimeIssueIgnoreRulesDialog
+        open={ignoreRulesOpen}
+        onOpenChange={setIgnoreRulesOpen}
+        ignored={ignored}
+        issuePaths={issues.map((issue) => issue.path)}
+        canRemove={canIgnore}
+        unignorePending={unignoreMutation.isPending}
+        onRemove={(id) => unignoreMutation.mutate(id)}
+      />
+      <RuntimeIssueIgnoreSuggestDialog
+        open={ignoreFingerprints.length > 0}
+        fingerprints={ignoreFingerprints}
+        pending={ignoreMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open) setIgnoreFingerprints([]);
+        }}
+        onConfirm={(rules, seedPaths) => ignoreMutation.mutate({ rules, seedPaths })}
+      />
     </div>
   );
 }

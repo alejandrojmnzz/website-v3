@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ArrowDown, Check, ExternalLink, Layers, Link, PanelBottom, Search } from "lucide-react";
 import { IconChevronDown, IconPencil, IconPlus, IconX } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -17,15 +17,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { filterSitemapEntries, sitemapPathname, type SitemapSearchEntry } from "@/lib/sitemapSearch";
 import type { Section } from "@shared/schema";
 import addSectionImg from "@assets/add-section-explanation_1771275660234.png";
 
 type LinkType = "internal" | "external" | "modal" | "scroll" | "inline";
-
-interface SitemapEntry {
-  loc: string;
-  label: string;
-}
 
 interface SectionOption {
   id: string;
@@ -46,15 +42,6 @@ interface QsParam {
   value: string;
   /** Only for valueType="fromUrl": value to use when the param is absent from the visitor URL */
   fallback?: string;
-}
-
-function extractPath(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.pathname;
-  } catch {
-    return url;
-  }
 }
 
 function detectLinkType(value: string, modals: SectionOption[], scrollSections: SectionOption[]): LinkType {
@@ -502,7 +489,7 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
-  const { data: sitemapUrls = [], isLoading: sitemapLoading } = useQuery<SitemapEntry[]>({
+  const { data: sitemapUrls = [], isLoading: sitemapLoading } = useQuery<SitemapSearchEntry[]>({
     queryKey: ["/api/sitemap-urls", locale],
     queryFn: async () => {
       const response = await fetch(`/api/sitemap-urls?locale=${locale}`);
@@ -511,15 +498,10 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
     },
   });
 
-  const filteredSitemapUrls = (() => {
-    if (!searchQuery.trim()) return sitemapUrls;
-    const query = searchQuery.toLowerCase();
-    return sitemapUrls.filter(
-      (entry) =>
-        entry.loc.toLowerCase().includes(query) ||
-        entry.label.toLowerCase().includes(query)
-    );
-  })();
+  const filteredSitemapUrls = useMemo(
+    () => filterSitemapEntries(sitemapUrls, searchQuery),
+    [sitemapUrls, searchQuery],
+  );
 
   const handleSelect = (url: string) => {
     onChange(url);
@@ -710,10 +692,10 @@ export function LinkPicker({ value, onChange, locale = "en", allSections, contex
                 ) : (
                   <div className="p-1">
                     {filteredSitemapUrls.map((entry, index) => {
-                      const path = extractPath(entry.loc);
+                      const path = sitemapPathname(entry.loc);
                       return (
                         <button
-                          key={entry.loc}
+                          key={path}
                           onClick={() => handleSelect(path)}
                           className={cn(
                             "w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-center gap-2",

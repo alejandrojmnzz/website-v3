@@ -8,6 +8,7 @@ export const SYNC_FILENAMES = {
   validationCache: "validation-cache.json",
   usersState: "users-state.json",
   runtimeIssuesState: "runtime-issues-state.json",
+  runtimeIssuesIgnore: "runtime-issues-ignore.json",
 } as const;
 
 export type SyncFilename = (typeof SYNC_FILENAMES)[keyof typeof SYNC_FILENAMES];
@@ -119,6 +120,13 @@ export function runtimeIssuesStateReadKeys(site: string): string[] {
   return [
     siteSyncGcsKey(site, SYNC_FILENAMES.runtimeIssuesState),
     legacyPerSiteSyncGcsKey(site, SYNC_FILENAMES.runtimeIssuesState),
+  ];
+}
+
+export function runtimeIssuesIgnoreReadKeys(site: string): string[] {
+  return [
+    siteSyncGcsKey(site, SYNC_FILENAMES.runtimeIssuesIgnore),
+    legacyPerSiteSyncGcsKey(site, SYNC_FILENAMES.runtimeIssuesIgnore),
   ];
 }
 

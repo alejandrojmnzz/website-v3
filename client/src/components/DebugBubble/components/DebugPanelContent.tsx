@@ -999,7 +999,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
               {canManageUsers && (
                 <MenuItem
                   icon={IconShield}
-                  label="Security"
+                  label="Security and Users"
                   href="/private/security/captcha"
                   indicator="arrow"
                   testId="link-security"

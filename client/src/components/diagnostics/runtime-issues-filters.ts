@@ -102,7 +102,7 @@ export function filterRuntimeIssues<T extends RuntimeIssueFilterRow>(
   return issues.filter((issue) => {
     const windowTotal = windowHitCount(issue, windowDays, tz, now);
     if (windowTotal <= 0) return false;
-    if (filters.pagesOnly && isAssetPath(issue.path) && !(issue.sources ?? []).includes("internal")) {
+    if (filters.pagesOnly && isAssetPath(issue.path)) {
       return false;
     }
     if (pathNeedle && !issue.path.toLowerCase().includes(pathNeedle)) return false;
@@ -121,14 +121,23 @@ export function filterRuntimeIssues<T extends RuntimeIssueFilterRow>(
 }
 
 export function isRuntimeIssueFiltersActive(filters: RuntimeIssueFilters): boolean {
-  return (
-    filters.pathQuery.trim() !== "" ||
-    filters.referrerQuery.trim() !== "" ||
-    filters.locale !== FILTER_ALL ||
-    filters.device !== FILTER_ALL ||
-    filters.source !== FILTER_ALL ||
-    filters.windowDays !== 30
-  );
+  return countActiveListFilters(filters) > 0;
+}
+
+export function countActiveListFilters(filters: RuntimeIssueFilters): number {
+  let n = 0;
+  if (filters.pagesOnly) n += 1;
+  if (filters.pathQuery.trim() !== "") n += 1;
+  if (filters.referrerQuery.trim() !== "") n += 1;
+  if (filters.locale !== FILTER_ALL) n += 1;
+  if (filters.device !== FILTER_ALL) n += 1;
+  if (filters.source !== FILTER_ALL) n += 1;
+  if (filters.windowDays !== 30) n += 1;
+  return n;
+}
+
+export function countIngestionFilters(dropScrapers: boolean): number {
+  return dropScrapers === false ? 1 : 0;
 }
 
 export function sortRuntimeIssues<T extends { count: number; lastSeen: number }>(

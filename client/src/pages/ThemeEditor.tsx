@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { AlertTriangle, ArrowLeft, Blocks, ChevronDown, ChevronUp, FileInput, LayoutGrid, Link, Moon, Palette, Plus, Save, Search, Sun, Trash2, Undo2 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, apiRequestWithAuth, queryClient } from "@/lib/queryClient";
@@ -29,6 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { filterSitemapEntries, sitemapPathname } from "@/lib/sitemapSearch";
 
 interface PreviewExample {
   component: string;
@@ -745,11 +746,6 @@ interface ImportExampleDialogProps {
   themeVars: Record<string, string>;
 }
 
-function extractPath(url: string): string {
-  try { return new URL(url).pathname; } catch { return url; }
-}
-
-/** Match server normalizeUrl / getCanonicalUrl path shape. */
 function normalizePagePath(path: string): string {
   let p = path.startsWith("/") ? path : `/${path}`;
   p = p.toLowerCase();
@@ -779,10 +775,6 @@ function resolveLocaleForPageSections(
     return first;
   }
   return (settings?.default_locale ?? "en").toLowerCase();
-}
-
-function sitemapRowKey(entry: SitemapEntry, index: number): string {
-  return `${entry.loc}::${entry.locale ?? "—"}::${index}`;
 }
 
 function ImportExampleDialog({ open, onClose, registryData, onImport, previewMode, themeVars }: ImportExampleDialogProps) {
@@ -862,14 +854,13 @@ function ImportExampleDialog({ open, onClose, registryData, onImport, previewMod
 
   const filteredSections = sectionsData?.sections ?? [];
 
-  const filteredPages = !pageSearch.trim()
-    ? sitemapUrls
-    : sitemapUrls.filter(
-        (e) => e.loc.toLowerCase().includes(pageSearch.toLowerCase()) || e.label.toLowerCase().includes(pageSearch.toLowerCase())
-      );
+  const filteredPages = useMemo(
+    () => filterSitemapEntries(sitemapUrls, pageSearch),
+    [sitemapUrls, pageSearch],
+  );
 
   const handlePageClick = (entry: SitemapEntry) => {
-    const pagePath = normalizePagePath(extractPath(entry.loc));
+    const pagePath = normalizePagePath(sitemapPathname(entry.loc));
     const locale = resolveLocaleForPageSections(entry, pagePath, localeSettings);
     if (expandedPage?.path === pagePath && expandedPage.locale === locale) {
       setExpandedPage(null);
@@ -1008,7 +999,7 @@ function ImportExampleDialog({ open, onClose, registryData, onImport, previewMod
                     ) : (
                       <div className="p-1">
                         {filteredPages.map((entry, idx) => {
-                          const pagePath = normalizePagePath(extractPath(entry.loc));
+                          const pagePath = normalizePagePath(sitemapPathname(entry.loc));
                           const rowLocale = resolveLocaleForPageSections(
                             entry,
                             pagePath,
@@ -1018,7 +1009,7 @@ function ImportExampleDialog({ open, onClose, registryData, onImport, previewMod
                             expandedPage?.path === pagePath &&
                             expandedPage.locale === rowLocale;
                           return (
-                            <div key={sitemapRowKey(entry, idx)}>
+                            <div key={pagePath}>
                               <button
                                 onClick={() => handlePageClick(entry)}
                                 className={cn(

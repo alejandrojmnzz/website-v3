@@ -28,6 +28,23 @@ export const SOURCE_LABELS: Record<RuntimeSourceTag, string> = {
   scraper: "Scraper",
 };
 
+export const SOURCE_EXPLANATIONS: Record<RuntimeSourceTag, string> = {
+  search_crawler:
+    "Googlebot, Bing, Applebot, or another search crawler fetched this URL (User-Agent), not a person clicking a result.",
+  llm_crawler:
+    "An AI crawler (GPTBot, ClaudeBot, Perplexity, Bytespider, and similar) requested this URL.",
+  social_preview:
+    "A social app fetched a link preview (Facebook, X, LinkedIn, Slack, WhatsApp, Discord).",
+  search_referrer:
+    "A person clicked through from Google or Bing. The referrer is the search engine; the User-Agent looks like a browser.",
+  llm_referrer: "A person clicked through from ChatGPT, Claude, Perplexity, or Copilot.",
+  internal:
+    "The referrer was a 4Geeks host (4geeks.com, *.4geeks.com, or academy). File 404s with this tag are recorded as broken internal or old assets.",
+  human: "A browser User-Agent that was not classified as a crawler or scraper.",
+  scraper:
+    "An SEO scraper, HTTP client (curl/wget), or headless tool. Hide scrapers skips recording new hits like these.",
+};
+
 const SEO_SAMPLE_TAGS = new Set<string>([
   "search_crawler",
   "llm_crawler",
@@ -128,11 +145,17 @@ export function isRootViteHashAsset(path: string): boolean {
   return ROOT_VITE_HASH_ASSET_RE.test(normalizeRuntimePath(path));
 }
 
-export function localeFromPath(pathname: string): string {
+/** Two-letter first segment (`/es/blog` → `es`). Null when the path has no locale prefix. */
+export function localePrefixFromPath(pathname: string): string | null {
   const path = normalizeRuntimePath(pathname);
   const m = path.match(/^\/([a-z]{2})(?:\/|$)/i);
   if (m?.[1]) return m[1].toLowerCase();
-  return "en";
+  return null;
+}
+
+/** Locale for storage/filter: path prefix, or `en` when the URL is not locale-prefixed. */
+export function localeFromPath(pathname: string): string {
+  return localePrefixFromPath(pathname) ?? "en";
 }
 
 export function stripReferrerQuery(referrer: string | undefined | null): string | undefined {
@@ -267,6 +290,7 @@ export function shouldHardDropNotFound(
   path: string,
   ua: string | undefined | null,
   referrer?: string | null,
+  dropScrapers = true,
 ): boolean {
   const p = normalizeRuntimePath(path).toLowerCase();
   if (HARD_DROP_PATH_EXACT.has(p)) return true;
@@ -276,7 +300,12 @@ export function shouldHardDropNotFound(
   if (isRootViteHashAsset(p)) return true;
 
   const classified = classifyRuntimeHit(p, ua, referrer);
-  if (classified.tags.includes("scraper") && classified.uaBucket === "scraper") return true;
+  if (
+    dropScrapers &&
+    (classified.uaBucket === "scraper" || classified.uaBucket === "likely_bot" || classified.likelyBot)
+  ) {
+    return true;
+  }
 
   if (isAssetPath(p) && !is4geeksReferrerHost(referrer)) return true;
   return false;
@@ -474,6 +503,7 @@ export const runtimeIssuesStateSchema = z.object({
       }),
     )
     .optional(),
+  dropScrapers: z.boolean().optional(),
 });
 
 export type RuntimeIssuesState = z.infer<typeof runtimeIssuesStateSchema>;
@@ -483,7 +513,17 @@ export const ISSUE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_RECENT = 100;
 
 export function emptyRuntimeIssuesState(): RuntimeIssuesState {
-  return { version: 1, updatedAt: Date.now(), issues: {}, recent: [] };
+  return {
+    version: 1,
+    updatedAt: Date.now(),
+    issues: {},
+    recent: [],
+    dropScrapers: true,
+  };
+}
+
+export function resolvedDropScrapers(state: { dropScrapers?: boolean } | undefined | null): boolean {
+  return state?.dropScrapers !== false;
 }
 
 export function pruneRuntimeIssuesState(
@@ -491,10 +531,11 @@ export function pruneRuntimeIssuesState(
   now = Date.now(),
 ): RuntimeIssuesState {
   const cutoff = now - ISSUE_TTL_MS;
+  const dropScrapers = resolvedDropScrapers(state);
   const entries = Object.values(state.issues)
     .map((issue) => pruneIssueHours(issue, now))
     .filter((i) => i.lastSeen >= cutoff)
-    .filter((i) => !shouldHardDropNotFound(i.path, undefined, i.sampleReferrer));
+    .filter((i) => !shouldHardDropNotFound(i.path, undefined, i.sampleReferrer, dropScrapers));
   entries.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
     return b.lastSeen - a.lastSeen;
@@ -508,5 +549,6 @@ export function pruneRuntimeIssuesState(
     updatedAt: now,
     issues,
     recent,
+    dropScrapers,
   };
 }

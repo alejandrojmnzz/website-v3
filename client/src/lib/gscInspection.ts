@@ -68,6 +68,55 @@ export interface GscInspectionGetResponse {
   records?: Record<string, GscInspectionRecord>;
 }
 
+export interface GscSiteEntry {
+  siteUrl: string;
+  permissionLevel: string;
+}
+
+export interface GscSitesResponse {
+  sites: GscSiteEntry[];
+  serviceAccountEmail?: string | null;
+  error?: string;
+}
+
+export function gscPermissionLabel(level: string): string {
+  switch (level) {
+    case "siteOwner":
+      return "Owner";
+    case "siteFullUser":
+      return "Full user";
+    case "siteRestrictedUser":
+      return "Restricted user";
+    case "siteUnverifiedUser":
+      return "Unverified";
+    default:
+      return level || "Unknown";
+  }
+}
+
+export type GscInspectMode = "never" | "all";
+export type GscInspectAborted = "permission_denied" | null;
+
+export interface GscInspectQueueStats {
+  pending: number;
+  active: string | null;
+  completed: number;
+  failed: number;
+  mode: GscInspectMode | null;
+  running: boolean;
+  aborted: GscInspectAborted;
+  contentRootName: string | null;
+  queued: number;
+  capped: boolean;
+}
+
+export interface GscInspectEnqueueResponse {
+  queued: number;
+  capped: boolean;
+  mode: GscInspectMode;
+  queue: GscInspectQueueStats;
+}
+
 export function gscHeadline(record: GscInspectionRecord | null | undefined, resolved?: GscResolvedUrl): string {
   if (resolved?.isDraft) return "Not in sitemap (draft)";
   if (record?.error && !record.verdict && !record.coverageState) return "Error";

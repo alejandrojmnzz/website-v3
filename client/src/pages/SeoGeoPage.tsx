@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, Brain, Check, Crosshair, Globe, Info, Network, Star } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, Globe, Info, Loader2, Network, Star } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { GscInspectionGetResponse, GscInspectionSummary } from "@/lib/gscInspection";
+import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type {
+  GscInspectEnqueueResponse,
+  GscInspectMode,
+  GscInspectionGetResponse,
+  GscInspectionSummary,
+  GscInspectQueueStats,
+} from "@/lib/gscInspection";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
-import { getDebugToken } from "@/hooks/useDebugAuth";
+import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
@@ -143,6 +163,20 @@ function LoadingSection() {
   );
 }
 
+const GSC_INSPECT_MAX_PER_JOB = 2000;
+const GSC_INSPECT_INTERVAL_SEC = 1.5;
+
+function gscInspectJobSize(count: number): number {
+  return Math.min(Math.max(0, count), GSC_INSPECT_MAX_PER_JOB);
+}
+
+function gscInspectDurationLabel(count: number): string {
+  const sec = Math.ceil(gscInspectJobSize(count) * GSC_INSPECT_INTERVAL_SEC);
+  if (sec < 60) return `~${sec}s`;
+  const min = Math.ceil(sec / 60);
+  return `~${min} min`;
+}
+
 function SearchConsoleCoverageCard({
   configured,
   summary,
@@ -151,33 +185,200 @@ function SearchConsoleCoverageCard({
   summary?: GscInspectionSummary;
 }) {
   const [openList, setOpenList] = useState<string | undefined>(undefined);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [mode, setMode] = useState<GscInspectMode>("never");
+  const [starting, setStarting] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const canEdit = hasCapability("seo_edit");
   const types = summary ? Object.keys(summary.byContentType).sort() : [];
   const inspected = summary?.inspected ?? 0;
+  const neverChecked = summary?.neverChecked ?? 0;
+  const sitemapCount = summary?.sitemapCount ?? 0;
+  const wasRunning = useRef(false);
+
+  const { data: queue } = useQuery<GscInspectQueueStats>({
+    queryKey: ["/api/debug/gsc-inspection/queue"],
+    queryFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch("/api/debug/gsc-inspection/queue", {
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to load inspect queue");
+      return res.json() as Promise<GscInspectQueueStats>;
+    },
+    enabled: configured === true,
+    staleTime: 0,
+    refetchInterval: (q) => (q.state.data?.running ? 1500 : false),
+  });
+
+  useEffect(() => {
+    if (queue?.running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (wasRunning.current) {
+      wasRunning.current = false;
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection"] });
+    }
+  }, [queue?.running]);
+
+  useEffect(() => {
+    if (!queue?.running) return;
+    const id = window.setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection"] });
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [queue?.running]);
+
+  const running = Boolean(queue?.running);
+  const processed = (queue?.completed ?? 0) + (queue?.failed ?? 0);
+  const totalQueued = queue?.queued ?? 0;
+  const progressPct = totalQueued > 0 ? Math.min(100, Math.round((processed / totalQueued) * 100)) : 0;
+  const neverJob = gscInspectJobSize(neverChecked);
+  const allJob = gscInspectJobSize(sitemapCount);
+  const selectedCount = mode === "never" ? neverJob : allJob;
+  const inspectDisabled = !configured || running;
+
+  async function startInspect() {
+    if (inspectDisabled || starting || selectedCount === 0) return;
+    setStarting(true);
+    try {
+      const res = await apiRequestWithAuth("POST", "/api/debug/gsc-inspection/enqueue", { mode });
+      const body = (await res.json()) as GscInspectEnqueueResponse;
+      queryClient.setQueryData(["/api/debug/gsc-inspection/queue"], body.queue);
+      setDialogOpen(false);
+      if (body.queued === 0) {
+        toast({
+          title: "Nothing to inspect",
+          description:
+            mode === "never"
+              ? "Every public sitemap URL already has a cache row. Use All to retry failures."
+              : "No public sitemap URLs to inspect.",
+        });
+        return;
+      }
+      toast({
+        title: "Inspect URLs started",
+        description: body.capped
+          ? `Queued the first ${body.queued} URLs (cap ${GSC_INSPECT_MAX_PER_JOB}).`
+          : `Queued ${body.queued} URLs in the background.`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const already = message.includes("inspect_already_running") || message.startsWith("409:");
+      toast({
+        title: already ? "Inspect already running" : "Could not start inspect",
+        description: already
+          ? "Wait for the current job to finish. Test connection and Crawlers still work."
+          : message,
+        variant: "destructive",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection/queue"] });
+    } finally {
+      setStarting(false);
+    }
+  }
 
   return (
     <Card data-testid="card-search-console-coverage">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Globe className="h-4 w-4" />
-          Search Console coverage
-        </CardTitle>
+        <div className="flex items-start justify-between gap-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            Search Console coverage
+          </CardTitle>
+          {canEdit ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              disabled={inspectDisabled}
+              onClick={() => {
+                setMode(neverChecked > 0 ? "never" : "all");
+                setDialogOpen(true);
+              }}
+              data-testid="button-gsc-inspect-urls"
+            >
+              {running ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Inspecting
+                </>
+              ) : (
+                "Inspect URLs"
+              )}
+            </Button>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Cached Search Console inspections (not a live crawl, not a re-index).{" "}
+          Inspect URLs walks the sitemap in the background (one Google call at a time, process-wide, ~1.5s
+          apart, max {GSC_INSPECT_MAX_PER_JOB}). It does not re-index and does not freeze the site. Cached
+          results are not a live crawl.{" "}
           <Link href="/private/settings/seo/search-console" className="underline underline-offset-2 hover:text-foreground">
             SEO/GEO → Search Console
           </Link>
         </p>
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="px-0 h-auto text-xs" data-testid="button-gsc-inspect-read-more">
+              Read more (advanced)
+              <ChevronDown className={`h-3.5 w-3.5 ml-1 transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
+            <p>
+              Never inspected = no cache row yet; All = inspect again including previous errors. A permission
+              error stops the job. Restart drops the queue — use Never inspected to continue. Single-page
+              inspect (Test connection / Crawlers) still works during a run. Disabled until property +
+              GCS_CREDENTIALS_JSON are set.
+            </p>
+            <p className="font-mono">server/gsc-inspect-queue.ts</p>
+            <p className="font-mono">server/gsc-url-inspection.ts</p>
+            <p className="font-mono">.cache/{"{site}"}/gsc-url-inspection.json</p>
+          </CollapsibleContent>
+        </Collapsible>
+        {configured === true && !running ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-gsc-inspect-restart-hint">
+            If a run was interrupted by restart, use Never inspected.
+          </p>
+        ) : null}
+        {queue?.aborted === "permission_denied" && !running ? (
+          <p className="text-xs text-destructive" data-testid="text-gsc-inspect-aborted">
+            Inspect stopped: Search Console permission denied. Rows already written were kept. Fix the role on{" "}
+            <Link href="/private/settings/seo/search-console" className="underline underline-offset-2">
+              SEO/GEO → Search Console
+            </Link>{" "}
+            (role-not-set), then start again.
+          </p>
+        ) : null}
+        {running && queue ? (
+          <div className="space-y-1.5" data-testid="progress-gsc-inspect-queue">
+            <Progress value={progressPct} className="h-2" />
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {processed} of {totalQueued} done
+              {queue.failed > 0 ? ` · ${queue.failed} failed` : ""}
+              {queue.active ? ` · inspecting ${queue.active}` : ""}
+              {queue.mode ? ` · ${queue.mode === "never" ? "never inspected" : "all"}` : ""}
+            </p>
+          </div>
+        ) : null}
         {configured === false ? (
           <p className="text-sm text-muted-foreground" data-testid="text-gsc-unconfigured">
             Search Console is not configured. Save a property in SEO/GEO → Search Console, set GCS_CREDENTIALS_JSON, and add that service account on the Search Console property.
           </p>
         ) : !summary || inspected === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-gsc-empty-sidecar">
-            No URLs inspected yet. Check a page from diagnostics, or Test connection in settings.
+            No URLs inspected yet. Use Inspect URLs, check a page from diagnostics, or Test connection in settings.
           </p>
-        ) : (
+        ) : null}
+        {configured !== false && summary ? (
           <>
             <div className="flex flex-wrap gap-2 text-xs" data-testid="gsc-funnel">
               <Badge variant="secondary">In sitemap {summary.sitemapCount}</Badge>
@@ -254,8 +455,70 @@ function SearchConsoleCoverageCard({
               </Accordion>
             )}
           </>
-        )}
+        ) : null}
       </CardContent>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md bg-background text-foreground" data-testid="dialog-gsc-inspect-urls">
+          <DialogHeader>
+            <DialogTitle>Inspect URLs</DialogTitle>
+            <DialogDescription>
+              One Google call at a time (~1.5s apart), max {GSC_INSPECT_MAX_PER_JOB} per job. Does not request
+              indexing. All retries previous failures; Never inspected only covers URLs with no cache row yet.
+            </DialogDescription>
+          </DialogHeader>
+          <RadioGroup
+            value={mode}
+            onValueChange={(v) => setMode(v as GscInspectMode)}
+            className="space-y-3"
+            data-testid="radio-gsc-inspect-mode"
+          >
+            <div className="flex items-start space-x-2">
+              <RadioGroupItem value="never" id="gsc-inspect-never" className="mt-0.5" />
+              <Label htmlFor="gsc-inspect-never" className="font-normal cursor-pointer space-y-0.5">
+                <span className="block text-foreground">Never inspected</span>
+                <span className="block text-xs text-muted-foreground">
+                  {neverChecked} public sitemap URL{neverChecked === 1 ? "" : "s"} with no cache row
+                  {neverChecked > GSC_INSPECT_MAX_PER_JOB
+                    ? ` · this job will inspect the first ${GSC_INSPECT_MAX_PER_JOB} (${gscInspectDurationLabel(neverChecked)})`
+                    : neverChecked > 0
+                      ? ` · ${gscInspectDurationLabel(neverChecked)}`
+                      : ""}
+                  .
+                </span>
+              </Label>
+            </div>
+            <div className="flex items-start space-x-2">
+              <RadioGroupItem value="all" id="gsc-inspect-all" className="mt-0.5" />
+              <Label htmlFor="gsc-inspect-all" className="font-normal cursor-pointer space-y-0.5">
+                <span className="block text-foreground">All</span>
+                <span className="block text-xs text-muted-foreground">
+                  {sitemapCount} public sitemap URL{sitemapCount === 1 ? "" : "s"}, including previous errors
+                  {sitemapCount > GSC_INSPECT_MAX_PER_JOB
+                    ? ` · this job will inspect the first ${GSC_INSPECT_MAX_PER_JOB} (${gscInspectDurationLabel(sitemapCount)})`
+                    : sitemapCount > 0
+                      ? ` · ${gscInspectDurationLabel(sitemapCount)}`
+                      : ""}
+                  .
+                </span>
+              </Label>
+            </div>
+          </RadioGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={starting || selectedCount === 0 || inspectDisabled}
+              onClick={() => void startInspect()}
+              data-testid="button-gsc-inspect-start"
+            >
+              {starting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+              Start inspect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

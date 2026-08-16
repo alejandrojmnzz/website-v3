@@ -230,11 +230,18 @@ import {
   homepageLocFromDebug,
   inspectAndStore,
   isPreviewLoc,
+  listGscSites,
   loadStore,
   resolvePublicInspectLoc,
   sitemapHostMatchesGsc,
   suggestedGscSiteUrl,
 } from "../gsc-url-inspection";
+import {
+  enqueueGscInspects,
+  getGscInspectQueueStats,
+  GscInspectAlreadyRunningError,
+  type GscInspectMode,
+} from "../gsc-inspect-queue";
 const log = child({ module: "routes/seo" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -392,6 +399,31 @@ export function registerSeoRoutes(app: Express): void {
     res.json(payload);
   });
 
+  app.get("/api/debug/gsc-inspection/sites", async (_req, res) => {
+    const cfg = getGscConfig(getContentRoot(res));
+    if (!cfg.credentialsConfigured) {
+      res.status(503).json({
+        error:
+          "Search Console credentials are not configured. Set GCS_CREDENTIALS_JSON or GCS_KEY_FILENAME.",
+        sites: [],
+      });
+      return;
+    }
+    try {
+      const sites = await listGscSites();
+      res.json({
+        sites,
+        serviceAccountEmail: cfg.serviceAccountEmail,
+      });
+    } catch (err) {
+      log.error({ err }, "GSC sites.list failed");
+      res.status(502).json({
+        error: err instanceof Error ? err.message : "Failed to list Search Console properties",
+        sites: [],
+      });
+    }
+  });
+
   app.post("/api/debug/gsc-inspection", async (req, res) => {
     try {
       const auth = await requireCapability(req, res, "seo_edit");
@@ -432,6 +464,54 @@ export function registerSeoRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "GSC inspect failed");
       res.status(500).json({ error: err instanceof Error ? err.message : "Inspect failed" });
+    }
+  });
+
+  app.get("/api/debug/gsc-inspection/queue", (_req, res) => {
+    res.json(getGscInspectQueueStats());
+  });
+
+  app.post("/api/debug/gsc-inspection/enqueue", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const contentRoot = getContentRoot(res);
+      const cfg = getGscConfig(contentRoot);
+      if (!cfg.configured) {
+        res.status(503).json({
+          error:
+            "Search Console is not configured. Save a property in SEO/GEO → Search Console and set GCS_CREDENTIALS_JSON or GCS_KEY_FILENAME.",
+        });
+        return;
+      }
+
+      const mode = req.body?.mode as unknown;
+      if (mode !== "never" && mode !== "all") {
+        res.status(400).json({ error: "mode must be \"never\" or \"all\"" });
+        return;
+      }
+
+      const contentRootName = getContentRootName(res);
+      const debugUrls = getDebugSitemapUrls(getSiteSitemapCtx(res));
+      const result = enqueueGscInspects({
+        mode: mode as GscInspectMode,
+        contentRoot,
+        contentRootName,
+        debugUrls,
+      });
+      res.status(202).json(result);
+    } catch (err) {
+      if (err instanceof GscInspectAlreadyRunningError) {
+        res.status(409).json({
+          error: err.message,
+          code: err.code,
+          queue: err.queue,
+        });
+        return;
+      }
+      log.error({ err }, "GSC inspect enqueue failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Enqueue failed" });
     }
   });
 

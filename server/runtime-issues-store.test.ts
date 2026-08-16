@@ -1,13 +1,17 @@
 import { mkdtempSync, rmSync } from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { gcs } from "./gcs";
 import {
   _resetRuntimeIssuesForTests,
+  addIgnoreRules,
   listRuntimeIssues,
+  pullRuntimeIssuesFromGcs,
   recordPublicNotFound,
   resetRuntimeIssuesForSite,
   saveIssueProbe,
+  setDropScrapers,
 } from "./runtime-issues-store";
 
 const CHROME =
@@ -17,6 +21,7 @@ describe("runtime-issues-store", () => {
   let tmp: string;
 
   afterEach(() => {
+    vi.restoreAllMocks();
     _resetRuntimeIssuesForTests();
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   });
@@ -38,7 +43,7 @@ describe("runtime-issues-store", () => {
         ts,
       }),
     ).toBe(true);
-    const listed = listRuntimeIssues("site_test", { hideBots: true, contentRoot });
+    const listed = listRuntimeIssues("site_test", { contentRoot });
     expect(listed.issues).toHaveLength(1);
     expect(listed.issues[0].sources).toContain("search_crawler");
     expect(listed.issues[0].uaBucket).toBe("search_crawler");
@@ -66,7 +71,7 @@ describe("runtime-issues-store", () => {
         referrer: "https://4geeks.com/",
       }),
     ).toBe(false);
-    expect(listRuntimeIssues("site_test", { hideBots: false, contentRoot }).issues).toHaveLength(0);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(0);
   });
 
   it("keeps a 4Geeks-referrer gif and tags internal", () => {
@@ -80,7 +85,7 @@ describe("runtime-issues-store", () => {
         referrer: "https://classrecordings.4geeks.com/",
       }),
     ).toBe(true);
-    const listed = listRuntimeIssues("site_test", { hideBots: true, contentRoot });
+    const listed = listRuntimeIssues("site_test", { contentRoot });
     expect(listed.issues[0].sources).toContain("internal");
   });
 
@@ -139,5 +144,183 @@ describe("runtime-issues-store", () => {
 
   it("saveIssueProbe returns null for an unknown fingerprint", () => {
     expect(saveIssueProbe("site_test", "missing", { at: 1, status: "not_found" }, root())).toBeNull();
+  });
+
+  it("pullRuntimeIssuesFromGcs replaces local issues then continues ingest", async () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/local-only",
+      userAgent: CHROME,
+    });
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/local-only"]);
+
+    const prodFp = "prod-fp";
+    const prodState = {
+      version: 1 as const,
+      updatedAt: Date.UTC(2026, 7, 1),
+      issues: {
+        [prodFp]: {
+          fingerprint: prodFp,
+          kind: "http.not_found" as const,
+          path: "/prod-only",
+          locale: "en",
+          count: 4,
+          firstSeen: Date.UTC(2026, 7, 1),
+          lastSeen: Date.UTC(2026, 7, 14),
+        },
+      },
+      recent: [],
+    };
+    vi.spyOn(gcs, "available", "get").mockReturnValue(true);
+    const download = vi.spyOn(gcs, "downloadFirstExisting").mockResolvedValue({
+      key: "site_test/sync/runtime-issues-state.json",
+      data: Buffer.from(JSON.stringify(prodState), "utf-8"),
+    });
+    const upload = vi.spyOn(gcs, "upload");
+    const debounced = vi.spyOn(gcs, "debouncedUpload");
+
+    const pulled = await pullRuntimeIssuesFromGcs("site_test", contentRoot);
+    expect(pulled).toMatchObject({
+      success: true,
+      pulled: true,
+      gcsKey: "site_test/sync/runtime-issues-state.json",
+      issueCount: 1,
+    });
+    expect(download).toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(debounced).not.toHaveBeenCalled();
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/prod-only"]);
+
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/after-pull",
+      userAgent: CHROME,
+    });
+    expect(
+      listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path).sort(),
+    ).toEqual(["/after-pull", "/prod-only"]);
+    expect(upload).not.toHaveBeenCalled();
+    expect(debounced).not.toHaveBeenCalled();
+  });
+
+  it("pullRuntimeIssuesFromGcs keeps local issues when GCS is unavailable", async () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/keep-me",
+      userAgent: CHROME,
+    });
+    vi.spyOn(gcs, "available", "get").mockReturnValue(false);
+    vi.spyOn(gcs, "initBootstrapFromEnv").mockImplementation(() => {});
+    const download = vi.spyOn(gcs, "downloadFirstExisting");
+
+    const pulled = await pullRuntimeIssuesFromGcs("site_test", contentRoot);
+    expect(pulled.success).toBe(false);
+    expect(pulled.pulled).toBe(false);
+    expect(pulled.reason).toMatch(/GCS is unavailable/);
+    expect(download).not.toHaveBeenCalled();
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/keep-me"]);
+  });
+
+  it("pullRuntimeIssuesFromGcs keeps local issues when GCS has no file", async () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/keep-me",
+      userAgent: CHROME,
+    });
+    vi.spyOn(gcs, "available", "get").mockReturnValue(true);
+    vi.spyOn(gcs, "downloadFirstExisting").mockResolvedValue(null);
+
+    const pulled = await pullRuntimeIssuesFromGcs("site_test", contentRoot);
+    expect(pulled.success).toBe(false);
+    expect(pulled.reason).toMatch(/No runtime-issues file found/);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/keep-me"]);
+  });
+
+  it("skips recording when a path matches an ignore rule", () => {
+    const contentRoot = root();
+    addIgnoreRules("site_test", [{ kind: "locales", locales: ["us", "es"], rest: "/gone", label: "locale pair" }], { contentRoot });
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/us/gone",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/es/gone",
+        userAgent: CHROME,
+      }),
+    ).toBe(false);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/us/keep",
+        userAgent: CHROME,
+      }),
+    ).toBe(true);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/keep"]);
+  });
+
+  it("addIgnoreRules deletes matching rows and reset keeps rules", () => {
+    const contentRoot = root();
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/old",
+      userAgent: CHROME,
+    });
+    recordPublicNotFound({
+      site: "site_test",
+      contentRoot,
+      path: "/us/keep",
+      userAgent: CHROME,
+    });
+    const added = addIgnoreRules("site_test", [{ kind: "exact", path: "/us/old", label: "old" }], {
+      contentRoot,
+      seedPaths: ["/us/old"],
+    });
+    expect(added.removed).toBe(1);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues.map((i) => i.path)).toEqual(["/us/keep"]);
+    const reset = resetRuntimeIssuesForSite("site_test", contentRoot);
+    expect(Object.keys(reset.issues)).toHaveLength(0);
+    expect(listRuntimeIssues("site_test", { contentRoot }).ignored).toHaveLength(1);
+    expect(reset.dropScrapers).toBe(true);
+  });
+
+  it("setDropScrapers is future-only and does not delete existing rows", () => {
+    const contentRoot = root();
+    setDropScrapers("site_test", false, contentRoot);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/es/blog/foo",
+        userAgent: "curl/8.0",
+      }),
+    ).toBe(true);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(1);
+    setDropScrapers("site_test", true, contentRoot);
+    expect(listRuntimeIssues("site_test", { contentRoot }).issues).toHaveLength(1);
+    expect(
+      recordPublicNotFound({
+        site: "site_test",
+        contentRoot,
+        path: "/es/blog/bar",
+        userAgent: "curl/8.0",
+      }),
+    ).toBe(false);
+    expect(listRuntimeIssues("site_test", { contentRoot }).dropScrapers).toBe(true);
   });
 });

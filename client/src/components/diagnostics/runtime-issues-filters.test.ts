@@ -3,6 +3,8 @@ import { incrementByHour } from "@shared/runtime-issues";
 import {
   FILTER_ALL,
   applyRuntimeIssueView,
+  countActiveListFilters,
+  countIngestionFilters,
   deviceLabel,
   filterRuntimeIssues,
   isAssetPath,
@@ -107,7 +109,7 @@ describe("filterRuntimeIssues", () => {
     expect(filtered.map((i) => i.fingerprint)).toEqual(["b"]);
   });
 
-  it("pagesOnly hides asset paths except internal", () => {
+  it("pagesOnly hides all asset paths including internal", () => {
     const mixed = [
       ...issues,
       row({ fingerprint: "js", path: "/assets/index-abc.js" }),
@@ -116,7 +118,7 @@ describe("filterRuntimeIssues", () => {
       row({ fingerprint: "page", path: "/en/ai-2.0" }),
     ];
     const filtered = filterRuntimeIssues(mixed, { ...none, pagesOnly: true });
-    expect(filtered.map((i) => i.fingerprint)).toEqual(["a", "b", "c", "gif", "page"]);
+    expect(filtered.map((i) => i.fingerprint)).toEqual(["a", "b", "c", "page"]);
   });
 
   it("windowDays 7 hides a path that only has hits 20 days ago", () => {
@@ -198,5 +200,20 @@ describe("deviceLabel", () => {
   it("humanizes known buckets", () => {
     expect(deviceLabel("likely_bot")).toBe("Likely bot");
     expect(deviceLabel("custom")).toBe("custom");
+  });
+});
+
+describe("countActiveListFilters", () => {
+  it("counts pagesOnly and a 7-day window", () => {
+    expect(countActiveListFilters(none)).toBe(0);
+    expect(countActiveListFilters({ ...none, pagesOnly: true })).toBe(1);
+    expect(countActiveListFilters({ ...none, windowDays: 7, pagesOnly: true })).toBe(2);
+  });
+});
+
+describe("countIngestionFilters", () => {
+  it("counts hide-scrapers-off only", () => {
+    expect(countIngestionFilters(true)).toBe(0);
+    expect(countIngestionFilters(false)).toBe(1);
   });
 });

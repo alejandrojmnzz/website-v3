@@ -2994,11 +2994,7 @@ export function registerAdminRoutes(app: Express): void {
       const { listRuntimeIssues } = await import("../runtime-issues-store");
       const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
       const siteName = site?.contentRootName || "default";
-      const hideBotsParam = req.query.hideBots;
-      const hideBots =
-        hideBotsParam === undefined || hideBotsParam === "1" || hideBotsParam === "true";
       const data = listRuntimeIssues(siteName, {
-        hideBots,
         contentRoot: site?.contentRoot,
       });
       res.json(data);
@@ -3026,6 +3022,33 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "Failed to reset runtime issues:");
       res.status(500).json({ error: "Failed to reset runtime issues" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/pull-production", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    try {
+      const { pullRuntimeIssuesFromGcs } = await import("../runtime-issues-store");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const result = await pullRuntimeIssuesFromGcs(siteName, site?.contentRoot);
+      if (!result.success) {
+        res.status(400).json({
+          error: result.reason ?? "Failed to pull production runtime issues",
+          success: false,
+          pulled: false,
+          gcsKey: result.gcsKey,
+          issueCount: result.issueCount,
+          reason: result.reason,
+        });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "Failed to pull production runtime issues:");
+      res.status(500).json({ error: "Failed to pull production runtime issues" });
     }
   });
 
@@ -3144,6 +3167,140 @@ export function registerAdminRoutes(app: Express): void {
     } catch (err) {
       log.error({ err }, "Failed to bulk-probe runtime issues:");
       res.status(500).json({ error: "Failed to bulk-probe runtime issues" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/drop-scrapers", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    const enabled = req.body?.enabled;
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ error: "enabled must be a boolean" });
+      return;
+    }
+
+    try {
+      const { setDropScrapers } = await import("../runtime-issues-store");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const result = setDropScrapers(siteName, enabled, site?.contentRoot);
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "Failed to update dropScrapers:");
+      res.status(500).json({ error: "Failed to update hide scrapers" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/ignore-suggest", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+
+    const raw = req.body?.fingerprints;
+    if (!Array.isArray(raw)) {
+      res.status(400).json({ error: "fingerprints must be an array" });
+      return;
+    }
+    const fingerprints = Array.from(
+      new Set(raw.filter((f): f is string => typeof f === "string" && f.trim().length > 0).map((f) => f.trim())),
+    );
+    if (!fingerprints.length) {
+      res.status(400).json({ error: "fingerprints is required" });
+      return;
+    }
+
+    try {
+      const { listRuntimeIssues, getRuntimeIssue } = await import("../runtime-issues-store");
+      const { suggestIgnoreTemplates } = await import("../runtime-issues-ignore-suggest");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const listed = listRuntimeIssues(siteName, { contentRoot: site?.contentRoot });
+      const seedIssues = fingerprints
+        .map((fp) => getRuntimeIssue(siteName, fp, site?.contentRoot))
+        .filter((issue): issue is NonNullable<typeof issue> => Boolean(issue));
+      if (!seedIssues.length) {
+        res.status(404).json({ error: "No matching runtime issues found" });
+        return;
+      }
+      const seedPaths = seedIssues.map((issue) => issue.path);
+      const allPaths = listed.issues.map((issue) => issue.path);
+      const locales = Array.from(new Set(listed.issues.map((issue) => issue.locale).filter(Boolean)));
+      const result = await suggestIgnoreTemplates({ seedPaths, allPaths, locales });
+      res.json({ ...result, seedPaths });
+    } catch (err) {
+      log.error({ err }, "Failed to suggest ignore templates:");
+      res.status(500).json({ error: "Failed to suggest ignore templates" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/ignore", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+
+    const raw = req.body?.rules;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      res.status(400).json({ error: "rules must be a non-empty array" });
+      return;
+    }
+    const { ignoreRuleInputSchema } = await import("@shared/runtime-issues-ignore");
+    const rules = raw
+      .map((row) => {
+        const parsed = ignoreRuleInputSchema.safeParse(row);
+        return parsed.success ? parsed.data : null;
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    if (!rules.length) {
+      res.status(400).json({ error: "rules must include at least one valid template" });
+      return;
+    }
+    const seedRaw = req.body?.seedPaths;
+    const seedPaths = Array.isArray(seedRaw)
+      ? seedRaw.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+      : undefined;
+
+    try {
+      const { addIgnoreRules } = await import("../runtime-issues-store");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const result = addIgnoreRules(siteName, rules, { contentRoot: site?.contentRoot, seedPaths });
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to add ignore rules";
+      if (message.startsWith("Invalid ignore") || message.startsWith("Ignore rule does not match")) {
+        res.status(400).json({ error: message });
+        return;
+      }
+      log.error({ err }, "Failed to add ignore rules:");
+      res.status(500).json({ error: "Failed to add ignore rules" });
+    }
+  });
+
+  app.post("/api/admin/runtime-issues/unignore", async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_edit");
+    if (!auth.authorized) return;
+
+    const raw = req.body?.ids;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      res.status(400).json({ error: "ids must be a non-empty array" });
+      return;
+    }
+    const ids = Array.from(
+      new Set(raw.filter((id): id is string => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())),
+    );
+    if (!ids.length) {
+      res.status(400).json({ error: "ids must include at least one string" });
+      return;
+    }
+
+    try {
+      const { removeIgnoreRules } = await import("../runtime-issues-store");
+      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
+      const siteName = site?.contentRootName || "default";
+      const result = removeIgnoreRules(siteName, ids, site?.contentRoot);
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "Failed to remove ignore rules:");
+      res.status(500).json({ error: "Failed to remove ignore rules" });
     }
   });
 

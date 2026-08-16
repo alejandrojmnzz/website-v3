@@ -8,7 +8,6 @@ import {
 
 /** Query keys for runtime-issue view state. Add a key here when adding a filter. */
 export const RUNTIME_ISSUE_SEARCH_KEYS = {
-  hideBots: "hideBots",
   pagesOnly: "pagesOnly",
   path: "path",
   referrer: "referrer",
@@ -22,14 +21,12 @@ export const RUNTIME_ISSUE_SEARCH_KEYS = {
 } as const;
 
 export interface RuntimeIssueViewState {
-  hideBots: boolean;
   filters: RuntimeIssueFilters;
   sortKey: RuntimeIssueSortKey;
   sortDir: RuntimeIssueSortDir;
 }
 
 export const RUNTIME_ISSUE_VIEW_DEFAULTS: RuntimeIssueViewState = {
-  hideBots: true,
   filters: {
     pathQuery: "",
     referrerQuery: "",
@@ -79,7 +76,6 @@ export function parseRuntimeIssueSearch(search: string): RuntimeIssueViewState {
   const device = params.get(RUNTIME_ISSUE_SEARCH_KEYS.device);
   const source = params.get(RUNTIME_ISSUE_SEARCH_KEYS.source);
   return {
-    hideBots: parseBool(params.get(RUNTIME_ISSUE_SEARCH_KEYS.hideBots), RUNTIME_ISSUE_VIEW_DEFAULTS.hideBots),
     filters: {
       pathQuery: params.get(RUNTIME_ISSUE_SEARCH_KEYS.path) ?? "",
       referrerQuery: params.get(RUNTIME_ISSUE_SEARCH_KEYS.referrer) ?? "",
@@ -114,9 +110,9 @@ export function serializeRuntimeIssueSearch(
   existingSearch = "",
 ): string {
   const params = new URLSearchParams(existingSearch.startsWith("?") ? existingSearch.slice(1) : existingSearch);
+  params.delete("hideBots");
   const d = RUNTIME_ISSUE_VIEW_DEFAULTS;
 
-  setBool(params, RUNTIME_ISSUE_SEARCH_KEYS.hideBots, view.hideBots, d.hideBots);
   setBool(params, RUNTIME_ISSUE_SEARCH_KEYS.pagesOnly, view.filters.pagesOnly, d.filters.pagesOnly);
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.path, view.filters.pathQuery.trim());
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.referrer, view.filters.referrerQuery.trim());

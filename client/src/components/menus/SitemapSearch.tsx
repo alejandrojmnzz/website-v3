@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Link, ExternalLink, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -10,23 +10,11 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-
-interface SitemapEntry {
-  loc: string;
-  label: string;
-  locale?: string;
-  content_type?: string;
-  slug?: string;
-}
-
-function extractPath(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.pathname;
-  } catch {
-    return url;
-  }
-}
+import {
+  filterSitemapEntries,
+  sitemapPathname,
+  type SitemapSearchEntry,
+} from "@/lib/sitemapSearch";
 
 interface SitemapSearchProps {
   value: string;
@@ -63,7 +51,7 @@ export function SitemapSearch({
     setCustomUrl(value);
   }, [value]);
 
-  const { data: sitemapUrls = [], isLoading } = useQuery<SitemapEntry[]>({
+  const { data: sitemapUrls = [], isLoading } = useQuery<SitemapSearchEntry[]>({
     queryKey: ["/api/sitemap-urls", locale],
     queryFn: async () => {
       const url = locale ? `/api/sitemap-urls?locale=${locale}` : "/api/sitemap-urls";
@@ -73,17 +61,12 @@ export function SitemapSearch({
     },
   });
 
-  const filteredUrls = (() => {
-    if (!searchQuery.trim()) return sitemapUrls;
-    const query = searchQuery.toLowerCase();
-    return sitemapUrls.filter(
-      (entry) =>
-        entry.loc.toLowerCase().includes(query) ||
-        entry.label.toLowerCase().includes(query)
-    );
-  })();
+  const filteredUrls = useMemo(
+    () => filterSitemapEntries(sitemapUrls, searchQuery),
+    [sitemapUrls, searchQuery],
+  );
 
-  const isCurrentValueInSitemap = sitemapUrls.some((entry) => extractPath(entry.loc) === value);
+  const isCurrentValueInSitemap = sitemapUrls.some((entry) => sitemapPathname(entry.loc) === value);
 
   const finish = () => {
     setOpen(false);
@@ -176,29 +159,32 @@ export function SitemapSearch({
               </div>
             ) : (
               <div className="p-1">
-                {filteredUrls.map((entry, index) => (
-                  <button
-                    key={entry.loc}
-                    onClick={() => handleSelect(extractPath(entry.loc))}
-                    className={cn(
-                      "w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-start gap-2 group",
-                      value === extractPath(entry.loc) && "bg-primary/10"
-                    )}
-                    data-testid={`${testId}-option-${index}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-foreground truncate text-xs">
-                        {entry.label}
+                {filteredUrls.map((entry, index) => {
+                  const path = sitemapPathname(entry.loc);
+                  return (
+                    <button
+                      key={path}
+                      onClick={() => handleSelect(path)}
+                      className={cn(
+                        "w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-start gap-2 group",
+                        value === path && "bg-primary/10"
+                      )}
+                      data-testid={`${testId}-option-${index}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground truncate text-xs">
+                          {entry.label}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {path}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {extractPath(entry.loc)}
-                      </div>
-                    </div>
-                    {value === extractPath(entry.loc) && (
-                      <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-                    )}
-                  </button>
-                ))}
+                      {value === path && (
+                        <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </ScrollArea>

@@ -8,6 +8,7 @@ import {
   platformUserStoreGcsKey,
   platformUserStoreLocalFilename,
   runtimeIssuesStateReadKeys,
+  runtimeIssuesIgnoreReadKeys,
   siteConversationsGcsPrefix,
   siteLighthouseGcsPrefixRoot,
   siteMediaGcsPrefix,
@@ -213,6 +214,15 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         localPath: path.join(root, `.${SYNC_FILENAMES.runtimeIssuesState}`),
         writesBlocked: true,
         artifactKind: "runtime-issues",
+      }),
+      await resolveRow({
+        id: `runtime-issues-ignore-${safeFolder}`,
+        label: "Runtime ignore rules",
+        siteFolder: site.contentFolder,
+        gcsKey: siteSyncGcsKey(safeFolder, SYNC_FILENAMES.runtimeIssuesIgnore),
+        readKeys: runtimeIssuesIgnoreReadKeys(safeFolder),
+        localPath: path.join(root, `.${SYNC_FILENAMES.runtimeIssuesIgnore}`),
+        writesBlocked: true,
       }),
     );
 

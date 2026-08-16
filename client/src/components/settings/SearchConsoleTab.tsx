@@ -9,21 +9,28 @@ import {
   IconDeviceFloppy,
   IconInfoCircle,
   IconLoader2,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
-import type { GscInspectionGetResponse } from "@/lib/gscInspection";
-import { isGscPropertyAccessDenied } from "@/lib/gscInspection";
+import type { GscInspectionGetResponse, GscSitesResponse } from "@/lib/gscInspection";
+import { gscPermissionLabel, isGscPropertyAccessDenied } from "@/lib/gscInspection";
 
 function configuredBadge(ok: boolean, okLabel: string, missingLabel: string, testId: string) {
   return ok ? (
@@ -146,6 +153,27 @@ export function SearchConsoleTab() {
     },
   });
 
+  const sitesQuery = useQuery<GscSitesResponse>({
+    queryKey: ["/api/debug/gsc-inspection/sites"],
+    enabled: isValidated === true && data?.credentialsConfigured === true,
+    queryFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch("/api/debug/gsc-inspection/sites", {
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      const body = (await res.json().catch(() => ({}))) as GscSitesResponse;
+      if (!res.ok) {
+        throw new Error(
+          typeof body.error === "string" ? body.error : "Failed to list Search Console properties",
+        );
+      }
+      return body;
+    },
+  });
+
   useEffect(() => {
     if (!data) return;
     setSiteUrlDraft(data.siteUrl || data.suggestedSiteUrl || "");
@@ -215,7 +243,7 @@ export function SearchConsoleTab() {
       toast({
         title: roleDenied ? "Role not set" : "Test failed",
         description: roleDenied
-          ? "Add this service account as a user on the Search Console property, then test again."
+          ? "This service account cannot inspect the saved property. Pick a property from the Google list below, or add the account on that exact property."
           : message,
         variant: "destructive",
       });
@@ -259,9 +287,11 @@ export function SearchConsoleTab() {
             <code className="font-mono text-xs">settings.yml</code> as{" "}
             <code className="font-mono text-xs">search_console.site_url</code> (for example{" "}
             <code className="font-mono text-xs">https://example.com/</code> or{" "}
-            <code className="font-mono text-xs">sc-domain:example.com</code>). The input below is prefilled from the
-            sites.yml domain; inspection does <strong className="text-foreground font-medium">not</strong> run until
-            you Save. Saving YAML does not call Google.
+            <code className="font-mono text-xs">sc-domain:example.com</code>). Domain and URL-prefix
+            properties are different. Pick a property from the list Google returns for this service
+            account, then Save. Inspection does{" "}
+            <strong className="text-foreground font-medium">not</strong> run until you Save. Saving YAML
+            does not call Google.
           </p>
           <p>
             Credentials stay <strong className="text-foreground font-medium">host environment only</strong> — the same
@@ -283,6 +313,7 @@ export function SearchConsoleTab() {
               <p>settings.yml → search_console.site_url</p>
               <p>.cache/{"{contentRoot}"}/gsc-url-inspection.json</p>
               <p>GET/POST /api/debug/gsc-inspection</p>
+              <p>GET /api/debug/gsc-inspection/sites</p>
               <p>PUT /api/settings/search-console</p>
             </CollapsibleContent>
           </Collapsible>
@@ -330,31 +361,108 @@ export function SearchConsoleTab() {
             </p>
           )}
           <div className="space-y-2">
-            <Label htmlFor="gsc-site-url">Search Console property</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                id="gsc-site-url"
-                className="font-mono text-xs max-w-md"
-                value={siteUrlDraft}
-                onChange={(e) => setSiteUrlDraft(e.target.value)}
-                placeholder="https://example.com/ or sc-domain:example.com"
-                disabled={!canEdit || saving}
-                data-testid="input-gsc-site-url"
-              />
+            <div className="flex flex-wrap items-center justify-between gap-2 max-w-xl">
+              <Label htmlFor="gsc-site-url">Search Console property</Label>
               <Button
+                type="button"
+                variant="ghost"
                 size="sm"
-                onClick={() => void handleSaveProperty()}
-                disabled={!canEdit || saving || !dirty || !siteUrlDraft.trim()}
-                data-testid="button-gsc-save-property"
+                className="h-7 px-2 text-xs"
+                onClick={() => void sitesQuery.refetch()}
+                disabled={!data.credentialsConfigured || sitesQuery.isFetching}
+                data-testid="button-gsc-refresh-sites"
               >
-                {saving ? (
-                  <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                {sitesQuery.isFetching ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin mr-1" />
                 ) : (
-                  <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+                  <IconRefresh className="h-3.5 w-3.5 mr-1" />
                 )}
-                {saving ? "Saving…" : "Save"}
+                Refresh list
               </Button>
             </div>
+            {!data.credentialsConfigured ? (
+              <p className="text-xs text-muted-foreground">
+                Set GCS credentials first. Google will not return properties without a service account.
+              </p>
+            ) : sitesQuery.isLoading ? (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="text-gsc-sites-loading">
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                Asking Google for properties…
+              </p>
+            ) : sitesQuery.isError ? (
+              <p className="text-xs text-destructive" data-testid="text-gsc-sites-error">
+                {sitesQuery.error instanceof Error
+                  ? sitesQuery.error.message
+                  : "Could not list Search Console properties."}
+              </p>
+            ) : (sitesQuery.data?.sites.length ?? 0) === 0 ? (
+              <p className="text-xs text-destructive" data-testid="text-gsc-sites-empty">
+                Google returned no properties for this service account. Add{" "}
+                {data.serviceAccountEmail ? (
+                  <span className="font-mono break-all">{data.serviceAccountEmail}</span>
+                ) : (
+                  "the service account"
+                )}{" "}
+                under Settings → Users and permissions on the Search Console property, wait a minute, then
+                refresh.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={
+                    sitesQuery.data?.sites.some((s) => s.siteUrl === siteUrlDraft.trim())
+                      ? siteUrlDraft.trim()
+                      : undefined
+                  }
+                  onValueChange={setSiteUrlDraft}
+                  disabled={!canEdit || saving}
+                >
+                  <SelectTrigger
+                    id="gsc-site-url"
+                    className="max-w-md font-mono text-xs"
+                    data-testid="select-gsc-property"
+                  >
+                    <SelectValue placeholder="Select a Search Console property" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sitesQuery.data?.sites.map((site) => (
+                      <SelectItem key={site.siteUrl} value={site.siteUrl} className="font-mono text-xs">
+                        {site.siteUrl}
+                        <span className="ml-2 font-sans text-muted-foreground">
+                          {gscPermissionLabel(site.permissionLevel)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  onClick={() => void handleSaveProperty()}
+                  disabled={
+                    !canEdit ||
+                    saving ||
+                    !dirty ||
+                    !sitesQuery.data?.sites.some((s) => s.siteUrl === siteUrlDraft.trim())
+                  }
+                  data-testid="button-gsc-save-property"
+                >
+                  {saving ? (
+                    <IconLoader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  ) : (
+                    <IconDeviceFloppy className="h-4 w-4 mr-1.5" />
+                  )}
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            )}
+            {sitesQuery.data &&
+              sitesQuery.data.sites.length > 0 &&
+              savedSiteUrl &&
+              !sitesQuery.data.sites.some((s) => s.siteUrl === savedSiteUrl) && (
+                <p className="text-xs text-destructive" data-testid="text-gsc-saved-not-in-list">
+                  Saved property {savedSiteUrl} is not in this account’s list. Pick one above, then Save.
+                </p>
+              )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-muted-foreground">Service account</span>

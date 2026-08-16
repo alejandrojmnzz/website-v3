@@ -9,6 +9,7 @@ import {
   isRootViteHashAsset,
   isRuntimeIssueProbeSuccess,
   localeFromPath,
+  localePrefixFromPath,
   localYmd,
   normalizeRuntimePath,
   pruneRuntimeIssuesState,
@@ -16,6 +17,7 @@ import {
   stripReferrerQuery,
   emptyRuntimeIssuesState,
   runtimeIssueRecordSchema,
+  runtimeIssuesStateSchema,
   utcHourKey,
   windowHitCount,
   MAX_ISSUES_PER_SITE,
@@ -40,6 +42,14 @@ describe("localeFromPath", () => {
     expect(localeFromPath("/es/coding")).toBe("es");
     expect(localeFromPath("/en/coding")).toBe("en");
     expect(localeFromPath("/coding")).toBe("en");
+  });
+
+  it("does not treat unprefixed paths as a visible locale", () => {
+    expect(localePrefixFromPath("/es/coding")).toBe("es");
+    expect(localePrefixFromPath("/en")).toBe("en");
+    expect(localePrefixFromPath("/admin")).toBeNull();
+    expect(localePrefixFromPath("/private/preview/x")).toBeNull();
+    expect(localeFromPath("/admin")).toBe("en");
   });
 });
 
@@ -124,6 +134,11 @@ describe("shouldHardDropNotFound", () => {
 
   it("keeps a missing page for a normal browser", () => {
     expect(shouldHardDropNotFound("/us/missing", CHROME)).toBe(false);
+  });
+
+  it("records scrapers when dropScrapers is false", () => {
+    expect(shouldHardDropNotFound("/es/blog/foo", "curl/8.0", undefined, false)).toBe(false);
+    expect(shouldHardDropNotFound("/es/blog/foo", "curl/8.0", undefined, true)).toBe(true);
   });
 });
 
@@ -300,5 +315,34 @@ describe("lastProbe schema", () => {
       lastSeen: 2,
     });
     expect(parsed.lastProbe).toBeUndefined();
+  });
+});
+
+describe("dropScrapers state", () => {
+  it("parses old JSON without dropScrapers", () => {
+    const parsed = runtimeIssuesStateSchema.parse({
+      version: 1,
+      updatedAt: 1,
+      issues: {},
+    });
+    expect(parsed.dropScrapers).toBeUndefined();
+  });
+
+  it("prune keeps dropScrapers", () => {
+    const now = Date.now();
+    const state = emptyRuntimeIssuesState();
+    state.dropScrapers = false;
+    state.issues["http.not_found|s|en|/us/keep"] = {
+      fingerprint: "http.not_found|s|en|/us/keep",
+      kind: "http.not_found",
+      path: "/us/keep",
+      locale: "en",
+      count: 1,
+      firstSeen: now,
+      lastSeen: now,
+    };
+    const pruned = pruneRuntimeIssuesState(state, now);
+    expect(pruned.issues["http.not_found|s|en|/us/keep"]).toBeDefined();
+    expect(pruned.dropScrapers).toBe(false);
   });
 });

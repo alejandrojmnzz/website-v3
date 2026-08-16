@@ -16,6 +16,9 @@ import {
   isGscPropertyAccessDenied,
   isIndexed,
   isPreviewLoc,
+  listGscSites,
+  mapGscSitesListPayload,
+  gscPermissionLabel,
   mapInspectPayload,
   mergeInspectError,
   mergeInspectSuccess,
@@ -299,6 +302,31 @@ describe("gsc-url-inspection", () => {
     expect(suggestedGscSiteUrl("4geeks.com")).toBe("https://4geeks.com/");
     expect(suggestedGscSiteUrl("https://www.example.com/path")).toBe("https://www.example.com/");
     expect(suggestedGscSiteUrl("localhost")).toBeNull();
+  });
+
+  it("maps Search Console sites.list payloads", async () => {
+    expect(mapGscSitesListPayload(null)).toEqual([]);
+    expect(mapGscSitesListPayload({ siteEntry: [] })).toEqual([]);
+    expect(
+      mapGscSitesListPayload({
+        siteEntry: [
+          { siteUrl: "https://4geeks.com/", permissionLevel: "siteRestrictedUser" },
+          { siteUrl: "sc-domain:4geeks.com", permissionLevel: "siteOwner" },
+          { permissionLevel: "siteOwner" },
+        ],
+      }),
+    ).toEqual([
+      { siteUrl: "https://4geeks.com/", permissionLevel: "siteRestrictedUser" },
+      { siteUrl: "sc-domain:4geeks.com", permissionLevel: "siteOwner" },
+    ]);
+    expect(gscPermissionLabel("siteOwner")).toBe("Owner");
+    expect(gscPermissionLabel("siteFullUser")).toBe("Full user");
+    const listed = await listGscSites({
+      listFn: async () => ({
+        siteEntry: [{ siteUrl: "https://example.com/", permissionLevel: "siteFullUser" }],
+      }),
+    });
+    expect(listed).toEqual([{ siteUrl: "https://example.com/", permissionLevel: "siteFullUser" }]);
   });
 
   it("detects main_seo_keyword on the entry or seo block", () => {
