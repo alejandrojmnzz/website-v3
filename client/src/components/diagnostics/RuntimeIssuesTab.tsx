@@ -58,6 +58,7 @@ import {
   applyRuntimeIssueView,
   countActiveListFilters,
   isRuntimeIssueFiltersActive,
+  deviceLabel,
   sortDevices,
   uniqueSorted,
   windowedSourceTags,
@@ -70,6 +71,7 @@ import {
   type RuntimeIssueViewState,
 } from "./runtime-issues-url";
 import { RuntimeIssueSourceBadge } from "./RuntimeIssueSourceBadge";
+import { referrerDisplayHost } from "./runtime-issues-referrer";
 import { RuntimeIssueListFiltersDialog } from "./RuntimeIssueListFiltersDialog";
 import { RuntimeIssueIngestionFiltersDialog } from "./RuntimeIssueIngestionFiltersDialog";
 import { RuntimeIssueIgnoreRulesDialog } from "./RuntimeIssueIgnoreRulesDialog";
@@ -138,20 +140,6 @@ function fullPublicUrl(relativePath: string, hostname?: string): string {
   }
   if (typeof window !== "undefined") return `${window.location.origin}${relativePath}`;
   return relativePath;
-}
-
-function referrerRelativePath(referrer: string): string | undefined {
-  const trimmed = referrer.trim();
-  try {
-    if (/^https?:\/\//i.test(trimmed)) {
-      const pathname = new URL(trimmed).pathname;
-      return pathname || "/";
-    }
-  } catch {
-    // fall through
-  }
-  if (trimmed.startsWith("/")) return trimmed;
-  return undefined;
 }
 
 function referrerFullUrl(referrer: string): string {
@@ -399,64 +387,70 @@ function RuntimeIssuePathMenu({
   );
 }
 
-function UaColumnInfo() {
+function RuntimeIssueUaBadge({
+  uaBucket,
+  fingerprint,
+}: {
+  uaBucket?: string;
+  fingerprint: string;
+}) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const bucket = uaBucket || "unknown";
   return (
-    <span className="inline-flex items-center gap-1">
-      UA
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex text-muted-foreground hover:text-foreground"
-            aria-label="What is UA?"
-            data-testid="button-runtime-ua-info"
-          >
-            <IconInfoCircle className="h-3.5 w-3.5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          className="w-80 space-y-2 text-sm"
-          data-testid="popover-runtime-ua-info"
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="cursor-pointer"
+          aria-label="What is UA?"
+          data-testid={`badge-runtime-ua-${fingerprint}`}
         >
-          <p className="font-medium text-foreground">How to use UA</p>
-          <p className="text-muted-foreground">
-            UA tells you <span className="text-foreground">who</span> hit the missing URL, so you know
-            whether to fix it. Desktop or mobile is usually a person — add a redirect. Search crawler or
-            LLM crawler is Google or an AI bot; a missing URL there is an SEO issue. Social preview is a
-            share unfurl. Scraper or likely bot is noise (Hide scrapers already drops most of those). Use
-            the Device list filter to look at one kind at a time.
-          </p>
-          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                data-testid="button-runtime-ua-read-more"
-              >
-                <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-                />
-                Read more (advanced)
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2 space-y-1.5 text-xs text-muted-foreground">
-              <p>
-                UA is a coarse group from the request’s User-Agent string — not the full User-Agent.
-                Typical values: desktop, mobile, search crawler, LLM crawler, social preview, scraper,
-                likely bot, or unknown (missing or unrecognized). Same buckets as the Device list filter.
-              </p>
-              <p className="font-mono">shared/runtime-issues.ts — classifyRuntimeHit / uaBucket</p>
-            </CollapsibleContent>
-          </Collapsible>
-        </PopoverContent>
-      </Popover>
-    </span>
+          <Badge variant="outline" className="text-[10px]">
+            UA: {deviceLabel(bucket).toLowerCase()}
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-80 space-y-2 text-sm"
+        data-testid={`popover-runtime-ua-${fingerprint}`}
+      >
+        <p className="font-medium text-foreground">How to use UA</p>
+        <p className="text-muted-foreground">
+          UA tells you who hit the missing URL, so you know whether to fix it. Desktop or mobile is
+          usually a person — add a redirect. Search crawler or LLM crawler is Google or an AI bot; a
+          missing URL there is an SEO issue. Social preview is a share unfurl. Scraper or likely bot is
+          noise (Hide scrapers already drops most of those). Use the Device list filter to look at one
+          kind at a time.
+        </p>
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              data-testid={`button-runtime-ua-read-more-${fingerprint}`}
+            >
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+              />
+              Read more (advanced)
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-1.5 text-xs text-muted-foreground">
+            <p>
+              UA is a coarse group from the request’s User-Agent string — not the full User-Agent.
+              Typical values: desktop, mobile, search crawler, LLM crawler, social preview, scraper,
+              likely bot, or unknown (missing or unrecognized). Same buckets as the Device list filter.
+            </p>
+            <p className="font-mono">shared/runtime-issues.ts — classifyRuntimeHit / uaBucket</p>
+          </CollapsibleContent>
+        </Collapsible>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function RuntimeIssueReferrerMenu({
+function RuntimeIssueReferrerBadge({
   referrer,
   fingerprint,
 }: {
@@ -465,55 +459,58 @@ function RuntimeIssueReferrerMenu({
 }) {
   const copy = useCopyToast();
   const value = referrer?.trim();
-  if (!value) return <span>—</span>;
+  if (!value) return null;
 
-  const relative = referrerRelativePath(value);
+  const host = referrerDisplayHost(value);
   const full = referrerFullUrl(value);
-  const showRelative = Boolean(relative && relative !== "/");
 
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <button
           type="button"
-          className="truncate max-w-full text-left text-primary hover:underline"
-          title={value}
-          data-testid={`button-runtime-issue-referrer-${fingerprint}`}
+          className="cursor-pointer max-w-[160px]"
+          title={full}
+          data-testid={`badge-runtime-referrer-${fingerprint}`}
         >
-          {value}
+          <Badge variant="outline" className="text-[10px] max-w-[160px] truncate">
+            {host}
+          </Badge>
         </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuItem
-          onClick={() => void copy("Full link", full)}
-          data-testid={`menu-runtime-issue-referrer-copy-full-${fingerprint}`}
-        >
-          <Copy className="h-4 w-4" />
-          Copy full link
-        </DropdownMenuItem>
-        {showRelative && relative ? (
-          <DropdownMenuItem
-            onClick={() => void copy("Relative path", relative)}
-            data-testid={`menu-runtime-issue-referrer-copy-relative-${fingerprint}`}
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-80 space-y-2 text-sm"
+        data-testid={`popover-runtime-referrer-${fingerprint}`}
+      >
+        <p className="font-medium text-foreground">Referrer</p>
+        <p className="font-mono text-xs break-all text-muted-foreground">{full}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={() => void copy("Full link", full)}
+            data-testid={`button-runtime-referrer-copy-${fingerprint}`}
           >
-            <LinkIcon className="h-4 w-4" />
-            Copy relative path
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <a
-            href={full}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid={`menu-runtime-issue-referrer-open-${fingerprint}`}
-          >
-            <ExternalLink className="h-4 w-4" />
-            Open in a new tab
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+            <Copy className="h-3.5 w-3.5" />
+            Copy
+          </Button>
+          <Button variant="outline" size="sm" className="h-7" asChild>
+            <a
+              href={full}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`link-runtime-referrer-open-${fingerprint}`}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open
+            </a>
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -977,10 +974,11 @@ export default function RuntimeIssuesTab() {
                 turning it on again does not wipe old rows. File 404s from a 4Geeks referrer are still
                 recorded (broken internal or old assets). Count is hits in the selected{" "}
                 <strong>7 or 30 days in your timezone</strong> ({tz}) — the CSV uses the same window. Click
-                a source badge for what it means (tag sums can exceed Count). Click a path or referrer to
-                copy the URL or open it in a new tab (paths also offer Add redirect and Ignore from 404
-                log). Test (and bulk Retest) walks this server’s redirects then HTTP-follows until they
-                stop. A green check means <code className="text-xs font-mono">status</code> is{" "}
+                a source badge for what it means (tag sums can exceed Count). The sample referrer domain sits
+                next to those badges — click it for the full URL. Click a path to copy the URL or open it
+                in a new tab (paths also offer Add redirect and Ignore from 404 log). Test (and bulk Retest)
+                walks this server’s redirects then HTTP-follows until they stop. A green check means{" "}
+                <code className="text-xs font-mono">status</code> is{" "}
                 <code className="text-xs font-mono">page</code> or{" "}
                 <code className="text-xs font-mono">redirect</code>. This table is public 404s only (not
                 server exceptions). Reset wipes the stored log including GCS but keeps ingest settings.
@@ -1192,7 +1190,7 @@ export default function RuntimeIssuesTab() {
                 No runtime issues match the current filters.
               </div>
             ) : (
-              <Table>
+              <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10 pr-0">
@@ -1204,7 +1202,7 @@ export default function RuntimeIssuesTab() {
                     />
                   </TableHead>
                   <TableHead>Path</TableHead>
-                  <TableHead className="text-right">
+                  <TableHead className="w-24 text-right">
                     <button
                       type="button"
                       className="inline-flex items-center justify-end w-full hover:text-foreground"
@@ -1215,7 +1213,7 @@ export default function RuntimeIssuesTab() {
                       <SortIcon col="count" sortKey={sortKey} sortDir={sortDir} />
                     </button>
                   </TableHead>
-                  <TableHead>
+                  <TableHead className="w-36">
                     <button
                       type="button"
                       className="inline-flex items-center hover:text-foreground"
@@ -1225,10 +1223,6 @@ export default function RuntimeIssuesTab() {
                       Last seen
                       <SortIcon col="lastSeen" sortKey={sortKey} sortDir={sortDir} />
                     </button>
-                  </TableHead>
-                  <TableHead>Referrer</TableHead>
-                  <TableHead>
-                    <UaColumnInfo />
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -1243,9 +1237,9 @@ export default function RuntimeIssuesTab() {
                         data-testid={`checkbox-runtime-issue-${issue.fingerprint}`}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-xs max-w-[320px]">
+                    <TableCell className="font-mono text-xs min-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <div className="min-w-0">
+                        <div className="min-w-0 truncate">
                           <RuntimeIssuePathMenu
                             path={issue.path}
                             hostname={issue.hostname}
@@ -1269,21 +1263,22 @@ export default function RuntimeIssuesTab() {
                         {windowedSourceTags(issue, filters).map((tag) => (
                           <RuntimeIssueSourceBadge key={tag} tag={tag} fingerprint={issue.fingerprint} />
                         ))}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{issue.count}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {formatTs(issue.lastSeen)}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[180px]">
-                      <div className="min-w-0">
-                        <RuntimeIssueReferrerMenu
+                        <RuntimeIssueUaBadge
+                          uaBucket={issue.uaBucket}
+                          fingerprint={issue.fingerprint}
+                        />
+                        <RuntimeIssueReferrerBadge
                           referrer={issue.sampleReferrer}
                           fingerprint={issue.fingerprint}
                         />
-                      </div>
+                      </span>
                     </TableCell>
-                    <TableCell className="text-xs">{issue.uaBucket || "—"}</TableCell>
+                    <TableCell className="w-24 text-right font-medium whitespace-nowrap">
+                      {issue.count}
+                    </TableCell>
+                    <TableCell className="w-36 text-xs text-muted-foreground whitespace-nowrap">
+                      {formatTs(issue.lastSeen)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

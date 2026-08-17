@@ -329,6 +329,7 @@ import {
   isEntryDetached,
   isSharedLayoutType,
   isTemplateVersioningSlug,
+  resolvePreviewBaseSlug,
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
 import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
@@ -880,7 +881,7 @@ export function registerContentRoutes(app: Express): void {
   });
 
   app.get("/api/content-pages/:contentType/:slug", async (req, res) => {
-    const { contentType, slug } = req.params;
+    const { contentType, slug: requestSlug } = req.params;
     const locale = normalizeLocale(req.query.locale as string);
     const forceVariant = req.query.force_variant as string | undefined;
 
@@ -889,6 +890,7 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
+    const slug = resolvePreviewBaseSlug(requestSlug, contentType, getCI(res));
     const emptyRoot = getContentRoot(res);
     if (
       !skipEmptyLocaleGateForForceVariant(forceVariant) &&
@@ -913,7 +915,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const templateShell =
-      isTemplateVersioningSlug(slug) && isSharedLayoutType(contentType, getContentRoot(res));
+      isTemplateVersioningSlug(requestSlug) && isSharedLayoutType(contentType, getContentRoot(res));
 
     if (hasDatabaseSingle(contentType, getContentRoot(res)) && !templateShell) {
       const root = getContentRoot(res);

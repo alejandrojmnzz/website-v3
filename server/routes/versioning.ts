@@ -130,6 +130,7 @@ import {
   resolveVersioningReadSlug,
   resolveWritableVersioningTarget,
   isTemplateVersioningSlug,
+  resolvePreviewBaseSlug,
 } from "../shared-layout-entry";
 import {
   buildMirroredLocaleSingle,
@@ -266,7 +267,7 @@ export function registerVersioningRoutes(app: Express): void {
     res.json({ success: true, message: "Versioning cache cleared" });
   });
   app.get("/api/variants/:contentType/:slug", (req, res) => {
-    const { contentType, slug } = req.params;
+    const { contentType, slug: requestSlug } = req.params;
 
     if (!isValidType(contentType)) {
       res
@@ -275,6 +276,7 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const slug = resolvePreviewBaseSlug(requestSlug, contentType, getCI(res));
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const result = versioningManager.getAvailableVariants(contentType, slug);
 
@@ -288,7 +290,7 @@ export function registerVersioningRoutes(app: Express): void {
 
   // Get versioning data for a specific content type and slug
   app.get("/api/versioning/:contentType/:contentSlug", (req, res) => {
-    const { contentType, contentSlug } = req.params;
+    const { contentType, contentSlug: requestSlug } = req.params;
 
     if (!isValidType(contentType)) {
       res.status(400).json({
@@ -298,6 +300,7 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    const contentSlug = resolvePreviewBaseSlug(requestSlug, contentType, getCI(res));
     const root = getContentRoot(res);
     const shared = isSharedLayoutType(contentType, root);
     const entrySlug = isTemplateVersioningSlug(contentSlug) ? null : contentSlug;

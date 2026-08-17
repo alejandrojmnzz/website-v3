@@ -5,6 +5,7 @@ import path from "path";
 import {
   TEMPLATE_VERSIONING_SLUG,
   isTemplateVersioningSlug,
+  resolvePreviewBaseSlug,
   stripStructuralOverlayKeys,
   attachedOverlayStructureError,
   hasEntryLevelVersioning,
@@ -21,6 +22,24 @@ describe("shared-layout-entry helpers", () => {
     expect(TEMPLATE_VERSIONING_SLUG).toBe("single");
     expect(isTemplateVersioningSlug("single")).toBe(true);
     expect(isTemplateVersioningSlug("my-post")).toBe(false);
+  });
+
+  it("resolvePreviewBaseSlug skips the template shell and maps locale slugs", () => {
+    const ci = {
+      resolveBaseSlug: (slug: string, type: string) =>
+        slug === "what-is-cloudflare-os-open-source-agent-workspace" && type === "blog"
+          ? "cloudflareos"
+          : slug,
+    };
+    expect(resolvePreviewBaseSlug("single", "blog", ci)).toBe("single");
+    expect(
+      resolvePreviewBaseSlug(
+        "what-is-cloudflare-os-open-source-agent-workspace",
+        "blog",
+        ci,
+      ),
+    ).toBe("cloudflareos");
+    expect(resolvePreviewBaseSlug("cloudflareos", "blog", ci)).toBe("cloudflareos");
   });
 
   it("strips sections and layout for re-attach", () => {

@@ -178,7 +178,7 @@ import {
 } from "../markdown";
 import { resolveDynamicEntries } from "../dynamic-entries";
 import { loadDatabaseSinglePage, mergeSingleTemplate } from "../database-single-loader";
-import { isEntryDetached } from "../shared-layout-entry";
+import { isEntryDetached, resolvePreviewBaseSlug } from "../shared-layout-entry";
 import { getBaseUrl } from "../hreflang";
 import * as userManager from "../user-manager";
 import * as userStore from "../user-store";
@@ -247,7 +247,7 @@ function getValidationCache(res: Response) {
 export function registerDatabasesRoutes(app: Express): void {
   app.get("/api/database-single/:contentType/:slug", async (req, res) => {
     try {
-      const { contentType, slug } = req.params;
+      const { contentType, slug: requestSlug } = req.params;
       const locale = normalizeLocale(req.query.locale as string);
       const forceVariant = req.query.force_variant as string | undefined;
 
@@ -261,6 +261,7 @@ export function registerDatabasesRoutes(app: Express): void {
       }
 
       const root = getContentRoot(res);
+      const slug = resolvePreviewBaseSlug(requestSlug, contentType, getCI(res));
       const {
         buildLocaleUnavailablePayload,
         isEmptyDetachedLocaleEntry,

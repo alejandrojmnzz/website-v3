@@ -157,6 +157,19 @@ export function isTemplateVersioningSlug(contentSlug: string): boolean {
 }
 
 /**
+ * Folder slug for preview/read APIs. Locale/URL slugs map via ContentIndex;
+ * the template shell (`single`) is left unchanged.
+ */
+export function resolvePreviewBaseSlug(
+  slug: string,
+  contentType: string,
+  ci: { resolveBaseSlug(slug: string, contentType: string): string },
+): string {
+  if (isTemplateVersioningSlug(slug)) return slug;
+  return ci.resolveBaseSlug(slug, contentType);
+}
+
+/**
  * Attached shared-layout entries must not carry structural overlays.
  * Returns an error message if `sections` or `layout` are present.
  */
