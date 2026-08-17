@@ -710,8 +710,9 @@ export function EditorTypeDialog({
                   )}
                   {!existingItemsLoading && !hasItemsProp && (
                     <p className="text-xs text-muted-foreground">
-                      Sample data not loaded. Preview appears when items are available;
-                      populate still works in the item editor once entries exist.
+                      Sample data not loaded. Open this dialog from Manage → Fields so peer
+                      values can be previewed; the item editor also loads peers when this
+                      option is on.
                     </p>
                   )}
                   {itemsLoaded && previewTokens.length === 0 && (

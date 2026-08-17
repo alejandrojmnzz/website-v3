@@ -101,21 +101,7 @@ export function buildQueueBackupZip(opts: {
     `then open GitHub Sync and push when GitHub is available.\n` +
     skippedBlock;
 
-  const manifest = {
-    exportedAt,
-    contentRoot: posixRel(getContentFolder(contentRoot)),
-    included,
-    skipped,
-    notes: [
-      "Local backup of commit-queue files. Does not push to GitHub.",
-      "Does not change the queue. Restore by copying paths back with the site_* prefix.",
-    ],
-  };
-
-  zipEntries.unshift(
-    { name: "README.txt", data: Buffer.from(readme, "utf8") },
-    { name: "manifest.json", data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n", "utf8") },
-  );
+  zipEntries.unshift({ name: "README.txt", data: Buffer.from(readme, "utf8") });
 
   return {
     ok: true,

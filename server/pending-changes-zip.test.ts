@@ -64,8 +64,7 @@ describe("buildQueueBackupZip", () => {
     const files = unzipStore(result.buffer);
     expect(files[a]).toBe("title: Hello\n");
     expect(files["README.txt"]).toContain("does not push to GitHub");
-    const manifest = JSON.parse(files["manifest.json"]);
-    expect(manifest.included).toEqual([a]);
+    expect(files["manifest.json"]).toBeUndefined();
     expect(files[b]).toBeUndefined();
   });
 

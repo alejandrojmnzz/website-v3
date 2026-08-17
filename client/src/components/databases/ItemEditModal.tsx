@@ -48,6 +48,7 @@ import {
 } from "@shared/json-field";
 import { coerceRelationFieldInput } from "@shared/relation-field";
 import {
+  coerceEditorSelectScalar,
   collectEditorFieldTokens,
   expandEditorFieldTokens,
 } from "@shared/editor-field-values";
@@ -510,6 +511,12 @@ export interface ItemEditModalProps {
   hiddenFields?: string[];
   onlyFields?: string[];
   allItems?: Record<string, unknown>[];
+  /**
+   * Content-type key for peer option harvesting when there is no database
+   * (e.g. blog category select with populate_options). Uses
+   * `/api/content-types/:type/items`.
+   */
+  contentType?: string;
   /** When set, shows a banner indicating which override layer is being edited. */
   overrideLevel?: "database" | "content_type";
   /** Prefer these editor hints over (or instead of) database config.editor. */
@@ -537,6 +544,7 @@ export function ItemEditModal({
   hiddenFields = [],
   onlyFields,
   allItems: externalAllItems,
+  contentType,
   overrideLevel,
   editorOverrides,
   imageFallbackPreviewSrc,
@@ -549,6 +557,9 @@ export function ItemEditModal({
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState<Record<string, string>>({});
+  /** Select fields in “add custom value” mode (plus button). */
+  const [selectCustomOpen, setSelectCustomOpen] = useState<Record<string, boolean>>({});
+  const [selectCustomDraft, setSelectCustomDraft] = useState<Record<string, string>>({});
 
   const isNew = item === null;
   const skipDbConfig = !!editorOverrides && !!onlyFields?.length && !dbName;
@@ -573,17 +584,62 @@ export function ItemEditModal({
 
   const config = detail?.config;
   const editor = editorOverrides ?? config?.editor;
-  const allItems = externalAllItems ?? allItemsData?.items ?? [];
+
+  const needsPeerPopulate = useMemo(() => {
+    if (!editor) return false;
+    const keys =
+      onlyFields && onlyFields.length > 0
+        ? onlyFields
+        : Object.keys(editor);
+    return keys.some((k) => {
+      const hint = editor[k];
+      return !!(hint?.populate_options || hint?.allow_custom_values);
+    });
+  }, [editor, onlyFields]);
+
+  const { data: ctPeerItemsData } = useQuery<{
+    results?: Record<string, unknown>[];
+  }>({
+    queryKey: ["/api/content-types", contentType, "items", "peer-options"],
+    queryFn: () =>
+      fetch(
+        `/api/content-types/${encodeURIComponent(contentType!)}/items?limit=500`,
+      ).then((r) => r.json()),
+    enabled:
+      !externalAllItems &&
+      !dbName &&
+      !!contentType &&
+      needsPeerPopulate,
+    staleTime: 60_000,
+  });
+
+  const allItems =
+    externalAllItems ??
+    allItemsData?.items ??
+    ctPeerItemsData?.results ??
+    [];
 
   const normalizeFormData = (src: Record<string, unknown>): Record<string, unknown> => {
     const next = { ...src };
     if (!editor) return next;
     for (const [key, hint] of Object.entries(editor)) {
-      if (hint?.type !== "json") continue;
       if (!(key in next)) continue;
-      const v = next[key];
-      if (typeof v === "string") continue;
-      next[key] = formatJsonFieldDraft(v);
+      if (hint?.type === "json") {
+        const v = next[key];
+        if (typeof v === "string") continue;
+        next[key] = formatJsonFieldDraft(v);
+        continue;
+      }
+      if (hint?.type === "select" || hint?.type === "tags") {
+        const v = next[key];
+        if (hint.type === "select") {
+          const scalar = coerceEditorSelectScalar(v);
+          if (scalar && scalar !== v) next[key] = scalar;
+        } else if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+          const scalar = coerceEditorSelectScalar(v);
+          if (scalar) next[key] = [scalar];
+        }
+      }
     }
     return next;
   };
@@ -846,21 +902,123 @@ export function ItemEditModal({
             onChange={(v) => setValue(key, v)}
           />
         );
-      case "select":
+      case "select": {
+        const selectValue = coerceEditorSelectScalar(value);
+        const optionValues = new Set(mergedOptions.map((o) => o.value));
+        const selectOptions =
+          selectValue && !optionValues.has(selectValue)
+            ? [{ value: selectValue, label: selectValue }, ...mergedOptions]
+            : mergedOptions;
+        const customOpen = !!selectCustomOpen[key];
+        const customDraft = selectCustomDraft[key] ?? "";
+        const commitCustom = () => {
+          const next = customDraft
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
+          if (!next) return;
+          setValue(key, next);
+          setSelectCustomOpen((prev) => ({ ...prev, [key]: false }));
+          setSelectCustomDraft((prev) => ({ ...prev, [key]: "" }));
+        };
+        const cancelCustom = () => {
+          setSelectCustomOpen((prev) => ({ ...prev, [key]: false }));
+          setSelectCustomDraft((prev) => ({ ...prev, [key]: "" }));
+        };
+
+        if (canAddCustom && customOpen) {
+          return (
+            <div className="flex items-center gap-2" data-testid={`select-custom-${key}`}>
+              <Input
+                value={customDraft}
+                onChange={(e) =>
+                  setSelectCustomDraft((prev) => ({ ...prev, [key]: e.target.value }))
+                }
+                placeholder="New category slug…"
+                className="h-9 text-sm font-mono flex-1"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitCustom();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelCustom();
+                  }
+                }}
+                data-testid={`input-edit-custom-${key}`}
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={!customDraft.trim()}
+                onClick={commitCustom}
+                data-testid={`button-save-custom-${key}`}
+              >
+                Save
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={cancelCustom}
+                data-testid={`button-cancel-custom-${key}`}
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          );
+        }
+
         return (
-          <Select value={String(value ?? "")} onValueChange={(v) => setValue(key, v)}>
-            <SelectTrigger className="text-sm" data-testid={`select-edit-${key}`}>
-              <SelectValue placeholder="Select..." />
-            </SelectTrigger>
-            <SelectContent>
-              {mergedOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <Select
+                  value={selectValue || undefined}
+                  onValueChange={(v) => setValue(key, v)}
+                >
+                  <SelectTrigger className="text-sm w-full" data-testid={`select-edit-${key}`}>
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {canAddCustom && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-9 w-9 shrink-0"
+                  title="Add new value"
+                  onClick={() => {
+                    setSelectCustomDraft((prev) => ({ ...prev, [key]: "" }));
+                    setSelectCustomOpen((prev) => ({ ...prev, [key]: true }));
+                  }}
+                  data-testid={`button-add-custom-${key}`}
+                >
+                  <IconPlus className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            {selectOptions.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                No options yet. Enable “include values from existing data” or add manual options.
+              </p>
+            )}
+          </div>
         );
+      }
       case "tags": {
         const tags = Array.isArray(value)
           ? (value as string[]).filter((t) => typeof t === "string" && t.trim() !== "")

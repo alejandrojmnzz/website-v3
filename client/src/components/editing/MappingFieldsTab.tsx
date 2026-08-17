@@ -1007,6 +1007,7 @@ export function MappingFieldsTab({
           onlyFields={[editing.field]}
           editorOverrides={editorMap}
           overrideLevel={editing.level}
+          contentType={contentType}
           dbName={editing.level === "database" ? ctConfig?.database?.slug : undefined}
           item={{ [editing.field]: editing.value }}
           title={`Edit ${editing.field}`}

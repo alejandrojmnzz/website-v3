@@ -1,7 +1,8 @@
 /**
  * Expand a single field cell into option/tag tokens for select/tags editors.
  * Arrays always flatten one level; strings optionally split on commas.
- * Non-string / empty values are dropped.
+ * Objects with a string `slug` (e.g. blog category after queryEntries) yield that slug.
+ * Other non-string / empty values are dropped.
  */
 export function expandEditorFieldTokens(
   raw: unknown,
@@ -11,13 +12,17 @@ export function expandEditorFieldTokens(
   const out: string[] = [];
 
   const pushToken = (v: unknown) => {
-    if (typeof v !== "string") return;
-    const t = v.trim();
-    if (t) out.push(t);
+    const scalar = coerceEditorSelectScalar(v);
+    if (scalar) out.push(scalar);
   };
 
   if (Array.isArray(raw)) {
     for (const el of raw) pushToken(el);
+    return out;
+  }
+
+  if (raw !== null && typeof raw === "object") {
+    pushToken(raw);
     return out;
   }
 
@@ -32,6 +37,24 @@ export function expandEditorFieldTokens(
 
   out.push(s);
   return out;
+}
+
+/**
+ * Coerce a select/tags cell to a plain string for the item editor.
+ * Supports plain strings and `{ slug: string }` (URL category shape).
+ */
+export function coerceEditorSelectScalar(raw: unknown): string {
+  if (typeof raw === "string") {
+    return raw.trim();
+  }
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+    const slug = (raw as Record<string, unknown>).slug;
+    if (typeof slug === "string") return slug.trim();
+  }
+  if (typeof raw === "number" || typeof raw === "boolean") {
+    return String(raw);
+  }
+  return "";
 }
 
 /** Collect distinct sorted tokens across items for one field. */
