@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ExternalLink, FileDiff, Github, Pencil, RefreshCw, Save, Search, Trash2, Undo2, Webhook, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Download, ExternalLink, FileDiff, Github, Pencil, RefreshCw, Save, Search, Trash2, Undo2, Webhook, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,6 +105,7 @@ export function SyncModal({
   const [pushAllCommitMessage, setPushAllCommitMessage] = useState('');
   const [dropSelectedConfirmOpen, setDropSelectedConfirmOpen] = useState(false);
   const [isDroppingSelected, setIsDroppingSelected] = useState(false);
+  const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [autoPushExpanded, setAutoPushExpanded] = useState(false);
   const [autoPullExpanded, setAutoPullExpanded] = useState(false);
   const [queueFilter, setQueueFilter] = useState("");
@@ -160,6 +161,15 @@ export function SyncModal({
     () =>
       pendingChanges
         .filter((c) => selectedFiles.has(c.file) && c.source === "local")
+        .map((c) => c.file),
+    [pendingChanges, selectedFiles],
+  );
+
+  /** Selected files with local edits (including conflicts) — zip backup targets. */
+  const filesToBackup = useMemo(
+    () =>
+      pendingChanges
+        .filter((c) => selectedFiles.has(c.file) && (c.source === "local" || c.source === "conflict"))
         .map((c) => c.file),
     [pendingChanges, selectedFiles],
   );
@@ -268,6 +278,51 @@ export function SyncModal({
     }
   };
 
+  const handleDownloadSelectedZip = async () => {
+    if (filesToBackup.length === 0) return;
+    setIsDownloadingZip(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+
+      const res = await fetch("/api/github/pending-changes/zip", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ files: filesToBackup }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to download zip");
+      }
+
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition");
+      const match = cd?.match(/filename="([^"]+)"/);
+      const filename = match?.[1] || "queue-backup.zip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Queue backup downloaded",
+        description: `${filesToBackup.length} file${filesToBackup.length !== 1 ? "s" : ""} saved as ${filename}. This does not push to GitHub.`,
+      });
+    } catch (e) {
+      toast({
+        title: "Download failed",
+        description: e instanceof Error ? e.message : "Could not download the queue zip",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingZip(false);
+    }
+  };
+
   const handleDownloadClick = (file: string, source: string) => {
     if (source === 'conflict') {
       setConfirmPullFile(file);
@@ -334,6 +389,9 @@ export function SyncModal({
                         return <span>Retrying in {secsLeft}s</span>;
                       })()}
                     </div>
+                    <p className="text-[11px] text-red-600 dark:text-red-400">
+                      Select files in Commit Queue and use Download zip for a local backup. That does not push or change the queue.
+                    </p>
                   </div>
                 )}
               </div>
@@ -618,13 +676,13 @@ export function SyncModal({
                   <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">{pendingChanges.length}</Badge>
                 )}
               </button>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 {hasSelection && (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-6 text-xs px-2"
-                    disabled={isPushingAllLocal || isDroppingSelected}
+                    disabled={isPushingAllLocal || isDroppingSelected || isDownloadingZip}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedFiles(new Set());
@@ -639,7 +697,7 @@ export function SyncModal({
                     size="sm"
                     variant="outline"
                     className="h-6 text-xs px-2 text-destructive hover:text-destructive"
-                    disabled={isPushingAllLocal || isDroppingSelected}
+                    disabled={isPushingAllLocal || isDroppingSelected || isDownloadingZip}
                     onClick={(e) => {
                       e.stopPropagation();
                       setDropSelectedConfirmOpen(true);
@@ -653,12 +711,41 @@ export function SyncModal({
                     )}
                   </Button>
                 )}
+                {hasSelection && filesToBackup.length > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-xs px-2"
+                        disabled={isPushingAllLocal || isDroppingSelected || isDownloadingZip}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDownloadSelectedZip();
+                        }}
+                        data-testid="button-download-queue-zip"
+                      >
+                        {isDownloadingZip ? (
+                          <><RefreshCw className="h-3 w-3 animate-spin mr-1" />Downloading...</>
+                        ) : (
+                          <><Download className="h-3 w-3 mr-1" />Download zip ({filesToBackup.length})</>
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p>
+                        Download the selected queue files as a zip backup if GitHub is down.
+                        Does not push and does not change the queue.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 {(hasSelection ? filesToPush.length > 0 : localOnlyFiles.length > 0) && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-6 text-xs px-2"
-                    disabled={isPushingAllLocal || isDroppingSelected || filesToPush.length === 0}
+                    disabled={isPushingAllLocal || isDroppingSelected || isDownloadingZip || filesToPush.length === 0}
                     onClick={(e) => {
                       e.stopPropagation();
                       setPushAllLocalError(null);

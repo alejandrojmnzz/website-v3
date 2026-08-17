@@ -175,6 +175,7 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireStaffSession,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -1102,6 +1103,40 @@ export function registerGithubRoutes(app: Express): void {
     } catch (error) {
       log.error({ err: error }, "Error getting sync changes:");
       res.status(500).json({ error: "Failed to get sync changes" });
+    }
+  });
+
+  // Zip local commit-queue files for backup (does not call GitHub).
+  app.post("/api/github/pending-changes/zip", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const site = res.locals.site as { contentRootName?: string } | undefined;
+      const contentRoot = site?.contentRootName;
+      if (!contentRoot) {
+        res.status(400).json({ error: "No active site content root" });
+        return;
+      }
+
+      const files = Array.isArray(req.body?.files)
+        ? req.body.files.filter((f: unknown): f is string => typeof f === "string" && f.trim().length > 0)
+        : undefined;
+
+      const { buildQueueBackupZip } = await import("../pending-changes-zip");
+      const result = buildQueueBackupZip({ files, contentRoot });
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error });
+        return;
+      }
+
+      const filename = result.filename.replace(/["\r\n]/g, "");
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(result.buffer);
+    } catch (error) {
+      log.error({ err: error }, "Error building queue backup zip:");
+      res.status(500).json({ error: "Failed to build queue backup zip" });
     }
   });
 
