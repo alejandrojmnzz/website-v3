@@ -921,7 +921,7 @@ export class ContentIndex {
 
       for (const entry of parsed.redirects) {
         if (typeof entry !== "object" || entry === null || !("from" in entry) || !("to" in entry)) continue;
-        const obj = entry as { from: string; to: string; status?: number; priority?: string };
+        const obj = entry as { from: string; to: string | Record<string, string>; status?: number; priority?: string };
 
         let normalizedFrom = obj.from.startsWith("/") ? obj.from : `/${obj.from}`;
         normalizedFrom = normalizedFrom.toLowerCase();

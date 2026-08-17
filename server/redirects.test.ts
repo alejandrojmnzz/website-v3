@@ -89,6 +89,25 @@ describe("findCanonicalSoftMatch", () => {
       findCanonicalSoftMatch("/es/blog/herramientas-ia/real-post", ci),
     ).toBeNull();
   });
+
+  it("soft-matches when only slug casing differs", () => {
+    const ci = makeCi({
+      knownSlugs: {
+        "cuanto-gana-un-programador-en-colombia": {
+          es: "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+        },
+      },
+    });
+    const soft = findCanonicalSoftMatch(
+      "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-Colombia",
+      ci,
+    );
+    expect(soft).toEqual({
+      typeName: "blog",
+      canonicalUrl:
+        "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+    });
+  });
 });
 
 describe("testRedirect includes canonical soft-match", () => {
@@ -122,6 +141,71 @@ describe("testRedirect includes canonical soft-match", () => {
     expect(result.resolvedTo).toBe("/es/blog/herramientas-ia/real-post");
     expect(result.destinationExists).toBe(true);
     expect(isLivePublicUrl(result)).toBe(true);
+  });
+
+  it("reports canonical match when slug case differs (Colombia vs colombia)", () => {
+    const ci = makeCi({
+      knownSlugs: {
+        "cuanto-gana-un-programador-en-colombia": {
+          es: "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+        },
+      },
+    });
+    const result = testRedirect(
+      "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-Colombia",
+      "es",
+      ci,
+    );
+    expect(result.match).toBe(true);
+    expect(result.matchType).toBe("canonical");
+    expect(result.resolvedTo).toBe(
+      "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+    );
+    expect(result.destinationExists).toBe(true);
+    expect(isLivePublicUrl(result)).toBe(true);
+  });
+});
+
+describe("regex capture groups lowercase for relative destinations", () => {
+  it("lowercases $n when substituting into a site path", () => {
+    const ci = {
+      findBySlug: () => [],
+      getAlternateUrls: () => ({}),
+      isKnownUrl: (url: string) =>
+        url ===
+        "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+      getRedirects: () => [
+        {
+          from: "/es/(?!blog/|how-to/)([a-z_-]+)/([a-z0-9_-]+)",
+          to: "/es/blog/$1/$2",
+          type: "custom",
+          source: "test",
+          status: 301,
+          priority: "fallback",
+        },
+      ],
+      refreshCustomRedirects: () => [
+        {
+          from: "/es/(?!blog/|how-to/)([a-z_-]+)/([a-z0-9_-]+)",
+          to: "/es/blog/$1/$2",
+          type: "custom",
+          source: "test",
+          status: 301,
+          priority: "fallback",
+        },
+      ],
+    } as unknown as typeof ContentIndexType;
+
+    const result = testRedirect(
+      "/es/cuanto-gana-un-programador/cuanto-gana-un-programador-en-Colombia",
+      "es",
+      ci,
+    );
+    expect(result.match).toBe(true);
+    expect(result.resolvedTo).toBe(
+      "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+    );
+    expect(result.destinationExists).toBe(true);
   });
 });
 

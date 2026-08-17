@@ -1517,7 +1517,7 @@ export default function PrivateRedirects() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Delete Redirect</DialogTitle>
             <DialogDescription>
@@ -1526,26 +1526,26 @@ export default function PrivateRedirects() {
             </DialogDescription>
           </DialogHeader>
           {deletingRedirect && (
-            <div className="space-y-3 py-2">
-              <div className="rounded-md border p-3 space-y-2">
+            <div className="min-w-0 space-y-3 py-2">
+              <div className="min-w-0 rounded-md border p-3 space-y-2 overflow-hidden">
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground mb-1">From</p>
-                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
+                  <code className="text-xs bg-muted px-2 py-1 rounded block min-w-0 max-w-full truncate" title={deletingRedirect.from}>
                     {deletingRedirect.from}
                   </code>
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground mb-1">To</p>
                   {isLocaleMap(deletingRedirect.to) ? (
-                    <div className="space-y-1">
+                    <div className="space-y-1 min-w-0">
                       {Object.entries(deletingRedirect.to).map(
                         ([locale, url]) => (
                           <div
                             key={locale}
-                            className="flex items-center gap-1.5"
+                            className="flex min-w-0 items-center gap-1.5"
                           >
                             <LocaleFlag locale={locale} />
-                            <code className="text-xs bg-muted px-2 py-0.5 rounded truncate">
+                            <code className="text-xs bg-muted px-2 py-0.5 rounded min-w-0 flex-1 truncate" title={url}>
                               {url}
                             </code>
                           </div>
@@ -1553,7 +1553,7 @@ export default function PrivateRedirects() {
                       )}
                     </div>
                   ) : (
-                    <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
+                    <code className="text-xs bg-muted px-2 py-1 rounded block min-w-0 max-w-full truncate" title={String(deletingRedirect.to)}>
                       {deletingRedirect.to}
                     </code>
                   )}

@@ -126,7 +126,7 @@ export function isRuntimeIssueFiltersActive(filters: RuntimeIssueFilters): boole
 
 export function countActiveListFilters(filters: RuntimeIssueFilters): number {
   let n = 0;
-  if (filters.pagesOnly) n += 1;
+  if (!filters.pagesOnly) n += 1;
   if (filters.pathQuery.trim() !== "") n += 1;
   if (filters.referrerQuery.trim() !== "") n += 1;
   if (filters.locale !== FILTER_ALL) n += 1;

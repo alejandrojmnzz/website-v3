@@ -44,7 +44,7 @@ const none: RuntimeIssueFilters = {
   referrerQuery: "",
   locale: FILTER_ALL,
   device: FILTER_ALL,
-  pagesOnly: false,
+  pagesOnly: true,
   windowDays: 30,
   tz: "UTC",
   source: FILTER_ALL,
@@ -204,10 +204,10 @@ describe("deviceLabel", () => {
 });
 
 describe("countActiveListFilters", () => {
-  it("counts pagesOnly and a 7-day window", () => {
+  it("counts pagesOnly-off and a 7-day window as non-defaults", () => {
     expect(countActiveListFilters(none)).toBe(0);
-    expect(countActiveListFilters({ ...none, pagesOnly: true })).toBe(1);
-    expect(countActiveListFilters({ ...none, windowDays: 7, pagesOnly: true })).toBe(2);
+    expect(countActiveListFilters({ ...none, pagesOnly: false })).toBe(1);
+    expect(countActiveListFilters({ ...none, windowDays: 7, pagesOnly: false })).toBe(2);
   });
 });
 

@@ -43,14 +43,16 @@ export function isExternalUrl(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
 }
 
-/** Compare index vs HTTP finals (pathname when either side is relative). */
+/** Compare index vs HTTP finals (pathname when either side is relative). Case-insensitive. */
 export function probePathsMatch(a: string, b: string): boolean {
   const aExt = isExternalUrl(a);
   const bExt = isExternalUrl(b);
   if (aExt && bExt) return probeUrlKey(a) === probeUrlKey(b);
   const pathA = aExt ? new URL(a).pathname : a;
   const pathB = bExt ? new URL(b).pathname : b;
-  return normalizeRuntimePath(pathA) === normalizeRuntimePath(pathB);
+  return (
+    normalizeRuntimePath(pathA).toLowerCase() === normalizeRuntimePath(pathB).toLowerCase()
+  );
 }
 
 export function probeUrlKey(url: string): string {
@@ -58,12 +60,12 @@ export function probeUrlKey(url: string): string {
   if (isExternalUrl(trimmed)) {
     try {
       const u = new URL(trimmed);
-      return `${u.origin}${normalizeRuntimePath(u.pathname)}`;
+      return `${u.origin}${normalizeRuntimePath(u.pathname)}`.toLowerCase();
     } catch {
-      return trimmed;
+      return trimmed.toLowerCase();
     }
   }
-  return normalizeRuntimePath(trimmed);
+  return normalizeRuntimePath(trimmed).toLowerCase();
 }
 
 export async function lookupDestination(
@@ -177,7 +179,38 @@ export async function walkIndexRedirects(opts: {
           loop: false,
         };
       }
-      current = normalizeRuntimePath(next);
+      const nextPath = normalizeRuntimePath(next);
+      // Case-only canonicalization (Colombia → colombia): same probe key must not
+      // count as a cycle — settle on the destination and evaluate it once.
+      if (probeUrlKey(nextPath) === key) {
+        const destResult = opts.test(nextPath, opts.locale);
+        const lookup = await opts.lookup(nextPath);
+        if (destResult.pageExists) {
+          return {
+            hops,
+            finalUrl: nextPath,
+            pageExists: true,
+            matchedRedirect,
+            matchType,
+            destExists: lookup.exists,
+            external: false,
+            entry: lookup.entry,
+            loop: false,
+          };
+        }
+        return {
+          hops,
+          finalUrl: nextPath,
+          pageExists: false,
+          matchedRedirect,
+          matchType,
+          destExists: lookup.exists,
+          external: lookup.external,
+          entry: lookup.entry,
+          loop: false,
+        };
+      }
+      current = nextPath;
       continue;
     }
 
@@ -264,7 +297,48 @@ export async function walkHttpRedirects(opts: {
         if (!location) {
           return { hops, finalUrl: current, status, loop: false, error: "redirect-without-location" };
         }
-        current = new URL(location, current).href;
+        const next = new URL(location, current).href;
+        // Case-only Location (…/Colombia → …/colombia): fetch destination once
+        // instead of treating the shared probe key as a redirect cycle.
+        if (probeUrlKey(next) === key) {
+          hops.push(next);
+          const settleController = new AbortController();
+          const settleTimer = setTimeout(() => settleController.abort(), timeoutMs);
+          try {
+            const settled = await fetchFn(next, {
+              method: "GET",
+              redirect: "manual",
+              signal: settleController.signal,
+              headers: { "User-Agent": PROBE_USER_AGENT, Accept: "text/html,*/*" },
+            });
+            const settledStatus = settled.status;
+            if (settledStatus >= 300 && settledStatus < 400) {
+              const settledLoc = settled.headers.get("location");
+              if (!settledLoc) {
+                return {
+                  hops,
+                  finalUrl: next,
+                  status: settledStatus,
+                  loop: false,
+                  error: "redirect-without-location",
+                };
+              }
+              const next2 = new URL(settledLoc, next).href;
+              if (probeUrlKey(next2) === probeUrlKey(next)) {
+                return { hops, finalUrl: next, status: settledStatus, loop: false };
+              }
+              current = next2;
+              continue;
+            }
+            return { hops, finalUrl: next, status: settledStatus, loop: false };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { hops, finalUrl: next, status: null, loop: false, error: message };
+          } finally {
+            clearTimeout(settleTimer);
+          }
+        }
+        current = next;
         continue;
       }
       return { hops, finalUrl: current, status, loop: false };

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Link, ExternalLink, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,128 @@ interface SitemapSearchProps {
    */
   embedded?: boolean;
   onClose?: () => void;
+}
+
+interface SitemapResultRowProps {
+  entry: SitemapSearchEntry;
+  path: string;
+  selected: boolean;
+  testId?: string;
+  onSelect: (path: string) => void;
+}
+
+/**
+ * Truncated by default; on hover/focus, a fixed overlay expands to the right
+ * so long paths stay readable without widening the picker (escapes ScrollArea clip).
+ */
+function SitemapResultRow({
+  entry,
+  path,
+  selected,
+  testId,
+  onSelect,
+}: SitemapResultRowProps) {
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [overlayRect, setOverlayRect] = useState<DOMRect | null>(null);
+
+  const hideOverlay = useCallback(() => setOverlayRect(null), []);
+
+  const showOverlay = useCallback(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    setOverlayRect(el.getBoundingClientRect());
+  }, []);
+
+  useEffect(() => {
+    if (!overlayRect) return;
+
+    const hide = () => hideOverlay();
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [overlayRect, hideOverlay]);
+
+  // Grow with content, then nudge left if the chip would leave the viewport.
+  useLayoutEffect(() => {
+    if (!overlayRect || !overlayRef.current) return;
+    const el = overlayRef.current;
+    const width = el.getBoundingClientRect().width;
+    const overflowRight = overlayRect.left + width - (window.innerWidth - 8);
+    el.style.left =
+      overflowRight > 0
+        ? `${Math.max(8, overlayRect.left - overflowRight)}px`
+        : `${overlayRect.left}px`;
+  }, [overlayRect, path, entry.label]);
+
+  const pathNeedsExpand = path.length > 36 || (entry.label?.length ?? 0) > 42;
+
+  return (
+    <>
+      <button
+        ref={rowRef}
+        type="button"
+        onClick={() => onSelect(path)}
+        onMouseEnter={() => {
+          if (pathNeedsExpand) showOverlay();
+        }}
+        onMouseLeave={hideOverlay}
+        onFocus={() => {
+          if (pathNeedsExpand) showOverlay();
+        }}
+        onBlur={hideOverlay}
+        className={cn(
+          "relative w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-start gap-2 group",
+          selected && "bg-primary/10",
+        )}
+        data-testid={testId}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-foreground truncate text-xs">
+            {entry.label}
+          </div>
+          <div className="text-xs text-muted-foreground truncate">{path}</div>
+        </div>
+        {selected && (
+          <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+        )}
+      </button>
+
+      {overlayRect &&
+        createPortal(
+          <div
+            ref={overlayRef}
+            aria-hidden
+            className={cn(
+              "pointer-events-none fixed z-[10050] flex w-max items-start gap-2 rounded-md border bg-popover px-2 py-1.5 text-sm shadow-md",
+              selected && "bg-primary/10",
+            )}
+            style={{
+              top: overlayRect.top,
+              left: overlayRect.left,
+              minWidth: overlayRect.width,
+              minHeight: overlayRect.height,
+            }}
+          >
+            <div>
+              <div className="font-medium text-foreground text-xs whitespace-nowrap">
+                {entry.label}
+              </div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">
+                {path}
+              </div>
+            </div>
+            {selected && (
+              <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
 }
 
 export function SitemapSearch({
@@ -162,27 +285,14 @@ export function SitemapSearch({
                 {filteredUrls.map((entry, index) => {
                   const path = sitemapPathname(entry.loc);
                   return (
-                    <button
+                    <SitemapResultRow
                       key={path}
-                      onClick={() => handleSelect(path)}
-                      className={cn(
-                        "w-full text-left px-2 py-1.5 rounded-md text-sm hover-elevate flex items-start gap-2 group",
-                        value === path && "bg-primary/10"
-                      )}
-                      data-testid={`${testId}-option-${index}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-foreground truncate text-xs">
-                          {entry.label}
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {path}
-                        </div>
-                      </div>
-                      {value === path && (
-                        <Check className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-                      )}
-                    </button>
+                      entry={entry}
+                      path={path}
+                      selected={value === path}
+                      testId={`${testId}-option-${index}`}
+                      onSelect={handleSelect}
+                    />
                   );
                 })}
               </div>

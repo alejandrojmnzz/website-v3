@@ -47,13 +47,13 @@ describe("serializeRuntimeIssueSearch", () => {
         ...RUNTIME_ISSUE_VIEW_DEFAULTS.filters,
         pathQuery: "/es/blog",
         locale: "es",
-        pagesOnly: true,
+        pagesOnly: false,
         windowDays: 7,
       },
       sortKey: "lastSeen",
     });
     const params = new URLSearchParams(qs);
-    expect(params.get("pagesOnly")).toBe("1");
+    expect(params.get("pagesOnly")).toBe("0");
     expect(params.get("window")).toBe("7");
     expect(params.get("path")).toBe("/es/blog");
     expect(params.get("locale")).toBe("es");
@@ -78,7 +78,7 @@ describe("serializeRuntimeIssueSearch", () => {
 
   it("round-trips a fully customized view", () => {
     const view = parseRuntimeIssueSearch(
-      "pagesOnly=1&path=/en&referrer=press&locale=en&device=desktop&window=7&tz=America/Bogota&source=search_crawler&sort=lastSeen&dir=asc",
+      "pagesOnly=0&path=/en&referrer=press&locale=en&device=desktop&window=7&tz=America/Bogota&source=search_crawler&sort=lastSeen&dir=asc",
     );
     expect(parseRuntimeIssueSearch(serializeRuntimeIssueSearch(view))).toEqual(view);
   });

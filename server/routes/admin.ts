@@ -237,6 +237,7 @@ import {
 } from "./_helpers";
 import { child } from "../logger";
 import { sqlite } from "../db";
+import { resolveDatabaseBackedRedirectDestination } from "../debug-redirect-db-dest";
 const log = child({ module: "routes/admin" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -250,6 +251,74 @@ function getContentRoot(res: Response): string {
 
 function getContentRootName(res: Response): string {
   return (res.locals.site as any)?.contentRootName ?? (getDefaultContentFolder());
+}
+
+/** Append a redirect rule to custom-redirects.yml (used for custom dests and DB-backed pages). */
+function appendCustomRedirect(opts: {
+  contentRoot: string;
+  contentRootName: string;
+  from: string;
+  to: string | Record<string, string>;
+  statusCode: number;
+  priority: "before" | "fallback";
+  authorName?: string;
+}): { ok: true; file: string } | { ok: false; status: number; error: string } {
+  const customFilePath = path.join(opts.contentRoot, "custom-redirects.yml");
+
+  let parsed: {
+    redirects: Array<{
+      from: string;
+      to: string | Record<string, string>;
+      status?: number;
+      priority?: string;
+    }>;
+  } = { redirects: [] };
+  if (fs.existsSync(customFilePath)) {
+    const raw = fs.readFileSync(customFilePath, "utf-8");
+    const loaded = safeYamlLoad(raw) as { redirects?: unknown[] } | null;
+    if (loaded && Array.isArray(loaded.redirects)) {
+      parsed.redirects = loaded.redirects as Array<{
+        from: string;
+        to: string | Record<string, string>;
+        status?: number;
+        priority?: string;
+      }>;
+    }
+  }
+
+  if (parsed.redirects.some((r) => r.from?.toLowerCase() === opts.from)) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Redirect "${opts.from}" already exists in custom-redirects.yml`,
+    };
+  }
+
+  const newEntry: {
+    from: string;
+    to: string | Record<string, string>;
+    status?: number;
+    priority?: string;
+  } = { from: opts.from, to: opts.to };
+  if (opts.statusCode !== 301) {
+    newEntry.status = opts.statusCode;
+  }
+  if (opts.priority === "fallback") {
+    newEntry.priority = "fallback";
+  }
+  parsed.redirects.push(newEntry);
+
+  const yamlContent = safeYamlDump(parsed, {
+    lineWidth: -1,
+    noRefs: true,
+  });
+  fs.writeFileSync(customFilePath, yamlContent, "utf-8");
+  markFileAsModified(customFilePath, opts.authorName, undefined, opts.contentRoot);
+
+  return {
+    ok: true,
+    file: `${opts.contentRootName}/custom-redirects.yml`,
+  };
 }
 
 /** Return the per-site ConversationStore for the current request, falling back to the default singleton. */
@@ -862,61 +931,19 @@ export function registerAdminRoutes(app: Express): void {
       const destUrl = to as string;
 
       if (isCustomDestination) {
-        const customFilePath = path.join(
-          getContentRoot(res),
-          "custom-redirects.yml",
-        );
-
-        let parsed: {
-          redirects: Array<{
-            from: string;
-            to: string;
-            status?: number;
-            priority?: string;
-          }>;
-        } = { redirects: [] };
-        if (fs.existsSync(customFilePath)) {
-          const raw = fs.readFileSync(customFilePath, "utf-8");
-          const loaded = safeYamlLoad(raw) as { redirects?: unknown[] } | null;
-          if (loaded && Array.isArray(loaded.redirects)) {
-            parsed.redirects = loaded.redirects as Array<{
-              from: string;
-              to: string;
-              status?: number;
-              priority?: string;
-            }>;
-          }
-        }
-
-        if (
-          parsed.redirects.some((r) => r.from?.toLowerCase() === normalizedFrom)
-        ) {
-          res.status(409).json({
-            error: `Redirect "${normalizedFrom}" already exists in custom-redirects.yml`,
-          });
+        const written = appendCustomRedirect({
+          contentRoot: getContentRoot(res),
+          contentRootName: getContentRootName(res),
+          from: normalizedFrom,
+          to: destUrl,
+          statusCode,
+          priority,
+          authorName,
+        });
+        if (!written.ok) {
+          res.status(written.status).json({ error: written.error });
           return;
         }
-
-        const newEntry: {
-          from: string;
-          to: string;
-          status?: number;
-          priority?: string;
-        } = { from: normalizedFrom, to: destUrl };
-        if (statusCode !== 301) {
-          newEntry.status = statusCode;
-        }
-        if (priority === "fallback") {
-          newEntry.priority = "fallback";
-        }
-        parsed.redirects.push(newEntry);
-
-        const yamlContent = safeYamlDump(parsed, {
-          lineWidth: -1,
-          noRefs: true,
-        });
-        fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-        markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
         getCI(res).scan();
         clearRedirectCache();
@@ -924,7 +951,7 @@ export function registerAdminRoutes(app: Express): void {
         res.json({
           success: true,
           message: `Custom redirect added: ${normalizedFrom} -> ${destUrl}`,
-          file: `${getContentRootName(res)}/custom-redirects.yml`,
+          file: written.file,
         });
         return;
       }
@@ -944,6 +971,60 @@ export function registerAdminRoutes(app: Express): void {
         contentType,
       );
       const entries = getCI(res).findBySlug(resolvedSlug, { contentType });
+
+      // DB-backed types (how-to, lesson, …) have no per-slug YAML folder for meta.redirects.
+      // Fall back to custom-redirects.yml when the sitemap/URL exists but findBySlug is empty.
+      // YAML override folders under the same type still take the meta.redirects path below.
+      if (entries.length === 0 && getCI(res).isDatabaseBacked(contentType)) {
+        const builtUrl = getCI(res).buildUrl(contentType, locale, parsed.slug);
+        const alternateUrls = getCI(res).getAlternateUrls(
+          parsed.slug,
+          contentType,
+        );
+        const resolvedDest = resolveDatabaseBackedRedirectDestination({
+          destUrl,
+          allLanguages: !!allLanguages,
+          builtUrl,
+          alternateUrls,
+          isKnownUrl: (url) => getCI(res).isKnownUrl(url),
+        });
+
+        if (!resolvedDest.ok) {
+          res.status(404).json({
+            error: `No content found for slug "${parsed.slug}" in ${contentType}`,
+          });
+          return;
+        }
+
+        const written = appendCustomRedirect({
+          contentRoot: getContentRoot(res),
+          contentRootName: getContentRootName(res),
+          from: normalizedFrom,
+          to: resolvedDest.to,
+          statusCode,
+          priority,
+          authorName,
+        });
+        if (!written.ok) {
+          res.status(written.status).json({ error: written.error });
+          return;
+        }
+
+        getCI(res).scan();
+        clearRedirectCache();
+
+        const toLabel =
+          typeof resolvedDest.to === "string"
+            ? resolvedDest.to
+            : Object.values(resolvedDest.to).join(", ");
+        res.json({
+          success: true,
+          message: `Redirect added: ${normalizedFrom} -> ${toLabel}`,
+          file: written.file,
+        });
+        return;
+      }
+
       if (entries.length === 0) {
         res.status(404).json({
           error: `No content found for slug "${parsed.slug}" in ${contentType}`,

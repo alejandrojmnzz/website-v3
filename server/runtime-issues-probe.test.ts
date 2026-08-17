@@ -4,6 +4,7 @@ import {
   MAX_PROBE_HOPS,
   combineProbeWalks,
   lookupDestination,
+  probePathsMatch,
   probeUrlKey,
   walkHttpRedirects,
   walkIndexRedirects,
@@ -51,6 +52,26 @@ describe("probeUrlKey", () => {
     expect(probeUrlKey("/us/page/")).toBe("/us/page");
     expect(probeUrlKey("http://localhost:5000/us/page")).toBe("http://localhost:5000/us/page");
     expect(probeUrlKey("https://example.com/x/")).toBe("https://example.com/x");
+  });
+
+  it("lowercases so Colombia and colombia agree", () => {
+    expect(probeUrlKey("/es/blog/cat/post-en-Colombia")).toBe(
+      "/es/blog/cat/post-en-colombia",
+    );
+    expect(probeUrlKey("http://localhost:5000/es/blog/cat/post-en-Colombia")).toBe(
+      "http://localhost:5000/es/blog/cat/post-en-colombia",
+    );
+  });
+});
+
+describe("probePathsMatch", () => {
+  it("treats path case as insignificant", () => {
+    expect(
+      probePathsMatch(
+        "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia",
+        "http://localhost:5000/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-Colombia",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -144,6 +165,52 @@ describe("walkIndexRedirects", () => {
     expect(result.loop).toBe(true);
   });
 
+  it("does not treat case-only canonicalization as a cycle (Colombia → colombia)", async () => {
+    const mixed =
+      "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-Colombia";
+    const canonical =
+      "/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia";
+    const result = await walkIndexRedirects({
+      path: mixed,
+      locale: "es",
+      test: (url) => {
+        if (url === mixed) return redirectTo(canonical, "canonical");
+        if (url === canonical) return pageAt();
+        return missing();
+      },
+      lookup: async (url) => ({
+        exists: url === canonical,
+        external: false,
+        entry:
+          url === canonical
+            ? { contentType: "blog", slug: "cuanto-gana-un-programador-en-colombia" }
+            : undefined,
+      }),
+    });
+    expect(result.loop).toBe(false);
+    expect(result.matchedRedirect).toBe(true);
+    expect(result.pageExists).toBe(true);
+    expect(result.finalUrl).toBe(canonical);
+    expect(result.hops).toEqual([mixed, canonical]);
+    expect(result.matchType).toBe("canonical");
+  });
+
+  it("settles case-only hop even when destination is missing", async () => {
+    const mixed = "/es/blog/cat/Post-Slug";
+    const canonical = "/es/blog/cat/post-slug";
+    const result = await walkIndexRedirects({
+      path: mixed,
+      locale: "es",
+      test: (url) => (url === mixed ? redirectTo(canonical, "canonical") : missing()),
+      lookup: async () => ({ exists: false, external: false }),
+    });
+    expect(result.loop).toBe(false);
+    expect(result.matchedRedirect).toBe(true);
+    expect(result.pageExists).toBe(false);
+    expect(result.destExists).toBe(false);
+    expect(result.finalUrl).toBe(canonical);
+  });
+
   it("stops at an external destination", async () => {
     const result = await walkIndexRedirects({
       path: "/out",
@@ -225,6 +292,32 @@ describe("walkHttpRedirects", () => {
     });
     expect(result.status).toBeNull();
     expect(result.error).toBe("timeout");
+  });
+
+  it("does not treat case-only Location as a cycle", async () => {
+    const mixed =
+      "http://localhost:5000/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-Colombia";
+    const canonical =
+      "http://localhost:5000/es/blog/cuanto-gana-un-programador/cuanto-gana-un-programador-en-colombia";
+    const fetchFn = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href === mixed) {
+        return new Response(null, {
+          status: 301,
+          headers: { location: canonical },
+        });
+      }
+      if (href === canonical) {
+        return new Response("ok", { status: 200 });
+      }
+      return new Response("missing", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const result = await walkHttpRedirects({ startUrl: mixed, fetchFn });
+    expect(result.loop).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.finalUrl).toBe(canonical);
+    expect(result.hops).toEqual([mixed, canonical]);
   });
 });
 
@@ -322,6 +415,27 @@ describe("combineProbeWalks", () => {
       1,
     );
     expect(probe.status).toBe("mismatch");
+  });
+
+  it("does not mismatch when finals differ only by path case", () => {
+    const probe = combineProbeWalks(
+      indexBase({
+        hops: [
+          "/es/blog/cat/post-en-Colombia",
+          "/es/blog/cat/post-en-colombia",
+        ],
+        finalUrl: "/es/blog/cat/post-en-colombia",
+        matchedRedirect: true,
+        destExists: true,
+        pageExists: true,
+      }),
+      httpBase({
+        finalUrl: "http://localhost:5000/es/blog/cat/post-en-Colombia",
+        status: 200,
+      }),
+      1,
+    );
+    expect(probe.status).toBe("redirect");
   });
 
   it("returns loop when either walk loops", () => {

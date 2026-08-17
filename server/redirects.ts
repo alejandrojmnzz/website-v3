@@ -137,6 +137,21 @@ function detectLocale(req: Request): string {
   return "en";
 }
 
+/**
+ * Substitute `$1`…`$n` in a redirect target. Relative (site) destinations lowercased
+ * so case-insensitive regex matches still land on canonical lowercase content URLs.
+ * Absolute http(s) destinations keep original capture casing (external IDs may be caseful).
+ */
+function applyCaptureGroups(target: string, captureGroups: string[]): string {
+  const lowercaseCaptures = !/^https?:\/\//i.test(target);
+  let out = target;
+  for (let i = 0; i < captureGroups.length; i++) {
+    const value = lowercaseCaptures ? captureGroups[i].toLowerCase() : captureGroups[i];
+    out = out.replace(new RegExp(`\\$${i + 1}`, "g"), value);
+  }
+  return out;
+}
+
 function resolveRedirectTarget(entry: RedirectEntry, req: Request, captureGroups?: string[]): string {
   let target: string;
   if (typeof entry.to === "string") {
@@ -147,9 +162,7 @@ function resolveRedirectTarget(entry: RedirectEntry, req: Request, captureGroups
   }
 
   if (captureGroups && captureGroups.length > 0) {
-    for (let i = 0; i < captureGroups.length; i++) {
-      target = target.replace(new RegExp(`\\$${i + 1}`, "g"), captureGroups[i]);
-    }
+    target = applyCaptureGroups(target, captureGroups);
   }
 
   return target;
@@ -489,6 +502,7 @@ export function findCanonicalSoftMatch(
   const segments = cleanUrl.split("/").filter(Boolean);
   const lastSegment = segments[segments.length - 1];
   if (!lastSegment) return null;
+  const lastSegmentLower = lastSegment.toLowerCase();
 
   const localeMatch = cleanUrl.match(/^\/([a-z]{2})\//);
   const locale = localeMatch?.[1] ?? "en";
@@ -503,7 +517,9 @@ export function findCanonicalSoftMatch(
     if (typeConfig.database?.slug) {
       const items = databaseManager.getMappedItems(typeConfig.database.slug);
       if (!items) continue;
-      const record = items.find((item) => String(item.slug || "") === lastSegment);
+      const record = items.find(
+        (item) => String(item.slug || "").toLowerCase() === lastSegmentLower,
+      );
       if (!record) continue;
       matched = true;
       const localeField = getLocaleKey(typeName);
@@ -530,10 +546,14 @@ export function findCanonicalSoftMatch(
         );
       }
     } else {
-      const matches = ci.findBySlug(lastSegment, { contentType: typeName });
+      let matches = ci.findBySlug(lastSegment, { contentType: typeName });
+      if (matches.length === 0 && lastSegment !== lastSegmentLower) {
+        matches = ci.findBySlug(lastSegmentLower, { contentType: typeName });
+      }
       if (matches.length === 0) continue;
       matched = true;
-      const urls = ci.getAlternateUrls(lastSegment, typeName);
+      const slugKey = matches[0]?.slug || lastSegmentLower;
+      const urls = ci.getAlternateUrls(slugKey, typeName);
       canonicalUrl = urls[locale] || urls.en || Object.values(urls)[0] || null;
     }
 
@@ -549,9 +569,7 @@ export function findCanonicalSoftMatch(
 function resolveTarget(entry: RedirectEntry, locale: string, captureGroups?: string[]): string {
   let target = typeof entry.to === "string" ? entry.to : (entry.to[locale] || entry.to["en"] || Object.values(entry.to)[0] || "/");
   if (captureGroups) {
-    for (let i = 0; i < captureGroups.length; i++) {
-      target = target.replace(new RegExp(`\\$${i + 1}`, "g"), captureGroups[i]);
-    }
+    target = applyCaptureGroups(target, captureGroups);
   }
   return target;
 }

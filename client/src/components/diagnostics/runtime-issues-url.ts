@@ -32,7 +32,7 @@ export const RUNTIME_ISSUE_VIEW_DEFAULTS: RuntimeIssueViewState = {
     referrerQuery: "",
     locale: FILTER_ALL,
     device: FILTER_ALL,
-    pagesOnly: false,
+    pagesOnly: true,
     windowDays: 30,
     tz: defaultRuntimeTz(),
     source: FILTER_ALL,

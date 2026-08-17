@@ -879,7 +879,7 @@ export default function RuntimeIssuesTab() {
       device: FILTER_ALL,
       source: FILTER_ALL,
       windowDays: 30,
-      pagesOnly: false,
+      pagesOnly: true,
     });
   }
 
