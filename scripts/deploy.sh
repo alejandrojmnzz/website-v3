@@ -2,8 +2,10 @@
 set -euo pipefail
 cd /opt/website-v3
 git pull --ff-only
-# Instalar deps SIN cargar .env (NODE_ENV=production rompería el ci)
-npm ci
+# npm omits devDependencies when NODE_ENV=production (tsx/vite live there).
+# Unset inherited shell env, then force-include dev so `npm run build` works.
+unset NODE_ENV
+npm ci --include=dev
 ln -sfn "$(pwd)/shared" node_modules/@shared
 set -a
 # shellcheck disable=SC1091
