@@ -777,6 +777,7 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                       className={`${TILE_BTN_BASE} text-left rounded-[10px] px-3 py-3.5 md:p-3.5`}
                       style={tileStyle(active, flashing)}
                       onClick={() => {
+                        console.log("clicked");
                         triggerFlash(fid);
                         setSelectedProgramIdx(i);
                         setSelectedDateIdx(0);
