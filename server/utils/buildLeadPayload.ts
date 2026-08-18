@@ -56,6 +56,7 @@ export function buildLeadPayload(
     msclkid: leadData.msclkid || null,
     ttclid: leadData.ttclid || null,
     referral: leadData.referral || leadData.ref || null,
+    referral_key: leadData.referral_key || null,
     coupon: leadData.coupon || null,
     latitude: leadData.latitude || null,
     longitude: leadData.longitude || null,

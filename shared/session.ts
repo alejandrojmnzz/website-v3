@@ -29,6 +29,7 @@ export interface UTMParams {
   // Referral tracking
   ref?: string;
   referral?: string;
+  referral_key?: string;
   coupon?: string;
 }
 
