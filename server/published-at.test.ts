@@ -95,7 +95,7 @@ describe("writeFieldOverrides published_at for static", () => {
   it("writes _common.yml and clears locale override", () => {
     fs.writeFileSync(
       path.join(contentRoot, "blog", "post-a", "en.yml"),
-      "slug: post-a\nsections: []\nfield_overrides:\n  published_at: '2020-01-01T00:00:00.000Z'\n  title: Old\n",
+      "slug: post-a\nsections: []\nmeta:\n  page_title: Post A\n  description: Test description\nfield_overrides:\n  published_at: '2020-01-01T00:00:00.000Z'\n  title: Old\n",
       "utf-8",
     );
 

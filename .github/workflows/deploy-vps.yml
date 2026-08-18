@@ -1,0 +1,40 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            bash /opt/website-v3/scripts/deploy.sh
+            cd /opt/website-v3
+            git log -1 --oneline
+            for i in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:5000/health >/dev/null; then
+                curl -fsS http://127.0.0.1:5000/health
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "App did not become healthy within 120s" >&2
+            exit 1
