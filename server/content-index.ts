@@ -1995,6 +1995,7 @@ export class ContentIndex {
         if (fileLocale === "_common") {
           parsed.slug = Object.values(newSlugs).find(Boolean) || path.basename(targetDir);
           parsed.title = title;
+          delete parsed.funnel;
           for (const targetKey of Object.keys(targetFieldMapping)) {
             if (!parsed[targetKey] && !sourceKeys.includes(targetKey)) {
               if (targetKey === "locale") {

@@ -6,6 +6,9 @@ import { trackEcommerce } from "@/lib/tracking";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import { resolveProgramIdForPage } from "@/lib/ecommerceProgramId";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { usePageFunnel } from "@/contexts/PageFunnelContext";
+import { useSectionContext } from "@/contexts/SectionContext";
+import { resolveProductScope } from "@shared/resolveProductScope";
 
 interface PlanItem {
   plan_id: string;
@@ -174,6 +177,8 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
   const ctaUrl = data.cta_url ?? "";
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
+  const { contentType, slug } = useSectionContext();
+  const funnel = usePageFunnel();
   const rootRef = useRef<HTMLElement | null>(null);
   const viewedRef = useRef(false);
 
@@ -188,11 +193,16 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
       (entries) => {
         if (!entries.some((e) => e.isIntersecting) || viewedRef.current) return;
         viewedRef.current = true;
+        const { scope } = resolveProductScope(data as unknown as Record<string, unknown>, {
+          contentType,
+          contentSlug: slug,
+          funnel,
+        });
         const fromScope =
-          data.ecommerce_products === "all"
+          scope === "all"
             ? undefined
-            : Array.isArray(data.ecommerce_products)
-              ? data.ecommerce_products[0]
+            : Array.isArray(scope)
+              ? scope[0]
               : undefined;
         trackEcommerce("view_item_list", {
           program_id: fromScope || resolveProgramIdForPage(),
@@ -206,7 +216,7 @@ export default function PricingPlansDefault({ data }: PricingPlansDefaultProps) 
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [isEditMode, plans.length, data.ecommerce_products]);
+  }, [isEditMode, plans.length, contentType, slug, funnel]);
 
   if (plans.length === 0) {
     if (isEditMode) {

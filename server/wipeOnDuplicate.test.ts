@@ -37,7 +37,7 @@ describe("wipeSectionOnDuplicate", () => {
     );
   });
 
-  it("clears form.conversion_name and ecommerce_products", () => {
+  it("clears bound ecommerce-products path at section root", () => {
     const { section, cleared } = wipeSectionOnDuplicate(
       {
         type: "cta_banner",
@@ -50,9 +50,7 @@ describe("wipeSectionOnDuplicate", () => {
     expect((section.form as Record<string, unknown>).conversion_name).toBeUndefined();
     expect(section.ecommerce_products).toBeUndefined();
     expect(section.headline).toBe("Hello");
-    expect(cleared).toEqual(
-      expect.arrayContaining(["form.conversion_name", "ecommerce_products"]),
-    );
+    expect(cleared).toEqual(expect.arrayContaining(["form.conversion_name", "ecommerce_products"]));
   });
 
   it("deletes CTA tracking only and leaves CTA object", () => {

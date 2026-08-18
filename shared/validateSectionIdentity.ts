@@ -18,12 +18,14 @@ import {
   type ProductResolveFn,
   type ProductScopeContext,
 } from "./resolveProductScope";
+import type { FunnelBlock } from "./funnel";
 
 export type SectionIdentityOpts = {
   fieldEditors: Record<string, string>;
   hasEcommerceBehavior: boolean;
   contentType?: string;
   contentSlug?: string;
+  funnel?: FunnelBlock | null;
   conversionNames?: string[];
   resolveProduct: ProductResolveFn;
   sectionIndex?: number;
@@ -64,6 +66,7 @@ export function validateSectionIdentity(
   const scopeErr = validateProductScope(section, {
     contentSlug: opts.contentSlug,
     contentType: opts.contentType,
+    funnel: opts.funnel,
     hasEcommerceBehavior: opts.hasEcommerceBehavior,
     ctaPaths,
     fieldEditors: opts.fieldEditors,
@@ -81,6 +84,7 @@ export type DocumentIdentityOpts = {
   hasEcommerceBehavior: (sectionType: string) => boolean;
   contentType?: string;
   contentSlug?: string;
+  funnel?: FunnelBlock | null;
   conversionNames?: string[];
   resolveProduct: ProductResolveFn;
   skipIdentityIndexes?: Set<number>;
@@ -158,6 +162,7 @@ export function validateDocumentSectionsIdentity(
       hasEcommerceBehavior: opts.hasEcommerceBehavior(sectionType),
       contentType: opts.contentType,
       contentSlug: opts.contentSlug,
+      funnel: opts.funnel,
       conversionNames: opts.conversionNames,
       resolveProduct: opts.resolveProduct,
       sectionIndex: i,

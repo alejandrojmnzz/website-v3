@@ -11,9 +11,14 @@ interface SeoConfig {
   focus_features: Record<string, { label: string; description: string }>;
 }
 
-function loadSeoConfig(): SeoConfig | null {
-  const configPath = path.join(process.cwd(), "4geeks-com", "seo-config.yml");
-  if (!fs.existsSync(configPath)) return null;
+function loadSeoConfig(contentRoot?: string): SeoConfig | null {
+  const candidates = [
+    path.join(process.cwd(), "site_4geeks-com", "seo-config.yml"),
+    path.join(process.cwd(), "4geeks-com", "seo-config.yml"),
+  ];
+  if (contentRoot) candidates.unshift(path.join(process.cwd(), contentRoot, "seo-config.yml"));
+  const configPath = candidates.find((p) => fs.existsSync(p));
+  if (!configPath) return null;
   try {
     const raw = fs.readFileSync(configPath, "utf-8");
     return yaml.load(raw) as SeoConfig;
@@ -26,7 +31,7 @@ const PILLAR_CONTENT_TYPES = new Set(["programs", "landing", "landings", "pages"
 
 export const seoIntentValidator: Validator = {
   name: "seo-intent",
-  description: "Validates intent-based SEO model: intent stage, pillar page, focus features, and cluster consistency",
+  description: "Validates funnel.stage on _common.yml, pillar pages, focus features, and cluster consistency",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "seo",

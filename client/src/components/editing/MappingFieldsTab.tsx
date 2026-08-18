@@ -114,9 +114,9 @@ function FieldsEducationBlock({
             <p>
               Fields are the content-type schema (Manage → Fields). Custom fields appear here and as{" "}
               <code className="text-xs bg-muted px-1 rounded font-mono">{`{{ single.fieldName }}`}</code>.
-              They are not SEO strategy fields — those live in the SEO fields block (
+              SEO cluster fields (
               <code className="text-xs font-mono">{`{{ seo.main_keyword }}`}</code>
-              ). Use the SEO Meta tab for head keys (
+              ) live on the <strong>SEO Meta</strong> tab. Use that tab for head keys too (
               <code className="text-xs font-mono">{`{{ meta.* }}`}</code>). System identity is auto-available as{" "}
               <code className="text-xs font-mono">{`{{ single.slug }}`}</code> /{" "}
               <code className="text-xs font-mono">{`{{ single.locale }}`}</code> /{" "}
@@ -429,11 +429,179 @@ function SeoFieldsEditor({
         </div>
         {contentType === "blog" ? (
           <p className="text-xs">
-            Cluster keyword/URL on blog Fields below are temporary holding columns — not the hub.
+            Cluster keyword/URL on the <strong>Fields</strong> tab are temporary holding columns — not the hub.
           </p>
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** Keyword / pillar / cluster fields (`seo:*` in locale YAML). Used on SEO Meta tab and optionally Fields tab. */
+export function EntrySeoClusterFields({
+  contentType,
+  slug,
+  locale,
+  variant,
+}: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  variant?: string | null;
+}) {
+  const { toast } = useToast();
+  const [variantConfirmOpen, setVariantConfirmOpen] = useState(false);
+  const variantConfirmRef = useRef<{ resolve: (ok: boolean) => void } | null>(null);
+
+  const variantParam =
+    typeof variant === "string" && variant.trim() && variant.trim() !== "default"
+      ? variant.trim()
+      : undefined;
+
+  const provenanceKey = [
+    "/api/content-types",
+    contentType,
+    "field-provenance",
+    slug,
+    locale,
+    variantParam || "",
+  ] as const;
+
+  const { data: provenance, isLoading } = useQuery<ProvenanceResponse>({
+    queryKey: provenanceKey,
+    queryFn: () => {
+      const q = new URLSearchParams({ locale });
+      if (variantParam) q.set("variant", variantParam);
+      return fetch(
+        `/api/content-types/${encodeURIComponent(contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`,
+      ).then((r) => {
+        if (!r.ok) throw new Error("Failed to load SEO fields");
+        return r.json();
+      });
+    },
+  });
+
+  const { data: ctConfig } = useQuery<ContentTypeConfig>({
+    queryKey: ["/api/content-types", contentType, "config"],
+    queryFn: () => fetch(`/api/content-types/${contentType}/config`).then((r) => r.json()),
+  });
+
+  const seoRows = (provenance?.fields ?? []).filter((f) => f.group === "seo");
+  const directory = ctConfig?.directory || contentType;
+  const layerFileName = provenance?.layerFileName;
+  const isVariantLayer = !!provenance?.isVariantLayer || !!variantParam;
+  const seoDisabled = !!provenance?.seoFileMissing;
+
+  const authHeaders = async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = getDebugToken();
+    if (token) headers["X-Debug-Token"] = token;
+    return headers;
+  };
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: [...provenanceKey] });
+  };
+
+  const confirmVariantSaveIfNeeded = async (): Promise<boolean> => {
+    if (!isVariantLayer) return true;
+    return new Promise((resolve) => {
+      variantConfirmRef.current = { resolve };
+      setVariantConfirmOpen(true);
+    });
+  };
+
+  const saveSeoFields = async (built: Record<string, unknown>) => {
+    const ok = await confirmVariantSaveIfNeeded();
+    if (!ok) throw new Error("Save cancelled — no changes written.");
+    const headers = await authHeaders();
+    const author = await resolveAuthorName();
+    const res = await fetch(
+      `/api/content-types/${encodeURIComponent(contentType)}/field-overrides/${encodeURIComponent(slug)}`,
+      {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          locale,
+          variant: variantParam,
+          fields: built,
+          author: author || undefined,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { error?: string }).error || "Failed to save SEO fields");
+    }
+    toast({ title: "SEO fields saved" });
+    invalidate();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground text-sm py-2" data-testid="seo-fields-loading">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading cluster fields…
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <SeoFieldsEditor
+        rows={seoRows}
+        disabled={seoDisabled}
+        canonicalPath={provenance?.canonicalPath}
+        indexRebuilt={provenance?.indexRebuilt}
+        isVariantLayer={isVariantLayer}
+        layerFileName={layerFileName}
+        locale={locale}
+        directory={directory}
+        slug={slug}
+        contentType={contentType}
+        onSave={saveSeoFields}
+      />
+      <AlertDialog
+        open={variantConfirmOpen}
+        onOpenChange={(v) => {
+          if (!v) {
+            variantConfirmRef.current?.resolve(false);
+            variantConfirmRef.current = null;
+            setVariantConfirmOpen(false);
+          }
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-variant-save-confirm-seo">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save to variant file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are editing{" "}
+              <code className="font-mono text-xs">{layerFileName || variantParam}</code>, not the published{" "}
+              <code className="font-mono text-xs">{locale}.yml</code>. Continue saving to the variant layer?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                variantConfirmRef.current?.resolve(false);
+                variantConfirmRef.current = null;
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                variantConfirmRef.current?.resolve(true);
+                variantConfirmRef.current = null;
+                setVariantConfirmOpen(false);
+              }}
+            >
+              Save to variant
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -477,6 +645,7 @@ export function MappingFieldsTab({
   locale,
   typeLabel,
   variant,
+  hideSeoFields = false,
 }: {
   contentType: string;
   slug: string;
@@ -484,6 +653,8 @@ export function MappingFieldsTab({
   typeLabel: string;
   /** Preview/Debug variant slug (e.g. draft, lumi-version). Omit for live locale file. */
   variant?: string | null;
+  /** When true, cluster/keyword SEO fields are omitted (shown on SEO Meta tab instead). */
+  hideSeoFields?: boolean;
 }) {
   const { toast } = useToast();
   const [levelChooserField, setLevelChooserField] = useState<FieldProvenance | null>(null);
@@ -550,7 +721,6 @@ export function MappingFieldsTab({
   }, [ctConfig?.editor, dbEditor]);
 
   const fields = provenance?.fields ?? [];
-  const seoRows = fields.filter((f) => f.group === "seo");
   const mappedFields = fields.filter((f) => f.group !== "seo");
   const hasDatabase = !!provenance?.hasDatabase;
   const hasMappings = mappedFields.length > 0;
@@ -558,7 +728,6 @@ export function MappingFieldsTab({
   const databaseSlug = ctConfig?.database?.slug;
   const layerFileName = provenance?.layerFileName;
   const isVariantLayer = !!provenance?.isVariantLayer || !!variantParam;
-  const seoDisabled = !!provenance?.seoFileMissing;
 
   const variantWarning =
     isVariantLayer && layerFileName ? (
@@ -682,48 +851,6 @@ export function MappingFieldsTab({
     }
   };
 
-  const saveSeoFields = async (built: Record<string, unknown>) => {
-    const ok = await confirmVariantSaveIfNeeded();
-    if (!ok) throw new Error("Save cancelled — no changes written.");
-    const headers = await authHeaders();
-    const author = await resolveAuthorName();
-    const res = await fetch(
-      `/api/content-types/${encodeURIComponent(contentType)}/field-overrides/${encodeURIComponent(slug)}`,
-      {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({
-          locale,
-          variant: variantParam,
-          fields: built,
-          author: author || undefined,
-        }),
-      },
-    );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { error?: string }).error || "Failed to save SEO fields");
-    }
-    toast({ title: "SEO fields saved" });
-    invalidate();
-  };
-
-  const seoBlock = (
-    <SeoFieldsEditor
-      rows={seoRows}
-      disabled={seoDisabled}
-      canonicalPath={provenance?.canonicalPath}
-      indexRebuilt={provenance?.indexRebuilt}
-      isVariantLayer={isVariantLayer}
-      layerFileName={layerFileName}
-      locale={locale}
-      directory={directory}
-      slug={slug}
-      contentType={contentType}
-      onSave={saveSeoFields}
-    />
-  );
-
   const holdingBanner =
     contentType === "blog" && mappedFields.some((f) => f.field === "cluster_keyword" || f.field === "cluster_url") ? (
       <p
@@ -732,9 +859,18 @@ export function MappingFieldsTab({
       >
         <code className="font-mono text-xs">cluster_keyword</code> and{" "}
         <code className="font-mono text-xs">cluster_url</code> are temporary holding fields — not the hub.
-        Hub fields are in the SEO block above.
+        Hub fields are on the <strong>SEO Meta</strong> tab.
       </p>
     ) : null;
+
+  const seoBlock = hideSeoFields ? null : (
+    <EntrySeoClusterFields
+      contentType={contentType}
+      slug={slug}
+      locale={locale}
+      variant={variant}
+    />
+  );
 
   if (isLoading) {
     return (

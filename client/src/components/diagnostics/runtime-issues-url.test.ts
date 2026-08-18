@@ -28,6 +28,14 @@ describe("parseRuntimeIssueSearch", () => {
     expect(view.filters.device).toBe("mobile");
     expect(view.sortKey).toBe("lastSeen");
     expect(view.sortDir).toBe("asc");
+    expect(view.page).toBe(1);
+  });
+
+  it("parses page and treats invalid values as page 1", () => {
+    expect(parseRuntimeIssueSearch("page=3").page).toBe(3);
+    expect(parseRuntimeIssueSearch("page=0").page).toBe(1);
+    expect(parseRuntimeIssueSearch("page=-2").page).toBe(1);
+    expect(parseRuntimeIssueSearch("page=abc").page).toBe(1);
   });
 
   it("treats FILTER_ALL locale as all locales", () => {
@@ -60,6 +68,12 @@ describe("serializeRuntimeIssueSearch", () => {
     expect(params.get("sort")).toBe("lastSeen");
     expect(params.has("dir")).toBe(false);
     expect(params.has("device")).toBe(false);
+    expect(params.has("page")).toBe(false);
+  });
+
+  it("writes page when it is not 1", () => {
+    const qs = serializeRuntimeIssueSearch({ ...RUNTIME_ISSUE_VIEW_DEFAULTS, page: 2 });
+    expect(new URLSearchParams(qs).get("page")).toBe("2");
   });
 
   it("preserves unrelated query params", () => {
@@ -78,7 +92,7 @@ describe("serializeRuntimeIssueSearch", () => {
 
   it("round-trips a fully customized view", () => {
     const view = parseRuntimeIssueSearch(
-      "pagesOnly=0&path=/en&referrer=press&locale=en&device=desktop&window=7&tz=America/Bogota&source=search_crawler&sort=lastSeen&dir=asc",
+      "pagesOnly=0&path=/en&referrer=press&locale=en&device=desktop&window=7&tz=America/Bogota&source=search_crawler&sort=lastSeen&dir=asc&page=2",
     );
     expect(parseRuntimeIssueSearch(serializeRuntimeIssueSearch(view))).toEqual(view);
   });

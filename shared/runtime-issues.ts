@@ -412,6 +412,47 @@ export function windowHitCount(
   return sum;
 }
 
+export type DailyHitCount = { day: string; count: number };
+
+function sourceTagForAggregation(source?: string): string | undefined {
+  if (!source || source === "total" || source === "__all__") return undefined;
+  return source;
+}
+
+/** One point per civil day in the window, oldest → newest. Matches windowHitCount semantics. */
+export function aggregateHitsByDay(
+  issues: Array<{ byHour?: ByHour; count: number; lastSeen: number }>,
+  opts: { windowDays: number; tz: string; now?: number; source?: string },
+): DailyHitCount[] {
+  const now = opts.now ?? Date.now();
+  const tz = opts.tz || "UTC";
+  const windowDays = opts.windowDays || 30;
+  const tag = sourceTagForAggregation(opts.source);
+  const dayKeys = [...localDateKeysInWindow(now, tz, windowDays)].sort();
+  const counts = new Map(dayKeys.map((d) => [d, 0]));
+
+  for (const issue of issues) {
+    const byHour = issue.byHour;
+    if (!byHour || Object.keys(byHour).length === 0) {
+      if (tag) continue;
+      const day = localYmd(issue.lastSeen, tz);
+      if (!counts.has(day)) continue;
+      counts.set(day, (counts.get(day) ?? 0) + issue.count);
+      continue;
+    }
+    for (const [hourKey, bucket] of Object.entries(byHour)) {
+      const ts = utcHourKeyToMs(hourKey);
+      if (Number.isNaN(ts)) continue;
+      const day = localYmd(ts, tz);
+      if (!counts.has(day)) continue;
+      const n = !tag ? (bucket.total ?? 0) : (bucket[tag] ?? 0);
+      counts.set(day, (counts.get(day) ?? 0) + n);
+    }
+  }
+
+  return dayKeys.map((day) => ({ day, count: counts.get(day) ?? 0 }));
+}
+
 export function pruneIssueHours(
   issue: RuntimeIssueRecord,
   now = Date.now(),

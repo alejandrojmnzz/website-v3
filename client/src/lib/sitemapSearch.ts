@@ -1,3 +1,5 @@
+import { localePrefixFromPath } from "@shared/runtime-issues";
+
 export interface SitemapSearchEntry {
   loc: string;
   label: string;
@@ -107,3 +109,25 @@ export function filterSitemapEntries<T extends SitemapSearchEntry>(
       return sitemapPathname(a.loc).localeCompare(sitemapPathname(b.loc));
     });
 }
+
+/** English public URLs on 4geeks use `/us/`, not `/en/`. */
+const PATH_PREFIX_TO_SITEMAP_LOCALE: Record<string, string> = {
+  us: "en",
+};
+
+/**
+ * Sitemap locale to suggest from a redirect origin path.
+ * Empty string means "all locales" (no prefix, regex-only, or unknown prefix).
+ */
+export function suggestedSitemapLocale(
+  originPath: string,
+  supportedLocales: string[] = ["en", "es"],
+): string {
+  const prefix = localePrefixFromPath(originPath);
+  if (!prefix) return "";
+  if (supportedLocales.includes(prefix)) return prefix;
+  const mapped = PATH_PREFIX_TO_SITEMAP_LOCALE[prefix];
+  if (mapped && supportedLocales.includes(mapped)) return mapped;
+  return "";
+}
+

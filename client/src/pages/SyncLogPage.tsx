@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Braces, Check, ChevronDown, Filter, Github, Loader2, RefreshCw, Search, Server, Trash2, User, Webhook, X } from "lucide-react";
+import { ArrowLeft, Braces, Check, ChevronDown, Download, Filter, Github, Loader2, RefreshCw, Search, Server, Trash2, User, Webhook, X } from "lucide-react";
 import {
   IconCloudUpload,
   IconCloudDownload,
@@ -41,6 +41,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
+import { downloadSiteArchive } from "@/lib/download-site-archive";
 import { openSyncModal } from "@/components/SyncConflictBanner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -320,6 +321,7 @@ export default function SyncLogPage() {
 
   const [forcePullOpen, setForcePullOpen] = useState(false);
   const [forcePullConfirmOpen, setForcePullConfirmOpen] = useState(false);
+  const [isDownloadingSite, setIsDownloadingSite] = useState(false);
   const forcePullConfirmOpenRef = useRef(false);
   forcePullConfirmOpenRef.current = forcePullConfirmOpen;
   const [pullStarted, setPullStarted] = useState(false);
@@ -376,6 +378,27 @@ export default function SyncLogPage() {
       });
     },
   });
+
+  const handleDownloadSite = async () => {
+    if (isDownloadingSite) return;
+    setIsDownloadingSite(true);
+    try {
+      const { filename } = await downloadSiteArchive();
+      toast({
+        title: "Site backup downloaded",
+        description: `${filename} — local snapshot only. Does not push to GitHub.`,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      toast({
+        title: "Download failed",
+        description: err instanceof Error ? err.message : "Could not download the site zip",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingSite(false);
+    }
+  };
 
   const { data: pullStatus } = useQuery<{
     running: boolean;
@@ -595,6 +618,21 @@ export default function SyncLogPage() {
                   <DropdownMenuItem onClick={() => setForcePullOpen(true)} data-testid="button-force-pull">
                     <IconCloudDownload className="h-4 w-4 mr-2" />
                     Force Pull
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={isDownloadingSite}
+                    title="Download this site's content folder as a zip. Does not push to GitHub. Excludes sync-state (secrets) and caches."
+                    onClick={() => {
+                      void handleDownloadSite();
+                    }}
+                    data-testid="button-download-site-zip"
+                  >
+                    {isDownloadingSite ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4 mr-2" />
+                    )}
+                    {isDownloadingSite ? "Downloading…" : "Download site"}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

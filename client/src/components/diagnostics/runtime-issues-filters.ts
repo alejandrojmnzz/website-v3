@@ -189,3 +189,17 @@ export function deviceLabel(bucket: string): string {
 export function sourceLabel(tag: string): string {
   return SOURCE_LABELS[tag as RuntimeSourceTag] ?? tag;
 }
+
+export const RUNTIME_ISSUES_PAGE_SIZE = 50;
+
+export function paginateRuntimeIssues<T>(
+  items: T[],
+  page: number,
+  pageSize = RUNTIME_ISSUES_PAGE_SIZE,
+): { page: number; totalPages: number; totalItems: number; pageItems: T[] } {
+  const totalItems = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const offset = (safePage - 1) * pageSize;
+  return { page: safePage, totalPages, totalItems, pageItems: items.slice(offset, offset + pageSize) };
+}

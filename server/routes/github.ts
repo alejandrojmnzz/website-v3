@@ -1140,6 +1140,39 @@ export function registerGithubRoutes(app: Express): void {
     }
   });
 
+  // Stream a zip of the whole site content folder (does not call GitHub).
+  app.get("/api/github/site-archive", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const site = res.locals.site as { contentRootName?: string } | undefined;
+      const contentRoot = site?.contentRootName;
+      if (!contentRoot) {
+        res.status(400).json({ error: "No active site content root" });
+        return;
+      }
+
+      const { siteArchiveFilename, streamSiteArchiveZip } = await import("../site-archive");
+      const filename = siteArchiveFilename(contentRoot).replace(/["\r\n]/g, "");
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "no-store");
+      req.socket.setTimeout(0);
+
+      const result = await streamSiteArchiveZip({ contentRoot, out: res });
+      log.info({ files: result.files, filename: result.filename }, "Streamed site archive zip");
+      res.end();
+    } catch (error) {
+      log.error({ err: error }, "Error streaming site archive zip:");
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      res.status(500).json({ error: "Failed to stream site archive zip" });
+    }
+  });
+
   // Commit and push pending changes to GitHub
   app.post("/api/github/commit", async (req, res) => {
     try {

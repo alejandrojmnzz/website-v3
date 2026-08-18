@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/popover";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SitemapSearch } from "@/components/menus/SitemapSearch";
+import { suggestedSitemapLocale } from "@/lib/sitemapSearch";
 import { useToast } from "@/hooks/use-toast";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 
@@ -44,6 +45,38 @@ export function getApiErrorMessage(
 
 export function hasRegexChars(path: string): boolean {
   return /\(.*\)|\[.*\]|\.\*|\.\+|\\d|\\w|\\s|\{\d+[,}]/.test(path);
+}
+
+function toAbsoluteUrlCandidate(value: string): string | null {
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("//") && value.length > 2) return `https:${value}`;
+  if (
+    !value.startsWith("/") &&
+    /^[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+/i.test(value)
+  ) {
+    return `https://${value}`;
+  }
+  return null;
+}
+
+/** Keep only the path from a pasted origin. Regex patterns are left as-is. */
+export function originPathFromInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (hasRegexChars(trimmed)) return trimmed;
+
+  const urlCandidate = toAbsoluteUrlCandidate(trimmed);
+  if (urlCandidate) {
+    try {
+      const pathname = new URL(urlCandidate).pathname || "/";
+      return pathname.replace(/\s+/g, "-");
+    } catch {
+      // fall through to path-only stripping
+    }
+  }
+
+  const pathOnly = trimmed.split("#")[0]?.split("?")[0] ?? trimmed;
+  return pathOnly.replace(/\s+/g, "-");
 }
 
 function stripLocalePrefix(url: string) {
@@ -99,10 +132,11 @@ export function AddRedirectDialog({
       (!isOriginRegex && originCheckStatus === "taken"));
 
   const isLandingDestination = newTo.startsWith("/landing");
+  const suggestedLocale = suggestedSitemapLocale(newFrom);
 
   useEffect(() => {
     if (!open) return;
-    setNewFrom(initialFrom);
+    setNewFrom(originPathFromInput(initialFrom));
     setNewTo("");
     setOriginalTo("");
     setAllLanguages(true);
@@ -243,7 +277,7 @@ export function AddRedirectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="min-w-0 space-y-4 py-2">
           <div className="space-y-2">
             <Label>Status Code</Label>
             <div className="flex border rounded-md overflow-hidden">
@@ -289,8 +323,7 @@ export function AddRedirectDialog({
                 placeholder="/old-page-url or /path/(.*)"
                 value={newFrom}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  setNewFrom(hasRegexChars(val) ? val : val.replace(/\s+/g, "-"));
+                  setNewFrom(originPathFromInput(e.target.value));
                 }}
                 className={`flex-1 min-w-0 ${isOriginInvalid ? "border-destructive" : ""}`}
                 data-testid="input-redirect-from"
@@ -520,7 +553,8 @@ export function AddRedirectDialog({
                     onChange={handleDestinationChange}
                     placeholder="Search for a page..."
                     testId="input-redirect-to"
-                    locale=""
+                    locale={suggestedLocale}
+                    showLocaleFilter
                     portalContainer={dialogRef.current}
                   />
                 </div>

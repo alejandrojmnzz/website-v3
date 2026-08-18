@@ -18,12 +18,14 @@ export const RUNTIME_ISSUE_SEARCH_KEYS = {
   source: "source",
   sort: "sort",
   dir: "dir",
+  page: "page",
 } as const;
 
 export interface RuntimeIssueViewState {
   filters: RuntimeIssueFilters;
   sortKey: RuntimeIssueSortKey;
   sortDir: RuntimeIssueSortDir;
+  page: number;
 }
 
 export const RUNTIME_ISSUE_VIEW_DEFAULTS: RuntimeIssueViewState = {
@@ -39,6 +41,7 @@ export const RUNTIME_ISSUE_VIEW_DEFAULTS: RuntimeIssueViewState = {
   },
   sortKey: "count",
   sortDir: "desc",
+  page: 1,
 };
 
 function parseBool(raw: string | null, fallback: boolean): boolean {
@@ -58,6 +61,12 @@ function parseSortDir(raw: string | null): RuntimeIssueSortDir {
 
 function parseWindowDays(raw: string | null): 7 | 30 {
   return raw === "7" ? 7 : 30;
+}
+
+function parsePage(raw: string | null): number {
+  const n = parseInt(raw ?? "", 10);
+  if (!Number.isFinite(n) || n < 1) return RUNTIME_ISSUE_VIEW_DEFAULTS.page;
+  return Math.floor(n);
 }
 
 function parseTz(raw: string | null): string {
@@ -91,6 +100,7 @@ export function parseRuntimeIssueSearch(search: string): RuntimeIssueViewState {
     },
     sortKey: parseSortKey(params.get(RUNTIME_ISSUE_SEARCH_KEYS.sort)),
     sortDir: parseSortDir(params.get(RUNTIME_ISSUE_SEARCH_KEYS.dir)),
+    page: parsePage(params.get(RUNTIME_ISSUE_SEARCH_KEYS.page)),
   };
 }
 
@@ -125,6 +135,8 @@ export function serializeRuntimeIssueSearch(
   else params.set(RUNTIME_ISSUE_SEARCH_KEYS.tz, view.filters.tz);
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.sort, view.sortKey, d.sortKey);
   setOmitEmpty(params, RUNTIME_ISSUE_SEARCH_KEYS.dir, view.sortDir, d.sortDir);
+  if (view.page === d.page) params.delete(RUNTIME_ISSUE_SEARCH_KEYS.page);
+  else params.set(RUNTIME_ISSUE_SEARCH_KEYS.page, String(view.page));
 
   return params.toString();
 }

@@ -35,9 +35,12 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        // min-w-0 + overflow-x-hidden: contain long unbroken strings inside the box.
+        // left-4/right-4 + mx-auto: same as DialogContent — avoid left:50%
+        // clipping the right edge under Radix scroll-lock overflow.
+        // min-w-0 + [&>*]:min-w-0: shrink grid children so long strings wrap
+        // instead of overflow-x-hidden clipping right-side controls.
         // max-h + overflow-y-auto: grow with content until the viewport, then scroll.
-        "fixed left-[50%] top-[50%] z-[10001] grid w-full max-w-lg min-w-0 max-h-[90vh] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-x-hidden overflow-y-auto border bg-background p-6 shadow-lg duration-200 pointer-events-none data-[state=open]:pointer-events-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        "fixed left-4 right-4 top-[50%] z-[10001] mx-auto grid max-w-lg min-w-0 max-h-[90vh] translate-y-[-50%] gap-4 overflow-y-auto break-words [&>*]:min-w-0 border bg-background p-6 shadow-lg duration-200 pointer-events-none data-[state=open]:pointer-events-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className
       )}
       {...props}

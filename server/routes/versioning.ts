@@ -645,7 +645,7 @@ export function registerVersioningRoutes(app: Express): void {
           res.status(400).json({
             error:
               `Cannot publish: ${identityErr} (locale ${locale}). ` +
-              `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before publishing.`,
+              `Set conversion_name / CTA tracking / funnel.products on _common.yml (Funnel tab) before publishing.`,
             locale,
           });
           return;
@@ -794,7 +794,7 @@ export function registerVersioningRoutes(app: Express): void {
         res.status(400).json({
           error:
             `Cannot promote: ${identityErr}. ` +
-            `Set conversion_name / CTA tracking / ecommerce_products (or null/none to turn off) before promoting.`,
+            `Set conversion_name / CTA tracking / funnel.products on _common.yml (Funnel tab) before promoting.`,
         });
         return;
       }

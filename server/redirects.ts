@@ -12,6 +12,7 @@ import {
 import { child } from "./logger";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import type { RedirectTraceMatchType } from "@shared/redirect-trace";
+import { localePrefixFromPath } from "@shared/runtime-issues";
 const log = child({ module: "redirects" });
 
 // ============================================================================
@@ -128,13 +129,23 @@ function normalizePath(urlPath: string): string {
   return normalized;
 }
 
-function detectLocale(req: Request): string {
+/** Path prefix (`/es/…`), then Accept-Language, then `en`. Used for multi-locale redirect targets. */
+export function resolveRedirectRequestLocale(
+  req: Pick<Request, "path" | "headers">,
+): string {
+  const fromPath = localePrefixFromPath(req.path);
+  if (fromPath) return fromPath;
+
   const acceptLang = req.headers["accept-language"];
   if (acceptLang && typeof acceptLang === "string") {
     const primary = acceptLang.split(",")[0]?.trim().toLowerCase() || "";
     if (primary.startsWith("es")) return "es";
   }
   return "en";
+}
+
+function detectLocale(req: Request): string {
+  return resolveRedirectRequestLocale(req);
 }
 
 /**

@@ -170,12 +170,7 @@ export function wipeSectionOnDuplicate(
 
   deleteConversionNames(next, "", cleared);
 
-  if ("ecommerce_products" in next) {
-    delete next.ecommerce_products;
-    cleared.push("ecommerce_products");
-  }
   for (const epPath of resolveBoundEcommerceProductsPaths(fieldEditors, variant)) {
-    if (epPath === "ecommerce_products") continue;
     if (deleteKeyAtPath(next, epPath)) {
       cleared.push(epPath);
     }

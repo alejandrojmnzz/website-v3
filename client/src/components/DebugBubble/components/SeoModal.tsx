@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Filter, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
-import { MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
+import { EntrySeoClusterFields, MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
+import { FunnelTab } from "@/components/DebugBubble/components/FunnelTab";
 import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
 import {
   Dialog,
@@ -22,7 +23,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ContentInfo, SeoMeta, SeoLocation, SlugCheckStatus } from "../types";
 
-export type SeoModalTab = "general" | "fields" | "schema" | "visibility" | "redirects";
+export type SeoModalTab = "general" | "fields" | "funnel" | "schema" | "visibility" | "redirects";
 
 type SchemaOrgPreviewDoc = {
   schema: Record<string, unknown>;
@@ -146,6 +147,12 @@ export function SeoModal({
   const [ogImageTooSmall, setOgImageTooSmall] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [snippetEditing, setSnippetEditing] = useState(false);
+  const [slugEditing, setSlugEditing] = useState(false);
+  const [dialogContainer, setDialogContainer] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) setSlugEditing(false);
+  }, [open]);
 
   const fieldsLocale = locale || contentInfo.locale || "en";
   const fieldsTypeLabel =
@@ -165,6 +172,9 @@ export function SeoModal({
     ? `${seoVariant}.${fieldsLocale}.yml`
     : `${fieldsLocale}.yml`;
   const slugRenameDisabled = isVariantContext;
+
+  /** Tabs that persist via their own in-panel save (not seoMeta + footer). */
+  const showFooterSave = activeTab === "general" || activeTab === "visibility";
 
   const { data: ctConfig } = useQuery<{ immutable_slug?: boolean }>({
     queryKey: ["/api/content-types", contentInfo.type, "config"],
@@ -190,12 +200,162 @@ export function SeoModal({
   return (
     <>
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) setImagePickerOpen(false); onOpenChange(isOpen); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent ref={setDialogContainer} className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>SEO & Meta Tags</DialogTitle>
-          <DialogDescription>
-            {contentInfo.slug ? `${contentInfo.label}: ${contentInfo.slug}` : "Page SEO settings"}
-            {isVariantContext ? ` · variant ${seoVariant}` : ""}
+          <DialogTitle>Edit your entry fields and more</DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2">
+              {!slugEditing || !contentInfo.type ? (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="truncate">
+                    {contentInfo.slug ? `${contentInfo.label}: ${contentInfo.slug}` : "Page SEO settings"}
+                    {isVariantContext ? ` · variant ${seoVariant}` : ""}
+                  </span>
+                  {contentInfo.type && !slugImmutable && !slugRenameDisabled && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => {
+                        setNewSlugValue(currentLocaleSlug);
+                        setSlugEditing(true);
+                      }}
+                      data-testid="button-edit-slug-inline"
+                      title="Edit page slug"
+                      aria-label="Edit page slug"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm shrink-0">{contentInfo.label}:</span>
+                    <input
+                      id="slug-editor-input"
+                      type="text"
+                      value={newSlugValue}
+                      onChange={(e) =>
+                        setNewSlugValue(
+                          e.target.value
+                            .toLowerCase()
+                            .replace(/\s+/g, "-")
+                            .replace(/[^a-z0-9-]/g, ""),
+                        )
+                      }
+                      placeholder={currentLocaleSlug}
+                      className={`flex-1 min-w-0 px-2 py-1 text-sm font-mono rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring ${slugCheckStatus === "taken" ? "border-destructive" : slugCheckStatus === "available" ? "border-green-500" : ""}`}
+                      data-testid="input-slug-editor"
+                      disabled={slugRenaming}
+                      autoFocus
+                    />
+                    {newSlugValue &&
+                      newSlugValue !== currentLocaleSlug &&
+                      !slugRedirectPrompt && (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={handleSlugRenameClick}
+                            disabled={slugCheckStatus !== "available" || slugRenaming}
+                            data-testid="button-rename-slug"
+                          >
+                            {slugRenaming ? "Renaming…" : "Apply"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setNewSlugValue(currentLocaleSlug)}
+                            disabled={slugRenaming}
+                            data-testid="button-reset-slug"
+                          >
+                            Reset
+                          </Button>
+                        </>
+                      )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => {
+                        setNewSlugValue(currentLocaleSlug);
+                        setSlugRedirectPrompt(false);
+                        setSlugEditing(false);
+                      }}
+                      disabled={slugRenaming}
+                      data-testid="button-cancel-slug-edit"
+                      title="Cancel"
+                      aria-label="Cancel slug edit"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {slugCheckStatus === "checking" && (
+                    <p className="text-xs text-muted-foreground">Checking availability…</p>
+                  )}
+                  {slugCheckStatus === "available" && newSlugValue !== currentLocaleSlug && (
+                    <p className="text-xs text-green-600">Slug is available</p>
+                  )}
+                  {slugCheckStatus === "taken" && slugCheckReason && (
+                    <p className="text-xs text-destructive">{slugCheckReason}</p>
+                  )}
+                </div>
+              )}
+              {slugRenameDisabled && !slugEditing && (
+                <p className="text-xs" data-testid="text-slug-rename-disabled-variant">
+                  Slug rename is disabled while editing a variant. Open LIVE context to rename.
+                </p>
+              )}
+              {slugImmutable && !slugRenameDisabled && !slugEditing && (
+                <p className="text-xs" data-testid="text-slug-immutable">
+                  Slug is immutable for this content type (authors).
+                </p>
+              )}
+              {slugRedirectPrompt && (
+                <div className="space-y-3 rounded-md border p-3 text-foreground">
+                  <p className="text-sm font-medium">Create a redirect?</p>
+                  <p className="text-xs text-muted-foreground">
+                    Do you want to create a redirect from the old URLs to the new ones? This ensures existing links and
+                    bookmarks still work.
+                  </p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-xs font-mono">
+                      <code className="bg-muted px-1.5 py-0.5 rounded truncate">{slugOldUrl}</code>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                      <code className="bg-muted px-1.5 py-0.5 rounded truncate">{slugNewUrl}</code>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      onClick={() => handleSlugRename(true)}
+                      disabled={slugRenaming}
+                      data-testid="button-rename-with-redirect"
+                    >
+                      {slugRenaming ? "Renaming..." : "Yes, create redirect"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleSlugRename(false)}
+                      disabled={slugRenaming}
+                      data-testid="button-rename-without-redirect"
+                    >
+                      No, just rename
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSlugRedirectPrompt(false)}
+                      disabled={slugRenaming}
+                      data-testid="button-cancel-rename"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </DialogDescription>
         </DialogHeader>
 
@@ -236,7 +396,7 @@ export function SeoModal({
             <p className="text-sm text-muted-foreground">Loading SEO data...</p>
           </div>
         ) : seoData ? (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0">
             <TabsList className="inline-flex h-auto w-auto max-w-full flex-wrap justify-start" data-testid="tabs-seo-nav">
               <TabsTrigger value="general" data-testid="tab-general" className="flex items-center justify-center gap-1.5 px-2.5" title="SEO Meta" aria-label="SEO Meta">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
@@ -245,6 +405,10 @@ export function SeoModal({
               <TabsTrigger value="fields" data-testid="tab-fields" className="flex items-center justify-center gap-1.5 px-2.5" title="Fields" aria-label="Fields">
                 <Table2 className="h-3.5 w-3.5 shrink-0" />
                 <span className="hidden sm:inline">Fields</span>
+              </TabsTrigger>
+              <TabsTrigger value="funnel" data-testid="tab-funnel" className="flex items-center justify-center gap-1.5 px-2.5" title="Funnel" aria-label="Funnel">
+                <Filter className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Funnel</span>
               </TabsTrigger>
               <TabsTrigger value="schema" data-testid="tab-schema" className="flex items-center justify-center gap-1.5 px-2.5" title="Schema" aria-label="Schema">
                 <Code className="h-3.5 w-3.5 shrink-0" />
@@ -265,144 +429,26 @@ export function SeoModal({
             </TabsList>
 
             {/* ── SEO Meta tab ───────────────────────────────────────── */}
-            <TabsContent value="general" className="space-y-6 pt-4">
+            <TabsContent value="general" className="min-w-0 space-y-6 pt-4">
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
                 <p>
-                  These fields live under <code className="font-mono">meta:</code> in the entry YAML.
-                  Sections can read them as <code className="font-mono">{"{{ meta.page_title }}"}</code>,{" "}
+                  <strong>Share preview</strong> fields live under <code className="font-mono">meta:</code> in the
+                  entry YAML (title, description, og:image). Sections can read them as{" "}
+                  <code className="font-mono">{"{{ meta.page_title }}"}</code>,{" "}
                   <code className="font-mono">{"{{ meta.description }}"}</code>, etc.
                 </p>
                 <p>
-                  Type fields / DB mappings are on the <strong>Fields</strong> tab (
-                  <code className="font-mono">{"{{ single.* }}"}</code>
-                  ) — not here.
+                  <strong>Cluster fields</strong> live under <code className="font-mono">seo:</code> (main keyword,
+                  pillar path) — saved separately via <strong>Save SEO fields</strong>. Content-type schema fields are
+                  on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ single.* }}"}</code>).
                 </p>
               </div>
 
-              {/* Page Slug */}
-              {contentInfo.type && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-semibold">Page Slug</h4>
-                    <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{currentLocaleSlug}</code>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex gap-2">
-                      <input
-                        id="slug-editor-input"
-                        type="text"
-                        value={newSlugValue}
-                        onChange={(e) => setNewSlugValue(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))}
-                        placeholder={currentLocaleSlug}
-                        className={`flex-1 min-w-0 px-3 py-2 text-sm font-mono rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring ${slugCheckStatus === "taken" ? "border-destructive" : slugCheckStatus === "available" ? "border-green-500" : ""}`}
-                        data-testid="input-slug-editor"
-                        disabled={slugRenaming || slugImmutable || slugRenameDisabled}
-                      />
-                      {slugRenameDisabled && (
-                        <p className="text-xs text-muted-foreground" data-testid="text-slug-rename-disabled-variant">
-                          Slug rename is disabled while editing a variant. Open LIVE context to rename.
-                        </p>
-                      )}
-                      {slugImmutable && !slugRenameDisabled && (
-                        <p className="text-xs text-muted-foreground" data-testid="text-slug-immutable">
-                          Slug is immutable for this content type (authors).
-                        </p>
-                      )}
-                      {newSlugValue && newSlugValue !== currentLocaleSlug && !slugRedirectPrompt && !slugImmutable && !slugRenameDisabled && (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={handleSlugRenameClick}
-                            disabled={slugCheckStatus !== "available" || slugRenaming}
-                            data-testid="button-rename-slug"
-                          >
-                            {slugRenaming ? "Renaming…" : "Apply"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setNewSlugValue(currentLocaleSlug)}
-                            disabled={slugRenaming}
-                            data-testid="button-reset-slug"
-                          >
-                            Reset
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                    {slugCheckStatus === "checking" && (
-                      <p className="text-xs text-muted-foreground">Checking availability…</p>
-                    )}
-                    {slugCheckStatus === "available" && (
-                      <p className="text-xs text-green-600">Slug is available</p>
-                    )}
-                    {slugCheckStatus === "taken" && slugCheckReason && (
-                      <p className="text-xs text-destructive">{slugCheckReason}</p>
-                    )}
-                  </div>
-
-                  {slugRedirectPrompt && (
-                    <div className="space-y-3 rounded-md border p-3">
-                      <p className="text-sm font-medium">Create a redirect?</p>
-                      <p className="text-xs text-muted-foreground">
-                        Do you want to create a redirect from the old URLs to the new ones? This ensures existing links and bookmarks still work.
-                      </p>
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2 text-xs font-mono">
-                          <code className="bg-muted px-1.5 py-0.5 rounded truncate">{slugOldUrl}</code>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                          <code className="bg-muted px-1.5 py-0.5 rounded truncate">{slugNewUrl}</code>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <Button
-                          size="sm"
-                          onClick={() => handleSlugRename(true)}
-                          disabled={slugRenaming}
-                          data-testid="button-rename-with-redirect"
-                        >
-                          {slugRenaming ? "Renaming..." : "Yes, create redirect"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleSlugRename(false)}
-                          disabled={slugRenaming}
-                          data-testid="button-rename-without-redirect"
-                        >
-                          No, just rename
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setSlugRedirectPrompt(false)}
-                          disabled={slugRenaming}
-                          data-testid="button-cancel-rename"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Search Snippet */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <h4 className="text-sm font-semibold">Search Snippet</h4>
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => setSnippetEditing(e => !e)}
-                    data-testid="button-toggle-snippet-edit"
-                    title={snippetEditing ? "Show preview" : "Edit snippet"}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                <div className="flex items-center gap-2">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <h4 className="text-sm font-semibold">This is how your page looks when shared</h4>
                 </div>
 
                 {!snippetEditing ? (
@@ -410,11 +456,27 @@ export function SeoModal({
                   <div className="space-y-3">
                     {/* Google SERP preview */}
                     <div
-                      className="rounded-md border bg-background px-4 py-3 space-y-0.5 cursor-pointer hover-elevate"
+                      className="relative rounded-md border bg-background px-4 py-3 pr-10 space-y-0.5 cursor-pointer hover-elevate"
                       onClick={() => setSnippetEditing(true)}
                       data-testid="card-serp-preview"
                       title="Click to edit"
                     >
+                      <div
+                        className="absolute top-2 right-2 z-10"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => setSnippetEditing(true)}
+                          data-testid="button-toggle-snippet-edit"
+                          title="Edit snippet"
+                          aria-label="Edit snippet"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <p className="text-[11px] text-[#0d652d] dark:text-[#81c995] truncate" data-testid="text-serp-breadcrumb">
                         {snippetBreadcrumb || "your-site.com"}
                       </p>
@@ -585,6 +647,15 @@ export function SeoModal({
                 )}
               </div>
 
+              {contentInfo.type && contentInfo.slug ? (
+                <EntrySeoClusterFields
+                  contentType={contentInfo.type}
+                  slug={contentInfo.slug}
+                  locale={fieldsLocale}
+                  variant={fieldsVariant}
+                />
+              ) : null}
+
               {/* Canonical URL */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground" htmlFor="seo-canonical-url">
@@ -603,7 +674,7 @@ export function SeoModal({
             </TabsContent>
 
             {/* ── Fields tab ─────────────────────────────────────────── */}
-            <TabsContent value="fields" className="pt-1">
+            <TabsContent value="fields" className="min-w-0 pt-1">
               {contentInfo.type && contentInfo.slug ? (
                 <MappingFieldsTab
                   contentType={contentInfo.type}
@@ -611,6 +682,7 @@ export function SeoModal({
                   locale={fieldsLocale}
                   typeLabel={fieldsTypeLabel}
                   variant={fieldsVariant}
+                  hideSeoFields
                 />
               ) : (
                 <p className="text-sm text-muted-foreground pt-4">
@@ -619,8 +691,17 @@ export function SeoModal({
               )}
             </TabsContent>
 
+            {/* ── Funnel tab ─────────────────────────────────────────── */}
+            <TabsContent value="funnel" className="min-w-0 pt-1">
+              <FunnelTab
+                contentInfo={contentInfo}
+                contentTypeLabel={fieldsTypeLabel}
+                portalContainer={dialogContainer}
+              />
+            </TabsContent>
+
             {/* ── Schema tab (read-only preview) ─────────────────────── */}
-            <TabsContent value="schema" className="space-y-6 pt-4">
+            <TabsContent value="schema" className="min-w-0 space-y-6 pt-4">
               <div className="rounded-md border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-2" data-testid="banner-schema-education">
                 <p className="text-foreground font-medium flex items-center gap-1.5">
                   <Info className="h-3.5 w-3.5 shrink-0" />
@@ -719,7 +800,7 @@ export function SeoModal({
             </TabsContent>
 
             {/* ── Visibility tab ─────────────────────────────────────── */}
-            <TabsContent value="visibility" className="space-y-6 pt-4">
+            <TabsContent value="visibility" className="min-w-0 space-y-6 pt-4">
 
               {/* Robots */}
               <div className="space-y-3">
@@ -907,7 +988,7 @@ export function SeoModal({
             </TabsContent>
 
             {/* ── Redirects tab ──────────────────────────────────────── */}
-            <TabsContent value="redirects" className="space-y-4 pt-4">
+            <TabsContent value="redirects" className="min-w-0 space-y-4 pt-4">
               <div>
                 <h4 className="text-sm font-semibold">Redirects</h4>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -926,17 +1007,17 @@ export function SeoModal({
               )}
 
               {seoMeta.redirects.length > 0 ? (
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   {seoMeta.redirects.map((redirect, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border bg-muted/40 text-sm font-mono"
+                      className="flex min-w-0 items-start gap-2 px-2.5 py-1.5 rounded-md border bg-muted/40 text-sm font-mono"
                       data-testid={`row-redirect-${idx}`}
                     >
-                      <span className="flex-1 truncate text-xs">{redirect}</span>
+                      <span className="min-w-0 flex-1 break-all text-xs" title={redirect}>{redirect}</span>
                       <button
                         onClick={() => setSeoMeta({ ...seoMeta, redirects: seoMeta.redirects.filter((_, i) => i !== idx) })}
-                        className="shrink-0 rounded-sm hover-elevate"
+                        className="mt-0.5 shrink-0 rounded-sm hover-elevate"
                         data-testid={`button-remove-redirect-${idx}`}
                       >
                         <X className="h-3.5 w-3.5 text-muted-foreground" />
@@ -966,29 +1047,24 @@ export function SeoModal({
           </div>
         )}
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            data-testid="button-cancel-seo"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSeoSave}
-            disabled={seoSaving || seoLoading || !seoData}
-            data-testid="button-save-seo"
-          >
-            {seoSaving ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              "Save Changes"
-            )}
-          </Button>
-        </DialogFooter>
+        {showFooterSave && (
+          <DialogFooter>
+            <Button
+              onClick={handleSeoSave}
+              disabled={seoSaving || seoLoading || !seoData}
+              data-testid="button-save-seo"
+            >
+              {seoSaving ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
 

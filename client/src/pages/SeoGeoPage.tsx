@@ -65,7 +65,7 @@ interface BrandContext {
 const INTENT_LABELS: Record<string, string> = {
   awareness: "Awareness",
   consideration: "Consideration",
-  transaction: "Transaction",
+  decision: "Decision",
   "post-enrollment": "Post-Enroll",
   unknown: "Unknown",
 };
@@ -73,12 +73,12 @@ const INTENT_LABELS: Record<string, string> = {
 const INTENT_COLORS: Record<string, string> = {
   awareness: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   consideration: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  transaction: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  decision: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   "post-enrollment": "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
   unknown: "bg-muted text-muted-foreground",
 };
 
-const ALL_INTENTS = ["awareness", "consideration", "transaction", "post-enrollment"];
+const ALL_INTENTS = ["awareness", "consideration", "decision", "post-enrollment"];
 const ALL_FEATURES: Record<string, string> = {
   mentorship: "1-on-1 Mentorship",
   job_guarantee: "Job Guarantee",
@@ -560,7 +560,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           }
           testId="stat-card-total-vs-indexed-pages"
         />
-        <StatCard label="With Intent" value={data.totals.withIntent} total={data.totals.totalPages} icon={<Crosshair className="h-4 w-4" />} />
+        <StatCard label="With funnel stage" value={data.totals.withIntent} total={data.totals.totalPages} icon={<Crosshair className="h-4 w-4" />} />
         <StatCard
           label="Keyworded vs Clustered"
           value={data.totals.withPillar}
@@ -579,12 +579,12 @@ export function SeoTab({ data }: { data: SeoOverview }) {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
             <Crosshair className="h-4 w-4" />
-            Intent Distribution
+            Funnel stage distribution
           </CardTitle>
         </CardHeader>
         <CardContent>
           {contentTypes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No intent data found</p>
+            <p className="text-sm text-muted-foreground">No funnel stage data found</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs" data-testid="intent-distribution-table">

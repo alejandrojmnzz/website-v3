@@ -282,6 +282,21 @@ describe("walkHttpRedirects", () => {
     expect(result.finalUrl).toBe("http://localhost:5000/hello");
   });
 
+  it("sends Accept-Language when locale is provided", async () => {
+    let capturedHeaders: Record<string, string> | undefined;
+    const fetchFn = vi.fn(async (_url, init) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response("ok", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await walkHttpRedirects({
+      startUrl: "http://localhost:5000/es/blog/x",
+      fetchFn,
+      locale: "es",
+    });
+    expect(capturedHeaders?.["Accept-Language"]).toBe("es");
+  });
+
   it("treats fetch failure as an error", async () => {
     const fetchFn = vi.fn(async () => {
       throw new Error("timeout");

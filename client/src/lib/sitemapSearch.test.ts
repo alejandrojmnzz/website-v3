@@ -5,6 +5,7 @@ import {
   sitemapEntryKey,
   sitemapMatchScore,
   sitemapPathname,
+  suggestedSitemapLocale,
   type SitemapSearchEntry,
 } from "./sitemapSearch";
 
@@ -125,5 +126,24 @@ describe("sitemapMatchScore", () => {
 describe("sitemapEntryKey", () => {
   it("differs for cloned landings that share loc", () => {
     expect(sitemapEntryKey(duplicateLandings[0])).not.toBe(sitemapEntryKey(duplicateLandings[1]));
+  });
+});
+
+describe("suggestedSitemapLocale", () => {
+  it("suggests es from an /es/ origin", () => {
+    expect(suggestedSitemapLocale("/es/old-page")).toBe("es");
+    expect(suggestedSitemapLocale("/es/old-path/(.*)")).toBe("es");
+  });
+
+  it("suggests en from /en/ and from 4geeks /us/ English paths", () => {
+    expect(suggestedSitemapLocale("/en/old-page")).toBe("en");
+    expect(suggestedSitemapLocale("/us/coding-bootcamp")).toBe("en");
+    expect(suggestedSitemapLocale("/us/old-path/(.*)")).toBe("en");
+  });
+
+  it("returns all-locales when there is no locale prefix", () => {
+    expect(suggestedSitemapLocale("/old-page")).toBe("");
+    expect(suggestedSitemapLocale("/blog/(.*)")).toBe("");
+    expect(suggestedSitemapLocale("")).toBe("");
   });
 });

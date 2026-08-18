@@ -14,16 +14,24 @@ import { lazy, Suspense, useEffect, useRef } from "react";
 import { trackEcommerce } from "@/lib/tracking";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import { resolveProgramIdForPage, programIdFromCtaUrl } from "@/lib/ecommerceProgramId";
+import { usePageFunnel } from "@/contexts/PageFunnelContext";
 import { resolveProductScope } from "@shared/resolveProductScope";
+import type { FunnelBlock } from "@shared/funnel";
+import { useSectionContext } from "@/contexts/SectionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { isCtaTrackingValue } from "@shared/component-behaviors";
 
-function programIdFromHeroData(data: HeroCourseType, ctaUrl?: unknown): string | undefined {
+function programIdFromHeroData(
+  data: HeroCourseType,
+  ctaUrl?: unknown,
+  ctx?: { contentType?: string; contentSlug?: string; funnel?: FunnelBlock | null },
+): string | undefined {
   const fromPath =
     typeof window !== "undefined" ? resolveProgramIdForPage(ctaUrl) : programIdFromCtaUrl(ctaUrl);
   const { scope } = resolveProductScope(data as unknown as Record<string, unknown>, {
-    contentType: fromPath ? "program" : undefined,
-    contentSlug: fromPath,
+    contentType: ctx?.contentType ?? (fromPath ? "program" : undefined),
+    contentSlug: ctx?.contentSlug ?? fromPath,
+    funnel: ctx?.funnel,
   });
   if (scope === "all") {
     return programIdFromCtaUrl(ctaUrl) || fromPath;
@@ -56,6 +64,9 @@ export default function HeroCourse({ data }: HeroCourseProps) {
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
   const viewedRef = useRef(false);
+  const { contentType, slug } = useSectionContext();
+  const funnel = usePageFunnel();
+  const scopeCtx = { contentType, contentSlug: slug, funnel };
 
   useEffect(() => {
     if (isEditMode || viewedRef.current) return;
@@ -63,7 +74,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
     (async () => {
       await ensureEcommerceProductLookup();
       if (cancelled || viewedRef.current) return;
-      const programId = programIdFromHeroData(data, data.signup_card?.cta_button?.url);
+      const programId = programIdFromHeroData(data, data.signup_card?.cta_button?.url, scopeCtx);
       if (!programId) return;
       viewedRef.current = true;
       trackEcommerce("view_item", {
@@ -76,7 +87,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
     return () => {
       cancelled = true;
     };
-  }, [isEditMode, data]);
+  }, [isEditMode, data, contentType, slug, funnel]);
 
   const handleCtaClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const cta = data.signup_card?.cta_button as
@@ -84,7 +95,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
       | undefined;
     const tracking = cta?.tracking;
     if (isCtaTrackingValue(tracking) && tracking !== "none") {
-      const programId = programIdFromHeroData(data, cta?.url);
+      const programId = programIdFromHeroData(data, cta?.url, scopeCtx);
       void ensureEcommerceProductLookup().then(() => {
         trackEcommerce(tracking, {
           program_id: programId,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { incrementByHour } from "@shared/runtime-issues";
+import { incrementByHour, aggregateHitsByDay } from "@shared/runtime-issues";
 import {
   FILTER_ALL,
   applyRuntimeIssueView,
@@ -8,6 +8,7 @@ import {
   deviceLabel,
   filterRuntimeIssues,
   isAssetPath,
+  paginateRuntimeIssues,
   sortDevices,
   type RuntimeIssueFilters,
 } from "./runtime-issues-filters";
@@ -174,6 +175,27 @@ describe("applyRuntimeIssueView", () => {
     expect(result[0]?.count).toBe(1);
     expect(result[0]?.count30).toBe(2);
   });
+
+  it("hit totals match aggregateHitsByDay of the same filtered set", () => {
+    const now = Date.UTC(2026, 7, 14, 12, 0, 0);
+    const recentTs = Date.UTC(2026, 7, 13, 12, 0, 0);
+    let byHour = incrementByHour(undefined, recentTs, ["search_crawler", "human"]);
+    byHour = incrementByHour(byHour, recentTs + 3_600_000, ["human"]);
+    const issues = [
+      row({ fingerprint: "a", path: "/en/a", lastSeen: recentTs, count: 2, byHour }),
+      row({ fingerprint: "b", path: "/es/b", locale: "es", lastSeen: recentTs, count: 1 }),
+    ];
+    const filters = { ...none, windowDays: 7, now };
+    const viewed = applyRuntimeIssueView(issues, filters, "count", "desc");
+    const series = aggregateHitsByDay(filterRuntimeIssues(issues, filters), {
+      windowDays: filters.windowDays,
+      tz: filters.tz,
+      now,
+    });
+    expect(series.reduce((sum, p) => sum + p.count, 0)).toBe(
+      viewed.reduce((sum, issue) => sum + issue.count, 0),
+    );
+  });
 });
 
 describe("isAssetPath", () => {
@@ -215,5 +237,29 @@ describe("countIngestionFilters", () => {
   it("counts hide-scrapers-off only", () => {
     expect(countIngestionFilters(true)).toBe(0);
     expect(countIngestionFilters(false)).toBe(1);
+  });
+});
+
+describe("paginateRuntimeIssues", () => {
+  it("slices 50-sized pages and clamps past the end", () => {
+    const items = Array.from({ length: 101 }, (_, i) => i);
+    const p1 = paginateRuntimeIssues(items, 1);
+    expect(p1.page).toBe(1);
+    expect(p1.totalPages).toBe(3);
+    expect(p1.totalItems).toBe(101);
+    expect(p1.pageItems).toHaveLength(50);
+    expect(p1.pageItems[0]).toBe(0);
+    const p3 = paginateRuntimeIssues(items, 3);
+    expect(p3.pageItems).toEqual([100]);
+    const clamped = paginateRuntimeIssues(items, 99);
+    expect(clamped.page).toBe(3);
+    expect(clamped.pageItems).toEqual([100]);
+  });
+
+  it("returns one empty page for an empty list", () => {
+    const p = paginateRuntimeIssues([], 4);
+    expect(p.page).toBe(1);
+    expect(p.totalPages).toBe(1);
+    expect(p.pageItems).toEqual([]);
   });
 });

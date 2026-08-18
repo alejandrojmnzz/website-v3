@@ -2816,6 +2816,7 @@ export async function createContentEntry(
 
           if (file === "_common.yml") {
             parsed.title = title;
+            delete parsed.funnel;
             for (const [fieldName, newValue] of Object.entries(uniqueFieldValues)) {
               if (fieldName === "slug" || fieldName === "title") continue;
               parsed[fieldName] = coerceToOriginalType(String(newValue), parsed[fieldName]);

@@ -31,6 +31,7 @@ import {
   type ActiveSiteCtx,
   toActiveSiteCtx,
 } from "../sitemap";
+import { filterSitemapUrlsByLocale } from "../sitemap-locale";
 import type { SiteContext } from "../site-manager";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
@@ -242,7 +243,7 @@ import {
   GscInspectAlreadyRunningError,
   type GscInspectMode,
 } from "../gsc-inspect-queue";
-const log = child({ module: "routes/seo" });
+import { readFunnelBlockFromFile, commonYmlPath } from "../funnel-fields";
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
 function getCI(res: Response): typeof contentIndex {
@@ -519,21 +520,7 @@ export function registerSeoRoutes(app: Express): void {
   app.get("/api/sitemap-urls", (req, res) => {
     const locale = req.query.locale as string | undefined;
     const urls = getSitemapUrls(getSiteSitemapCtx(res));
-
-    if (locale) {
-      const langPrefixes = ["/en/", "/es/", "/fr/", "/de/", "/pt/", "/it/"];
-      const filteredUrls = urls.filter((entry) => {
-        const path = entry.loc.replace(/^https?:\/\/[^/]+/, "");
-        const matchesLocale = path.startsWith(`/${locale}/`);
-        const isNeutral = !langPrefixes.some((prefix) =>
-          path.startsWith(prefix),
-        );
-        return matchesLocale || isNeutral;
-      });
-      res.json(filteredUrls);
-    } else {
-      res.json(urls);
-    }
+    res.json(filterSitemapUrlsByLocale(urls, locale));
   });
 
   // Returns sections for a given page path — used by LinkPicker's Section/Modal tabs
@@ -640,6 +627,7 @@ export function registerSeoRoutes(app: Express): void {
       const entries = getCI(res).listAll();
 
       const intentDistribution: Record<string, Record<string, number>> = {};
+      const funnelStageSeen = new Set<string>();
       const featureCoverage: Record<string, number> = {};
       const faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[] = [];
       const schemaCoverage: Record<string, number> = {};
@@ -653,6 +641,21 @@ export function registerSeoRoutes(app: Express): void {
 
       for (const entry of entries) {
         const ct = entry.contentType;
+        const slugKey = `${ct}/${entry.slug}`;
+        if (!funnelStageSeen.has(slugKey)) {
+          funnelStageSeen.add(slugKey);
+          const funnel = readFunnelBlockFromFile(
+            commonYmlPath(ct, entry.slug, getContentRoot(res)),
+          );
+          const stage =
+            typeof funnel.stage === "string" && funnel.stage.trim()
+              ? funnel.stage.trim()
+              : "unknown";
+          if (!intentDistribution[ct]) intentDistribution[ct] = {};
+          intentDistribution[ct][stage] = (intentDistribution[ct][stage] || 0) + 1;
+          if (stage !== "unknown") withIntent++;
+        }
+
         for (const locale of entry.locales) {
           if (locale.startsWith("_") || locale.includes(".")) continue;
           totalPages++;
@@ -664,15 +667,10 @@ export function registerSeoRoutes(app: Express): void {
           const seo = data.seo as Record<string, unknown> | undefined;
           const sections = data.sections as { type?: string }[] | undefined;
 
-          const intent = (seo?.intent as string) || "unknown";
           const focusFeatures = Array.isArray(seo?.focus_features)
             ? (seo!.focus_features as string[]).filter((f) => typeof f === "string")
             : [];
 
-          if (!intentDistribution[ct]) intentDistribution[ct] = {};
-          intentDistribution[ct][intent] = (intentDistribution[ct][intent] || 0) + 1;
-
-          if (seo?.intent) withIntent++;
           if (hasMainSeoKeyword(data)) withKeyword++;
 
           if (focusFeatures.length > 0) {

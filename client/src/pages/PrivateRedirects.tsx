@@ -5,9 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +23,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Link, useSearch } from "wouter";
-import { isDebugModeActive } from "@/hooks/useDebugAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AddRedirectDialog, getApiErrorMessage, hasRegexChars } from "@/components/editing/AddRedirectDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -224,7 +220,6 @@ export default function PrivateRedirects() {
   const formatPath = useFormatSitePath();
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
-  const [isAuthorized, setIsAuthorized] = useState(false);
   const [showYamlEditor, setShowYamlEditor] = useState(false);
   const [expandedType, setExpandedType] = useState<string | null>(null);
   const [validationResult, setValidationResult] =
@@ -270,10 +265,6 @@ export default function PrivateRedirects() {
     openResolver,
   } = useRedirectConflictResolver();
 
-  useEffect(() => {
-    setIsAuthorized(isDebugModeActive());
-  }, []);
-
   const runValidation = useCallback(async () => {
     setIsValidating(true);
     setValidationExpanded(false);
@@ -292,10 +283,8 @@ export default function PrivateRedirects() {
   }, []);
 
   useEffect(() => {
-    if (isAuthorized) {
-      runValidation();
-    }
-  }, [isAuthorized, runValidation]);
+    runValidation();
+  }, [runValidation]);
 
   useEffect(() => {
     if (testRedirectTimer.current) clearTimeout(testRedirectTimer.current);
@@ -333,7 +322,6 @@ export default function PrivateRedirects() {
     redirects: Redirect[];
   }>({
     queryKey: ["/api/debug/redirects"],
-    enabled: isAuthorized,
   });
 
   const redirects = redirectsData?.redirects || [];
@@ -609,31 +597,6 @@ export default function PrivateRedirects() {
     if (oldIndex === -1 || newIndex === -1) return;
     void handleReorderCustomRedirect(oldIndex, newIndex);
   };
-
-  if (!isAuthorized) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="max-w-md w-full">
-          <CardHeader>
-            <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              This page requires debug mode. Add{" "}
-              <code className="bg-muted px-1 rounded">?debug=true</code> to the
-              URL.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/">
-              <Button variant="outline" data-testid="link-back-home">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Home
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">

@@ -1,20 +1,29 @@
 /**
- * Resolve which purchasable product(s) an ecommerce section is about.
- * Prefer field-editor binds / domain lists over URL heuristics.
+ * Resolve which purchasable product(s) an ecommerce section tracks.
+ * Page-level funnel.products on _common.yml is the source of truth (not section ecommerce_products).
  */
 
-export type ProductScope = string[] | "all";
+import {
+  effectiveProducts,
+  type FunnelBlock,
+  type ProductScope,
+  scopeIncludesProduct,
+} from "./funnel";
+
+export type { ProductScope, FunnelBlock };
+export { effectiveProducts, scopeIncludesProduct };
 
 export type ProductScopeContext = {
   contentType?: string;
   contentSlug?: string;
+  /** Merged entry funnel block from _common.yml */
+  funnel?: FunnelBlock | null;
 };
 
 export type ResolveProductScopeResult = {
   scope: ProductScope | null;
-  /** Dot-path under section data (or synthetic inherit) for errors/explain */
   bindPath: string;
-  source: "ecommerce_products" | "programs[].id" | "inherit" | "none" | "off";
+  source: "funnel.products" | "programs[].id" | "inherit" | "none";
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -22,37 +31,20 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Resolve product scope from section instance data + page context.
- * Precedence: ecommerce_products (incl. null = explicit off) → programs[].id → inherit (program entry).
+ * Resolve product scope for ecommerce tracking on a section.
+ * Enrollment programs[].id is for card rendering only — tracking uses page funnel.
  */
 export function resolveProductScope(
   section: Record<string, unknown>,
   ctx: ProductScopeContext = {},
 ): ResolveProductScopeResult {
-  if ("ecommerce_products" in section && section.ecommerce_products === null) {
-    return { scope: null, bindPath: "ecommerce_products", source: "off" };
-  }
+  const pageScope = effectiveProducts(ctx.funnel ?? undefined, {
+    contentType: ctx.contentType,
+    contentSlug: ctx.contentSlug,
+  });
 
-  const explicit = section.ecommerce_products;
-  if (explicit === "all") {
-    return { scope: "all", bindPath: "ecommerce_products", source: "ecommerce_products" };
-  }
-  if (Array.isArray(explicit)) {
-    const ids = explicit.filter((x): x is string => typeof x === "string" && x.length > 0);
-    if (ids.length > 0) {
-      return { scope: ids, bindPath: "ecommerce_products", source: "ecommerce_products" };
-    }
-  }
-
-  if (Array.isArray(section.programs)) {
-    const ids: string[] = [];
-    for (const p of section.programs) {
-      const rec = asRecord(p);
-      if (rec && typeof rec.id === "string" && rec.id) ids.push(rec.id);
-    }
-    if (ids.length > 0) {
-      return { scope: ids, bindPath: "programs[].id", source: "programs[].id" };
-    }
+  if (pageScope) {
+    return { scope: pageScope, bindPath: "funnel.products", source: "funnel.products" };
   }
 
   if (ctx.contentType === "program" && typeof ctx.contentSlug === "string" && ctx.contentSlug) {
@@ -63,19 +55,19 @@ export function resolveProductScope(
     };
   }
 
-  return { scope: null, bindPath: "ecommerce_products", source: "none" };
+  return { scope: null, bindPath: "funnel.products", source: "none" };
 }
 
-export function scopeIncludesProduct(scope: ProductScope, productSlug: string): boolean {
-  if (scope === "all") return true;
-  return scope.includes(productSlug);
+/** Active purchasable slugs only — inactive ids are skipped (4B). */
+export function filterActiveProductScope(
+  scope: ProductScope,
+  resolveProduct: (slug: string) => { active: boolean } | undefined,
+): ProductScope | null {
+  if (scope === "all") return "all";
+  const active = scope.filter((id) => resolveProduct(id)?.active);
+  return active.length > 0 ? active : null;
 }
 
-/**
- * True when section must have an explicit ecommerce product-scope decision
- * (ecommerce_products list/"all"/null, programs[].id, or inherit).
- * Any section with behaviors.ecommerce needs a decision when not inheriting.
- */
 export function sectionNeedsProductScope(
   section: Record<string, unknown>,
   opts: { hasEcommerceBehavior: boolean; ctaPaths: string[]; fieldEditors: Record<string, string> },
@@ -86,18 +78,12 @@ export function sectionNeedsProductScope(
 
 export type ProductResolveFn = (programId: string) => { product_id: string; active: boolean } | undefined;
 
-/**
- * Validate ecommerce product scope for a section. Returns error message or null.
- * Message always cites bindPath.
- *
- * Missing ecommerce_products (after wipe) fails when ecommerce behavior applies and
- * the page does not inherit. Explicit `ecommerce_products: null` turns scope off.
- */
 export function validateProductScope(
   section: Record<string, unknown>,
   opts: {
     contentSlug?: string;
     contentType?: string;
+    funnel?: FunnelBlock | null;
     hasEcommerceBehavior: boolean;
     ctaPaths: string[];
     fieldEditors: Record<string, string>;
@@ -115,45 +101,45 @@ export function validateProductScope(
     return null;
   }
 
-  const { scope, bindPath, source } = resolveProductScope(section, {
+  const { scope, source } = resolveProductScope(section, {
     contentType: opts.contentType,
     contentSlug: opts.contentSlug,
+    funnel: opts.funnel,
   });
 
   const prefix =
     typeof opts.sectionIndex === "number" ? `sections[${opts.sectionIndex}].` : "sections[].";
 
-  if (source === "off") return null;
   if (source === "inherit") return null;
 
-  if (source === "none") {
+  if (source === "none" || !scope) {
     const type = String(section.type ?? "section");
     return (
-      `${prefix}data.ecommerce_products is required for ecommerce on ${type}. ` +
-      `Set a product slug list or "all", use null to turn product scope off, ` +
-      `provide programs[].id (enrollment_selector), or place this section on a program entry (inherit). ` +
-      `Missing after duplicate wipe is invalid.`
-    );
-  }
-
-  if (!scope) {
-    return (
-      `${prefix}data.${bindPath === "inherit (content entry slug)" ? "ecommerce_products" : bindPath} ` +
-      `is required for ecommerce scope on ${String(section.type ?? "section")}. ` +
-      `Set ecommerce_products to a product slug list or "all", null to turn off, or provide programs[].id.`
+      `${prefix}Page funnel.products is required for ecommerce on ${type}. ` +
+      `Set funnel.stage and funnel.products on _common.yml (Funnel tab), or place this section on a program entry (inherit).`
     );
   }
 
   if (scope === "all") return null;
 
-  for (const id of scope) {
-    const resolved = opts.resolveProduct(id);
-    if (!resolved?.active) {
-      return (
-        `${prefix}data.${bindPath} references unknown or inactive purchasable product "${id}". ` +
-        `Add programs/${id}/_ecommerce.yml with purchasable: true, or fix the id.`
-      );
-    }
+  const activeIds = scope.filter((id) => opts.resolveProduct(id)?.active);
+  if (activeIds.length === 0) {
+    return (
+      `funnel.products on _common.yml references no active purchasable products for this page. ` +
+      `Fix slugs on the Funnel tab or add programs/{slug}/_ecommerce.yml with purchasable: true.`
+    );
   }
+
   return null;
+}
+
+/** Collect enrollment card program ids from a section (for 5B warnings). */
+export function enrollmentCardIds(section: Record<string, unknown>): string[] {
+  if (!Array.isArray(section.programs)) return [];
+  const ids: string[] = [];
+  for (const p of section.programs) {
+    const rec = asRecord(p);
+    if (rec && typeof rec.id === "string" && rec.id) ids.push(rec.id);
+  }
+  return ids;
 }

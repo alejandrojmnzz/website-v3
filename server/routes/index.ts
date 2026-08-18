@@ -249,6 +249,7 @@ import { registerMediaRoutes } from "./media";
 import { registerAiRoutes } from "./ai";
 import { registerValidationRoutes } from "./validation";
 import { registerEcommerceRoutes } from "./ecommerce";
+import { registerFunnelRoutes } from "./funnel";
 import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { setWorkerRunNow } from "./_worker-state";
@@ -326,6 +327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAiRoutes(app);
   registerValidationRoutes(app);
   registerEcommerceRoutes(app);
+  registerFunnelRoutes(app);
   registerWebhooksRoutes(app);
   registerOverlaysRoutes(app);
 

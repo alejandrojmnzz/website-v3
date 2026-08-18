@@ -20,6 +20,7 @@ import {
   runtimeIssuesStateSchema,
   utcHourKey,
   windowHitCount,
+  aggregateHitsByDay,
   MAX_ISSUES_PER_SITE,
 } from "./runtime-issues";
 
@@ -207,6 +208,60 @@ describe("byHour", () => {
     const byHour = incrementByHour(undefined, ts, ["human"]);
     expect(windowHitCount({ byHour, count: 1, lastSeen: ts }, 7, "UTC", now)).toBe(0);
     expect(windowHitCount({ byHour, count: 1, lastSeen: ts }, 30, "UTC", now)).toBe(1);
+  });
+});
+
+describe("aggregateHitsByDay", () => {
+  it("puts a 01:00 UTC hit on the previous local day in America/Bogota", () => {
+    const ts = Date.UTC(2026, 7, 14, 1, 0, 0);
+    const byHour = incrementByHour(undefined, ts, ["search_crawler"]);
+    const now = Date.UTC(2026, 7, 14, 12, 0, 0);
+    const series = aggregateHitsByDay([{ byHour, count: 1, lastSeen: ts }], {
+      windowDays: 7,
+      tz: "America/Bogota",
+      now,
+    });
+    expect(series).toHaveLength(7);
+    expect(series[0]?.day < series[series.length - 1]!.day).toBe(true);
+    const hit = series.find((p) => p.count > 0);
+    expect(hit?.day).toBe("2026-08-13");
+    expect(hit?.count).toBe(1);
+  });
+
+  it("counts only the source tag when source is set", () => {
+    const ts = Date.UTC(2026, 7, 13, 12, 0, 0);
+    const now = Date.UTC(2026, 7, 14, 12, 0, 0);
+    let byHour = incrementByHour(undefined, ts, ["search_crawler", "human"]);
+    byHour = incrementByHour(byHour, ts + 3_600_000, ["human"]);
+    const issue = { byHour, count: 2, lastSeen: ts };
+    const crawler = aggregateHitsByDay([issue], {
+      windowDays: 7,
+      tz: "UTC",
+      now,
+      source: "search_crawler",
+    });
+    expect(crawler.reduce((sum, p) => sum + p.count, 0)).toBe(1);
+    const all = aggregateHitsByDay([issue], { windowDays: 7, tz: "UTC", now });
+    expect(all.reduce((sum, p) => sum + p.count, 0)).toBe(2);
+  });
+
+  it("sums daily counts to windowHitCount across mixed byHour and legacy rows", () => {
+    const now = Date.UTC(2026, 7, 14, 12, 0, 0);
+    const recentTs = Date.UTC(2026, 7, 13, 12, 0, 0);
+    const oldTs = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const legacyTs = Date.UTC(2026, 7, 12, 8, 0, 0);
+    let byHour = incrementByHour(undefined, oldTs, ["human"]);
+    byHour = incrementByHour(byHour, recentTs, ["human"]);
+    const issues = [
+      { byHour, count: 2, lastSeen: recentTs },
+      { count: 5, lastSeen: legacyTs },
+    ];
+    const windowDays = 7;
+    const tz = "UTC";
+    const series = aggregateHitsByDay(issues, { windowDays, tz, now });
+    const expected = issues.reduce((sum, issue) => sum + windowHitCount(issue, windowDays, tz, now), 0);
+    expect(series.reduce((sum, p) => sum + p.count, 0)).toBe(expected);
+    expect(expected).toBe(6);
   });
 });
 

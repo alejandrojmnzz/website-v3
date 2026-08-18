@@ -5,7 +5,9 @@ import { useContentTypesRaw } from "@/hooks/useContentTypes";
 import type { Section, EditOperation, SectionLayout, ResponsiveSpacing, ShowOn, PageSettings } from "@shared/schema";
 import { canonicalSectionId } from "@shared/sectionIdentity";
 import { useSession } from "@/contexts/SessionContext";
+import { PageFunnelProvider } from "@/contexts/PageFunnelContext";
 import { PageSectionsProvider } from "@/contexts/PageSectionsContext";
+import type { FunnelBlock } from "@shared/funnel";
 import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
@@ -394,6 +396,8 @@ interface SectionRendererProps {
   landingLocations?: string[];
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
+  /** Page-level funnel from merged _common.yml (tracking scope). */
+  funnel?: FunnelBlock | null;
   /** Page SEO meta for {{ meta.* }} in sections (may still contain {{ single.* }}). */
   meta?: Record<string, unknown>;
   /** Unified URL path + querystring params for {{ param.* }}. */
@@ -635,7 +639,7 @@ function toSingularLabel(ct: string | undefined, rawTypes: { name: string; label
   return lower;
 }
 
-export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, meta, param, allowEntryStructuralOverrides = true, perEntryRemovedSections }: SectionRendererProps) {
+export function SectionRenderer({ sections, settings, contentType, slug, locale, variant, version, programSlug, landingLocations, isSharedTemplate, singleEntry, meta, param, funnel, allowEntryStructuralOverrides = true, perEntryRemovedSections }: SectionRendererProps) {
   const { toast } = useToast();
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
@@ -1659,6 +1663,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   ) || [];
 
   return (
+    <PageFunnelProvider funnel={funnel}>
     <PageSectionsProvider value={pageSectionsContextValue}>
       <>
         {content}
@@ -1960,5 +1965,6 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
       </Dialog>
     </>
   </PageSectionsProvider>
+  </PageFunnelProvider>
   );
 }

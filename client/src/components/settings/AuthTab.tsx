@@ -857,7 +857,7 @@ export function AuthTab() {
 
       <Dialog open={!!testTarget} onOpenChange={(open) => !open && setTestTarget(null)}>
         <DialogContent
-          className="max-w-lg max-h-[90vh] min-w-0 overflow-x-hidden overflow-y-auto"
+          className="max-w-lg max-h-[90vh] min-w-0 overflow-y-auto"
           data-testid="dialog-auth-test"
         >
           <DialogHeader>

@@ -35,6 +35,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
   Table,
   TableBody,
   TableCell,
@@ -57,7 +64,10 @@ import {
   FILTER_ALL,
   applyRuntimeIssueView,
   countActiveListFilters,
+  filterRuntimeIssues,
   isRuntimeIssueFiltersActive,
+  paginateRuntimeIssues,
+  RUNTIME_ISSUES_PAGE_SIZE,
   deviceLabel,
   sortDevices,
   uniqueSorted,
@@ -71,6 +81,7 @@ import {
   type RuntimeIssueViewState,
 } from "./runtime-issues-url";
 import { RuntimeIssueSourceBadge } from "./RuntimeIssueSourceBadge";
+import { RuntimeIssuesSparkline } from "./RuntimeIssuesSparkline";
 import { referrerDisplayHost } from "./runtime-issues-referrer";
 import { RuntimeIssueListFiltersDialog } from "./RuntimeIssueListFiltersDialog";
 import { RuntimeIssueIngestionFiltersDialog } from "./RuntimeIssueIngestionFiltersDialog";
@@ -78,7 +89,7 @@ import { RuntimeIssueIgnoreRulesDialog } from "./RuntimeIssueIgnoreRulesDialog";
 import { RuntimeIssueIgnoreSuggestDialog } from "./RuntimeIssueIgnoreSuggestDialog";
 import type { ByHour, RuntimeIssueProbe } from "@shared/runtime-issues";
 import type { IgnoreRule, IgnoreRuleInput } from "@shared/runtime-issues-ignore";
-import { isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
+import { aggregateHitsByDay, isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 
@@ -563,7 +574,7 @@ export default function RuntimeIssuesTab() {
   const canIgnore = hasCapability("seo_edit");
 
   const view = useMemo(() => parseRuntimeIssueSearch(searchString), [searchString]);
-  const { filters, sortKey, sortDir } = view;
+  const { filters, sortKey, sortDir, page } = view;
   const { locale: localeFilter, device: deviceFilter, tz } = filters;
 
   const writeView = useCallback(
@@ -577,14 +588,14 @@ export default function RuntimeIssuesTab() {
 
   const patchView = useCallback(
     (patch: Partial<Pick<RuntimeIssueViewState, "sortKey" | "sortDir">>) => {
-      writeView({ ...view, ...patch });
+      writeView({ ...view, ...patch, page: 1 });
     },
     [view, writeView],
   );
 
   const patchFilters = useCallback(
     (patch: Partial<RuntimeIssueFilters>) => {
-      writeView({ ...view, filters: { ...view.filters, ...patch } });
+      writeView({ ...view, filters: { ...view.filters, ...patch }, page: 1 });
     },
     [view, writeView],
   );
@@ -828,9 +839,30 @@ export default function RuntimeIssuesTab() {
     [issues, filters, sortKey, sortDir],
   );
 
+  const filteredIssues = useMemo(
+    () => filterRuntimeIssues(issues, filters),
+    [issues, filters],
+  );
+
+  const dailySeries = useMemo(
+    () =>
+      aggregateHitsByDay(filteredIssues, {
+        windowDays: filters.windowDays,
+        tz: filters.tz,
+        now: filters.now,
+      }),
+    [filteredIssues, filters],
+  );
+
+  const paged = useMemo(
+    () => paginateRuntimeIssues(sortedIssues, page),
+    [sortedIssues, page],
+  );
+  const { pageItems, totalPages } = paged;
+
   const visibleFingerprints = useMemo(
-    () => sortedIssues.map((issue) => issue.fingerprint),
-    [sortedIssues],
+    () => pageItems.map((issue) => issue.fingerprint),
+    [pageItems],
   );
   const allVisibleSelected =
     visibleFingerprints.length > 0 && visibleFingerprints.every((fp) => selected.has(fp));
@@ -884,7 +916,7 @@ export default function RuntimeIssuesTab() {
     if (col === sortKey) {
       patchView({ sortDir: sortDir === "asc" ? "desc" : "asc" });
     } else {
-      writeView({ ...view, sortKey: col, sortDir: "desc" });
+      writeView({ ...view, sortKey: col, sortDir: "desc", page: 1 });
     }
   }
 
@@ -921,17 +953,35 @@ export default function RuntimeIssuesTab() {
                 />
               </button>
             </CollapsibleTrigger>
-            {import.meta.env.DEV && !howItWorksOpen && (
-              <p
-                className="flex items-start gap-2 text-xs text-foreground"
-                data-testid="runtime-issues-local-only-strip"
-              >
-                <IconAlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>
-                  This table is this machine only. Open Runtime issues on production to see live traffic.
-                </span>
-              </p>
-            )}
+            <div className="flex items-center gap-3" data-testid="runtime-issues-trend-strip">
+              <RuntimeIssuesSparkline
+                series={dailySeries}
+                total={filteredHitCount}
+                windowDays={filters.windowDays}
+              />
+              <div className="min-w-0 flex-1 space-y-1">
+                {import.meta.env.DEV && !howItWorksOpen ? (
+                  <p
+                    className="flex items-start gap-2 text-xs text-foreground"
+                    data-testid="runtime-issues-local-only-strip"
+                  >
+                    <IconAlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      This table is this machine only. Open Runtime issues on production to see live traffic.
+                    </span>
+                  </p>
+                ) : !howItWorksOpen ? (
+                  <p className="text-xs text-muted-foreground">
+                    {filteredHitCount} hits in the last {filters.windowDays} days ({tz})
+                  </p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Daily 404 hits for your current list filters (same window and timezone as Count). The
+                  chart and totals include all matching paths; the table shows {RUNTIME_ISSUES_PAGE_SIZE}{" "}
+                  per page.
+                </p>
+              </div>
+            </div>
             <CollapsibleContent className="space-y-2">
               {import.meta.env.DEV && (
                 <Alert data-testid="alert-runtime-issues-local-only">
@@ -963,8 +1013,9 @@ export default function RuntimeIssuesTab() {
                 HTTP 404s from this site’s content index (the same catalog as Redirects / Test a URL) —
                 missing URLs that people, Google, LLMs, or social previews tried to open. A row is not
                 “the page failed to paint”: the SPA may still render chrome or even an article if the
-                client loaded by slug. <strong>List filters</strong> only change the table, CSV, and
-                totals chip. Pages only hides file URLs (including Internal).{" "}
+                client loaded by slug. <strong>List filters</strong> change the sparkline, CSV, totals
+                chip, and table. <strong>Pagination</strong> affects the table only. CSV export still
+                includes every filtered row. Pages only hides file URLs (including Internal).{" "}
                 <strong>Ingestion Filters</strong> skip future digestion for scrapers.{" "}
                 <strong>Ignore rules</strong> mute matching URLs from this log going forward (exact path,
                 both locales, or selected slugs — not a freeform regex). They survive Reset 404 log. Not a
@@ -1006,7 +1057,12 @@ export default function RuntimeIssuesTab() {
                   </li>
                   <li>
                     <code>shared/runtime-issues.ts</code> — <code>dropScrapers</code>,{" "}
-                    <code>shouldHardDropNotFound</code>, <code>SOURCE_EXPLANATIONS</code>
+                    <code>shouldHardDropNotFound</code>, <code>SOURCE_EXPLANATIONS</code>,{" "}
+                    <code>aggregateHitsByDay</code>, <code>windowHitCount</code>
+                  </li>
+                  <li>
+                    <code>client/src/components/diagnostics/runtime-issues-filters.ts</code> —{" "}
+                    <code>paginateRuntimeIssues</code> (table only; CSV/totals/sparkline stay full set)
                   </li>
                   <li>
                     <code>POST /api/admin/runtime-issues/drop-scrapers</code>,{" "}
@@ -1025,7 +1081,8 @@ export default function RuntimeIssuesTab() {
                     Non-effects: no public 404 HTML change; not Search Console; not auto-redirect; 404 log
                     last-write-wins does not apply to ignore rules; LLM down still allows exact ignore;
                     unignore does not restore old counts; Hide scrapers does not prune; Pages only does not
-                    change ingest; pull production does not merge (replace then local ingest)
+                    change ingest; pull production does not merge (replace then local ingest); pagination
+                    does not change CSV, totals, or sparkline
                   </li>
                 </ul>
               )}
@@ -1190,6 +1247,7 @@ export default function RuntimeIssuesTab() {
                 No runtime issues match the current filters.
               </div>
             ) : (
+              <>
               <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
@@ -1227,7 +1285,7 @@ export default function RuntimeIssuesTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedIssues.map((issue) => (
+                {pageItems.map((issue) => (
                   <TableRow key={issue.fingerprint} data-testid={`runtime-issue-${issue.fingerprint}`}>
                     <TableCell className="w-10 pr-0">
                       <Checkbox
@@ -1283,6 +1341,43 @@ export default function RuntimeIssuesTab() {
                 ))}
               </TableBody>
             </Table>
+            {totalPages > 1 && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3"
+                data-testid="runtime-issues-pagination"
+              >
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  Page {paged.page} of {totalPages} · {paged.totalItems} paths
+                </span>
+                <Pagination className="mx-0 w-auto justify-end">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        aria-disabled={paged.page <= 1}
+                        className={paged.page <= 1 ? "pointer-events-none opacity-50" : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (paged.page > 1) writeView({ ...view, page: paged.page - 1 });
+                        }}
+                      />
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        aria-disabled={paged.page >= totalPages}
+                        className={paged.page >= totalPages ? "pointer-events-none opacity-50" : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (paged.page < totalPages) writeView({ ...view, page: paged.page + 1 });
+                        }}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+              </>
             )}
           </CardContent>
         </Card>

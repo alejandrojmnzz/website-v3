@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Link, ExternalLink, Check } from "lucide-react";
+import { Search, Link, ExternalLink, Check, Globe } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import {
@@ -16,6 +22,7 @@ import {
   sitemapPathname,
   type SitemapSearchEntry,
 } from "@/lib/sitemapSearch";
+import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 
 interface SitemapSearchProps {
   value: string;
@@ -30,6 +37,10 @@ interface SitemapSearchProps {
    */
   embedded?: boolean;
   onClose?: () => void;
+  /** When set, sitemap row picks call this with the full entry instead of onChange. */
+  onSelectEntry?: (entry: SitemapSearchEntry, path: string) => void;
+  /** Show a flag dropdown next to search so staff can switch or clear the locale filter. */
+  showLocaleFilter?: boolean;
 }
 
 interface SitemapResultRowProps {
@@ -126,7 +137,7 @@ function SitemapResultRow({
             ref={overlayRef}
             aria-hidden
             className={cn(
-              "pointer-events-none fixed z-[10050] flex w-max items-start gap-2 rounded-md border bg-popover px-2 py-1.5 text-sm shadow-md",
+              "pointer-events-none fixed z-[10051] flex w-max items-start gap-2 rounded-md border bg-popover px-2 py-1.5 text-sm shadow-md",
               selected && "bg-primary/10",
             )}
             style={{
@@ -154,6 +165,92 @@ function SitemapResultRow({
   );
 }
 
+const FALLBACK_SITEMAP_LOCALES = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Spanish" },
+];
+
+function isLocaleMenuTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("[data-sitemap-locale-menu]"));
+}
+
+function SitemapLocaleFilter({
+  locale,
+  onLocaleChange,
+  testId,
+}: {
+  locale: string;
+  onLocaleChange: (next: string) => void;
+  testId?: string;
+}) {
+  const { data: localeSettings } = useQuery<{
+    supported_locales: Array<{ code: string; label: string }>;
+  }>({
+    queryKey: ["/api/settings/locales"],
+    queryFn: async () => {
+      const res = await fetch("/api/settings/locales");
+      if (!res.ok) {
+        return { supported_locales: FALLBACK_SITEMAP_LOCALES };
+      }
+      return res.json();
+    },
+    staleTime: Infinity,
+  });
+
+  const locales =
+    localeSettings?.supported_locales?.length
+      ? localeSettings.supported_locales
+      : FALLBACK_SITEMAP_LOCALES;
+
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title="Filter pages by language"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover-elevate"
+          data-testid={testId ? `${testId}-locale-filter` : "sitemap-locale-filter"}
+        >
+          {locale ? (
+            <LocaleFlag locale={locale} className="h-3 w-4 rounded-sm" />
+          ) : (
+            <Globe className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        data-sitemap-locale-menu=""
+        className="z-[10050] min-w-[9rem]"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        <DropdownMenuItem
+          onSelect={() => onLocaleChange("")}
+          data-testid={`${testId}-locale-all`}
+        >
+          <Globe className="h-3.5 w-3.5" />
+          <span className="flex-1">All locales</span>
+          {!locale ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
+        </DropdownMenuItem>
+        {locales.map((entry) => {
+          const selected = locale === entry.code;
+          return (
+            <DropdownMenuItem
+              key={entry.code}
+              onSelect={() => onLocaleChange(entry.code)}
+              data-testid={`${testId}-locale-${entry.code}`}
+            >
+              <LocaleFlag locale={entry.code} className="h-3 w-4 rounded-sm" />
+              <span className="flex-1">{entry.code.toUpperCase()}</span>
+              {selected ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function SitemapSearch({
   value,
   onChange,
@@ -163,21 +260,28 @@ export function SitemapSearch({
   portalContainer,
   embedded = false,
   onClose,
+  onSelectEntry,
+  showLocaleFilter = false,
 }: SitemapSearchProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customUrl, setCustomUrl] = useState(value);
   const [customError, setCustomError] = useState("");
+  const [localeOverride, setLocaleOverride] = useState<string | null>(null);
 
   useEffect(() => {
     setCustomUrl(value);
   }, [value]);
 
+  const filterLocale = showLocaleFilter ? (localeOverride ?? locale) : locale;
+
   const { data: sitemapUrls = [], isLoading } = useQuery<SitemapSearchEntry[]>({
-    queryKey: ["/api/sitemap-urls", locale],
+    queryKey: ["/api/sitemap-urls", filterLocale],
     queryFn: async () => {
-      const url = locale ? `/api/sitemap-urls?locale=${locale}` : "/api/sitemap-urls";
+      const url = filterLocale
+        ? `/api/sitemap-urls?locale=${filterLocale}`
+        : "/api/sitemap-urls";
       const response = await fetch(url);
       if (!response.ok) throw new Error("Failed to load sitemap URLs");
       return response.json();
@@ -198,8 +302,12 @@ export function SitemapSearch({
     onClose?.();
   };
 
-  const handleSelect = (url: string) => {
-    onChange(url, false);
+  const handleSelect = (url: string, entry: SitemapSearchEntry) => {
+    if (onSelectEntry) {
+      onSelectEntry(entry, url);
+    } else {
+      onChange(url, false);
+    }
     finish();
   };
 
@@ -219,19 +327,28 @@ export function SitemapSearch({
   const panel = (
     <>
       <div className="p-2 border-b">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setIsCustomMode(false);
-            }}
-            placeholder="Search pages..."
-            className="h-8 pl-8 text-sm"
-            autoFocus
-            data-testid={`${testId}-search`}
-          />
+        <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setIsCustomMode(false);
+              }}
+              placeholder="Search pages..."
+              className="h-8 pl-8 text-sm"
+              autoFocus
+              data-testid={`${testId}-search`}
+            />
+          </div>
+          {showLocaleFilter ? (
+            <SitemapLocaleFilter
+              locale={filterLocale}
+              onLocaleChange={(next) => setLocaleOverride(next)}
+              testId={testId}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -291,7 +408,7 @@ export function SitemapSearch({
                       path={path}
                       selected={value === path}
                       testId={`${testId}-option-${index}`}
-                      onSelect={handleSelect}
+                      onSelect={(path) => handleSelect(path, entry)}
                     />
                   );
                 })}
@@ -299,22 +416,24 @@ export function SitemapSearch({
             )}
           </ScrollArea>
 
-          <div className="p-2 border-t">
-            <button
-              onClick={() => {
-                setIsCustomMode(true);
-                setCustomUrl(value);
-              }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover-elevate"
-              data-testid={`${testId}-custom-toggle`}
-            >
-              <ExternalLink className="h-4 w-4" />
-              <span>Use custom URL</span>
-              {!isCurrentValueInSitemap && value && (
-                <span className="ml-auto text-xs text-primary">(current)</span>
-              )}
-            </button>
-          </div>
+          {!onSelectEntry ? (
+            <div className="p-2 border-t">
+              <button
+                onClick={() => {
+                  setIsCustomMode(true);
+                  setCustomUrl(value);
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover-elevate"
+                data-testid={`${testId}-custom-toggle`}
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span>Use custom URL</span>
+                {!isCurrentValueInSitemap && value && (
+                  <span className="ml-auto text-xs text-primary">(current)</span>
+                )}
+              </button>
+            </div>
+          ) : null}
         </>
       )}
     </>
@@ -355,6 +474,15 @@ export function SitemapSearch({
         container={portalContainer}
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          if (isLocaleMenuTarget(e.target)) e.preventDefault();
+        }}
+        onFocusOutside={(e) => {
+          if (isLocaleMenuTarget(e.target)) e.preventDefault();
+        }}
+        onPointerDownOutside={(e) => {
+          if (isLocaleMenuTarget(e.target)) e.preventDefault();
+        }}
       >
         {panel}
       </PopoverContent>

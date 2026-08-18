@@ -19,6 +19,7 @@ import Staff404Recovery, { Staff404SwitchToEditHint } from "@/components/editing
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
+import { normalizeFunnelBlock } from "@shared/funnel";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
@@ -194,6 +195,7 @@ export default function Page() {
           singleEntry={page.singleEntry}
           meta={page.meta as Record<string, unknown> | undefined}
           param={(page as { param?: Record<string, unknown> }).param}
+          funnel={normalizeFunnelBlock((page as Record<string, unknown>).funnel)}
         />
       </MenuVisualContextProvider>
       <div className="group relative">

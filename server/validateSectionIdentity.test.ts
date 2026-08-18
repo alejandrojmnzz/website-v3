@@ -65,7 +65,7 @@ describe("validateRequiredConversionName (null vs missing)", () => {
   });
 });
 
-describe("validateProductScope (null vs missing)", () => {
+describe("validateProductScope (page funnel)", () => {
   const baseOpts = {
     hasEcommerceBehavior: true,
     ctaPaths: [] as string[],
@@ -75,43 +75,31 @@ describe("validateProductScope (null vs missing)", () => {
     contentSlug: "home",
   };
 
-  it("fails when ecommerce_products is missing and not inherit", () => {
+  it("fails when funnel.products is missing and not inherit", () => {
     expect(
       validateProductScope({ type: "pricing_plans" }, baseOpts),
-    ).toMatch(/ecommerce_products is required/);
+    ).toMatch(/funnel\.products/);
   });
 
-  it("passes when ecommerce_products is null (explicit off)", () => {
+  it("passes when funnel.products is all", () => {
     expect(
       validateProductScope(
-        { type: "pricing_plans", ecommerce_products: null },
-        baseOpts,
-      ),
-    ).toBeNull();
-    expect(
-      resolveProductScope({ ecommerce_products: null }).source,
-    ).toBe("off");
-  });
-
-  it('passes when ecommerce_products is "all"', () => {
-    expect(
-      validateProductScope(
-        { type: "pricing_plans", ecommerce_products: "all" },
-        baseOpts,
+        { type: "pricing_plans" },
+        { ...baseOpts, funnel: { products: "all", stage: "awareness" } },
       ),
     ).toBeNull();
   });
 
-  it("passes when ecommerce_products lists an active product", () => {
+  it("passes when funnel.products lists an active product", () => {
     expect(
       validateProductScope(
-        { type: "pricing_plans", ecommerce_products: ["full-stack"] },
-        baseOpts,
+        { type: "pricing_plans" },
+        { ...baseOpts, funnel: { products: ["full-stack"], stage: "decision" } },
       ),
     ).toBeNull();
   });
 
-  it("passes on program page via inherit without ecommerce_products key", () => {
+  it("passes on program page via effective self-union without funnel key", () => {
     expect(
       validateProductScope(
         { type: "hero" },
@@ -122,6 +110,12 @@ describe("validateProductScope (null vs missing)", () => {
         },
       ),
     ).toBeNull();
+    expect(
+      resolveProductScope({ type: "hero" }, {
+        contentType: "program",
+        contentSlug: "full-stack",
+      }).source,
+    ).toBe("funnel.products");
   });
 });
 
@@ -172,18 +166,21 @@ describe("validateDocumentSectionsIdentity (publish-shaped)", () => {
       },
       baseDocOpts,
     );
-    expect(err).toMatch(/conversion_name|ecommerce_products/);
+    expect(err).toMatch(/conversion_name|funnel\.products/);
   });
 
-  it("accepts after null / real values are set", () => {
+  it("accepts after funnel.products is set on page", () => {
     const err = validateDocumentSectionsIdentity(
       {
         sections: [
           { type: "lead_form", variant: "stacked", conversion_name: null },
-          { type: "pricing_plans", ecommerce_products: null },
+          { type: "pricing_plans" },
         ],
       },
-      baseDocOpts,
+      {
+        ...baseDocOpts,
+        funnel: { products: ["full-stack"], stage: "decision" },
+      },
     );
     expect(err).toBeNull();
   });

@@ -3,6 +3,9 @@
  */
 
 import { validateDocumentSectionsIdentity } from "@shared/validateSectionIdentity";
+import { normalizeFunnelBlock } from "@shared/funnel";
+import { readFunnelBlockFromFile, commonYmlPath } from "./funnel-fields";
+import { getDefaultContentRoot } from "./site-config";
 import { getTrackingSettings } from "./settings";
 import { loadAllFieldEditors, getComponentInfo } from "./component-registry";
 import { ecommerceManager } from "./ecommerce/ecommerce-manager";
@@ -30,16 +33,22 @@ export function validateDocIdentity(
     skipIdentityIndexes?: Set<number>;
     /** Draft/variant section saves: only check these indexes. Live/publish omit. */
     onlyValidateIndexes?: Set<number>;
+    contentRoot?: string;
   },
 ): string | null {
   const conversionNames = getTrackingSettings().conversion_events.map((e) => e.name);
   const allFieldEditors = loadAllFieldEditors();
+  const root = opts.contentRoot ?? getDefaultContentRoot();
+  const funnel = normalizeFunnelBlock(
+    readFunnelBlockFromFile(commonYmlPath(opts.contentType, opts.contentSlug, root)),
+  );
   return validateDocumentSectionsIdentity(doc, {
     fieldEditorsByType: allFieldEditors,
     hasEcommerceBehavior: (sectionType) =>
       Boolean(getComponentInfo(sectionType)?.behaviors?.includes("ecommerce")),
     contentType: opts.contentType,
     contentSlug: opts.contentSlug,
+    funnel,
     conversionNames,
     resolveProduct: makeProductResolver(),
     skipIdentityIndexes: opts.skipIdentityIndexes,

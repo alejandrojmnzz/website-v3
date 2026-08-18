@@ -149,6 +149,9 @@ app.use(compression({
     if (req.headers['x-no-compression']) {
       return false;
     }
+    if (req.path === '/api/github/site-archive' || req.path === '/api/github/pending-changes/zip') {
+      return false;
+    }
     return compression.filter(req, res);
   },
   level: 6,

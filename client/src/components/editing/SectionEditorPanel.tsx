@@ -8124,117 +8124,22 @@ export function SectionEditorPanel({
               </details>
             </div>
 
-            {hasEcommerceBehavior &&
-              (() => {
-                const sec = parsedSection as Record<string, unknown> | null;
-                if (!sec) return null;
-                let programsHaveIds = false;
-                if (Array.isArray(sec.programs)) {
-                  for (const p of sec.programs) {
-                    if (
-                      p &&
-                      typeof p === "object" &&
-                      typeof (p as Record<string, unknown>).id === "string" &&
-                      String((p as Record<string, unknown>).id)
-                    ) {
-                      programsHaveIds = true;
-                      break;
-                    }
-                  }
-                }
-                const inherits = contentType === "program" && !!slug;
-                const missingProducts =
-                  !("ecommerce_products" in sec) && !programsHaveIds && !inherits;
-                if (!missingProducts) return null;
-                return (
-                  <div
-                    className="rounded-md border border-destructive/40 bg-destructive/10 p-3 space-y-1"
-                    data-testid="banner-ecommerce-products-required"
-                  >
-                    <p className="text-sm font-medium text-destructive">
-                      Product scope required
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      <code className="text-[10px]">ecommerce_products</code> is missing (often after
-                      duplicate). Choose product slugs, <code className="text-[10px]">all</code>, or turn
-                      scope off with <strong>None</strong> (<code className="text-[10px]">null</code>).
-                      Save and publish will fail until you decide.
-                    </p>
-                  </div>
-                );
-              })()}
-
-            {hasEcommerceBehavior &&
-              (() => {
-                const sec = parsedSection as Record<string, unknown> | null;
-                if (!sec) return null;
-                const raw = sec.ecommerce_products;
-                const keyPresent = "ecommerce_products" in sec;
-                const isOff = raw === null;
-                const isAll = raw === "all";
-                const selectedSlugs = Array.isArray(raw)
-                  ? raw.filter((x): x is string => typeof x === "string")
-                  : [];
-                const mode = !keyPresent
-                  ? undefined
-                  : isOff
-                    ? "off"
-                    : isAll
-                      ? "all"
-                      : "list";
-                const productOptions = (ecommerceProductsData?.products ?? [])
-                  .filter((p) => isActivelySelling(p))
-                  .map((p) => ({
-                    value: p.content_slug || p.product_id,
-                    label: p.name || p.content_slug || p.product_id,
-                  }));
-                return (
-                  <div className="space-y-3" data-testid="ecommerce-products-scope">
-                    <h3 className="text-sm font-medium">Product scope</h3>
-                    <Select
-                      value={mode}
-                      onValueChange={(val) => {
-                        if (val === "off") {
-                          updatePropertyWithValue("ecommerce_products", null);
-                        } else if (val === "all") {
-                          updatePropertyWithValue("ecommerce_products", "all");
-                        } else {
-                          updatePropertyWithValue(
-                            "ecommerce_products",
-                            selectedSlugs.length > 0 ? selectedSlugs : [],
-                          );
-                        }
-                      }}
-                      data-testid="select-ecommerce-products-mode"
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose product scope…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="off">None (turn off — null)</SelectItem>
-                        <SelectItem value="all">All purchasable products</SelectItem>
-                        <SelectItem value="list">Specific products…</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {mode === "list" && (
-                      <SearchableMultiSelect
-                        label="Products"
-                        options={productOptions}
-                        value={selectedSlugs}
-                        onChange={(next) => updatePropertyWithValue("ecommerce_products", next)}
-                        searchPlaceholder="Select product slugs…"
-                        emptyMessage="No active purchasable products"
-                        testIdPrefix="ecommerce-product"
-                      />
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Missing after duplicate is invalid. Explicit null turns product scope off;{" "}
-                      <code className="text-[10px]">programs[].id</code> or a program page can also
-                      supply scope.
-                    </p>
-                  </div>
-                );
-              })()}
+            {hasEcommerceBehavior && (
+              <div
+                className="rounded-md border bg-muted/30 p-3 space-y-1 text-sm"
+                data-testid="banner-funnel-products-on-page"
+              >
+                <p className="font-medium text-foreground">Product scope lives on the Funnel tab</p>
+                <p className="text-xs text-muted-foreground">
+                  Set <code className="text-[10px]">funnel.stage</code> and{" "}
+                  <code className="text-[10px]">funnel.products</code> on this entry&apos;s{" "}
+                  <code className="text-[10px]">_common.yml</code> (SEO modal → Funnel). Section{" "}
+                  <code className="text-[10px]">ecommerce_products</code> is no longer used.
+                  Enrollment <code className="text-[10px]">programs[].id</code> still controls card
+                  rendering only.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-3">
               <h3 className="text-sm font-medium">CTA inventory</h3>

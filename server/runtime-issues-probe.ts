@@ -263,13 +263,26 @@ export interface HttpWalkResult {
   error?: string;
 }
 
+function probeFetchHeaders(locale?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": PROBE_USER_AGENT,
+    Accept: "text/html,*/*",
+  };
+  const loc = locale?.trim().toLowerCase();
+  if (loc) headers["Accept-Language"] = loc;
+  return headers;
+}
+
 export async function walkHttpRedirects(opts: {
   startUrl: string;
   fetchFn?: typeof fetch;
   timeoutMs?: number;
+  /** Aligns live HTTP with index walk locale (path prefix + Accept-Language). */
+  locale?: string;
 }): Promise<HttpWalkResult> {
   const fetchFn = opts.fetchFn ?? fetch;
   const timeoutMs = opts.timeoutMs ?? PROBE_HTTP_TIMEOUT_MS;
+  const fetchHeaders = probeFetchHeaders(opts.locale);
   const hops: string[] = [];
   const seen = new Set<string>();
   let current = opts.startUrl;
@@ -289,7 +302,7 @@ export async function walkHttpRedirects(opts: {
         method: "GET",
         redirect: "manual",
         signal: controller.signal,
-        headers: { "User-Agent": PROBE_USER_AGENT, Accept: "text/html,*/*" },
+        headers: fetchHeaders,
       });
       const status = res.status;
       if (status >= 300 && status < 400) {
@@ -309,7 +322,7 @@ export async function walkHttpRedirects(opts: {
               method: "GET",
               redirect: "manual",
               signal: settleController.signal,
-              headers: { "User-Agent": PROBE_USER_AGENT, Accept: "text/html,*/*" },
+              headers: fetchHeaders,
             });
             const settledStatus = settled.status;
             if (settledStatus >= 300 && settledStatus < 400) {
@@ -430,6 +443,7 @@ export async function probeRuntimePath(input: ProbeRuntimePathInput): Promise<Ru
   const http = await walkHttpRedirects({
     startUrl,
     fetchFn: input.fetchFn,
+    locale: input.locale,
   });
   return combineProbeWalks(index, http, input.now ?? Date.now());
 }

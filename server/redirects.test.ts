@@ -23,7 +23,7 @@ vi.mock("./content-types", async (importOriginal) => {
   };
 });
 
-import { findCanonicalSoftMatch, isLivePublicUrl, testRedirect } from "./redirects";
+import { findCanonicalSoftMatch, isLivePublicUrl, resolveRedirectRequestLocale, testRedirect } from "./redirects";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import {
   REDIRECT_TRACE_COOKIE_NAME,
@@ -51,6 +51,35 @@ function makeCi(opts: {
     refreshCustomRedirects: () => [],
   } as unknown as typeof ContentIndexType;
 }
+
+describe("resolveRedirectRequestLocale", () => {
+  it("prefers /es/ path prefix over English Accept-Language", () => {
+    expect(
+      resolveRedirectRequestLocale({
+        path: "/es/blog/coding-bootcamps/legacy-slug",
+        headers: { "accept-language": "en-US,en;q=0.9" },
+      }),
+    ).toBe("es");
+  });
+
+  it("uses Accept-Language when the path has no locale prefix", () => {
+    expect(
+      resolveRedirectRequestLocale({
+        path: "/coding-bootcamps/legacy-slug",
+        headers: { "accept-language": "es-ES,es;q=0.9" },
+      }),
+    ).toBe("es");
+  });
+
+  it("defaults to en when path and Accept-Language are ambiguous", () => {
+    expect(
+      resolveRedirectRequestLocale({
+        path: "/coding-bootcamps/legacy-slug",
+        headers: {},
+      }),
+    ).toBe("en");
+  });
+});
 
 describe("findCanonicalSoftMatch", () => {
   it("returns null when the last segment is not a real slug", () => {
