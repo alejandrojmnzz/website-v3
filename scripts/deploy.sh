@@ -17,7 +17,7 @@ if [[ -z "${TURNSTILE_SITE_KEY:-}" || -z "${TURNSTILE_SECRET_KEY:-}" ]]; then
 fi
 npm run build
 if systemctl cat website.service >/dev/null 2>&1; then
-  systemctl restart website
+  sudo systemctl restart website
 else
   echo "[deploy] website.service still not installed — build OK, start later"
 fi
