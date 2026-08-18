@@ -31,7 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth, getDebugUserName } from "@/hooks/useDebugAuth";
-import { CAPABILITY_REGISTRY } from "@shared/capabilities";
+import { CAPABILITY_REGISTRY, CONTENT_MUTATE_CAPABILITIES } from "@shared/capabilities";
 import { IconLock } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { AuthTab } from "@/components/settings/AuthTab";
@@ -91,6 +91,35 @@ interface RoleFormState {
   label: string;
   description: string;
   capabilities: Record<string, CapabilityFormState>;
+}
+
+const CONTENT_MUTATE_SET = new Set<string>(CONTENT_MUTATE_CAPABILITIES);
+
+function parseScopeList(raw: string): string[] {
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** Empty string = all content types. */
+function mergeContentTypeScopes(a: string, b: string): string {
+  if (!a.trim() || !b.trim()) return "";
+  return Array.from(new Set([...parseScopeList(a), ...parseScopeList(b)])).join(", ");
+}
+
+function withAutoContentView(
+  caps: Record<string, CapabilityFormState>,
+  changedName: string,
+  nextState: CapabilityFormState,
+): Record<string, CapabilityFormState> {
+  const updated = { ...caps, [changedName]: nextState };
+  if (!CONTENT_MUTATE_SET.has(changedName) || !nextState.enabled) return updated;
+  const view = updated.content_view ?? { enabled: false, contentTypes: "" };
+  updated.content_view = {
+    enabled: true,
+    contentTypes: view.enabled
+      ? mergeContentTypeScopes(view.contentTypes, nextState.contentTypes)
+      : nextState.contentTypes,
+  };
+  return updated;
 }
 
 interface ContentTypeEntry {
@@ -229,7 +258,7 @@ function CapabilityFields({
                 id={`cap-${cap.name}`}
                 checked={state.enabled}
                 onCheckedChange={(checked) =>
-                  onChange({ ...caps, [cap.name]: { ...state, enabled: !!checked } })
+                  onChange(withAutoContentView(caps, cap.name, { ...state, enabled: !!checked }))
                 }
                 data-testid={`checkbox-cap-${cap.name}`}
               />
@@ -250,7 +279,7 @@ function CapabilityFields({
                 <ContentTypeSelector
                   value={state.contentTypes}
                   onChange={(v) =>
-                    onChange({ ...caps, [cap.name]: { ...state, contentTypes: v } })
+                    onChange(withAutoContentView(caps, cap.name, { ...state, contentTypes: v }))
                   }
                 />
               </div>
@@ -379,6 +408,8 @@ function RolesTab() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Define internal staff roles and assign capabilities to them. These are not related to website consumer users.
+          MCP agents only see tools the caller&apos;s grants allow. Tick <span className="font-medium">View content</span> for YAML reads;
+          enabling an edit cap auto-ticks view (you can uncheck it). After a role change, refresh the MCP server in Cursor.
         </p>
         <Button variant="outline" size="sm" onClick={startNewRole} data-testid="button-new-role">
           <IconPlus className="h-4 w-4 mr-1.5" />
@@ -426,6 +457,9 @@ function RolesTab() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
+              <p className="text-xs text-muted-foreground">
+                Editors need View content for MCP reads. Ticking any content edit cap enables View content for the same types.
+              </p>
               <CapabilityFields
                 caps={newRoleForm.capabilities}
                 onChange={(updated) => setNewRoleForm({ ...newRoleForm, capabilities: updated })}
@@ -446,7 +480,7 @@ function RolesTab() {
           <p className="text-sm text-muted-foreground text-center py-8">No roles defined yet.</p>
         )}
         {roles.map(([roleId, role]) => {
-          const isBuiltIn = roleId === "webmaster" || roleId === "metrics_viewer";
+          const isBuiltIn = roleId === "webmaster" || roleId === "metrics_viewer" || roleId === "content_viewer";
           const isEditing = editingRoleId === roleId;
           const isDeleting = deletingRoleId === roleId;
           return (
@@ -557,6 +591,9 @@ function RolesTab() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-muted-foreground">Capabilities</label>
+                      <p className="text-xs text-muted-foreground">
+                        Editors need View content for MCP reads. Ticking any content edit cap enables View content for the same types.
+                      </p>
                       <CapabilityFields
                         caps={editRoleForm.capabilities}
                         onChange={(updated) => setEditRoleForm({ ...editRoleForm, capabilities: updated })}
@@ -567,6 +604,35 @@ function RolesTab() {
                   <>
                     {role.description && (
                       <p className="text-xs text-muted-foreground mb-2">{role.description}</p>
+                    )}
+                    {roleId === "content_viewer" && (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          MCP-only YAML reads (entries, type contracts, component schemas, playbooks). No writes,
+                          no diagnostics jobs, no FAQ database.
+                        </p>
+                        <details className="mb-2 group">
+                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
+                            <IconChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                            Read more (advanced)
+                          </summary>
+                          <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
+                            <p>
+                              Grants only <code className="font-mono">content_view</code> (all content types).
+                              MCP <code className="font-mono">tools/list</code> is filtered in production from this grant.
+                            </p>
+                            <p>
+                              Does not include <code className="font-mono">seo_edit</code> (redirects), FAQ item CRUD,
+                              or starting diagnostics jobs. After assigning this role, refresh the MCP server in Cursor.
+                            </p>
+                            <p>
+                              Defined in <code className="font-mono">shared/capabilities.ts</code> and{" "}
+                              <code className="font-mono">server/user-store.ts</code>. Catalog map:{" "}
+                              <code className="font-mono">mcp-server/lib/tool-catalog.ts</code>.
+                            </p>
+                          </div>
+                        </details>
+                      </>
                     )}
                     {roleId === "metrics_viewer" && (
                       <details className="mb-2 group">

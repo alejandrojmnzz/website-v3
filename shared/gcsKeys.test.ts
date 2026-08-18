@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formStateReadKeys,
+  gscUrlInspectionReadKeys,
   legacyPerSiteSyncGcsKey,
   platformSitesYmlGcsKey,
   platformSitesYmlReadKeys,
@@ -67,6 +68,12 @@ describe("gcsKeys", () => {
     const keys = syncStateReadKeys("site_4geeks-florida");
     expect(keys[0]).toBe("site_4geeks-florida/sync/sync-state.json");
     expect(keys).toContain("sync/site_4geeks-florida/sync-state.json");
+  });
+
+  it("builds Search Console inspection sidecar keys", () => {
+    expect(gscUrlInspectionReadKeys("site_4geeks-com")).toEqual([
+      "site_4geeks-com/sync/gsc-url-inspection.json",
+    ]);
   });
 
   it("includes legacy global form state for default site only", () => {

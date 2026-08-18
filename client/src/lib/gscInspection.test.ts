@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { gscHeadline, gscCrawlerErrorCount, gscPermissionLabel, isGscPropertyAccessDenied } from "./gscInspection";
+import { gscHeadline, gscCrawlerErrorCount, gscInspectModeLabel, gscPermissionLabel, isGscPropertyAccessDenied } from "./gscInspection";
 
 describe("gscHeadline", () => {
   it("labels drafts, never-checked, indexed, and errors", () => {
@@ -42,10 +42,10 @@ describe("isGscPropertyAccessDenied", () => {
   });
 });
 
-describe("gscPermissionLabel", () => {
-  it("maps Search Console permission levels", () => {
-    expect(gscPermissionLabel("siteOwner")).toBe("Owner");
-    expect(gscPermissionLabel("siteRestrictedUser")).toBe("Restricted user");
-    expect(gscPermissionLabel("")).toBe("Unknown");
+describe("gscInspectModeLabel", () => {
+  it("labels bulk inspect modes", () => {
+    expect(gscInspectModeLabel("never")).toBe("never inspected");
+    expect(gscInspectModeLabel("stale")).toBe("stale");
+    expect(gscInspectModeLabel("all")).toBe("all");
   });
 });

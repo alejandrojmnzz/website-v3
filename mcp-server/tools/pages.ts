@@ -19,7 +19,12 @@ import {
   listMcpSites,
 } from "../lib/content.js";
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
-import { checkCap, denyResponse } from "../lib/auth.js";
+import { checkCap, denyResponse, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
+import {
+  grantsCanMutateMetrics,
+  visibleContentTypes,
+  type CatalogGrant,
+} from "../lib/tool-catalog.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
@@ -226,6 +231,31 @@ async function callEditSectionsApi(
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
       const errMsg = (data.error as string) || `Server error: ${res.status}`;
+      if (/Section index \d+ does not exist/.test(errMsg)) {
+        return {
+          error: fail(errMsg, {
+            warnings: [
+              {
+                code: "section_index_no_create",
+                message:
+                  "Does not create sections[] slots or overlay patches. Reload indexes, or edit the template (single.{locale}.yml) with layout_target type_single. Overlay merge: server/section-merge.ts.",
+              },
+            ],
+            next_actions: [
+              {
+                tool: "get_entry_fields",
+                reason: "Reload current section indexes before retrying update_fields.",
+                priority: "required",
+                args_hint: {
+                  slug: params.slug,
+                  locale: params.locale,
+                  contentType: params.contentType,
+                },
+              },
+            ],
+          }),
+        };
+      }
       // Product-scope / ecommerce validation — guide agents to exact property paths
       if (
         /ecommerce_products|programs\[\]\.id|ecommerce scope|purchasable product/i.test(errMsg)
@@ -544,7 +574,12 @@ function getCachedValidationIssues(
   }
 }
 
-export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?: string): void {
+export function registerPageTools(
+  mcp: McpServer,
+  _mcpAuthor?: string,
+  mcpToken?: string,
+  grants?: CatalogGrant[],
+): void {
   // list_sites
   mcp.tool(
     "list_sites",
@@ -582,7 +617,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Static single_template types (e.g. blog) ARE listed — they are YAML, not DB. " +
     "Use get_content_type_info to see db_backed vs single_template. " +
     MULTI_SITE_TOOL_BLURB + " " +
-    "Optional filters (AND): contentType, locale, slugs, search.",
+    "Optional filters (AND): contentType, locale, slugs, search. Requires content_view.",
     {
       contentType: z.string().optional().describe("Restrict to one content type, e.g. 'program', 'blog', or 'landing'"),
       locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
@@ -591,10 +626,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, locale, slugs, search, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "list_entries", { contentType, locale, slugs, search });
       const { contentPath } = siteResult;
       let pages = scanPages(contentPath);
+      const allowedTypes = grants ? visibleContentTypes(grants) : null;
+      if (allowedTypes) {
+        pages = pages.filter(p => allowedTypes.has(p.contentType));
+      }
       if (contentType) {
         pages = pages.filter(p => p.contentType === contentType);
       }
@@ -679,7 +720,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "validation_issues (all cached validation issues for this page across all categories — each with code, message, severity, and category). " +
     "validation_issues is always present (empty array if no issues are cached). " +
     "Merges _common.yml with the locale file. contentType is optional — omit it and the server will auto-detect it from the slug. " +
-    "Use get_entry_seo to fetch only the SEO/meta fields. " +
+    "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -706,6 +747,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!resolved) {
           return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
         }
+        const viewDenied = await denyUnlessContentView(mcpToken, resolved.contentType, grants);
+        if (viewDenied) return viewDenied;
         const result = loadVariantPage(resolved.contentType, slug, locale, variant, contentPath);
         if (!result) {
           return { content: [{ type: "text", text: `Variant '${variant}' not found for page '${slug}' locale '${locale}' (file: ${variant}.${locale}.yml)` }], isError: true };
@@ -718,6 +761,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
+      const viewDeniedLive = await denyUnlessContentView(mcpToken, payload.contentType, grants);
+      if (viewDeniedLive) return viewDeniedLive;
 
       const { meta: _meta, ...dataWithoutMeta } = payload.data;
       const merged = { ...dataWithoutMeta } as Record<string, unknown>;
@@ -741,7 +786,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
-    "Do not expect a derived JSON-LD dump on get_entry_content. " +
+    "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -817,6 +862,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!resolved) {
           return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
         }
+        const seoDenied = await denyUnlessContentViewOrSeo(mcpToken, resolved.contentType, grants);
+        if (seoDenied) return seoDenied;
         const result = loadVariantPage(resolved.contentType, slug, locale, variant, contentPath);
         if (!result) {
           return { content: [{ type: "text", text: `Variant '${variant}' not found for page '${slug}' locale '${locale}' (file: ${variant}.${locale}.yml)` }], isError: true };
@@ -859,6 +906,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
+      const seoDeniedLive = await denyUnlessContentViewOrSeo(mcpToken, payload.contentType, grants);
+      if (seoDeniedLive) return seoDeniedLive;
 
       // Inject cached SEO-only validation issues for this page's URL
       const pageUrl = payload.urls?.[locale];
@@ -1041,7 +1090,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
     "Cached issues in memory refresh only after job completion. " +
     "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs. " +
-    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
+    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately. " +
+    "Requires a mutating staff cap (not metrics_view/content_view only).",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
       categories: z.array(z.string()).optional().describe("Filter returned issues to categories (e.g. ['seo']). Does not narrow the job."),
@@ -1050,6 +1100,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ slugs, categories, freshness, max_age_seconds, site }) => {
+      if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
+        return denyResponse("metrics_mutate");
+      }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -1165,12 +1218,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Poll an async diagnostics job started by run_entry_diagnostics. " +
     "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
     "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated after worker finishes), failed, or not_found " +
-    "(diagnostics_job_lost — start a new run_entry_diagnostics). Disk validation-cache is authoritative after completed.",
+    "Disk validation-cache is authoritative after completed. Requires a mutating staff cap (not metrics_view/content_view only).",
     {
       job_id: z.string().describe("Job id from run_entry_diagnostics"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ job_id, site }) => {
+      if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
+        return denyResponse("metrics_mutate");
+      }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -1308,6 +1364,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
+    "sections.N.* patches an existing slot only — missing index fails (reload, or edit single.{locale}.yml with layout_target type_single). Does not create overlay patches or grow sections[]. " +
     "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); meta.robots/priority/change_frequency → _common.yml; " +
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
@@ -1536,6 +1593,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const results: string[] = [];
       let boundUpdates: unknown;
       const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
+      if (touchesSections) {
+        warnings.push({
+          code: "section_index_no_create",
+          message:
+            "sections.N.* patches an existing slot only (this file or single.{locale}.yml). Missing index fails — reload get_entry_fields or use layout_target type_single. Does not create overlay patches. Merge: server/section-merge.ts.",
+        });
+      }
       if (variant && commonEntries.length > 0) {
         warnings.push({
           code: "common_meta_ignores_variant",
@@ -1979,7 +2043,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "(original | db_override | ct_override | entry_default). " +
     "Static types: values come from root keys on the layer file (entry_default); leftover field_overrides bags are still applied until migrated. " +
     "DB types: ct_override = field_overrides bag; db_override = overrides.json. " +
-    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field.",
+    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field. Requires content_view.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
@@ -2003,6 +2067,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'`);
       }
+      const fieldsDenied = await denyUnlessContentView(mcpToken, resolved.contentType, grants);
+      if (fieldsDenied) return fieldsDenied;
       const q = new URLSearchParams({ locale });
       if (domain) q.set("__site", domain);
       if (variant) q.set("variant", variant);
@@ -2026,16 +2092,6 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             fieldsOut = fieldsOut.map((f) => {
               const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
               if (!name) return f;
-              if (name === "cluster_keyword" || name === "cluster_url") {
-                return {
-                  ...f,
-                  system_hints: [
-                    "Blog holding column until hubs are resolved — not the cluster hub.",
-                    "Hub fields are seo.main_keyword / seo.is_pillar / seo.pillar_path (update_fields, locale YAML).",
-                    "Do not copy cluster_keyword onto seo.main_keyword. Do not invent pillar_path.",
-                  ],
-                };
-              }
               if (typeof name === "string" && name.startsWith("seo.")) {
                 return {
                   ...f,
@@ -2213,13 +2269,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "List extra versions (drafts/A-B variants) for a page: slug, traffic allocation, locale. " +
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
-    "Use before create_variant or editing an existing draft.",
+    "Use before create_variant or editing an existing draft. Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain, contentPath } = siteResult;
@@ -4541,7 +4599,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Read-only: look up the section-binding group for a section by contentType, slug, and sectionIndex. " +
     "Returns { group: null } when the section is not bound, or the enriched binding group with members. " +
     "Use after structural edits or update_fields when you need membership context. " +
-    "Does not mutate content — binding content sync happens on live update_fields (single-section).",
+    "Does not mutate content — binding content sync happens on live update_fields (single-section). Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'page' or 'program'"),
       slug: z.string().describe("Page slug"),
@@ -4550,6 +4608,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, sectionIndex, locale, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -4731,7 +4791,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "and schema_org_requirements with coverage { present, missing_slugs } when declared. " +
     "For editor.type json fields, read editor.<field>.schema (JSON Schema) before writing values via " +
     "update_fields — schema is required and returned again on validation failure. " +
-    "Call this before create_entry when unsure how a type works. " +
+    "Call this before create_entry when unsure how a type works. Requires content_view. " +
     "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
     MULTI_SITE_TOOL_BLURB,
     {
@@ -4739,6 +4799,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "get_content_type_info", { contentType });
       const { contentPath, domain } = siteResult;
@@ -5025,7 +5087,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Works for YAML and DB-backed types via the main server seo-entries API. " +
     "Sections/body content are never returned. " +
     "IMPORTANT: Omitting slugs does NOT dump the full type — returns a minimal sample (default 5; limit 1–20). " +
-    "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. " +
+    "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. Requires content_view or seo_edit. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().optional().describe("Restrict to one content type, e.g. 'blog' or 'program'"),
@@ -5035,6 +5097,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, locale, slugs, limit, site }) => {
+      const seoDenied = await denyUnlessContentViewOrSeo(mcpToken, contentType, grants);
+      if (seoDenied) return seoDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "list_entry_seo", { contentType, locale, slugs, limit });
@@ -5044,9 +5108,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const configs = loadContentTypes(contentPath);
         const results: Array<Record<string, unknown>> = [];
 
-        const typesToQuery = contentType
+        const allowedTypes = grants ? visibleContentTypes(grants, { seoUnlocksAll: true }) : null;
+        let typesToQuery = contentType
           ? (configs[contentType] ? [contentType] : [])
           : Object.keys(configs);
+        if (allowedTypes) {
+          typesToQuery = typesToQuery.filter((ct) => allowedTypes.has(ct));
+        }
 
         await Promise.all(typesToQuery.map(async (ct) => {
           try {

@@ -656,8 +656,8 @@ export default function CloudSyncPage() {
               &ldquo;Local only&rdquo; for details. Refresh above to re-check after uploads or deployments.
             </p>
             <p>
-              Single-file rows (sync state, form registry, validation cache, runtime issues, sites.yml,
-              and similar) show a ⋮ menu: <span className="font-medium text-foreground">View</span> local
+              Single-file rows (sync state, form registry, validation cache, Search Console inspection,
+              runtime issues, sites.yml, and similar) show a ⋮ menu: <span className="font-medium text-foreground">View</span> local
               content, <span className="font-medium text-foreground">Download from GCS</span> (overwrite
               local and reload memory), or <span className="font-medium text-foreground">Upload to GCS</span>{" "}
               (overwrite cloud). Last-write-wins. Upload only works in production with GCS configured.

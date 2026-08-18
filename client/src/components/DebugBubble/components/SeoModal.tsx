@@ -653,6 +653,7 @@ export function SeoModal({
                   slug={contentInfo.slug}
                   locale={fieldsLocale}
                   variant={fieldsVariant}
+                  portalContainer={dialogContainer}
                 />
               ) : null}
 

@@ -11,6 +11,7 @@ import {
   inspectAndStore,
   isGscPropertyAccessDenied,
   isPreviewLoc,
+  isStale,
   type InspectUrlResult,
 } from "./gsc-url-inspection";
 
@@ -19,7 +20,7 @@ const log = child({ module: "gsc-inspect-queue" });
 export const GSC_INSPECT_INTERVAL_MS = 1500;
 export const GSC_INSPECT_MAX_PER_JOB = 2000;
 
-export type GscInspectMode = "never" | "all";
+export type GscInspectMode = "never" | "stale" | "all";
 export type GscInspectAborted = "permission_denied" | null;
 
 export interface GscInspectQueueStats {
@@ -152,7 +153,9 @@ export function selectGscInspectLocs(opts: {
   const selected =
     opts.mode === "never"
       ? publicLocs.filter((loc) => !getRecord(opts.contentRootName, loc))
-      : publicLocs;
+      : opts.mode === "stale"
+        ? publicLocs.filter((loc) => isStale(getRecord(opts.contentRootName, loc)))
+        : publicLocs;
 
   const capped = selected.length > max;
   return {

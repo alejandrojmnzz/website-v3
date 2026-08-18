@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 const BUILT_IN_ROLE_LABELS: Record<string, string> = {
   webmaster: "Webmaster",
   metrics_viewer: "Metrics Viewer",
+  content_viewer: "Content Viewer",
 };
 
 function capabilityLabel(name: string): string {

@@ -98,6 +98,26 @@ describe("gsc-inspect-queue", () => {
     expect(all.eligible).toBe(3);
   });
 
+  it("stale includes missing and 8-day-old rows and excludes 1-day-old", () => {
+    const now = Date.now();
+    upsertRecord("site_demo", publicA, {
+      inspectedAt: new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      verdict: "PASS",
+    });
+    upsertRecord("site_demo", publicB, {
+      inspectedAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      verdict: "PASS",
+    });
+
+    const stale = selectGscInspectLocs({
+      mode: "stale",
+      contentRootName: "site_demo",
+      debugUrls: sampleUrls,
+    });
+    expect(stale.locs).toEqual([publicA, publicC]);
+    expect(stale.eligible).toBe(2);
+  });
+
   it("excludes drafts, preview paths, and URLs not in the sitemap", () => {
     const selected = selectGscInspectLocs({
       mode: "all",
@@ -251,7 +271,7 @@ describe("gsc-inspect-queue", () => {
     expect(getGscInspectQueueStats().running).toBe(false);
   });
 
-  it("uses force inspect for all and not for never", async () => {
+  it("uses force inspect for all and not for never or stale", async () => {
     const forces: boolean[] = [];
     setGscInspectQueueHooksForTests({
       delayFn: async () => {},
@@ -263,6 +283,16 @@ describe("gsc-inspect-queue", () => {
 
     enqueueGscInspects({
       mode: "never",
+      contentRoot: "site_demo",
+      contentRootName: "site_demo",
+      debugUrls: sampleUrls,
+    });
+    await waitUntilIdle();
+    expect(forces.every((f) => f === false)).toBe(true);
+
+    forces.length = 0;
+    enqueueGscInspects({
+      mode: "stale",
       contentRoot: "site_demo",
       contentRootName: "site_demo",
       debugUrls: sampleUrls,

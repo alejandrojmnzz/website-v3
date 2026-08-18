@@ -488,8 +488,8 @@ export function registerSeoRoutes(app: Express): void {
       }
 
       const mode = req.body?.mode as unknown;
-      if (mode !== "never" && mode !== "all") {
-        res.status(400).json({ error: "mode must be \"never\" or \"all\"" });
+      if (mode !== "never" && mode !== "stale" && mode !== "all") {
+        res.status(400).json({ error: "mode must be \"never\", \"stale\", or \"all\"" });
         return;
       }
 

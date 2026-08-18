@@ -53,6 +53,13 @@ import { databaseManager, DatabaseManager } from "./database";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import { canonicalSectionId, sectionIdCandidates, sectionMatchesId } from "./utils/sectionIdentity";
 import {
+  invalidSectionIndexMessage,
+  isInvalidSectionIndexError,
+  keepSectionAfterTypelessScrub,
+  sectionIndexFromUpdateFieldPath,
+  sectionSlotExists,
+} from "@shared/sectionLeftovers";
+import {
   fanOutStructuralOpsToSiblings,
   cleanSectionIdFromEntryOverlays,
   isAllowlistedSectionFieldPath,
@@ -308,6 +315,10 @@ function applyOperation(
   const result: { clearedFields?: ClearedField[]; insertedSectionIndex?: number } = {};
   switch (operation.action) {
     case "update_field": {
+      const sectionIdx = sectionIndexFromUpdateFieldPath(operation.path);
+      if (sectionIdx !== null && !sectionSlotExists(content, sectionIdx)) {
+        throw new Error(invalidSectionIndexMessage(sectionIdx));
+      }
       setValueAtPath(content, operation.path, operation.value);
       break;
     }
@@ -932,14 +943,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
             }
             forwardedTemplateOps = true;
 
-            // Drop layout-only stubs previously written into the entry file by the
-            // buggy update_field path (no type / section identity — ignored at load).
+            // Drop identity-less stubs previously written into the entry overlay.
             if (Array.isArray(localeData.sections)) {
-              localeData.sections = (localeData.sections as Record<string, unknown>[]).filter(
-                (s) =>
-                  !!s &&
-                  typeof s === "object" &&
-                  !!(s.type || s.section_id || s.id || s._remove || s._perEntrySource),
+              localeData.sections = (localeData.sections as unknown[]).filter((s) =>
+                keepSectionAfterTypelessScrub(s, false),
               );
             }
           }
@@ -1161,11 +1168,15 @@ export async function editContent(request: ContentEditRequest): Promise<{
       }
     }
 
-    // Strip null/non-object entries from sections before writing — a null section
-    // entry (produced by a blank YAML list item) causes a server crash at load time.
+    // Strip null/non-object entries, then typeless leftovers on files that own
+    // full structure. Attached overlays keep identity patches (`section_id` / `_remove`).
     if (Array.isArray(localeData.sections)) {
-      localeData.sections = (localeData.sections as unknown[]).filter(
-        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      const ownsFullStructure =
+        path.basename(filePath).startsWith("single.") ||
+        isEntryDetached(contentType, slug, contentRoot) ||
+        !isSharedLayoutType(contentType, contentRoot);
+      localeData.sections = (localeData.sections as unknown[]).filter((s) =>
+        keepSectionAfterTypelessScrub(s, ownsFullStructure),
       );
     }
 
@@ -1467,10 +1478,10 @@ function writeStructuralChangesToTemplate(opts: {
       }
     }
 
-    // Strip null/non-object entries from sections before writing
+    // Strip null/non-object entries and typeless leftovers (template owns full structure)
     if (Array.isArray(templateData.sections)) {
-      templateData.sections = (templateData.sections as unknown[]).filter(
-        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      templateData.sections = (templateData.sections as unknown[]).filter((s) =>
+        keepSectionAfterTypelessScrub(s, true),
       );
     }
 
@@ -1701,8 +1712,8 @@ function writeEntryOverlayOps(opts: {
       applyOperation(entryData, op, { contentRoot: opts.contentRoot, locale });
     }
     if (Array.isArray(entryData.sections)) {
-      entryData.sections = (entryData.sections as unknown[]).filter(
-        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      entryData.sections = (entryData.sections as unknown[]).filter((s) =>
+        keepSectionAfterTypelessScrub(s, false),
       );
     }
     const consentErr = getConsentKeyError(entryData);
@@ -1969,6 +1980,9 @@ function handleSharedTemplateEdit(opts: {
       }
     }
   } catch (err) {
+    if (isInvalidSectionIndexError(err)) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
     log.error("[editContent] Failed to write non-DB field changes to shared template:", err instanceof Error ? err.message : err);
   }
 

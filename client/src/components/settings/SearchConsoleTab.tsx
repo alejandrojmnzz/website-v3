@@ -278,9 +278,15 @@ export function SearchConsoleTab() {
           <p>
             This app reads Google Search Console <strong className="text-foreground font-medium">URL Inspection</strong>{" "}
             status and caches it on disk. It does <strong className="text-foreground font-medium">not</strong> request
-            indexing. Checking a URL spends daily quota (~2000/day). Restarts load{" "}
-            <code className="font-mono text-xs">.cache/{"{site}"}/gsc-url-inspection.json</code> only — they do not
-            call Google.
+            indexing. Checking a URL spends daily quota (~2000/day). Production restarts load{" "}
+            <code className="font-mono text-xs">{"{site}"}/sync/gsc-url-inspection.json</code> from GCS into{" "}
+            <code className="font-mono text-xs">.cache/{"{site}"}/gsc-url-inspection.json</code>. Local{" "}
+            <code className="font-mono text-xs">npm run dev</code> uses the <code className="font-mono text-xs">.cache</code>{" "}
+            file only. Restarts do not call Google. The inspect queue is not stored in GCS.
+          </p>
+          <p>
+            In production, each inspect write updates disk then uploads to GCS after about 30 seconds (same
+            pattern as validation cache). A hard kill can lose that last batch.
           </p>
           <p>
             The Search Console property lives in this site’s{" "}
@@ -310,8 +316,11 @@ export function SearchConsoleTab() {
             <CollapsibleContent className="pt-2 space-y-1 text-xs font-mono">
               <p>server/settings.ts</p>
               <p>server/gsc-url-inspection.ts</p>
+              <p>server/gsc-inspect-queue.ts</p>
+              <p>shared/gcsKeys.ts</p>
               <p>settings.yml → search_console.site_url</p>
               <p>.cache/{"{contentRoot}"}/gsc-url-inspection.json</p>
+              <p>{"{contentRoot}"}/sync/gsc-url-inspection.json</p>
               <p>GET/POST /api/debug/gsc-inspection</p>
               <p>GET /api/debug/gsc-inspection/sites</p>
               <p>PUT /api/settings/search-console</p>

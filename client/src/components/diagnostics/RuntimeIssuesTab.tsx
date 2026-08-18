@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowDown,
   ArrowUp,
@@ -1164,6 +1164,12 @@ export default function RuntimeIssuesTab() {
           >
             <IconTrash className="h-4 w-4 mr-1.5" />
             Reset 404 log
+          </Button>
+          <Button variant="outline" size="sm" asChild data-testid="button-runtime-redirects">
+            <Link href="/private/redirects">
+              <Route className="h-4 w-4 mr-1.5" />
+              Redirects
+            </Link>
           </Button>
         </div>
       </div>

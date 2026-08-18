@@ -23,7 +23,17 @@ const MUTATING_TOOLS = [
   "set_entry_attachment",
   "regenerate_entry_previews",
   "ensure_content_type_schema_org",
+  "update_redirect",
 ] as const;
+
+const TOOL_SOURCE_FILE: Record<string, string> = {
+  update_redirect: "mcp-server/tools/redirects.ts",
+};
+
+function mutatingToolSource(toolName: string): string {
+  const rel = TOOL_SOURCE_FILE[toolName] ?? "mcp-server/tools/pages.ts";
+  return fs.readFileSync(path.join(process.cwd(), rel), "utf-8");
+}
 
 function extractToolHandlerSource(src: string, toolName: string): string | null {
   const marker = `mcp.tool(\n    "${toolName}"`;
@@ -90,6 +100,7 @@ describe("respond helpers", () => {
 describe("mcp-server mutating tools use respond helpers", () => {
   const pagesPath = path.join(process.cwd(), "mcp-server/tools/pages.ts");
   const src = fs.readFileSync(pagesPath, "utf-8");
+  const redirectsSrc = fs.readFileSync(path.join(process.cwd(), "mcp-server/tools/redirects.ts"), "utf-8");
 
   it("pages.ts imports ok/fail helpers", () => {
     expect(src.includes("from \"../lib/page-tool-helpers.js\"") || src.includes("from \"../lib/respond.js\"")).toBe(
@@ -97,6 +108,13 @@ describe("mcp-server mutating tools use respond helpers", () => {
     );
     expect(src.includes("ok(")).toBe(true);
     expect(src.includes("fail(")).toBe(true);
+  });
+
+  it("redirects.ts imports ok/fail helpers", () => {
+    expect(redirectsSrc.includes("from \"../lib/respond.js\"")).toBe(true);
+    expect(redirectsSrc.includes("ok(")).toBe(true);
+    expect(redirectsSrc.includes("fail(")).toBe(true);
+    expect(redirectsSrc.includes("actionRequired(")).toBe(true);
   });
 
   it("publish_draft and promote_variant use diagnosticsAfterGoLiveNextAction", () => {
@@ -111,7 +129,7 @@ describe("mcp-server mutating tools use respond helpers", () => {
 
   for (const tool of MUTATING_TOOLS) {
     it(`${tool} handler does not return bare { content: success payloads`, () => {
-      const chunk = extractToolHandlerSource(src, tool);
+      const chunk = extractToolHandlerSource(mutatingToolSource(tool), tool);
       expect(chunk, `tool ${tool} not found`).toBeTruthy();
       // Allow denyResponse / conflictError which may still use content blocks,
       // but forbid prose-style success: return { content: [{ type: "text", text: `Updated

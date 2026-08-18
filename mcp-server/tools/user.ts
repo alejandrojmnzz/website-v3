@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getTokenUsername } from "../lib/oauth.js";
 import { checkCap } from "../lib/auth.js";
+import { allowedToolNames, type CatalogGrant } from "../lib/tool-catalog.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -18,13 +19,18 @@ function internalHeaders(username: string): Record<string, string> {
   return headers;
 }
 
-export function registerUserTools(mcp: McpServer, mcpToken?: string): void {
+export function registerUserTools(
+  mcp: McpServer,
+  mcpToken?: string,
+  grants?: CatalogGrant[],
+): void {
   mcp.tool(
     "get_current_user",
-    "Return the identity, roles, and effective capabilities of the authenticated MCP caller. " +
+    "Return the identity, roles, effective capabilities, and allowed_tools of the authenticated MCP caller. " +
       "Useful for agents that need to understand who they are acting as and what operations they are permitted to perform. " +
-      "Returns: username, firstName, lastName, email, roles (list of role names), and capabilities (list of effective capability names). " +
-      "Note: metrics_view is read-only (diagnostics/insights/error log/conversions/tracking); it does not authorize content edits or job runs.",
+      "Returns: username, firstName, lastName, email, roles, capabilities, allowed_tools (MCP tool names visible for this caller). " +
+      "Note: metrics_view is read-only (diagnostics/insights/error log/conversions/tracking); it does not authorize content edits or job runs. " +
+      "content_view authorizes YAML/component/explain reads only. Cursor's tool list updates on MCP reconnect/refresh after a role change.",
     {},
     async () => {
       const username = mcpToken ? getTokenUsername(mcpToken) : null;
@@ -54,9 +60,14 @@ export function registerUserTools(mcp: McpServer, mcpToken?: string): void {
           };
         }
 
-        const profile = await res.json();
+        const profile = (await res.json()) as { capabilities?: CatalogGrant[] } & Record<string, unknown>;
+        const capGrants = Array.isArray(profile.capabilities) ? profile.capabilities : (grants ?? []);
+        const payload = {
+          ...profile,
+          allowed_tools: allowedToolNames(capGrants),
+        };
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(profile, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
         };
       } catch (err) {
         return {

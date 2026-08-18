@@ -242,8 +242,12 @@ export default function PrivateRedirects() {
     captureGroups?: string[];
     pageExists?: boolean;
     destinationExists?: boolean;
+    live_content?: boolean;
+    conflicts?: Array<{ kind: string; from: string; source?: string; message: string }>;
+    fixes?: Array<{ id: string; kind: string; effect: string }>;
   } | null>(null);
   const [isTestingRedirect, setIsTestingRedirect] = useState(false);
+  const [showRedirectsTestAdvanced, setShowRedirectsTestAdvanced] = useState(false);
   const testRedirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -750,6 +754,39 @@ export default function PrivateRedirects() {
                 Browsers cache 301 redirects aggressively, so test changes in an incognito window if a redirect seems stuck.
               </span>
             </div>
+            <div className="space-y-1.5 text-xs text-muted-foreground" data-testid="redirects-test-how-it-works">
+              <p className="text-foreground font-medium">How redirects work</p>
+              <p>
+                Rules live in <strong className="text-foreground font-medium">two stores</strong>: page{" "}
+                <code className="text-[11px]">meta.redirects</code> (destination locale file) and{" "}
+                <code className="text-[11px]">custom-redirects.yml</code>. Runtime has one{" "}
+                <strong className="text-foreground font-medium">first-match winner</strong>; other matching rules show as conflicts below.
+              </p>
+              <button
+                type="button"
+                className="text-xs text-primary underline-offset-2 hover:underline"
+                onClick={() => setShowRedirectsTestAdvanced((v) => !v)}
+                data-testid="button-redirects-test-read-more"
+              >
+                {showRedirectsTestAdvanced ? "Hide advanced" : "Read more (advanced)"}
+              </button>
+              {showRedirectsTestAdvanced && (
+                <ul className="list-disc pl-5 space-y-1 text-[11px]">
+                  <li>
+                    Page aliases: <code>{"{directory}/{slug}/{locale}.yml"}</code>{" "}
+                    <code>meta.redirects</code> (dest locale only, not <code>_common.yml</code>)
+                  </li>
+                  <li>
+                    Catch-alls / external dests: <code>site_&lt;name&gt;/custom-redirects.yml</code>
+                  </li>
+                  <li>
+                    Live URL set for overwrite warnings: validator{" "}
+                    <code>STATIC_ROUTES</code> in{" "}
+                    <code>scripts/validation/shared/canonicalUrls.ts</code> (includes <code>/us</code>) plus content-index URLs
+                  </li>
+                </ul>
+              )}
+            </div>
             <div className="space-y-2">
               <div className="relative">
                 <TestTube className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -770,6 +807,11 @@ export default function PrivateRedirects() {
                   </button>
                 )}
               </div>
+              {!testRedirectUrl.trim() && !isTestingRedirect && (
+                <p className="text-xs text-muted-foreground" data-testid="text-test-redirect-empty">
+                  Paste a path — winner is first-match; other rules appear as conflicts.
+                </p>
+              )}
               {isTestingRedirect && (
                 <p className="text-xs text-muted-foreground" data-testid="status-testing-redirect">Checking...</p>
               )}
@@ -797,7 +839,32 @@ export default function PrivateRedirects() {
                       {testRedirectResult.matchType === "regex" && (
                         <Badge variant="outline" className="text-xs font-mono">regex</Badge>
                       )}
+                      {(testRedirectResult.conflicts ?? []).map((conflict, i) => (
+                        <Badge
+                          key={`${conflict.kind}-${i}`}
+                          variant={conflict.kind === "overwrites_content" ? "destructive" : "secondary"}
+                          className="text-xs"
+                          data-testid={`chip-redirect-conflict-${conflict.kind}`}
+                        >
+                          {conflict.kind === "overwrites_content"
+                            ? "Overwrites live URL"
+                            : conflict.kind === "duplicate_from"
+                              ? "Duplicate from"
+                              : conflict.kind === "regex_shadowed"
+                                ? "Shadowed regex"
+                                : conflict.kind}
+                        </Badge>
+                      ))}
                     </div>
+                    {(testRedirectResult.conflicts ?? []).some((c) => c.kind === "overwrites_content") && (
+                      <div
+                        className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive dark:text-red-300"
+                        data-testid="banner-redirect-overwrites-content"
+                      >
+                        This path is both a redirect and a live URL (validator STATIC_ROUTES plus content pages, including{" "}
+                        <code>/us</code>). First-match still 301s visitors away from the live page.
+                      </div>
+                    )}
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2 text-xs">
                         <span className="text-muted-foreground flex-shrink-0">Rule:</span>

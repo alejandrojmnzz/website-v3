@@ -28,6 +28,7 @@ import type {
   GscInspectionSummary,
   GscInspectQueueStats,
 } from "@/lib/gscInspection";
+import { gscInspectModeLabel } from "@/lib/gscInspection";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -195,6 +196,7 @@ function SearchConsoleCoverageCard({
   const types = summary ? Object.keys(summary.byContentType).sort() : [];
   const inspected = summary?.inspected ?? 0;
   const neverChecked = summary?.neverChecked ?? 0;
+  const staleCount = summary?.stale ?? 0;
   const sitemapCount = summary?.sitemapCount ?? 0;
   const wasRunning = useRef(false);
 
@@ -240,8 +242,9 @@ function SearchConsoleCoverageCard({
   const totalQueued = queue?.queued ?? 0;
   const progressPct = totalQueued > 0 ? Math.min(100, Math.round((processed / totalQueued) * 100)) : 0;
   const neverJob = gscInspectJobSize(neverChecked);
+  const staleJob = gscInspectJobSize(staleCount);
   const allJob = gscInspectJobSize(sitemapCount);
-  const selectedCount = mode === "never" ? neverJob : allJob;
+  const selectedCount = mode === "never" ? neverJob : mode === "stale" ? staleJob : allJob;
   const inspectDisabled = !configured || running;
 
   async function startInspect() {
@@ -257,8 +260,10 @@ function SearchConsoleCoverageCard({
           title: "Nothing to inspect",
           description:
             mode === "never"
-              ? "Every public sitemap URL already has a cache row. Use All to retry failures."
-              : "No public sitemap URLs to inspect.",
+              ? "Every public sitemap URL already has a cache row. Use Stale to refresh rows older than 7 days, or All to recrawl."
+              : mode === "stale"
+                ? "No public sitemap URLs are missing or older than 7 days. Use All to recrawl everything."
+                : "No public sitemap URLs to inspect.",
         });
         return;
       }
@@ -299,7 +304,7 @@ function SearchConsoleCoverageCard({
               className="shrink-0"
               disabled={inspectDisabled}
               onClick={() => {
-                setMode(neverChecked > 0 ? "never" : "all");
+                setMode(neverChecked > 0 ? "never" : staleCount > 0 ? "stale" : "all");
                 setDialogOpen(true);
               }}
               data-testid="button-gsc-inspect-urls"
@@ -320,7 +325,9 @@ function SearchConsoleCoverageCard({
         <p className="text-xs text-muted-foreground">
           Inspect URLs walks the sitemap in the background (one Google call at a time, process-wide, ~1.5s
           apart, max {GSC_INSPECT_MAX_PER_JOB}). It does not re-index and does not freeze the site. Cached
-          results are not a live crawl.{" "}
+          results are not a live crawl. Production restarts load the sidecar from GCS, then{" "}
+          <code className="font-mono text-[10px]">.cache</code> — they still do not call Google. The inspect
+          queue is process-local and is not stored in GCS.{" "}
           <Link href="/private/settings/seo/search-console" className="underline underline-offset-2 hover:text-foreground">
             SEO/GEO → Search Console
           </Link>
@@ -334,14 +341,17 @@ function SearchConsoleCoverageCard({
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
             <p>
-              Never inspected = no cache row yet; All = inspect again including previous errors. A permission
-              error stops the job. Restart drops the queue — use Never inspected to continue. Single-page
-              inspect (Test connection / Crawlers) still works during a run. Disabled until property +
-              GCS_CREDENTIALS_JSON are set.
+              Never inspected = no cache row yet (use after a mid-run redeploy). Stale = no row or inspected
+              more than 7 days ago. All = every sitemap URL, including the last hour. A permission error stops
+              the job. Restart drops the queue — Never inspected continues missing rows. Single-page inspect
+              (Test connection / Crawlers) still works during a run. Disabled until property +
+              GCS_CREDENTIALS_JSON are set. Dual write in production: local disk, then GCS after ~30s.
             </p>
             <p className="font-mono">server/gsc-inspect-queue.ts</p>
             <p className="font-mono">server/gsc-url-inspection.ts</p>
+            <p className="font-mono">shared/gcsKeys.ts</p>
             <p className="font-mono">.cache/{"{site}"}/gsc-url-inspection.json</p>
+            <p className="font-mono">{"{site}"}/sync/gsc-url-inspection.json</p>
           </CollapsibleContent>
         </Collapsible>
         {configured === true && !running ? (
@@ -365,7 +375,7 @@ function SearchConsoleCoverageCard({
               {processed} of {totalQueued} done
               {queue.failed > 0 ? ` · ${queue.failed} failed` : ""}
               {queue.active ? ` · inspecting ${queue.active}` : ""}
-              {queue.mode ? ` · ${queue.mode === "never" ? "never inspected" : "all"}` : ""}
+              {queue.mode ? ` · ${gscInspectModeLabel(queue.mode)}` : ""}
             </p>
           </div>
         ) : null}
@@ -464,7 +474,8 @@ function SearchConsoleCoverageCard({
             <DialogTitle>Inspect URLs</DialogTitle>
             <DialogDescription>
               One Google call at a time (~1.5s apart), max {GSC_INSPECT_MAX_PER_JOB} per job. Does not request
-              indexing. All retries previous failures; Never inspected only covers URLs with no cache row yet.
+              indexing. Never inspected = no cache row. Stale = no row or older than 7 days. All retries
+              everything, including the last hour.
             </DialogDescription>
           </DialogHeader>
           <RadioGroup
@@ -483,6 +494,22 @@ function SearchConsoleCoverageCard({
                     ? ` · this job will inspect the first ${GSC_INSPECT_MAX_PER_JOB} (${gscInspectDurationLabel(neverChecked)})`
                     : neverChecked > 0
                       ? ` · ${gscInspectDurationLabel(neverChecked)}`
+                      : ""}
+                  .
+                </span>
+              </Label>
+            </div>
+            <div className="flex items-start space-x-2">
+              <RadioGroupItem value="stale" id="gsc-inspect-stale" className="mt-0.5" />
+              <Label htmlFor="gsc-inspect-stale" className="font-normal cursor-pointer space-y-0.5">
+                <span className="block text-foreground">Stale (older than 7 days)</span>
+                <span className="block text-xs text-muted-foreground">
+                  {staleCount} public sitemap URL{staleCount === 1 ? "" : "s"} with no cache row or inspected more
+                  than 7 days ago
+                  {staleCount > GSC_INSPECT_MAX_PER_JOB
+                    ? ` · this job will inspect the first ${GSC_INSPECT_MAX_PER_JOB} (${gscInspectDurationLabel(staleCount)})`
+                    : staleCount > 0
+                      ? ` · ${gscInspectDurationLabel(staleCount)}`
                       : ""}
                   .
                 </span>

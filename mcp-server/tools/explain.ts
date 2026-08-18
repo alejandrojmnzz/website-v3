@@ -5,6 +5,8 @@ import { z } from "zod";
 import yaml from "js-yaml";
 import { resolveSiteContext } from "../lib/content.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
+import { denyUnlessContentView } from "../lib/auth.js";
+import type { CatalogGrant } from "../lib/tool-catalog.js";
 
 // Use cwd so this resolves correctly both under tsx (mcp-server/…) and the
 // production bundle (dist/mcp-server.js).
@@ -23,6 +25,7 @@ const VALID_TOPICS = [
   "shared-layout",
   "relation-fields",
   "lead-forms",
+  "redirects",
 ] as const;
 type Topic = (typeof VALID_TOPICS)[number];
 
@@ -44,6 +47,8 @@ const TOPIC_DESC: Record<string, string> = {
     "relation editor type, authors hubs, listing deslugify vs page hydrate, delete_entries reassign",
   "lead-forms":
     "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
+  redirects:
+    "CMS 301/302: two stores, first-match, test_redirect + update_redirect (seo_edit), before_from custom-only",
 };
 
 type TagResolver = (contentPath: string) => string;
@@ -217,7 +222,11 @@ export function resolveDynamicTags(content: string, contentPath: string): string
 
 // ─── Tool registration ────────────────────────────────────────────────────────
 
-export function registerExplainTools(mcp: McpServer): void {
+export function registerExplainTools(
+  mcp: McpServer,
+  mcpToken?: string,
+  grants?: CatalogGrant[],
+): void {
   mcp.tool(
     "explain_site",
     "Returns architectural context about this codebase for a given topic. " +
@@ -233,18 +242,22 @@ export function registerExplainTools(mcp: McpServer): void {
       "'ecommerce' (products, funnels, product scope property paths, no CMS plans), " +
       "'shared-layout' (single_template / shared shell, create_entry playbook, blog as example), " +
       "'relation-fields' (relation editor, authors CT, listing vs hydrate, delete_entries reassign), " +
-      "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling). " +
+      "'lead-forms' (catalog source.content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling), " +
+      "'redirects' (CMS 301/302, two stores, test_redirect + update_redirect, seo_edit, first-match). " +
+      "Requires content_view. " +
       "Calling an unknown topic returns a clear error listing the valid options. " +
       "Multi-site: always pass site. If unsure, call list_sites first.",
     {
       topic: z
         .string()
         .describe(
-          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields, lead-forms.",
+          "The architectural topic to explain. One of: overview, content_system, routing, images, sections, semantic_search, local_databases, component-behaviors, ecommerce, shared-layout, relation-fields, lead-forms, redirects.",
         ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ topic, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "explain_site", { topic });

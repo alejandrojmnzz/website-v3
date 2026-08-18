@@ -38,6 +38,7 @@ export type SyncArtifactKind =
   | "versioning-state"
   | "form-state"
   | "validation-cache"
+  | "gsc-url-inspection"
   | "runtime-issues"
   | "sites-yml"
   | "user-store";

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   formStateReadKeys,
+  gscUrlInspectionReadKeys,
   platformSitesYmlGcsKey,
   platformSitesYmlLocalFilename,
   platformSitesYmlReadKeys,
@@ -41,6 +42,7 @@ export type SyncInventoryArtifactKind =
   | "versioning-state"
   | "form-state"
   | "validation-cache"
+  | "gsc-url-inspection"
   | "runtime-issues"
   | "sites-yml"
   | "user-store";
@@ -204,6 +206,16 @@ export async function collectGcsSyncInventory(): Promise<SyncInventoryRow[]> {
         localPath: path.join(root, "validation-cache.json"),
         writesBlocked: true,
         artifactKind: "validation-cache",
+      }),
+      await resolveRow({
+        id: `gsc-url-inspection-${safeFolder}`,
+        label: "Search Console inspection",
+        siteFolder: site.contentFolder,
+        gcsKey: siteSyncGcsKey(safeFolder, SYNC_FILENAMES.gscUrlInspection),
+        readKeys: gscUrlInspectionReadKeys(safeFolder),
+        localPath: path.join(process.cwd(), ".cache", safeFolder, SYNC_FILENAMES.gscUrlInspection),
+        writesBlocked: true,
+        artifactKind: "gsc-url-inspection",
       }),
       await resolveRow({
         id: `runtime-issues-${safeFolder}`,

@@ -3,8 +3,10 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
 import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layout-entry";
+import { isValidAttachedOverlayPatch } from "@shared/sectionLeftovers";
 import { contentIndex } from "../../../server/content-index";
 import { createPublicUrlResolver } from "../../../server/redirects";
+import * as path from "path";
 
 const CRITICAL_FIELDS = new Set(["title", "heading", "description", "subtitle", "tagline"]);
 
@@ -52,6 +54,17 @@ function findInternalLinks(obj: unknown, links: string[]): void {
   for (const value of Object.values(record)) {
     findInternalLinks(value, links);
   }
+}
+
+function isAttachedOverlayFile(
+  file: { type: string; slug: string; filePath: string },
+  contentRoot?: string,
+): boolean {
+  const base = path.basename(file.filePath);
+  if (base.startsWith("single.")) return false;
+  if (!isSharedLayoutType(file.type, contentRoot)) return false;
+  if (isEntryDetached(file.type, file.slug, contentRoot)) return false;
+  return true;
 }
 
 export const contentQualityValidator: Validator = {
@@ -128,17 +141,25 @@ export const contentQualityValidator: Validator = {
 
       const sections = parsed.sections as Array<Record<string, unknown>> | undefined;
       if (sections && Array.isArray(sections) && sections.length > 0) {
+        const overlay = isAttachedOverlayFile(file, contentRoot);
         for (let i = 0; i < sections.length; i++) {
-          if (!sections[i].type) {
-            missingTypes++;
-            errors.push({
-              type: "error",
-              code: "SECTION_MISSING_TYPE",
-              message: `Section at index ${i} is missing a type field`,
-              file: file.filePath,
-              suggestion: "Add a type field to every section (e.g., hero, faq, features_grid)",
-            });
-          }
+          const sec = sections[i];
+          if (!sec || typeof sec !== "object") continue;
+          if (typeof sec.type === "string" && sec.type.length > 0) continue;
+          if (overlay && isValidAttachedOverlayPatch(sec)) continue;
+
+          missingTypes++;
+          errors.push({
+            type: "error",
+            code: "SECTION_MISSING_TYPE",
+            message: overlay
+              ? `Section at index ${i} has no type and no section_id (identity-less stub)`
+              : `Section at index ${i} is missing a type field (typeless leftover; it does not render)`,
+            file: file.filePath,
+            suggestion: overlay
+              ? "Delete this stub, or add section_id / _remove if it is an overlay patch for single.{locale}.yml"
+              : "Delete the leftover YAML item. It does not render. Do not add a type to a fragment that duplicates a real section.",
+          });
         }
       }
 

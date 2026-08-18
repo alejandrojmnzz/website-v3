@@ -4000,13 +4000,6 @@ function FieldMappingDialog({
                       block, not field mapping. They cannot be deleted or remapped here. Rejected on{" "}
                       <code className="font-mono text-xs">_common.yml</code>.
                     </p>
-                    {contentType === "blog" && (
-                      <p>
-                        Blog <code className="font-mono text-xs">cluster_keyword</code> /{" "}
-                        <code className="font-mono text-xs">cluster_url</code> below are temporary holding
-                        columns — not the hub.
-                      </p>
-                    )}
                     <div className="space-y-1 pt-1">
                       {(
                         [
@@ -6255,6 +6248,16 @@ export default function ContentTypeManagePage() {
               </DropdownMenu>
             </CardHeader>
             <CardContent className="space-y-2">
+              {!hasDb && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-xs font-medium text-muted-foreground no-default-active-elevate"
+                  data-testid="badge-no-database"
+                >
+                  <Database className="h-3 w-3" />
+                  No database
+                </Badge>
+              )}
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {hasDb ? (
                   <>

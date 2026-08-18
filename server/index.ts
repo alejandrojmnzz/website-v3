@@ -22,6 +22,7 @@ import {
 } from "./runtime-issues-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
+import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
 import { addFileModifiedListener } from "./sync-state";
 import { gcs } from "./gcs";
 import { getVersioningManager } from "./versioning/VersioningManager";
@@ -431,6 +432,12 @@ app.use((req, res, next) => {
   // always available at request time with zero filesystem I/O.
   scanEcommerceContent();
   startEcommerceWatcher();
+
+  await loadGscInspectionStoresFromBucket(
+    [...getSiteContextMap().values()].map((ctx) => ctx.contentRootName),
+  ).catch((err) => {
+    logger.error({ err, worker: "GscInspection" }, "failed to load Search Console inspection cache from GCS");
+  });
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

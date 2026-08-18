@@ -11,6 +11,7 @@ import { registerUserTools } from "./tools/user.js";
 import { registerExplainTools } from "./tools/explain.js";
 import { registerEcommerceTools } from "./tools/ecommerce.js";
 import { registerDatabaseTools } from "./tools/databases.js";
+import { registerRedirectTools } from "./tools/redirects.js";
 import {
   registerClient,
   lookupClient,
@@ -27,6 +28,13 @@ import {
   initGcsStore,
   TOKEN_EXPIRES_IN,
 } from "./lib/oauth.js";
+import { fetchCallerGrants } from "./lib/auth.js";
+import {
+  IDENTITY_TOOLS,
+  allowedToolNames,
+  applyToolCatalogFilter,
+  type CatalogGrant,
+} from "./lib/tool-catalog.js";
 
 const PORT = parseInt(process.env.MCP_PORT || "3001", 10);
 // MCP_SERVER_SECRET (formerly MCP_API_KEY) is used exclusively as an internal
@@ -158,14 +166,34 @@ function renderAuthorizePage(opts: {
 
 // ─── MCP server factory ───────────────────────────────────────────────────────
 
-function createMcpServer(mcpAuthor?: string, mcpToken?: string): McpServer {
+async function createMcpServer(
+  mcpAuthor?: string,
+  mcpToken?: string,
+  opts?: { filterCatalog?: boolean },
+): Promise<McpServer> {
   const mcp = new McpServer({ name: "content-pages", version: "1.0.0" });
-  registerPageTools(mcp, mcpAuthor, mcpToken);
-  registerComponentTools(mcp, mcpToken);
-  registerUserTools(mcp, mcpToken);
-  registerExplainTools(mcp);
-  registerEcommerceTools(mcp, mcpToken);
+  let grants: CatalogGrant[] | undefined;
+  let allowed: Set<string> | null = null;
+
+  if (opts?.filterCatalog && mcpToken) {
+    const fetched = await fetchCallerGrants(mcpToken);
+    if (!fetched) {
+      grants = [];
+      allowed = new Set(IDENTITY_TOOLS);
+    } else {
+      grants = fetched;
+      allowed = new Set(allowedToolNames(fetched));
+    }
+  }
+
+  applyToolCatalogFilter(mcp, allowed);
+  registerPageTools(mcp, mcpAuthor, mcpToken, grants);
+  registerComponentTools(mcp, mcpToken, grants);
+  registerUserTools(mcp, mcpToken, grants);
+  registerExplainTools(mcp, mcpToken, grants);
+  registerEcommerceTools(mcp, mcpToken, grants);
   registerDatabaseTools(mcp, mcpToken);
+  registerRedirectTools(mcp, mcpToken);
   return mcp;
 }
 
@@ -240,7 +268,7 @@ app.get("/health", (_req, res) => {
 app.get("/tools", async (_req, res) => {
   try {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const mcp = createMcpServer();
+    const mcp = await createMcpServer();
     const client = new Client({ name: "internal-introspect", version: "1.0.0" });
     await Promise.all([mcp.connect(serverTransport), client.connect(clientTransport)]);
     const result = await client.listTools();
@@ -514,7 +542,9 @@ app.all("/mcp", authMiddleware, async (req, res) => {
   const apiKeyToken = (req.headers["x-api-key"] as string | undefined) || "";
   const credentialToken = bearerToken || apiKeyToken;
   const resolvedUsername = credentialToken ? getTokenUsername(credentialToken) ?? undefined : undefined;
-  const mcp = createMcpServer(resolvedUsername, credentialToken || undefined);
+  const mcp = await createMcpServer(resolvedUsername, credentialToken || undefined, {
+    filterCatalog: process.env.NODE_ENV === "production",
+  });
   try {
     await mcp.connect(transport);
     await transport.handleRequest(req, res, req.body);

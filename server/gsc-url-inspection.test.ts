@@ -26,9 +26,14 @@ import {
   resolveGscCredentials,
   resolvePublicInspectLoc,
   setGscCacheRootForTests,
+  setGscGcsSyncForTests,
   sidecarPath,
   suggestedGscSiteUrl,
   upsertRecord,
+  loadGscInspectionStoreFromBucket,
+  forceUploadGscInspectionToBucket,
+  isStale,
+  STALE_MS,
 } from "./gsc-url-inspection";
 import { resetSettings } from "./settings";
 
@@ -50,6 +55,7 @@ describe("gsc-url-inspection", () => {
 
   afterEach(() => {
     setGscCacheRootForTests(null);
+    setGscGcsSyncForTests(null);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -333,5 +339,127 @@ describe("gsc-url-inspection", () => {
     expect(hasMainSeoKeyword({ main_seo_keyword: "bootcamp" })).toBe(true);
     expect(hasMainSeoKeyword({ seo: { main_seo_keyword: "python" } })).toBe(true);
     expect(hasMainSeoKeyword({ seo: { pillar: "/x" } })).toBe(false);
+  });
+
+  it("treats missing and 7-day-old rows as stale, not 1-day-old", () => {
+    const now = Date.parse("2026-08-18T00:00:00.000Z");
+    expect(isStale(undefined, now)).toBe(true);
+    expect(isStale({ inspectedAt: "2026-08-17T00:00:00.000Z" }, now)).toBe(false);
+    expect(isStale({ inspectedAt: "2026-08-10T23:59:59.000Z" }, now)).toBe(true);
+    expect(STALE_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("counts stale as never-checked plus rows older than 7 days", () => {
+    const now = Date.parse("2026-08-18T00:00:00.000Z");
+    const debug: DebugSitemapUrl[] = [
+      url({ loc: "https://example.com/fresh", inSitemap: true, content_type: "page", slug: "fresh" }),
+      url({ loc: "https://example.com/old", inSitemap: true, content_type: "page", slug: "old" }),
+      url({ loc: "https://example.com/missing", inSitemap: true, content_type: "page", slug: "missing" }),
+    ];
+    const summary = buildSummary(
+      {
+        "https://example.com/fresh": { inspectedAt: "2026-08-17T00:00:00.000Z", verdict: "PASS" },
+        "https://example.com/old": { inspectedAt: "2026-08-01T00:00:00.000Z", verdict: "PASS" },
+      },
+      debug,
+      now,
+    );
+    expect(summary.neverChecked).toBe(1);
+    expect(summary.stale).toBe(2);
+    expect(summary.indexed).toBe(2);
+  });
+
+  it("hydrates the sidecar from GCS without uploading", async () => {
+    const loc = "https://example.com/us/blog/foo";
+    const payload = {
+      records: { [loc]: { inspectedAt: "2026-08-01T00:00:00.000Z", verdict: "PASS" } },
+    };
+    const uploads: string[] = [];
+    setGscGcsSyncForTests({
+      production: true,
+      gcs: {
+        available: true,
+        initBootstrapFromEnv: () => {},
+        downloadFirstExisting: async () => ({
+          key: "site_demo/sync/gsc-url-inspection.json",
+          data: Buffer.from(JSON.stringify(payload), "utf-8"),
+        }),
+        debouncedUpload: () => {
+          uploads.push("debounce");
+        },
+        upload: async () => {
+          uploads.push("upload");
+        },
+      },
+    });
+
+    const source = await loadGscInspectionStoreFromBucket("site_demo");
+    expect(source).toBe("gcs");
+    expect(getRecord("site_demo", loc)?.verdict).toBe("PASS");
+    expect(fs.existsSync(sidecarPath("site_demo"))).toBe(true);
+    expect(uploads).toEqual([]);
+  });
+
+  it("starts empty when the GCS sidecar is missing or invalid", async () => {
+    setGscGcsSyncForTests({
+      production: true,
+      gcs: {
+        available: true,
+        initBootstrapFromEnv: () => {},
+        downloadFirstExisting: async () => ({
+          key: "site_demo/sync/gsc-url-inspection.json",
+          data: Buffer.from("not-json", "utf-8"),
+        }),
+        debouncedUpload: () => {},
+        upload: async () => {},
+      },
+    });
+    const source = await loadGscInspectionStoreFromBucket("site_demo");
+    expect(source).toBe("empty");
+    expect(getRecord("site_demo", "https://example.com/x")).toBeUndefined();
+  });
+
+  it("queues a debounced GCS upload in production and skips it in development", () => {
+    const calls: Array<{ key: string; delay?: number }> = [];
+    setGscGcsSyncForTests({
+      production: true,
+      gcs: {
+        available: true,
+        initBootstrapFromEnv: () => {},
+        downloadFirstExisting: async () => null,
+        debouncedUpload: (key, _data, _type, delayMs) => {
+          calls.push({ key, delay: delayMs });
+        },
+        upload: async () => {},
+      },
+    });
+    upsertRecord("site_demo", "https://example.com/a", { inspectedAt: "t", verdict: "PASS" });
+    expect(calls).toEqual([{ key: "site_demo/sync/gsc-url-inspection.json", delay: 30_000 }]);
+
+    calls.length = 0;
+    setGscGcsSyncForTests({ production: false });
+    upsertRecord("site_demo", "https://example.com/b", { inspectedAt: "t", verdict: "PASS" });
+    expect(calls).toEqual([]);
+  });
+
+  it("force-uploads the sidecar in production", async () => {
+    const uploaded: string[] = [];
+    setGscGcsSyncForTests({
+      production: true,
+      gcs: {
+        available: true,
+        initBootstrapFromEnv: () => {},
+        downloadFirstExisting: async () => null,
+        debouncedUpload: () => {},
+        upload: async (key) => {
+          uploaded.push(key);
+        },
+      },
+    });
+    upsertRecord("site_demo", "https://example.com/a", { inspectedAt: "t" });
+    const result = await forceUploadGscInspectionToBucket("site_demo");
+    expect(result.success).toBe(true);
+    expect(result.uploaded).toBe(true);
+    expect(uploaded).toEqual(["site_demo/sync/gsc-url-inspection.json"]);
   });
 });

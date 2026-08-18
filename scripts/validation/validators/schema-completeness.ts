@@ -1,7 +1,10 @@
 import * as fs from "fs";
 import * as yaml from "js-yaml";
-import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import type { ContentFile, Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { hasSchemaOrgContributors } from "@shared/schema-org-sections";
+import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { getCanonicalUrl } from "../shared/canonicalUrls";
+
 let _generateSsrSchemaHtml: ((url: string) => string | Promise<string>) | null = null;
 async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string | Promise<string>> {
   if (!_generateSsrSchemaHtml) {
@@ -14,7 +17,6 @@ async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string | Pro
   }
   return _generateSsrSchemaHtml!;
 }
-import { getCanonicalUrl } from "../shared/canonicalUrls";
 
 function checkForPlaceholders(obj: unknown): string[] {
   const found: string[] = [];
@@ -34,30 +36,43 @@ function checkForPlaceholders(obj: unknown): string[] {
   return found;
 }
 
-function loadSectionsFromContentFile(filePath: string): Array<Record<string, unknown>> {
+function asSectionList(value: unknown): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((s) => s && typeof s === "object") as Array<Record<string, unknown>>;
+}
+
+/** Parse YAML the same way ContentIndex does so unquoted `{{ vars }}` do not throw. */
+function loadYamlFile(filePath: string): Record<string, unknown> | null {
   try {
-    let sections: Array<Record<string, unknown>> = [];
-    const commonPath = filePath.replace(/[^/\\]+$/, "_common.yml");
-    if (fs.existsSync(commonPath)) {
-      const commonData = yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>;
-      if (Array.isArray(commonData?.sections)) {
-        sections = (commonData.sections as Array<Record<string, unknown>>).filter(
-          (s) => s && typeof s === "object",
-        );
-      }
-    }
-    if (fs.existsSync(filePath)) {
-      const parsed = yaml.load(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
-      if (Array.isArray(parsed?.sections)) {
-        sections = (parsed.sections as Array<Record<string, unknown>>).filter(
-          (s) => s && typeof s === "object",
-        );
-      }
-    }
-    return sections;
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const { escaped, map } = escapeTemplateVars(raw);
+    const parsed = yaml.load(escaped);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return unescapeObjectVars(parsed, map) as Record<string, unknown>;
   } catch {
-    return [];
+    return null;
   }
+}
+
+function loadSectionsFromContentFile(filePath: string): Array<Record<string, unknown>> {
+  let sections: Array<Record<string, unknown>> = [];
+  const commonPath = filePath.replace(/[^/\\]+$/, "_common.yml");
+  const commonSections = asSectionList(loadYamlFile(commonPath)?.sections);
+  if (commonSections) sections = commonSections;
+  const localeSections = asSectionList(loadYamlFile(filePath)?.sections);
+  if (localeSections) sections = localeSections;
+  return sections;
+}
+
+/**
+ * Prefer merged `entryFields.sections` (ContentIndex already escaped template vars).
+ * Fall back to a template-var-safe disk parse when the merged bag has no sections key.
+ */
+export function resolvePageSections(file: ContentFile): Array<Record<string, unknown>> {
+  const fromEntry = asSectionList(file.entryFields?.sections);
+  if (fromEntry) return fromEntry;
+  return loadSectionsFromContentFile(file.filePath);
 }
 
 export const schemaCompletenessValidator: Validator = {
@@ -95,7 +110,7 @@ export const schemaCompletenessValidator: Validator = {
         continue;
       }
 
-      const sections = loadSectionsFromContentFile(file.filePath);
+      const sections = resolvePageSections(file);
       const hasContributors = hasSchemaOrgContributors(sections);
 
       const schemaInclude: unknown[] = Array.isArray(file.schema?.include) ? file.schema.include : [];
