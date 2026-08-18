@@ -64,6 +64,7 @@ const FIELD_ORDER = [
   "region",
   "location",
   "coupon",
+  "referral_key",
   "client_comments",
   "current_download",
 ];
@@ -400,8 +401,17 @@ export function FormFieldsCard({ fields, onFieldChange }: FormFieldsCardProps) {
         <p>
           The form field name (e.g. <code className="font-mono text-[10px]">program</code>) is still
           the submit key. <code className="font-mono text-[10px]">options[]</code> only overlays
-          labels — it does not filter. <code className="font-mono text-[10px]">slugs</code> is ignored
+          labels — it does not filter.           <code className="font-mono text-[10px]">slugs</code> is ignored
           when source is set.
+        </p>
+        <p>
+          <code className="font-mono text-[10px]">referral_key</code> is the submit key for
+          Breathecode <code className="font-mono text-[10px]">form_entry.referral_key</code>.
+          Visible shows an input; hidden still sends a YAML <code className="font-mono text-[10px]">default</code>{" "}
+          or URL <code className="font-mono text-[10px]">?referral_key=</code>{" "}
+          (fallback <code className="font-mono text-[10px]">?referral=</code> /{" "}
+          <code className="font-mono text-[10px]">?ref=</code>). It does not replace UTM{" "}
+          <code className="font-mono text-[10px]">referral</code>.
         </p>
         {anyMissingQuery && (
           <div

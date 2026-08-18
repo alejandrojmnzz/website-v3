@@ -141,6 +141,7 @@ export const leadFormDataSchema = z.object({
     region: leadFormFieldConfigSchema.optional(),
     location: leadFormFieldConfigSchema.optional(),
     coupon: leadFormFieldConfigSchema.optional(),
+    referral_key: leadFormFieldConfigSchema.optional(),
     client_comments: leadFormFieldConfigSchema.optional(),
   }).optional(),
   success: z.object({
