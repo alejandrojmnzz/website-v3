@@ -16,50 +16,43 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Pack _WEBSITE_ runtime env
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          python3 << 'PY'
+          import base64
+          import json
+          import os
+
+          prefix = "_WEBSITE_"
+          secrets = json.loads(os.environ.get("SECRETS_JSON") or "{}")
+          variables = json.loads(os.environ.get("VARS_JSON") or "{}")
+          if not isinstance(secrets, dict):
+              secrets = {}
+          if not isinstance(variables, dict):
+              variables = {}
+          merged = dict(variables)
+          merged.update(secrets)
+          out = {}
+          for key, value in merged.items():
+              if not isinstance(key, str) or not key.startswith(prefix):
+                  continue
+              name = key[len(prefix) :]
+              if not name or value is None or str(value) == "":
+                  continue
+              out[name] = str(value)
+          packed = base64.b64encode(json.dumps(out, separators=(",", ":")).encode()).decode("ascii")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"WEBSITE_RUNTIME_B64={packed}\n")
+          print("[runtime-env] packed", len(out), "keys:", ", ".join(sorted(out)) or "(none)")
+          PY
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
-          # Runtime .env keys are GitHub secrets/vars named _WEBSITE_<NAME>.
-          # Missing secret falls through to Actions variable of the same name.
-          _WEBSITE_SESSION_SECRET: ${{ secrets['_WEBSITE_SESSION_SECRET'] || vars['_WEBSITE_SESSION_SECRET'] }}
-          _WEBSITE_DATABASE_URL: ${{ secrets['_WEBSITE_DATABASE_URL'] || vars['_WEBSITE_DATABASE_URL'] }}
-          _WEBSITE_SITE_URL: ${{ secrets['_WEBSITE_SITE_URL'] || vars['_WEBSITE_SITE_URL'] }}
-          _WEBSITE_PORT: ${{ secrets['_WEBSITE_PORT'] || vars['_WEBSITE_PORT'] }}
-          _WEBSITE_NODE_ENV: ${{ secrets['_WEBSITE_NODE_ENV'] || vars['_WEBSITE_NODE_ENV'] }}
-          _WEBSITE_LISTEN_HOST: ${{ secrets['_WEBSITE_LISTEN_HOST'] || vars['_WEBSITE_LISTEN_HOST'] }}
-          _WEBSITE_TURNSTILE_SITE_KEY: ${{ secrets['_WEBSITE_TURNSTILE_SITE_KEY'] || vars['_WEBSITE_TURNSTILE_SITE_KEY'] }}
-          _WEBSITE_TURNSTILE_SECRET_KEY: ${{ secrets['_WEBSITE_TURNSTILE_SECRET_KEY'] || vars['_WEBSITE_TURNSTILE_SECRET_KEY'] }}
-          _WEBSITE_GITHUB_TOKEN: ${{ secrets['_WEBSITE_GITHUB_TOKEN'] || vars['_WEBSITE_GITHUB_TOKEN'] }}
-          _WEBSITE_GITHUB_REPO_URL: ${{ secrets['_WEBSITE_GITHUB_REPO_URL'] || vars['_WEBSITE_GITHUB_REPO_URL'] }}
-          _WEBSITE_GITHUB_BRANCH: ${{ secrets['_WEBSITE_GITHUB_BRANCH'] || vars['_WEBSITE_GITHUB_BRANCH'] }}
-          _WEBSITE_GITHUB_SYNC_ENABLED: ${{ secrets['_WEBSITE_GITHUB_SYNC_ENABLED'] || vars['_WEBSITE_GITHUB_SYNC_ENABLED'] }}
-          _WEBSITE_GITHUB_AUTO_PULL_ENABLED: ${{ secrets['_WEBSITE_GITHUB_AUTO_PULL_ENABLED'] || vars['_WEBSITE_GITHUB_AUTO_PULL_ENABLED'] }}
-          _WEBSITE_GITHUB_AUTO_COMMIT_ENABLED: ${{ secrets['_WEBSITE_GITHUB_AUTO_COMMIT_ENABLED'] || vars['_WEBSITE_GITHUB_AUTO_COMMIT_ENABLED'] }}
-          _WEBSITE_GITHUB_SOFT_PULL_ARCHIVE_THRESHOLD: ${{ secrets['_WEBSITE_GITHUB_SOFT_PULL_ARCHIVE_THRESHOLD'] || vars['_WEBSITE_GITHUB_SOFT_PULL_ARCHIVE_THRESHOLD'] }}
-          _WEBSITE_AUTO_COMMIT_ENABLED: ${{ secrets['_WEBSITE_AUTO_COMMIT_ENABLED'] || vars['_WEBSITE_AUTO_COMMIT_ENABLED'] }}
-          _WEBSITE_MCP_SERVER_SECRET: ${{ secrets['_WEBSITE_MCP_SERVER_SECRET'] || vars['_WEBSITE_MCP_SERVER_SECRET'] }}
-          _WEBSITE_MCP_PORT: ${{ secrets['_WEBSITE_MCP_PORT'] || vars['_WEBSITE_MCP_PORT'] }}
-          _WEBSITE_MCP_API_KEY: ${{ secrets['_WEBSITE_MCP_API_KEY'] || vars['_WEBSITE_MCP_API_KEY'] }}
-          _WEBSITE_OAUTH_CLIENT_ID: ${{ secrets['_WEBSITE_OAUTH_CLIENT_ID'] || vars['_WEBSITE_OAUTH_CLIENT_ID'] }}
-          _WEBSITE_OAUTH_CLIENT_SECRET: ${{ secrets['_WEBSITE_OAUTH_CLIENT_SECRET'] || vars['_WEBSITE_OAUTH_CLIENT_SECRET'] }}
-          _WEBSITE_VITE_BREATHECODE_HOST: ${{ secrets['_WEBSITE_VITE_BREATHECODE_HOST'] || vars['_WEBSITE_VITE_BREATHECODE_HOST'] }}
-          _WEBSITE_BREATHECODE_HOST: ${{ secrets['_WEBSITE_BREATHECODE_HOST'] || vars['_WEBSITE_BREATHECODE_HOST'] }}
-          _WEBSITE_BREATHECODE_URL: ${{ secrets['_WEBSITE_BREATHECODE_URL'] || vars['_WEBSITE_BREATHECODE_URL'] }}
-          _WEBSITE_BREATHECODE_ACADEMY_TOKEN: ${{ secrets['_WEBSITE_BREATHECODE_ACADEMY_TOKEN'] || vars['_WEBSITE_BREATHECODE_ACADEMY_TOKEN'] }}
-          _WEBSITE_OPENROUTER_API_KEY: ${{ secrets['_WEBSITE_OPENROUTER_API_KEY'] || vars['_WEBSITE_OPENROUTER_API_KEY'] }}
-          _WEBSITE_OPENROUTER_BASE_URL: ${{ secrets['_WEBSITE_OPENROUTER_BASE_URL'] || vars['_WEBSITE_OPENROUTER_BASE_URL'] }}
-          _WEBSITE_QDRANT_URL: ${{ secrets['_WEBSITE_QDRANT_URL'] || vars['_WEBSITE_QDRANT_URL'] }}
-          _WEBSITE_GCS_BUCKET_NAME: ${{ secrets['_WEBSITE_GCS_BUCKET_NAME'] || vars['_WEBSITE_GCS_BUCKET_NAME'] }}
-          _WEBSITE_GCS_PROJECT_ID: ${{ secrets['_WEBSITE_GCS_PROJECT_ID'] || vars['_WEBSITE_GCS_PROJECT_ID'] }}
-          _WEBSITE_GCS_CREDENTIALS_JSON: ${{ secrets['_WEBSITE_GCS_CREDENTIALS_JSON'] || vars['_WEBSITE_GCS_CREDENTIALS_JSON'] }}
-          _WEBSITE_GCS_KEY_FILENAME: ${{ secrets['_WEBSITE_GCS_KEY_FILENAME'] || vars['_WEBSITE_GCS_KEY_FILENAME'] }}
-          _WEBSITE_GCS_BASE_PATH: ${{ secrets['_WEBSITE_GCS_BASE_PATH'] || vars['_WEBSITE_GCS_BASE_PATH'] }}
-          _WEBSITE_MEDIA_DEFAULT_PROVIDER: ${{ secrets['_WEBSITE_MEDIA_DEFAULT_PROVIDER'] || vars['_WEBSITE_MEDIA_DEFAULT_PROVIDER'] }}
-          _WEBSITE_IPN_SECRET: ${{ secrets['_WEBSITE_IPN_SECRET'] || vars['_WEBSITE_IPN_SECRET'] }}
-          _WEBSITE_CLOUDFLARE_ACCOUNT_ID: ${{ secrets['_WEBSITE_CLOUDFLARE_ACCOUNT_ID'] || vars['_WEBSITE_CLOUDFLARE_ACCOUNT_ID'] }}
-          _WEBSITE_CLOUDFLARE_API_TOKEN: ${{ secrets['_WEBSITE_CLOUDFLARE_API_TOKEN'] || vars['_WEBSITE_CLOUDFLARE_API_TOKEN'] }}
-          _WEBSITE_ENTRY_PREVIEW_CAPTURE_SECRET: ${{ secrets['_WEBSITE_ENTRY_PREVIEW_CAPTURE_SECRET'] || vars['_WEBSITE_ENTRY_PREVIEW_CAPTURE_SECRET'] }}
-          _WEBSITE_GOOGLE_PSI_API_KEY: ${{ secrets['_WEBSITE_GOOGLE_PSI_API_KEY'] || vars['_WEBSITE_GOOGLE_PSI_API_KEY'] }}
+          WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -67,12 +60,35 @@ jobs:
           script_stop: true
           command_timeout: 25m
           debug: false
-          envs: _WEBSITE_SESSION_SECRET,_WEBSITE_DATABASE_URL,_WEBSITE_SITE_URL,_WEBSITE_PORT,_WEBSITE_NODE_ENV,_WEBSITE_LISTEN_HOST,_WEBSITE_TURNSTILE_SITE_KEY,_WEBSITE_TURNSTILE_SECRET_KEY,_WEBSITE_GITHUB_TOKEN,_WEBSITE_GITHUB_REPO_URL,_WEBSITE_GITHUB_BRANCH,_WEBSITE_GITHUB_SYNC_ENABLED,_WEBSITE_GITHUB_AUTO_PULL_ENABLED,_WEBSITE_GITHUB_AUTO_COMMIT_ENABLED,_WEBSITE_GITHUB_SOFT_PULL_ARCHIVE_THRESHOLD,_WEBSITE_AUTO_COMMIT_ENABLED,_WEBSITE_MCP_SERVER_SECRET,_WEBSITE_MCP_PORT,_WEBSITE_MCP_API_KEY,_WEBSITE_OAUTH_CLIENT_ID,_WEBSITE_OAUTH_CLIENT_SECRET,_WEBSITE_VITE_BREATHECODE_HOST,_WEBSITE_BREATHECODE_HOST,_WEBSITE_BREATHECODE_URL,_WEBSITE_BREATHECODE_ACADEMY_TOKEN,_WEBSITE_OPENROUTER_API_KEY,_WEBSITE_OPENROUTER_BASE_URL,_WEBSITE_QDRANT_URL,_WEBSITE_GCS_BUCKET_NAME,_WEBSITE_GCS_PROJECT_ID,_WEBSITE_GCS_CREDENTIALS_JSON,_WEBSITE_GCS_KEY_FILENAME,_WEBSITE_GCS_BASE_PATH,_WEBSITE_MEDIA_DEFAULT_PROVIDER,_WEBSITE_IPN_SECRET,_WEBSITE_CLOUDFLARE_ACCOUNT_ID,_WEBSITE_CLOUDFLARE_API_TOKEN,_WEBSITE_ENTRY_PREVIEW_CAPTURE_SECRET,_WEBSITE_GOOGLE_PSI_API_KEY
+          envs: WEBSITE_RUNTIME_B64
           script: |
             set -euo pipefail
             cd /opt/website-v3
             git pull --ff-only
-            bash /opt/website-v3/scripts/write-runtime-env.sh /opt/website-v3
+            python3 << 'PY'
+            import base64
+            import json
+            import os
+            from pathlib import Path
+
+            dest = Path("/opt/website-v3/.env")
+            b64 = (os.environ.get("WEBSITE_RUNTIME_B64") or "").strip()
+            if not b64:
+                print("[runtime-env] empty pack; leaving .env unchanged")
+            else:
+                data = json.loads(base64.b64decode(b64))
+                if not data:
+                    print("[runtime-env] no _WEBSITE_ keys; leaving .env unchanged")
+                else:
+                    def bash_assign(name, value):
+                        return name + "=" + "'" + value.replace("'", "'\"'\"'") + "'"
+                    text = "\n".join(bash_assign(k, data[k]) for k in sorted(data)) + "\n"
+                    tmp = dest.with_name(".env.tmp")
+                    tmp.write_text(text, encoding="utf-8")
+                    os.chmod(tmp, 0o600)
+                    os.replace(tmp, dest)
+                    print("[runtime-env] wrote", dest, "keys:", ", ".join(sorted(data)))
+            PY
             bash /opt/website-v3/scripts/deploy.sh
             git log -1 --oneline
             for i in $(seq 1 60); do
