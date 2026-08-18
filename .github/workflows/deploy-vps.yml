@@ -1,13 +1,25 @@
 name: Deploy to VPS
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: true
+
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -25,4 +37,12 @@ jobs:
             bash /opt/website-v3/scripts/deploy.sh
             cd /opt/website-v3
             git log -1 --oneline
-            curl -fsS http://127.0.0.1:5000/health
+            for i in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:5000/health >/dev/null; then
+                curl -fsS http://127.0.0.1:5000/health
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "App did not become healthy within 120s" >&2
+            exit 1
