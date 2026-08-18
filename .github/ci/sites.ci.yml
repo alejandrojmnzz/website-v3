@@ -1,4 +1,0 @@
-# Minimal sites.yml for GitHub Actions CI (single site, faster content pull).
-4geeks.com:
-  content_folder: site_4geeks-com
-  github_repo_url: https://github.com/breatheco-de/website-content-folders
