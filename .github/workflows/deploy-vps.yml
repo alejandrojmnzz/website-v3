@@ -75,12 +75,14 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=50 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "export WEBSITE_RUNTIME_B64='${WEBSITE_RUNTIME_B64}'; bash -s" << 'REMOTE'
+            'bash -s' <<REMOTE
           set -euo pipefail
+          export WEBSITE_RUNTIME_B64='${WEBSITE_RUNTIME_B64}'
           cd /opt/website-v3
           git pull --ff-only
           python3 << 'PY'
           import base64
+          import grp
           import json
           import os
           from pathlib import Path
@@ -99,7 +101,12 @@ jobs:
                   text = "\n".join(bash_assign(k, data[k]) for k in sorted(data)) + "\n"
                   tmp = dest.with_name(".env.tmp")
                   tmp.write_text(text, encoding="utf-8")
-                  os.chmod(tmp, 0o600)
+                  try:
+                      runtime_gid = grp.getgrnam("website-runtime").gr_gid
+                      os.chown(tmp, -1, runtime_gid)
+                  except KeyError:
+                      print("[runtime-env] website-runtime group not found; keeping current group")
+                  os.chmod(tmp, 0o640)
                   os.replace(tmp, dest)
                   print("[runtime-env] wrote", dest, "keys:", ", ".join(sorted(data)))
           PY
