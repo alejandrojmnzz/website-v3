@@ -492,7 +492,15 @@ export class ValidationCacheService {
       const touches = issue.targets.some(
         (t) => t.type === "entry" && entryKeySet.has(t.entryKey),
       );
-      if (touches || issue.targets.length === 0) {
+      const isFileOnlyTarget =
+        issue.targets.length > 0 && issue.targets.every((t) => t.type === "file");
+      // section-variants re-scans shared templates (single.*.yml) on every partial run;
+      // file-only cached rows must be cleared even when entryKeySet is scoped to one URL.
+      if (
+        touches ||
+        issue.targets.length === 0 ||
+        (validatorName === "section-variants" && isFileOnlyTarget)
+      ) {
         toDelete.push(id);
       }
     }
@@ -618,6 +626,19 @@ export class ValidationCacheService {
       this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
       await this.flush();
       log.info(`[ValidationCache] Dismissed ${toDelete.length} issue(s) for url=${url} code=${code}`);
+    }
+    return toDelete.length;
+  }
+
+  async dismissIssuesByFileAndCode(file: string, code: string): Promise<number> {
+    const toDelete = Object.values(this.issues).filter(
+      (issue) => issue.code === code && issue.file === file,
+    );
+    for (const issue of toDelete) delete this.issues[issue.id];
+    if (toDelete.length > 0) {
+      this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+      await this.flush();
+      log.info(`[ValidationCache] Dismissed ${toDelete.length} issue(s) for file=${file} code=${code}`);
     }
     return toDelete.length;
   }
@@ -769,6 +790,7 @@ export function listCacheIssuesFromStore(
     redirect?: string;
     media?: string;
     database?: string;
+    file?: string;
   },
 ): Array<{
   url: string;
@@ -809,6 +831,8 @@ export function listCacheIssuesFromStore(
       .filter((i) =>
         i.targets.some((t) => t.type === "database" && t.dbSlug === filters.database),
       );
+  } else if (filters?.file) {
+    issues = cache.getAllIssues().filter((i) => i.file === filters.file);
   }
 
   const out: Array<{

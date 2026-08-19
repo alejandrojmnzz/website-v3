@@ -511,6 +511,7 @@ function SeoFieldsEditor({
                     className="shrink-0"
                     disabled={pathLocked}
                     data-testid="button-choose-pillar"
+                    onMouseDown={(e) => e.preventDefault()}
                   >
                     Choose pillar
                   </Button>
@@ -519,6 +520,11 @@ function SeoFieldsEditor({
                   className="w-80 p-0 z-[10001] pointer-events-auto"
                   align="end"
                   container={portalContainer}
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    const input = e.currentTarget.querySelector<HTMLInputElement>("input");
+                    input?.focus({ preventScroll: true });
+                  }}
                   onCloseAutoFocus={(e) => e.preventDefault()}
                   onPointerDown={(e) => e.stopPropagation()}
                 >
@@ -609,6 +615,7 @@ function SeoFieldsEditor({
                     "seo.pillar_path": pillarPath,
                     "seo.is_pillar": isPillar,
                   });
+                  setSeoFieldsEditing(false);
                 } catch (err) {
                   toast({
                     title: "SEO save failed",

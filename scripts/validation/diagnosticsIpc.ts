@@ -16,6 +16,11 @@ export interface DiagnosticsWorkerStartMessage {
   validators?: string[];
   include_artifacts: boolean;
   categories?: string[];
+  /**
+   * Run entry-local validators once without per-URL iteration (shared-template
+   * re-check: single.*.yml files are not YAML-backed page entries).
+   */
+  validator_only?: boolean;
   /** Absolute path for validator results / issuesBySlug payload */
   resultsPath: string;
 }

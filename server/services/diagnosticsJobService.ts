@@ -63,6 +63,11 @@ export interface DiagnosticsJobRequest {
   cache: ValidationCacheService;
   slugs?: string[];
   urls?: string[];
+  /**
+   * Optional absolute YAML file path to scope the job to a single entry.
+   * When provided, the runner will resolve the file to its canonical URL target.
+   */
+  file?: string;
   freshness?: DiagnosticsFreshness;
   max_age_seconds?: number;
   validators?: string[];
@@ -227,19 +232,24 @@ function readResultsFromDisk(
 function scopeKey(req: {
   slugs?: string[];
   urls?: string[];
+  files?: string[];
   validators?: string[];
   freshness: DiagnosticsFreshness;
   max_age_seconds: number;
+  validator_only?: boolean;
 }): string {
   const slugs = [...(req.slugs ?? [])].map((s) => s.toLowerCase()).sort();
   const urls = [...(req.urls ?? [])].map((u) => u.toLowerCase()).sort();
+  const files = [...(req.files ?? [])].map((f) => f.toLowerCase()).sort();
   const validators = [...(req.validators ?? [])].map((v) => v.toLowerCase()).sort();
   return JSON.stringify({
     slugs,
     urls,
+    files,
     validators,
     freshness: req.freshness,
     max_age_seconds: req.freshness === "hard" ? 0 : req.max_age_seconds,
+    validator_only: req.validator_only ?? false,
   });
 }
 
@@ -519,7 +529,11 @@ export async function startDiagnosticsJob(
     typeof req.max_age_seconds === "number" && req.max_age_seconds > 0
       ? req.max_age_seconds
       : 86400;
-  const slugFiltered = !!(req.slugs?.length || req.urls?.length);
+  const hasUrlOrSlugScope = !!(req.slugs?.length || req.urls?.length);
+  // Prefer URL/slug scoping whenever available. File scoping is a fallback only.
+  let filePaths = !hasUrlOrSlugScope && req.file ? [req.file] : undefined;
+  let validatorOnly = false;
+  const slugFiltered = !!(req.slugs?.length || req.urls?.length || filePaths?.length);
   const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(req.validators, {
     slugFiltered,
   });
@@ -536,12 +550,33 @@ export async function startDiagnosticsJob(
     }
   }
 
+  let allTargets = await resolveUrlTargets(
+    req.contentRoot,
+    req.ci,
+    req.slugs,
+    req.urls,
+    filePaths,
+  );
+  if (filePaths && allTargets.length === 0) {
+    const isSharedTemplateFile = /\/(single\.[^/]+\.ya?ml|_common\.single\.ya?ml)$/i.test(
+      req.file ?? "",
+    );
+    if (!isSharedTemplateFile) {
+      throw new Error(`No YAML-backed pages found for file: ${req.file}`);
+    }
+    validatorOnly = true;
+    filePaths = undefined;
+    allTargets = [];
+  }
+
   const key = scopeKey({
     slugs: req.slugs,
     urls: req.urls,
+    files: filePaths,
     validators: req.validators,
     freshness,
     max_age_seconds: maxAge,
+    validator_only: validatorOnly,
   });
 
   const runningId = runningByContentRoot.get(req.contentRoot);
@@ -574,12 +609,14 @@ export async function startDiagnosticsJob(
     }
   }
 
-  const allTargets = await resolveUrlTargets(
-    req.contentRoot,
-    req.ci,
-    req.slugs,
-    req.urls,
-  );
+  // When scoping by a YAML file, resolve it to canonical URL targets so the worker
+  // validates only that single entry (instead of the whole site).
+  const scopedSlugs = validatorOnly
+    ? undefined
+    : req.slugs ?? (filePaths ? allTargets.map((t) => t.slug) : undefined);
+  const scopedUrls = validatorOnly
+    ? undefined
+    : req.urls ?? (filePaths ? allTargets.map((t) => t.url) : undefined);
 
   let staleTargets = allTargets;
   if (!partial && freshness === "max_age") {
@@ -589,10 +626,17 @@ export async function startDiagnosticsJob(
   }
 
   const needsWork =
+    (validatorOnly && pageValidators.length > 0) ||
     (pageValidators.length > 0 && (partial || freshness === "hard" || staleTargets.length > 0)) ||
     (siteWideValidators.length > 0 && (partial || freshness === "hard" || staleTargets.length > 0));
 
-  if (!partial && freshness === "max_age" && staleTargets.length === 0 && allTargets.length > 0) {
+  if (
+    !validatorOnly &&
+    !partial &&
+    freshness === "max_age" &&
+    staleTargets.length === 0 &&
+    allTargets.length > 0
+  ) {
     const { issuesBySlug, lastFullRunAtBySlug, cacheMisses } = issuesBySlugFromTargets(
       req.cache,
       allTargets,
@@ -607,7 +651,7 @@ export async function startDiagnosticsJob(
     };
   }
 
-  if (!needsWork && allTargets.length === 0 && siteWideValidators.length === 0) {
+  if (!needsWork && allTargets.length === 0 && siteWideValidators.length === 0 && !validatorOnly) {
     return {
       status: "cached",
       issuesBySlug: {},
@@ -623,8 +667,8 @@ export async function startDiagnosticsJob(
     status: "queued",
     contentRootName: req.contentRootName,
     scopeKey: key,
-    slugs: req.slugs,
-    urls: req.urls,
+    slugs: scopedSlugs,
+    urls: scopedUrls,
     freshness,
     max_age_seconds: maxAge,
     validators: req.validators,
@@ -632,16 +676,21 @@ export async function startDiagnosticsJob(
     categories: req.categories,
     startedAt: Date.now(),
     processed: 0,
-    total: Math.max(
-      (pageValidators.length > 0
-        ? partial || freshness === "hard"
-          ? allTargets.length
-          : staleTargets.length
-        : 0) + (siteWideValidators.length > 0 ? 1 : 0),
-      1,
-    ),
-    staleUrlCount: staleTargets.length,
-    urlCount: allTargets.length,
+    total: validatorOnly
+      ? Math.max(
+          (pageValidators.length > 0 ? 1 : 0) + (siteWideValidators.length > 0 ? 1 : 0),
+          1,
+        )
+      : Math.max(
+          (pageValidators.length > 0
+            ? partial || freshness === "hard"
+              ? allTargets.length
+              : staleTargets.length
+            : 0) + (siteWideValidators.length > 0 ? 1 : 0),
+          1,
+        ),
+    staleUrlCount: validatorOnly ? 0 : staleTargets.length,
+    urlCount: validatorOnly ? 0 : allTargets.length,
     partial,
     log: [],
   };
@@ -659,13 +708,14 @@ export async function startDiagnosticsJob(
     jobId,
     contentRoot: req.contentRoot,
     contentRootName: req.contentRootName,
-    slugs: req.slugs,
-    urls: req.urls,
+    slugs: scopedSlugs,
+    urls: scopedUrls,
     freshness,
     max_age_seconds: maxAge,
     validators: req.validators,
     include_artifacts: !!req.include_artifacts,
     categories: req.categories,
+    validator_only: validatorOnly,
     resultsPath: resultsFilePath(req.contentRoot, jobId),
   };
 
@@ -674,11 +724,11 @@ export async function startDiagnosticsJob(
   return {
     status: "queued",
     job_id: jobId,
-    retry_after_seconds: retryAfterSeconds(allTargets.length),
+    retry_after_seconds: retryAfterSeconds(validatorOnly ? 1 : allTargets.length),
     scope: {
-      urlCount: allTargets.length,
-      staleUrlCount: staleTargets.length,
-      slugs: req.slugs,
+      urlCount: validatorOnly ? 0 : allTargets.length,
+      staleUrlCount: validatorOnly ? 0 : staleTargets.length,
+      slugs: scopedSlugs,
       validators: req.validators,
       partial,
     },

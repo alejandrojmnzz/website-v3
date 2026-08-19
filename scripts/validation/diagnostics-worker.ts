@@ -67,6 +67,7 @@ async function handleStart(msg: DiagnosticsWorkerStartMessage): Promise<void> {
       validators: msg.validators,
       include_artifacts: msg.include_artifacts,
       categories: msg.categories,
+      validator_only: msg.validator_only,
       onProgress: (p) => {
         lastProcessed = p.processed;
         lastTotal = p.total;

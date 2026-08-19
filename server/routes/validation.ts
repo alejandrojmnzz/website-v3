@@ -642,6 +642,7 @@ export function registerValidationRoutes(app: Express): void {
       redirect: typeof req.query.redirect === "string" ? req.query.redirect : undefined,
       media: typeof req.query.media === "string" ? req.query.media : undefined,
       database: typeof req.query.database === "string" ? req.query.database : undefined,
+      file: typeof req.query.file === "string" ? req.query.file : undefined,
     };
     res.json({ issues: listCacheIssues(getValidationCache(res), filters) });
   });
@@ -649,11 +650,18 @@ export function registerValidationRoutes(app: Express): void {
   app.post("/api/validation/cache-issues/dismiss", async (req, res) => {
     const auth = await requireMutatingStaff(req, res);
     if (!auth.authorized) return;
-    const { url, code } = req.body ?? {};
-    if (!url || typeof url !== "string" || !code || typeof code !== "string") {
-      return res.status(400).json({ error: "Missing required fields: url, code" });
+    const { url, file, code } = req.body ?? {};
+    if (!code || typeof code !== "string") {
+      return res.status(400).json({ error: "Missing required field: code" });
     }
     const cache = getValidationCache(res);
+    if (file && typeof file === "string") {
+      const dismissed = await cache.dismissIssuesByFileAndCode(file, code);
+      return res.json({ success: true, dismissed });
+    }
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "Missing required field: url or file" });
+    }
     const dismissed = await cache.dismissIssuesByUrlAndCode(url, code);
     return res.json({ success: true, dismissed });
   });
@@ -715,6 +723,7 @@ export function registerValidationRoutes(app: Express): void {
         cache: getValidationCache(res),
         slugs: req.body?.slugs,
         urls: req.body?.urls,
+        file: req.body?.file,
         freshness: req.body?.freshness,
         max_age_seconds: req.body?.max_age_seconds,
         validators: req.body?.validators,

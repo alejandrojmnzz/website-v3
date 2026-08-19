@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import {AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -142,8 +142,6 @@ interface PageDiagnostics {
   entryKey?: string;
   education?: { summary: string };
 }
-
-type SeverityFilter = "error" | "warning";
 
 function normalizeIssuePath(urlOrPath: string): string {
   let raw = (urlOrPath || "").split("#")[0].split("?")[0].trim();
@@ -287,10 +285,14 @@ type RecheckState = "idle" | "running" | "resolved" | "still_present" | "error";
 function RecheckIssueButton({
   url,
   code,
+  validator,
+  category,
   onResolved,
 }: {
   url: string;
   code: string;
+  validator?: string;
+  category?: string;
   onResolved: () => void;
 }) {
   const [state, setState] = useState<RecheckState>("idle");
@@ -301,7 +303,12 @@ function RecheckIssueButton({
       const startRes = await apiFetch("/api/validation/diagnostics-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: [url] }),
+        body: JSON.stringify({
+          urls: [url],
+          freshness: "hard",
+          ...(validator ? { validators: [validator] } : {}),
+          ...(category ? { categories: [category] } : {}),
+        }),
         credentials: "include",
       });
       if (!startRes.ok) {
@@ -333,6 +340,110 @@ function RecheckIssueButton({
         onResolved();
       } else {
         setState("still_present");
+        // Even when the issue remains, re-check should update the "detected X ago"
+        // timestamp coming from cache. The list UI is driven by the shared cache
+        // query, so we must invalidate it here too.
+        onResolved();
+      }
+    } catch {
+      setState("error");
+    }
+  };
+
+  if (state === "resolved") {
+    return (
+      <span className="text-[10px] text-chart-2 flex items-center gap-1">
+        <CircleCheck className="h-3 w-3" /> resolved
+      </span>
+    );
+  }
+  if (state === "still_present") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> still present · re-check
+      </Button>
+    );
+  }
+  if (state === "error") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> re-check failed · retry
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[10px] gap-1 text-muted-foreground"
+      onClick={handleRecheck}
+      disabled={state === "running"}
+    >
+      {state === "running" ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <RefreshCw className="h-3 w-3" />
+      )}
+      {state === "running" ? "checking…" : "re-check"}
+    </Button>
+  );
+}
+
+function RecheckFileIssueButton({
+  file,
+  code,
+  category,
+  validator,
+  onResolved,
+}: {
+  file: string;
+  code: string;
+  category?: string;
+  validator?: string;
+  onResolved: () => void;
+}) {
+  const [state, setState] = useState<RecheckState>("idle");
+
+  const handleRecheck = async () => {
+    setState("running");
+    try {
+      const body: Record<string, unknown> = {
+        // Force a re-run so we don't depend on max_age freshness for this specific entry.
+        freshness: "hard",
+        file,
+      };
+      if (category) body.categories = [category];
+      if (validator) body.validators = [validator];
+      const startRes = await apiFetch("/api/validation/diagnostics-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+      if (!startRes.ok) { setState("error"); return; }
+      const startData = (await startRes.json()) as { job_id?: string; status?: string };
+      if (!startData.job_id) { setState("error"); return; }
+      await pollDiagnosticsJob(startData.job_id);
+      const issuesRes = await apiFetch(
+        `/api/validation/cache-issues?file=${encodeURIComponent(file)}`,
+        { credentials: "include" },
+      );
+      const issuesData = (await issuesRes.json()) as { issues: CachedIssueRow[] };
+      const stillPresent = issuesData.issues.some((i) => i.code === code);
+      if (!stillPresent) {
+        await apiFetch("/api/validation/cache-issues/dismiss", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file, code }),
+          credentials: "include",
+        });
+        setState("resolved");
+        onResolved();
+      } else {
+        setState("still_present");
+        // Same as URL issues: if it still exists, we still want to refresh the
+        // cache so the "detected X ago" label updates.
+        onResolved();
       }
     } catch {
       setState("error");
@@ -477,7 +588,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [search, setSearch] = useState("");
   const [pagePathFilter, setPagePathFilter] = useState("");
   const [pageFilterOpen, setPageFilterOpen] = useState(false);
-  const [severityFilters, setSeverityFilters] = useState<SeverityFilter[]>([]);
   const [categoryFilters, setCategoryFilters] = useState<Exclude<CategoryFilter, "all">[]>([]);
   const [validatorFilters, setValidatorFilters] = useState<string[]>([]);
   const [rerunValidator, setRerunValidator] = useState<string>("");
@@ -829,11 +939,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
   });
 
-  const severityOptions: { key: SeverityFilter; label: string }[] = [
-    { key: "error", label: "Errors" },
-    { key: "warning", label: "Warnings" },
-  ];
-
   const scopeCategories: { key: Exclude<CategoryFilter, "all">; label: string }[] = [
     { key: "seo", label: "SEO" },
     { key: "integrity", label: "Integrity" },
@@ -849,12 +954,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   ).sort();
 
   const filteredIssues = cacheIssues.filter((issue) => {
-    if (
-      severityFilters.length > 0 &&
-      !severityFilters.includes(issue.severity as SeverityFilter)
-    ) {
-      return false;
-    }
     if (
       categoryFilters.length > 0 &&
       !categoryFilters.includes((issue.category || "unknown") as Exclude<CategoryFilter, "all">)
@@ -929,7 +1028,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     return Array.from(names).sort();
   })();
 
-  const showIssuesAll = activeKpiTab === null && freshKpiView === "issues" && severityFilters.length === 0;
+  const showIssuesAll = activeKpiTab === null && freshKpiView === "issues";
   const errorsKpiActive = activeKpiTab === "errors" || showIssuesAll;
   const warningsKpiActive = activeKpiTab === "warnings" || showIssuesAll;
   const coverageKpiActive = activeKpiTab === "coverage";
@@ -1168,14 +1267,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             onClick={() => {
               setActiveKpiTab("errors");
               setFreshKpiView("issues");
-              setSeverityFilters(["error"]);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setActiveKpiTab("errors");
                 setFreshKpiView("issues");
-                setSeverityFilters(["error"]);
               }
             }}
           >
@@ -1192,14 +1289,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             onClick={() => {
               setActiveKpiTab("warnings");
               setFreshKpiView("issues");
-              setSeverityFilters(["warning"]);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 setActiveKpiTab("warnings");
                 setFreshKpiView("issues");
-                setSeverityFilters(["warning"]);
               }
             }}
           >
@@ -1332,61 +1427,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               </Popover>
             </div>
             <div className="flex flex-wrap items-center gap-1">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="relative toggle-elevate"
-                    data-testid="button-severity-filter"
-                  >
-                    Severity
-                    <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
-                    <FilterCornerBadge count={severityFilters.length} />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Toggle severity to filter issues
-                    </p>
-                    {severityFilters.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setSeverityFilters([])}
-                        data-testid="button-severity-clear"
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5" data-testid="severity-tag-cloud">
-                    {severityOptions.map((s) => {
-                      const active = severityFilters.includes(s.key);
-                      return (
-                        <Button
-                          key={s.key}
-                          variant={active ? "default" : "outline"}
-                          size="sm"
-                          className="h-7 toggle-elevate"
-                          onClick={() => {
-                            setSeverityFilters((prev) =>
-                              prev.includes(s.key)
-                                ? prev.filter((v) => v !== s.key)
-                                : [...prev, s.key],
-                            );
-                          }}
-                          data-testid={`button-severity-${s.key}`}
-                        >
-                          {s.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </PopoverContent>
-              </Popover>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -1553,7 +1593,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               {filteredIssues.length !== cacheIssues.length ? ` of ${cacheIssues.length}` : ""})
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[32rem] overflow-auto space-y-2">
+          <CardContent className="max-h-[32rem] overflow-auto space-y-2 !p-0">
             {displayedIssues.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-issues-match">
                 No issues match your filters
@@ -1562,10 +1602,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               displayedIssues.map((issue, idx) => {
                 const asValidatorIssue = cacheRowToValidatorIssue(issue);
                 const conflict = parseRedirectConflict(asValidatorIssue);
+                const rowKey = `${issue.url || issue.file || "site"}|${issue.code}|${
+                  issue.validator || ""
+                }|${issue.category || ""}|${issue.severity}`;
                 return (
                   <div
-                    key={`${issue.url}-${issue.code}-${issue.validator}-${idx}`}
-                    className="text-xs border-b border-border/60 pb-2"
+                    key={rowKey}
+                    className="text-xs border-b border-border/60 px-4 py-2 hover:bg-white"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <span
@@ -1589,17 +1632,31 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           detected {formatDistanceToNow(new Date(issue.lastFullRunAt), { addSuffix: true })}
                         </span>
                       )}
-                      {issue.url && (
+                      {issue.url ? (
                         <RecheckIssueButton
                           url={issue.url}
                           code={issue.code}
+                          validator={issue.validator}
+                          category={issue.category}
                           onResolved={() =>
                             void queryClient.invalidateQueries({
                               queryKey: ["/api/validation/cache-issues"],
                             })
                           }
                         />
-                      )}
+                      ) : issue.file ? (
+                        <RecheckFileIssueButton
+                          file={issue.file}
+                          code={issue.code}
+                          category={issue.category}
+                          validator={issue.validator}
+                          onResolved={() =>
+                            void queryClient.invalidateQueries({
+                              queryKey: ["/api/validation/cache-issues"],
+                            })
+                          }
+                        />
+                      ) : null}
                       {conflict && (
                         <Button
                           variant="outline"
