@@ -8,7 +8,6 @@ on:
 
 concurrency:
   group: deploy-vps
-  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -49,7 +48,28 @@ jobs:
           print("[runtime-env] packed", len(out), "keys:", ", ".join(sorted(out)) or "(none)")
           PY
 
+      - name: Skip if not latest commit
+        id: latest
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          LATEST="$(git ls-remote "https://github.com/${REPO}.git" refs/heads/main | cut -f1)"
+          if [ -z "$LATEST" ]; then
+            echo "Unable to resolve latest SHA for main" >&2
+            exit 1
+          fi
+          if [ "$LATEST" != "$EXPECTED_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "A newer commit is already on main ($LATEST), skipping deploy for $EXPECTED_SHA"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Deploying latest SHA $EXPECTED_SHA"
+          fi
+
       - name: Deploy via SSH
+        if: steps.latest.outputs.skip != 'true'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -71,6 +91,23 @@ jobs:
             printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
             cat <<'REMOTE'
           set -euo pipefail
+          LOCK_DIR="/tmp/website-v3-deploy.lock"
+          LOCK_WAIT_SECONDS=10
+          LOCK_TIMEOUT_SECONDS=900
+          waited=0
+          while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+            if [ "$waited" -ge "$LOCK_TIMEOUT_SECONDS" ]; then
+              echo "[deploy-lock] another deploy is still running after ${LOCK_TIMEOUT_SECONDS}s" >&2
+              exit 1
+            fi
+            echo "[deploy-lock] another deploy is running; waiting ${LOCK_WAIT_SECONDS}s"
+            sleep "$LOCK_WAIT_SECONDS"
+            waited=$((waited + LOCK_WAIT_SECONDS))
+          done
+          cleanup() {
+            rm -rf "$LOCK_DIR"
+          }
+          trap cleanup EXIT INT TERM
           cd /opt/website-v3
           git pull --ff-only
           python3 << 'PY'
