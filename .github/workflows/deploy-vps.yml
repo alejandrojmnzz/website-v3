@@ -67,17 +67,10 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-          ssh -i "$KEY" \
-            -o IdentitiesOnly=yes \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=50 \
-            "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -s' <<REMOTE
+          {
+            printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
+            cat <<'REMOTE'
           set -euo pipefail
-          export WEBSITE_RUNTIME_B64='${WEBSITE_RUNTIME_B64}'
           cd /opt/website-v3
           git pull --ff-only
           python3 << 'PY'
@@ -122,3 +115,12 @@ jobs:
           echo "App did not become healthy within 120s" >&2
           exit 1
           REMOTE
+          } | ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=50 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'bash -s'
