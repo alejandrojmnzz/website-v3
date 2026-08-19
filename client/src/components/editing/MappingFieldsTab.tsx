@@ -44,6 +44,7 @@ import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { EditorHint } from "@/components/editing/EditorTypeDialog";
 import { deslugifyLabel } from "@shared/relation-field";
+import { NotMetaFieldBadge } from "@/components/editing/NotMetaFieldBadge";
 
 type FieldSource = "original" | "db_override" | "ct_override" | "entry_default";
 
@@ -864,6 +865,8 @@ export function MappingFieldsTab({
   typeLabel,
   variant,
   hideSeoFields = false,
+  onOpenSeoMeta,
+  portalContainer,
 }: {
   contentType: string;
   slug: string;
@@ -873,6 +876,9 @@ export function MappingFieldsTab({
   variant?: string | null;
   /** When true, cluster/keyword SEO fields are omitted (shown on SEO Meta tab instead). */
   hideSeoFields?: boolean;
+  /** Switch to SEO Meta tab in the parent modal (share preview). */
+  onOpenSeoMeta?: () => void;
+  portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
   const [levelChooserField, setLevelChooserField] = useState<FieldProvenance | null>(null);
@@ -1148,6 +1154,13 @@ export function MappingFieldsTab({
                       {row.calculated && (
                         <Calculator
                           className="h-3 w-3 text-muted-foreground"
+                        />
+                      )}
+                      {(row.field === "title" || row.field === "description") && (
+                        <NotMetaFieldBadge
+                          field={row.field}
+                          onOpenSeoMeta={onOpenSeoMeta}
+                          portalContainer={portalContainer}
                         />
                       )}
                     </span>
