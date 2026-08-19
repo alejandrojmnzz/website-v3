@@ -22,6 +22,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { Link, useSearch } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AddRedirectDialog, getApiErrorMessage, hasRegexChars } from "@/components/editing/AddRedirectDialog";
@@ -89,6 +94,29 @@ interface Redirect {
 function formatRedirectTo(to: string | Record<string, string>): string {
   if (typeof to === "string") return to;
   return Object.values(to).join(", ");
+}
+
+function FullUrlHoverCard({
+  url,
+  children,
+}: {
+  url: string;
+  children: ReactNode;
+}) {
+  return (
+    <HoverCard openDelay={200} closeDelay={80}>
+      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      <HoverCardContent
+        align="start"
+        side="top"
+        className="w-auto max-w-md p-3"
+      >
+        <code className="text-xs font-mono break-all whitespace-pre-wrap leading-relaxed">
+          {url}
+        </code>
+      </HoverCardContent>
+    </HoverCard>
+  );
 }
 
 function isLocaleMap(
@@ -712,6 +740,17 @@ export default function PrivateRedirects() {
                 View YAML
               </Button>
               <Button
+                variant="outline"
+                size="sm"
+                asChild
+                data-testid="button-view-runtime-404s"
+              >
+                <Link href="/private/diagnostics/runtime-issues">
+                  <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                  404's
+                </Link>
+              </Button>
+              <Button
                 variant="default"
                 size="sm"
                 onClick={() => setShowAddDialog(true)}
@@ -1262,20 +1301,23 @@ export default function PrivateRedirects() {
                                   </Button>
                                 </div>
                               ) : isEditableRegex ? (
-                                <button
-                                  type="button"
-                                  className="text-xs bg-muted px-2 py-1 rounded truncate text-left min-w-0 max-w-full cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
-                                  onClick={() => startInlineEdit(redirect, "from")}
-                                  title="Click to edit regex"
-                                  data-testid={`code-from-${type}-${index}`}
-                                >
-                                  <code className="font-mono truncate">{redirect.from}</code>
-                                  <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                                </button>
+                                <FullUrlHoverCard url={redirect.from}>
+                                  <button
+                                    type="button"
+                                    className="text-xs bg-muted px-2 py-1 rounded truncate text-left min-w-0 max-w-full cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
+                                    onClick={() => startInlineEdit(redirect, "from")}
+                                    data-testid={`code-from-${type}-${index}`}
+                                  >
+                                    <code className="font-mono truncate">{redirect.from}</code>
+                                    <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                  </button>
+                                </FullUrlHoverCard>
                               ) : (
-                                <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                                  {redirect.from}
-                                </code>
+                                <FullUrlHoverCard url={redirect.from}>
+                                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate cursor-default">
+                                    {redirect.from}
+                                  </code>
+                                </FullUrlHoverCard>
                               )}
                               {hasRegexChars(redirect.from) && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0 font-mono">
@@ -1371,9 +1413,11 @@ export default function PrivateRedirects() {
                                         className="flex items-center gap-1.5"
                                       >
                                         <LocaleFlag locale={locale} />
-                                        <code className="text-xs bg-muted px-2 py-0.5 rounded truncate flex-1">
-                                          {url}
-                                        </code>
+                                        <FullUrlHoverCard url={url}>
+                                          <code className="text-xs bg-muted px-2 py-0.5 rounded truncate flex-1 cursor-default">
+                                            {url}
+                                          </code>
+                                        </FullUrlHoverCard>
                                         <a
                                           href={url}
                                           target="_blank"
@@ -1438,20 +1482,23 @@ export default function PrivateRedirects() {
                               ) : (
                                 <>
                                   {isEditableRegex ? (
-                                    <button
-                                      type="button"
-                                      className="text-xs bg-muted px-2 py-1 rounded truncate text-left flex-1 min-w-0 cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
-                                      onClick={() => startInlineEdit(redirect, "to")}
-                                      title="Click to edit destination"
-                                      data-testid={`code-to-${type}-${index}`}
-                                    >
-                                      <code className="font-mono truncate">{redirect.to as string}</code>
-                                      <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                                    </button>
+                                    <FullUrlHoverCard url={redirect.to as string}>
+                                      <button
+                                        type="button"
+                                        className="text-xs bg-muted px-2 py-1 rounded truncate text-left flex-1 min-w-0 cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
+                                        onClick={() => startInlineEdit(redirect, "to")}
+                                        data-testid={`code-to-${type}-${index}`}
+                                      >
+                                        <code className="font-mono truncate">{redirect.to as string}</code>
+                                        <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                      </button>
+                                    </FullUrlHoverCard>
                                   ) : (
-                                    <code className="text-xs bg-muted px-2 py-1 rounded block truncate flex-1">
-                                      {redirect.to}
-                                    </code>
+                                    <FullUrlHoverCard url={String(redirect.to)}>
+                                      <code className="text-xs bg-muted px-2 py-1 rounded block truncate flex-1 cursor-default">
+                                        {redirect.to}
+                                      </code>
+                                    </FullUrlHoverCard>
                                   )}
                                   {!/\$\d/.test(redirect.to as string) && !hasRegexChars(redirect.to as string) && (
                                     <a

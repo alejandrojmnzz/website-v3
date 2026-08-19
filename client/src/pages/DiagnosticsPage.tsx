@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
 import {AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
@@ -31,6 +32,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
@@ -274,6 +282,102 @@ async function pollDiagnosticsJob(
   }
 }
 
+type RecheckState = "idle" | "running" | "resolved" | "still_present" | "error";
+
+function RecheckIssueButton({
+  url,
+  code,
+  onResolved,
+}: {
+  url: string;
+  code: string;
+  onResolved: () => void;
+}) {
+  const [state, setState] = useState<RecheckState>("idle");
+
+  const handleRecheck = async () => {
+    setState("running");
+    try {
+      const startRes = await apiFetch("/api/validation/diagnostics-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: [url] }),
+        credentials: "include",
+      });
+      if (!startRes.ok) {
+        setState("error");
+        return;
+      }
+      const startData = (await startRes.json()) as { job_id?: string; status?: string };
+      if (!startData.job_id) {
+        setState("error");
+        return;
+      }
+      await pollDiagnosticsJob(startData.job_id);
+      // Check if the issue still exists in the refreshed cache
+      const issuesRes = await apiFetch(
+        `/api/validation/cache-issues?url=${encodeURIComponent(url)}`,
+        { credentials: "include" },
+      );
+      const issuesData = (await issuesRes.json()) as { issues: CachedIssueRow[] };
+      const stillPresent = issuesData.issues.some((i) => i.code === code);
+      if (!stillPresent) {
+        // Auto-dismiss from cache
+        await apiFetch("/api/validation/cache-issues/dismiss", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, code }),
+          credentials: "include",
+        });
+        setState("resolved");
+        onResolved();
+      } else {
+        setState("still_present");
+      }
+    } catch {
+      setState("error");
+    }
+  };
+
+  if (state === "resolved") {
+    return (
+      <span className="text-[10px] text-chart-2 flex items-center gap-1">
+        <CircleCheck className="h-3 w-3" /> resolved
+      </span>
+    );
+  }
+  if (state === "still_present") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> still present · re-check
+      </Button>
+    );
+  }
+  if (state === "error") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> re-check failed · retry
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[10px] gap-1 text-muted-foreground"
+      onClick={handleRecheck}
+      disabled={state === "running"}
+    >
+      {state === "running" ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <RefreshCw className="h-3 w-3" />
+      )}
+      {state === "running" ? "checking…" : "re-check"}
+    </Button>
+  );
+}
+
 function cacheRowToValidatorIssue(row: CachedIssueRow): ValidatorIssue {
   return {
     type: row.severity === "error" ? "error" : "warning",
@@ -283,6 +387,86 @@ function cacheRowToValidatorIssue(row: CachedIssueRow): ValidatorIssue {
     ...(row.suggestion ? { suggestion: row.suggestion } : {}),
   };
 }
+
+type CacheFreshnessResponse = {
+  fresh: number;
+  stale: number;
+  total: number;
+  max_age_seconds: number;
+  last_site_wide_run_at: string | null;
+};
+
+type CoverageSummary = {
+  meanPercent: number;
+  fullyCovered: number;
+  totalUrls: number;
+  expectedValidators: number;
+};
+
+type CoverageUrlItem = {
+  url: string;
+  lastFullRunAt: string | null;
+  isFresh: boolean;
+  coveredCount: number;
+  expectedCount: number;
+  coveragePercent: number;
+  oldestCoveredAt: string | null;
+};
+
+type CoverageUrlsResponse = {
+  totalItems: number;
+  page: number;
+  pageSize: number;
+  coverage: CoverageSummary;
+  items: CoverageUrlItem[];
+};
+
+type DiagnosticsJobListItem = {
+  jobId: string;
+  status: string;
+  processed?: number;
+  total?: number;
+};
+
+function formatRelativeAgo(iso: string, nowMs: number = Date.now()): string {
+  const diffMs = nowMs - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (!Number.isFinite(diffMs) || Number.isNaN(mins)) return "unknown";
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function formatLastSiteWideRun(iso: string): string {
+  const when = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(iso));
+  return `Last site-wide run: ${when} (${formatRelativeAgo(iso)})`;
+}
+
+function formatInFlightJobStatus(job: {
+  status: string;
+  processed?: number;
+  total?: number;
+}): string {
+  const total = job.total ?? 0;
+  const processed = job.processed ?? 0;
+  if (total > 0) return `Job currently running (${processed}/${total})`;
+  if (job.status === "queued") return "Job currently running (queued)";
+  return "Job currently running";
+}
+
+function firstInFlightJob(
+  jobs: DiagnosticsJobListItem[] | undefined,
+): DiagnosticsJobListItem | undefined {
+  return jobs?.find((j) => j.status === "queued" || j.status === "running");
+}
+
+const FRESH_URLS_PAGE_SIZE = 50;
 
 function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   void onOpenLeads;
@@ -297,7 +481,11 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [categoryFilters, setCategoryFilters] = useState<Exclude<CategoryFilter, "all">[]>([]);
   const [validatorFilters, setValidatorFilters] = useState<string[]>([]);
   const [rerunValidator, setRerunValidator] = useState<string>("");
-  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [freshKpiView, setFreshKpiView] = useState<"issues" | "fresh_urls">("issues");
+  const [freshUrlSearch, setFreshUrlSearch] = useState("");
+  const [freshUrlFilter, setFreshUrlFilter] = useState<"all" | "fresh" | "not_fresh">("all");
+  const [freshUrlPage, setFreshUrlPage] = useState(1);
+  const [activeKpiTab, setActiveKpiTab] = useState<"errors" | "warnings" | "coverage" | "unique" | null>(null);
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
@@ -326,6 +514,48 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     queryKey: ["/api/validation/cache-issues"],
   });
   const cacheIssues = cacheIssuesData?.issues ?? [];
+
+  const { data: cacheFreshness } = useQuery<CacheFreshnessResponse>({
+    queryKey: ["/api/validation/cache-freshness"],
+  });
+
+  const { data: coverageSummaryData } = useQuery<CoverageUrlsResponse>({
+    queryKey: ["/api/validation/cache-freshness-urls", "summary"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/validation/cache-freshness-urls?page=1&pageSize=1", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Failed to load coverage summary (${res.status})`);
+      return (await res.json()) as CoverageUrlsResponse;
+    },
+  });
+
+  const { data: freshUrlsData, isFetching: isFreshUrlsFetching } = useQuery<CoverageUrlsResponse>({
+    queryKey: ["/api/validation/cache-freshness-urls", freshUrlSearch, freshUrlFilter, freshUrlPage],
+    enabled: freshKpiView === "fresh_urls",
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("page", String(freshUrlPage));
+      params.set("pageSize", String(FRESH_URLS_PAGE_SIZE));
+      params.set("filter", freshUrlFilter);
+      if (freshUrlSearch.trim()) params.set("q", freshUrlSearch.trim());
+      const res = await apiFetch(`/api/validation/cache-freshness-urls?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Failed to load fresh URLs (${res.status})`);
+      return (await res.json()) as CoverageUrlsResponse;
+    },
+  });
+
+  const { data: jobsListData } = useQuery<{ jobs: DiagnosticsJobListItem[] }>({
+    queryKey: ["/api/validation/diagnostics-jobs"],
+    refetchInterval: (query) => {
+      if (jobPanel?.running) return 5000;
+      const jobs = query.state.data?.jobs ?? [];
+      if (jobs.some((j) => j.status === "queued" || j.status === "running")) return 5000;
+      return 15000;
+    },
+  });
 
   const { data: validatorsData } = useQuery<{
     validators: Array<{ name: string; description?: string; category?: string }>;
@@ -392,12 +622,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       scheduleHideJobPanel();
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
       if (outcome.kind === "cached") {
         toast({ title: "Cache fresh", description: "No stale URLs — showing cached diagnostics." });
-        setLastRun(new Date());
         return;
       }
-      setLastRun(new Date());
       toast({
         title: "Diagnostics completed",
         description: outcome.data.summary
@@ -506,7 +737,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       scheduleHideJobPanel();
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
-      setLastRun(new Date());
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
       toast({
         title: "Validator finished",
         description: `Updated cache for ${data.name}.`,
@@ -576,10 +809,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
     onSuccess: () => {
       setClearCacheOpen(false);
-      setLastRun(null);
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
       toast({
         title: "Validation cache cleared",
         description: "Run Refresh stale or Hard refresh to rebuild diagnostics.",
@@ -662,8 +897,28 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     urls: new Set(filteredIssues.map((i) => i.url).filter(Boolean)).size,
   };
 
+  const totalSummary = {
+    errors: cacheIssues.filter((i) => i.severity === "error").length,
+    warnings: cacheIssues.filter((i) => i.severity === "warning").length,
+    urls: new Set(cacheIssues.map((i) => i.url).filter(Boolean)).size,
+  };
+
   const jobPending = startJobMutation.isPending || runSingleMutation.isPending || clearCacheMutation.isPending;
   const displayedIssues = filteredIssues.slice(0, ISSUE_DISPLAY_CAP);
+  const coverageSummary = coverageSummaryData?.coverage;
+  const freshUrlItems = freshUrlsData?.items ?? [];
+  const freshUrlTotalItems = freshUrlsData?.totalItems ?? 0;
+  const freshUrlTotalPages = Math.max(1, Math.ceil(freshUrlTotalItems / FRESH_URLS_PAGE_SIZE));
+  const inFlightJob = jobPanel?.running
+    ? jobPanel
+    : firstInFlightJob(jobsListData?.jobs);
+  const diagnosticsStatusLine = inFlightJob
+    ? formatInFlightJobStatus(inFlightJob)
+    : cacheFreshness === undefined
+      ? ""
+      : cacheFreshness.last_site_wide_run_at
+        ? formatLastSiteWideRun(cacheFreshness.last_site_wide_run_at)
+        : "No site-wide diagnostics run yet.";
 
   const rerunOptions = (() => {
     const names = new Set<string>();
@@ -673,6 +928,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     for (const n of validatorNamesInCache) names.add(n);
     return Array.from(names).sort();
   })();
+
+  const showIssuesAll = activeKpiTab === null && freshKpiView === "issues" && severityFilters.length === 0;
+  const errorsKpiActive = activeKpiTab === "errors" || showIssuesAll;
+  const warningsKpiActive = activeKpiTab === "warnings" || showIssuesAll;
+  const coverageKpiActive = activeKpiTab === "coverage";
+  const uniqueKpiActive = activeKpiTab === "unique";
+
+  const kpiActiveClass = (active: boolean) =>
+    active ? "bg-muted/70 border-b-0 -mb-px" : "bg-card";
 
   return (
     <div className="space-y-6">
@@ -684,7 +948,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             <code className="text-xs">validation-cache.json</code>. Use{" "}
             <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
             open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
-            Refresh / Hard refresh / Re-run validator update the store via a{" "}
+            <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
+            validator coverage and fully-covered URLs. Under Refresh, an in-flight
+            job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
+            not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
             <strong className="text-foreground font-medium">background worker</strong>; the job panel shows
             milestones (fixed height, scrolls). Cached issues refresh when the job finishes. Delete cache
             wipes the store until the next refresh. One job runs at a time per site.
@@ -701,9 +968,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             <ul className="list-disc pl-5 text-xs space-y-1">
               <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC</li>
               <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
-              <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod)</li>
+              <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
+              <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
               <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files</li>
-              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code>, <code>GET /api/validation/cache-issues</code></li>
+              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code>, <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code></li>
             </ul>
           )}
         </CardContent>
@@ -766,12 +1034,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <p className="text-sm text-muted-foreground mt-1 max-w-xl">
             Shared validation store for the whole site. Page bubbles show the same issues filtered to each entry.
           </p>
-          {lastRun && (
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-last-run">
-              Last run: {lastRun.toLocaleTimeString()}
-            </p>
-          )}
         </div>
+        <div className="flex flex-col items-end gap-1">
         {canMutateMetrics && (
           <div className="flex flex-wrap items-center gap-2">
             <Select value={rerunValidator || undefined} onValueChange={setRerunValidator}>
@@ -850,6 +1114,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             </DropdownMenu>
           </div>
         )}
+          {diagnosticsStatusLine ? (
+            <p className="text-xs text-muted-foreground text-right" data-testid="text-diagnostics-status">
+              {diagnosticsStatusLine}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <Dialog open={clearCacheOpen} onOpenChange={setClearCacheOpen}>
@@ -888,32 +1158,124 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {cacheIssues.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="cache-summary-bar">
-          <Card style={{ borderRadius: "0.8rem" }}>
+      <div className="space-y-0">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 border-b border-border" data-testid="cache-summary-bar">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={errorsKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(errorsKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("errors");
+              setFreshKpiView("issues");
+              setSeverityFilters(["error"]);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("errors");
+                setFreshKpiView("issues");
+                setSeverityFilters(["error"]);
+              }
+            }}
+          >
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-destructive">{filteredSummary.errors}</p>
+              <p className="text-2xl font-bold text-destructive">{totalSummary.errors}</p>
               <p className="text-xs text-muted-foreground">Errors</p>
             </CardContent>
           </Card>
-          <Card style={{ borderRadius: "0.8rem" }}>
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={warningsKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(warningsKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("warnings");
+              setFreshKpiView("issues");
+              setSeverityFilters(["warning"]);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("warnings");
+                setFreshKpiView("issues");
+                setSeverityFilters(["warning"]);
+              }
+            }}
+          >
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-chart-2">{filteredSummary.warnings}</p>
+              <p className="text-2xl font-bold text-chart-2">{totalSummary.warnings}</p>
               <p className="text-xs text-muted-foreground">Warnings</p>
             </CardContent>
           </Card>
-          <Card style={{ borderRadius: "0.8rem" }}>
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={uniqueKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(uniqueKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("unique");
+              setFreshKpiView("fresh_urls");
+              setFreshUrlFilter("all");
+              setFreshUrlSearch("");
+              setFreshUrlPage(1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("unique");
+                setFreshKpiView("fresh_urls");
+                setFreshUrlFilter("all");
+                setFreshUrlSearch("");
+                setFreshUrlPage(1);
+              }
+            }}
+          >
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{filteredSummary.urls}</p>
+              <p className="text-2xl font-bold text-foreground">{totalSummary.urls}</p>
               <p className="text-xs text-muted-foreground">Unique URLs</p>
             </CardContent>
           </Card>
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={coverageKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(coverageKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("coverage");
+              setFreshKpiView("fresh_urls");
+              setFreshUrlFilter("fresh");
+              setFreshUrlSearch("");
+              setFreshUrlPage(1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("coverage");
+                setFreshKpiView("fresh_urls");
+                setFreshUrlFilter("fresh");
+                setFreshUrlSearch("");
+                setFreshUrlPage(1);
+              }
+            }}
+          >
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold text-foreground" data-testid="text-coverage-mean">
+                {coverageSummary ? `${coverageSummary.meanPercent}%` : "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">Avg coverage</p>
+              {coverageSummary && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {coverageSummary.fullyCovered}/{coverageSummary.totalUrls} fully covered
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
-      )}
 
-      {cacheIssues.length > 0 && (
+      {freshKpiView === "issues" && cacheIssues.length > 0 && (
         <div className="space-y-3" data-testid="cache-issue-filters">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 border-x border-border pt-3 px-6 bg-muted">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -1142,7 +1504,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </div>
       )}
 
-      {jobPending && cacheIssues.length === 0 && (
+      {freshKpiView === "issues" && jobPending && cacheIssues.length === 0 && (
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
@@ -1151,8 +1513,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </div>
       )}
 
-      {!jobPending && cacheIssues.length === 0 && (
-        <Card style={{ borderRadius: "0.8rem" }}>
+      {freshKpiView === "issues" && !jobPending && cacheIssues.length === 0 && (
+        <Card className="rounded-t-none border-t-0 bg-muted/70">
           <CardContent className="p-8 text-center">
             <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">
@@ -1183,8 +1545,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </Card>
       )}
 
-      {cacheIssues.length > 0 && (
-        <Card style={{ borderRadius: "0.8rem" }} data-testid="cached-issues-panel">
+      {freshKpiView === "issues" && cacheIssues.length > 0 && (
+        <Card className="rounded-t-none border-t-0 bg-muted/70" data-testid="cached-issues-panel">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
               Cached issues ({filteredIssues.length}
@@ -1222,6 +1584,22 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         </Badge>
                       )}
                       <code>{issue.code}</code>
+                      {issue.lastFullRunAt && (
+                        <span className="text-muted-foreground text-[10px] ml-auto">
+                          detected {formatDistanceToNow(new Date(issue.lastFullRunAt), { addSuffix: true })}
+                        </span>
+                      )}
+                      {issue.url && (
+                        <RecheckIssueButton
+                          url={issue.url}
+                          code={issue.code}
+                          onResolved={() =>
+                            void queryClient.invalidateQueries({
+                              queryKey: ["/api/validation/cache-issues"],
+                            })
+                          }
+                        />
+                      )}
                       {conflict && (
                         <Button
                           variant="outline"
@@ -1257,6 +1635,136 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </CardContent>
         </Card>
       )}
+
+      {freshKpiView === "fresh_urls" && (
+        <Card className="rounded-t-none border-t-0 bg-muted/70" data-testid="fresh-urls-panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Coverage URLs ({freshUrlTotalItems})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 bg-muted rounded-md p-2">
+              <div className="relative flex-1 min-w-[220px] max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search URLs…"
+                  value={freshUrlSearch}
+                  onChange={(e) => {
+                    setFreshUrlSearch(e.target.value);
+                    setFreshUrlPage(1);
+                  }}
+                  className="pl-10"
+                  data-testid="input-search-fresh-urls"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                {[
+                  ["all", "All"],
+                  ["fresh", "Fresh"],
+                  ["not_fresh", "Not fresh"],
+                ].map(([value, label]) => (
+                  <Button
+                    key={value}
+                    size="sm"
+                    variant={freshUrlFilter === value ? "default" : "outline"}
+                    onClick={() => {
+                      setFreshUrlFilter(value as "all" | "fresh" | "not_fresh");
+                      setFreshUrlPage(1);
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="max-h-[32rem] overflow-auto space-y-2">
+              {isFreshUrlsFetching ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">Loading URLs…</p>
+              ) : freshUrlItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No URLs match your search.</p>
+              ) : (
+                freshUrlItems.map((item) => (
+                  <div key={item.url} className="text-xs border-b border-border/60 pb-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={item.isFresh
+                          ? "text-[10px] border-green-500/40 bg-green-500/10 text-green-400"
+                          : "text-[10px] border-destructive/40 bg-destructive/10 text-destructive"}
+                      >
+                        {item.isFresh ? "fresh" : "not fresh"}
+                      </Badge>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Badge variant="outline" className="text-[10px] cursor-pointer">
+                            {item.coveredCount}/{item.expectedCount} · {item.coveragePercent}%
+                          </Badge>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-72 text-sm space-y-1.5">
+                          <p className="font-medium text-foreground">Validator coverage</p>
+                          <p className="text-muted-foreground">
+                            <span className="font-medium text-foreground">{item.coveredCount} of {item.expectedCount}</span> checks have run on this URL ({item.coveragePercent}%).
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            Each "check" is a validator — a rule that scans this page for issues (broken links, SEO fields, required content, etc.). A higher number means more of the site's checks have looked at this page.
+                          </p>
+                          {item.coveredCount < item.expectedCount && (
+                            <p className="text-xs text-amber-400">
+                              {item.expectedCount - item.coveredCount} check{item.expectedCount - item.coveredCount === 1 ? "" : "s"} haven't run yet. Try "Hard refresh" to revalidate all URLs.
+                            </p>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 mt-0.5">
+                      <div className="text-foreground">{item.url}</div>
+                      <div className="text-muted-foreground shrink-0">
+                        {item.lastFullRunAt ? `Last full run ${formatRelativeAgo(item.lastFullRunAt)}` : "Never fully validated"}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {freshUrlTotalPages > 1 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Page {freshUrlPage} of {freshUrlTotalPages} · {freshUrlTotalItems} URLs
+                </p>
+                <Pagination className="mx-0 w-auto justify-end">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        aria-disabled={freshUrlPage <= 1}
+                        className={freshUrlPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (freshUrlPage > 1) setFreshUrlPage((p) => p - 1);
+                        }}
+                      />
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        aria-disabled={freshUrlPage >= freshUrlTotalPages}
+                        className={freshUrlPage >= freshUrlTotalPages ? "pointer-events-none opacity-50" : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (freshUrlPage < freshUrlTotalPages) setFreshUrlPage((p) => p + 1);
+                        }}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      </div>
 
       <RedirectConflictResolverModal
         open={resolveModalOpen}

@@ -124,8 +124,14 @@ function identityValidateOptsForWrite(opts: {
 }import {
   isEntryDetached,
   isSharedLayoutType,
+  isTemplateVersioningSlug,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
+import {
+  applyEditorialUpdatedAtToData,
+  stampAttachedEntryLocaleFiles,
+  type EditorialOp,
+} from "./editorial-updated-at";
 import {
   DEFAULT_DRAFT_VARIANT,
   usesDraftFirstCreate,
@@ -147,6 +153,57 @@ import {
   isPublishedAtEmpty,
 } from "./published-at";
 import { FIELD_OVERRIDES_KEY } from "./field-overrides";
+
+function cloneYamlData(data: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return structuredClone(data);
+  } catch {
+    return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+  }
+}
+
+function stampLocaleYamlBeforeWrite(opts: {
+  data: Record<string, unknown>;
+  previous: Record<string, unknown>;
+  operations: EditOperation[];
+  contentType: string;
+  slug: string;
+  locale?: string;
+  filePath: string;
+  contentRoot?: string;
+  author?: string;
+  ci?: ContentIndex;
+}): void {
+  const result = applyEditorialUpdatedAtToData({
+    data: opts.data,
+    previous: opts.previous,
+    operations: opts.operations as EditorialOp[],
+    contentType: opts.contentType,
+    slug: opts.slug,
+    contentRoot: opts.contentRoot,
+  });
+  if (
+    result.kind === "now" &&
+    result.iso &&
+    opts.locale &&
+    path.basename(opts.filePath).startsWith("single.")
+  ) {
+    const slugs = (opts.ci ?? contentIndex).listContentSlugs(
+      opts.contentType as import("./content-index").ContentType,
+    );
+    stampAttachedEntryLocaleFiles({
+      contentType: opts.contentType,
+      locale: opts.locale,
+      iso: result.iso,
+      slugs,
+      contentRoot: opts.contentRoot,
+      author: opts.author,
+      skipIfDetached: (entrySlug) =>
+        isTemplateVersioningSlug(entrySlug) ||
+        isEntryDetached(opts.contentType, entrySlug, opts.contentRoot),
+    });
+  }
+}
 
 /** After duplicate copy: never keep source published_at; stamp if the copy is immediately live. */
 function applyPublishedAtAfterDuplicate(
@@ -1027,6 +1084,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
           const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
           const templateData = (contentIndex.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+          const previousTemplateData = cloneYamlData(templateData);
           const templateSections = Array.isArray(templateData.sections)
             ? (templateData.sections as Record<string, unknown>[])
             : [];
@@ -1047,6 +1105,18 @@ export async function editContent(request: ContentEditRequest): Promise<{
           templateSections.splice(tplTo, 0, moved);
           templateData.sections = templateSections;
 
+          stampLocaleYamlBeforeWrite({
+            data: templateData,
+            previous: previousTemplateData,
+            operations: [{ action: "reorder_sections", from: tplFrom, to: tplTo } as EditOperation],
+            contentType,
+            slug,
+            locale,
+            filePath: templateFilePath,
+            contentRoot,
+            author: request.author,
+            ci: contentIndex,
+          });
           const updatedYaml = safeYamlDump(templateData, {
             lineWidth: -1,
             noRefs: true,
@@ -1153,6 +1223,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Apply all operations to the locale data (this is what gets saved)
+    const previousLocaleData = cloneYamlData(localeData);
     const clearedFields: ClearedField[] = [];
     const skipIdentityValidationIndexes = new Set<number>();
     for (const operation of resolvedOperations) {
@@ -1240,6 +1311,18 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Write locale data back to file (without _common.yml content)
+    stampLocaleYamlBeforeWrite({
+      data: localeData,
+      previous: previousLocaleData,
+      operations: resolvedOperations,
+      contentType,
+      slug,
+      locale,
+      filePath,
+      contentRoot,
+      author: request.author,
+      ci,
+    });
     const updatedYaml = safeYamlDump(localeData, {
       lineWidth: -1, // Don't wrap lines
       noRefs: true,
@@ -1434,6 +1517,7 @@ function writeStructuralChangesToTemplate(opts: {
     const sectionsBefore = Array.isArray(templateData.sections)
       ? [...(templateData.sections as Record<string, unknown>[])]
       : [];
+    const previousTemplateData = cloneYamlData(templateData);
     const clearedFields: ClearedField[] = [];
 
     // Annotate remove ops with sectionId for sibling fan-out
@@ -1523,6 +1607,20 @@ function writeStructuralChangesToTemplate(opts: {
       }
     }
 
+    if (contentType && contentSlug) {
+      stampLocaleYamlBeforeWrite({
+        data: templateData,
+        previous: previousTemplateData,
+        operations: annotatedOps,
+        contentType,
+        slug: contentSlug,
+        locale: opts.locale,
+        filePath,
+        contentRoot,
+        author,
+        ci,
+      });
+    }
     const updatedYaml = safeYamlDump(templateData, {
       lineWidth: -1,
       noRefs: true,
@@ -1635,6 +1733,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       entryData = (yaml.load(raw) as Record<string, unknown>) || {};
     }
 
+    const previousEntryData = cloneYamlData(entryData);
     for (const op of operations) {
       if (op.value === null || op.value === undefined) {
         delete entryData[op.path as string];
@@ -1670,6 +1769,17 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       };
     }
 
+    stampLocaleYamlBeforeWrite({
+      data: entryData,
+      previous: previousEntryData,
+      operations,
+      contentType,
+      slug,
+      locale,
+      filePath: perEntryPath,
+      contentRoot: opts.contentRoot,
+      author,
+    });
     const dumped = safeYamlDump(entryData, { lineWidth: -1, noRefs: true });
     fs.writeFileSync(perEntryPath, dumped, "utf-8");
     markFileAsModified(perEntryPath, author, undefined, opts.contentRoot);
@@ -1708,6 +1818,7 @@ function writeEntryOverlayOps(opts: {
       const raw = fs.readFileSync(perEntryPath, "utf-8");
       entryData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
     }
+    const previousEntryData = cloneYamlData(entryData);
     for (const op of operations) {
       applyOperation(entryData, op, { contentRoot: opts.contentRoot, locale });
     }
@@ -1718,6 +1829,18 @@ function writeEntryOverlayOps(opts: {
     }
     const consentErr = getConsentKeyError(entryData);
     if (consentErr) return { success: false, error: consentErr };
+    stampLocaleYamlBeforeWrite({
+      data: entryData,
+      previous: previousEntryData,
+      operations,
+      contentType,
+      slug,
+      locale,
+      filePath: perEntryPath,
+      contentRoot: opts.contentRoot,
+      author,
+      ci,
+    });
     fs.writeFileSync(
       perEntryPath,
       safeYamlDump(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
@@ -1878,6 +2001,7 @@ function handleSharedTemplateEdit(opts: {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const templateData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
+    const previousTemplateData = cloneYamlData(templateData);
 
     let templateDirty = false;
 
@@ -1931,6 +2055,18 @@ function handleSharedTemplateEdit(opts: {
         return { success: false, error: consentErrTemplate };
       }
 
+      stampLocaleYamlBeforeWrite({
+        data: templateData,
+        previous: previousTemplateData,
+        operations,
+        contentType,
+        slug,
+        locale,
+        filePath,
+        contentRoot,
+        author,
+        ci,
+      });
       const updatedYaml = safeYamlDump(templateData, {
         lineWidth: -1,
         noRefs: true,
@@ -2255,7 +2391,7 @@ export async function renameContentSlug(
   input: RenameContentSlugInput,
 ): Promise<ContentLifecycleResult<{
   success: boolean; folderSlug: string; oldSlug: string; newSlug: string;
-  oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean;
+  oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean; routed: boolean;
 }>> {
   const { contentType, folderSlug, locale, newSlug, createRedirect = false, author } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
@@ -2315,6 +2451,16 @@ export async function renameContentSlug(
 
   const oldUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, currentSlug);
   const newUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, newSlug);
+  const existingOwner = contentIndex.resolveUrl(newUrl);
+  if (existingOwner && existingOwner.slug !== resolvedFolderSlug) {
+    return {
+      success: false,
+      statusCode: 409,
+      error:
+        `slug_already_owned_by_other_entry: "${newUrl}" resolves to ` +
+        `"${existingOwner.contentType}/${existingOwner.slug}"`,
+    };
+  }
   parsed.slug = newSlug;
 
   if (createRedirect) {
@@ -2329,6 +2475,7 @@ export async function renameContentSlug(
   fs.writeFileSync(localeFilePath, updated, "utf-8");
   markFileAsModified(`${rootName}/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
   contentIndex.refresh();
+  const routed = contentIndex.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();
   invalidateContentCaches(contentType);
@@ -2337,7 +2484,7 @@ export async function renameContentSlug(
     success: true,
     data: {
       success: true, folderSlug: resolvedFolderSlug, oldSlug: currentSlug,
-      newSlug, oldUrl, newUrl, locale: effectiveLocale, redirectCreated: !!createRedirect,
+      newSlug, oldUrl, newUrl, locale: effectiveLocale, redirectCreated: !!createRedirect, routed,
     },
   };
 }

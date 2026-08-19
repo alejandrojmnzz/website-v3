@@ -76,7 +76,11 @@ import {
   listLiveLocaleFiles,
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
-import { isKnownSeoFieldPath, SEO_YAML_KEY } from "../../server/content-types.js";
+import { isKnownSeoFieldPath, SEO_YAML_KEY, resolveEntryUpdatedAtDetail } from "../../server/content-types.js";
+import {
+  applyEditorialUpdatedAtToData,
+  operationsFromLocalePayload,
+} from "../../server/editorial-updated-at.js";
 import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
 import {
   collectFormSourceHitsFromNode,
@@ -88,6 +92,29 @@ const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
 // Must match the value used in server/routes/_helpers.ts trusted-internal bypass.
 export const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+
+const UPDATED_AT_STAMP_WARNING: McpWarning = {
+  code: "updated_at_stamp",
+  message:
+    "title / meta.page_title / meta.description / section copy or images bump locale updated_at to now (overwrites a manual backdate). seo.*, meta.robots, redirects, og_image, priority, and change_frequency do not. Explicit updated_at-only saves do not bump. Variant save does not change live sitemap lastmod until promote.",
+};
+
+function resolvedUpdatedAtFields(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot: string,
+  record?: Record<string, unknown> | null,
+): { updated_at: string | null; updated_at_source: "yaml" | "published_at" | null } {
+  const { iso, source } = resolveEntryUpdatedAtDetail({
+    contentType,
+    slug,
+    locale,
+    record,
+    contentRoot,
+  });
+  return { updated_at: iso, updated_at_source: source };
+}
 
 /** Page-level WebSite/Organization schema_org overrides — site schema-org.yml is unchanged. */
 function schemaOrgPageOverrideWarnings(section: Record<string, unknown> | null | undefined): McpWarning[] {
@@ -350,16 +377,46 @@ async function callEditCommonApi(
  * Side effect: also clears the sitemap cache. Does not refetch remote databases;
  * known URLs rebuild from the current SQLite snapshot only.
  */
-async function callRefreshCacheApi(contentType?: string, domain?: string): Promise<void> {
+async function callRefreshCacheApi(
+  contentType?: string,
+  domain?: string,
+): Promise<{ ok: boolean; knownUrlCount?: number; error?: string }> {
   try {
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/refresh-cache${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(),
       body: JSON.stringify(contentType ? { contentType } : {}),
     });
+    const data = await res.json() as { knownUrlCount?: number; error?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.error || `HTTP ${res.status}` };
+    }
+    return { ok: true, knownUrlCount: data.knownUrlCount };
   } catch {
-    // Non-fatal: cache will be refreshed on the next request.
+    return { ok: false, error: "refresh-cache request failed" };
+  }
+}
+
+async function callRenameSlugApi(
+  params: { contentType: string; folderSlug: string; locale: string; newSlug: string; createRedirect?: boolean },
+  mcpToken?: string,
+  domain?: string,
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: McpTextResult }> {
+  try {
+    const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/rename-slug${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: internalHeaders(mcpToken),
+      body: JSON.stringify(params),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: fail((data.error as string) || `Server error: ${res.status}`) };
+    }
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, error: fail(`Failed to call rename-slug API: ${(e as Error).message}`) };
   }
 }
 
@@ -657,6 +714,30 @@ export function registerPageTools(
     }
   );
 
+  mcp.tool(
+    "refresh_content_index",
+    "Rebuild in-memory URL routing and related caches from disk after content writes. " +
+    "Use when a write succeeded on disk but a new URL is still not resolving. " +
+    MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().optional().describe("Optional content type hint for refresh scope."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error, "refresh_content_index", { contentType });
+      const refresh = await callRefreshCacheApi(contentType, siteResult.domain);
+      if (!refresh.ok) {
+        return fail(`Failed to refresh content index: ${refresh.error || "unknown error"}`);
+      }
+      return ok({
+        success: true,
+        message: "Content index refreshed.",
+        ...(refresh.knownUrlCount !== undefined ? { known_url_count: refresh.knownUrlCount } : {}),
+      });
+    },
+  );
+
   // ── Shared resolution helper used by get_entry_content and get_entry_seo ──────
 
   type PagePayload = {
@@ -697,13 +778,34 @@ export function registerPageTools(
     const urlPattern = resolved.config.url_pattern;
     let urls: Record<string, string> | undefined;
     if (urlPattern) {
+      const localeSlugByLocale: Record<string, string> = {};
+      for (const l of locales) {
+        for (const ext of ["yml", "yaml"]) {
+          const localeFile = path.join(pageDir, `${l}.${ext}`);
+          if (!fs.existsSync(localeFile)) continue;
+          try {
+            const parsed = safeLoad(fs.readFileSync(localeFile, "utf-8"));
+            const candidate = parsed?.slug;
+            if (typeof candidate === "string" && candidate.trim()) {
+              localeSlugByLocale[l] = candidate.trim();
+            }
+          } catch {
+            // Keep folder slug fallback for malformed locale files.
+          }
+          break;
+        }
+      }
       const resolvedUrls: Record<string, string> = {};
       if (urlPattern["default"]) {
-        const p = urlPattern["default"].replace(":slug", slug);
-        for (const l of locales) resolvedUrls[l] = p;
+        for (const l of locales) {
+          const localeSlug = localeSlugByLocale[l] || slug;
+          resolvedUrls[l] = urlPattern["default"].replace(":slug", localeSlug);
+        }
       } else {
         for (const l of locales) {
-          if (urlPattern[l]) resolvedUrls[l] = urlPattern[l].replace(":slug", slug);
+          if (!urlPattern[l]) continue;
+          const localeSlug = localeSlugByLocale[l] || slug;
+          resolvedUrls[l] = urlPattern[l].replace(":slug", localeSlug);
         }
       }
       if (Object.keys(resolvedUrls).length > 0) urls = resolvedUrls;
@@ -889,10 +991,21 @@ export function registerPageTools(
                   index: null,
                   schema_org,
                   validation_issues: [],
+                  ...resolvedUpdatedAtFields(
+                    resolved.contentType,
+                    slug,
+                    locale,
+                    contentPath,
+                    result.data as Record<string, unknown>,
+                  ),
                   warnings: [
                     {
                       code: "variant_seo_not_indexed",
                       message: "Variant seo: is not in seo-index.json until promote.",
+                    },
+                    {
+                      code: "variant_updated_at_not_live",
+                      message: "Variant updated_at does not change live sitemap lastmod until promote.",
                     },
                   ],
                 },
@@ -931,6 +1044,13 @@ export function registerPageTools(
         index: getSeoIndexEntry(payload.contentType, payload.slug, payload.locale, contentPath) || null,
         schema_org,
         validation_issues,
+        ...resolvedUpdatedAtFields(
+          payload.contentType,
+          payload.slug,
+          payload.locale,
+          contentPath,
+          payload.data,
+        ),
       };
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
@@ -1369,7 +1489,8 @@ export function registerPageTools(
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
-    "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n\n" +
+    "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n" +
+    "updated_at: title / meta.page_title / meta.description / section copy or images stamp now on the layer file; seo.* / robots / redirects / og_image do not; variants do not move live lastmod until promote.\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning: ask before live edit when versioning.yml exists; pass confirm_live_edit: true or variant.",
     {
@@ -1472,12 +1593,18 @@ export function registerPageTools(
 
       const needsSeo = updates.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
       const needsContent = updates.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+      const liveSlugUpdate = !variant
+        ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")
+        : undefined;
       if (mcpToken) {
         if (needsSeo && !(await checkCap(mcpToken, "seo_edit"))) {
           return denyResponse("seo_edit");
         }
         if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
           return denyResponse("content_edit_text", resolved.contentType);
+        }
+        if (liveSlugUpdate && !(await checkCap(mcpToken, "content_edit_structure", resolved.contentType))) {
+          return denyResponse("content_edit_structure", resolved.contentType);
         }
       }
 
@@ -1549,7 +1676,13 @@ export function registerPageTools(
 
       const localeEntries: Array<[string, unknown]> = [];
       const commonEntries: Array<[string, unknown]> = [];
+      const slugRenameValue = !variant
+        ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")?.value as string | undefined
+        : undefined;
       for (const { field_path, value, meta_target } of updates) {
+        if (field_path === "slug" && slugRenameValue !== undefined) {
+          continue;
+        }
         if (field_path.startsWith("meta.")) {
           const metaKey = field_path.slice(5).split(".")[0];
           const toCommon = META_COMMON_FIELDS.has(metaKey) ||
@@ -1593,6 +1726,7 @@ export function registerPageTools(
       const results: string[] = [];
       let boundUpdates: unknown;
       const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
+      let renameResult: Record<string, unknown> | null = null;
       if (touchesSections) {
         warnings.push({
           code: "section_index_no_create",
@@ -1658,8 +1792,59 @@ export function registerPageTools(
         results.push(`${commonEntries.length} field(s) → _common.yml`);
       }
 
+      if (slugRenameValue !== undefined) {
+        const renamed = await callRenameSlugApi(
+          {
+            contentType: resolved.contentType,
+            folderSlug: slug,
+            locale,
+            newSlug: slugRenameValue,
+            createRedirect: false,
+          },
+          mcpToken,
+          domain,
+        );
+        if (!renamed.ok) {
+          if (results.length > 0) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "retry_slug_rename",
+                message:
+                  "Some fields were written but live slug rename failed. " +
+                  "Retry update_fields with only field_path 'slug'.",
+                wrote: results,
+                slug_error: renamed.error,
+              },
+              [{
+                tool: "update_fields",
+                priority: "required",
+                reason: "Retry slug rename only on the live locale.",
+                args_hint: {
+                  slug,
+                  locale,
+                  contentType: resolved.contentType,
+                  confirm_live_edit: true,
+                  updates: [{ field_path: "slug", value: slugRenameValue }],
+                },
+              }],
+            );
+          }
+          return renamed.error;
+        }
+        renameResult = renamed.data;
+        results.push(`slug rename → ${String(renamed.data.newSlug || slugRenameValue)}`);
+      }
+
       const side_effects: McpSideEffect[] = [...(bindingPropagateSideEffects(boundUpdates) || [])];
       const next_actions: NextAction[] = [];
+      warnings.push(UPDATED_AT_STAMP_WARNING);
+      if (localeEntries.length > 0) {
+        side_effects.push({
+          kind: "locale_yaml",
+          summary: `Wrote ${pathInfo.relativeHint}; whitelist content changes stamp updated_at on that layer.`,
+        });
+      }
       const seoWrote = updates.some((u) => isSeoPath(u.field_path));
       if (seoWrote) {
         side_effects.push({
@@ -1690,10 +1875,50 @@ export function registerPageTools(
           args_hint: { slug, locale, contentType: resolved.contentType, ...(variant ? { variant } : {}) },
         });
       }
+      if (slugRenameValue !== undefined) {
+        warnings.push({
+          code: "slug_rename_non_effects",
+          message:
+            "Slug rename updates locale URL routing only. It does not rename the entry folder and does not create a 301 redirect.",
+        });
+        warnings.push({
+          code: "slug_rename_redirect_hint",
+          message: "Use update_redirect if you need the previous URL to 301 to the new URL.",
+        });
+        side_effects.push({
+          kind: "locale_yaml",
+          summary: `Renamed live slug in ${pathInfo.relativeHint}.`,
+        });
+      }
+
+      if (renameResult && renameResult.routed === false) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "refresh_content_index",
+            message:
+              "Slug was written but the new URL is not routable yet. Refresh the content index and verify routing.",
+            ...(renameResult.oldUrl ? { old_url: renameResult.oldUrl } : {}),
+            ...(renameResult.newUrl ? { new_url: renameResult.newUrl } : {}),
+            locale,
+            routed: false,
+          },
+          [{
+            tool: "refresh_content_index",
+            priority: "required",
+            reason: "Rebuild URL routing after slug rename.",
+            args_hint: { contentType: resolved.contentType, ...(site ? { site } : {}) },
+          }],
+        );
+      }
 
       return ok(
         {
           message: `Applied ${updates.length} update(s) to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
+          ...(renameResult?.oldUrl ? { old_url: renameResult.oldUrl } : {}),
+          ...(renameResult?.newUrl ? { new_url: renameResult.newUrl } : {}),
+          ...(renameResult?.locale ? { locale: renameResult.locale } : {}),
+          ...(renameResult?.routed !== undefined ? { routed: renameResult.routed } : {}),
           ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
           ...wrotePayload({
             layer: pathInfo.layer,
@@ -1799,6 +2024,7 @@ export function registerPageTools(
             code: "bulk_meta_no_preview_capture",
             message: "Entry preview capture was skipped for this meta-only bulk update.",
           },
+          UPDATED_AT_STAMP_WARNING,
         ];
         for (const w of (data.warnings as string[]) || []) {
           if (w.includes("common_meta_ignores_variant")) {
@@ -2131,6 +2357,12 @@ export function registerPageTools(
               ...payload,
               fields: fieldsOut ?? payload.fields,
               relation_fields,
+              ...resolvedUpdatedAtFields(
+                resolved.contentType,
+                slug,
+                locale,
+                siteResult.contentPath,
+              ),
             },
             { warnings: [], next_actions: [] },
           );
@@ -2139,6 +2371,12 @@ export function registerPageTools(
             {
               message: `Fields for ${resolved.contentType}/${slug} (${locale}${variant ? `, variant=${variant}` : ""})`,
               ...(data as Record<string, unknown>),
+              ...resolvedUpdatedAtFields(
+                resolved.contentType,
+                slug,
+                locale,
+                siteResult.contentPath,
+              ),
             },
             { warnings: [], next_actions: [] },
           );
@@ -3051,6 +3289,14 @@ export function registerPageTools(
           sections: localeContent.sections,
           ...(localeContent.meta && Object.keys(localeContent.meta).length > 0 ? { meta: localeContent.meta } : {}),
         };
+        applyEditorialUpdatedAtToData({
+          data: localeData,
+          previous: {},
+          operations: operationsFromLocalePayload(localeData),
+          contentType,
+          slug,
+          contentRoot: contentPath,
+        });
         const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
         fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
         createdLocales.push(loc);
@@ -3070,10 +3316,11 @@ export function registerPageTools(
       const commitMsg = draftFirst
         ? `Create draft entry ${contentType}/${slug}`
         : `Create entry ${contentType}/${slug}`;
-      const [commitResult] = await Promise.all([
-        callCommitFilesApi(relPaths, commitMsg, mcpToken, domain),
-        callRefreshCacheApi(contentType, domain),
-      ]);
+      const commitResult = await callCommitFilesApi(relPaths, commitMsg, mcpToken, domain);
+      let refreshResult = await callRefreshCacheApi(contentType, domain);
+      if (!refreshResult.ok) {
+        refreshResult = await callRefreshCacheApi(contentType, domain);
+      }
 
       const warnings: McpWarning[] = [];
       const ghWarning = githubCommitWarning(commitResult);
@@ -3144,6 +3391,20 @@ export function registerPageTools(
             "Live create stamps published_at=now on _common.yml when the type is not draft-first.",
         });
       }
+      if (!refreshResult.ok) {
+        warnings.push({
+          code: "index_refresh_failed",
+          message:
+            `Entry files were written, but URL routing refresh failed: ${refreshResult.error || "unknown error"}. ` +
+            "Run refresh_content_index before validating the public URL.",
+        });
+        next_actions.push({
+          tool: "refresh_content_index",
+          priority: "required",
+          reason: "Rebuild content index after create_entry.",
+          args_hint: { contentType, ...siteHint },
+        });
+      }
 
       const title =
         (normalizedLocales[primaryLocale]?.fields?.title as string | undefined) ||
@@ -3162,6 +3423,7 @@ export function registerPageTools(
           ...(commitResult.commitSha
             ? { commitSha: commitResult.commitSha, commitShas: [commitResult.commitSha] }
             : {}),
+          ...(refreshResult.knownUrlCount !== undefined ? { known_url_count: refreshResult.knownUrlCount } : {}),
         },
         { warnings, next_actions, ...(side_effects.length > 0 ? { side_effects } : {}) },
       );
@@ -3845,7 +4107,11 @@ export function registerPageTools(
       );
       if ("error" in apiResult) return apiResult.error;
 
-      const warnings: McpWarning[] = [REPLACE_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      const warnings: McpWarning[] = [
+        REPLACE_NO_BINDING_FANOUT,
+        UPDATED_AT_STAMP_WARNING,
+        ...variantWarningsIfNeeded(variant),
+      ];
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -3877,6 +4143,11 @@ export function registerPageTools(
       });
       warnings.push(...articleHints.warnings);
       next_actions = [...next_actions, ...articleHints.next_actions];
+      const stampEffect: McpSideEffect = {
+        kind: "locale_yaml",
+        summary: `Wrote ${pathInfo.relativeHint}; section copy/images stamp updated_at (layout-only replace does not).`,
+      };
+      side_effects = [...(side_effects || []), stampEffect];
 
       const parts: string[] = [`sections (${sections.length} item${sections.length !== 1 ? "s" : ""})`];
       if (meta) parts.push(`meta (${Object.keys(meta).length} field${Object.keys(meta).length !== 1 ? "s" : ""})`);
@@ -4082,6 +4353,14 @@ export function registerPageTools(
         return fail(built.message, { code: built.code, mode, path: `${ctDir}/${slug}/${targetFileName}` });
       }
       const localeData = built.localeData;
+      applyEditorialUpdatedAtToData({
+        data: localeData,
+        previous: existing && typeof existing === "object" ? (existing as Record<string, unknown>) : {},
+        operations: operationsFromLocalePayload(localeData),
+        contentType: resolved.contentType,
+        slug,
+        contentRoot: contentPath,
+      });
       const intendedContent = safeDump(localeData);
 
       const commonPath = path.join(dir, "_common.yml");

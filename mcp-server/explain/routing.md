@@ -19,7 +19,10 @@ url_pattern:
   default: /landing/:slug
 ```
 
-The `:slug` placeholder is replaced with the page's slug (folder name) at runtime.
+The `:slug` placeholder is replaced with the locale file `slug` value at runtime (for example `es.yml -> slug:`).  
+If a locale file does not define `slug`, the folder name is used as fallback.
+
+Routing ownership is checked against the live content index. If a real folder or another entry already resolves the same URL, slug changes are rejected with `slug_already_owned_by_other_entry`.
 
 ## Locale prefixes
 
@@ -35,6 +38,8 @@ The `:slug` placeholder is replaced with the page's slug (folder name) at runtim
 ## How routes are generated
 
 The frontend router reads all content types at startup and generates routes for every slug × locale combination it finds on disk. Adding a new YAML folder automatically creates a new route — no code change needed.
+
+After writes, the content index must refresh before new URLs become routable. If a mutate tool reports `index_refresh_failed`, run `refresh_content_index` and re-check the URL.
 
 ## Sitemap
 

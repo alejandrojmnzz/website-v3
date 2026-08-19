@@ -43,6 +43,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { EditorHint } from "@/components/editing/EditorTypeDialog";
+import { deslugifyLabel } from "@shared/relation-field";
 
 type FieldSource = "original" | "db_override" | "ct_override" | "entry_default";
 
@@ -272,7 +273,12 @@ function FieldsEducationBlock({
 }
 
 type SeoOverviewClusters = {
-  clusters: { pillarUrl: string; clusterCount: number; hubId?: string }[];
+  clusters: {
+    pillarUrl: string;
+    clusterCount: number;
+    hubId?: string;
+    keyword?: string | null;
+  }[];
 };
 
 function pathLocalePrefix(urlPath: string): string | null {
@@ -422,7 +428,8 @@ function SeoFieldsEditor({
           <span className="font-medium text-foreground">Is pillar</span> means this page is the hub — save
           fills <span className="font-medium text-foreground">Pillar path</span> with this page&apos;s URL.
           Supporting pages set Pillar path to that hub URL (same locale prefix). Empty path = not in a
-          cluster. Duplicate pillars warn only; they are not auto-cleared.
+          cluster. Duplicate pillars warn only; they are not auto-cleared. Cluster map chips show sitemap
+          lastmod from editorial <code className="font-mono">updated_at</code> (content change, not Git).
         </p>
         <button
           type="button"
@@ -446,7 +453,13 @@ function SeoFieldsEditor({
               <code className="font-mono">field_mapping</code>. Rejected on{" "}
               <code className="font-mono">_common.yml</code>.{" "}
               <code className="font-mono">markFileAsModified</code> after disk; auto-commit throttle
-              batches YAML + JSON with the same author.
+              batches YAML + JSON with the same author. Chip dates:{" "}
+              <code className="font-mono">resolveEntryUpdatedAt</code> in{" "}
+              <code className="font-mono">server/content-types.ts</code> (locale{" "}
+              <code className="font-mono">updated_at</code>, else{" "}
+              <code className="font-mono">published_at</code> on{" "}
+              <code className="font-mono">_common.yml</code>). Not{" "}
+              <code className="font-mono">.sync-state.json</code>.
             </p>
           </div>
         )}
@@ -522,24 +535,34 @@ function SeoFieldsEditor({
                       </CommandEmpty>
                       {localeHubs.length > 0 && (
                         <CommandGroup>
-                          {localeHubs.map((cluster) => (
-                            <CommandItem
-                              key={cluster.hubId || cluster.pillarUrl}
-                              value={`${cluster.pillarUrl} ${cluster.hubId ?? ""}`}
-                              onSelect={() => {
-                                setPillarPath(cluster.pillarUrl);
-                                setChooserOpen(false);
-                              }}
-                              data-testid={`option-pillar-${cluster.pillarUrl}`}
-                            >
-                              <span className="flex-1 min-w-0 font-mono text-xs truncate">
-                                {cluster.pillarUrl}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground ml-2 shrink-0">
-                                {cluster.clusterCount} member{cluster.clusterCount === 1 ? "" : "s"}
-                              </span>
-                            </CommandItem>
-                          ))}
+                          {localeHubs.map((cluster) => {
+                            const keyword =
+                              typeof cluster.keyword === "string" ? cluster.keyword.trim() : "";
+                            const slugLabel = deslugifyLabel(
+                              cluster.pillarUrl.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "",
+                            );
+                            const label = keyword
+                              ? deslugifyLabel(keyword)
+                              : slugLabel || cluster.pillarUrl;
+                            return (
+                              <CommandItem
+                                key={cluster.hubId || cluster.pillarUrl}
+                                value={`${label} ${keyword} ${cluster.pillarUrl} ${cluster.hubId ?? ""}`}
+                                onSelect={() => {
+                                  setPillarPath(cluster.pillarUrl);
+                                  setChooserOpen(false);
+                                }}
+                                data-testid={`option-pillar-${cluster.pillarUrl}`}
+                              >
+                                <span className="flex-1 min-w-0 text-xs truncate">
+                                  {label}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground ml-2 shrink-0">
+                                  {cluster.clusterCount} member{cluster.clusterCount === 1 ? "" : "s"}
+                                </span>
+                              </CommandItem>
+                            );
+                          })}
                         </CommandGroup>
                       )}
                     </CommandList>

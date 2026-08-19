@@ -146,6 +146,8 @@ export class ContentIndex {
   private slowScanTimer: ReturnType<typeof setTimeout> | null = null;
   private slowScanRunning = false;
   private slowScanQueued = false;
+  private refreshRunning = false;
+  private refreshQueued = false;
   private static readonly SLOW_SCAN_DEBOUNCE_MS = 250;
 
   /** Absolute path to the content root folder (e.g. /home/user/project/content). */
@@ -1486,7 +1488,19 @@ export class ContentIndex {
   }
 
   refresh(): void {
-    this.scan();
+    if (this.refreshRunning) {
+      this.refreshQueued = true;
+      return;
+    }
+    this.refreshRunning = true;
+    try {
+      do {
+        this.refreshQueued = false;
+        this.scan();
+      } while (this.refreshQueued);
+    } finally {
+      this.refreshRunning = false;
+    }
     invalidateStaticListingCache(undefined, this.contentRoot);
     void import("./html-page-cache")
       .then(({ invalidateHtmlPageCache }) => invalidateHtmlPageCache())

@@ -33,6 +33,7 @@ import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
 import { ecommerceManager, PURCHASABLE_FIELD } from "./ecommerce/ecommerce-manager";
 import { isPublishedAtEmpty, setPublishedAt } from "./published-at";
+import { applyEditorialStampToPendingUpdates } from "./editorial-updated-at";
 import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 import { writeSeoFields } from "./seo-index";
 import { readSeoBlockFromYamlText } from "./seo-fields";
@@ -603,6 +604,14 @@ export function writeMappedFields(
         };
       }
     }
+
+    applyEditorialStampToPendingUpdates({
+      pendingUpdates,
+      entryData,
+      contentType,
+      slug,
+      contentRoot,
+    });
 
     const written = isStatic
       ? writeStaticRootKeysBag(filePath, entryData, pendingUpdates, author, contentRoot)

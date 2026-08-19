@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, Globe, Info, Loader2, Network, Star } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, ExternalLink, FileText, Globe, Info, Loader2, Network, Star } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -33,15 +34,276 @@ import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import { deslugifyLabel } from "@shared/relation-field";
+import { formatSitePath } from "@shared/formatSitePath";
+
+function lastPathSegment(pillarUrl: string): string {
+  return pillarUrl.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "";
+}
+
+function clusterListLabel(keyword: string | null | undefined, pillarUrl: string): string {
+  const kw = typeof keyword === "string" ? keyword.trim() : "";
+  if (kw) return deslugifyLabel(kw);
+  const seg = lastPathSegment(pillarUrl);
+  return seg ? deslugifyLabel(seg) : "Untitled cluster";
+}
+
+function clusterCountBadgeClass(count: number): string | undefined {
+  if (count <= 0) return "border-transparent bg-status-busy/15 text-status-busy";
+  if (count <= 2) return "border-transparent bg-status-away/15 text-status-away";
+  return undefined;
+}
+
+function ClusterMapHelp() {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  return (
+    <div className="mb-3 space-y-1.5" data-testid="cluster-map-help">
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        A cluster is a hub page and the pages that belong to it. Expand a name to see those
+        pages, then click a row for details or to open it. To join a cluster, open the page and
+        use the SEO Meta tab: mark the hub as a pillar, then set other pages&apos; pillar path to
+        that hub.
+      </p>
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="px-0 h-auto text-xs"
+            data-testid="button-cluster-map-read-more"
+          >
+            {advancedOpen ? "Hide advanced details" : "Read more (advanced)"}
+            <ChevronDown
+              className={`h-3.5 w-3.5 ml-1 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
+          <p>
+            Hub = <code className="font-mono text-[10px]">seo.is_pillar</code> on the locale YAML.
+            Members set <code className="font-mono text-[10px]">seo.pillar_path</code> to that
+            hub URL (same locale prefix). Empty path = not in a cluster. Duplicate pillars warn
+            only; they are not auto-cleared.
+          </p>
+          <p className="font-mono">{"{contentRoot}/seo-index.json"}</p>
+          <p className="font-mono">server/seo-index.ts</p>
+          <p className="font-mono">server/content-types.ts</p>
+          <p className="font-mono">client/src/components/editing/MappingFieldsTab.tsx</p>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
+const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+
+function isSitemapLastmodStale(lastmod: string | null | undefined, nowMs = Date.now()): boolean {
+  if (!lastmod) return false;
+  const day = lastmod.split("T")[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const then = Date.parse(`${day}T00:00:00.000Z`);
+  if (!Number.isFinite(then)) return false;
+  return nowMs - then > TWO_WEEKS_MS;
+}
+
+type ClusterMember = {
+  id: string;
+  slug: string;
+  contentType: string;
+  locale: string;
+  path: string;
+  keyword?: string | null;
+  lastmod?: string | null;
+  updated_at?: string | null;
+};
+
+type ClusterEntryInfo = {
+  title: string | null;
+  page_title: string | null;
+  description: string | null;
+  path: string;
+  contentType: string;
+  slug: string;
+  locale: string;
+  main_keyword: string | null;
+  is_pillar: boolean;
+  pillar_path: string | null;
+  file: string | null;
+  lastmod?: string | null;
+  updated_at?: string | null;
+};
+
+function formatLastmodAgo(lastmod: string, now = new Date()): string {
+  const day = lastmod.split("T")[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return lastmod;
+  const then = Date.parse(`${day}T00:00:00.000Z`);
+  if (!Number.isFinite(then)) return lastmod;
+  const nowDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const days = Math.round((nowDay - then) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day ago";
+  if (days < 14) return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (days < 60) return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "1 month ago" : `${months} months ago`;
+  const years = Math.floor(days / 365);
+  return years === 1 ? "1 year ago" : `${years} years ago`;
+}
+
+function ClusterMemberLastmod({ lastmod, prefix }: { lastmod: string; prefix?: string }) {
+  const stale = isSitemapLastmodStale(lastmod);
+  const day = lastmod.split("T")[0];
+  return (
+    <span
+      className={cn(
+        "text-xs font-normal shrink-0 whitespace-nowrap",
+        stale ? "text-amber-500 dark:text-amber-400" : "text-foreground",
+      )}
+      title={stale ? `Sitemap lastmod ${day} from editorial updated_at — older than 2 weeks` : `Sitemap lastmod ${day} from editorial updated_at`}
+      data-testid="text-cluster-slug-lastmod"
+    >
+      {prefix}
+      {formatLastmodAgo(lastmod)}
+    </span>
+  );
+}
+
+function ClusterMemberRow({ member }: { member: ClusterMember }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading, isError, error } = useQuery<ClusterEntryInfo>({
+    queryKey: ["/api/seo/entry", member.contentType, member.slug, member.locale],
+    enabled: open && !!member.contentType && !!member.slug,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const params = new URLSearchParams({ locale: member.locale || "en" });
+      const res = await fetch(
+        `/api/seo/entry/${encodeURIComponent(member.contentType)}/${encodeURIComponent(member.slug)}?${params}`,
+        { credentials: "include", headers: getSessionHeaders() },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || "Failed to load entry");
+      }
+      return res.json();
+    },
+  });
+
+  const href = data?.path || member.path;
+  const heading =
+    data?.title || data?.page_title || deslugifyLabel(member.slug);
+  const lastmod = data?.lastmod || member.lastmod || null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 py-1.5 text-left hover:bg-muted/50 rounded-sm px-1 -mx-1"
+          data-testid={`cluster-slug-${member.slug}`}
+        >
+          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-xs font-medium text-foreground min-w-0 flex-1 truncate">
+            {deslugifyLabel(member.slug)}
+          </span>
+          {lastmod ? <ClusterMemberLastmod lastmod={lastmod} prefix="Last published " /> : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-80 space-y-3 bg-popover text-popover-foreground"
+        data-testid={`popover-cluster-entry-${member.slug}`}
+      >
+        {isLoading ? (
+          <div className="space-y-2" data-testid="cluster-entry-loading">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        ) : isError ? (
+          <p className="text-xs text-destructive" data-testid="cluster-entry-error">
+            {error instanceof Error ? error.message : "Could not load this entry."}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div>
+              <p className="text-sm font-medium text-foreground leading-snug" data-testid="text-cluster-entry-title">
+                {heading}
+              </p>
+              {data?.description ? (
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{data.description}</p>
+              ) : null}
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+              <dt className="text-muted-foreground">Type</dt>
+              <dd className="text-foreground truncate">{data?.contentType || member.contentType}</dd>
+              <dt className="text-muted-foreground">Locale</dt>
+              <dd className="text-foreground uppercase">{data?.locale || member.locale}</dd>
+              {(data?.main_keyword || member.keyword) && (
+                <>
+                  <dt className="text-muted-foreground">Keyword</dt>
+                  <dd className="text-foreground truncate">{data?.main_keyword || member.keyword}</dd>
+                </>
+              )}
+              {href ? (
+                <>
+                  <dt className="text-muted-foreground">Path</dt>
+                  <dd className="text-foreground font-mono truncate" title={href}>{href}</dd>
+                </>
+              ) : null}
+              {lastmod ? (
+                <>
+                  <dt className="text-muted-foreground">Lastmod</dt>
+                  <dd>
+                    <ClusterMemberLastmod lastmod={lastmod} />
+                  </dd>
+                </>
+              ) : null}
+            </dl>
+            {data?.is_pillar ? (
+              <Badge variant="secondary" className="text-[10px]">Pillar</Badge>
+            ) : null}
+            {data?.file ? (
+              <p className="text-[11px] text-muted-foreground font-mono truncate" title={data.file}>
+                {formatSitePath(data.file)}
+              </p>
+            ) : null}
+          </div>
+        )}
+        {href ? (
+          <Button asChild size="sm" className="w-full" data-testid={`button-cluster-entry-url-${member.slug}`}>
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open page
+            </a>
+          </Button>
+        ) : (
+          <Button size="sm" className="w-full" disabled data-testid={`button-cluster-entry-url-${member.slug}`}>
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open page
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
-  clusters: { pillarUrl: string; clusterSlugs: string[]; clusterCount: number; hubId?: string }[];
+  clusters: {
+    pillarUrl: string;
+    clusterSlugs: string[];
+    clusterCount: number;
+    hubId?: string;
+    keyword?: string | null;
+    locale?: string;
+    members?: ClusterMember[];
+  }[];
   orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[];
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;
-  indexRebuilt?: boolean;
   totals: {
     totalPages: number;
     withPillar: number;
@@ -662,44 +924,67 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {data.indexRebuilt && (
-            <p
-              className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
-              data-testid="banner-cluster-index-rebuilt"
-            >
-              Cluster index rebuilt from page SEO fields.
-            </p>
-          )}
+          <ClusterMapHelp />
           {data.clusters.length === 0 ? (
             <div className="text-center py-8" data-testid="clusters-empty">
               <Network className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">No pillar pages defined yet</p>
+              <p className="text-sm text-muted-foreground">No clusters yet</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Set <code className="bg-muted px-1 rounded">seo.is_pillar</code> on the hub and{" "}
-                <code className="bg-muted px-1 rounded">seo.pillar_path</code> on supporting pages
+                Open a page and use the SEO Meta tab: mark the hub as a pillar, then point
+                supporting pages at that hub.
               </p>
             </div>
           ) : (
             <Accordion type="multiple">
-              {data.clusters.map((cluster) => (
-                <AccordionItem key={cluster.pillarUrl} value={cluster.pillarUrl} data-testid={`cluster-${cluster.pillarUrl}`}>
-                  <AccordionTrigger className="text-xs py-2 hover:no-underline">
-                    <div className="flex items-center gap-2 text-left">
-                      <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-foreground font-mono">{cluster.pillarUrl}</code>
-                      <Badge variant="secondary">{cluster.clusterCount} page{cluster.clusterCount !== 1 ? "s" : ""}</Badge>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="flex flex-wrap gap-1.5 pt-1 pb-2">
-                      {cluster.clusterSlugs.map((slug) => (
-                        <Badge key={slug} variant="outline" className="text-xs font-mono" data-testid={`cluster-slug-${slug}`}>
-                          {slug}
+              {[...data.clusters]
+                .sort((a, b) =>
+                  clusterListLabel(a.keyword, a.pillarUrl).localeCompare(
+                    clusterListLabel(b.keyword, b.pillarUrl),
+                    undefined,
+                    { sensitivity: "base" },
+                  ),
+                )
+                .map((cluster) => (
+                  <AccordionItem
+                    key={cluster.hubId || cluster.pillarUrl}
+                    value={cluster.hubId || cluster.pillarUrl}
+                    data-testid={`cluster-${cluster.pillarUrl}`}
+                  >
+                    <AccordionTrigger className="text-xs py-2 hover:no-underline">
+                      <div className="flex items-center gap-2 text-left">
+                        <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="text-xs font-medium text-foreground">
+                          {clusterListLabel(cluster.keyword, cluster.pillarUrl)}
+                        </span>
+                        <Badge variant="secondary" className={clusterCountBadgeClass(cluster.clusterCount)}>
+                          {cluster.clusterCount} page{cluster.clusterCount !== 1 ? "s" : ""}
                         </Badge>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="text-xs">
+                      <p
+                        className="text-[11px] text-muted-foreground font-mono pb-2"
+                        data-testid={`cluster-path-${cluster.pillarUrl}`}
+                      >
+                        {cluster.pillarUrl}
+                      </p>
+                      <div className="divide-y divide-border" data-testid="cluster-members-list">
+                        {(cluster.members && cluster.members.length > 0
+                          ? cluster.members
+                          : cluster.clusterSlugs.map((slug) => ({
+                              id: slug,
+                              slug,
+                              contentType: "",
+                              locale: "",
+                              path: "",
+                            }))
+                        ).map((member) => (
+                          <ClusterMemberRow key={member.id} member={member} />
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
             </Accordion>
           )}
         </CardContent>

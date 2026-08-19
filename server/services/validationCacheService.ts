@@ -604,6 +604,24 @@ export class ValidationCacheService {
     return this.lastFullRunAt;
   }
 
+  getLastSiteWideRunAt(): string | null {
+    return this.lastSiteWideRunAt;
+  }
+
+  /** Remove all cached issues for a specific URL+code pair and flush to disk. */
+  async dismissIssuesByUrlAndCode(url: string, code: string): Promise<number> {
+    const toDelete = Object.values(this.issues).filter(
+      (issue) => issue.code === code && issue.targets?.some((t) => t.type === "entry" && t.url === url),
+    );
+    for (const issue of toDelete) delete this.issues[issue.id];
+    if (toDelete.length > 0) {
+      this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+      await this.flush();
+      log.info(`[ValidationCache] Dismissed ${toDelete.length} issue(s) for url=${url} code=${code}`);
+    }
+    return toDelete.length;
+  }
+
   /** Wipe all stored issues, indexes, run meta, and database health entries; flush to disk. */
   async clearAll(): Promise<void> {
     this.issues = {};

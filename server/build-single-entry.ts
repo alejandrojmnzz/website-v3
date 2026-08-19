@@ -4,7 +4,6 @@
  * getFieldMapping() excludes.
  */
 
-import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import {
   getFieldMapping,
   getFullFieldMapping,
@@ -105,19 +104,15 @@ export function buildSingleEntryFromContent(
 
   const merged = applyFieldOverridesToItem(entry, fo);
 
-  // Always expose normalized updated_at (DB mapped or static file hash)
+  // Editorial updated_at (YAML/DB value, else published_at — never sync-state)
   {
-    const existing = merged.updated_at ?? merged[RESERVED_UPDATED_AT_FIELD];
-    const normalized = normalizeFlexibleDate(existing);
-    const iso =
-      normalized ||
-      resolveEntryUpdatedAt({
-        contentType,
-        slug: opts?.slug,
-        locale: opts?.locale,
-        record: { ...pageData, ...merged },
-        contentRoot: opts?.contentRoot,
-      });
+    const iso = resolveEntryUpdatedAt({
+      contentType,
+      slug: opts?.slug,
+      locale: opts?.locale,
+      record: { ...pageData, ...merged },
+      contentRoot: opts?.contentRoot,
+    });
     applyUpdatedAtAliasToEntry(merged, iso);
   }
 

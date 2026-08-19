@@ -401,16 +401,38 @@ export function scanPages(contentPath?: string): PageEntry[] {
         }
       }
 
+      const localeSlug: Record<string, string> = {};
+      for (const locale of locales) {
+        for (const ext of ["yml", "yaml"]) {
+          const localeFile = `${locale}.${ext}`;
+          if (!files.includes(localeFile)) continue;
+          try {
+            const parsed = safeLoad(fs.readFileSync(path.join(entryPath, localeFile), "utf-8"));
+            const candidate = parsed?.slug;
+            if (typeof candidate === "string" && candidate.trim()) {
+              localeSlug[locale] = candidate.trim();
+            }
+          } catch {
+            // Keep fallback behavior when locale file is malformed.
+          }
+          break;
+        }
+      }
+
       let urls: Record<string, string> | undefined;
       if (config.url_pattern) {
         const pattern = config.url_pattern;
         const resolved: Record<string, string> = {};
         if (pattern["default"]) {
-          const path_ = pattern["default"].replace(":slug", entry.name);
-          for (const locale of locales) resolved[locale] = path_;
+          for (const locale of locales) {
+            const slugForLocale = localeSlug[locale] || entry.name;
+            resolved[locale] = pattern["default"].replace(":slug", slugForLocale);
+          }
         } else {
           for (const locale of locales) {
-            if (pattern[locale]) resolved[locale] = pattern[locale].replace(":slug", entry.name);
+            if (!pattern[locale]) continue;
+            const slugForLocale = localeSlug[locale] || entry.name;
+            resolved[locale] = pattern[locale].replace(":slug", slugForLocale);
           }
         }
         if (Object.keys(resolved).length > 0) urls = resolved;

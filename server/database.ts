@@ -8,6 +8,7 @@ import { ExternalImageCacher } from "./external-image-cacher";
 import { resolveBySourceUrl } from "./image-registry";
 import { IDatabaseCache, CacheEntry, SqliteCache, CACHE_DIR } from "./db-cache";
 import { markFileAsModified } from "./sync-state";
+import { applyEditorialStampToDbMappedUpdates } from "./editorial-updated-at";
 import { setJobState } from "./db-job-state";
 import type { MediaGallery } from "./media-gallery";
 import { expandEditorFieldTokens } from "@shared/editor-field-values";
@@ -1091,6 +1092,7 @@ export class DatabaseManager {
     contentRoot?: string
   ): boolean {
     try {
+      applyEditorialStampToDbMappedUpdates(mappedUpdates, fieldMapping);
       const dbKeyedOverrides: Record<string, unknown> = {};
       for (const [templateKey, newValue] of Object.entries(mappedUpdates)) {
         const mappedPath = fieldMapping ? fieldMapping[templateKey] : undefined;

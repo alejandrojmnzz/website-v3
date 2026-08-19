@@ -4,7 +4,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
-  clusters: { pillarUrl: string; clusterSlugs: string[]; clusterCount: number }[];
+  clusters: {
+    pillarUrl: string;
+    clusterSlugs: string[];
+    clusterCount: number;
+    keyword?: string | null;
+    locale?: string;
+    members?: {
+      id: string;
+      slug: string;
+      contentType: string;
+      locale: string;
+      path: string;
+      keyword?: string | null;
+      lastmod?: string | null;
+      updated_at?: string | null;
+    }[];
+  }[];
   orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[];
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];

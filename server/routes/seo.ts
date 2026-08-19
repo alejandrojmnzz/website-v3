@@ -126,6 +126,7 @@ import {
   resolveLayout,
   listAvailableMenus,
   getDirectory,
+  resolveEntryUpdatedAt,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars } from "../resolve-template-vars";
@@ -244,6 +245,7 @@ import {
   type GscInspectMode,
 } from "../gsc-inspect-queue";
 import { readFunnelBlockFromFile, commonYmlPath } from "../funnel-fields";
+import { toSitemapLastmod } from "@shared/normalizeFlexibleDate";
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
 function getCI(res: Response): typeof contentIndex {
@@ -262,6 +264,33 @@ function getSiteSitemapCtx(res: Response): ActiveSiteCtx | undefined {
   const site = res.locals.site as SiteContext | undefined;
   if (!site?.contentIndex || !site?.contentRootName || !site?.database) return undefined;
   return toActiveSiteCtx(site);
+}
+
+function clusterMemberFromIndex(
+  id: string,
+  row?: {
+    slug?: string;
+    content_type?: string;
+    locale?: string;
+    path?: string;
+    main_keyword?: string | null;
+    file?: string;
+  },
+) {
+  const parts = id.split("/");
+  const contentType = row?.content_type || parts[0] || "";
+  const locale = row?.locale || parts[parts.length - 1] || "";
+  const slug =
+    row?.slug || (parts.length >= 3 ? parts.slice(1, -1).join("/") : parts[1] || id);
+  return {
+    id,
+    slug,
+    contentType,
+    locale,
+    path: row?.path || "",
+    keyword: row?.main_keyword ?? null,
+    file: row?.file || "",
+  };
 }
 
 function metaRecord(data: Record<string, unknown> | null | undefined): Record<string, unknown> {
@@ -714,15 +743,40 @@ export function registerSeoRoutes(app: Express): void {
         }
       }
 
+      const contentRoot = getContentRoot(res);
       const { loadSeoIndex } = await import("../seo-index");
-      const seoIndex = loadSeoIndex(getContentRoot(res));
-      const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => ({
-        hubId,
-        pillarUrl: cluster.path,
-        clusterSlugs: cluster.members.map((id) => id.split("/")[1] || id),
-        memberIds: cluster.members,
-        clusterCount: cluster.members.length,
-      }));
+      const seoIndex = loadSeoIndex(contentRoot);
+      const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
+        const hub = seoIndex.entries[hubId];
+        const keyword =
+          typeof hub?.main_keyword === "string" && hub.main_keyword.trim()
+            ? hub.main_keyword.trim()
+            : null;
+        const members = cluster.members.map((id) => {
+          const base = clusterMemberFromIndex(id, seoIndex.entries[id]);
+          const updatedAt = resolveEntryUpdatedAt({
+            contentType: base.contentType,
+            slug: base.slug,
+            locale: base.locale,
+            contentRoot,
+          });
+          return {
+            ...base,
+            updated_at: updatedAt,
+            lastmod: toSitemapLastmod(updatedAt, false),
+          };
+        });
+        return {
+          hubId,
+          pillarUrl: cluster.path,
+          keyword,
+          locale: hub?.locale,
+          members,
+          clusterSlugs: members.map((m) => m.slug),
+          memberIds: cluster.members,
+          clusterCount: cluster.members.length,
+        };
+      });
       const uniqueOrphans = seoIndex.orphans.map((id) => {
         const row = seoIndex.entries[id];
         const parts = id.split("/");
@@ -759,6 +813,79 @@ export function registerSeoRoutes(app: Express): void {
       });
     } catch (err) {
       res.status(500).json({ error: "Failed to build SEO overview", message: String(err) });
+    }
+  });
+
+  app.get("/api/seo/entry/:contentType/:slug", async (req, res) => {
+    try {
+      const { contentType, slug } = req.params;
+      const locale = normalizeLocale(
+        (req.query.locale as string) || getDefaultLocale(),
+      );
+      if (!isValidType(contentType)) {
+        res.status(400).json({
+          error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+        });
+        return;
+      }
+
+      const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+      const contentRoot = getContentRoot(res);
+      const seoIndex = loadSeoIndex(contentRoot);
+      const id = seoEntryId(contentType, slug, locale);
+      const row = seoIndex.entries[id];
+      const merged = getCI(res).loadMergedContent(contentType, slug, locale);
+      const data = (merged.data || {}) as Record<string, unknown>;
+      if (!row && !merged.data) {
+        res.status(404).json({ error: "Entry not found" });
+        return;
+      }
+
+      const meta =
+        data.meta && typeof data.meta === "object" && !Array.isArray(data.meta)
+          ? (data.meta as Record<string, unknown>)
+          : {};
+      const seo =
+        data.seo && typeof data.seo === "object" && !Array.isArray(data.seo)
+          ? (data.seo as Record<string, unknown>)
+          : {};
+      const title = typeof data.title === "string" && data.title.trim() ? data.title.trim() : null;
+      const pageTitle =
+        typeof meta.page_title === "string" && meta.page_title.trim() ? meta.page_title.trim() : null;
+      const description =
+        typeof meta.description === "string" && meta.description.trim() ? meta.description.trim() : null;
+      const yamlKeyword =
+        typeof seo.main_keyword === "string" && seo.main_keyword.trim()
+          ? seo.main_keyword.trim()
+          : null;
+      const updatedAt = resolveEntryUpdatedAt({
+        contentType,
+        slug: row?.slug || slug,
+        locale: row?.locale || locale,
+        record: data,
+        contentRoot,
+      });
+
+      res.json({
+        id,
+        contentType,
+        slug: row?.slug || (typeof data.slug === "string" ? data.slug : slug),
+        locale: row?.locale || locale,
+        title,
+        page_title: pageTitle,
+        description,
+        path: row?.path || "",
+        main_keyword: row?.main_keyword || yamlKeyword,
+        is_pillar: row?.is_pillar === true || seo.is_pillar === true,
+        pillar_path:
+          (typeof row?.pillar_path === "string" && row.pillar_path) ||
+          (typeof seo.pillar_path === "string" ? seo.pillar_path : null),
+        file: row?.file || merged.filePath || null,
+        updated_at: updatedAt,
+        lastmod: toSitemapLastmod(updatedAt, false),
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load cluster entry", message: String(err) });
     }
   });
 

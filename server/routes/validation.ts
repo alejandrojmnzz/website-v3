@@ -5,6 +5,11 @@ import * as path from "path";
 import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, matchContentFilesForUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { getValidationCacheService } from "../services/validationCacheService";
+import {
+  CACHE_FRESHNESS_MAX_AGE_SECONDS,
+  summarizeCacheFreshness,
+} from "../services/validationCacheMerge";
+import { buildUrlCoveragePage } from "../services/validationCoverage";
 import { applyValidationRunToCache } from "../services/validationCachePostProcess";
 import {
   DIAGNOSTICS_SKIP_FOR_PER_PAGE,
@@ -572,6 +577,47 @@ export function registerValidationRoutes(app: Express): void {
     res.json(summary);
   });
 
+  app.get("/api/validation/cache-freshness", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const cache = getValidationCache(res);
+    const counts = summarizeCacheFreshness(
+      cache.getAll().values(),
+      CACHE_FRESHNESS_MAX_AGE_SECONDS,
+    );
+    res.json({
+      ...counts,
+      last_site_wide_run_at: cache.getLastSiteWideRunAt(),
+    });
+  });
+
+  app.get("/api/validation/cache-freshness-urls", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const cache = getValidationCache(res);
+    const urlRows = Array.from(cache.getAll().entries()).map(([url, entry]) => {
+      const entryKey = cache.resolveEntryKeyFromUrl(url);
+      return {
+        url,
+        lastFullRunAt: entry.lastFullRunAt ?? null,
+        runMeta: entryKey ? cache.getRunMetaForEntry(entryKey) : undefined,
+      };
+    });
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const filter = req.query.filter === "fresh" || req.query.filter === "not_fresh"
+      ? req.query.filter
+      : "all";
+    const page = typeof req.query.page === "string" ? Number(req.query.page) : undefined;
+    const pageSize = typeof req.query.pageSize === "string" ? Number(req.query.pageSize) : undefined;
+    const result = buildUrlCoveragePage(urlRows, [...ENTRY_LOCAL_VALIDATOR_NAMES], {
+      q,
+      filter,
+      page: Number.isFinite(page) ? page : undefined,
+      pageSize: Number.isFinite(pageSize) ? pageSize : undefined,
+    });
+    res.json(result);
+  });
+
   app.get("/api/validation/database-cache-summary", (_req, res) => {
     const cache = getValidationCache(res);
     const all = cache.getAllDatabases();
@@ -598,6 +644,18 @@ export function registerValidationRoutes(app: Express): void {
       database: typeof req.query.database === "string" ? req.query.database : undefined,
     };
     res.json({ issues: listCacheIssues(getValidationCache(res), filters) });
+  });
+
+  app.post("/api/validation/cache-issues/dismiss", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const { url, code } = req.body ?? {};
+    if (!url || typeof url !== "string" || !code || typeof code !== "string") {
+      return res.status(400).json({ error: "Missing required fields: url, code" });
+    }
+    const cache = getValidationCache(res);
+    const dismissed = await cache.dismissIssuesByUrlAndCode(url, code);
+    return res.json({ success: true, dismissed });
   });
 
   app.get("/api/validation/diagnostics-jobs", async (req, res) => {

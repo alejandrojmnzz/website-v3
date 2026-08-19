@@ -271,6 +271,8 @@ export function mergePartialPageCacheEntry(
   };
 }
 
+export const CACHE_FRESHNESS_MAX_AGE_SECONDS = 86400;
+
 export function isUrlStaleForFullRun(
   entry: PageCacheEntry | undefined,
   maxAgeSeconds: number,
@@ -281,6 +283,25 @@ export function isUrlStaleForFullRun(
   const ageSec = (nowMs - DateParseSafe(fullAt)) / 1000;
   if (Number.isNaN(ageSec)) return true;
   return ageSec > maxAgeSeconds;
+}
+
+export function summarizeCacheFreshness(
+  entries: Iterable<PageCacheEntry | undefined>,
+  maxAgeSeconds: number = CACHE_FRESHNESS_MAX_AGE_SECONDS,
+  nowMs: number = Date.now(),
+): { fresh: number; stale: number; total: number; max_age_seconds: number } {
+  let fresh = 0;
+  let stale = 0;
+  for (const entry of entries) {
+    if (isUrlStaleForFullRun(entry, maxAgeSeconds, nowMs)) stale += 1;
+    else fresh += 1;
+  }
+  return {
+    fresh,
+    stale,
+    total: fresh + stale,
+    max_age_seconds: maxAgeSeconds,
+  };
 }
 
 function DateParseSafe(iso: string): number {

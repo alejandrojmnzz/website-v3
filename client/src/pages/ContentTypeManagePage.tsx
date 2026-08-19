@@ -2581,18 +2581,18 @@ const SPECIAL_FIELD_INFO: Record<
       "Record<locale, slug> on DB types. Unused on static (read-only).",
   },
   _updated_at: {
-    title: "_updated_at — Last modified",
+    title: "_updated_at — Last content change",
     summary:
-      "System field for sitemap <lastmod>, {{ single.updated_at }}, and list item.updated_at. Exposed as updated_at on templates. Never authored in YAML.",
+      "Editorial clock for sitemap <lastmod>, {{ single.updated_at }}, Schema.org dateModified, and the manage Updated column. Last time title, meta title/description, or section copy/images changed — not Git or file mtime.",
     howItWorks: [
-      "DB types: map to the incoming date column (ISO, unix seconds/ms). Values are normalized to ISO UTC.",
-      "Static types: injected from sync-state when the locale YAML content hash changes (not on noop re-saves).",
-      "Used for sitemap lastmod (YYYY-MM-DD), Schema.org dateModified, and the Updated column on manage tables.",
-      "Ambiguous dates like 01/02/2024 are rejected — prefer ISO or unix.",
+      "Stored as top-level updated_at on the locale or variant YAML being saved ({directory}/{slug}/{locale}.yml).",
+      "Empty values resolve to published_at (first go-live on _common.yml) until this locale is saved; that save writes the seed onto the layer file.",
+      "The next real content save (title, meta.page_title, meta.description, section copy/images) sets now and overwrites a manual backdate. SEO-only / robots / redirects / og_image / reorder / layout do not bump.",
+      "Mapping key _updated_at defaults to source updated_at. Not .sync-state.json. published_at stays once-only on _common.yml.",
     ],
     howToSet: [
-      "On DB types: map to updated_at, modified_at, or a function that returns a date.",
-      "On static types: automatic — edit the locale YAML; date bumps only when file bytes change.",
+      "On DB types: map to updated_at, modified_at, or a function that returns a date. Whitelist patches stamp the mapped column.",
+      "On static types: edit content (or set/backdate updated_at here / via MCP). Next whitelist save overwrites a manual date.",
     ],
     expected: "ISO-8601 UTC string after normalize (e.g. \"2024-03-15T12:30:00.000Z\").",
   },
@@ -3078,7 +3078,7 @@ function FieldMappingDialog({
     // System specials on every type (DB and static)
     for (const key of KNOWN_SPECIAL_FIELDS) {
       if (!(key in fm)) {
-        if ((key === "_hreflangs" || key === "_updated_at") && !config.database?.slug) {
+        if (key === "_hreflangs" && !config.database?.slug) {
           fm[key] = "";
         } else if (key === "_image") {
           fm[key] = "";
@@ -3855,8 +3855,10 @@ function FieldMappingDialog({
                     underscore forms) is auto-exposed on{" "}
                     <code className="font-mono">{"{{ single.* }}"}</code>;{" "}
                     <code className="font-mono">_hreflangs</code> is routing-only.{" "}
-                    <code className="font-mono">_updated_at</code> maps a DB date source (static:
-                    content-hash inject). Do not add fields named{" "}
+                    <code className="font-mono">_updated_at</code> is last <strong className="font-medium text-foreground">content</strong> change
+                    (title, meta title/description, section copy/images) on locale YAML{" "}
+                    <code className="font-mono">updated_at</code>
+                    — not Git. Empty uses first-publish until this locale is saved. Do not add fields named{" "}
                     <code className="font-mono">slug</code> or <code className="font-mono">image</code> — use{" "}
                     <code className="font-mono">_slug</code> / <code className="font-mono">_image</code>{" "}
                     for DB identity config.
@@ -3897,7 +3899,6 @@ function FieldMappingDialog({
                 <Label className="text-xs text-muted-foreground">System fields</Label>
                 {specialKeys.map((key) => {
                   const staticHreflangsLocked = key === "_hreflangs" && !isDbBacked;
-                  const staticUpdatedAtLocked = key === "_updated_at" && !isDbBacked;
                   const staticImageGuidance = key === "_image" && !isDbBacked;
                   const allowEmpty =
                     key === "_locale" ||
@@ -3932,16 +3933,6 @@ function FieldMappingDialog({
                         <code className="font-mono">en.yml</code>,{" "}
                         <code className="font-mono">es.yml</code>, or{" "}
                         <code className="font-mono">[lang].yml</code>.
-                      </p>
-                    ) : staticUpdatedAtLocked ? (
-                      <p
-                        className="text-[11px] text-muted-foreground flex-1 leading-snug"
-                        data-testid={`note-mapping-${key}`}
-                      >
-                        Injected from content-hash of{" "}
-                        <code className="font-mono">{"{locale}.yml"}</code> when file bytes
-                        change; not written in YAML. Use{" "}
-                        <code className="font-mono">{"{{ single.updated_at }}"}</code>.
                       </p>
                     ) : (
                       renderSourceEditor(key, {

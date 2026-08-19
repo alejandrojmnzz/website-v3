@@ -4,7 +4,7 @@ import path from "path";
 import yaml from "js-yaml";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { getSupportedLocales, getDefaultLocale } from "./settings";
-import { getFileUpdatedAtIso, markFileAsModified } from "./sync-state";
+import { markFileAsModified } from "./sync-state";
 import {
   getValueByPath,
   resolveFieldValue as resolveMappedFieldValue,
@@ -147,16 +147,17 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     _slug — entry identity for URLs / lookups
 #     _locale — language of the row
 #     _hreflangs — locale→slug map (routing only; not a template var)
-#     _updated_at — last-modified (DB: map source column; static: content-hash of locale.yml)
+#     _updated_at — editorial last-modified (YAML/DB updated_at, else published_at)
 #     _image — preview / OG image source
 #   Forbidden as regular schema keys: "slug" (use _slug), "image" (use _image).
 #   Do not index/unique _image. unique_fields may still list "slug" (the alias).
-#   _updated_at is never authored in YAML; templates use {{ single.updated_at }}.
+#   _updated_at maps source updated_at (locale YAML top-level key). Templates use
+#     {{ single.updated_at }}. Not Git/file mtime / .sync-state.json.
 #   published_at — reserved editorial go-live time (not a system special). Stored in
 #     _common.yml; stamped once when the entry first goes live (create for shared-layout /
 #     non–draft-first; first draft→live publish/promote for draft-first). Never recomputed
 #     on save; cannot clear to empty. Manual override via Fields → _common.yml.
-#     Distinct from _updated_at (last modified). Not tied to YAML status: PUBLISHED.
+#     Distinct from _updated_at (last content change). Not tied to YAML status: PUBLISHED.
 #
 # Template namespaces (delivery): {{ single.* }} → {{ meta.* }} → {{ param.* }} → brand/global
 #   meta: SEO head block. param: URL path + querystring (path wins on conflict).
@@ -181,7 +182,7 @@ const CONFIG_HEADER = `# Content Types Configuration
 # field_mapping — reserved / system:
 #   _slug: entry identity (aliased to single.slug at runtime)
 #   _image: preview / OG image URL source (aliased to single.image at runtime)
-#   _updated_at: last-modified source (aliased to single.updated_at; DB-mappable, static inject)
+#   _updated_at: last content-change source (aliased to single.updated_at; default updated_at)
 #   published_at: reserved editorial go-live (authored; always ensured in field_mapping)
 #   Do not use plain "slug" or "image" as field_mapping keys.
 #
@@ -501,7 +502,7 @@ export function normalizeContentTypeFieldConfig(
     _slug: "slug",
     _locale: "locale",
     _hreflangs: opts.isDbBacked ? "translations" : "",
-    _updated_at: opts.isDbBacked ? "updated_at" : "",
+    _updated_at: "updated_at",
     _image: "",
   };
 
@@ -778,57 +779,112 @@ export type ResolveEntryUpdatedAtOpts = {
   isDb?: boolean;
 };
 
+export type EditorialUpdatedAtSource = "yaml" | "published_at";
+
+function contentRootAbs(contentRoot?: string): string {
+  if (!contentRoot) return getDefaultContentRoot();
+  return path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
+}
+
+function readYamlRootDates(
+  filePath: string,
+): { updated?: unknown; published?: unknown } {
+  if (!fs.existsSync(filePath)) return {};
+  try {
+    const data = (yaml.load(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>) || {};
+    return {
+      updated: data[UPDATED_AT_ALIAS_FIELD] ?? data[RESERVED_UPDATED_AT_FIELD],
+      published: data[RESERVED_PUBLISHED_AT_FIELD],
+    };
+  } catch {
+    return {};
+  }
+}
+
+function firstNormalizedDate(...values: unknown[]): string | null {
+  for (const value of values) {
+    const iso = normalizeFlexibleDate(value);
+    if (iso) return iso;
+  }
+  return null;
+}
+
 /**
- * Resolve ISO `updated_at` for an entry.
- * DB: `_updated_at` mapping / already-mapped `updated_at` → normalizeFlexibleDate.
- * Static: content-hash-gated file timestamp for `{directory}/{slug}/{locale}.yml`.
- * Fallback: today ISO.
+ * Resolve ISO `updated_at` for an entry (editorial content clock).
+ * YAML/DB `updated_at` / `_updated_at`, else `published_at`, else null.
+ * Never sync-state file mtime or "today".
  */
-export function resolveEntryUpdatedAt(opts: ResolveEntryUpdatedAtOpts): string {
+export function resolveEntryUpdatedAtDetail(
+  opts: ResolveEntryUpdatedAtOpts,
+): { iso: string | null; source: EditorialUpdatedAtSource | null } {
   const { contentType, slug, locale, record, contentRoot } = opts;
   const config = getContentTypeConfig(contentType, contentRoot);
   const isDb = opts.isDb ?? !!config?.database?.slug;
-  const todayIso = () => new Date().toISOString();
+  const root = contentRootAbs(contentRoot);
+  const directory = getDirectory(contentType, contentRoot);
+
+  const fromRecordUpdated = record
+    ? firstNormalizedDate(
+        record[UPDATED_AT_ALIAS_FIELD],
+        record[RESERVED_UPDATED_AT_FIELD],
+      )
+    : null;
+  if (fromRecordUpdated) return { iso: fromRecordUpdated, source: "yaml" };
 
   if (isDb && record) {
-    const mapped = record[UPDATED_AT_ALIAS_FIELD] ?? record[RESERVED_UPDATED_AT_FIELD];
-    const fromMapped = normalizeFlexibleDate(mapped);
-    if (fromMapped) return fromMapped;
-
     const source = getUpdatedAtSource(contentType, contentRoot);
     if (source && source.trim()) {
       try {
         const raw = resolveMappedFieldValue(source, record, RESERVED_UPDATED_AT_FIELD);
-        const fromSource = normalizeFlexibleDate(raw);
-        if (fromSource) return fromSource;
+        const fromSource = firstNormalizedDate(raw);
+        if (fromSource) return { iso: fromSource, source: "yaml" };
       } catch {
         // fall through
       }
     }
-    return todayIso();
+    const fromPublished = firstNormalizedDate(record[RESERVED_PUBLISHED_AT_FIELD]);
+    if (fromPublished) return { iso: fromPublished, source: "published_at" };
+    if (slug) {
+      const commonPath = path.join(root, directory, slug, "_common.yml");
+      const fromCommon = firstNormalizedDate(readYamlRootDates(commonPath).published);
+      if (fromCommon) return { iso: fromCommon, source: "published_at" };
+    }
+    return { iso: null, source: null };
   }
 
   if (slug && locale) {
-    const directory = getDirectory(contentType, contentRoot);
-    const folder = contentRoot
-      ? (path.isAbsolute(contentRoot) ? path.relative(process.cwd(), contentRoot) : contentRoot)
-      : path.relative(process.cwd(), getDefaultContentRoot());
-    const filePath = `${folder}/${directory}/${slug}/${locale}.yml`;
-    return getFileUpdatedAtIso(filePath, contentRoot);
+    const localePath = path.join(root, directory, slug, `${locale}.yml`);
+    const fromLocale = firstNormalizedDate(readYamlRootDates(localePath).updated);
+    if (fromLocale) return { iso: fromLocale, source: "yaml" };
   }
 
-  return todayIso();
+  const fromRecordPublished = record
+    ? firstNormalizedDate(record[RESERVED_PUBLISHED_AT_FIELD])
+    : null;
+  if (fromRecordPublished) return { iso: fromRecordPublished, source: "published_at" };
+
+  if (slug) {
+    const commonPath = path.join(root, directory, slug, "_common.yml");
+    const fromCommon = firstNormalizedDate(readYamlRootDates(commonPath).published);
+    if (fromCommon) return { iso: fromCommon, source: "published_at" };
+  }
+
+  return { iso: null, source: null };
+}
+
+export function resolveEntryUpdatedAt(opts: ResolveEntryUpdatedAtOpts): string | null {
+  return resolveEntryUpdatedAtDetail(opts).iso;
 }
 
 /**
- * Max updated_at across locale files for a static entry (manage table column).
+ * Max editorial updated_at across locale files for a static entry (manage table).
  */
 export function resolveStaticEntryUpdatedAt(
   contentType: string,
   slug: string,
   locales: string[],
   contentRoot?: string,
-): string {
+): string | null {
   let best: string | null = null;
   let bestMs = -1;
   for (const locale of locales) {
@@ -840,13 +896,20 @@ export function resolveStaticEntryUpdatedAt(
       contentRoot,
       isDb: false,
     });
+    if (!iso) continue;
     const ms = Date.parse(iso);
     if (!isNaN(ms) && ms > bestMs) {
       bestMs = ms;
       best = iso;
     }
   }
-  return best || new Date().toISOString();
+  if (best) return best;
+  return resolveEntryUpdatedAt({
+    contentType,
+    slug,
+    contentRoot,
+    isDb: false,
+  });
 }
 
 /** Normalize API locale keys (us→en), keep string slugs, optionally merge current item. */

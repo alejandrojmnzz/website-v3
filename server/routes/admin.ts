@@ -3297,47 +3297,6 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/runtime-issues/ignore-suggest", async (req, res) => {
-    const auth = await requireCapability(req, res, "metrics_view");
-    if (!auth.authorized) return;
-
-    const raw = req.body?.fingerprints;
-    if (!Array.isArray(raw)) {
-      res.status(400).json({ error: "fingerprints must be an array" });
-      return;
-    }
-    const fingerprints = Array.from(
-      new Set(raw.filter((f): f is string => typeof f === "string" && f.trim().length > 0).map((f) => f.trim())),
-    );
-    if (!fingerprints.length) {
-      res.status(400).json({ error: "fingerprints is required" });
-      return;
-    }
-
-    try {
-      const { listRuntimeIssues, getRuntimeIssue } = await import("../runtime-issues-store");
-      const { suggestIgnoreTemplates } = await import("../runtime-issues-ignore-suggest");
-      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
-      const siteName = site?.contentRootName || "default";
-      const listed = listRuntimeIssues(siteName, { contentRoot: site?.contentRoot });
-      const seedIssues = fingerprints
-        .map((fp) => getRuntimeIssue(siteName, fp, site?.contentRoot))
-        .filter((issue): issue is NonNullable<typeof issue> => Boolean(issue));
-      if (!seedIssues.length) {
-        res.status(404).json({ error: "No matching runtime issues found" });
-        return;
-      }
-      const seedPaths = seedIssues.map((issue) => issue.path);
-      const allPaths = listed.issues.map((issue) => issue.path);
-      const locales = Array.from(new Set(listed.issues.map((issue) => issue.locale).filter(Boolean)));
-      const result = await suggestIgnoreTemplates({ seedPaths, allPaths, locales });
-      res.json({ ...result, seedPaths });
-    } catch (err) {
-      log.error({ err }, "Failed to suggest ignore templates:");
-      res.status(500).json({ error: "Failed to suggest ignore templates" });
-    }
-  });
-
   app.post("/api/admin/runtime-issues/ignore", async (req, res) => {
     const auth = await requireCapability(req, res, "seo_edit");
     if (!auth.authorized) return;
