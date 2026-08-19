@@ -112,6 +112,17 @@ describe("filterSitemapEntries", () => {
     const rows = filterSitemapEntries(duplicateLandings, "costarica");
     expect(rows).toHaveLength(0);
   });
+
+  it("excludes paths and seo-index member ids", () => {
+    const rows = filterSitemapEntries(catalog, "", {
+      excludePaths: ["/en/program-comparison"],
+      excludeIds: ["blog/ai-engineer/en"],
+    });
+    const paths = rows.map((e) => sitemapPathname(e.loc));
+    expect(paths).not.toContain("/en/program-comparison");
+    expect(paths).not.toContain("/en/blog/ai-powered-learning/ai-engineer");
+    expect(paths.length).toBeGreaterThan(0);
+  });
 });
 
 describe("sitemapMatchScore", () => {

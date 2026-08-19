@@ -667,6 +667,7 @@ export function registerVersioningRoutes(app: Express): void {
           >,
           contentRoot: root,
           mode: "publish",
+          intent: "publish",
           isDraftWrite: false,
         });
         if (seoGateErr) {
@@ -815,6 +816,7 @@ export function registerVersioningRoutes(app: Express): void {
         >,
         contentRoot: root,
         mode: "publish",
+        intent: "publish",
         isDraftWrite: false,
       });
       if (seoGateErr) {

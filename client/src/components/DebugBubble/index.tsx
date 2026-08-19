@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense, useRef } from "react";
+import { useState, useEffect, lazy, Suspense, useRef, useCallback } from "react";
 import { AlertTriangle, ArrowRight, ArrowUp, Award, BarChart2, Blocks, Book, Brain, Bug, Building2, Columns2, CreditCard, File, Folder, FolderCode, GitBranch, HelpCircle, Image, Link2, MessageSquare, PanelBottom, Pencil, Rocket, Sparkles, Table, Unlink, Users, X } from "lucide-react";
 import { subscribeToContentUpdates, subscribeToVariantCreated, subscribeToVariantDeleted, subscribeToVariantPromoted } from "@/lib/contentEvents";
 
@@ -10,6 +10,9 @@ import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
 import { useContentTypes, getFolderFromType, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { consensusSitemapContentType, contentTypeForSitemapFolder } from "@/lib/content-type-routes";
 import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
+import { computeDirtyMetaKeys } from "@/lib/buildMetaSaveOperations";
+import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
+import type { SeoMeta } from "@/components/DebugBubble/types";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import {
   restoreEditModeScrollPosition,
@@ -324,17 +327,33 @@ export function DebugBubble() {
     title: string;
     slug?: string;
   } | null>(null);
-  const [seoMeta, setSeoMeta] = useState<{
-    page_title: string;
-    description: string;
-    og_image: string;
-    canonical_url: string;
-    robots: string;
-    priority: string;
-    change_frequency: string;
-    redirects: string[];
-  }>({ page_title: "", description: "", og_image: "", canonical_url: "", robots: "", priority: "", change_frequency: "", redirects: [] });
-  const [seoSaving, setSeoSaving] = useState(false);
+  const [seoMeta, setSeoMeta] = useState<SeoMeta>({
+    page_title: "",
+    description: "",
+    og_image: "",
+    canonical_url: "",
+    robots: "",
+    priority: "",
+    change_frequency: "",
+    redirects: [],
+  });
+  const [seoDirtyKeys, setSeoDirtyKeys] = useState<Set<string>>(new Set());
+  const seoBaselineMetaRef = useRef<SeoMeta>({
+    page_title: "",
+    description: "",
+    og_image: "",
+    canonical_url: "",
+    robots: "",
+    priority: "",
+    change_frequency: "",
+    redirects: [],
+  });
+  const applySeoMetaFromForm = useCallback((next: SeoMeta) => {
+    setSeoMeta(next);
+    setSeoDirtyKeys(computeDirtyMetaKeys(next, seoBaselineMetaRef.current));
+  }, []);
+  const seoBaselineLocationsRef = useRef<string[]>([]);
+  const [locationsBaseline, setLocationsBaseline] = useState<string[]>([]);
   const [seoLocations, setSeoLocations] = useState<string[]>([]);
   const [seoAvailableLocations, setSeoAvailableLocations] = useState<Array<{ slug: string; name: string; city: string; country: string }>>([]);
   const [seoLocationSearch, setSeoLocationSearch] = useState("");
@@ -1095,7 +1114,7 @@ export function DebugBubble() {
       }
       const data = await res.json();
       setSeoData(data);
-      setSeoMeta({
+      const nextMeta: SeoMeta = {
         page_title: (data.meta?.page_title as string) || "",
         description: (data.meta?.description as string) || "",
         og_image: (data.meta?.og_image as string) || "",
@@ -1106,8 +1125,14 @@ export function DebugBubble() {
         redirects: ((data.meta?.redirects as Array<string | { path: string; status?: number }>) || [])
           .map((r) => (typeof r === "string" ? r : r?.path))
           .filter((r): r is string => Boolean(r)),
-      });
-      setSeoLocations((data.locations as string[]) || []);
+      };
+      seoBaselineMetaRef.current = nextMeta;
+      setSeoMeta(nextMeta);
+      setSeoDirtyKeys(new Set());
+      const loadedLocations = (data.locations as string[]) || [];
+      seoBaselineLocationsRef.current = [...loadedLocations];
+      setLocationsBaseline([...loadedLocations]);
+      setSeoLocations(loadedLocations);
       setSeoAvailableLocations((data.availableLocations as Array<{ slug: string; name: string; city: string; country: string }>) || []);
       setSeoLocationSearch("");
     } catch (error) {
@@ -1212,147 +1237,30 @@ export function DebugBubble() {
     setSlugRedirectPrompt(true);
   };
 
-  const handleSeoSave = async () => {
-    if (!contentInfo.type || !contentInfo.slug) return;
-    setSeoSaving(true);
-    try {
-      const urlLocale = getEffectiveLocale();
-      const locale = normalizeLocale(urlLocale || i18n.language);
-      const apiContentType = contentInfo.type;
-      const urlVariant = getUrlVariant() || seoData?.variant;
-      const isVariant =
-        (seoData?.context === "variant" || !!urlVariant) && !!urlVariant;
-      const liveMeta = (seoData?.liveMeta || {}) as Record<string, unknown>;
-      const metaOverrides = Array.isArray(seoData?.metaOverrides)
-        ? seoData!.metaOverrides!
-        : [];
-      const editableKeys = [
-        "page_title",
-        "description",
-        "og_image",
-        "canonical_url",
-        "robots",
-        "priority",
-        "change_frequency",
-      ] as const;
+  const debugSeoLocale = normalizeLocale(getEffectiveLocale() || i18n.language);
+  const debugSeoContext =
+    seoData?.context ?? (getUrlVariant() ? "variant" : "live");
+  const debugSeoVariant = seoData?.variant ?? getUrlVariant();
+  const debugMetaOverrides = Array.isArray(seoData?.metaOverrides)
+    ? seoData!.metaOverrides!
+    : [];
 
-      let metaPayload: Record<string, unknown>;
-
-      if (isVariant) {
-        metaPayload = {};
-        for (const key of metaOverrides) {
-          if (
-            (editableKeys as readonly string[]).includes(key) ||
-            key === "redirects"
-          ) {
-            continue;
-          }
-          if (seoData?.meta && seoData.meta[key] !== undefined) {
-            metaPayload[key] = seoData.meta[key];
-          }
-        }
-        for (const key of editableKeys) {
-          const formVal = seoMeta[key];
-          const liveVal = liveMeta[key];
-          const liveStr = liveVal == null ? "" : String(liveVal);
-          if (!formVal) continue; // clear → omit
-          if (formVal === liveStr) continue; // A1 (treat save as dirty)
-          metaPayload[key] = formVal;
-        }
-        if (seoMeta.redirects.length > 0) {
-          const liveRedirects = Array.isArray(liveMeta.redirects)
-            ? liveMeta.redirects
-                .map((r) =>
-                  typeof r === "string" ? r : (r as { path?: string })?.path,
-                )
-                .filter((r): r is string => Boolean(r))
-            : [];
-          const same =
-            seoMeta.redirects.length === liveRedirects.length &&
-            seoMeta.redirects.every((r, i) => r === liveRedirects[i]);
-          if (!same) metaPayload.redirects = seoMeta.redirects;
-        }
-      } else {
-        metaPayload = { ...(seoData?.meta || {}) };
-        for (const key of editableKeys) {
-          if (seoMeta[key]) {
-            metaPayload[key] = seoMeta[key];
-          } else {
-            delete metaPayload[key];
-          }
-        }
-        if (seoMeta.redirects.length > 0) {
-          metaPayload.redirects = seoMeta.redirects;
-        } else {
-          delete metaPayload.redirects;
-        }
-      }
-
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      const token = getDebugToken();
-      if (token) headers["X-Debug-Token"] = token;
-      const author = await resolveAuthorName();
-
-      const body: Record<string, unknown> = {
-        contentType: apiContentType,
-        slug: contentInfo.slug,
-        locale,
-        author: author || undefined,
-        operations: [
-          {
-            action: "update_field",
-            path: "meta",
-            value: Object.keys(metaPayload).length > 0 ? metaPayload : null,
-          },
-        ],
-      };
-      if (isVariant && urlVariant) body.variant = urlVariant;
-
-      const metaRes = await fetch("/api/content/edit-sections", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
-      if (!metaRes.ok) {
-        const errData = await metaRes.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to save meta");
-      }
-
-      if (contentInfo.type === "landing" && seoAvailableLocations.length > 0) {
-        const locRes = await fetch("/api/content/update-locations", {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            contentType: "landing",
-            slug: contentInfo.slug,
-            locations: seoLocations,
-            author: author || undefined,
-          }),
-        });
-        if (!locRes.ok) {
-          const locErr = await locRes.json().catch(() => ({}));
-          throw new Error(locErr.error || "Failed to save locations");
-        }
-      }
-      
-      toast({
-        title: "SEO updated",
-        description: isVariant
-          ? `Meta saved to variant "${urlVariant}".`
-          : "Meta tags have been saved successfully.",
-      });
-      setSeoModalOpen(false);
-    } catch (error) {
-      console.error("Error saving SEO:", error);
-      toast({
-        title: "Failed to save SEO",
-        description: error instanceof Error ? error.message : "Could not save meta changes.",
-        variant: "destructive",
-      });
-    } finally {
-      setSeoSaving(false);
-    }
-  };
+  const seoSaves = useSeoModalSaves({
+    contentType: contentInfo.type,
+    slug: contentInfo.slug,
+    locale: debugSeoLocale,
+    seoContext: debugSeoContext,
+    seoVariant: debugSeoVariant,
+    seoMeta,
+    setSeoMeta,
+    dirtyKeys: seoDirtyKeys,
+    setDirtyKeys: setSeoDirtyKeys,
+    baselineMetaRef: seoBaselineMetaRef,
+    baselineLocationsRef: seoBaselineLocationsRef,
+    seoData,
+    metaOverrides: debugMetaOverrides,
+    refetch: fetchSeoPreview,
+  });
 
   const handleCheckSession = async () => {
     setIsCheckingSession(true);
@@ -2577,14 +2485,36 @@ export function DebugBubble() {
         seoLoading={seoLoading}
         seoData={seoData}
         seoMeta={seoMeta}
-        setSeoMeta={setSeoMeta}
+        setSeoMeta={applySeoMetaFromForm}
         seoLocations={seoLocations}
         setSeoLocations={setSeoLocations}
         seoAvailableLocations={seoAvailableLocations}
         seoLocationSearch={seoLocationSearch}
         setSeoLocationSearch={setSeoLocationSearch}
-        seoSaving={seoSaving}
-        handleSeoSave={handleSeoSave}
+        baselineLocations={locationsBaseline}
+        saving={seoSaves.saving}
+        isLiveSnippetLocked={seoSaves.isLiveSnippetLocked}
+        onSaveLocations={async (locs) => {
+          await seoSaves.saveLocations(locs);
+          setLocationsBaseline([...locs]);
+        }}
+        onSaveVisibility={seoSaves.saveVisibility}
+        onRevertVisibility={() => {
+          applySeoMetaFromForm({
+            ...seoMeta,
+            robots: seoBaselineMetaRef.current.robots,
+            priority: seoBaselineMetaRef.current.priority,
+            change_frequency: seoBaselineMetaRef.current.change_frequency,
+          });
+        }}
+        onSaveSnippet={seoSaves.saveSnippet}
+        onSaveCanonical={seoSaves.saveCanonical}
+        onSaveOgImage={seoSaves.saveOgImage}
+        onConvertToDraft={seoSaves.convertToDraft}
+        visibilityDirty={["robots", "priority", "change_frequency"].some((k) =>
+          seoDirtyKeys.has(k),
+        )}
+        canonicalDirty={seoDirtyKeys.has("canonical_url")}
         newSlugValue={newSlugValue}
         setNewSlugValue={setNewSlugValue}
         slugCheckStatus={slugCheckStatus}

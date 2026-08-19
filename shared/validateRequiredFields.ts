@@ -62,16 +62,18 @@ export type ValidateRequiredFieldsMode = "publish" | "live_update";
  * For live_update, empty values fail (cleared or never set on a live entry).
  * For publish, same non-empty rule (going live).
  */
-export function validateRequiredFields(
+/** Validate only selected required editor keys (micro-save). */
+export function validateRequiredFieldsForKeys(
   editor: Record<string, EditorRequiredHint> | null | undefined,
   entryValues: Record<string, unknown>,
+  keysToCheck: readonly string[],
   _mode: ValidateRequiredFieldsMode = "publish",
 ): ValidateRequiredFieldsResult {
-  const keys = listRequiredEditorFields(editor);
-  if (keys.length === 0) return { ok: true };
-
+  if (keysToCheck.length === 0) return { ok: true };
+  const required = new Set(listRequiredEditorFields(editor));
   const errors: RequiredFieldError[] = [];
-  for (const key of keys) {
+  for (const key of keysToCheck) {
+    if (!required.has(key)) continue;
     const value =
       key.includes(".")
         ? getNestedValue(entryValues, key)
@@ -84,9 +86,17 @@ export function validateRequiredFields(
       });
     }
   }
-
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true };
+}
+
+export function validateRequiredFields(
+  editor: Record<string, EditorRequiredHint> | null | undefined,
+  entryValues: Record<string, unknown>,
+  _mode: ValidateRequiredFieldsMode = "publish",
+): ValidateRequiredFieldsResult {
+  const keys = listRequiredEditorFields(editor);
+  return validateRequiredFieldsForKeys(editor, entryValues, keys, _mode);
 }
 
 export function formatRequiredFieldErrors(

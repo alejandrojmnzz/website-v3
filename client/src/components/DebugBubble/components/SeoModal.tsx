@@ -1,16 +1,16 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Filter, Image, Info, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Code, Eye, EyeOff, FileText, Filter, Image, Info, Loader2, MapPin, Pencil, RefreshCw, Search, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImagePickerDialog } from "@/components/editing/ImagePickerDialog";
 import { EntrySeoClusterFields, MappingFieldsTab } from "@/components/editing/MappingFieldsTab";
 import { FunnelTab } from "@/components/DebugBubble/components/FunnelTab";
 import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
+import type { SeoModalSavingFlags } from "@/hooks/useSeoModalSaves";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -43,8 +43,20 @@ export interface SeoModalProps {
   seoAvailableLocations: SeoLocation[];
   seoLocationSearch: string;
   setSeoLocationSearch: (v: string) => void;
-  seoSaving: boolean;
-  handleSeoSave: () => Promise<void>;
+  /** Baseline locations list (for auto-save diff). */
+  baselineLocations: string[];
+  saving: SeoModalSavingFlags;
+  isLiveSnippetLocked: boolean;
+  onSaveLocations: (locations: string[]) => Promise<void>;
+  onSaveVisibility: () => Promise<void>;
+  /** Reset robots / priority / change_frequency to last saved baseline (cancel edit). */
+  onRevertVisibility?: () => void;
+  onSaveSnippet: () => Promise<void>;
+  onSaveCanonical: () => Promise<void>;
+  onSaveOgImage: (src: string) => Promise<void>;
+  onConvertToDraft?: () => Promise<void>;
+  visibilityDirty?: boolean;
+  canonicalDirty?: boolean;
   newSlugValue: string;
   setNewSlugValue: (v: string) => void;
   slugCheckStatus: SlugCheckStatus;
@@ -101,6 +113,26 @@ function resolveSchemaPreviewDocs(seoData: any): SchemaOrgPreviewDoc[] {
   return out;
 }
 
+const ROBOTS_OPTIONS = [
+  { value: "", label: "index, follow", description: "Show in search results and follow all links on this page. Recommended for most pages." },
+  { value: "noindex", label: "noindex", description: "Hide from search results but still follow links. Useful for private or duplicate pages." },
+  { value: "noindex, nofollow", label: "noindex, nofollow", description: "Hide from search results and don't follow any links. Use for pages you never want crawled." },
+] as const;
+
+function formatRobotsDisplay(robots: string): string {
+  const match = ROBOTS_OPTIONS.find((o) => o.value === robots);
+  if (match) return match.value === "" ? `${match.label} (default)` : match.label;
+  return robots.trim() || "index, follow (default)";
+}
+
+function formatPriorityDisplay(priority: string): string {
+  return priority.trim() ? priority : "Default";
+}
+
+function formatChangeFrequencyDisplay(changeFrequency: string): string {
+  return changeFrequency.trim() ? changeFrequency : "Default";
+}
+
 export function SeoModal({
   open,
   onOpenChange,
@@ -114,8 +146,18 @@ export function SeoModal({
   seoAvailableLocations,
   seoLocationSearch,
   setSeoLocationSearch,
-  seoSaving,
-  handleSeoSave,
+  baselineLocations,
+  saving,
+  isLiveSnippetLocked,
+  onSaveLocations,
+  onSaveVisibility,
+  onRevertVisibility,
+  onSaveSnippet,
+  onSaveCanonical,
+  onSaveOgImage,
+  onConvertToDraft,
+  visibilityDirty = false,
+  canonicalDirty = false,
   newSlugValue,
   setNewSlugValue,
   slugCheckStatus,
@@ -147,11 +189,15 @@ export function SeoModal({
   const [ogImageTooSmall, setOgImageTooSmall] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [snippetEditing, setSnippetEditing] = useState(false);
+  const [visibilityEditing, setVisibilityEditing] = useState(false);
   const [slugEditing, setSlugEditing] = useState(false);
   const [dialogContainer, setDialogContainer] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!open) setSlugEditing(false);
+    if (!open) {
+      setSlugEditing(false);
+      setVisibilityEditing(false);
+    }
   }, [open]);
 
   const fieldsLocale = locale || contentInfo.locale || "en";
@@ -173,8 +219,33 @@ export function SeoModal({
     : `${fieldsLocale}.yml`;
   const slugRenameDisabled = isVariantContext;
 
-  /** Tabs that persist via their own in-panel save (not seoMeta + footer). */
-  const showFooterSave = activeTab === "general" || activeTab === "visibility";
+  const locationsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locationsSkipFirstRef = useRef(true);
+
+  useEffect(() => {
+    if (!open || contentInfo.type !== "landing") return;
+    if (locationsSkipFirstRef.current) {
+      locationsSkipFirstRef.current = false;
+      return;
+    }
+    if (locationsTimerRef.current) clearTimeout(locationsTimerRef.current);
+    locationsTimerRef.current = setTimeout(() => {
+      const sortedA = [...seoLocations].sort().join(",");
+      const sortedB = [...baselineLocations].sort().join(",");
+      if (sortedA !== sortedB) {
+        void onSaveLocations(seoLocations);
+      }
+    }, 500);
+    return () => {
+      if (locationsTimerRef.current) clearTimeout(locationsTimerRef.current);
+    };
+  }, [seoLocations, baselineLocations, contentInfo.type, open, onSaveLocations]);
+
+  useEffect(() => {
+    if (!open) {
+      locationsSkipFirstRef.current = true;
+    }
+  }, [open]);
 
   const { data: ctConfig } = useQuery<{ immutable_slug?: boolean }>({
     queryKey: ["/api/content-types", contentInfo.type, "config"],
@@ -442,7 +513,48 @@ export function SeoModal({
                   pillar path) — saved separately via <strong>Save SEO fields</strong>. Content-type schema fields are
                   on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ single.* }}"}</code>).
                 </p>
+                <p>
+                  Each section saves independently — visibility and locations patch without republishing; title and
+                  description on a <strong>live</strong> locale require convert-to-draft first.
+                </p>
               </div>
+
+              {isLiveSnippetLocked && (
+                <div
+                  className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs space-y-2"
+                  data-testid="banner-live-snippet-locked"
+                >
+                  <p>
+                    <strong>Live locale.</strong> Title and description are locked while{" "}
+                    <code className="font-mono">{fieldsLocale}.yml</code> is published. Convert to draft to edit the
+                    snippet, then publish when ready.
+                  </p>
+                  {onConvertToDraft && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!!saving.convertToDraft}
+                      onClick={() => void onConvertToDraft()}
+                      data-testid="button-convert-to-draft-snippet"
+                    >
+                      {saving.convertToDraft ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      ) : null}
+                      Convert {fieldsLocale.toUpperCase()} to draft
+                    </Button>
+                  )}
+                  <Collapsible>
+                    <CollapsibleTrigger className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      Read more (advanced)
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="text-muted-foreground mt-1 space-y-0.5 font-mono">
+                      <p>server/live-entry-seo-gate.ts — full gate on publish</p>
+                      <p>server/routes/versioning.ts — convert-to-draft / promote</p>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              )}
 
               {/* Search Snippet */}
               <div className="space-y-3">
@@ -451,16 +563,17 @@ export function SeoModal({
                   <h4 className="text-sm font-semibold">This is how your page looks when shared</h4>
                 </div>
 
-                {!snippetEditing ? (
+                {!snippetEditing || isLiveSnippetLocked ? (
                   /* ── Preview card ── */
                   <div className="space-y-3">
                     {/* Google SERP preview */}
                     <div
-                      className="relative rounded-md border bg-background px-4 py-3 pr-10 space-y-0.5 cursor-pointer hover-elevate"
-                      onClick={() => setSnippetEditing(true)}
+                      className={`relative rounded-md border bg-background px-4 py-3 pr-10 space-y-0.5 ${isLiveSnippetLocked ? "" : "cursor-pointer hover-elevate"}`}
+                      onClick={() => !isLiveSnippetLocked && setSnippetEditing(true)}
                       data-testid="card-serp-preview"
-                      title="Click to edit"
+                      title={isLiveSnippetLocked ? undefined : "Click to edit"}
                     >
+                      {!isLiveSnippetLocked && (
                       <div
                         className="absolute top-2 right-2 z-10"
                         onClick={(e) => e.stopPropagation()}
@@ -477,6 +590,7 @@ export function SeoModal({
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       </div>
+                      )}
                       <p className="text-[11px] text-[#0d652d] dark:text-[#81c995] truncate" data-testid="text-serp-breadcrumb">
                         {snippetBreadcrumb || "your-site.com"}
                       </p>
@@ -491,9 +605,12 @@ export function SeoModal({
                     {/* Social / OG card preview */}
                     <div
                       className="rounded-md border overflow-hidden cursor-pointer hover-elevate"
-                      onClick={() => setSnippetEditing(true)}
+                      onClick={() => {
+                        if (isLiveSnippetLocked) setImagePickerOpen(true);
+                        else setSnippetEditing(true);
+                      }}
                       data-testid="card-og-preview"
-                      title="Click to edit social image"
+                      title={isLiveSnippetLocked ? "Click to change social image" : "Click to edit social image"}
                     >
                       <div className="bg-muted flex items-center justify-center overflow-hidden" style={{ aspectRatio: "1200/630", maxHeight: "140px" }}>
                         {seoMeta.og_image && !ogImageError ? (
@@ -635,6 +752,16 @@ export function SeoModal({
                       )}
                     </div>
 
+                    <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => void onSaveSnippet()}
+                      disabled={!!saving.snippet}
+                      data-testid="button-save-snippet"
+                    >
+                      {saving.snippet ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                      Save snippet
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -643,6 +770,7 @@ export function SeoModal({
                     >
                       Done editing
                     </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -671,6 +799,17 @@ export function SeoModal({
                   className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                   data-testid="input-seo-canonical-url"
                 />
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    disabled={!canonicalDirty || !!saving.canonical}
+                    onClick={() => void onSaveCanonical()}
+                    data-testid="button-save-canonical"
+                  >
+                    {saving.canonical ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                    Save canonical URL
+                  </Button>
+                </div>
               </div>
             </TabsContent>
 
@@ -684,6 +823,8 @@ export function SeoModal({
                   typeLabel={fieldsTypeLabel}
                   variant={fieldsVariant}
                   hideSeoFields
+                  onOpenSeoMeta={() => setActiveTab("general")}
+                  portalContainer={dialogContainer}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground pt-4">
@@ -802,90 +943,213 @@ export function SeoModal({
 
             {/* ── Visibility tab ─────────────────────────────────────── */}
             <TabsContent value="visibility" className="min-w-0 space-y-6 pt-4">
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                <p>
+                  <strong>Locations</strong> save automatically to <code className="font-mono">_common.yml</code>.
+                  Robots, priority, and change frequency patch <code className="font-mono">meta.*</code> on the locale
+                  file — no republish required.
+                </p>
+                <Collapsible>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                    <ChevronDown className="h-3.5 w-3.5" />
+                    Read more (advanced)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="text-muted-foreground mt-1 space-y-0.5 font-mono">
+                    <p>server/routes/seo.ts — update-locations</p>
+                    <p>server/live-entry-seo-gate.ts — micro validation scope</p>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
 
-              {/* Robots */}
+              {/* Crawl & sitemap settings */}
               <div className="space-y-3">
                 <div>
-                  <h4 className="text-sm font-semibold">Robots</h4>
+                  <h4 className="text-sm font-semibold">Crawl &amp; sitemap settings</h4>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Control how search engines crawl and index this page.
+                    Robots directive, sitemap priority, and change frequency for this locale.
                   </p>
                 </div>
-                <div className="space-y-1.5" data-testid="select-seo-robots">
-                  {([
-                    { value: "", label: "index, follow", description: "Show in search results and follow all links on this page. Recommended for most pages." },
-                    { value: "noindex", label: "noindex", description: "Hide from search results but still follow links. Useful for private or duplicate pages." },
-                    { value: "noindex, nofollow", label: "noindex, nofollow", description: "Hide from search results and don't follow any links. Use for pages you never want crawled." },
-                  ] as const).map(({ value, label, description }) => (
-                    <label
-                      key={value}
-                      className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer hover-elevate ${(seoMeta.robots === value) ? "border-ring bg-muted/50" : ""}`}
-                      data-testid={`option-seo-robots-${value || "default"}`}
+
+                {!visibilityEditing ? (
+                  <div
+                    className="relative rounded-md border bg-background px-4 py-3 pr-10 space-y-2 cursor-pointer hover-elevate"
+                    onClick={() => setVisibilityEditing(true)}
+                    data-testid="card-visibility-settings"
+                    title="Click to edit"
+                  >
+                    <div
+                      className="absolute top-2 right-2 z-10"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <input
-                        type="radio"
-                        name="seo-robots"
-                        value={value}
-                        checked={seoMeta.robots === value}
-                        onChange={() => setSeoMeta({ ...seoMeta, robots: value })}
-                        className="mt-0.5 shrink-0"
-                      />
-                      <div className="space-y-0.5">
-                        <p className="text-xs font-mono font-medium text-foreground leading-none">{label}{value === "" && <span className="ml-1.5 text-muted-foreground font-sans font-normal">(default)</span>}</p>
-                        <p className="text-xs text-muted-foreground">{description}</p>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        onClick={() => setVisibilityEditing(true)}
+                        data-testid="button-edit-visibility"
+                        title="Edit crawl & sitemap settings"
+                        aria-label="Edit crawl and sitemap settings"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-[7rem_1fr] text-xs">
+                      <span className="text-muted-foreground">Robots</span>
+                      <span className="font-mono text-foreground" data-testid="text-visibility-robots">
+                        {formatRobotsDisplay(seoMeta.robots)}
+                      </span>
+                      <span className="text-muted-foreground">Priority</span>
+                      <span className="font-mono text-foreground" data-testid="text-visibility-priority">
+                        {formatPriorityDisplay(seoMeta.priority)}
+                      </span>
+                      <span className="text-muted-foreground">Change frequency</span>
+                      <span className="font-mono text-foreground capitalize" data-testid="text-visibility-change-frequency">
+                        {formatChangeFrequencyDisplay(seoMeta.change_frequency)}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border bg-background px-4 py-3 space-y-4" data-testid="form-visibility-settings">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">Edit crawl &amp; sitemap settings</p>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => {
+                          onRevertVisibility?.();
+                          setVisibilityEditing(false);
+                        }}
+                        data-testid="button-cancel-visibility-edit"
+                        title="Cancel"
+                        aria-label="Cancel visibility edit"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-foreground">Robots</p>
+                      <p className="text-xs text-muted-foreground">
+                        Control how search engines crawl and index this page.
+                      </p>
+                      <div className="space-y-1.5" data-testid="select-seo-robots">
+                        {ROBOTS_OPTIONS.map(({ value, label, description }) => (
+                          <label
+                            key={value}
+                            className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer hover-elevate ${seoMeta.robots === value ? "border-ring bg-muted/50" : ""}`}
+                            data-testid={`option-seo-robots-${value || "default"}`}
+                          >
+                            <input
+                              type="radio"
+                              name="seo-robots"
+                              value={value}
+                              checked={seoMeta.robots === value}
+                              onChange={() => setSeoMeta({ ...seoMeta, robots: value })}
+                              className="mt-0.5 shrink-0"
+                            />
+                            <div className="space-y-0.5">
+                              <p className="text-xs font-mono font-medium text-foreground leading-none">
+                                {label}
+                                {value === "" && (
+                                  <span className="ml-1.5 text-muted-foreground font-sans font-normal">(default)</span>
+                                )}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{description}</p>
+                            </div>
+                          </label>
+                        ))}
                       </div>
-                    </label>
-                  ))}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground" htmlFor="seo-priority">
+                        Priority
+                      </label>
+                      <input
+                        id="seo-priority"
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        value={seoMeta.priority}
+                        onChange={(e) => setSeoMeta({ ...seoMeta, priority: e.target.value })}
+                        placeholder="e.g. 0.8"
+                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        data-testid="input-seo-priority"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Sitemap crawl priority (0.0–1.0). Leave empty to use the default.
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-foreground" htmlFor="seo-change-frequency">
+                        Change Frequency
+                      </label>
+                      <select
+                        id="seo-change-frequency"
+                        value={seoMeta.change_frequency}
+                        onChange={(e) => setSeoMeta({ ...seoMeta, change_frequency: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        data-testid="select-seo-change-frequency"
+                      >
+                        <option value="">Default</option>
+                        <option value="always">always</option>
+                        <option value="hourly">hourly</option>
+                        <option value="daily">daily</option>
+                        <option value="weekly">weekly</option>
+                        <option value="monthly">monthly</option>
+                        <option value="yearly">yearly</option>
+                        <option value="never">never</option>
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        How frequently the page content is likely to change. Used in the sitemap.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        disabled={!visibilityDirty || !!saving.visibility}
+                        onClick={() => {
+                          void (async () => {
+                            try {
+                              await onSaveVisibility();
+                              setVisibilityEditing(false);
+                            } catch {
+                              /* stay in edit mode */
+                            }
+                          })();
+                        }}
+                        data-testid="button-save-visibility"
+                      >
+                        {saving.visibility ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                        Save visibility settings
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={!!saving.visibility}
+                        onClick={() => {
+                          onRevertVisibility?.();
+                          setVisibilityEditing(false);
+                        }}
+                        data-testid="button-cancel-visibility"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {saving.locations ? (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Saving locations…
                 </div>
-              </div>
-
-              {/* Priority */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground" htmlFor="seo-priority">
-                  Priority
-                </label>
-                <input
-                  id="seo-priority"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={seoMeta.priority}
-                  onChange={(e) => setSeoMeta({ ...seoMeta, priority: e.target.value })}
-                  placeholder="e.g. 0.8"
-                  className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  data-testid="input-seo-priority"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Sitemap crawl priority (0.0–1.0). Leave empty to use the default.
-                </p>
-              </div>
-
-              {/* Change Frequency */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground" htmlFor="seo-change-frequency">
-                  Change Frequency
-                </label>
-                <select
-                  id="seo-change-frequency"
-                  value={seoMeta.change_frequency}
-                  onChange={(e) => setSeoMeta({ ...seoMeta, change_frequency: e.target.value })}
-                  className="w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                  data-testid="select-seo-change-frequency"
-                >
-                  <option value="">Default</option>
-                  <option value="always">always</option>
-                  <option value="hourly">hourly</option>
-                  <option value="daily">daily</option>
-                  <option value="weekly">weekly</option>
-                  <option value="monthly">monthly</option>
-                  <option value="yearly">yearly</option>
-                  <option value="never">never</option>
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  How frequently the page content is likely to change. Used in the sitemap.
-                </p>
-              </div>
+              ) : null}
 
               {/* Locations (landing pages only) */}
               {contentInfo.type === "landing" && seoAvailableLocations.length > 0 && (
@@ -1048,24 +1312,6 @@ export function SeoModal({
           </div>
         )}
 
-        {showFooterSave && (
-          <DialogFooter>
-            <Button
-              onClick={handleSeoSave}
-              disabled={seoSaving || seoLoading || !seoData}
-              data-testid="button-save-seo"
-            >
-              {seoSaving ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                "Save Changes"
-              )}
-            </Button>
-          </DialogFooter>
-        )}
       </DialogContent>
     </Dialog>
 
@@ -1080,6 +1326,7 @@ export function SeoModal({
         setSeoMeta({ ...seoMeta, og_image: src });
         setOgImageError(false);
         setOgImageTooSmall(false);
+        void onSaveOgImage(src);
       }}
     />
     </>

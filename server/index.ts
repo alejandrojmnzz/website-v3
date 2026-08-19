@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, startBackgroundSync } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
+import { registerDevViteForHubRender } from "./render-hub-html";
 import type { ViteDevServer } from "vite";
 import { fallbackRedirectMiddleware } from "./redirects";
 import { initialDataMiddleware } from "./initial-data-middleware";
@@ -398,6 +399,7 @@ app.use((req, res, next) => {
   let devVite: ViteDevServer | null = null;
   if (app.get("env") === "development") {
     devVite = await setupVite(app, server);
+    registerDevViteForHubRender(devVite);
   } else {
     serveStatic(app);
   }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, ExternalLink, FileText, Globe, Info, Loader2, Network, Star } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, ExternalLink, FileText, Globe, Info, Loader2, Network, Plus, Star, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -22,21 +22,35 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type {
   GscInspectEnqueueResponse,
   GscInspectMode,
   GscInspectionGetResponse,
+  GscInspectionRecord,
   GscInspectionSummary,
   GscInspectQueueStats,
 } from "@/lib/gscInspection";
-import { gscInspectModeLabel } from "@/lib/gscInspection";
+import { gscHeadline, gscInspectModeLabel } from "@/lib/gscInspection";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
-import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
+import { getDebugToken, resolveAuthorName, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequestWithAuth, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { deslugifyLabel } from "@shared/relation-field";
 import { formatSitePath } from "@shared/formatSitePath";
+import { SitemapSearch } from "@/components/menus/SitemapSearch";
+import type { SitemapSearchEntry } from "@/lib/sitemapSearch";
+import { useMutation } from "@tanstack/react-query";
 
 function lastPathSegment(pillarUrl: string): string {
   return pillarUrl.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "";
@@ -61,9 +75,8 @@ function ClusterMapHelp() {
     <div className="mb-3 space-y-1.5" data-testid="cluster-map-help">
       <p className="text-xs text-muted-foreground leading-relaxed">
         A cluster is a hub page and the pages that belong to it. Expand a name to see those
-        pages, then click a row for details or to open it. To join a cluster, open the page and
-        use the SEO Meta tab: mark the hub as a pillar, then set other pages&apos; pillar path to
-        that hub.
+        pages, add or remove members, and check Google index status. Use Add page to assign{" "}
+        <code className="font-mono text-[10px]">seo.pillar_path</code> on a locale YAML file.
       </p>
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <CollapsibleTrigger asChild>
@@ -132,7 +145,101 @@ type ClusterEntryInfo = {
   file: string | null;
   lastmod?: string | null;
   updated_at?: string | null;
+  gscStatus?: {
+    configured: boolean;
+    record: GscInspectionRecord | null;
+    stale: boolean;
+  };
 };
+
+type ClusterDiagnosticsResult = {
+  hubId: string;
+  pillarUrl: string;
+  scanStatus: "ok" | "render_failed";
+  missingLinks: { memberPath: string; memberSlug: string; memberId: string }[];
+  scannedAt: string;
+  fromCache?: boolean;
+};
+
+function invalidateClusterQueries(hubId?: string) {
+  void queryClient.invalidateQueries({ queryKey: ["/api/seo/overview"] });
+  if (hubId) {
+    void queryClient.invalidateQueries({ queryKey: ["/api/seo/cluster-diagnostics", hubId] });
+  }
+}
+
+async function putSeoPillarPath(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  pillarPath: string;
+}): Promise<void> {
+  const token = getDebugToken();
+  const author = await resolveAuthorName();
+  const res = await fetch(
+    `/api/content-types/${encodeURIComponent(opts.contentType)}/field-overrides/${encodeURIComponent(opts.slug)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...getSessionHeaders(),
+        ...(token ? { Authorization: `Token ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        locale: opts.locale,
+        fields: { "seo.pillar_path": opts.pillarPath },
+        author: author || undefined,
+      }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const message = (err as { error?: string }).error || "Failed to update cluster";
+    if (message.toLowerCase().includes("locale file not found") || message.includes("seo_file_missing")) {
+      throw new Error("This entry has no locale YAML — open it in the editor first.");
+    }
+    throw new Error(message);
+  }
+}
+
+type GscIndexChipState = "indexed" | "not-indexed" | "unknown" | "stale" | "not-configured" | "error";
+
+function gscIndexChipLabel(gscStatus: ClusterEntryInfo["gscStatus"]): string {
+  if (!gscStatus?.configured) return "GSC not configured";
+  if (!gscStatus.record) return "Unknown";
+  if (gscStatus.stale) return "Stale";
+  const headline = gscHeadline(gscStatus.record);
+  if (headline === "Indexed") return "Indexed";
+  if (headline === "Never checked") return "Unknown";
+  return headline;
+}
+
+function gscIndexChipState(gscStatus: ClusterEntryInfo["gscStatus"]): GscIndexChipState {
+  if (!gscStatus?.configured) return "not-configured";
+  if (!gscStatus.record) return "unknown";
+  if (gscStatus.stale) return "stale";
+  const headline = gscHeadline(gscStatus.record);
+  if (headline === "Indexed") return "indexed";
+  if (headline === "Not indexed") return "not-indexed";
+  if (headline === "Error") return "error";
+  return "unknown";
+}
+
+function gscIndexChipClass(state: GscIndexChipState): string {
+  if (state === "indexed") return "border-transparent bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
+  if (state === "not-indexed") return "border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400";
+  if (state === "error") return "border-transparent bg-destructive/15 text-destructive";
+  if (state === "stale") return "border-transparent bg-muted text-muted-foreground";
+  if (state === "not-configured") return "border-transparent bg-muted text-muted-foreground opacity-60";
+  return "border-transparent bg-muted text-muted-foreground";
+}
+
+function GscIndexChipIcon({ state }: { state: GscIndexChipState }) {
+  const className = "h-3 w-3";
+  if (state === "indexed") return <Bot className={className} aria-hidden />;
+  if (state === "not-indexed" || state === "error") return <BotOff className={className} aria-hidden />;
+  return <Bot className={className} aria-hidden />;
+}
 
 function formatLastmodAgo(lastmod: string, now = new Date()): string {
   const day = lastmod.split("T")[0];
@@ -170,8 +277,369 @@ function ClusterMemberLastmod({ lastmod, prefix }: { lastmod: string; prefix?: s
   );
 }
 
-function ClusterMemberRow({ member }: { member: ClusterMember }) {
+function ClusterGscIndexChip({
+  entryPath,
+  gscStatus,
+  gscConfigured,
+}: {
+  entryPath: string;
+  gscStatus?: ClusterEntryInfo["gscStatus"];
+  gscConfigured?: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  const configured = gscStatus?.configured ?? gscConfigured ?? false;
+  const resolvedStatus = gscStatus ?? { configured, record: null, stale: true };
+  const label = gscIndexChipLabel(resolvedStatus);
+  const state = gscIndexChipState(resolvedStatus);
+  const inspectMutation = useMutation({
+    mutationFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch("/api/debug/gsc-inspection", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ urls: [entryPath], force: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Inspect failed");
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/seo/entry"] });
+    },
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex items-center justify-center rounded-md border h-5 w-5 shrink-0",
+            gscIndexChipClass(state),
+          )}
+          disabled={!entryPath}
+          data-testid="chip-cluster-gsc-index"
+          title={label}
+          aria-label={`Google index status: ${label}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GscIndexChipIcon state={state} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-64 space-y-2 bg-popover text-popover-foreground"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {!configured ? (
+          <p className="text-xs text-muted-foreground">
+            Search Console is not configured. Set credentials and site URL in settings.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-foreground">
+              {gscStatus?.record?.inspectedAt
+                ? `Last checked ${new Date(gscStatus.record.inspectedAt).toLocaleString()}`
+                : "This URL has not been inspected yet."}
+            </p>
+            {gscStatus?.record?.coverageState ? (
+              <p className="text-[11px] text-muted-foreground">{gscStatus.record.coverageState}</p>
+            ) : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-full"
+              disabled={!entryPath || inspectMutation.isPending}
+              onClick={() => inspectMutation.mutate()}
+              data-testid="button-cluster-check-google"
+            >
+              {inspectMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : null}
+              Check Google
+            </Button>
+            {inspectMutation.isError ? (
+              <p className="text-[11px] text-destructive">
+                {inspectMutation.error instanceof Error
+                  ? inspectMutation.error.message
+                  : "Inspect failed"}
+              </p>
+            ) : null}
+            <p className="text-[10px] text-muted-foreground">
+              Re-inspects via Search Console. For bulk scans use Inspect URLs above.
+            </p>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ClusterMissingLinksPanel({ hubId }: { hubId: string }) {
+  const { data, isLoading, isError } = useQuery<ClusterDiagnosticsResult>({
+    queryKey: ["/api/seo/cluster-diagnostics", hubId],
+    queryFn: async () => {
+      const token = getDebugToken();
+      const params = new URLSearchParams({ hubId });
+      const res = await fetch(`/api/seo/cluster-diagnostics?${params}`, {
+        credentials: "include",
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || "Diagnostics failed");
+      }
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <p className="text-[11px] text-muted-foreground pb-2 flex items-center gap-1.5" data-testid="cluster-links-scanning">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Scanning hub…
+      </p>
+    );
+  }
+
+  if (isError || data?.scanStatus === "render_failed") {
+    return (
+      <p className="text-[11px] text-muted-foreground pb-2" data-testid="cluster-links-scan-failed">
+        Could not render the hub page for link scan. Try again after visiting the hub publicly.
+      </p>
+    );
+  }
+
+  if (!data?.missingLinks.length) return null;
+
+  return (
+    <div className="pb-2" data-testid="cluster-missing-links">
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-transparent bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+            data-testid="badge-cluster-missing-links"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            {data.missingLinks.length} missing hub link{data.missingLinks.length !== 1 ? "s" : ""}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 bg-popover text-popover-foreground">
+          <p className="text-xs text-muted-foreground mb-2">
+            These members were not found as rendered <code className="font-mono text-[10px]">&lt;a href&gt;</code> on
+            the hub (nav/footer links count).
+          </p>
+          <ul className="space-y-1 text-xs">
+            {data.missingLinks.map((m) => (
+              <li key={m.memberId} className="font-mono truncate" title={m.memberPath}>
+                {deslugifyLabel(m.memberSlug)}
+              </li>
+            ))}
+          </ul>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+type ClusterPickerTarget = {
+  contentType: string;
+  slug: string;
+  locale: string;
+  pillar_path?: string | null;
+  is_pillar?: boolean;
+};
+
+function ClusterMemberAssignFlow({
+  hubPillarUrl,
+  hubLabel,
+  locale,
+  excludePaths,
+  excludeIds,
+  onAssigned,
+  trigger,
+}: {
+  hubPillarUrl: string;
+  hubLabel?: string;
+  locale: string;
+  excludePaths: string[];
+  excludeIds: string[];
+  onAssigned: () => void;
+  trigger: ReactNode;
+}) {
+  const { toast } = useToast();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pending, setPending] = useState<{
+    entry: SitemapSearchEntry;
+    previousPillar: string | null;
+    previousLabel: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const assignEntry = async (target: ClusterPickerTarget) => {
+    setSaving(true);
+    try {
+      await putSeoPillarPath({
+        contentType: target.contentType,
+        slug: target.slug,
+        locale: target.locale,
+        pillarPath: hubPillarUrl,
+      });
+      toast({
+        title: "Cluster updated",
+        description: "Pending Cloud Sync — locale YAML was updated.",
+      });
+      onAssigned();
+      setPickerOpen(false);
+      setPending(null);
+    } catch (err) {
+      toast({
+        title: "Could not add to cluster",
+        description: err instanceof Error ? err.message : "Update failed",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSelectEntry = async (entry: SitemapSearchEntry) => {
+    const contentType = entry.content_type?.trim();
+    const slug = entry.slug?.trim();
+    const entryLocale = entry.locale?.trim();
+    if (!contentType || !slug || !entryLocale) {
+      toast({
+        title: "Missing entry metadata",
+        description: "Pick a page with content type, slug, and locale — not URL alone.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({ locale: entryLocale });
+      const res = await fetch(
+        `/api/seo/entry/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?${params}`,
+        { credentials: "include", headers: getSessionHeaders() },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || "Could not load entry");
+      }
+      const info = (await res.json()) as ClusterEntryInfo;
+      if (info.is_pillar) {
+        toast({
+          title: "Hub pages cannot be members",
+          description: "That page is itself a pillar hub.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const prev = info.pillar_path?.trim() || null;
+      if (prev && prev !== hubPillarUrl) {
+        setPending({
+          entry,
+          previousPillar: prev,
+          previousLabel: prev,
+        });
+        return;
+      }
+      await assignEntry({
+        contentType,
+        slug,
+        locale: entryLocale,
+        pillar_path: prev,
+        is_pillar: info.is_pillar,
+      });
+    } catch (err) {
+      toast({
+        title: "Could not add to cluster",
+        description: err instanceof Error ? err.message : "Preflight failed",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <>
+      <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        <PopoverContent align="start" className="w-80 p-0 bg-popover" sideOffset={4}>
+          <SitemapSearch
+            embedded
+            value=""
+            onChange={() => {}}
+            locale={locale}
+            showLocaleFilter={false}
+            excludePaths={excludePaths}
+            excludeIds={excludeIds}
+            hideCustomUrl
+            onSelectEntry={handleSelectEntry}
+            onClose={() => setPickerOpen(false)}
+            testId="cluster-add-page"
+          />
+        </PopoverContent>
+      </Popover>
+
+      <AlertDialog open={!!pending} onOpenChange={(v) => !v && setPending(null)}>
+        <AlertDialogContent data-testid="dialog-cluster-replace-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move to this cluster?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This page currently belongs to another cluster ({pending?.previousLabel}). Adding it
+              to {hubLabel || "this hub"} will replace that assignment.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving || !pending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (!pending?.entry.content_type || !pending.entry.slug || !pending.entry.locale) return;
+                void assignEntry({
+                  contentType: pending.entry.content_type,
+                  slug: pending.entry.slug,
+                  locale: pending.entry.locale,
+                });
+              }}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Move page"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function ClusterMemberRow({
+  member,
+  hubPillarUrl,
+  hubId,
+  gscConfigured,
+}: {
+  member: ClusterMember;
+  hubPillarUrl: string;
+  hubId: string;
+  gscConfigured?: boolean;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const { data, isLoading, isError, error } = useQuery<ClusterEntryInfo>({
     queryKey: ["/api/seo/entry", member.contentType, member.slug, member.locale],
     enabled: open && !!member.contentType && !!member.slug,
@@ -195,97 +663,284 @@ function ClusterMemberRow({ member }: { member: ClusterMember }) {
     data?.title || data?.page_title || deslugifyLabel(member.slug);
   const lastmod = data?.lastmod || member.lastmod || null;
 
+  const handleRemove = async () => {
+    setRemoving(true);
+    try {
+      await putSeoPillarPath({
+        contentType: member.contentType,
+        slug: member.slug,
+        locale: member.locale,
+        pillarPath: "",
+      });
+      toast({
+        title: "Removed from cluster",
+        description: "Pending Cloud Sync — seo.pillar_path was cleared.",
+      });
+      invalidateClusterQueries(hubId);
+      setRemoveOpen(false);
+      setOpen(false);
+    } catch (err) {
+      toast({
+        title: "Could not remove",
+        description: err instanceof Error ? err.message : "Update failed",
+        variant: "destructive",
+      });
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 py-1.5 text-left hover:bg-muted/50 rounded-sm px-1 -mx-1"
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <div
+          className="flex w-full items-center gap-2 py-1.5 hover:bg-muted/50 rounded-sm px-1 -mx-1 group"
           data-testid={`cluster-slug-${member.slug}`}
         >
-          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="text-xs font-medium text-foreground min-w-0 flex-1 truncate">
-            {deslugifyLabel(member.slug)}
-          </span>
-          {lastmod ? <ClusterMemberLastmod lastmod={lastmod} prefix="Last published " /> : null}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-80 space-y-3 bg-popover text-popover-foreground"
-        data-testid={`popover-cluster-entry-${member.slug}`}
-      >
-        {isLoading ? (
-          <div className="space-y-2" data-testid="cluster-entry-loading">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-2/3" />
-          </div>
-        ) : isError ? (
-          <p className="text-xs text-destructive" data-testid="cluster-entry-error">
-            {error instanceof Error ? error.message : "Could not load this entry."}
-          </p>
-        ) : (
-          <div className="space-y-2">
-            <div>
-              <p className="text-sm font-medium text-foreground leading-snug" data-testid="text-cluster-entry-title">
-                {heading}
-              </p>
-              {data?.description ? (
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{data.description}</p>
+          <PopoverTrigger asChild>
+            <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground min-w-0 flex-1 truncate">
+                {deslugifyLabel(member.slug)}
+              </span>
+              {lastmod ? <ClusterMemberLastmod lastmod={lastmod} prefix="Last published " /> : null}
+              {href ? (
+                <ClusterGscIndexChip
+                  entryPath={href}
+                  gscStatus={data?.gscStatus}
+                  gscConfigured={gscConfigured}
+                />
+              ) : null}
+            </button>
+          </PopoverTrigger>
+          <button
+            type="button"
+            className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-opacity"
+            aria-label="Remove from cluster"
+            data-testid={`button-cluster-remove-${member.slug}`}
+            onClick={() => setRemoveOpen(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <PopoverContent
+          align="start"
+          className="w-80 space-y-3 bg-popover text-popover-foreground"
+          data-testid={`popover-cluster-entry-${member.slug}`}
+        >
+          {isLoading ? (
+            <div className="space-y-2" data-testid="cluster-entry-loading">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ) : isError ? (
+            <p className="text-xs text-destructive" data-testid="cluster-entry-error">
+              {error instanceof Error ? error.message : "Could not load this entry."}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <p className="text-sm font-medium text-foreground leading-snug" data-testid="text-cluster-entry-title">
+                  {heading}
+                </p>
+                {data?.description ? (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{data.description}</p>
+                ) : null}
+              </div>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+                <dt className="text-muted-foreground">Type</dt>
+                <dd className="text-foreground truncate">{data?.contentType || member.contentType}</dd>
+                <dt className="text-muted-foreground">Locale</dt>
+                <dd className="text-foreground uppercase">{data?.locale || member.locale}</dd>
+                {(data?.main_keyword || member.keyword) && (
+                  <>
+                    <dt className="text-muted-foreground">Keyword</dt>
+                    <dd className="text-foreground truncate">{data?.main_keyword || member.keyword}</dd>
+                  </>
+                )}
+                {href ? (
+                  <>
+                    <dt className="text-muted-foreground">Path</dt>
+                    <dd className="text-foreground font-mono truncate" title={href}>{href}</dd>
+                  </>
+                ) : null}
+                {lastmod ? (
+                  <>
+                    <dt className="text-muted-foreground">Lastmod</dt>
+                    <dd>
+                      <ClusterMemberLastmod lastmod={lastmod} />
+                    </dd>
+                  </>
+                ) : null}
+                {href ? (
+                  <>
+                    <dt className="text-muted-foreground">Google</dt>
+                    <dd>
+                      <ClusterGscIndexChip
+                        entryPath={href}
+                        gscStatus={data?.gscStatus}
+                        gscConfigured={gscConfigured}
+                      />
+                    </dd>
+                  </>
+                ) : null}
+              </dl>
+              {data?.is_pillar ? (
+                <Badge variant="secondary" className="text-[10px]">Pillar</Badge>
+              ) : null}
+              {data?.file ? (
+                <p className="text-[11px] text-muted-foreground font-mono truncate" title={data.file}>
+                  {formatSitePath(data.file)}
+                </p>
               ) : null}
             </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
-              <dt className="text-muted-foreground">Type</dt>
-              <dd className="text-foreground truncate">{data?.contentType || member.contentType}</dd>
-              <dt className="text-muted-foreground">Locale</dt>
-              <dd className="text-foreground uppercase">{data?.locale || member.locale}</dd>
-              {(data?.main_keyword || member.keyword) && (
-                <>
-                  <dt className="text-muted-foreground">Keyword</dt>
-                  <dd className="text-foreground truncate">{data?.main_keyword || member.keyword}</dd>
-                </>
-              )}
-              {href ? (
-                <>
-                  <dt className="text-muted-foreground">Path</dt>
-                  <dd className="text-foreground font-mono truncate" title={href}>{href}</dd>
-                </>
-              ) : null}
-              {lastmod ? (
-                <>
-                  <dt className="text-muted-foreground">Lastmod</dt>
-                  <dd>
-                    <ClusterMemberLastmod lastmod={lastmod} />
-                  </dd>
-                </>
-              ) : null}
-            </dl>
-            {data?.is_pillar ? (
-              <Badge variant="secondary" className="text-[10px]">Pillar</Badge>
-            ) : null}
-            {data?.file ? (
-              <p className="text-[11px] text-muted-foreground font-mono truncate" title={data.file}>
-                {formatSitePath(data.file)}
-              </p>
-            ) : null}
-          </div>
-        )}
-        {href ? (
-          <Button asChild size="sm" className="w-full" data-testid={`button-cluster-entry-url-${member.slug}`}>
-            <a href={href} target="_blank" rel="noopener noreferrer">
+          )}
+          {href ? (
+            <Button asChild size="sm" className="w-full" data-testid={`button-cluster-entry-url-${member.slug}`}>
+              <a href={href} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open page
+              </a>
+            </Button>
+          ) : (
+            <Button size="sm" className="w-full" disabled data-testid={`button-cluster-entry-url-${member.slug}`}>
               <ExternalLink className="h-3.5 w-3.5" />
               Open page
-            </a>
-          </Button>
-        ) : (
-          <Button size="sm" className="w-full" disabled data-testid={`button-cluster-entry-url-${member.slug}`}>
-            <ExternalLink className="h-3.5 w-3.5" />
-            Open page
-          </Button>
-        )}
-      </PopoverContent>
-    </Popover>
+            </Button>
+          )}
+        </PopoverContent>
+      </Popover>
+
+      <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
+        <AlertDialogContent data-testid={`dialog-cluster-remove-${member.slug}`}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove from cluster?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This page will no longer belong to this cluster. Its{" "}
+              <code className="font-mono text-xs">seo.pillar_path</code> field will be cleared.
+              Internal links between the hub and this page are not changed automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removing}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleRemove();
+              }}
+            >
+              {removing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function OrphanAssignButton({
+  orphan,
+  clusters,
+}: {
+  orphan: { slug: string; contentType: string; locale?: string };
+  clusters: SeoOverview["clusters"];
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const locale = orphan.locale || "en";
+  const hubs = clusters.filter((c) => (c.locale || "en") === locale);
+
+  const assignToHub = async (pillarUrl: string) => {
+    if (!orphan.contentType || !orphan.slug) {
+      toast({
+        title: "Missing entry metadata",
+        description: "This orphan row is missing content type or slug.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      await putSeoPillarPath({
+        contentType: orphan.contentType,
+        slug: orphan.slug,
+        locale,
+        pillarPath: pillarUrl,
+      });
+      toast({
+        title: "Assigned to cluster",
+        description: "Pending Cloud Sync — seo.pillar_path was updated.",
+      });
+      invalidateClusterQueries();
+      setOpen(false);
+    } catch (err) {
+      toast({
+        title: "Could not assign cluster",
+        description: err instanceof Error ? err.message : "Update failed",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-6 text-[10px] mt-1"
+        onClick={() => setOpen(true)}
+        data-testid={`button-orphan-assign-${orphan.slug}`}
+      >
+        Assign to cluster
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm bg-background text-foreground" data-testid={`dialog-orphan-assign-${orphan.slug}`}>
+          <DialogHeader>
+            <DialogTitle>Assign to cluster</DialogTitle>
+            <DialogDescription>
+              Pick a hub ({locale.toUpperCase()}) for{" "}
+              <span className="font-medium text-foreground">{deslugifyLabel(orphan.slug)}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          {hubs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No pillar hubs found for this locale.</p>
+          ) : (
+            <ScrollArea className="max-h-56">
+              <div className="space-y-1 pr-2">
+                {hubs.map((hub) => (
+                  <button
+                    key={hub.hubId || hub.pillarUrl}
+                    type="button"
+                    disabled={saving}
+                    className="w-full text-left rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50"
+                    onClick={() => void assignToHub(hub.pillarUrl)}
+                    data-testid={`orphan-hub-option-${hub.hubId || hub.pillarUrl}`}
+                  >
+                    <span className="font-medium block">
+                      {clusterListLabel(hub.keyword, hub.pillarUrl)}
+                    </span>
+                    <span className="font-mono text-[10px] text-muted-foreground truncate block">
+                      {hub.pillarUrl}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -300,7 +955,7 @@ interface SeoOverview {
     locale?: string;
     members?: ClusterMember[];
   }[];
-  orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[];
+  orphanPages: { slug: string; contentType: string; intent: string; filePath: string; locale?: string }[];
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;
@@ -944,10 +1599,29 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                     { sensitivity: "base" },
                   ),
                 )
-                .map((cluster) => (
+                .map((cluster) => {
+                  const hubId = cluster.hubId || cluster.pillarUrl;
+                  const hubLocale = cluster.locale || "en";
+                  const members =
+                    cluster.members && cluster.members.length > 0
+                      ? cluster.members
+                      : cluster.clusterSlugs.map((slug) => ({
+                          id: slug,
+                          slug,
+                          contentType: "",
+                          locale: hubLocale,
+                          path: "",
+                        }));
+                  const excludePaths = [
+                    cluster.pillarUrl,
+                    ...members.map((m) => m.path).filter(Boolean),
+                  ];
+                  const excludeIds = members.map((m) => m.id).filter(Boolean);
+
+                  return (
                   <AccordionItem
-                    key={cluster.hubId || cluster.pillarUrl}
-                    value={cluster.hubId || cluster.pillarUrl}
+                    key={hubId}
+                    value={hubId}
                     data-testid={`cluster-${cluster.pillarUrl}`}
                   >
                     <AccordionTrigger className="text-xs py-2 hover:no-underline">
@@ -968,23 +1642,43 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                       >
                         {cluster.pillarUrl}
                       </p>
+                      {hubId ? <ClusterMissingLinksPanel hubId={hubId} /> : null}
                       <div className="divide-y divide-border" data-testid="cluster-members-list">
-                        {(cluster.members && cluster.members.length > 0
-                          ? cluster.members
-                          : cluster.clusterSlugs.map((slug) => ({
-                              id: slug,
-                              slug,
-                              contentType: "",
-                              locale: "",
-                              path: "",
-                            }))
-                        ).map((member) => (
-                          <ClusterMemberRow key={member.id} member={member} />
+                        {members.map((member) => (
+                          <ClusterMemberRow
+                            key={member.id}
+                            member={member}
+                            hubPillarUrl={cluster.pillarUrl}
+                            hubId={hubId}
+                            gscConfigured={gsc?.configured}
+                          />
                         ))}
+                      </div>
+                      <div className="pt-2">
+                        <ClusterMemberAssignFlow
+                          hubPillarUrl={cluster.pillarUrl}
+                          hubLabel={clusterListLabel(cluster.keyword, cluster.pillarUrl)}
+                          locale={hubLocale}
+                          excludePaths={excludePaths}
+                          excludeIds={excludeIds}
+                          onAssigned={() => invalidateClusterQueries(hubId)}
+                          trigger={
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              data-testid={`button-cluster-add-page-${hubId}`}
+                            >
+                              <Plus className="h-3.5 w-3.5 mr-1" />
+                              Add page
+                            </Button>
+                          }
+                        />
                       </div>
                     </AccordionContent>
                   </AccordionItem>
-                ))}
+                  );
+                })}
             </Accordion>
           )}
         </CardContent>
@@ -1037,12 +1731,16 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                   {data.orphanPages.map((p, i) => (
                     <div key={`${p.slug}-${i}`} className="py-1.5 border-b border-border last:border-0" data-testid={`orphan-${p.slug}`}>
                       <span className="text-xs font-mono text-foreground block truncate">{p.slug}</span>
-                      <div className="flex items-center gap-1 mt-1">
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
                         <Badge variant="outline" className="text-xs capitalize">{p.contentType}</Badge>
+                        {p.locale ? (
+                          <Badge variant="outline" className="text-xs uppercase">{p.locale}</Badge>
+                        ) : null}
                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs ${INTENT_COLORS[p.intent] || INTENT_COLORS.unknown}`}>
                           {INTENT_LABELS[p.intent] || p.intent}
                         </span>
                       </div>
+                      <OrphanAssignButton orphan={p} clusters={data.clusters} />
                     </div>
                   ))}
                 </div>

@@ -220,6 +220,7 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  requireStaffSession,
 } from "./_helpers";
 import { child } from "../logger";
 import {
@@ -228,6 +229,8 @@ import {
   getGscConfig,
   getRecord,
   gscPropertyAccessFromRecords,
+  isStale,
+  resolvePublicInspectLoc,
   hasMainSeoKeyword,
   homepageLocFromDebug,
   inspectAndStore,
@@ -244,6 +247,8 @@ import {
   GscInspectAlreadyRunningError,
   type GscInspectMode,
 } from "../gsc-inspect-queue";
+import { renderHubHtml } from "../render-hub-html";
+import { findMissingMemberLinks } from "../cluster-hub-links";
 import { readFunnelBlockFromFile, commonYmlPath } from "../funnel-fields";
 import { toSitemapLastmod } from "@shared/normalizeFlexibleDate";
 
@@ -866,6 +871,26 @@ export function registerSeoRoutes(app: Express): void {
         contentRoot,
       });
 
+      const contentRootName = getContentRootName(res);
+      const gscCfg = getGscConfig(contentRoot);
+      const entryPath = row?.path || "";
+      let gscStatus: {
+        configured: boolean;
+        record: ReturnType<typeof getRecord> | null;
+        stale: boolean;
+      } = { configured: gscCfg.configured, record: null, stale: true };
+      if (entryPath) {
+        const siteCtx = getSiteSitemapCtx(res);
+        const debugUrls = getDebugSitemapUrls(siteCtx);
+        const resolved = resolvePublicInspectLoc(entryPath, debugUrls);
+        const record = resolved.loc ? getRecord(contentRootName, resolved.loc) ?? null : null;
+        gscStatus = {
+          configured: gscCfg.configured,
+          record,
+          stale: isStale(record ?? undefined),
+        };
+      }
+
       res.json({
         id,
         contentType,
@@ -883,9 +908,86 @@ export function registerSeoRoutes(app: Express): void {
         file: row?.file || merged.filePath || null,
         updated_at: updatedAt,
         lastmod: toSitemapLastmod(updatedAt, false),
+        gscStatus,
       });
     } catch (err) {
       res.status(500).json({ error: "Failed to load cluster entry", message: String(err) });
+    }
+  });
+
+  app.get("/api/seo/cluster-diagnostics", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const hubId = typeof req.query.hubId === "string" ? req.query.hubId.trim() : "";
+      if (!hubId) {
+        res.status(400).json({ error: "hubId query parameter is required" });
+        return;
+      }
+
+      const contentRoot = getContentRoot(res);
+      const { loadSeoIndex } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(contentRoot);
+      const cluster = seoIndex.clusters[hubId];
+      if (!cluster?.path) {
+        res.status(404).json({ error: "Cluster not found" });
+        return;
+      }
+
+      const site = res.locals.site as SiteContext | undefined;
+      if (!site?.contentIndex) {
+        res.status(500).json({ error: "Site context unavailable" });
+        return;
+      }
+
+      const rendered = await renderHubHtml({
+        site,
+        pathname: cluster.path,
+        variantKey: "live",
+      });
+
+      const scannedAt = new Date().toISOString();
+      if (!rendered || rendered.status !== 200 || !rendered.html.trim()) {
+        res.json({
+          hubId,
+          pillarUrl: cluster.path,
+          scanStatus: "render_failed",
+          missingLinks: [],
+          scannedAt,
+          fromCache: false,
+        });
+        return;
+      }
+
+      const members = cluster.members
+        .map((id) => {
+          const row = seoIndex.entries[id];
+          return {
+            memberId: id,
+            memberSlug: row?.slug || id.split("/").slice(1, -1).join("/") || id,
+            memberPath: row?.path || "",
+            locale: row?.locale || "en",
+          };
+        })
+        .filter((m) => m.memberPath.trim());
+
+      const missingLinks = findMissingMemberLinks({
+        html: rendered.html,
+        members,
+        ci: getCI(res),
+      });
+
+      res.json({
+        hubId,
+        pillarUrl: cluster.path,
+        scanStatus: "ok",
+        missingLinks,
+        scannedAt,
+        fromCache: rendered.fromCache,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to scan cluster hub links", message: String(err) });
     }
   });
 
@@ -1168,7 +1270,15 @@ export function registerSeoRoutes(app: Express): void {
       };
 
       if (getType(contentType) === "landing") {
-        responseData.locations = (commonData?.locations as string[]) || [];
+        const commonLocs = Array.isArray(commonData?.locations)
+          ? (commonData.locations as string[])
+          : [];
+        const localeLocs =
+          hasLive && liveFile.data && Array.isArray(liveFile.data.locations)
+            ? (liveFile.data.locations as string[])
+            : [];
+        responseData.locations =
+          commonLocs.length > 0 ? commonLocs : localeLocs;
         responseData.availableLocations = listLocationPages(locale, ci).map(
           (loc) => ({
             slug: loc.slug,

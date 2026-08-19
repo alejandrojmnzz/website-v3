@@ -10,11 +10,14 @@ import {
 } from "./content-types";
 import {
   validateRequiredMeta,
+  validateRequiredMetaKeys,
   formatMetaValidationErrors,
 } from "@shared/validateRequiredMeta";
 import {
   validateRequiredFields,
+  validateRequiredFieldsForKeys,
   formatRequiredFieldErrors,
+  listRequiredEditorFields,
   type ValidateRequiredFieldsMode,
 } from "@shared/validateRequiredFields";
 import {
@@ -22,6 +25,11 @@ import {
   circularRequiredFieldsHint,
   type LiveRequiredFieldsCode,
 } from "@shared/liveSeoGate";
+import {
+  resolveMicroValidationFlags,
+  shouldSkipLiveGate,
+  type ValidationIntent,
+} from "@shared/validationScope";
 import { isDraftEntry } from "./draft-entry";
 import { isEntryDetached, isSharedLayoutType } from "./shared-layout-entry";
 import { mergeSingleTemplate } from "./database-single-loader";
@@ -46,6 +54,10 @@ export type LiveSeoGateOptions = {
   pageData: Record<string, unknown>;
   contentRoot?: string;
   mode?: ValidateRequiredFieldsMode;
+  /** publish = full gate; micro = scoped by touchedPaths. Default micro. */
+  intent?: ValidationIntent;
+  /** Dot paths being written (meta.robots, locations, title, …). */
+  touchedPaths?: string[];
   /**
    * When true, skip the gate (draft-only writes).
    * If omitted, uses isDraftEntry() when no live locales exist.
@@ -77,6 +89,8 @@ export function evaluateLiveEntrySeoAndRequiredFields(
     pageData,
     contentRoot,
     mode = "live_update",
+    intent = "micro",
+    touchedPaths = [],
   } = opts;
 
   if (opts.isDraftWrite === true) return null;
@@ -87,7 +101,20 @@ export function evaluateLiveEntrySeoAndRequiredFields(
     return null;
   }
 
+  if (shouldSkipLiveGate(intent, touchedPaths)) {
+    return null;
+  }
+
   const config = getContentTypeConfig(contentType, contentRoot);
+  const editor = config?.editor as
+    | Record<string, { required?: boolean }>
+    | undefined;
+  const requiredEditorKeys = listRequiredEditorFields(editor);
+  const flags = resolveMicroValidationFlags({
+    intent,
+    touchedPaths,
+    requiredEditorKeys,
+  });
 
   // Attached shared-layout: meta often lives only on single.{locale}.yml as {{ single.* }}.
   let pageForResolve = pageData;
@@ -123,15 +150,24 @@ export function evaluateLiveEntrySeoAndRequiredFields(
   >;
   const meta = resolvedPage.meta;
 
-  const metaResult = validateRequiredMeta(meta);
-  const editor = config?.editor as
-    | Record<string, { required?: boolean }>
-    | undefined;
-  const fieldResult = validateRequiredFields(
-    editor,
-    { ...singleEntry, ...resolvedPage },
-    mode,
-  );
+  const metaResult =
+    flags.runFull || flags.metaKeys === null
+      ? validateRequiredMeta(meta)
+      : validateRequiredMetaKeys(meta, flags.metaKeys);
+
+  const fieldResult =
+    flags.runFull || flags.bodyKeys === null
+      ? validateRequiredFields(
+          editor,
+          { ...singleEntry, ...resolvedPage },
+          mode,
+        )
+      : validateRequiredFieldsForKeys(
+          editor,
+          { ...singleEntry, ...resolvedPage },
+          flags.bodyKeys,
+          mode,
+        );
 
   const missing_fields: string[] = [];
   if (!metaResult.ok) {
@@ -156,35 +192,45 @@ export function evaluateLiveEntrySeoAndRequiredFields(
     };
   }
 
-  const emptyLocaleErr = assertNotEmptyDetachedLocale({
-    contentType,
-    slug,
-    locale,
-    pageData: resolvedPage,
-    contentRoot,
-  });
+  const emptyLocaleErr = flags.runEmptyDetached
+    ? assertNotEmptyDetachedLocale({
+        contentType,
+        slug,
+        locale,
+        pageData: resolvedPage,
+        contentRoot,
+      })
+    : null;
   if (emptyLocaleErr) {
     return { message: emptyLocaleErr, code: "empty_detached_locale" };
   }
 
-  const companionErr = formatSchemaOrgCompanionGateError({
-    sections: resolvedPage.sections,
-    contentType,
-    slug,
-    locale,
-    contentRoot,
-  });
+  const companionErr = flags.runSchemaOrgCompanion
+    ? formatSchemaOrgCompanionGateError({
+        sections: resolvedPage.sections,
+        contentType,
+        slug,
+        locale,
+        contentRoot,
+      })
+    : null;
   if (companionErr) {
     return { message: companionErr, code: "schema_org_companion" };
   }
 
-  const formSourceIssues = validateFormFieldSources({
-    singleEntry: { ...singleEntry, ...resolvedPage },
-    editor: editor as Record<string, { type?: string }> | undefined,
-    sections: Array.isArray(resolvedPage.sections) ? resolvedPage.sections : [],
-    mode: "publish",
-  });
-  const formSourceErr = formatFormFieldSourceErrors(formSourceIssues);
+  const formSourceIssues = flags.runFormSources
+    ? validateFormFieldSources({
+        singleEntry: { ...singleEntry, ...resolvedPage },
+        editor: editor as Record<string, { type?: string }> | undefined,
+        sections: Array.isArray(resolvedPage.sections)
+          ? resolvedPage.sections
+          : [],
+        mode: "publish",
+      })
+    : [];
+  const formSourceErr = flags.runFormSources
+    ? formatFormFieldSourceErrors(formSourceIssues)
+    : null;
   if (formSourceErr) {
     return {
       message: formSourceErr,

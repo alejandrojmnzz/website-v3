@@ -564,6 +564,10 @@ export function writeMappedFields(
       ? { ...commonForGate, ...foForGate }
       : foForGate;
 
+    const touchedPaths = [
+      ...Object.keys(pendingUpdates),
+      ...Object.keys(commonOnlyUpdates),
+    ];
     const seoGateErr = assertLiveEntrySeoAndRequiredFields({
       contentType,
       slug,
@@ -571,6 +575,8 @@ export function writeMappedFields(
       pageData: pageForGate,
       contentRoot,
       mode: "live_update",
+      intent: "micro",
+      touchedPaths,
       isDraftWrite: layer.isVariantLayer,
     });
     if (seoGateErr) {

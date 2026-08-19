@@ -16,7 +16,13 @@ import { collectTouchedSectionIndexes } from "@shared/validateSectionIdentity";
 import { validateFaqListingSections } from "@shared/validateFaqListing";
 import {
   evaluateLiveEntrySeoAndRequiredFields,
+  type LiveSeoGateFailure,
 } from "./live-entry-seo-gate";
+import {
+  getEntryContentDir,
+  isTemplateVersioningSlug,
+  listLiveLocales,
+} from "./draft-entry";
 import {
   clampSchemaOrgSectionsLeading,
   isSchemaOrgSection,
@@ -1291,6 +1297,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         string,
         unknown
       >;
+      const gateTouchedPaths = touchedPathsFromOperations(resolvedOperations);
       const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
         contentType,
         slug,
@@ -1298,6 +1305,8 @@ export async function editContent(request: ContentEditRequest): Promise<{
         pageData: mergedForGate,
         contentRoot,
         mode: "live_update",
+        intent: "micro",
+        touchedPaths: gateTouchedPaths,
         isDraftWrite: false,
       });
       if (seoGateErr) {
@@ -1751,6 +1760,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     const ciGate = contentIndex;
     const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
     const mergedForGate = deepMerge(commonForGate, entryData) as Record<string, unknown>;
+    const gateTouchedPaths = touchedPathsFromOperations(operations);
     const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
       contentType,
       slug,
@@ -1758,6 +1768,8 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       pageData: mergedForGate,
       contentRoot: opts.contentRoot,
       mode: "live_update",
+      intent: "micro",
+      touchedPaths: gateTouchedPaths,
       isDraftWrite: false,
     });
     if (seoGateErr) {
@@ -2158,6 +2170,64 @@ interface CommonEditRequest {
   contentRootName?: string;
 }
 
+/** Dot paths from update_field operations (for micro validation scope). */
+export function touchedPathsFromOperations(
+  operations: Array<{ action: string; path?: string }>,
+): string[] {
+  const paths: string[] = [];
+  for (const op of operations) {
+    if (op.action === "update_field" && typeof op.path === "string" && op.path) {
+      paths.push(op.path);
+    }
+  }
+  return paths;
+}
+
+/** Locales whose merged YAML (common + locale) must pass the live SEO gate after _common edits. */
+export function getCommonEditGateLocales(
+  contentType: string,
+  slug: string,
+  contentRootName?: string,
+): string[] {
+  const contentDir = getEntryContentDir(contentType, slug, contentRootName);
+  const templateMode = isTemplateVersioningSlug(slug);
+  const liveLocales = listLiveLocales(contentDir, templateMode);
+  return liveLocales.length > 0 ? liveLocales : [getDefaultLocale()];
+}
+
+/** Run live SEO gate for _common.yml writes against each live locale file. */
+export function evaluateCommonContentLiveGate(opts: {
+  contentType: string;
+  slug: string;
+  commonData: Record<string, unknown>;
+  ci: ContentIndex;
+  contentRootName?: string;
+  touchedPaths?: string[];
+}): LiveSeoGateFailure | null {
+  const { contentType, slug, commonData, ci, contentRootName, touchedPaths = [] } = opts;
+  for (const gateLocale of getCommonEditGateLocales(contentType, slug, contentRootName)) {
+    const localeLoaded = ci.loadLocaleData(contentType, slug, gateLocale);
+    const localeDataForGate =
+      (localeLoaded.data as Record<string, unknown> | null) || {};
+    const mergedForGate = deepMerge(commonData, localeDataForGate) as Record<
+      string,
+      unknown
+    >;
+    const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale: gateLocale,
+      pageData: mergedForGate,
+      contentRoot: contentRootName,
+      mode: "live_update",
+      intent: "micro",
+      touchedPaths,
+    });
+    if (seoGateErr) return seoGateErr;
+  }
+  return null;
+}
+
 export function editCommonContent(request: CommonEditRequest): {
   success: boolean;
   error?: string;
@@ -2204,21 +2274,13 @@ export function editCommonContent(request: CommonEditRequest): {
       }
     }
 
-    const defaultLocale = getDefaultLocale();
-    const localeLoaded = ci.loadLocaleData(contentType, slug, defaultLocale);
-    const localeDataForGate =
-      (localeLoaded.data as Record<string, unknown> | null) || {};
-    const mergedForGate = deepMerge(commonData, localeDataForGate) as Record<
-      string,
-      unknown
-    >;
-    const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
+    const seoGateErr = evaluateCommonContentLiveGate({
       contentType,
       slug,
-      locale: defaultLocale,
-      pageData: mergedForGate,
-      contentRoot: contentRootName,
-      mode: "live_update",
+      commonData,
+      ci,
+      contentRootName,
+      touchedPaths: touchedPathsFromOperations(operations),
     });
     if (seoGateErr) {
       return {
