@@ -50,53 +50,68 @@ jobs:
           PY
 
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
         env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
           WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
-          command_timeout: 25m
-          debug: false
-          envs: WEBSITE_RUNTIME_B64
-          script: |
-            set -euo pipefail
-            cd /opt/website-v3
-            git pull --ff-only
-            python3 << 'PY'
-            import base64
-            import json
-            import os
-            from pathlib import Path
+        run: |
+          set -euo pipefail
+          umask 077
+          KEY="$RUNNER_TEMP/gha_deploy"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
-            dest = Path("/opt/website-v3/.env")
-            b64 = (os.environ.get("WEBSITE_RUNTIME_B64") or "").strip()
-            if not b64:
-                print("[runtime-env] empty pack; leaving .env unchanged")
-            else:
-                data = json.loads(base64.b64decode(b64))
-                if not data:
-                    print("[runtime-env] no _WEBSITE_ keys; leaving .env unchanged")
-                else:
-                    def bash_assign(name, value):
-                        return name + "=" + "'" + value.replace("'", "'\"'\"'") + "'"
-                    text = "\n".join(bash_assign(k, data[k]) for k in sorted(data)) + "\n"
-                    tmp = dest.with_name(".env.tmp")
-                    tmp.write_text(text, encoding="utf-8")
-                    os.chmod(tmp, 0o600)
-                    os.replace(tmp, dest)
-                    print("[runtime-env] wrote", dest, "keys:", ", ".join(sorted(data)))
-            PY
-            bash /opt/website-v3/scripts/deploy.sh
-            git log -1 --oneline
-            for i in $(seq 1 60); do
-              if curl -fsS http://127.0.0.1:5000/health >/dev/null; then
-                curl -fsS http://127.0.0.1:5000/health
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "App did not become healthy within 120s" >&2
-            exit 1
+          ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=50 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "export WEBSITE_RUNTIME_B64='${WEBSITE_RUNTIME_B64}'; bash -s" << 'REMOTE'
+          set -euo pipefail
+          cd /opt/website-v3
+          git pull --ff-only
+          python3 << 'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          dest = Path("/opt/website-v3/.env")
+          b64 = (os.environ.get("WEBSITE_RUNTIME_B64") or "").strip()
+          if not b64:
+              print("[runtime-env] empty pack; leaving .env unchanged")
+          else:
+              data = json.loads(base64.b64decode(b64))
+              if not data:
+                  print("[runtime-env] no _WEBSITE_ keys; leaving .env unchanged")
+              else:
+                  def bash_assign(name, value):
+                      return name + "=" + "'" + value.replace("'", "'\"'\"'") + "'"
+                  text = "\n".join(bash_assign(k, data[k]) for k in sorted(data)) + "\n"
+                  tmp = dest.with_name(".env.tmp")
+                  tmp.write_text(text, encoding="utf-8")
+                  os.chmod(tmp, 0o600)
+                  os.replace(tmp, dest)
+                  print("[runtime-env] wrote", dest, "keys:", ", ".join(sorted(data)))
+          PY
+          bash /opt/website-v3/scripts/deploy.sh
+          git log -1 --oneline
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5000/health >/dev/null; then
+              curl -fsS http://127.0.0.1:5000/health
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not become healthy within 120s" >&2
+          exit 1
+          REMOTE
