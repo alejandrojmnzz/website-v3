@@ -76,6 +76,7 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
           WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           umask 077
@@ -89,6 +90,7 @@ jobs:
 
           {
             printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
+            printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
             cat <<'REMOTE'
           set -euo pipefail
           LOCK_DIR="/tmp/website-v3-deploy.lock"
@@ -108,49 +110,16 @@ jobs:
             rm -rf "$LOCK_DIR"
           }
           trap cleanup EXIT INT TERM
-          cd /opt/website-v3
-          git pull --ff-only
-          python3 << 'PY'
-          import base64
-          import grp
-          import json
-          import os
-          from pathlib import Path
 
-          dest = Path("/opt/website-v3/.env")
-          b64 = (os.environ.get("WEBSITE_RUNTIME_B64") or "").strip()
-          if not b64:
-              print("[runtime-env] empty pack; leaving .env unchanged")
-          else:
-              data = json.loads(base64.b64decode(b64))
-              if not data:
-                  print("[runtime-env] no _WEBSITE_ keys; leaving .env unchanged")
-              else:
-                  def bash_assign(name, value):
-                      return name + "=" + "'" + value.replace("'", "'\"'\"'") + "'"
-                  text = "\n".join(bash_assign(k, data[k]) for k in sorted(data)) + "\n"
-                  tmp = dest.with_name(".env.tmp")
-                  tmp.write_text(text, encoding="utf-8")
-                  try:
-                      runtime_gid = grp.getgrnam("website-runtime").gr_gid
-                      os.chown(tmp, -1, runtime_gid)
-                  except KeyError:
-                      print("[runtime-env] website-runtime group not found; keeping current group")
-                  os.chmod(tmp, 0o640)
-                  os.replace(tmp, dest)
-                  print("[runtime-env] wrote", dest, "keys:", ", ".join(sorted(data)))
-          PY
-          bash /opt/website-v3/scripts/deploy.sh
-          git log -1 --oneline
-          for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:5000/health >/dev/null; then
-              curl -fsS http://127.0.0.1:5000/health
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "App did not become healthy within 120s" >&2
-          exit 1
+          APP_ROOT=/opt/website-v3
+          : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
+
+          # Always run deploy.sh from the commit being deployed (root tree may be stale).
+          git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
+          SCRIPT="/tmp/website-deploy-${DEPLOY_SHA}.sh"
+          git -C "$APP_ROOT" show "${DEPLOY_SHA}:scripts/deploy.sh" > "$SCRIPT"
+          chmod +x "$SCRIPT"
+          bash "$SCRIPT"
           REMOTE
           } | ssh -i "$KEY" \
             -o IdentitiesOnly=yes \
